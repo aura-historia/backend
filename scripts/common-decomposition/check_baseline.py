@@ -16,7 +16,7 @@ BASELINE_PATH = ROOT / "scripts/common-decomposition/baseline.json"
 COMMON_MANIFEST = ROOT / "src/common/Cargo.toml"
 COMMON_LIB = ROOT / "src/common/src/lib.rs"
 KIND_NAMES = {None: "normal", "dev": "development", "build": "build"}
-INITIAL_BASELINE_SHA256 = "e5acd8656db0ef9eed4f1eaf777cd4077ccdbb5d6e4e8fac0eabf11832431ea9"
+INITIAL_BASELINE_SHA256 = "25f70068a4ca66d6b830b29024d371b3576dcd9130e00ce96e1607bc8eea12a0"
 
 
 def fail(message: str) -> NoReturn:

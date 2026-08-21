@@ -193,9 +193,7 @@
       "shop": [],
       "test-api": [],
       "user": [],
-      "cognito": [
-        "api"
-      ],
+
       "search-filter": [],
       "product-watchlist": [],
       "partner-shop-application": [],
@@ -221,10 +219,8 @@
         "api",
         "opensearch"
       ],
-      "cloudwatch-log-retention-lambda": [],
-      "cognito-post-confirmation": [
-        "postgres"
-      ],
+
+
       "search-filter-lambda-opensearch-sync": [
         "api",
         "dynamodb",
@@ -279,12 +275,7 @@
         "event_bridge",
         "opensearch"
       ],
-      "shopify-lambda": [
-        "postgres"
-      ],
-      "stripe-lambda": [
-        "postgres"
-      ],
+
       "stripe-api": [
         "api"
       ],
@@ -312,9 +303,7 @@
       "oauth-api": [
         "api"
       ],
-      "fxrate-lambda": [
-        "postgres"
-      ],
+
       "crawler": [],
       "partner-shop-application-api": [
         "api"
@@ -340,9 +329,6 @@
       ],
       "webhook-api": [
         "test-data"
-      ],
-      "shopify-lambda": [
-        "postgres"
       ],
       "stripe-api": [
         "test-data"

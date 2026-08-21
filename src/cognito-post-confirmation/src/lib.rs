@@ -1,8 +1,8 @@
+use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
-use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
-use common::user_id::UserId;
 use lambda_runtime::LambdaEvent;
 use serde_email::Email;
+use user_core::user_id::UserId;
 use user_service::use_cases::{CreateUserCommand, CreateUserUseCase};
 
 #[derive(Debug, thiserror::Error)]
@@ -65,12 +65,12 @@ fn parse_user(
 #[cfg(test)]
 mod tests {
     use super::{handler, parse_user};
+    use application::operation_context::{OperationContext, Principal};
     use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
-    use common::operation_context::{OperationContext, Principal};
-    use common::user_id::UserId;
     use lambda_runtime::{Context, LambdaEvent};
     use serde_email::Email;
     use std::sync::Mutex;
+    use user_core::user_id::UserId;
     use user_service::use_cases::{
         CreateUserCommand, CreateUserError, CreateUserResult, CreateUserUseCase,
     };

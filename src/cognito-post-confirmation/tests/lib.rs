@@ -1,12 +1,12 @@
+use application::transaction::{Transaction, UnitOfWork};
 use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
 use cognito_post_confirmation::handler;
-use common::postgres::SqlxUnitOfWork;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
 use lambda_runtime::{Context, LambdaEvent};
+use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use user_core::role::UserRole;
 use user_core::tier::UserTier;
+use user_core::user_id::UserId;
 use user_postgres::SqlxUserRepositoryFactory;
 use user_service::ports::{UserRepository, UserRepositoryFactory};
 use user_service::use_cases::CreateUserHandler;
@@ -191,14 +191,14 @@ fn post_confirmation_event(
     LambdaEvent { payload, context }
 }
 
-async fn begin(unit_of_work: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> SqlxTransaction {
     match unit_of_work.begin().await {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     }
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: SqlxTransaction) {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit transaction: {error}");
     }

@@ -1,7 +1,6 @@
+use application::transaction::{Transaction, UnitOfWork};
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
-use common::postgres::SqlxUnitOfWork;
-use common::transaction::{Transaction, UnitOfWork};
 use fxrate_core::FxRateId;
 use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
@@ -11,6 +10,7 @@ use fxrate_service::ports::{
 use lambda_runtime::{Context, LambdaEvent};
 use localization::Language;
 use money::Currency;
+use platform_postgres::SqlxUnitOfWork;
 use product_postgres::{
     SqlxPartnerProductAuthorizerFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
 };

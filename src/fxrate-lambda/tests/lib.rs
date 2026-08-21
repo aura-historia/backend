@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use aws_lambda_events::eventbridge::EventBridgeEvent;
-use common::postgres::SqlxUnitOfWork;
 use fxrate_lambda::handler;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use fxrate_service::{
@@ -9,6 +8,7 @@ use fxrate_service::{
 };
 use lambda_runtime::{Context, LambdaEvent};
 use money::Currency;
+use platform_postgres::SqlxUnitOfWork;
 use serde_json::Value;
 use strum::IntoEnumIterator;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};

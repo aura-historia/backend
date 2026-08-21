@@ -14,12 +14,12 @@ baseline for bootstrap, then compares later baselines with their base revision; 
 consumer, feature, forwarded feature, or public module cannot be added by changing the
 baseline.
 
-Iterations 3–5 removed `common` from the ten canonical services, seven canonical
-PostgreSQL adapters, and the remaining canonical integrations. The current baseline has
-44 normal direct consumers, 12 development edges, 10 forwarded feature records (30
-forwarded entries), 7 declared `common` features, and 56 public top-level modules.
-Only six canonical runtime/leaf consumers remain; all listed canonical adapters are
-now `common`-free. Legacy entity/API/Lambda paths remain unchanged.
+Iterations 3–6 removed `common` from the ten canonical services, seven canonical
+PostgreSQL adapters, the remaining canonical integrations, and the six canonical runtime
+leaves. The current baseline has 38 normal direct consumers, 11 development edges, 10
+forwarded feature records (30 forwarded entries), 7 declared `common` features, and 56
+public top-level modules. No canonical production consumer remains; legacy entity/API/
+Lambda paths and explicitly dual test/composition roots remain unchanged.
 
 ## Direct consumers
 
@@ -36,11 +36,7 @@ Current machine-checked normal direct consumers:
 | `acceptance-tests` | dual | `opensearch` |
 | `aura-historia-parent` | dual | — |
 | `aws-tests-common` | legacy | `opensearch` |
-| `cloudwatch-log-retention-lambda` | canonical | — |
-| `cognito` | canonical | `api` |
-| `cognito-post-confirmation` | canonical | `postgres` |
 | `crawler` | legacy | — |
-| `fxrate-lambda` | canonical | `postgres` |
 | `newsletter-api` | legacy | `api` |
 | `notification` | legacy | — |
 | `notification-api` | legacy | `api` |
@@ -70,9 +66,7 @@ Current machine-checked normal direct consumers:
 | `shop` | legacy | — |
 | `shop-api` | legacy | `api`, `opensearch` |
 | `shop-lambda-opensearch-index` | legacy | `api`, `dynamodb`, `event_bridge`, `opensearch` |
-| `shopify-lambda` | canonical | `postgres` |
 | `stripe-api` | legacy | `api` |
-| `stripe-lambda` | canonical | `postgres` |
 | `test-api` | dual | — |
 | `user` | legacy | — |
 | `user-api` | legacy | `api`, `opensearch` |
@@ -80,7 +74,7 @@ Current machine-checked normal direct consumers:
 | `user-lambda-tier-update` | legacy | `dynamodb`, `event_bridge` |
 | `webhook-api` | legacy | `api`, `opensearch` |
 
-Current direct-consumer counts: **6 canonical**, **35 legacy**, **3 dual**.
+Current direct-consumer counts: **0 canonical**, **35 legacy**, **3 dual**.
 
 The development-only direct edges are listed in `scripts/common-decomposition/baseline.json` and are also exact-checked by CI.
 
@@ -212,5 +206,18 @@ is canonical-only and `common`-free; no legacy notification dependency was remov
 LLM-specific operation, provider/model, service-tier, metrics, and invocation logging
 vocabulary now lives in `large-language-model`; `platform-observability` remains subscriber
 setup only. Crawler callers use the LLM crate directly. The remaining direct `common`
-consumers are legacy paths, three dual composition/test roots, and six canonical runtime
-leaves tracked in the table above.
+consumers are legacy paths and three dual composition/test roots.
+
+## Follow-up Iteration 6 — canonical runtime and survivor-leaf cutover
+
+The six remaining canonical runtime leaves now use direct owners: `platform-observability`
+for subscriber setup, `platform-postgres` for typed SQLx pool/UoW mechanics,
+`application` for operation context and transaction contracts, and bounded-context core
+crates for identifiers. `cognito` owns provider verification without the legacy API error
+mapping; legacy API callers keep their `common::api` mappings at their own boundary.
+
+`cloudwatch-log-retention-lambda`, `cognito`, `cognito-post-confirmation`, `fxrate-lambda`,
+`shopify-lambda`, and `stripe-lambda` have no normal or development `common` edge. Their
+six normal and one development baseline entries and matching dependency-rule allowances
+are gone. The exact CI guard still compares the committed baseline with the explicit PR
+base or push predecessor and rejects any growth.

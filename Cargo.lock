@@ -1752,14 +1752,13 @@ dependencies = [
  "aws-config",
  "aws-sdk-cloudwatchlogs",
  "aws_lambda_events",
- "common",
  "lambda_runtime",
+ "platform-observability",
  "rstest",
  "serde",
  "serde_json",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -1782,7 +1781,6 @@ name = "cognito"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "common",
  "http 1.5.0",
  "jsonwebtokens",
  "jsonwebtokens-cognito",
@@ -1792,6 +1790,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+ "user-core",
  "uuid",
 ]
 
@@ -1799,10 +1798,12 @@ dependencies = [
 name = "cognito-post-confirmation"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "aws_lambda_events",
- "common",
  "lambda_runtime",
+ "platform-observability",
+ "platform-postgres",
  "serde-email",
  "serde_json",
  "serial_test",
@@ -3115,14 +3116,16 @@ dependencies = [
 name = "fxrate-lambda"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "aws_lambda_events",
- "common",
  "fxrate-fxratesapi",
  "fxrate-postgres",
  "fxrate-service",
  "lambda_runtime",
  "money",
+ "platform-observability",
+ "platform-postgres",
  "reqwest 0.12.28",
  "serde_json",
  "serial_test",
@@ -3132,7 +3135,6 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -8296,9 +8298,9 @@ dependencies = [
 name = "shopify-lambda"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "aws_lambda_events",
- "common",
  "fxrate-core",
  "fxrate-postgres",
  "fxrate-service",
@@ -8307,6 +8309,8 @@ dependencies = [
  "lambda_runtime",
  "localization",
  "money",
+ "platform-observability",
+ "platform-postgres",
  "product-core",
  "product-postgres",
  "product-service",
@@ -8872,10 +8876,12 @@ dependencies = [
 name = "stripe-lambda"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "aws_lambda_events",
- "common",
  "lambda_runtime",
+ "platform-observability",
+ "platform-postgres",
  "serde",
  "serde-email",
  "serde_json",
@@ -8884,7 +8890,6 @@ dependencies = [
  "test-api",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "user-core",
  "user-postgres",
  "user-service",

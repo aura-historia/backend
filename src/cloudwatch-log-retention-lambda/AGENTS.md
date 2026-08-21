@@ -7,7 +7,7 @@
 ## Core Design
 
 - Lambda that applies log retention policy to CloudWatch groups.
-- Main neighbors: `common`.
+- Main neighbor: `platform-observability`.
 - Event/runtime edge crate. Keep init and handler glue here, behavior deeper when reusable.
 
 ## Ownership

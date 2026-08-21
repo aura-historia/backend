@@ -6,7 +6,9 @@ edition = "2024"
 [dependencies]
 async-trait = { workspace = true }
 aws_lambda_events = { workspace = true, features = ["eventbridge", "sqs"] }
-common = { workspace = true, features = ["postgres"] }
+application = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
 fxrate-postgres = { workspace = true }
 indexmap = { workspace = true }
 lambda_runtime = { workspace = true }
@@ -32,7 +34,6 @@ fxrate-service = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 sqlx = { workspace = true }
 serial_test = { workspace = true }
-common = { workspace = true, features = ["postgres"] }
 uuid = { workspace = true }
 strum = { workspace = true }
 time = { workspace = true }

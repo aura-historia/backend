@@ -5,7 +5,9 @@ edition = "2024"
 
 [dependencies]
 aws_lambda_events = { workspace = true, features = ["eventbridge"] }
-common = { workspace = true, features = ["postgres"] }
+application = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
 lambda_runtime = { workspace = true }
 fxrate-fxratesapi = { workspace = true }
 fxrate-postgres = { workspace = true }
@@ -15,7 +17,7 @@ serde_json = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["json"] }
+
 
 [dev-dependencies]
 async-trait = { workspace = true }

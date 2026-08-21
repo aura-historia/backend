@@ -6,9 +6,9 @@ pub use types::{
     fallbacked_html_to_markdown, product_state,
 };
 
+use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use lambda_runtime::LambdaEvent;
 use product_service::use_cases::{
     IngestShopifyProductError, IngestShopifyProductResult, IngestShopifyProductUseCase,

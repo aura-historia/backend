@@ -1,5 +1,12 @@
 # Common Decomposition Inventory
 
+## Current state — Iteration 6 complete
+
+All canonical production crates are now `common`-free. Six runtime/leaf consumers were
+removed in this iteration; only legacy consumers and explicitly dual test/composition
+roots remain. The exact machine baseline is in `baseline.json` and CI compares it with
+its explicit base revision so the compatibility surface may only shrink.
+
 ## Iteration 1 — transaction foundation
 
 | Current path/type | Kind | Canonical consumers | Legacy consumers | Features | Semantic owner | Target | Action | Compatibility shim | Deletion prerequisite |
@@ -90,10 +97,11 @@ search document: each adapter keeps its document type private and supplies it as
 `common::opensearch::search_response` is an acyclic legacy re-export. No other
 OpenSearch client, response, query, or document helper moved without separate sharing proof.
 
-## Current status — follow-up Iterations 4 and 5 complete
+## Current status — follow-up Iterations 4–6 complete
 
-The ten canonical service crates, seven canonical PostgreSQL adapters, and listed canonical
-integrations no longer have a normal or development `common` dependency or import
+The ten canonical service crates, seven canonical PostgreSQL adapters, listed canonical
+integrations, and six canonical runtime leaves no longer have a normal or development
+`common` dependency or import
 `common::*`. The cutover covers `billing-stripe`, `fxrate-fxratesapi`,
 `large-language-model`, `notification-dynamodb`, `oauth-dynamodb`, `product-opensearch`,
 `product-postgres`, `search-filter-opensearch`, `search-filter-postgres`,
@@ -107,15 +115,14 @@ DynamoDB adapters own update, batch, and record mechanics.
 observability platform owns subscriber setup only. Legacy `common` APIs, entities, APIs,
 Lambdas, and tests remain.
 
-The current machine baseline has 44 normal direct consumers, 12 development edges, 10
+The current machine baseline has 38 normal direct consumers, 11 development edges, 10
 forwarded-package feature records (30 forwarded feature entries), seven declared `common`
-features, and 56 public top-level modules. Six canonical runtime/leaf consumers remain:
-`cloudwatch-log-retention-lambda`, `cognito`, `cognito-post-confirmation`, `fxrate-lambda`,
-`shopify-lambda`, and `stripe-lambda`.
+features, and 56 public top-level modules. No canonical production consumer remains; only
+legacy and explicitly dual roots remain.
 
 Validation for this slice:
 
-- Targeted Iteration 4 and 5 package checks passed with `--all-targets --all-features`.
+- Targeted Iterations 4–6 package checks passed with `--all-targets --all-features`.
 - All listed adapter tests passed, including configured Postgres, DynamoDB, and OpenSearch tests.
 - `cargo depgraph-check check`, `check_baseline.py`, and baseline unit tests passed.
 - `cargo check --workspace`, CI Clippy, and `cargo fmt --all -- --check` passed.
