@@ -8,7 +8,7 @@ synthesized for:
 
 - `prod` — real AWS production resources, production alarms enabled
 - `dev` — real AWS development resources, production alarms disabled
-- `ephemeral` — LocalStack acceptance-test resources, including a local OpenSearch domain
+- `ephemeral` — LocalStack resources, including a local OpenSearch domain
 
 ## Structure
 
@@ -44,7 +44,7 @@ npm run synth -- --context stage=ephemeral
 Synth creates these stacks per stage:
 
 - `application-{stage}-data` — DynamoDB, SQS, and LocalStack OpenSearch
-- `application-{stage}-compute` — Lambdas, Cognito, workflow, eventing, schedules
+- `application-{stage}-compute` — Lambdas, Cognito, eventing, schedules
 - `application-{stage}-api` — HTTP API Gateway routes, domain, CloudFront, integrations, authorizer
 - `application-prod-observability` — prod-only alarms and alarm topic
 
@@ -105,7 +105,7 @@ and `dev`:
 /secrets/{stage}/gemini-api-key
 /secrets/{stage}/google-application-credentials
 /secrets/{stage}/google-geocoding-api-key
-/secrets/{stage}/stripe-api-key
+
 /secrets/{stage}/zoho-accounts-url
 /secrets/{stage}/zoho-campaigns-url
 /secrets/{stage}/zoho-client-id

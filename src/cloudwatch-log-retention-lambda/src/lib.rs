@@ -63,7 +63,7 @@ mod tests {
     use super::extract_log_group_name;
 
     #[rstest]
-    #[case("/aws/lambda/product-api-prod")]
+    #[case("/aws/lambda/shopify-lambda-prod")]
     #[case("custom/application/log-group")]
     fn should_extract_log_group_name_when_create_log_group_event_for_retention(
         #[case] expected_log_group_name: &str,

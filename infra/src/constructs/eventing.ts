@@ -138,111 +138,7 @@ function createDynamoDbRules(
   queues: QueueCatalog,
 ): void {
 
-  addDynamoDbRule(scope, eventBus, "DynamoDbProductEventRecordPercolateSearchFilterEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          event_type: { S: [{ prefix: "DOMAIN_" }, { prefix: "ENRICHMENT_" }] },
-        },
-      },
-    },
-    targets: ["searchFilterPercolateProduct"],
-    queues,
-  });
 
-
-  addDynamoDbRule(scope, eventBus, "DynamoDbProductMaterializeOpenSearchEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          event_type: { S: [{ prefix: "DOMAIN_" }, { prefix: "ENRICHMENT_" }, { prefix: "POLICY_" }, { prefix: "LIFECYCLE_" }] },
-        },
-      },
-    },
-    targets: ["productMaterializeOpenSearch"],
-    queues,
-  });
-
-  addDynamoDbRule(scope, eventBus, "DynamoDbProductDeleteProductEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          event_type: { S: ["LIFECYCLE_DELETED"] },
-        },
-      },
-    },
-    targets: ["productDeleteProduct"],
-    queues,
-  });
-
-  addDynamoDbRule(scope, eventBus, "DynamoDbPutShopRecordEventRule", table, {
-    detail: {
-      eventName: ["INSERT", "MODIFY"],
-      dynamodb: {
-        NewImage: {
-          sk: { S: ["shop#details"] },
-        },
-      },
-    },
-    targets: ["shopOpenSearchIndex"],
-    queues,
-  });
-
-  addDynamoDbRule(scope, eventBus, "DynamoDbSearchFilterSyncEventRule", table, {
-    detail: {
-      eventName: ["INSERT", "MODIFY", "REMOVE"],
-      dynamodb: {
-        $or: [
-          { NewImage: { sk: { S: [{ prefix: "search_filter#" }] } } },
-          { Keys: { sk: { S: [{ prefix: "search_filter#" }] } } },
-        ],
-      },
-    },
-    targets: ["searchFilterOpenSearchSync"],
-    queues,
-  });
-
-  addDynamoDbRule(scope, eventBus, "DynamoDbUserIndexEventRule", table, {
-    detail: {
-      eventName: ["INSERT", "MODIFY"],
-      dynamodb: {
-        NewImage: {
-          sk: { S: ["user#details"] },
-        },
-      },
-    },
-    targets: ["userOpenSearchIndex", "userTierUpdate"],
-    queues,
-  });
-
-  addDynamoDbRule(scope, eventBus, "ProductPipelineEmbedTextDynamoDbProductEventRecordCreatedEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          event_type: { S: ["DOMAIN_CREATED"] },
-        },
-      },
-    },
-    targets: ["productPipelineEmbedText"],
-    queues,
-  });
-
-  addDynamoDbRule(scope, eventBus, "ProductPipelineTranslateDynamoDbProductEventRecordCreatedEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          event_type: { S: ["ENRICHMENT_EMBEDDED"] },
-        },
-      },
-    },
-    targets: ["productPipelineTranslate"],
-    queues,
-  });
 }
 
 function addDynamoDbRule(
@@ -346,17 +242,9 @@ function createCloudWatchLogRetentionRule(scope: Construct, functions: LambdaFun
 }
 
 function createSqsEventSources(functions: LambdaFunctions, queues: QueueCatalog): void {
-  addSqsEventSource(functions.productPartnerIngest, queues.productPartnerIngest.queue, 10, true, 1);
-  addSqsEventSource(functions.searchFilterOpenSearchSync, queues.searchFilterOpenSearchSync.queue, 1, false);
-  addSqsEventSource(functions.shopOpenSearchIndex, queues.shopOpenSearchIndex.queue, 1, false);
-  addSqsEventSource(functions.userOpenSearchIndex, queues.userOpenSearchIndex.queue, 1, false);
-  addSqsEventSource(functions.userTierUpdate, queues.userTierUpdate.queue, 1, false);
-  addSqsEventSource(functions.productMaterializeOpenSearch, queues.productMaterializeOpenSearch.queue, 2500, true, 1);
-  addSqsEventSource(functions.productDeleteProduct, queues.productDeleteProduct.queue, 100, true, 1);
-  addSqsEventSource(functions.productPipelineEmbedText, queues.productPipelineEmbedText.queue, 10, true, 1);
-  addSqsEventSource(functions.productPipelineTranslate, queues.productPipelineTranslate.queue, 10, true, 1);
 
-  addSqsEventSource(functions.searchFilterPercolateProduct, queues.searchFilterPercolateProduct.queue, 10, true, 1);
+
+
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
 }
 
