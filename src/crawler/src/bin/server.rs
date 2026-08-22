@@ -1,8 +1,8 @@
 //! Production server binary for the crawler.
 //!
-//! Wires all dependencies (Postgres, OpenSearch, DynamoDB, LLM) and starts the
+//! Wires crawler-local Postgres, authoritative business Postgres, and the LLM, then starts the
 //! [`CrawlerCronJob`] loop that continuously spiders shop websites, scrapes product pages,
-//! and pushes normalized products to DynamoDB via [`CommandProductServiceImpl`].
+//! and pushes normalized products through the canonical product upsert use case.
 //!
 //! # Connection pool sizing
 //!
@@ -14,19 +14,17 @@
 //!
 //! | Variable                        | Purpose                                                        |
 //! |---------------------------------|----------------------------------------------------------------|
-//! | `LOCAL_DB_URL`                  | Hardcoded local Postgres URL (`crawler_server`)                |
-//! | `GEMINI_API_KEY`                | API key for the Gemini LLM backend                             |
-//! | `GEMINI_MODEL`                  | Gemini model name (default: `gemini-3.1-flash-lite-preview`)   |
-//! | `GEMINI_CHEAP_MODEL`            | Default cheaper model for low-risk crawler LLM tasks           |
-//! | `GEMINI_STATE_MAPPING_MODEL`    | Optional override for product state mapping LLM calls          |
-//! | `GEMINI_URL_CLASSIFICATION_MODEL` | Optional override for URL classification LLM calls            |
-//! | `GEMINI_FLEX`                   | Enable Gemini Flex inference when set to `true`                |
-//! | `GEMINI_MAX_CONCURRENT_REQUESTS`| Max in-flight crawler Gemini calls (default: `1`)              |
-//! | `GEMINI_MIN_REQUEST_INTERVAL_MS`| Minimum delay between crawler Gemini request starts (default: `2000`) |
-//! | `DYNAMODB_TABLE_NAME`           | DynamoDB table for product events                              |
-//! | `OPENSEARCH_ENDPOINT_URL`       | OpenSearch base URL                                            |
-//! | `OPENSEARCH_USERNAME`           | OpenSearch username                                            |
-//! | `OPENSEARCH_PASSWORD`           | OpenSearch password                                            |
+//! | `LOCAL_DB_URL`                  | Crawler-local Postgres URL (`crawler_server`)                  |
+//! | `BUSINESS_DATABASE_URL`         | Required authoritative Postgres URL for shops and products     |
+//! | `VERTEX_AI_PROJECT_ID`          | Required Google Cloud project for Vertex AI                    |
+//! | `VERTEX_AI_LOCATION`            | Required Vertex AI location                                    |
+//! | `GOOGLE_APPLICATION_CREDENTIALS`| Optional local Application Default Credentials file             |
+//! | `VERTEX_AI_MODEL`               | Schema generation/repair model (default: `gemini-3.1-pro-preview`) |
+//! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default model for low-risk crawler LLM tasks                   |
+//! | `CRAWLER_VERTEX_AI_STATE_MAPPING_MODEL` | Optional state mapping model override                   |
+//! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override       |
+//! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls (default: `1`)          |
+//! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between crawler LLM request starts (default: `2000`) |
 //! | `CRAWLER_CLOUDWATCH_LOG_GROUP`  | Optional CloudWatch Logs group name for crawler server logs    |
 //! | `CRAWLER_CLOUDWATCH_LOG_STREAM` | Optional CloudWatch Logs stream name; defaults to host name    |
 //!
@@ -38,18 +36,17 @@
 //! - `logs:CreateLogStream`
 //! - `logs:PutLogEvents`
 
+use application::{
+    operation_context::{CorrelationId, OperationContext, Principal, RequestId},
+    pagination::Cursor,
+};
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
 use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
 use aws_sdk_cloudwatchlogs::error::SdkError;
 use aws_sdk_cloudwatchlogs::operation::create_log_group::CreateLogGroupError;
 use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
-use common::pagination::cursor::Cursor;
-use common::shop_id::ShopId;
-use crawler::google_llm::{
-    GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
-    state_mapping_gemini_model, url_classification_gemini_model,
-};
+use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
 use crawler::local_db::{SERVER_DB_NAME, bootstrap_local_database, server_db_url};
 use crawler::logging::{
     CloudWatchBootstrapClient, CloudWatchBootstrapError, CloudWatchLoggingConfig,
@@ -82,18 +79,20 @@ use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepos
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
-use large_language_model::GeminiServiceTier;
-use opensearch::auth::Credentials;
-use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
-use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
-use product::service::command_service::CommandProductServiceImpl;
-use shop::core::partner_status::ShopPartnerStatus;
-use shop::core::shop::Shop;
-use shop::core::shop_search::ShopSearch;
-use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
-use shop::opensearch::repository::ShopOpenSearchRepositoryImpl;
-use shop::service::get_service::GetShopServiceImpl;
-use shop::service::query_service::{QueryShopService, QueryShopServiceImpl};
+use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
+use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
+use platform_postgres::SqlxUnitOfWork;
+use product_postgres::{
+    SqlxPartnerProductAuthorizerFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
+};
+use product_service::use_cases::UpsertProductHandler;
+use shop_core::{partner_status::ShopPartnerStatus, shop_id::ShopId};
+use shop_postgres::SqlxShopSearchReaderFactory;
+use shop_service::{
+    shop_search::ShopSearch,
+    use_cases::{SearchShopsHandler, SearchShopsRequest, SearchShopsUseCase, ShopSummary},
+};
+use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{Instrument, info};
@@ -102,14 +101,28 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 // ---------------------------------------------------------------------------
-// ShopRegistrationSource backed by QueryShopService (OpenSearch)
+// ShopRegistrationSource backed by canonical Shop search in Postgres
 // ---------------------------------------------------------------------------
 
-struct OpenSearchShopSource {
-    opensearch_client: opensearch::OpenSearch,
+struct PostgresShopSource {
+    search_shops: Box<dyn SearchShopsUseCase>,
+    operation_context: OperationContext,
 }
 
-fn should_sync_shop(shop: &Shop) -> bool {
+impl PostgresShopSource {
+    fn new(search_shops: Box<dyn SearchShopsUseCase>) -> Self {
+        Self {
+            search_shops,
+            operation_context: OperationContext {
+                principal: Principal::System,
+                request_id: RequestId::new("crawler-shop-registration"),
+                correlation_id: CorrelationId::new("crawler-shop-registration"),
+            },
+        }
+    }
+}
+
+fn should_sync_shop(shop: &ShopSummary) -> bool {
     !matches!(shop.partner_status, ShopPartnerStatus::Partnered)
         && shop.domains.iter().any(|domain| {
             ["anticoantico.com", "antik-und-stil.com", "antixx.de"].contains(&domain.as_str())
@@ -117,42 +130,42 @@ fn should_sync_shop(shop: &Shop) -> bool {
 }
 
 #[async_trait]
-impl ShopRegistrationSource for OpenSearchShopSource {
+impl ShopRegistrationSource for PostgresShopSource {
     async fn fetch_registered_shops(&self) -> Result<Vec<RegisteredShop>, ShopSyncError> {
-        let repository = ShopOpenSearchRepositoryImpl::new(&self.opensearch_client);
-        let query_service = QueryShopServiceImpl::new(&repository);
-
-        let search = ShopSearch::default();
         let mut registered_shops = Vec::new();
-        let mut cursor: Option<Cursor<serde_json::Value>> = None;
+        let mut cursor: Option<Cursor<ShopId>> = None;
 
         loop {
-            let result = query_service
-                .search_shops(&search, &None, &cursor)
+            let result = self
+                .search_shops
+                .execute(
+                    &self.operation_context,
+                    SearchShopsRequest {
+                        search: ShopSearch::default(),
+                        sort: None,
+                        cursor,
+                    },
+                )
                 .await
-                .map_err(|e| ShopSyncError::FetchError(e.to_string()))?;
+                .map_err(|error| ShopSyncError::FetchError(error.to_string()))?;
 
             let page_size = result.items.len();
+            let has_next_page = result.cursor.search_after.is_some();
             for shop in result.items {
                 if !should_sync_shop(&shop) {
                     continue;
                 }
 
-                let slug: String = shop.shop_slug_id.into();
-                let name: String = shop.name.into();
-                let shop_id: ShopId = shop.shop_id;
-                let shop_type = shop.shop_type;
-
                 registered_shops.push(RegisteredShop {
-                    shop_id,
-                    shop_name: name,
-                    shop_slug: slug,
-                    shop_type,
-                    domains: shop.domains,
+                    shop_id: shop.shop_id,
+                    shop_name: shop.name.to_string(),
+                    shop_slug: shop.shop_slug_id.to_string(),
+                    shop_type: shop.shop_type,
+                    domains: shop.domains.into_iter().collect(),
                 });
             }
 
-            if page_size == 0 || result.cursor.search_after.is_none() {
+            if page_size == 0 || !has_next_page {
                 break;
             }
 
@@ -276,23 +289,6 @@ fn init_crawler_logging(
     }
 }
 
-fn build_opensearch_client() -> opensearch::OpenSearch {
-    let endpoint_url_str = std::env::var("OPENSEARCH_ENDPOINT_URL")
-        .expect("OPENSEARCH_ENDPOINT_URL environment variable must be set");
-    let endpoint_url =
-        url::Url::parse(&endpoint_url_str).expect("OPENSEARCH_ENDPOINT_URL must be a valid URL");
-
-    let username = std::env::var("OPENSEARCH_USERNAME").expect("OPENSEARCH_USERNAME must be set");
-    let password = std::env::var("OPENSEARCH_PASSWORD").expect("OPENSEARCH_PASSWORD must be set");
-
-    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint_url))
-        .auth(Credentials::Basic(username, password))
-        .build()
-        .expect("Failed to build OpenSearch transport");
-
-    opensearch::OpenSearch::new(transport)
-}
-
 fn crawler_review_required() -> bool {
     std::env::var("CRAWLER_REVIEW_REQUIRED")
         .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
@@ -385,7 +381,7 @@ async fn main() {
 
         info!(
             max_connections = config.effective_db_max_connections(),
-            "Connected to Postgres"
+            "Connected to crawler-local Postgres"
         );
 
         // 3. Apply pending migrations — runs at startup so deploying a new binary
@@ -394,7 +390,16 @@ async fn main() {
             .run(&pool)
             .await
             .expect("Failed to run database migrations");
-        info!("Database migrations applied successfully");
+        info!("Crawler-local database migrations applied successfully");
+
+        let business_database_url = std::env::var("BUSINESS_DATABASE_URL")
+            .expect("BUSINESS_DATABASE_URL environment variable must be set");
+        let business_pool = PgPoolOptions::new()
+            .connect(&business_database_url)
+            .await
+            .expect("Failed to connect to authoritative business Postgres");
+        let business_unit_of_work = SqlxUnitOfWork::new(business_pool);
+        info!("Connected to authoritative business Postgres");
 
         let review_required = crawler_review_required();
         let url_pattern_review_required = crawler_review_url_pattern_required();
@@ -402,64 +407,54 @@ async fn main() {
             ReviewServerConfig::from_env().expect("CRAWLER_REVIEW_BIND_ADDR must be host:port");
         let review_repo = CrawlerReviewRepository::new(pool.clone());
 
-        // 4. Wire scraper + spider dependencies
-        let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
-        let model = std::env::var("GEMINI_MODEL")
-            .unwrap_or_else(|_| "gemini-3.1-pro-preview".to_string());
-        let state_model = state_mapping_gemini_model();
-        let classification_model = url_classification_gemini_model();
-        unsafe {
-            std::env::set_var("GEMINI_MODEL", &model);
-        }
-        let gemini_flex = gemini_flex_enabled();
-        let gemini_service_tier = if gemini_flex { "flex" } else { "default" };
-        let llm_service_tier = Some(if gemini_flex {
-            GeminiServiceTier::Flex
-        } else {
-            GeminiServiceTier::Standard
-        });
-        let gemini_rate_limit_config = GeminiRateLimitConfig::from_env();
-        let gemini_rate_limiter = Arc::new(GeminiRateLimiter::new(gemini_rate_limit_config));
+        // 4. Wire scraper + spider dependencies. Provider and model choices stay here;
+        // crawler services depend only on the generic LargeLanguageModel capability.
+        let vertex_ai_config = CrawlerVertexAiConfig::from_env()
+            .expect("VERTEX_AI_PROJECT_ID and VERTEX_AI_LOCATION must be set");
+        let vertex_ai_models = CrawlerVertexAiModels::from_env();
+        let llm_rate_limit_config = CrawlerLlmRateLimitConfig::from_env();
+        let llm_governor = Arc::new(CrawlerLlmGovernor::new(llm_rate_limit_config));
 
         info!(
-            gemini_model = %model,
-            gemini_state_mapping_model = %state_model,
-            gemini_url_classification_model = %classification_model,
-            gemini_service_tier,
-            gemini_max_concurrent_requests = gemini_rate_limit_config.max_concurrent_requests,
-            gemini_min_request_interval_ms = gemini_rate_limit_config.min_request_interval.as_millis(),
-            "Gemini crawler rate limiter configured"
+            llm_provider = "vertex_ai",
+            schema_model = %vertex_ai_models.product_schema,
+            state_mapping_model = %vertex_ai_models.product_state_mapping,
+            url_classification_model = %vertex_ai_models.url_classification,
+            max_concurrent_requests = llm_rate_limit_config.max_concurrent_requests,
+            min_request_interval_ms = llm_rate_limit_config.min_request_interval.as_millis(),
+            "Crawler LLM governor configured"
         );
 
-        let state_llm_builder = google_llm_builder(&api_key, &state_model, gemini_flex);
-
+        let state_llm = vertex_ai_config
+            .create_model(vertex_ai_models.product_state_mapping.clone())
+            .expect("failed to initialize Vertex AI model for state mapping");
         let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(Box::leak(
             Box::new(pool.clone()),
         )));
         let state_mapping_svc = ProductStateMappingServiceImpl::new(
-            state_llm_builder,
-            llm_service_tier,
+            state_llm,
             state_mapping_repo,
-            Some(Arc::clone(&gemini_rate_limiter)),
-        )
-        .expect("failed to build ProductStateMappingServiceImpl");
+            Some(Arc::clone(&llm_governor)),
+        );
 
         let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
-        let create_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
-        let append_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+        let create_schema_llm = vertex_ai_config
+            .create_model(vertex_ai_models.product_schema.clone())
+            .expect("failed to initialize Vertex AI model for schema generation");
+        let append_schema_llm = vertex_ai_config
+            .create_model(vertex_ai_models.product_schema.clone())
+            .expect("failed to initialize Vertex AI model for schema repair");
 
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
         let schema_svc = ProductSchemaServiceImpl::new(
-            create_schema_llm_builder,
-            append_schema_llm_builder,
-            llm_service_tier,
+            create_schema_llm,
+            append_schema_llm,
             schema_repo,
-            Some(Arc::clone(&gemini_rate_limiter)),
-        )
-            .expect("failed to build ProductSchemaServiceImpl");
+            Some(Arc::clone(&llm_governor)),
+        );
         let removed_page_schema_repo = Box::new(RemovedPageSchemaRepositoryImpl::new(Box::leak(
             Box::new(pool.clone()),
         )));
@@ -495,15 +490,13 @@ async fn main() {
         let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
         let url_pattern_repo = Box::new(ShopUrlPatternRepositoryImpl::new(pool.clone()));
 
-        let class_llm_builder = google_llm_builder(&api_key, &classification_model, gemini_flex);
-        let class_svc = Box::new(
-            UrlClassificationServiceImpl::new(
-                class_llm_builder,
-                llm_service_tier,
-                Some(Arc::clone(&gemini_rate_limiter)),
-            )
-            .unwrap(),
-        );
+        let classification_llm = vertex_ai_config
+            .create_model(vertex_ai_models.url_classification.clone())
+            .expect("failed to initialize Vertex AI model for URL classification");
+        let class_svc = Box::new(UrlClassificationServiceImpl::new(
+            classification_llm,
+            Some(Arc::clone(&llm_governor)),
+        ));
 
         let pattern_svc = Box::new(UrlPatternServiceImpl::new_with_review(
             Arc::new(*url_pattern_repo),
@@ -526,31 +519,24 @@ async fn main() {
 
         let spider_candidates = Box::new(SpiderCandidateServiceImpl::new(pool.clone()));
 
-        // 5. Wire shop registration (sync from OpenSearch)
-        let opensearch_client = build_opensearch_client();
-        let shop_source = Box::new(OpenSearchShopSource { opensearch_client });
+        // 5. Wire shop registration from authoritative Postgres.
+        let search_shops = SearchShopsHandler::new(
+            business_unit_of_work.clone(),
+            SqlxShopSearchReaderFactory::new(),
+        );
+        let shop_source = Box::new(PostgresShopSource::new(Box::new(search_shops)));
         let shop_repo = Box::new(ShopRegistrationRepositoryImpl::new(pool.clone()));
         let shop_registration = ShopRegistrationService::new(shop_source, shop_repo);
 
-        // 6. Wire product push — backed by DynamoDB in production
-        let table_name =
-            std::env::var("DYNAMODB_TABLE_NAME").expect("DYNAMODB_TABLE_NAME must be set");
-        let dynamodb = aws_sdk_dynamodb::Client::new(&aws_config);
-
-        let product_dynamodb_repo = Box::leak(Box::new(ProductDynamoDbRepositoryImpl::new(
-            Box::leak(Box::new(dynamodb.clone())),
-            table_name.clone(),
-        )));
-        let shop_dynamodb_repo = Box::leak(Box::new(ShopDynamoDbRepositoryImpl::new(
-            Box::leak(Box::new(dynamodb.clone())),
-            table_name.clone(),
-        )));
-        let get_shop_service = Box::leak(Box::new(GetShopServiceImpl::new(shop_dynamodb_repo)));
-        let command_product_service = Box::new(CommandProductServiceImpl::new(
-            product_dynamodb_repo,
-            get_shop_service,
-        ));
-        let product_push = Box::new(ProductPushServiceImpl::new(command_product_service));
+        // 6. Wire product push through authoritative Postgres.
+        let upsert_product = UpsertProductHandler::new_with_fx_rates(
+            business_unit_of_work,
+            SqlxProductRepositoryFactory::new(),
+            SqlxProductEventStoreFactory::new(),
+            SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
+        );
+        let product_push = Box::new(ProductPushServiceImpl::new(Arc::new(upsert_product)));
 
         let db_max_connections = config.effective_db_max_connections();
         let scraper_max_llm_calls_per_shop = config.scraper_max_llm_calls_per_shop;
@@ -571,10 +557,10 @@ async fn main() {
         info!(
             db_max_connections,
             scraper_max_llm_calls_per_shop,
-            gemini_model = %model,
-            gemini_state_mapping_model = %state_model,
-            gemini_url_classification_model = %classification_model,
-            gemini_service_tier,
+            llm_provider = "vertex_ai",
+            schema_model = %vertex_ai_models.product_schema,
+            state_mapping_model = %vertex_ai_models.product_state_mapping,
+            url_classification_model = %vertex_ai_models.url_classification,
             review_required,
             url_pattern_review_required,
             review_bind_addr = %review_config.bind_addr,
@@ -607,36 +593,22 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::should_sync_shop;
-    use common::shop_slug_id::ShopSlugId;
-    use common::{actor::domain::Actor, domain::Domain, shop_id::ShopId, shop_name::ShopName};
-    use shop::core::shop_type::ShopType;
-    use shop::core::{partner_status::ShopPartnerStatus, shop::Shop};
+    use shop_core::{
+        domain::Domain, partner_status::ShopPartnerStatus, shop_id::ShopId, shop_name::ShopName,
+        shop_slug_id::ShopSlugId, shop_type::ShopType,
+    };
+    use shop_service::use_cases::ShopSummary;
     use time::OffsetDateTime;
 
-    fn mk_shop(partner_status: ShopPartnerStatus, domain: &str) -> Shop {
-        Shop {
+    fn mk_shop(partner_status: ShopPartnerStatus, domain: &str) -> ShopSummary {
+        ShopSummary {
             shop_id: ShopId::new(),
             shop_slug_id: ShopSlugId::from("test-shop"),
             name: ShopName::from("Test Shop"),
             shop_type: ShopType::CommercialDealer,
-            domains: [Domain::try_from(domain).unwrap()].into(),
-            shopify_domain: None,
-            shopify_currency: None,
-            shopify_language: None,
-            woocommerce_webhook_secret: None,
-            woocommerce_currency: None,
-            woocommerce_language: None,
-            url: None,
-            view_url: None,
-            image: None,
-            structured_address: None,
-            geo_address: None,
-            phone: None,
-            email: None,
             partner_status,
-            affiliate_configuration: None,
-            created_by: Actor::System,
-            updated_by: Actor::System,
+            domains: vec![Domain::try_from(domain).unwrap()],
+            image: None,
             created: OffsetDateTime::now_utc(),
             updated: OffsetDateTime::now_utc(),
         }

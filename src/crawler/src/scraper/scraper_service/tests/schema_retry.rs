@@ -6,7 +6,7 @@ use crate::scraper::css_selector::removed_page_schema_repository::MockRemovedPag
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::spider::classification::url_metadata::UrlClass;
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 
 fn invalid_schema() -> ProductCssSelectorSchema {
     let mut schema = minimal_schema();

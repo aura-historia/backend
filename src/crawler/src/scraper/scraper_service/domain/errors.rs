@@ -2,7 +2,7 @@ use crate::network::policy::NetworkErrorKind;
 use crate::scraper::css_selector::product_schema::ApplySchemaError;
 use crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError;
 use crate::scraper::normalization::error::NormalizationError;
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use url::Url;
 
 #[derive(Debug, thiserror::Error)]

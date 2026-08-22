@@ -15,8 +15,8 @@ use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSc
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::html::normalization_error_to_schema_hint;
-use common::shop_id::ShopId;
 use serde_json::json;
+use shop_core::shop_id::ShopId;
 use tracing::info;
 use url::Url;
 
@@ -130,9 +130,7 @@ impl ScraperServiceImpl {
             .normalize(
                 raw,
                 url.clone(),
-                selected_schema
-                    .default_currency
-                    .map(common::currency::domain::Currency::from),
+                selected_schema.default_currency.map(money::Currency::from),
             )
             .await
         {
@@ -194,7 +192,7 @@ impl ScraperServiceImpl {
                 ctx.url.clone(),
                 ctx.selected_schema
                     .default_currency
-                    .map(common::currency::domain::Currency::from),
+                    .map(money::Currency::from),
             )
             .await
         {
@@ -332,9 +330,7 @@ impl ScraperServiceImpl {
             .normalize(
                 reapplied,
                 ctx.url.clone(),
-                generated_schema
-                    .default_currency
-                    .map(common::currency::domain::Currency::from),
+                generated_schema.default_currency.map(money::Currency::from),
             )
             .await
         {

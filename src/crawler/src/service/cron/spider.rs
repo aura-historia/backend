@@ -5,7 +5,7 @@ use crate::spider::candidate_service::SpiderCandidate;
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
 use crate::spider::service::{SpiderService, SpiderServiceError};
 #[cfg(test)]
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;

@@ -1,4 +1,4 @@
-use common::currency::domain::Currency;
+use money::Currency;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 

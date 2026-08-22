@@ -1,4 +1,4 @@
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use std::sync::Arc;
 
 use crate::review::model::ARTIFACT_URL_PATTERN;
@@ -17,7 +17,7 @@ pub enum UrlPatternServiceError {
     #[error("Invalid shop URL '{shop_url}': {source}")]
     InvalidShopUrl {
         shop_url: String,
-        source: common::domain::NoDomainError,
+        source: shop_core::domain::NoDomainError,
     },
 
     #[error(transparent)]
@@ -251,7 +251,7 @@ mod service_tests {
             Box::pin(async {
                 Ok(Some(ShopUrlPatternRecord {
                     shop_id: uuid::Uuid::new_v4().into(),
-                    shop_domain: common::domain::Domain::try_from("example.com").unwrap(),
+                    shop_domain: shop_core::domain::Domain::try_from("example.com").unwrap(),
                     url_pattern: Some("/product/".to_string()),
                     last_crawled: None,
                     created: time::OffsetDateTime::now_utc(),

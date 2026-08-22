@@ -1,4 +1,4 @@
-use product::dynamodb::product_state_record::ProductStateRecord;
+use product_core::product_state::ProductState;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -16,7 +16,7 @@ pub enum StateMappingType {
 pub struct ProductStateMappingRecord {
     /// Primary key — either a lowercased exact value or a regex pattern string.
     pub raw: String,
-    pub normalized: ProductStateRecord,
+    pub normalized: ProductState,
     pub mapping_type: StateMappingType,
 
     #[serde(with = "time::serde::rfc3339")]

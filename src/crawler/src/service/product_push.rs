@@ -1,51 +1,31 @@
-//! Service for pushing scraped products to the product backend.
-//!
-//! # Overview
-//!
-//! After a product URL is scraped and normalized into a [`NormalizedProduct`], it must be
-//! forwarded to the product backend so that it can be created or updated in the data store.
-//! This module provides:
-//!
-//! - [`ProductPushService`] — the trait that callers use.
-//! - [`ProductPushServiceImpl`] — the production implementation backed by
-//!   [`CommandProductService`].
-//! - [`FileProductPushService`] — a demo/dev implementation that writes commands as JSON to
-//!   a file instead of calling DynamoDB.
-//! - [`normalize_to_upsert`] — the pure mapping function from a [`NormalizedProduct`] plus
-//!   [`ScraperCandidate`] metadata to a [`UpsertProductCommand`].
+//! Service for pushing scraped products to the canonical product use case.
 
+use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use async_trait::async_trait;
-use common::language::data::LocalizedTextData;
-use common::price::data::PriceData;
-#[cfg(test)]
-use common::shop_id::ShopId;
-use product::data::product_image_data::ProductImageData;
-use product::data::product_state_data::ProductStateData;
-use product::service::command_service::CommandProductService;
-use product::service::product_command::UpsertProductCommand;
-use shop::core::shop_type::ShopType;
-use std::collections::BTreeMap;
-use time::OffsetDateTime;
+use indexmap::IndexSet;
+use localization::{Language, Localized};
+use money::Price;
+use product_core::{
+    description::Description, product::ProductAddress, product_state::ProductState, title::Title,
+};
+use product_service::use_cases::commands::upsert_product::{
+    UpsertProductCommand, UpsertProductUseCase,
+};
+
+use std::{collections::BTreeMap, sync::Arc};
 use tracing::{debug, error, warn};
 
 use crate::scraper::candidate_service::ScraperCandidate;
 use crate::scraper::normalization::product::NormalizedProduct;
 
-// ---------------------------------------------------------------------------
-// Trait
-// ---------------------------------------------------------------------------
-
-/// Accepts a batch of [`UpsertProductCommand`]s and forwards them to the backend.
+/// Accepts a batch of product commands and reports success for each input position.
 ///
-/// Returns the subset of commands that were **successfully** persisted.
-/// Failed commands are logged but not propagated — the crawler retries on the
-/// next scraping cycle.  Callers should only call
-/// [`ScraperCandidateService::mark_as_scraped`] for the returned (succeeded)
-/// commands.
+/// The result order always matches the input order. This lets the crawler mark exactly the
+/// successfully persisted URL as scraped, even when product IDs are repeated in a batch.
 #[async_trait]
 #[mockall::automock]
 pub trait ProductPushService: Send + Sync {
-    async fn push(&self, products: Vec<ProductPushItem>) -> Vec<UpsertProductCommand>;
+    async fn push(&self, products: Vec<ProductPushItem>) -> Vec<bool>;
 }
 
 #[derive(Debug, Clone)]
@@ -54,18 +34,14 @@ pub struct ProductPushItem {
     pub raw_attributes: BTreeMap<String, Vec<String>>,
 }
 
-// ---------------------------------------------------------------------------
-// Production implementation
-// ---------------------------------------------------------------------------
-
-/// Pushes commands to [`CommandProductService`] (backed by DynamoDB in production).
+/// Pushes each command through the canonical Product upsert use case.
 pub struct ProductPushServiceImpl {
-    command_service: Box<dyn CommandProductService + Send + Sync>,
+    upsert_product: Arc<dyn UpsertProductUseCase>,
 }
 
 impl ProductPushServiceImpl {
-    pub fn new(command_service: Box<dyn CommandProductService + Send + Sync>) -> Self {
-        Self { command_service }
+    pub fn new(upsert_product: Arc<dyn UpsertProductUseCase>) -> Self {
+        Self { upsert_product }
     }
 }
 
@@ -76,51 +52,43 @@ impl ProductPushService for ProductPushServiceImpl {
         skip(self, products),
         fields(total = products.len())
     )]
-    async fn push(&self, products: Vec<ProductPushItem>) -> Vec<UpsertProductCommand> {
-        let commands: Vec<UpsertProductCommand> = products
-            .into_iter()
-            .map(|product| product.command)
-            .collect();
-        let count = commands.len();
-        let failed = self.command_service.upsert(commands.clone()).await;
-        if !failed.is_empty() {
-            warn!(
-                failures = failed.len(),
-                total = count,
-                "Some products failed to upsert"
-            );
-            for cmd in &failed {
-                let shop_id_uuid: uuid::Uuid = cmd.shop_id.into();
-                warn!(
-                    shop_id = %shop_id_uuid,
-                    shops_product_id = %cmd.shops_product_id,
-                    url = ?cmd.url.as_ref().map(|u| u.as_str()),
-                    "Product failed to upsert — will be retried on next scrape cycle"
-                );
+    async fn push(&self, products: Vec<ProductPushItem>) -> Vec<bool> {
+        let mut succeeded = Vec::with_capacity(products.len());
+
+        for product in products {
+            let command = product.command;
+            let context = crawler_operation_context(&command);
+            match self.upsert_product.execute(&context, command.clone()).await {
+                Ok(_) => succeeded.push(true),
+                Err(error) => {
+                    warn!(
+                        error = %error,
+                        shop_id = %command.shop_id,
+                        shops_product_id = %command.shops_product_id,
+                        request_id = %context.request_id,
+                        correlation_id = %context.correlation_id,
+                        "Product upsert failed; it will be retried on the next scrape cycle"
+                    );
+                    succeeded.push(false);
+                }
             }
         }
-        let failed_ids: std::collections::HashSet<_> = failed
-            .iter()
-            .map(|c| (&c.shop_id, c.shops_product_id.to_string()))
-            .collect();
-        commands
-            .into_iter()
-            .filter(|c| !failed_ids.contains(&(&c.shop_id, c.shops_product_id.to_string())))
-            .collect()
+
+        succeeded
     }
 }
 
-// ---------------------------------------------------------------------------
-// File-based implementation (demo / dev)
-// ---------------------------------------------------------------------------
+fn crawler_operation_context(command: &UpsertProductCommand) -> OperationContext {
+    let product_key = format!("crawler:{}:{}", command.shop_id, command.shops_product_id);
 
-/// Writes upserted commands as pretty-printed JSON to the configured output path.
-///
-/// Used by the demo binary where no DynamoDB/AWS is available.  Each entry in the
-/// JSON array is an [`UpsertCommandSnapshot`] containing the **full** product payload —
-/// title, description, price, images, state, and auction dates — in addition to the
-/// shop identity fields.  This makes the file output a faithful representation of what
-/// would be forwarded to DynamoDB in production.
+    OperationContext {
+        principal: Principal::Service("crawler".to_owned()),
+        request_id: RequestId::new(product_key.clone()),
+        correlation_id: CorrelationId::new(product_key),
+    }
+}
+
+/// Writes upsert commands as primitive JSON snapshots to a configured output file.
 pub struct FileProductPushService {
     output_path: std::path::PathBuf,
 }
@@ -133,90 +101,103 @@ impl FileProductPushService {
     }
 }
 
-/// Serializable snapshot of a single upsert command, used only for demo/file output.
-///
-/// Captures the full product payload so that the JSON written to disk is a faithful
-/// representation of what would be sent to DynamoDB in production.  This includes title,
-/// description, price, images, state, and auction dates — not just the identity fields.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct UpsertCommandSnapshot {
     shop_id: String,
+    seller_id: String,
     shops_product_id: String,
-    seller_name_raw: Option<String>,
+    address: ProductAddressSnapshot,
+    title: Option<LocalizedTextSnapshot>,
+    description: Option<LocalizedTextSnapshot>,
+    price: Option<PriceSnapshot>,
+    price_estimate_min: Option<PriceSnapshot>,
+    price_estimate_max: Option<PriceSnapshot>,
+    state: Option<String>,
     url: Option<String>,
-    state: Option<ProductStateData>,
-    title: Option<LocalizedTextData>,
-    description: Option<LocalizedTextData>,
-    price: Option<PriceData>,
-    price_estimate_min: Option<PriceData>,
-    price_estimate_max: Option<PriceData>,
-    images: Vec<ProductImageData>,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "serialize_optional_datetime",
-        deserialize_with = "deserialize_optional_datetime",
-        default
-    )]
-    auction_start: Option<OffsetDateTime>,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "serialize_optional_datetime",
-        deserialize_with = "deserialize_optional_datetime",
-        default
-    )]
-    auction_end: Option<OffsetDateTime>,
+    images: Vec<ProductImageSnapshot>,
+    auction_start: Option<String>,
+    auction_end: Option<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     raw_attributes: BTreeMap<String, Vec<String>>,
 }
 
-// `time::serde::rfc3339` only works on `OffsetDateTime` directly, not `Option<OffsetDateTime>`.
-// These thin wrappers adapt it for optional fields.
-fn serialize_optional_datetime<S>(
-    value: &Option<OffsetDateTime>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    match value {
-        Some(dt) => time::serde::rfc3339::serialize(dt, serializer),
-        None => serializer.serialize_none(),
-    }
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct ProductAddressSnapshot {
+    structured: Option<String>,
+    geo: Option<String>,
 }
 
-fn deserialize_optional_datetime<'de, D>(
-    deserializer: D,
-) -> Result<Option<OffsetDateTime>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    time::serde::rfc3339::option::deserialize(deserializer)
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct LocalizedTextSnapshot {
+    language: String,
+    text: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct PriceSnapshot {
+    amount: u64,
+    currency: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct ProductImageSnapshot {
+    url: String,
+    prohibited_content: String,
 }
 
 impl From<&ProductPushItem> for UpsertCommandSnapshot {
     fn from(product: &ProductPushItem) -> Self {
-        let cmd = &product.command;
-        let shop_id_uuid: uuid::Uuid = cmd.shop_id.into();
+        let command = &product.command;
         Self {
-            shop_id: shop_id_uuid.to_string(),
-            shops_product_id: cmd.shops_product_id.to_string(),
-            seller_name_raw: cmd.seller_name_raw.clone(),
-            url: cmd.url.as_ref().map(|u| u.to_string()),
-            state: cmd.state.as_ref().map(|s| ProductStateData::from(*s)),
-            title: cmd.native_title.as_ref().map(|t| t.clone().into()),
-            description: cmd.native_description.as_ref().map(|d| d.clone().into()),
-            price: cmd.native_price.map(PriceData::from),
-            price_estimate_min: cmd.native_price_estimate_min.map(PriceData::from),
-            price_estimate_max: cmd.native_price_estimate_max.map(PriceData::from),
-            images: cmd
+            shop_id: command.shop_id.to_string(),
+            seller_id: command.seller_id.to_string(),
+            shops_product_id: command.shops_product_id.to_string(),
+            address: ProductAddressSnapshot::default(),
+            title: command.title.as_ref().map(snapshot_localized_title),
+            description: command
+                .description
+                .as_ref()
+                .map(snapshot_localized_description),
+            price: command.price.map(snapshot_price),
+            price_estimate_min: command.price_estimate_min.map(snapshot_price),
+            price_estimate_max: command.price_estimate_max.map(snapshot_price),
+            state: command.state.map(product_state_name).map(str::to_owned),
+            url: command.url.as_ref().map(ToString::to_string),
+            images: command
                 .images
                 .iter()
-                .map(|i| ProductImageData::from_with_consent(i.clone(), true))
+                .map(|image| ProductImageSnapshot {
+                    url: image.url.to_string(),
+                    prohibited_content: image.prohibited_content.as_str().to_owned(),
+                })
                 .collect(),
-            auction_start: cmd.auction_start,
-            auction_end: cmd.auction_end,
+            auction_start: command.auction_start.map(|value| value.to_string()),
+            auction_end: command.auction_end.map(|value| value.to_string()),
             raw_attributes: product.raw_attributes.clone(),
         }
+    }
+}
+
+fn snapshot_localized_title(value: &Localized<Language, Title>) -> LocalizedTextSnapshot {
+    LocalizedTextSnapshot {
+        language: value.localization.as_str().to_owned(),
+        text: value.payload.as_ref().to_owned(),
+    }
+}
+
+fn snapshot_localized_description(
+    value: &Localized<Language, Description>,
+) -> LocalizedTextSnapshot {
+    LocalizedTextSnapshot {
+        language: value.localization.as_str().to_owned(),
+        text: value.payload.as_ref().to_owned(),
+    }
+}
+
+fn snapshot_price(value: Price) -> PriceSnapshot {
+    PriceSnapshot {
+        amount: value.monetary_amount.into(),
+        currency: value.currency.as_str().to_owned(),
     }
 }
 
@@ -227,115 +208,211 @@ impl ProductPushService for FileProductPushService {
         skip(self, products),
         fields(total = products.len())
     )]
-    async fn push(&self, products: Vec<ProductPushItem>) -> Vec<UpsertProductCommand> {
+    async fn push(&self, products: Vec<ProductPushItem>) -> Vec<bool> {
         if products.is_empty() {
             return Vec::new();
         }
 
-        // Load any previously written products so we append rather than overwrite.
-        let mut existing: Vec<UpsertCommandSnapshot> = if self.output_path.exists() {
+        let mut snapshots = if self.output_path.exists() {
             match std::fs::read_to_string(&self.output_path) {
-                Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
-                Err(_) => vec![],
-            }
-        } else {
-            vec![]
-        };
-
-        let new_snapshots: Vec<UpsertCommandSnapshot> =
-            products.iter().map(UpsertCommandSnapshot::from).collect();
-        let count = new_snapshots.len();
-        existing.extend(new_snapshots);
-
-        match serde_json::to_string_pretty(&existing) {
-            Ok(json) => {
-                if let Err(e) = std::fs::write(&self.output_path, json) {
+                Ok(content) => match serde_json::from_str(&content) {
+                    Ok(snapshots) => snapshots,
+                    Err(error) => {
+                        error!(
+                            error = %error,
+                            path = %self.output_path.display(),
+                            "Failed to parse existing scraped product snapshots"
+                        );
+                        return vec![false; products.len()];
+                    }
+                },
+                Err(error) => {
                     error!(
-                        error = %e,
+                        error = %error,
                         path = %self.output_path.display(),
-                        "Failed to write scraped_products.json"
+                        "Failed to read existing scraped product snapshots"
                     );
-                } else {
-                    debug!(
-                        count,
-                        path = %self.output_path.display(),
-                        "Wrote scraped products to file"
-                    );
+                    return vec![false; products.len()];
                 }
             }
-            Err(e) => {
-                error!(error = %e, "Failed to serialise upsert commands to JSON");
+        } else {
+            Vec::new()
+        };
+
+        snapshots.extend(products.iter().map(UpsertCommandSnapshot::from));
+
+        let json = match serde_json::to_string_pretty(&snapshots) {
+            Ok(json) => json,
+            Err(error) => {
+                error!(error = %error, "Failed to serialize scraped product snapshots");
+                return Vec::new();
+            }
+        };
+
+        match std::fs::write(&self.output_path, json) {
+            Ok(()) => {
+                debug!(
+                    count = products.len(),
+                    path = %self.output_path.display(),
+                    "Wrote scraped product snapshots to file"
+                );
+                vec![true; products.len()]
+            }
+            Err(error) => {
+                error!(
+                    error = %error,
+                    path = %self.output_path.display(),
+                    "Failed to write scraped product snapshots"
+                );
+                vec![false; products.len()]
             }
         }
-        // File push always "succeeds" — return all commands as succeeded.
-        products
-            .into_iter()
-            .map(|product| product.command)
-            .collect()
     }
 }
 
-// ---------------------------------------------------------------------------
-// Mapping helper
-// ---------------------------------------------------------------------------
-
-/// Maps a [`NormalizedProduct`] together with metadata from its [`ScraperCandidate`] into
-/// an [`UpsertProductCommand`].
-///
+/// Maps normalized crawler output into the canonical Product upsert command.
 pub fn normalize_to_upsert(
     product: NormalizedProduct,
     candidate: &ScraperCandidate,
 ) -> Option<UpsertProductCommand> {
-    let seller_name_raw = match candidate.shop_type {
-        ShopType::CommercialDealer | ShopType::AuctionHouse => None,
-        ShopType::Marketplace | ShopType::AuctionPlatform => product
-            .seller_name
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToString::to_string),
-    };
-
     Some(UpsertProductCommand {
         shop_id: candidate.shop_id,
+        seller_id: candidate.shop_id,
         shops_product_id: product.shops_product_id,
-        seller_name_raw,
-        structured_address: None,
-        geo_address: None,
-        native_title: Some(product.title),
-        native_description: product.description,
-        native_price: product.price,
-        native_price_estimate_min: product.price_estimate_min,
-        native_price_estimate_max: product.price_estimate_max,
+        address: ProductAddress::default(),
+        title: Some(product.title),
+        description: product.description,
+        price: product.price,
+        price_estimate_min: product.price_estimate_min,
+        price_estimate_max: product.price_estimate_max,
         state: Some(product.state),
         url: Some(product.url),
-        images: product.images.into_iter().collect(),
+        images: product.images.into_iter().collect::<IndexSet<_>>(),
         auction_start: product.auction_start,
         auction_end: product.auction_end,
     })
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+fn product_state_name(value: ProductState) -> &'static str {
+    match value {
+        ProductState::Listed => "LISTED",
+        ProductState::Available => "AVAILABLE",
+        ProductState::Reserved => "RESERVED",
+        ProductState::Sold => "SOLD",
+        ProductState::Removed => "REMOVED",
+        ProductState::Unknown => "UNKNOWN",
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::language::domain::Language;
-    use common::localized::Localized;
-    use common::product_state::domain::ProductState;
-    use common::shops_product_id::ShopsProductId;
-    use product::core::title::Title;
+    use product_core::{product_id::ProductId, shops_product_id::ShopsProductId};
+    use product_service::use_cases::commands::{
+        update_product::UpdateProductResult,
+        upsert_product::{UpsertProductError, UpsertProductResult},
+    };
+    use shop_core::{shop_id::ShopId, shop_type::ShopType};
+    use std::sync::{Arc, Mutex};
     use url::Url;
 
-    fn make_candidate(shop_type: ShopType) -> ScraperCandidate {
-        ScraperCandidate {
+    #[derive(Default)]
+    struct FakeUpsertProductUseCase {
+        commands: Arc<Mutex<Vec<UpsertProductCommand>>>,
+        contexts: Arc<Mutex<Vec<OperationContext>>>,
+        fail: bool,
+    }
+
+    #[async_trait]
+    impl UpsertProductUseCase for FakeUpsertProductUseCase {
+        async fn execute(
+            &self,
+            context: &OperationContext,
+            command: UpsertProductCommand,
+        ) -> Result<UpsertProductResult, UpsertProductError> {
+            match self.commands.lock() {
+                Ok(mut commands) => commands.push(command),
+                Err(error) => error.into_inner().push(command),
+            }
+            match self.contexts.lock() {
+                Ok(mut contexts) => contexts.push(context.clone()),
+                Err(error) => error.into_inner().push(context.clone()),
+            }
+
+            if self.fail {
+                return Err(UpsertProductError::ShopNotFound);
+            }
+
+            Ok(UpsertProductResult::Updated(UpdateProductResult {
+                product_id: ProductId::new(),
+                event_id: None,
+            }))
+        }
+    }
+
+    fn command() -> Result<UpsertProductCommand, url::ParseError> {
+        Ok(UpsertProductCommand {
             shop_id: ShopId::new(),
-            shop_name: "Test Shop".to_string(),
-            shop_type,
+            seller_id: ShopId::new(),
+            shops_product_id: ShopsProductId::from("prod-1"),
+            address: ProductAddress::default(),
+            title: Some(Localized::new(Language::De, Title::from("Ein Schrank"))),
+            description: None,
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            state: Some(ProductState::Available),
+            url: Some(Url::parse("https://example.com/product/1")?),
+            images: Default::default(),
+            auction_start: None,
+            auction_end: None,
+        })
+    }
+
+    fn push_item() -> Result<ProductPushItem, url::ParseError> {
+        Ok(ProductPushItem {
+            command: command()?,
+            raw_attributes: BTreeMap::new(),
+        })
+    }
+
+    #[tokio::test]
+    async fn should_return_ordered_success_results_with_deterministic_crawler_context()
+    -> Result<(), url::ParseError> {
+        let use_case = Arc::new(FakeUpsertProductUseCase::default());
+        let commands = Arc::clone(&use_case.commands);
+        let contexts = Arc::clone(&use_case.contexts);
+        let service = ProductPushServiceImpl::new(use_case);
+        let succeeded = service.push(vec![push_item()?, push_item()?]).await;
+
+        assert_eq!(succeeded, vec![true, true]);
+        let executed_commands = match commands.lock() {
+            Ok(commands) => commands.clone(),
+            Err(error) => error.into_inner().clone(),
+        };
+        let executed_contexts = match contexts.lock() {
+            Ok(contexts) => contexts.clone(),
+            Err(error) => error.into_inner().clone(),
+        };
+        assert_eq!(executed_commands.len(), 2);
+        assert_eq!(executed_contexts.len(), 2);
+        for (context, command) in executed_contexts.iter().zip(executed_commands) {
+            let product_key = format!("crawler:{}:{}", command.shop_id, command.shops_product_id);
+            assert_eq!(context.principal, Principal::Service("crawler".to_owned()));
+            assert_eq!(context.request_id.as_str(), product_key);
+            assert_eq!(context.correlation_id.as_str(), product_key);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_map_normalized_product_with_candidate_as_seller() -> Result<(), url::ParseError> {
+        let candidate = ScraperCandidate {
+            shop_id: ShopId::new(),
+            shop_name: "Test Shop".to_owned(),
+            shop_type: ShopType::CommercialDealer,
             url_pattern: None,
-            url: Url::parse("https://example.com/product/1").unwrap(),
+            url: Url::parse("https://example.com/product/1")?,
             last_scraped_hash: None,
             last_scraped_price: None,
             last_scraped_price_estimate_min: None,
@@ -345,12 +422,9 @@ mod tests {
             last_scraped_auction_start: None,
             last_scraped_auction_end: None,
             last_scraped_state: None,
-        }
-    }
-
-    fn make_product(candidate: &ScraperCandidate) -> NormalizedProduct {
-        NormalizedProduct {
-            shops_product_id: ShopsProductId::from("prod-1".to_string()),
+        };
+        let product = NormalizedProduct {
+            shops_product_id: ShopsProductId::from("prod-1"),
             title: Localized::new(Language::De, Title::from("Ein Schrank")),
             description: None,
             price: None,
@@ -359,247 +433,57 @@ mod tests {
             seller_name: None,
             state: ProductState::Available,
             url: candidate.url.clone(),
-            images: vec![],
+            images: Vec::new(),
             auction_start: None,
             auction_end: None,
-            raw_attributes: Default::default(),
-        }
-    }
+            raw_attributes: BTreeMap::new(),
+        };
 
-    fn make_push_item(product: NormalizedProduct, candidate: &ScraperCandidate) -> ProductPushItem {
-        let raw_attributes = product.raw_attributes.clone();
-        ProductPushItem {
-            command: normalize_to_upsert(product, candidate).unwrap(),
-            raw_attributes,
-        }
-    }
-
-    #[test]
-    fn should_map_commercial_dealer_product_to_upsert_command() {
-        let candidate = make_candidate(ShopType::CommercialDealer);
-        let product = make_product(&candidate);
-
-        let cmd = normalize_to_upsert(product, &candidate)
-            .expect("should produce a command for CommercialDealer");
-
-        assert_eq!(cmd.shop_id, candidate.shop_id);
-        assert_eq!(cmd.seller_name_raw, None);
-        assert_eq!(cmd.state, Some(ProductState::Available));
-        assert_eq!(
-            cmd.url.as_ref().map(|u| u.as_str()),
-            Some("https://example.com/product/1")
-        );
-    }
-
-    #[test]
-    fn should_map_auction_house_product_to_upsert_command() {
-        let candidate = make_candidate(ShopType::AuctionHouse);
-        let product = make_product(&candidate);
-
-        let cmd = normalize_to_upsert(product, &candidate)
-            .expect("should produce a command for AuctionHouse");
-
-        assert_eq!(cmd.shop_id, candidate.shop_id);
-        assert_eq!(cmd.seller_name_raw, None);
-    }
-
-    #[test]
-    fn should_map_marketplace_product_when_seller_name_is_present() {
-        let candidate = make_candidate(ShopType::Marketplace);
-        let mut product = make_product(&candidate);
-        product.seller_name = Some("Marketplace Seller".to_string());
-
-        let cmd = normalize_to_upsert(product, &candidate)
-            .expect("should produce a command for Marketplace when seller is known");
-
-        assert_eq!(cmd.seller_name_raw.as_deref(), Some("Marketplace Seller"));
-    }
-
-    #[test]
-    fn should_map_auction_platform_product_when_seller_name_is_present() {
-        let candidate = make_candidate(ShopType::AuctionPlatform);
-        let mut product = make_product(&candidate);
-        product.seller_name = Some("Auction Platform Seller".to_string());
-
-        let cmd = normalize_to_upsert(product, &candidate)
-            .expect("should produce a command for AuctionPlatform when seller is known");
+        let command = normalize_to_upsert(product, &candidate);
 
         assert_eq!(
-            cmd.seller_name_raw.as_deref(),
-            Some("Auction Platform Seller")
-        );
-    }
-
-    #[test]
-    fn should_map_marketplace_product_when_seller_name_is_missing() {
-        let candidate = make_candidate(ShopType::Marketplace);
-        let product = make_product(&candidate);
-        let cmd = normalize_to_upsert(product, &candidate)
-            .expect("should produce a command for Marketplace without seller_name");
-        assert_eq!(cmd.seller_name_raw, None);
-    }
-
-    #[test]
-    fn should_map_auction_platform_product_when_seller_name_is_blank() {
-        let candidate = make_candidate(ShopType::AuctionPlatform);
-        let mut product = make_product(&candidate);
-        product.seller_name = Some("   ".to_string());
-        let cmd = normalize_to_upsert(product, &candidate)
-            .expect("should produce a command for AuctionPlatform with blank seller_name");
-        assert_eq!(cmd.seller_name_raw, None);
-    }
-
-    fn temp_output_path(suffix: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("product_push_test_{suffix}.json"))
-    }
-
-    #[tokio::test]
-    async fn file_push_service_creates_output_file() {
-        let path = temp_output_path("creates");
-        let _ = std::fs::remove_file(&path); // clean up from any previous run
-
-        let service = FileProductPushService::new(path.clone());
-
-        let candidate = make_candidate(ShopType::CommercialDealer);
-        let product = make_product(&candidate);
-        let item = make_push_item(product, &candidate);
-
-        service.push(vec![item]).await;
-
-        assert!(path.exists(), "output file should be created");
-        let content = std::fs::read_to_string(&path).unwrap();
-        let parsed: Vec<serde_json::Value> = serde_json::from_str(&content).unwrap();
-        assert_eq!(parsed.len(), 1);
-        // Derived identity fields are intentionally omitted from the command snapshot.
-        assert!(parsed[0].get("seller_name_raw").is_some());
-        assert_eq!(parsed[0]["state"], "AVAILABLE");
-        // Rich product fields are present in the output
-        assert!(
-            parsed[0].get("title").is_some(),
-            "title should be serialised"
-        );
-        assert!(
-            parsed[0].get("images").is_some(),
-            "images should be serialised"
-        );
-        assert!(
-            parsed[0].get("price").is_some(),
-            "price key should be present"
-        );
-
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[tokio::test]
-    async fn file_push_service_includes_raw_attributes() {
-        let path = temp_output_path("raw_attributes");
-        let _ = std::fs::remove_file(&path);
-
-        let service = FileProductPushService::new(path.clone());
-
-        let candidate = make_candidate(ShopType::CommercialDealer);
-        let mut product = make_product(&candidate);
-        product.raw_attributes.insert(
-            "rawShipment".to_string(),
-            vec!["Shipping takes four to six weeks".to_string()],
-        );
-        product.raw_attributes.insert(
-            "rawMaterial".to_string(),
-            vec!["Walnut and brass".to_string()],
-        );
-        product
-            .raw_attributes
-            .insert("rawYear".to_string(), vec!["Circa 1830".to_string()]);
-        let item = make_push_item(product, &candidate);
-
-        service.push(vec![item]).await;
-
-        let content = std::fs::read_to_string(&path).unwrap();
-        let parsed: Vec<serde_json::Value> = serde_json::from_str(&content).unwrap();
-        assert_eq!(
-            parsed[0]["raw_attributes"]["rawShipment"][0],
-            "Shipping takes four to six weeks"
+            command.as_ref().map(|command| command.shop_id),
+            Some(candidate.shop_id)
         );
         assert_eq!(
-            parsed[0]["raw_attributes"]["rawMaterial"][0],
-            "Walnut and brass"
+            command.as_ref().map(|command| command.seller_id),
+            Some(candidate.shop_id)
         );
-        assert_eq!(parsed[0]["raw_attributes"]["rawYear"][0], "Circa 1830");
-
-        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            command.as_ref().map(|command| command.address.clone()),
+            Some(ProductAddress::default())
+        );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn file_push_service_appends_on_subsequent_calls() {
-        let path = temp_output_path("appends");
-        let _ = std::fs::remove_file(&path);
-
-        let service = FileProductPushService::new(path.clone());
-
-        let candidate = make_candidate(ShopType::CommercialDealer);
-        let product1 = make_product(&candidate);
-        let item1 = make_push_item(product1, &candidate);
-        service.push(vec![item1]).await;
-
-        let product2 = make_product(&candidate);
-        let item2 = make_push_item(product2, &candidate);
-        service.push(vec![item2]).await;
-
-        let content = std::fs::read_to_string(&path).unwrap();
-        let parsed: Vec<serde_json::Value> = serde_json::from_str(&content).unwrap();
-        assert_eq!(parsed.len(), 2, "both commands should be in the file");
-
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[tokio::test]
-    async fn file_push_service_noop_on_empty_commands() {
-        let path = temp_output_path("noop");
-        let _ = std::fs::remove_file(&path);
-
-        let service = FileProductPushService::new(path.clone());
-        service.push(vec![]).await;
-
-        assert!(!path.exists(), "file should not be created for empty push");
-    }
-
-    #[tokio::test]
-    async fn production_push_service_logs_failures() {
-        let mut mock = product::service::command_service::MockCommandProductService::new();
-
-        let candidate = make_candidate(ShopType::CommercialDealer);
-        let product = make_product(&candidate);
-        let item = make_push_item(product, &candidate);
-        let cmd_clone = item.command.clone();
-
-        mock.expect_upsert().times(1).returning(move |cmds| {
-            let failures = cmds.clone();
-            Box::pin(async move { failures })
+    async fn should_omit_failed_commands_from_successful_batch() -> Result<(), url::ParseError> {
+        let use_case = Arc::new(FakeUpsertProductUseCase {
+            fail: true,
+            ..Default::default()
         });
+        let service = ProductPushServiceImpl::new(use_case);
 
-        let service = ProductPushServiceImpl::new(Box::new(mock));
-        service
-            .push(vec![ProductPushItem {
-                command: cmd_clone,
-                raw_attributes: Default::default(),
-            }])
-            .await;
-        // No panic = pass; failures are logged as warnings, not propagated.
+        assert_eq!(service.push(vec![push_item()?]).await, vec![false]);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn production_push_service_succeeds_when_no_failures() {
-        let mut mock = product::service::command_service::MockCommandProductService::new();
+    async fn should_write_primitive_canonical_snapshot() -> Result<(), url::ParseError> {
+        let path = std::env::temp_dir().join(format!("product_push_{}.json", uuid::Uuid::new_v4()));
+        let service = FileProductPushService::new(path.clone());
 
-        mock.expect_upsert()
-            .times(1)
-            .returning(|_| Box::pin(async { vec![] }));
+        let succeeded = service.push(vec![push_item()?]).await;
+        assert_eq!(succeeded, vec![true]);
 
-        let candidate = make_candidate(ShopType::CommercialDealer);
-        let product = make_product(&candidate);
-        let item = make_push_item(product, &candidate);
+        let content = match std::fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(error) => panic!("failed to read product snapshot: {error}"),
+        };
+        assert!(content.contains("\"seller_id\""));
+        assert!(content.contains("\"state\": \"AVAILABLE\""));
 
-        let service = ProductPushServiceImpl::new(Box::new(mock));
-        service.push(vec![item]).await;
+        let _ = std::fs::remove_file(path);
+        Ok(())
     }
 }

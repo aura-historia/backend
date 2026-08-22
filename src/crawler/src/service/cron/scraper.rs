@@ -6,7 +6,7 @@ use crate::scraper::candidate_service::{
 use crate::scraper::scraper_service::{ScraperError, ScraperService};
 use crate::service::product_push::{ProductPushItem, ProductPushService, normalize_to_upsert};
 use crate::spider::advisory_lock::{LocalLockManager, ShopLock, UrlLock};
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -28,7 +28,7 @@ struct ScrapeDomainContext {
 /// can call [`ScraperCandidateService::mark_as_scraped`] only after the push
 /// has been confirmed.
 struct CandidateMeta {
-    shop_id: common::shop_id::ShopId,
+    shop_id: shop_core::shop_id::ShopId,
     url: url::Url,
     hash: String,
     snapshot: ProductSnapshot,
@@ -55,8 +55,8 @@ struct ScheduledScrapeDomainOutcome {
 /// calls [`ScraperCandidateService::mark_as_scraped`] for each command that
 /// was successfully persisted.
 ///
-/// The position correspondence between `commands` and `metas` is preserved so
-/// that succeeded commands can be matched back to their metadata by index.
+/// The push result has one boolean per input position, so only the corresponding
+/// crawler URL is marked scraped after its product command succeeds.
 #[tracing::instrument(
     name = "crawler_flush_push_batch",
     skip(push_service, scraper_candidates, batch),
@@ -69,25 +69,22 @@ async fn flush_batch(
 ) {
     let (products, metas): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
 
-    // Keep a copy of shops_product_ids in order so we can re-match after push.
-    let ids_in_order: Vec<String> = products
-        .iter()
-        .map(|product| product.command.shops_product_id.to_string())
-        .collect();
-
     let succeeded = push_service.push(products).await;
-    let succeeded_ids: std::collections::HashSet<String> = succeeded
-        .iter()
-        .map(|c| c.shops_product_id.to_string())
-        .collect();
+    if succeeded.len() != metas.len() {
+        warn!(
+            expected = metas.len(),
+            actual = succeeded.len(),
+            "Product push returned an incomplete result; unmatched URLs will be retried"
+        );
+    }
 
-    for (i, meta) in metas.into_iter().enumerate() {
-        if succeeded_ids.contains(&ids_in_order[i])
-            && let Err(e) = scraper_candidates
+    for (meta, succeeded) in metas.into_iter().zip(succeeded) {
+        if succeeded
+            && let Err(error) = scraper_candidates
                 .mark_as_scraped(&meta.shop_id, &meta.url, &meta.hash, &meta.snapshot)
                 .await
         {
-            warn!(shop_id = %meta.shop_id, error = %e, url = %meta.url, "Failed to mark product as scraped after push");
+            warn!(shop_id = %meta.shop_id, error = %error, url = %meta.url, "Failed to mark product as scraped after push");
         }
     }
 }
@@ -591,7 +588,7 @@ mod tests {
     use crate::spider::advisory_lock::LocalLockManager;
     use crate::spider::candidate_service::MockSpiderCandidateService;
     use crate::spider::service::MockSpiderService;
-    use shop::core::shop_type::ShopType;
+    use shop_core::shop_type::ShopType;
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -613,6 +610,90 @@ mod tests {
         let mut push_service = MockProductPushService::new();
         push_service.expect_push().times(0);
         Box::new(push_service)
+    }
+
+    #[tokio::test]
+    async fn should_mark_only_the_matching_successful_push_input_as_scraped() {
+        use product_core::{product::ProductAddress, shops_product_id::ShopsProductId};
+        use product_service::use_cases::commands::upsert_product::UpsertProductCommand;
+        use shop_core::shop_id::ShopId;
+
+        fn item(shop_id: ShopId, product_id: &str) -> ProductPushItem {
+            ProductPushItem {
+                command: UpsertProductCommand {
+                    shop_id,
+                    seller_id: shop_id,
+                    shops_product_id: ShopsProductId::from(product_id),
+                    address: ProductAddress::default(),
+                    title: None,
+                    description: None,
+                    price: None,
+                    price_estimate_min: None,
+                    price_estimate_max: None,
+                    state: None,
+                    url: None,
+                    images: Default::default(),
+                    auction_start: None,
+                    auction_end: None,
+                },
+                raw_attributes: Default::default(),
+            }
+        }
+
+        fn meta(shop_id: ShopId, url: &str, hash: &str) -> CandidateMeta {
+            CandidateMeta {
+                shop_id,
+                url: url::Url::parse(url).unwrap(),
+                hash: hash.to_owned(),
+                snapshot: ProductSnapshot {
+                    price: None,
+                    price_estimate_min: None,
+                    price_estimate_max: None,
+                    url: url.to_owned(),
+                    images_hash: String::new(),
+                    auction_start: None,
+                    auction_end: None,
+                    state: "AVAILABLE".to_owned(),
+                },
+            }
+        }
+
+        let first_shop_id = ShopId::new();
+        let second_shop_id = ShopId::new();
+        let first_url = url::Url::parse("https://first.example/product").unwrap();
+        let mut push_service = MockProductPushService::new();
+        push_service.expect_push().once().returning(|products| {
+            assert_eq!(products.len(), 2);
+            Box::pin(async { vec![true, false] })
+        });
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_as_scraped()
+            .once()
+            .withf(move |shop_id, url, hash, _| {
+                *shop_id == first_shop_id && url == &first_url && hash == "first"
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+
+        let push_service: Arc<dyn ProductPushService> = Arc::new(push_service);
+        let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
+
+        flush_batch(
+            &push_service,
+            &scraper_candidates,
+            vec![
+                (
+                    item(first_shop_id, "same-product-id"),
+                    meta(first_shop_id, "https://first.example/product", "first"),
+                ),
+                (
+                    item(second_shop_id, "same-product-id"),
+                    meta(second_shop_id, "https://second.example/product", "second"),
+                ),
+            ],
+        )
+        .await;
     }
 
     fn get_candidates_once_by_domain<F>(

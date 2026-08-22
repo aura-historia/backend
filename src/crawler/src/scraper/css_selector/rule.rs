@@ -1,10 +1,63 @@
-use common::string_newtype;
 use schemars::JsonSchema;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-string_newtype!(CssSelector, derives(Serialize, Deserialize, JsonSchema));
+macro_rules! local_string_newtype {
+    ($name:ident) => {
+        #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+        #[derive(
+            Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize, JsonSchema,
+        )]
+        pub struct $name(String);
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str(&self.0)
+            }
+        }
+
+        impl From<$name> for String {
+            fn from(value: $name) -> Self {
+                value.0
+            }
+        }
+
+        impl From<String> for $name {
+            fn from(value: String) -> Self {
+                Self(value)
+            }
+        }
+
+        impl From<&String> for $name {
+            fn from(value: &String) -> Self {
+                Self(value.to_owned())
+            }
+        }
+
+        impl From<&str> for $name {
+            fn from(value: &str) -> Self {
+                Self(value.to_owned())
+            }
+        }
+
+        impl AsRef<str> for $name {
+            fn as_ref(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl std::ops::Deref for $name {
+            type Target = str;
+
+            fn deref(&self) -> &str {
+                &self.0
+            }
+        }
+    };
+}
+
+local_string_newtype!(CssSelector);
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -25,10 +78,7 @@ pub struct ExtractionRule {
     pub cardinality: ExtractionCardinality,
 }
 
-string_newtype!(
-    HtmlAttributeName,
-    derives(Serialize, Deserialize, JsonSchema)
-);
+local_string_newtype!(HtmlAttributeName);
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
