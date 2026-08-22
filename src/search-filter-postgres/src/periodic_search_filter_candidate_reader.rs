@@ -1,0 +1,111 @@
+use crate::mapping::{name, product_search_from_json, state, user_search_filter_uuid};
+use application::error::box_error;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_service::ports::{
+    PeriodicSearchFilterCandidate, PeriodicSearchFilterCandidateReadError,
+    PeriodicSearchFilterCandidateReader,
+};
+use sqlx::{FromRow, PgPool};
+use time::OffsetDateTime;
+
+#[derive(Clone)]
+pub struct SqlxPeriodicSearchFilterCandidateReader {
+    pool: PgPool,
+}
+
+impl SqlxPeriodicSearchFilterCandidateReader {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+#[derive(Debug, FromRow)]
+struct PeriodicCandidateRow {
+    user_search_filter_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+    name: String,
+    state: String,
+    search: serde_json::Value,
+    embedding: Option<Vec<f32>>,
+    created: OffsetDateTime,
+    matched_through: OffsetDateTime,
+    version: i64,
+}
+
+#[async_trait::async_trait]
+impl PeriodicSearchFilterCandidateReader for SqlxPeriodicSearchFilterCandidateReader {
+    async fn find_active_page(
+        &self,
+        after: Option<UserSearchFilterId>,
+        page_size: usize,
+        run_started_at: OffsetDateTime,
+    ) -> Result<Vec<PeriodicSearchFilterCandidate>, PeriodicSearchFilterCandidateReadError> {
+        let after = after
+            .map(user_search_filter_uuid)
+            .transpose()
+            .map_err(
+                |source| PeriodicSearchFilterCandidateReadError::ReadFailed {
+                    source: box_error(source),
+                },
+            )?;
+        let limit = i64::try_from(page_size).map_err(|source| {
+            PeriodicSearchFilterCandidateReadError::ReadFailed {
+                source: box_error(source),
+            }
+        })?;
+        sqlx::query_as::<_, PeriodicCandidateRow>(
+            r#"
+            SELECT filter.user_search_filter_id, filter.user_id, filter.name, filter.state,
+                   filter.search, filter.embedding, filter.created,
+                   COALESCE(progress.matched_through, filter.created) AS matched_through,
+                   filter.version
+            FROM search_filters filter
+            LEFT JOIN search_filter_periodic_match_state progress
+              ON progress.user_search_filter_id = filter.user_search_filter_id
+            WHERE filter.state = 'ACTIVE'
+              AND filter.enhanced_search_description IS NOT NULL
+              AND filter.created <= $1
+              AND ($2::uuid IS NULL OR filter.user_search_filter_id > $2)
+            ORDER BY filter.user_search_filter_id ASC
+            LIMIT $3
+        "#,
+        )
+        .bind(run_started_at)
+        .bind(after)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(
+            |source| PeriodicSearchFilterCandidateReadError::ReadFailed {
+                source: box_error(source),
+            },
+        )?
+        .into_iter()
+        .map(|row| {
+            Ok(PeriodicSearchFilterCandidate {
+                search_filter_id: UserSearchFilterId::from(row.user_search_filter_id),
+                user_id: user_core::user_id::UserId::from(row.user_id),
+                name: name(row.name).map_err(|source| {
+                    PeriodicSearchFilterCandidateReadError::InvalidPersistedState {
+                        source: box_error(source),
+                    }
+                })?,
+                version: row.version,
+                state: state(&row.state).map_err(|source| {
+                    PeriodicSearchFilterCandidateReadError::InvalidPersistedState {
+                        source: box_error(source),
+                    }
+                })?,
+                search: product_search_from_json(row.search).map_err(|source| {
+                    PeriodicSearchFilterCandidateReadError::InvalidPersistedState {
+                        source: box_error(source),
+                    }
+                })?,
+                embedding: row.embedding,
+                created: row.created,
+                matched_through: row.matched_through,
+            })
+        })
+        .collect()
+    }
+}

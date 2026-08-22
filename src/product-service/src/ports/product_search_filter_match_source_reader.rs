@@ -42,6 +42,13 @@ impl ProductSearchFilterMatchSourceEventKind {
     }
 }
 
+/// Exact immutable Product event reference for batched source reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ProductSearchFilterMatchSourceRef {
+    pub product_id: ProductId,
+    pub event_id: EventId,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductSearchFilterMatchSource {
     /// Stable identifier of the source Product event.
@@ -109,6 +116,26 @@ pub trait ProductSearchFilterMatchSourceReader: Send {
         event_id: EventId,
         product_id: ProductId,
     ) -> Result<Option<ProductSearchFilterMatchSource>, ProductSearchFilterMatchSourceReadError>;
+
+    /// Reads exact Product event sources in one batch. Missing refs are absent.
+    async fn find_sources(
+        &mut self,
+        refs: &[ProductSearchFilterMatchSourceRef],
+    ) -> Result<
+        HashMap<ProductSearchFilterMatchSourceRef, ProductSearchFilterMatchSource>,
+        ProductSearchFilterMatchSourceReadError,
+    > {
+        let mut sources = HashMap::new();
+        for reference in refs {
+            if let Some(source) = self
+                .find_source(reference.event_id, reference.product_id)
+                .await?
+            {
+                sources.insert(*reference, source);
+            }
+        }
+        Ok(sources)
+    }
 }
 
 pub trait ProductSearchFilterMatchSourceReaderFactory<Tx>: Send + Sync {

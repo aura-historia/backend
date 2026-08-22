@@ -89,6 +89,7 @@ pub struct ProductPricing {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductPriceValuationBasis {
+    Current,
     Event,
     Sale,
 }
@@ -96,6 +97,7 @@ pub enum ProductPriceValuationBasis {
 impl ProductPriceValuationBasis {
     pub fn as_db_str(self) -> &'static str {
         match self {
+            Self::Current => "CURRENT",
             Self::Event => "EVENT",
             Self::Sale => "SALE",
         }
@@ -103,6 +105,7 @@ impl ProductPriceValuationBasis {
 
     pub fn from_db_str(value: &str) -> Option<Self> {
         match value {
+            "CURRENT" => Some(Self::Current),
             "EVENT" => Some(Self::Event),
             "SALE" => Some(Self::Sale),
             _ => None,
@@ -609,6 +612,23 @@ mod tests {
             sold_at: OffsetDateTime::UNIX_EPOCH,
             fx_rate_id: FxRateId::new(),
         }
+    }
+
+    #[test]
+    fn should_round_trip_product_price_valuation_basis_database_values() {
+        for (basis, database_value) in [
+            (ProductPriceValuationBasis::Current, "CURRENT"),
+            (ProductPriceValuationBasis::Event, "EVENT"),
+            (ProductPriceValuationBasis::Sale, "SALE"),
+        ] {
+            assert_eq!(database_value, basis.as_db_str());
+            assert_eq!(
+                Some(basis),
+                ProductPriceValuationBasis::from_db_str(database_value)
+            );
+        }
+
+        assert_eq!(None, ProductPriceValuationBasis::from_db_str("current"));
     }
 
     #[test]

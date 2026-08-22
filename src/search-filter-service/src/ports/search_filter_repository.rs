@@ -9,7 +9,6 @@ pub struct PersistedSearchFilter {
     pub filter: SearchFilter,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
-    pub last_hybrid_search_matched: OffsetDateTime,
     pub version: i64,
 }
 

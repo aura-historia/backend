@@ -1144,7 +1144,6 @@ mod tests {
             embedding: None,
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,
-            last_hybrid_search_matched: OffsetDateTime::UNIX_EPOCH,
         }
     }
 

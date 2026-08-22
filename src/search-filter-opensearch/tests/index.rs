@@ -263,7 +263,6 @@ fn sample_view(query_text: &str) -> SearchFilterView {
         embedding: None,
         created: datetime!(2026-01-01 00:00:00 UTC),
         updated: datetime!(2026-01-01 00:00:00 UTC),
-        last_hybrid_search_matched: datetime!(2026-01-01 00:00:00 UTC),
     }
 }
 

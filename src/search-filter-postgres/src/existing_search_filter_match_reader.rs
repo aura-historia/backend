@@ -1,0 +1,46 @@
+use crate::mapping::user_search_filter_uuid;
+use application::error::box_error;
+use product_core::product_id::ProductId;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_service::ports::{
+    ExistingSearchFilterMatchReadError, ExistingSearchFilterMatchReader,
+};
+use sqlx::PgPool;
+use std::collections::HashSet;
+
+#[derive(Clone)]
+pub struct SqlxExistingSearchFilterMatchReader {
+    pool: PgPool,
+}
+impl SqlxExistingSearchFilterMatchReader {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait::async_trait]
+impl ExistingSearchFilterMatchReader for SqlxExistingSearchFilterMatchReader {
+    async fn find_existing_product_ids(
+        &self,
+        search_filter_id: UserSearchFilterId,
+        product_ids: &[ProductId],
+    ) -> Result<HashSet<ProductId>, ExistingSearchFilterMatchReadError> {
+        if product_ids.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let search_filter_id = user_search_filter_uuid(search_filter_id).map_err(|source| {
+            ExistingSearchFilterMatchReadError::ReadFailed {
+                source: box_error(source),
+            }
+        })?;
+        let ids = product_ids
+            .iter()
+            .copied()
+            .map(uuid::Uuid::from)
+            .collect::<Vec<_>>();
+        let existing = sqlx::query_scalar::<_, uuid::Uuid>("SELECT product_id FROM search_filter_matches WHERE user_search_filter_id = $1 AND product_id = ANY($2)")
+            .bind(search_filter_id).bind(ids).fetch_all(&self.pool).await
+            .map_err(|source| ExistingSearchFilterMatchReadError::ReadFailed { source: box_error(source) })?;
+        Ok(existing.into_iter().map(ProductId::from).collect())
+    }
+}
