@@ -78,33 +78,13 @@ jobs:
     strategy:
       matrix:
         crate:
-          - src/search-filter-api
-          - src/search-filter-lambda/src/search-filter-lambda-opensearch-sync
-          - src/search-filter-lambda/src/search-filter-lambda-percolate-product
-          - src/product-api
-          - src/product-api-partner
-          - src/product-watchlist-api
           - src/product-pipeline/src/product-pipeline-embed-text
           - src/product-pipeline/src/product-pipeline-translate
-          - src/product-lambda/src/product-lambda-materialize-opensearch
-          - src/product-lambda/src/product-lambda-ingest-partner-products
-          - src/product-lambda/src/product-lambda-delete-product
-          - src/shop-api
-          - src/webhook-api
-          - src/shop-lambda/src/shop-lambda-opensearch-index
           - src/shopify-lambda
-          - src/user-api
-          - src/oauth-api
-          - src/user-lambda/src/user-lambda-index-opensearch
-          - src/user-lambda/src/user-lambda-tier-update
-          - src/partner-shop-application-api
-          - src/partner-shop-application-lambda
           - src/cognito-post-confirmation
           - src/cloudwatch-log-retention-lambda
-          - src/newsletter-api
           - src/fxrate-lambda
           - src/stripe-lambda
-          - src/stripe-api
     steps:
       - uses: actions/checkout@v7
 

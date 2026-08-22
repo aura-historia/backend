@@ -147,33 +147,9 @@ function dynamoAlarm(
   });
 }
 
-const apiLambdaKeys = new Set<LambdaKey>([
-  "newsletterApi",
-  "oauthApi",
-  "partnerShopApplicationApi",
-  "productApi",
-  "productApiPartner",
-  "productWatchlistApi",
-  "searchFilterApi",
-  "shopApi",
-  "stripeApi",
-  "userApi",
-  "webhookApi",
-]);
+const apiLambdaKeys = new Set<LambdaKey>();
 
-const queueWorkerKeys = new Set<LambdaKey>([
-  "productMaterializeOpenSearch",
-  "productPartnerIngest",
-  "productPipelineEmbedText",
-  "productPipelineTranslate",
-
-  "searchFilterOpenSearchSync",
-  "searchFilterPercolateProduct",
-  "shopOpenSearchIndex",
-  "shopify",
-  "userOpenSearchIndex",
-  "userTierUpdate",
-]);
+const queueWorkerKeys = new Set<LambdaKey>(["shopify"]);
 
 function toKebabCase(value: string): string {
   return value
