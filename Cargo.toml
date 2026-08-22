@@ -7,6 +7,7 @@ edition = "2024"
 application = { workspace = true }
 aura-historia-api = { workspace = true }
 aura-historia-worker = { workspace = true }
+aura-historia-cron = { workspace = true }
 platform-observability = { workspace = true }
 platform-opensearch = { workspace = true }
 platform-postgres = { workspace = true }
@@ -70,6 +71,7 @@ members = [
     "src/application",
     "src/aura-historia-api",
     "src/aura-historia-worker",
+    "src/aura-historia-cron",
     "src/aws-tests",
     "src/billing-service",
     "src/billing-stripe",
@@ -141,6 +143,7 @@ members = [
 [workspace.dependencies]
 aura-historia-api = { path = "src/aura-historia-api" }
 aura-historia-worker = { path = "src/aura-historia-worker" }
+aura-historia-cron = { path = "src/aura-historia-cron" }
 async-stream = "0.3.6"
 base64 = "0.23.0"
 async-trait = "0.1.89"
@@ -161,6 +164,8 @@ aws-sdk-sfn = "1.107.0"
 aws-sdk-cloudwatch = "1.111.0"
 aws-sdk-cloudwatchlogs = "1.135.0"
 aws_lambda_events = { version = "1.2.0", default-features = false }
+chrono = "0.4"
+cron_tab = { version = "=0.2.14", default-features = false, features = ["async"] }
 cloudwatch-log-retention-lambda = { path = "src/cloudwatch-log-retention-lambda" }
 common = { path = "src/common" }
 credential-core = { path = "src/credential-core" }

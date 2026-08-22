@@ -262,11 +262,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "aura-historia-cron"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "cron_tab",
+ "platform-observability",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "aura-historia-parent"
 version = "0.1.0"
 dependencies = [
  "application",
  "aura-historia-api",
+ "aura-historia-cron",
  "aura-historia-worker",
  "aws-tests",
  "cloudwatch-log-retention-lambda",
@@ -2018,6 +2033,41 @@ dependencies = [
  "domain-primitives",
  "serde",
  "uuid",
+]
+
+[[package]]
+name = "cron"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "089df96cf6a25253b4b6b6744d86f91150a3d4df546f31a95def47976b8cba97"
+dependencies = [
+ "chrono",
+ "once_cell",
+ "phf 0.11.3",
+ "winnow 0.7.15",
+]
+
+[[package]]
+name = "cron_tab"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b96f824a908f7e39d734d51e9f3848542131b5d50d2a02532ebcc381336e62da"
+dependencies = [
+ "chrono",
+ "cron",
+ "crossbeam-channel",
+ "futures",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
+name = "crossbeam-channel"
+version = "0.5.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d85363c37faeca707aef026efa9f3b34d077bce547e48f770770625c6013679e"
+dependencies = [
+ "crossbeam-utils",
 ]
 
 [[package]]
