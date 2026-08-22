@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/integrate.yml"
       - ".github/workflows/deploy.yml"
+      - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "depgraph-rules.toml"
@@ -18,6 +19,7 @@ on:
     paths:
       - ".github/workflows/integrate.yml"
       - ".github/workflows/deploy.yml"
+      - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "depgraph-rules.toml"
@@ -88,10 +90,8 @@ jobs:
             echo "sha=HEAD^" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
+      - name: Install Toolchain
+        run: rustup show
 
       - uses: Swatinem/rust-cache@v2
 
@@ -119,8 +119,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Toolchain
+        run: rustup show
 
       - uses: Swatinem/rust-cache@v2
 
@@ -157,10 +157,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools
+      - name: Install Toolchain
+        run: rustup show
 
       - uses: Swatinem/rust-cache@v2
 
