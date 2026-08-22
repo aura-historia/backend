@@ -1,4 +1,6 @@
-use crate::llm_runtime::{CrawlerLlmGovernor, generate_with_governor};
+use crate::llm_runtime::{
+    CrawlerLlmGovernor, ValidatedGenerationError, generate_validated_with_governor,
+};
 use large_language_model::{
     GenerationOptions, LargeLanguageModel, LargeLanguageModelError, LlmOperation,
     StructuredGenerationRequest,
@@ -6,14 +8,14 @@ use large_language_model::{
 use regex::Regex;
 use schemars::JsonSchema;
 use serde::Deserialize;
-use std::collections::HashSet;
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc, time::Duration};
 use thiserror::Error;
 use tracing::{debug, info};
 
 use crate::spider::utils::url::CrawledUrl;
 
 const SAMPLE_LIMIT: usize = 20;
+const MAX_VALIDATION_ATTEMPTS: usize = 3;
 const SYSTEM_INSTRUCTION: &str = "You are an expert at recognising e-commerce URL structures.\n\
     TASK: return a single Rust-compatible regex that matches EVERY individual \
     product-detail page URL in the list below and rejects everything else.\n\
@@ -91,9 +93,11 @@ impl<Llm: LargeLanguageModel> UrlClassificationServiceImpl<Llm> {
     fn build_generation_request(
         all_urls: &[String],
     ) -> Result<StructuredGenerationRequest, UrlClassificationError> {
-        let response_schema = serde_json::to_value(schemars::schema_for!(PatternResponse))
+        let response_json_schema = serde_json::to_value(schemars::schema_for!(PatternResponse))
             .map_err(|error| {
-                UrlClassificationError::Llm(format!("Failed to serialize response schema: {error}"))
+                UrlClassificationError::Llm(format!(
+                    "Failed to serialize response JSON schema: {error}"
+                ))
             })?;
 
         Ok(StructuredGenerationRequest {
@@ -101,10 +105,11 @@ impl<Llm: LargeLanguageModel> UrlClassificationServiceImpl<Llm> {
             system_instruction: SYSTEM_INSTRUCTION.to_owned(),
             prompt: Self::build_prompt(all_urls),
             image_urls: Vec::new(),
-            response_schema,
+            response_json_schema,
             options: GenerationOptions {
                 temperature: 0.0,
                 max_output_tokens: 512,
+                request_timeout: Duration::from_secs(180),
             },
         })
     }
@@ -160,23 +165,30 @@ impl<Llm: LargeLanguageModel> UrlClassificationService for UrlClassificationServ
         &self,
         all_urls: &[String],
     ) -> Result<Option<Regex>, UrlClassificationError> {
-        let response: PatternResponse = generate_with_governor(
-            &self.llm,
-            self.governor.as_ref(),
-            Self::build_generation_request(all_urls)?,
-        )
-        .await
-        .map_err(UrlClassificationError::from)?;
+        let pattern =
+            generate_validated_with_governor::<_, PatternResponse, Option<Regex>, (), _, _>(
+                &self.llm,
+                self.governor.as_ref(),
+                Self::build_generation_request(all_urls)?,
+                MAX_VALIDATION_ATTEMPTS,
+                |response| {
+                    let pattern = response.pattern.trim();
+                    if pattern.is_empty() {
+                        return Ok(None);
+                    }
+                    Ok(Regex::new(pattern).ok())
+                },
+                |_: &()| "invalid_regex",
+            )
+            .await
+            .map_err(|error| match error {
+                ValidatedGenerationError::Model(error) => UrlClassificationError::from(error),
+                ValidatedGenerationError::Validation(()) => {
+                    UrlClassificationError::Llm("URL response validation failed".to_owned())
+                }
+            })?;
 
-        let pattern = response.pattern.trim();
-        if pattern.is_empty() {
-            return Ok(None);
-        }
-
-        match Regex::new(pattern) {
-            Ok(regex) => Ok(Some(regex)),
-            Err(_) => Ok(None),
-        }
+        Ok(pattern)
     }
 
     #[tracing::instrument(
@@ -216,6 +228,46 @@ impl<Llm: LargeLanguageModel> UrlClassificationService for UrlClassificationServ
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    struct SequenceLargeLanguageModel {
+        responses: Mutex<VecDeque<Result<serde_json::Value, LargeLanguageModelError>>>,
+        prompts: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl LargeLanguageModel for SequenceLargeLanguageModel {
+        async fn generate<Output>(
+            &self,
+            request: StructuredGenerationRequest,
+        ) -> Result<Output, LargeLanguageModelError>
+        where
+            Output: serde::de::DeserializeOwned + Send,
+        {
+            self.prompts
+                .lock()
+                .map_err(|error| LargeLanguageModelError::InvalidResponse {
+                    source: Box::new(std::io::Error::other(error.to_string())),
+                })?
+                .push(request.prompt);
+            let response = self
+                .responses
+                .lock()
+                .map_err(|error| LargeLanguageModelError::InvalidResponse {
+                    source: Box::new(std::io::Error::other(error.to_string())),
+                })?
+                .pop_front()
+                .ok_or_else(|| LargeLanguageModelError::Permanent {
+                    source: Box::new(std::io::Error::other("URL response sequence exhausted")),
+                })??;
+            serde_json::from_value(response).map_err(|source| {
+                LargeLanguageModelError::InvalidResponse {
+                    source: Box::new(source),
+                }
+            })
+        }
+    }
 
     struct FixedLargeLanguageModel {
         response: &'static str,
@@ -261,9 +313,10 @@ mod tests {
                 assert!(request.image_urls.is_empty());
                 assert_eq!(request.options.temperature, 0.0);
                 assert_eq!(request.options.max_output_tokens, 512);
+                assert_eq!(request.options.request_timeout, Duration::from_secs(180));
                 assert_eq!(
                     request
-                        .response_schema
+                        .response_json_schema
                         .pointer("/properties/pattern/type")
                         .and_then(serde_json::Value::as_str),
                     Some("string")
@@ -271,6 +324,28 @@ mod tests {
             }
             Err(error) => panic!("should serialize PatternResponse schema: {error}"),
         }
+    }
+
+    #[tokio::test]
+    async fn should_correct_malformed_json_before_returning_url_pattern() {
+        let prompts = Arc::new(Mutex::new(Vec::new()));
+        let model = SequenceLargeLanguageModel {
+            responses: Mutex::new(VecDeque::from([
+                Err(LargeLanguageModelError::InvalidResponse {
+                    source: Box::new(std::io::Error::other("malformed")),
+                }),
+                Ok(serde_json::json!({"pattern":r"/product/\d+$"})),
+            ])),
+            prompts: Arc::clone(&prompts),
+        };
+        let result = UrlClassificationServiceImpl::new(model, None)
+            .find_product_url_pattern(&["https://example.com/product/1".to_owned()])
+            .await;
+
+        assert!(matches!(result, Ok(Some(_))));
+        let prompts = prompts.lock().unwrap_or_else(|error| error.into_inner());
+        assert_eq!(prompts.len(), 2);
+        assert!(prompts[1].contains("response_not_valid_json"));
     }
 
     #[tokio::test]

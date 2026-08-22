@@ -6,13 +6,17 @@ use indexmap::IndexSet;
 use localization::{Language, Localized};
 use money::Price;
 use product_core::{
-    description::Description, product::ProductAddress, product_state::ProductState, title::Title,
+    description::Description, product::ProductAddress, product_id::ProductKey,
+    product_state::ProductState, title::Title,
 };
 use product_service::use_cases::commands::upsert_product::{
     UpsertProductCommand, UpsertProductUseCase,
 };
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 use tracing::{debug, error, warn};
 
 use crate::scraper::candidate_service::ScraperCandidate;
@@ -45,6 +49,83 @@ impl ProductPushServiceImpl {
     }
 }
 
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+enum DuplicateProductCommandError {
+    #[error("duplicate commands have different Product keys")]
+    ProductKeyMismatch,
+    #[error("duplicate commands have different seller IDs")]
+    SellerMismatch,
+}
+
+struct CoalescedProductPush {
+    command: UpsertProductCommand,
+    input_indices: Vec<usize>,
+    valid: bool,
+}
+
+fn merge_upsert_command(
+    current: &mut UpsertProductCommand,
+    newer: UpsertProductCommand,
+) -> Result<(), DuplicateProductCommandError> {
+    if current.shop_id != newer.shop_id || current.shops_product_id != newer.shops_product_id {
+        return Err(DuplicateProductCommandError::ProductKeyMismatch);
+    }
+    if current.seller_id != newer.seller_id {
+        return Err(DuplicateProductCommandError::SellerMismatch);
+    }
+
+    let UpsertProductCommand {
+        address,
+        title,
+        description,
+        price,
+        price_estimate_min,
+        price_estimate_max,
+        state,
+        url,
+        images,
+        auction_start,
+        auction_end,
+        ..
+    } = newer;
+
+    if let Some(value) = address.structured {
+        current.address.structured = Some(value);
+    }
+    if let Some(value) = address.geo {
+        current.address.geo = Some(value);
+    }
+    if let Some(value) = title {
+        current.title = Some(value);
+    }
+    if let Some(value) = description {
+        current.description = Some(value);
+    }
+    if let Some(value) = price {
+        current.price = Some(value);
+    }
+    if let Some(value) = price_estimate_min {
+        current.price_estimate_min = Some(value);
+    }
+    if let Some(value) = price_estimate_max {
+        current.price_estimate_max = Some(value);
+    }
+    if let Some(value) = state {
+        current.state = Some(value);
+    }
+    if let Some(value) = url {
+        current.url = Some(value);
+    }
+    current.images = images;
+    if let Some(value) = auction_start {
+        current.auction_start = Some(value);
+    }
+    if let Some(value) = auction_end {
+        current.auction_end = Some(value);
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl ProductPushService for ProductPushServiceImpl {
     #[tracing::instrument(
@@ -53,28 +134,73 @@ impl ProductPushService for ProductPushServiceImpl {
         fields(total = products.len())
     )]
     async fn push(&self, products: Vec<ProductPushItem>) -> Vec<bool> {
-        let mut succeeded = Vec::with_capacity(products.len());
+        let mut results = vec![false; products.len()];
+        let mut group_by_key = HashMap::<ProductKey, usize>::new();
+        let mut groups = Vec::<CoalescedProductPush>::new();
 
-        for product in products {
+        for (input_index, product) in products.into_iter().enumerate() {
             let command = product.command;
-            let context = crawler_operation_context(&command);
-            match self.upsert_product.execute(&context, command.clone()).await {
-                Ok(_) => succeeded.push(true),
+            let key = ProductKey::new(command.shop_id, command.shops_product_id.clone());
+            if let Some(&group_index) = group_by_key.get(&key) {
+                let group = &mut groups[group_index];
+                group.input_indices.push(input_index);
+                if group.valid
+                    && let Err(error) = merge_upsert_command(&mut group.command, command)
+                {
+                    group.valid = false;
+                    warn!(
+                        shop_id = %group.command.shop_id,
+                        shops_product_id = %group.command.shops_product_id,
+                        error_kind = %duplicate_product_command_error_kind(&error),
+                        "Rejecting conflicting duplicate Product commands"
+                    );
+                }
+            } else {
+                group_by_key.insert(key, groups.len());
+                groups.push(CoalescedProductPush {
+                    command,
+                    input_indices: vec![input_index],
+                    valid: true,
+                });
+            }
+        }
+
+        for group in groups {
+            if !group.valid {
+                continue;
+            }
+            let context = crawler_operation_context(&group.command);
+            let succeeded = match self
+                .upsert_product
+                .execute(&context, group.command.clone())
+                .await
+            {
+                Ok(_) => true,
                 Err(error) => {
                     warn!(
                         error = %error,
-                        shop_id = %command.shop_id,
-                        shops_product_id = %command.shops_product_id,
+                        shop_id = %group.command.shop_id,
+                        shops_product_id = %group.command.shops_product_id,
                         request_id = %context.request_id,
                         correlation_id = %context.correlation_id,
                         "Product upsert failed; it will be retried on the next scrape cycle"
                     );
-                    succeeded.push(false);
+                    false
                 }
+            };
+            for input_index in group.input_indices {
+                results[input_index] = succeeded;
             }
         }
 
-        succeeded
+        results
+    }
+}
+
+fn duplicate_product_command_error_kind(error: &DuplicateProductCommandError) -> &'static str {
+    match error {
+        DuplicateProductCommandError::ProductKeyMismatch => "product_key_mismatch",
+        DuplicateProductCommandError::SellerMismatch => "seller_mismatch",
     }
 }
 
@@ -402,6 +528,131 @@ mod tests {
             assert_eq!(context.request_id.as_str(), product_key);
             assert_eq!(context.correlation_id.as_str(), product_key);
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_coalesce_duplicate_product_keys_and_fan_out_success()
+    -> Result<(), url::ParseError> {
+        let use_case = Arc::new(FakeUpsertProductUseCase::default());
+        let commands = Arc::clone(&use_case.commands);
+        let service = ProductPushServiceImpl::new(use_case);
+        let item = push_item()?;
+
+        assert_eq!(
+            service.push(vec![item.clone(), item]).await,
+            vec![true, true]
+        );
+        let executed = commands
+            .lock()
+            .map(|commands| commands.clone())
+            .unwrap_or_else(|error| error.into_inner().clone());
+        assert_eq!(executed.len(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_merge_later_optional_values_without_erasing_with_none()
+    -> Result<(), url::ParseError> {
+        let use_case = Arc::new(FakeUpsertProductUseCase::default());
+        let commands = Arc::clone(&use_case.commands);
+        let service = ProductPushServiceImpl::new(use_case);
+        let mut first = push_item()?;
+        first.command.description = Some(Localized::new(
+            Language::De,
+            Description::from("Earlier description"),
+        ));
+        let mut second = first.clone();
+        second.command.title = Some(Localized::new(Language::En, Title::from("Later title")));
+        second.command.description = None;
+
+        assert_eq!(service.push(vec![first, second]).await, vec![true, true]);
+        let executed = commands
+            .lock()
+            .map(|commands| commands.clone())
+            .unwrap_or_else(|error| error.into_inner().clone());
+        assert_eq!(executed.len(), 1);
+        assert_eq!(
+            executed[0]
+                .title
+                .as_ref()
+                .map(|title| title.payload.as_ref()),
+            Some("Later title")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_replace_images_with_newest_snapshot_including_empty_set()
+    -> Result<(), url::ParseError> {
+        let use_case = Arc::new(FakeUpsertProductUseCase::default());
+        let commands = Arc::clone(&use_case.commands);
+        let service = ProductPushServiceImpl::new(use_case);
+        let mut first = push_item()?;
+        first
+            .command
+            .images
+            .insert(product_core::product_image::ProductImage {
+                url: Url::parse("https://example.com/image.jpg")?,
+                prohibited_content: product_core::prohibited_content::ProhibitedContent::None,
+            });
+        let mut second = first.clone();
+        second.command.images.clear();
+
+        assert_eq!(service.push(vec![first, second]).await, vec![true, true]);
+        let executed = commands
+            .lock()
+            .map(|commands| commands.clone())
+            .unwrap_or_else(|error| error.into_inner().clone());
+        assert!(executed[0].images.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_fan_out_group_failure_and_reject_seller_mismatch() -> Result<(), url::ParseError>
+    {
+        let use_case = Arc::new(FakeUpsertProductUseCase {
+            fail: true,
+            ..Default::default()
+        });
+        let commands = Arc::clone(&use_case.commands);
+        let service = ProductPushServiceImpl::new(use_case);
+        let first = push_item()?;
+        let second = first.clone();
+
+        assert_eq!(service.push(vec![first, second]).await, vec![false, false]);
+        assert_eq!(
+            commands.lock().map(|commands| commands.len()).unwrap_or(0),
+            1
+        );
+
+        let use_case = Arc::new(FakeUpsertProductUseCase::default());
+        let commands = Arc::clone(&use_case.commands);
+        let service = ProductPushServiceImpl::new(use_case);
+        let first = push_item()?;
+        let mut second = first.clone();
+        second.command.seller_id = ShopId::new();
+        assert_eq!(service.push(vec![first, second]).await, vec![false, false]);
+        assert_eq!(
+            commands.lock().map(|commands| commands.len()).unwrap_or(0),
+            0
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_merge_matching_product_commands_with_explicit_invariants()
+    -> Result<(), url::ParseError> {
+        let mut current = command()?;
+        let newer = current.clone();
+        assert!(merge_upsert_command(&mut current, newer).is_ok());
+
+        let mut mismatched = current.clone();
+        mismatched.seller_id = ShopId::new();
+        assert_eq!(
+            merge_upsert_command(&mut current, mismatched),
+            Err(DuplicateProductCommandError::SellerMismatch)
+        );
         Ok(())
     }
 

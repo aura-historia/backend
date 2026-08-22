@@ -1,4 +1,6 @@
-use crate::llm_runtime::{CrawlerLlmGovernor, generate_with_governor};
+use crate::llm_runtime::{
+    CrawlerLlmGovernor, ValidatedGenerationError, generate_validated_with_governor,
+};
 use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
 use crate::scraper::normalization::state_mapping_repository::ProductStateMappingRepository;
 use large_language_model::{
@@ -9,7 +11,7 @@ use product_core::product_state::ProductState;
 use regex::Regex;
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tracing::{debug, warn};
 
@@ -49,8 +51,8 @@ pub enum StateMappingServiceError {
     #[error("LLM returned an invalid state mapping response")]
     UnparsableResponse,
 
-    #[error("failed to serialize state mapping response schema")]
-    ResponseSchemaSerialization(#[source] serde_json::Error),
+    #[error("failed to serialize state mapping response JSON schema")]
+    ResponseJsonSchemaSerialization(#[source] serde_json::Error),
 
     #[error("Database error: {0}")]
     DatabaseError(#[from] sqlx::Error),
@@ -108,20 +110,52 @@ enum ParsedLlmMappingResponse {
 }
 
 /// Validate the semantic parts that remain outside the JSON schema.
-fn parse_llm_response(
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+enum StateMappingResponseValidationError {
+    #[error("regex pattern is empty or invalid")]
+    InvalidRegex,
+}
+
+impl StateMappingResponseValidationError {
+    const fn feedback_code(&self) -> &'static str {
+        match self {
+            Self::InvalidRegex => "invalid_regex",
+        }
+    }
+}
+
+fn validate_llm_response(
     response: LlmMappingResponse,
-) -> Result<ParsedLlmMappingResponse, StateMappingServiceError> {
+) -> Result<ParsedLlmMappingResponse, StateMappingResponseValidationError> {
     match response {
         LlmMappingResponse::State { state } => Ok(ParsedLlmMappingResponse::State(state.into())),
         LlmMappingResponse::Regex { pattern, state } => {
             if pattern.trim().is_empty() || Regex::new(&pattern).is_err() {
-                return Err(StateMappingServiceError::UnparsableResponse);
+                return Err(StateMappingResponseValidationError::InvalidRegex);
             }
             Ok(ParsedLlmMappingResponse::Regex {
                 pattern,
                 state: state.into(),
             })
         }
+    }
+}
+
+#[cfg(test)]
+fn parse_llm_response(
+    response: LlmMappingResponse,
+) -> Result<ParsedLlmMappingResponse, StateMappingServiceError> {
+    validate_llm_response(response).map_err(|_| StateMappingServiceError::UnparsableResponse)
+}
+
+fn map_state_mapping_generation_error(
+    error: ValidatedGenerationError<StateMappingResponseValidationError>,
+) -> StateMappingServiceError {
+    match error {
+        ValidatedGenerationError::Model(error) => {
+            StateMappingServiceError::LargeLanguageModelError(error)
+        }
+        ValidatedGenerationError::Validation(_) => StateMappingServiceError::UnparsableResponse,
     }
 }
 
@@ -133,11 +167,12 @@ fn state_mapping_request(
         system_instruction: STATE_MAPPING_SYSTEM_INSTRUCTION.to_owned(),
         prompt: normalized_raw_state,
         image_urls: Vec::new(),
-        response_schema: serde_json::to_value(schema_for!(LlmMappingResponse))
-            .map_err(StateMappingServiceError::ResponseSchemaSerialization)?,
+        response_json_schema: serde_json::to_value(schema_for!(LlmMappingResponse))
+            .map_err(StateMappingServiceError::ResponseJsonSchemaSerialization)?,
         options: GenerationOptions {
             temperature: 0.0,
             max_output_tokens: 256,
+            request_timeout: Duration::from_secs(60),
         },
     })
 }
@@ -223,13 +258,23 @@ where
         raw: &str,
     ) -> Result<ProductStateMappingRecord, StateMappingServiceError> {
         let key = raw.trim().to_lowercase();
-        let response: LlmMappingResponse = generate_with_governor(
+        let parsed = generate_validated_with_governor::<
+            _,
+            LlmMappingResponse,
+            ParsedLlmMappingResponse,
+            StateMappingResponseValidationError,
+            _,
+            _,
+        >(
             &self.llm,
             self.governor.as_ref(),
             state_mapping_request(key.clone())?,
+            3,
+            validate_llm_response,
+            StateMappingResponseValidationError::feedback_code,
         )
-        .await?;
-        let parsed = parse_llm_response(response)?;
+        .await
+        .map_err(map_state_mapping_generation_error)?;
         let mapping_type = match &parsed {
             ParsedLlmMappingResponse::State(_) => "value",
             ParsedLlmMappingResponse::Regex { .. } => "regex",
@@ -370,7 +415,8 @@ mod tests {
     use super::*;
     use crate::scraper::normalization::state_mapping_repository::MockProductStateMappingRepository;
     use serde::de::DeserializeOwned;
-    use std::sync::Mutex;
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
 
     struct NoCallLlm;
 
@@ -430,6 +476,44 @@ mod tests {
                     })?;
             *captured = Some(request);
             serde_json::from_value(self.response.clone()).map_err(|source| {
+                LargeLanguageModelError::InvalidResponse {
+                    source: Box::new(source),
+                }
+            })
+        }
+    }
+
+    struct SequenceMappingLlm {
+        responses: Mutex<VecDeque<serde_json::Value>>,
+        requests: Arc<Mutex<Vec<StructuredGenerationRequest>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl LargeLanguageModel for SequenceMappingLlm {
+        async fn generate<Output>(
+            &self,
+            request: StructuredGenerationRequest,
+        ) -> Result<Output, LargeLanguageModelError>
+        where
+            Output: DeserializeOwned + Send,
+        {
+            self.requests
+                .lock()
+                .map_err(|error| LargeLanguageModelError::InvalidResponse {
+                    source: Box::new(std::io::Error::other(error.to_string())),
+                })?
+                .push(request);
+            let response = self
+                .responses
+                .lock()
+                .map_err(|error| LargeLanguageModelError::InvalidResponse {
+                    source: Box::new(std::io::Error::other(error.to_string())),
+                })?
+                .pop_front()
+                .ok_or_else(|| LargeLanguageModelError::Permanent {
+                    source: Box::new(std::io::Error::other("mapping response sequence exhausted")),
+                })?;
+            serde_json::from_value(response).map_err(|source| {
                 LargeLanguageModelError::InvalidResponse {
                     source: Box::new(source),
                 }
@@ -522,6 +606,39 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn should_correct_invalid_regex_before_returning_state_mapping() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let llm = SequenceMappingLlm {
+            responses: Mutex::new(VecDeque::from([
+                serde_json::json!({
+                    "mapping_type": "regex",
+                    "pattern": "[",
+                    "state": "AVAILABLE"
+                }),
+                serde_json::json!({
+                    "mapping_type": "state",
+                    "state": "SOLD"
+                }),
+            ])),
+            requests: Arc::clone(&requests),
+        };
+        let service = service(llm, MockProductStateMappingRepository::new());
+
+        let result = service.create_state_mapping("sold").await;
+        assert!(matches!(
+            result,
+            Ok(ProductStateMappingRecord {
+                normalized: ProductState::Sold,
+                mapping_type: StateMappingType::Value,
+                ..
+            })
+        ));
+        let requests = requests.lock().unwrap_or_else(|error| error.into_inner());
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1].prompt.contains("invalid_regex"));
+    }
+
     #[test]
     fn should_reject_blank_or_invalid_regex_structured_response() {
         let blank = parse_llm_response(LlmMappingResponse::Regex {
@@ -565,7 +682,7 @@ mod tests {
         assert!(request.image_urls.is_empty());
         assert_eq!(request.options.temperature, 0.0);
         assert_eq!(request.options.max_output_tokens, 256);
-        assert!(request.response_schema.is_object());
+        assert!(request.response_json_schema.is_object());
     }
 
     #[tokio::test]

@@ -1,18 +1,21 @@
-use crate::llm_runtime::{CrawlerLlmGovernor, generate_with_governor};
+use crate::llm_runtime::{
+    CrawlerLlmGovernor, ValidatedGenerationError, generate_validated_with_governor,
+};
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
 use crate::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepository;
+use application::error::box_error;
 use large_language_model::{
     GenerationOptions, LargeLanguageModel, LargeLanguageModelError, LlmOperation,
     StructuredGenerationRequest,
 };
 use prompt::{build_append_schema_instruction, build_create_schemas_instruction};
 use response::{
-    append_schema_generation_response_schema_json, parse_append_schema_response,
-    parse_product_schemas_response, product_schema_generation_response_schema_json,
+    ProductSchemaGenerationResponse, ProductSchemaResponseValidationError,
+    append_schema_generation_response_json_schema, product_schema_generation_response_json_schema,
 };
 use schemars::schema_for;
 use shop_core::shop_id::ShopId;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tracing::{debug, info};
 
@@ -36,6 +39,12 @@ pub enum ProductSchemaServiceError {
 
     #[error("NoTextResponse: {0}")]
     NoTextResponse(String),
+
+    #[error("structured product schema response failed validation")]
+    StructuredResponseValidation {
+        #[source]
+        source: application::error::BoxError,
+    },
 
     #[error("JsonParsingTargetSchemaError: {0}")]
     JsonParsingTargetSchemaError(serde_json::Error),
@@ -115,7 +124,7 @@ impl<CreateLlm, AppendLlm> ProductSchemaServiceImpl<CreateLlm, AppendLlm> {
 fn create_schema_generation_system_instruction() -> String {
     let schema = serde_json::to_string_pretty(&schema_for!(ProductCssSelectorSchema))
         .unwrap_or_else(|_| "Failed to generate schema".to_string());
-    let response_schema = product_schema_generation_response_schema_json();
+    let response_json_schema = product_schema_generation_response_json_schema();
     format!(
         "You are an e-commerce scraper-assistant for antiques creating extraction-schemas for HTML given product-pages.
             Return only JSON matching ProductSchemaGenerationResponse.
@@ -123,31 +132,46 @@ fn create_schema_generation_system_instruction() -> String {
             HIGH means the selectors are product-specific, deterministic, and safe to auto-approve when local validation passes.
             MEDIUM means the schema is plausible but needs human review. LOW means uncertain or weak selectors and needs human review.
             ProductCssSelectorSchema schema:\n\n {schema}\n\n
-            ProductSchemaGenerationResponse schema:\n\n {response_schema}",
+            ProductSchemaGenerationResponse schema:\n\n {response_json_schema}",
     )
 }
 
 fn append_schema_generation_system_instruction() -> String {
     let schema = serde_json::to_string_pretty(&schema_for!(ProductCssSelectorSchema))
         .unwrap_or_else(|_| "Failed to generate schema".to_string());
-    let response_schema = append_schema_generation_response_schema_json();
+    let response_json_schema = append_schema_generation_response_json_schema();
     format!(
         "You are an e-commerce scraper-assistant for antiques repairing extraction-schemas for one HTML page.
             Return only JSON matching Append ProductSchemaGenerationResponse.
             The response may classify the page as product, removed, or not_product.
             ProductCssSelectorSchema schema:\n\n {schema}\n\n
-            Append ProductSchemaGenerationResponse schema:\n\n {response_schema}",
+            Append ProductSchemaGenerationResponse schema:\n\n {response_json_schema}",
     )
 }
 
-fn response_schema(schema: String) -> Result<serde_json::Value, ProductSchemaServiceError> {
+fn response_json_schema(schema: String) -> Result<serde_json::Value, ProductSchemaServiceError> {
     serde_json::from_str(&schema).map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)
+}
+
+fn map_product_schema_generation_error(
+    error: ValidatedGenerationError<ProductSchemaResponseValidationError>,
+) -> ProductSchemaServiceError {
+    match error {
+        ValidatedGenerationError::Model(error) => {
+            ProductSchemaServiceError::LargeLanguageModelError(error)
+        }
+        ValidatedGenerationError::Validation(error) => {
+            ProductSchemaServiceError::StructuredResponseValidation {
+                source: box_error(error),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 fn validate_create_schema_response(res: &str) -> Result<(), String> {
     let stripped = strip_markdown_json_embedding(res);
-    parse_product_schemas_response(stripped)
+    response::parse_product_schemas_response(stripped)
         .map(|_| ())
         .map_err(|_| "response did not match product schema response".to_string())
 }
@@ -155,7 +179,7 @@ fn validate_create_schema_response(res: &str) -> Result<(), String> {
 #[cfg(test)]
 fn validate_append_schema_response(res: &str) -> Result<(), String> {
     let stripped = strip_markdown_json_embedding(res);
-    parse_append_schema_response(stripped)
+    response::parse_append_schema_response(stripped)
         .map(|_| ())
         .map_err(|_| "response did not match append schema response".to_string())
 }
@@ -168,10 +192,13 @@ fn create_schema_generation_request(
         system_instruction: create_schema_generation_system_instruction(),
         prompt: build_create_schemas_instruction(html_pages),
         image_urls: Vec::new(),
-        response_schema: response_schema(product_schema_generation_response_schema_json())?,
+        response_json_schema: response_json_schema(
+            product_schema_generation_response_json_schema(),
+        )?,
         options: GenerationOptions {
             temperature: 0.0,
             max_output_tokens: 8192,
+            request_timeout: Duration::from_secs(180),
         },
     })
 }
@@ -184,10 +211,11 @@ fn append_schema_generation_request(
         system_instruction: append_schema_generation_system_instruction(),
         prompt: build_append_schema_instruction(html),
         image_urls: Vec::new(),
-        response_schema: response_schema(append_schema_generation_response_schema_json())?,
+        response_json_schema: response_json_schema(append_schema_generation_response_json_schema())?,
         options: GenerationOptions {
             temperature: 0.0,
             max_output_tokens: 4096,
+            request_timeout: Duration::from_secs(180),
         },
     })
 }
@@ -213,22 +241,23 @@ where
         &self,
         html_pages: &[String],
     ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError> {
-        let response: serde_json::Value = generate_with_governor(
+        let generated = generate_validated_with_governor::<
+            _,
+            ProductSchemaGenerationResponse,
+            GeneratedProductSchemas,
+            ProductSchemaResponseValidationError,
+            _,
+            _,
+        >(
             &self.create_llm,
             self.governor.as_ref(),
             create_schema_generation_request(html_pages)?,
+            3,
+            ProductSchemaGenerationResponse::try_into_initial,
+            ProductSchemaResponseValidationError::feedback_code,
         )
-        .await?;
-        let generated = parse_product_schemas_response(
-            &serde_json::to_string(&response)
-                .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?,
-        )
-        .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
-        if generated.schemas.is_empty() {
-            return Err(ProductSchemaServiceError::NoTextResponse(
-                "LLM produced zero schemas".to_string(),
-            ));
-        }
+        .await
+        .map_err(map_product_schema_generation_error)?;
 
         debug!(
             schemas_count = generated.schemas.len(),
@@ -244,17 +273,23 @@ where
         &self,
         html: &str,
     ) -> Result<GeneratedAppendSchema, ProductSchemaServiceError> {
-        let response: serde_json::Value = generate_with_governor(
+        let generated = generate_validated_with_governor::<
+            _,
+            ProductSchemaGenerationResponse,
+            GeneratedAppendSchema,
+            ProductSchemaResponseValidationError,
+            _,
+            _,
+        >(
             &self.append_llm,
             self.governor.as_ref(),
             append_schema_generation_request(html)?,
+            3,
+            ProductSchemaGenerationResponse::try_into_append,
+            ProductSchemaResponseValidationError::feedback_code,
         )
-        .await?;
-        let generated = parse_append_schema_response(
-            &serde_json::to_string(&response)
-                .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?,
-        )
-        .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
+        .await
+        .map_err(map_product_schema_generation_error)?;
 
         debug!(
             page_kind = ?generated,
@@ -358,6 +393,8 @@ mod tests {
     use crate::scraper::css_selector::rule::{
         ExtractionCardinality, ExtractionKind, ExtractionRule,
     };
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
 
     fn sample_css_schema() -> ProductCssSelectorSchema {
@@ -1423,6 +1460,40 @@ mod tests {
         assert_eq!(evaluation.summary, "Selectors are product-specific.");
     }
 
+    #[tokio::test]
+    async fn should_correct_semantically_invalid_initial_schema_response() {
+        let invalid = serde_json::json!({
+            "schemas": [],
+            "confidence": "HIGH",
+            "summary": "sensitive previous response",
+            "risks": []
+        });
+        let valid = serde_json::from_str::<serde_json::Value>(&generated_response_json(vec![
+            sample_css_schema(),
+        ]))
+        .unwrap_or_else(|error| panic!("valid response should serialize: {error}"));
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let llm = SequenceSchemaLlm {
+            responses: Mutex::new(VecDeque::from([invalid, valid])),
+            requests: Arc::clone(&requests),
+        };
+        let service = ProductSchemaServiceImpl::new(
+            llm,
+            MockLlmProvider,
+            Box::new(MockShopsProductSchemaRepository::new()),
+            None,
+        );
+
+        let result = service
+            .create_product_schemas(&["<html>page</html>".to_owned()])
+            .await;
+        assert!(result.is_ok());
+        let requests = requests.lock().unwrap_or_else(|error| error.into_inner());
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1].prompt.contains("initial_empty_schemas"));
+        assert!(!requests[1].prompt.contains("sensitive previous response"));
+    }
+
     #[test]
     fn should_mark_unavailable_schema_evaluation_as_low_confidence_human_review() {
         let evaluation = SchemaLlmEvaluation::unavailable("budget exhausted");
@@ -1454,6 +1525,44 @@ mod tests {
         {
             Err(LargeLanguageModelError::Permanent {
                 source: application::error::static_error("LLM should not be called in this test"),
+            })
+        }
+    }
+
+    struct SequenceSchemaLlm {
+        responses: Mutex<VecDeque<serde_json::Value>>,
+        requests: Arc<Mutex<Vec<StructuredGenerationRequest>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl LargeLanguageModel for SequenceSchemaLlm {
+        async fn generate<Output>(
+            &self,
+            request: StructuredGenerationRequest,
+        ) -> Result<Output, LargeLanguageModelError>
+        where
+            Output: serde::de::DeserializeOwned + Send,
+        {
+            self.requests
+                .lock()
+                .map_err(|error| LargeLanguageModelError::InvalidResponse {
+                    source: application::error::box_error(std::io::Error::other(error.to_string())),
+                })?
+                .push(request);
+            let response = self
+                .responses
+                .lock()
+                .map_err(|error| LargeLanguageModelError::InvalidResponse {
+                    source: application::error::box_error(std::io::Error::other(error.to_string())),
+                })?
+                .pop_front()
+                .ok_or_else(|| LargeLanguageModelError::Permanent {
+                    source: application::error::static_error("schema response sequence exhausted"),
+                })?;
+            serde_json::from_value(response).map_err(|source| {
+                LargeLanguageModelError::InvalidResponse {
+                    source: application::error::box_error(source),
+                }
             })
         }
     }

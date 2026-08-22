@@ -63,7 +63,7 @@ rstest = { workspace = true }
 fake = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
-tokio = { workspace = true, features = ["macros", "time"] }
+tokio = { workspace = true, features = ["macros", "time", "test-util"] }
 
 [[bin]]
 name = "demo-scraper"
