@@ -1,7 +1,9 @@
 mod config;
 pub mod health;
+pub mod jobs;
 pub mod scheduled_job;
 pub mod scheduler;
+pub mod wiring;
 
 use std::future::Future;
 use std::sync::Arc;

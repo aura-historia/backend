@@ -269,10 +269,22 @@ dependencies = [
  "axum",
  "chrono",
  "cron_tab",
+ "fxrate-postgres",
+ "google-cloud-auth",
+ "large-language-model",
+ "opensearch",
  "platform-observability",
+ "platform-postgres",
+ "product-opensearch",
+ "product-postgres",
+ "reqwest 0.12.28",
+ "search-filter-postgres",
+ "search-filter-service",
  "thiserror 2.0.20",
+ "time",
  "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]
