@@ -65,10 +65,6 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/fxrate-service",
 ];
 
-/// Acceptance test crates that run on self-hosted runners with cargo-lambda.
-/// These paths are relative to the workspace root.
-const ACCEPTANCE_TEST_CRATES: &[&str] = &["src/acceptance-tests"];
-
 fn main() -> Result<()> {
     let base_ref = std::env::args()
         .nth(1)
@@ -79,17 +75,11 @@ fn main() -> Result<()> {
     if changed_files.is_empty() {
         let output = serde_json::json!({
             "integration_test": Vec::<&str>::new(),
-            "acceptance_test": Vec::<&str>::new(),
+
         });
         println!("{output}");
         return Ok(());
     }
-
-    let infrastructure_changed = changed_files.iter().any(|path| {
-        path.starts_with("infra/")
-            || path == ".github/workflows/deploy.yml"
-            || path == ".github/workflows/integrate.yml"
-    });
 
     let graph = MetadataCommand::new()
         .exec()
@@ -119,19 +109,9 @@ fn main() -> Result<()> {
         .filter(|c| affected_dirs.contains(*c))
         .collect();
 
-    let acceptance_test: Vec<&str> = if infrastructure_changed {
-        ACCEPTANCE_TEST_CRATES.to_vec()
-    } else {
-        ACCEPTANCE_TEST_CRATES
-            .iter()
-            .copied()
-            .filter(|c| affected_dirs.contains(*c))
-            .collect()
-    };
-
     let output = serde_json::json!({
         "integration_test": integration_test,
-        "acceptance_test": acceptance_test,
+
     });
     println!("{output}");
 
