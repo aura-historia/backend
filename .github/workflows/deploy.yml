@@ -5,6 +5,7 @@ on:
     branches: [prod, develop]
     paths:
       - ".github/workflows/deploy.yml"
+      - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "src/**"
@@ -108,8 +109,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Toolchain
+        run: rustup show
 
       - uses: Swatinem/rust-cache@v2
 
@@ -381,8 +382,8 @@ jobs:
           )
           echo "outputs_json=$JSON" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Toolchain
+        run: rustup show
 
       - uses: Swatinem/rust-cache@v2
 
