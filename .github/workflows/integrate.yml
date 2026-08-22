@@ -114,7 +114,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       integration_test_crates: ${{ steps.determine.outputs.integration_test_crates }}
-      acceptance_test_crates: ${{ steps.determine.outputs.acceptance_test_crates }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -142,9 +141,8 @@ jobs:
         run: |
           result=$(./target/release/ci-determinator "${{ steps.base-ref.outputs.sha }}")
           integration_test_crates=$(jq -c '.integration_test' <<< "$result")
-          acceptance_test_crates=$(jq -c '.acceptance_test' <<< "$result")
+
           printf 'integration_test_crates=%s\n' "$integration_test_crates" >> "$GITHUB_OUTPUT"
-          printf 'acceptance_test_crates=%s\n' "$acceptance_test_crates" >> "$GITHUB_OUTPUT"
 
   test:
     name: Test ${{ matrix.crate }}
@@ -210,58 +208,6 @@ jobs:
           path: coverage-lcov/${{ strategy.job-index }}.lcov
           if-no-files-found: error
           retention-days: 1
-
-      - name: Prune Docker volumes
-        run: docker volume prune -f
-
-  acceptance-test:
-    name: Acceptance-Test
-    needs: [determine-affected-crates]
-    if: needs.determine-affected-crates.outputs.acceptance_test_crates != '[]' && !always() # temporary disabled while migrating to Hetzner/Postgres
-    permissions:
-      contents: read
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "26"
-
-      - name: Cache cargo-lambda and Zig
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/bin/cargo-lambda
-            ~/.cache/zig
-          key: ${{ runner.os }}-cargo-lambda-zig-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install Zig
-        run: |
-          if ! command -v zig >/dev/null 2>&1; then
-            npm install -g @ziglang/cli
-          fi
-
-      - name: Install cargo-lambda
-        run: |
-          if ! command -v cargo-lambda >/dev/null 2>&1; then
-            cargo install cargo-lambda
-          fi
-
-      - name: Install CDK dependencies
-        run: npm --prefix infra ci
-
-      - name: Type-check CDK app
-        run: npm --prefix infra run build
-
-      - name: Test acceptance-tests
-        run: cargo test --locked --package acceptance-tests -- --nocapture
 
       - name: Prune Docker volumes
         run: docker volume prune -f

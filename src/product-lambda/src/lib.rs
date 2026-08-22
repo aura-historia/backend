@@ -1,1 +1,0 @@
-pub use product_lambda_materialize_opensearch;

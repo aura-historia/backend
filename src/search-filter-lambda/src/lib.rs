@@ -1,2 +1,0 @@
-pub use search_filter_lambda_opensearch_sync;
-pub use search_filter_lambda_percolate_product;

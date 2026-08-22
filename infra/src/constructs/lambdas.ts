@@ -13,8 +13,6 @@ import type { PostgresConnectionSettings } from "./storage";
 
 interface LambdaEnvironmentContext {
   readonly config: StageConfig;
-  readonly commitSha: string;
-  readonly mailTemplateBucket: s3.IBucket;
   readonly table: dynamodb.Table;
   readonly postgres: PostgresConnectionSettings;
   readonly queues: QueueCatalog;
@@ -41,54 +39,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     binaryName: "cloudwatch-log-retention-lambda",
     memorySize: 128,
     timeoutSeconds: 10,
-    environment: () => ({}),
-  },
-  newsletterApi: {
-    id: "NewsletterApiLambda",
-    binaryName: "newsletter-api",
-    memorySize: 256,
-    timeoutSeconds: 10,
-    environment: (context) => ({
-      ...baseEnvironment(context),
-      STAGE: context.config.stage,
-      ZOHO_ACCOUNTS_URL: secretOrTest(context.config, "zoho-accounts-url", "https://accounts.zoho.eu"),
-      ZOHO_CAMPAIGNS_URL: secretOrTest(context.config, "zoho-campaigns-url", "https://campaigns.zoho.eu"),
-      ZOHO_CLIENT_ID: secretOrTest(context.config, "zoho-client-id", "test-zoho-client-id"),
-      ZOHO_CLIENT_SECRET: secretOrTest(context.config, "zoho-client-secret", "test-zoho-client-secret"),
-      ZOHO_LIST_KEY: secretOrTest(context.config, "zoho-list-key", "test-zoho-list-key"),
-      ZOHO_REFRESH_TOKEN: secretOrTest(context.config, "zoho-refresh-token", "test-zoho-refresh-token"),
-    }),
-  },
-
-  oauthApi: {
-    id: "OAuthApiLambda",
-    binaryName: "oauth-api",
-    memorySize: 128,
-    postgres: true,
-    timeoutSeconds: 10,
-    environment: (context) => withLocalStackPort(context.config, stageEnvironment(context)),
-  },
-  partnerShopApplicationApi: {
-    id: "PartnerShopApplicationApiLambda",
-    binaryName: "partner-shop-application-api",
-    memorySize: 256,
-    postgres: true,
-    timeoutSeconds: 10,
-    environment: stageEnvironment,
-  },
-  partnerShopApplicationWorkflow: {
-    id: "PartnerShopApplicationStepFunctionLambda",
-    binaryName: "partner-shop-application-lambda",
-    memorySize: 256,
-    postgres: true,
-    timeoutSeconds: 30,
-    environment: (context) => ({
-      ...baseEnvironment(context),
-      COMMIT_SHA: context.commitSha,
-      GOOGLE_GEOCODING_API_KEY: secretOrTest(context.config, "google-geocoding-api-key", "test-key"),
-      S3_BUCKET_NAME_TEMPLATES: context.mailTemplateBucket.bucketName,
-      STAGE_NAME: context.config.stage,
-    }),
   },
   postConfirmation: {
     id: "PrimaryUserPoolPostConfirmationLambda",
@@ -96,208 +46,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     memorySize: 256,
     postgres: true,
     timeoutSeconds: 5,
-  },
-  productApi: {
-    id: "ProductApiLambda",
-    binaryName: "product-api",
-    memorySize: 512,
-    postgres: true,
-    timeoutSeconds: 10,
-    environment: (context) =>
-      withLocalStackPort(
-        context.config,
-        withOpenSearchCredentials(context.config, {
-          ...baseEnvironment(context),
-          ...(context.config.isEphemeral
-            ? { GEMINI_API_KEY: "test-key" }
-            : { GOOGLE_APPLICATION_CREDENTIALS: ssmSecret(context.config, "google-application-credentials") }),
-          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-          STAGE: context.config.stage,
-        }),
-      ),
-  },
-  productApiPartner: {
-    id: "ProductApiPartnerLambda",
-    binaryName: "product-api-partner",
-    memorySize: 512,
-    postgres: true,
-    timeoutSeconds: 10,
-    environment: (context) =>
-      withLocalStackPort(
-        context.config,
-        withOpenSearchCredentials(context.config, {
-          ...baseEnvironment(context),
-          ASYNC_PRODUCT_COMMAND_QUEUE_URL: context.queues.productPartnerIngest.queue.queueUrl,
-          ...(context.config.isEphemeral
-            ? {}
-            : {
-                GEMINI_API_KEY: ssmSecret(context.config, "gemini-api-key"),
-                GOOGLE_GEOCODING_API_KEY: ssmSecret(context.config, "google-geocoding-api-key"),
-              }),
-          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-          STAGE: context.config.stage,
-        }),
-      ),
-  },
-  productMaterializeOpenSearch: {
-    id: "ProductMaterializeOpenSearchLambda",
-    binaryName: "product-lambda-materialize-opensearch",
-    memorySize: 512,
-    postgres: true,
-    timeoutSeconds: 60,
-    environment: (context) =>
-      withLocalStackPort(
-        context.config,
-        withOpenSearchCredentials(context.config, {
-          ...baseEnvironment(context),
-          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-          STAGE: context.config.stage,
-        }),
-      ),
-  },
-  productDeleteProduct: {
-    id: "ProductDeleteProductLambda",
-    binaryName: "product-lambda-delete-product",
-    memorySize: 512,
-    postgres: true,
-    timeoutSeconds: 60,
-    environment: (context) =>
-      withLocalStackPort(
-        context.config,
-        withOpenSearchCredentials(context.config, {
-          ...baseEnvironment(context),
-          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-          STAGE: context.config.stage,
-        }),
-      ),
-  },
-  productPartnerIngest: {
-    id: "ProductPartnerIngestLambda",
-    binaryName: "product-lambda-ingest-partner-products",
-    memorySize: 512,
-    postgres: true,
-    timeoutSeconds: 30,
-    environment: (context) =>
-      withLocalStackPort(
-        context.config,
-        withOpenSearchCredentials(context.config, {
-          ...baseEnvironment(context),
-          GEMINI_API_KEY: secretOrTest(context.config, "gemini-api-key", "test-key"),
-          GOOGLE_GEOCODING_API_KEY: secretOrTest(context.config, "google-geocoding-api-key", "test-key"),
-          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-          STAGE: context.config.stage,
-        }),
-      ),
-  },
-  productPipelineEmbedText: {
-    id: "ProductPipelineEmbedTextLambda",
-    binaryName: "product-pipeline-embed-text",
-    memorySize: 512,
-    timeoutSeconds: 60,
-    environment: (context) =>
-      context.config.isEphemeral
-        ? { ...baseEnvironment(context), GEMINI_API_KEY: "test-key" }
-        : { ...baseEnvironment(context), GOOGLE_APPLICATION_CREDENTIALS: ssmSecret(context.config, "google-application-credentials") },
-  },
-  productPipelineTranslate: {
-    id: "ProductPipelineTranslateLambda",
-    binaryName: "product-pipeline-translate",
-    memorySize: 512,
-    timeoutSeconds: 60,
-    environment: (context) => ({
-      ...baseEnvironment(context),
-      GEMINI_API_KEY: secretOrTest(context.config, "gemini-api-key", "test-key"),
-      STAGE: context.config.stage,
-    }),
-  },
-
-  productWatchlistApi: {
-    id: "ProductWatchlistApiLambda",
-    binaryName: "product-watchlist-api",
-    memorySize: 256,
-    postgres: true,
-    timeoutSeconds: 10,
-    environment: stageEnvironment,
-  },
-  searchFilterApi: {
-    id: "SearchFilterApiLambda",
-    binaryName: "search-filter-api",
-    memorySize: 512,
-    postgres: true,
-    timeoutSeconds: 10,
-    environment: (context) =>
-      withLocalStackPort(
-        context.config,
-        withOpenSearchCredentials(context.config, {
-          ...baseEnvironment(context),
-          GEMINI_API_KEY: secretOrTest(context.config, "gemini-api-key", "test-key"),
-          ...(context.config.isEphemeral
-            ? {}
-            : { GOOGLE_APPLICATION_CREDENTIALS: ssmSecret(context.config, "google-application-credentials") }),
-          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-          STAGE: context.config.stage,
-        }),
-      ),
-  },
-  searchFilterOpenSearchSync: {
-    id: "SearchFilterOpenSearchSyncLambda",
-    binaryName: "search-filter-lambda-opensearch-sync",
-    memorySize: 512,
-    postgres: true,
-    timeoutSeconds: 60,
-    environment: (context) =>
-      withLocalStackPort(
-        context.config,
-        withOpenSearchCredentials(context.config, {
-          ...baseEnvironment(context),
-          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-          STAGE: context.config.stage,
-        }),
-      ),
-  },
-  searchFilterPercolateProduct: {
-    id: "SearchFilterPercolateProductLambda",
-    binaryName: "search-filter-lambda-percolate-product",
-    memorySize: 512,
-    postgres: true,
-    timeoutSeconds: 60,
-    environment: (context) =>
-      withLocalStackPort(
-        context.config,
-        withOpenSearchCredentials(context.config, {
-          ...baseEnvironment(context),
-          COMMIT_SHA: context.commitSha,
-          GEMINI_API_KEY: secretOrTest(context.config, "gemini-api-key", "test-key"),
-          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-          S3_BUCKET_NAME_TEMPLATES: context.mailTemplateBucket.bucketName,
-          STAGE_NAME: context.config.stage,
-        }),
-      ),
-  },
-  shopApi: {
-    id: "ShopApiLambda",
-    binaryName: "shop-api",
-    memorySize: 512,
-    postgres: true,
-    timeoutSeconds: 10,
-    environment: (context) =>
-      withLocalStackPort(
-        context.config,
-        withOpenSearchCredentials(context.config, {
-          ...baseEnvironment(context),
-          GOOGLE_GEOCODING_API_KEY: secretOrTest(context.config, "google-geocoding-api-key", "test-key"),
-          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-          STAGE: context.config.stage,
-        }),
-      ),
-  },
-  shopOpenSearchIndex: {
-    id: "ShopOpenSearchIndexLambda",
-    binaryName: "shop-lambda-opensearch-index",
-    memorySize: 256,
-    postgres: true,
-    timeoutSeconds: 30,
-    environment: openSearchWorkerEnvironment,
   },
   shopify: {
     id: "ShopifyLambda",
@@ -313,24 +61,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
         OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
       }),
   },
-  stripeApi: {
-    id: "StripeApiLambda",
-    binaryName: "stripe-api",
-    memorySize: 256,
-    timeoutSeconds: 10,
-    environment: (context) => ({
-      ...baseEnvironment(context),
-      STAGE: context.config.stage,
-      ...(context.config.isEphemeral ? {} : { STRIPE_API_KEY: ssmSecret(context.config, "stripe-api-key") }),
-      STRIPE_CHECKOUT_CANCEL_URL: context.config.stripeCheckoutCancelUrl,
-      STRIPE_CHECKOUT_SUCCESS_URL: context.config.stripeCheckoutSuccessUrl,
-      STRIPE_PORTAL_RETURN_URL: context.config.stripePortalReturnUrl,
-      STRIPE_PRO_MONTHLY_PRICE_ID: context.config.stripeProMonthlyPriceId,
-      STRIPE_PRO_YEARLY_PRICE_ID: context.config.stripeProYearlyPriceId,
-      STRIPE_ULTIMATE_MONTHLY_PRICE_ID: context.config.stripeUltimateMonthlyPriceId,
-      STRIPE_ULTIMATE_YEARLY_PRICE_ID: context.config.stripeUltimateYearlyPriceId,
-    }),
-  },
   stripe: {
     id: "StripeLambda",
     binaryName: "stripe-lambda",
@@ -342,63 +72,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
       STRIPE_PRO_PRODUCT_ID: context.config.stripeProProductId,
       STRIPE_ULTIMATE_PRODUCT_ID: context.config.stripeUltimateProductId,
     }),
-  },
-  userApi: {
-    id: "UserApiLambda",
-    binaryName: "user-api",
-    memorySize: 256,
-    postgres: true,
-    timeoutSeconds: 10,
-    environment: (context) =>
-      withLocalStackPort(
-        context.config,
-        withOpenSearchCredentials(context.config, {
-          ...baseEnvironment(context),
-          ...(context.config.isEphemeral
-            ? {}
-            : { GOOGLE_GEOCODING_API_KEY: ssmSecret(context.config, "google-geocoding-api-key") }),
-          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-          STAGE: context.config.stage,
-        }),
-      ),
-  },
-  userOpenSearchIndex: {
-    id: "UserOpenSearchIndexLambda",
-    binaryName: "user-lambda-index-opensearch",
-    memorySize: 256,
-    postgres: true,
-    timeoutSeconds: 30,
-    environment: openSearchWorkerEnvironment,
-  },
-  userTierUpdate: {
-    id: "UserTierUpdateLambda",
-    binaryName: "user-lambda-tier-update",
-    memorySize: 256,
-    postgres: true,
-    timeoutSeconds: 30,
-  },
-  webhookApi: {
-    id: "WebhookApiLambda",
-    binaryName: "webhook-api",
-    memorySize: 512,
-    postgres: true,
-    timeoutSeconds: 10,
-    environment: (context) =>
-      withLocalStackPort(
-        context.config,
-        withOpenSearchCredentials(context.config, {
-          ...baseEnvironment(context),
-          ASYNC_PRODUCT_COMMAND_QUEUE_URL: context.queues.productPartnerIngest.queue.queueUrl,
-          ...(context.config.isEphemeral
-            ? {}
-            : {
-                GEMINI_API_KEY: ssmSecret(context.config, "gemini-api-key"),
-                GOOGLE_GEOCODING_API_KEY: ssmSecret(context.config, "google-geocoding-api-key"),
-              }),
-          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-          STAGE: context.config.stage,
-        }),
-      ),
   },
   fxRateSync: {
     id: "FxRateSyncLambda",
@@ -439,8 +112,6 @@ export class Lambdas extends Construct {
     const functions = {} as Partial<Record<LambdaKey, lambda.Function>>;
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
-      commitSha: props.parameters.commitSha,
-      mailTemplateBucket: props.mailTemplateBucket,
       table: props.table,
       postgres: props.postgres,
       queues: props.queues,
@@ -496,24 +167,6 @@ function withPostgresEnvironment(context: LambdaEnvironmentContext, env: Record<
   };
 }
 
-function stageEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
-  return {
-    ...baseEnvironment(context),
-    STAGE: context.config.stage,
-  };
-}
-
-
-function openSearchWorkerEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
-  return withLocalStackPort(
-    context.config,
-    withOpenSearchCredentials(context.config, {
-      OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
-      STAGE: context.config.stage,
-    }),
-  );
-}
-
 function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): void {
   for (const [key, fn] of Object.entries(functions) as [LambdaKey, lambda.Function | undefined][]) {
     if (!fn || key === "cloudWatchLogRetention" || key === "fxRateSync") {
@@ -523,43 +176,7 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
     props.table.grantReadWriteData(fn);
   }
 
-  props.queues.productPartnerIngest.queue.grantSendMessages(functions.productApiPartner);
-  props.queues.productPartnerIngest.queue.grantSendMessages(functions.webhookApi);
-
-  const mailTemplateReaders = [
-    functions.partnerShopApplicationWorkflow,
-    functions.searchFilterPercolateProduct,
-  ];
-  for (const fn of mailTemplateReaders) {
-    props.mailTemplateBucket.grantRead(fn);
-    fn.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ["ses:SendEmail", "ses:SendRawEmail"],
-        resources: ["*"],
-      }),
-    );
-  }
-
-  const openSearchWriters: lambda.Function[] = [
-    functions.productApi,
-    functions.productApiPartner,
-    functions.productMaterializeOpenSearch,
-    functions.productDeleteProduct,
-    functions.productPartnerIngest,
-    functions.searchFilterApi,
-    functions.searchFilterOpenSearchSync,
-    functions.searchFilterPercolateProduct,
-    functions.shopApi,
-    functions.shopOpenSearchIndex,
-    functions.shopify,
-    functions.userApi,
-    functions.userOpenSearchIndex,
-    functions.webhookApi,
-  ];
-  for (const fn of openSearchWriters) {
-    props.search.grantReadWrite(fn);
-  }
-
+  props.search.grantReadWrite(functions.shopify);
   functions.cloudWatchLogRetention.addToRolePolicy(
     new iam.PolicyStatement({
       actions: ["logs:DescribeLogGroups", "logs:PutRetentionPolicy"],
@@ -568,43 +185,13 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
   );
 }
 
-export function addUserPoolEnvironment(functions: LambdaFunctions, userPoolId: string, publicClientId: string): void {
-  const userPoolEnvUsers = [
-    functions.newsletterApi,
-    functions.productApi,
-    functions.productApiPartner,
-    functions.shopApi,
-    functions.webhookApi,
-  ];
+export function addUserPoolEnvironment(
+  _functions: LambdaFunctions,
+  _userPoolId: string,
+  _publicClientId: string,
+): void {}
 
-  for (const fn of userPoolEnvUsers) {
-    fn.addEnvironment("USER_POOL_ID", userPoolId);
-    fn.addEnvironment("USER_POOL_PUBLIC_CLIENT_ID", publicClientId);
-  }
-
-  functions.userApi.addEnvironment("COGNITO_USER_POOL_ID", userPoolId);
-}
-
-export function grantCognitoAdminAccess(functions: LambdaFunctions, userPoolArn: string): void {
-  const cognitoUsers = [
-    functions.newsletterApi,
-    functions.oauthApi,
-    functions.productApi,
-    functions.productApiPartner,
-    functions.shopApi,
-    functions.userApi,
-    functions.webhookApi,
-  ];
-
-  for (const fn of cognitoUsers) {
-    fn.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ["cognito-idp:*"],
-        resources: [userPoolArn],
-      }),
-    );
-  }
-}
+export function grantCognitoAdminAccess(_functions: LambdaFunctions, _userPoolArn: string): void {}
 
 export function importLambdaCatalog(scope: Construct, id: string, config: StageConfig): LambdaCatalog {
   const catalog = {} as Partial<Record<LambdaKey, lambda.IFunction>>;
@@ -641,21 +228,6 @@ function withOpenSearchCredentials(config: StageConfig, env: Record<string, stri
   };
 }
 
-function withLocalStackPort(config: StageConfig, env: Record<string, string>): Record<string, string> {
-  if (!config.isEphemeral) {
-    return env;
-  }
-
-  return {
-    ...env,
-    LOCALSTACK_MAPPED_PORT: config.localStackMappedPort,
-  };
-}
-
 function secretOrTest(config: StageConfig, name: string, testValue: string): string {
-  return config.isEphemeral ? testValue : ssmSecret(config, name);
-}
-
-function ssmSecret(config: StageConfig, name: string): string {
-  return ssmValue(`/secrets/${config.stage}/${name}`);
+  return config.isEphemeral ? testValue : ssmValue(`/secrets/${config.stage}/${name}`);
 }

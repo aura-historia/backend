@@ -83,7 +83,6 @@
 
 ## Child DOX Index
 
-- `src/acceptance-tests/AGENTS.md` — `acceptance-tests` crate.
 - `src/application/AGENTS.md` — shared technology-neutral application contracts.
 - `src/aura-historia-api/AGENTS.md` — `aura-historia-api` crate.
 - `src/aura-historia-worker/AGENTS.md` — `aura-historia-worker` crate.
@@ -108,7 +107,6 @@
 - `src/fxrate-fxratesapi/AGENTS.md` — canonical FxRatesApi adapter crate.
 - `src/fxrate-lambda/AGENTS.md` — scheduled FX capture Lambda.
 - `src/geo/AGENTS.md` — `geo` crate.
-- `src/newsletter-api/AGENTS.md` — `newsletter-api` crate.
 - `src/notification/AGENTS.md` — legacy notification crate retained only for the untouched periodic matcher follow-up.
 - `src/notification-core/AGENTS.md` — canonical Notification domain crate.
 - `src/notification-email/AGENTS.md` — EMAIL target contract crate.
@@ -117,13 +115,9 @@
 - `src/notification-postgres/AGENTS.md` — canonical Notification PostgreSQL adapter crate.
 
 - `src/oauth/AGENTS.md` — legacy `oauth` crate.
-- `src/oauth-api/AGENTS.md` — legacy `oauth-api` crate.
 - `src/oauth-core/AGENTS.md` — canonical OAuth domain crate.
 - `src/oauth-service/AGENTS.md` — canonical OAuth service/use-case crate.
 - `src/oauth-dynamodb/AGENTS.md` — canonical OAuth DynamoDB adapter crate.
-- `src/partner-shop-application/AGENTS.md` — `partner-shop-application` crate.
-- `src/partner-shop-application-api/AGENTS.md` — `partner-shop-application-api` crate.
-- `src/partner-shop-application-lambda/AGENTS.md` — `partner-shop-application-lambda` crate.
 - `src/product/AGENTS.md` — legacy `product` crate.
 - `src/product-core/AGENTS.md` — canonical Product domain crate.
 - `src/product-service/AGENTS.md` — canonical Product service crate.
@@ -133,22 +127,14 @@
 - `src/platform-opensearch/AGENTS.md` — shared OpenSearch protocol envelopes.
 - `src/platform-postgres/AGENTS.md` — shared SQLx transaction and pool mechanics.
 - `src/product-opensearch/AGENTS.md` — canonical Product OpenSearch adapter crate.
-- `src/product-api/AGENTS.md` — `product-api` crate.
-- `src/product-api-partner/AGENTS.md` — `product-api-partner` crate.
-- `src/product-lambda/AGENTS.md` — `product-lambda` crate.
-- `src/product-personalization/AGENTS.md` — `product-personalization` crate.
-- `src/product-watchlist/AGENTS.md` — legacy `product-watchlist` crate.
 - `src/watchlist-core/AGENTS.md` — canonical Watchlist domain crate.
 - `src/watchlist-service/AGENTS.md` — canonical Watchlist service crate.
 - `src/watchlist-postgres/AGENTS.md` — canonical Watchlist Postgres adapter crate.
-- `src/product-watchlist-api/AGENTS.md` — `product-watchlist-api` crate.
 - `src/search-filter/AGENTS.md` — legacy `search-filter` crate.
 - `src/search-filter-core/AGENTS.md` — canonical Search Filter domain crate.
 - `src/search-filter-service/AGENTS.md` — canonical Search Filter service crate.
 - `src/search-filter-postgres/AGENTS.md` — canonical Search Filter Postgres adapter crate.
 - `src/search-filter-opensearch/AGENTS.md` — canonical Search Filter OpenSearch adapter crate.
-- `src/search-filter-api/AGENTS.md` — `search-filter-api` crate.
-- `src/search-filter-lambda/AGENTS.md` — `search-filter-lambda` crate.
 - `src/search-filter-periodic-match/AGENTS.md` — `search-filter-periodic-match` crate.
 - `src/shop/AGENTS.md` — legacy `shop` crate.
 - `src/shop-core/AGENTS.md` — canonical Shop domain crate.
@@ -157,10 +143,7 @@
 - `src/shop-partner-core/AGENTS.md` — canonical Partner Shop Application domain crate.
 - `src/shop-partner-service/AGENTS.md` — canonical Partner Shop Application service crate.
 - `src/shop-partner-postgres/AGENTS.md` — canonical Partner Shop Application Postgres adapter crate.
-- `src/shop-api/AGENTS.md` — `shop-api` crate.
-- `src/shop-lambda/AGENTS.md` — `shop-lambda` crate.
 - `src/shopify-lambda/AGENTS.md` — `shopify-lambda` crate.
-- `src/stripe-api/AGENTS.md` — `stripe-api` crate.
 - `src/stripe-lambda/AGENTS.md` — `stripe-lambda` crate.
 - `src/test-api/AGENTS.md` — `test-api` crate.
 - `src/user/AGENTS.md` — legacy `user` crate.
@@ -169,6 +152,3 @@
 - `src/user-dynamodb/AGENTS.md` — canonical User DynamoDB adapter crate.
 - `src/user-postgres/AGENTS.md` — canonical User Postgres adapter crate.
 - `src/user-zoho/AGENTS.md` — canonical User Zoho newsletter adapter crate.
-- `src/user-api/AGENTS.md` — `user-api` crate.
-- `src/user-lambda/AGENTS.md` — `user-lambda` crate.
-- `src/webhook-api/AGENTS.md` — `webhook-api` crate.
