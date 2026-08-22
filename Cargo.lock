@@ -3,48 +3,6 @@
 version = 4
 
 [[package]]
-name = "acceptance-tests"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-cloudwatchlogs",
- "aws-sdk-cognitoidentityprovider",
- "aws-sdk-dynamodb",
- "aws-sdk-eventbridge",
- "aws-sdk-sqs",
- "aws-tests-common",
- "base64 0.23.1",
- "common",
- "fake",
- "futures-util",
- "http 1.5.0",
- "notification",
- "oauth",
- "opensearch",
- "openssl",
- "partner-shop-application",
- "product",
- "product-watchlist",
- "product-watchlist-api",
- "reqwest 0.12.28",
- "search-filter",
- "search-filter-api",
- "search-filter-periodic-match",
- "serde",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
- "uuid",
-]
-
-[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -307,7 +265,6 @@ dependencies = [
 name = "aura-historia-parent"
 version = "0.1.0"
 dependencies = [
- "acceptance-tests",
  "application",
  "aura-historia-api",
  "aura-historia-worker",
@@ -325,69 +282,49 @@ dependencies = [
  "geo",
  "image-fetcher",
  "large-language-model",
- "newsletter-api",
  "notification",
  "notification-core",
  "notification-email",
  "notification-postgres",
  "notification-service",
  "oauth",
- "oauth-api",
  "oauth-core",
  "oauth-dynamodb",
  "oauth-service",
- "partner-shop-application",
- "partner-shop-application-api",
- "partner-shop-application-lambda",
  "platform-observability",
  "platform-opensearch",
  "platform-postgres",
  "product",
- "product-api",
- "product-api-partner",
  "product-core",
- "product-lambda",
- "product-lambda-delete-product",
  "product-opensearch",
- "product-personalization",
  "product-postgres",
  "product-service",
  "product-translation-llm",
- "product-watchlist",
- "product-watchlist-api",
  "search-filter",
- "search-filter-api",
  "search-filter-core",
- "search-filter-lambda",
  "search-filter-opensearch",
  "search-filter-periodic-match",
  "search-filter-postgres",
  "search-filter-service",
  "shop",
- "shop-api",
  "shop-core",
- "shop-lambda",
  "shop-partner-core",
  "shop-partner-postgres",
  "shop-partner-service",
  "shop-postgres",
  "shop-service",
  "shopify-lambda",
- "stripe-api",
  "stripe-lambda",
  "test-api",
  "user",
- "user-api",
  "user-core",
  "user-dynamodb",
- "user-lambda",
  "user-postgres",
  "user-service",
  "user-zoho",
  "watchlist-core",
  "watchlist-postgres",
  "watchlist-service",
- "webhook-api",
 ]
 
 [[package]]
@@ -789,32 +726,6 @@ name = "aws-sdk-sesv2"
 version = "1.128.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9bec8be9758c5541f77dc99371a8c32a501b9ea9859740a7cf2e0895c27ed09"
-dependencies = [
- "arc-swap",
- "aws-credential-types",
- "aws-runtime",
- "aws-smithy-async",
- "aws-smithy-http",
- "aws-smithy-json",
- "aws-smithy-observability",
- "aws-smithy-runtime",
- "aws-smithy-runtime-api",
- "aws-smithy-schema",
- "aws-smithy-types",
- "aws-types",
- "bytes",
- "fastrand",
- "http 0.2.12",
- "http 1.5.0",
- "regex-lite",
- "tracing",
-]
-
-[[package]]
-name = "aws-sdk-sfn"
-version = "1.111.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5525166baee6d8ee3a201ad799deb047559865346d4bebe2a56acc179f4f617a"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -1247,7 +1158,6 @@ dependencies = [
  "notification",
  "opensearch",
  "product",
- "product-watchlist",
  "reqwest 0.12.28",
  "search-filter",
  "serde",
@@ -4824,34 +4734,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
-name = "newsletter-api"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "cognito",
- "common",
- "fake",
- "http 1.5.0",
- "lambda_runtime",
- "mockall",
- "reqwest 0.12.28",
- "serde",
- "serde-email",
- "serde_json",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "user",
- "wiremock",
-]
-
-[[package]]
 name = "nix"
 version = "0.31.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5145,32 +5027,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oauth-api"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "base64 0.23.1",
- "common",
- "fake",
- "http 1.5.0",
- "lambda_runtime",
- "oauth",
- "serde",
- "serde_json",
- "serde_qs",
- "serial_test",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "url",
- "user",
-]
-
-[[package]]
 name = "oauth-core"
 version = "0.1.0"
 dependencies = [
@@ -5408,90 +5264,6 @@ dependencies = [
  "regex-syntax",
  "structmeta",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "partner-shop-application"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-sdk-dynamodb",
- "aws-sdk-sfn",
- "common",
- "fake",
- "geo",
- "isocountry",
- "mockall",
- "partner-shop-application",
- "rstest",
- "serde",
- "serde-email",
- "serde_dynamo",
- "serde_fields",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "partner-shop-application-api"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-sfn",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.5.0",
- "lambda_runtime",
- "partner-shop-application",
- "serde",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "user",
-]
-
-[[package]]
-name = "partner-shop-application-lambda"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-s3",
- "aws-sdk-sesv2",
- "common",
- "fake",
- "geo",
- "lambda_runtime",
- "notification",
- "partner-shop-application",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
 ]
 
 [[package]]
@@ -6028,74 +5800,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "product-api"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "cognito",
- "common",
- "embedding",
- "fake",
- "geo",
- "google-cloud-auth",
- "http 1.5.0",
- "isocountry",
- "lambda_runtime",
- "notification",
- "product",
- "product-personalization",
- "product-watchlist",
- "rstest",
- "search-filter",
- "serde_json",
- "serde_qs",
- "serial_test",
- "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
-]
-
-[[package]]
-name = "product-api-partner"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-sqs",
- "aws_lambda_events",
- "cognito",
- "common",
- "fake",
- "geo",
- "http 1.5.0",
- "lambda_runtime",
- "llm",
- "opensearch",
- "product",
- "product-lambda-ingest-partner-products",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
-]
-
-[[package]]
 name = "product-core"
 version = "0.1.0"
 dependencies = [
@@ -6118,96 +5822,6 @@ dependencies = [
  "strum_macros 0.28.0",
  "thiserror 2.0.20",
  "time",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "product-lambda"
-version = "0.1.0"
-dependencies = [
- "product-lambda-delete-product",
- "product-lambda-ingest-partner-products",
- "product-lambda-materialize-opensearch",
-]
-
-[[package]]
-name = "product-lambda-delete-product"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "mockall",
- "opensearch",
- "product",
- "product-watchlist",
- "search-filter",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "product-lambda-ingest-partner-products"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-sqs",
- "aws_lambda_events",
- "common",
- "fake",
- "geo",
- "indexmap 2.14.0",
- "itertools 0.15.0",
- "lambda_runtime",
- "llm",
- "mockall",
- "opensearch",
- "product",
- "serde",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "product-lambda-materialize-opensearch"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "once_cell",
- "opensearch",
- "product",
- "rstest",
- "serde",
- "serde_dynamo",
- "serde_json",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
  "url",
  "uuid",
 ]
@@ -6243,29 +5857,6 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
-]
-
-[[package]]
-name = "product-personalization"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "common",
- "fake",
- "futures",
- "mockall",
- "notification",
- "product",
- "product-personalization",
- "product-watchlist",
- "search-filter",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "url",
- "user",
- "uuid",
 ]
 
 [[package]]
@@ -6349,64 +5940,6 @@ dependencies = [
  "product-service",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "product-watchlist"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-sdk-dynamodb",
- "common",
- "fake",
- "itertools 0.15.0",
- "mockall",
- "product",
- "product-watchlist",
- "rstest",
- "serde",
- "serde_dynamo",
- "serde_fields",
- "serde_json",
- "serial_test",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "user",
-]
-
-[[package]]
-name = "product-watchlist-api"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "cognito",
- "common",
- "fake",
- "http 1.5.0",
- "lambda_runtime",
- "notification",
- "product",
- "product-personalization",
- "product-watchlist",
- "rstest",
- "search-filter",
- "serde",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
 ]
 
 [[package]]
@@ -7264,44 +6797,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "search-filter-api"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "embedding",
- "fake",
- "futures-util",
- "geo",
- "google-cloud-auth",
- "http 1.5.0",
- "isocountry",
- "lambda_runtime",
- "notification",
- "opensearch",
- "product",
- "product-personalization",
- "product-watchlist",
- "rstest",
- "search-filter",
- "search-filter-api",
- "serde",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
-]
-
-[[package]]
 name = "search-filter-core"
 version = "0.1.0"
 dependencies = [
@@ -7314,72 +6809,6 @@ dependencies = [
  "serde",
  "serde_fields",
  "user-core",
- "uuid",
-]
-
-[[package]]
-name = "search-filter-lambda"
-version = "0.1.0"
-dependencies = [
- "search-filter-lambda-opensearch-sync",
- "search-filter-lambda-percolate-product",
-]
-
-[[package]]
-name = "search-filter-lambda-opensearch-sync"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "opensearch",
- "search-filter",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "search-filter-lambda-percolate-product"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-s3",
- "aws-sdk-sesv2",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "mockall",
- "notification",
- "opensearch",
- "product",
- "rstest",
- "search-filter",
- "serde",
- "serde-email",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "user",
  "uuid",
 ]
 
@@ -7976,34 +7405,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shop-api"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "cognito",
- "common",
- "fake",
- "http 1.5.0",
- "lambda_runtime",
- "opensearch",
- "rstest",
- "serde",
- "serde_json",
- "serde_qs",
- "serial_test",
- "shop",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
-]
-
-[[package]]
 name = "shop-core"
 version = "0.1.0"
 dependencies = [
@@ -8019,35 +7420,6 @@ dependencies = [
  "slug",
  "strum 0.28.0",
  "thiserror 2.0.20",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "shop-lambda"
-version = "0.1.0"
-dependencies = [
- "shop-lambda-opensearch-index",
-]
-
-[[package]]
-name = "shop-lambda-opensearch-index"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "opensearch",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "tokio",
- "tracing",
- "tracing-subscriber",
  "url",
  "uuid",
 ]
@@ -8728,33 +8100,6 @@ dependencies = [
  "unicode-bidi",
  "unicode-normalization",
  "unicode-properties",
-]
-
-[[package]]
-name = "stripe-api"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.5.0",
- "lambda_runtime",
- "mockall",
- "reqwest 0.12.28",
- "rstest",
- "serde",
- "serde-email",
- "serde_json",
- "test-api",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
 ]
 
 [[package]]
@@ -9724,40 +9069,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "user-api"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-cognitoidentityprovider",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "geo",
- "http 1.5.0",
- "isocountry",
- "lambda_runtime",
- "mockall",
- "opensearch",
- "serde",
- "serde-email",
- "serde_dynamo",
- "serde_fields",
- "serde_json",
- "serde_qs",
- "serial_test",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
-]
-
-[[package]]
 name = "user-core"
 version = "0.1.0"
 dependencies = [
@@ -9798,58 +9109,6 @@ dependencies = [
  "user-core",
  "user-dynamodb",
  "user-service",
-]
-
-[[package]]
-name = "user-lambda"
-version = "0.1.0"
-dependencies = [
- "user-lambda-index-opensearch",
- "user-lambda-tier-update",
-]
-
-[[package]]
-name = "user-lambda-index-opensearch"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "opensearch",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "test-api",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
- "uuid",
-]
-
-[[package]]
-name = "user-lambda-tier-update"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "product",
- "product-watchlist",
- "search-filter",
- "serde_dynamo",
- "serial_test",
- "test-api",
- "time",
- "tokio",
- "tracing",
- "user",
 ]
 
 [[package]]
@@ -10198,40 +9457,6 @@ dependencies = [
  "phf_codegen 0.13.1",
  "string_cache 0.9.0",
  "string_cache_codegen 0.6.1",
-]
-
-[[package]]
-name = "webhook-api"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-sqs",
- "aws_lambda_events",
- "base64 0.23.1",
- "cognito",
- "common",
- "fake",
- "geo",
- "html-to-markdown-rs",
- "http 1.5.0",
- "lambda_runtime",
- "llm",
- "opensearch",
- "openssl",
- "product",
- "product-lambda-ingest-partner-products",
- "rstest",
- "serde",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
- "url",
- "user",
 ]
 
 [[package]]

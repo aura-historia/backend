@@ -9,7 +9,7 @@ serde = { workspace = true, features = ["derive"] }
 common = { workspace = true, features = ["opensearch"] }
 tokio = { workspace = true, features = ["full"] }
 product = { workspace = true, features = ["full"] }
-product-watchlist = { workspace = true, features = ["full"] }
+
 notification = { workspace = true, features = ["service", "dynamodb", "data", "test-data"] }
 shop = { workspace = true, features = ["full"] }
 user = { workspace = true, features = ["full"] }

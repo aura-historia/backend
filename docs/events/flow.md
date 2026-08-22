@@ -19,7 +19,7 @@ See `docs/hetzner_postgres_sequin_migration.md` for the ADR.
 | FxRate Lambda | AWS Lambda | Captures immutable canonical EUR-base FX snapshots in Postgres. |
 | Shopify Lambda | AWS Lambda | Handles Shopify events, writes Postgres directly. |
 | Stripe Lambda | AWS Lambda | Handles Stripe subscription events, writes Postgres directly. |
-| Step Functions | AWS workflow | Partner-shop-application workflow. |
+
 | CloudWatch log-retention Lambda | AWS Lambda | Keeps AWS log retention policy. |
 
 ## Target routing diagram
@@ -154,17 +154,17 @@ Examples:
 
 | Sub-worker | Replaces | Input | Side effects |
 |---|---|---|---|
-| Product OpenSearch projector | `product-lambda-materialize-opensearch` | Product event job | OpenSearch product document create/update/delete. |
-| Product delete cleanup | `product-lambda-delete-product` | Lifecycle deleted job | OpenSearch delete, Postgres watchlist/match cleanup. |
+| Product OpenSearch projector | `aura-historia-worker` | Product event job | OpenSearch product document create/update/delete. |
+| Product delete cleanup | `aura-historia-worker` | Lifecycle deleted job | OpenSearch delete, Postgres watchlist/match cleanup. |
 | Watchlist notification generator | retired notification Lambda path | Price/state product event job | PostgreSQL watchlist notification inserts, one per semantic reason. |
 | Notification delivery dispatcher | PostgreSQL delivery flow | `notification_deliveries` insert job | Claims PostgreSQL delivery lease, dispatches by persisted channel, and finalizes durable delivery state. EMAIL resolves its current target, renders S3 templates, and sends through SES. |
-| Search-filter percolator | `search-filter-lambda-percolate-product` | Domain/enrichment product event job | Postgres matches only. |
+| Search-filter percolator | `aura-historia-worker` | Domain/enrichment product event job | Postgres matches only. |
 | Search-filter match notification generator | Search-filter match notification path | Search-filter match inserted job | One PostgreSQL SearchFilter notification per matching filter. |
 | Product embed | legacy `product-pipeline-embed-text` | `DOMAIN_CREATED` job | Postgres enrichment event + product update. Embedding stored in Postgres only. |
 | Product translate | legacy `product-pipeline-translate` | Enrichment embedded job | Postgres `product_translations` upsert plus one translated-titles enrichment event and Product revision update. |
-| Shop OpenSearch projector | `shop-lambda-opensearch-index` | Shop changed job | OpenSearch shop document write. |
-| Search-filter OpenSearch sync | `search-filter-lambda-opensearch-sync` | Search-filter changed job | OpenSearch percolator document write/delete from complete Postgres state, with external source-version protection. Search-filter embedding stays in Postgres. |
-| User tier enforcement | `user-lambda-tier-update` | User tier changed job | Postgres watchlist/search-filter state updates. |
+| Shop OpenSearch projector | `aura-historia-worker` | Shop changed job | OpenSearch shop document write. |
+| Search-filter OpenSearch sync | `aura-historia-worker` | Search-filter changed job | OpenSearch percolator document write/delete from complete Postgres state, with external source-version protection. Search-filter embedding stays in Postgres. |
+| User tier enforcement | `aura-historia-worker` | User tier changed job | Postgres watchlist/search-filter state updates. |
 | Periodic matcher | ECS periodic matcher | Scheduled job | Separate follow-up; it has no canonical notification role in this migration. |
 
 The canonical Product OpenSearch projector, search-filter OpenSearch sync, search-filter percolator, search-filter match notification generator, watchlist notification generator, notification delivery sender, Product embedding worker, and Product translation worker are implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
@@ -242,7 +242,7 @@ These AWS event flows stay:
 | Compute-stack creation or EventBridge schedule | bootstrap or cron | `fxrate-lambda`; captures one idempotent canonical FX snapshot in Postgres per source event ID |
 | Shopify partner EventBridge/SQS | Shopify product events | `shopify-lambda`; this is external intake buffering before sync Postgres product/event writes, not the removed product command queue. |
 | Stripe partner EventBridge | subscription events | `stripe-lambda`; Lambda invokes canonical User service handlers with direct Postgres adapters for atomic user tier/customer updates. |
-| Step Functions | partner app workflow | `partner-shop-application-lambda`; Lambda writes Postgres business rows directly. |
+
 | CloudWatch log group events | EventBridge | CloudWatch log-retention Lambda |
 
 ## Idempotency
