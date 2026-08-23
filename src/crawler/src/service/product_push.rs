@@ -2,6 +2,7 @@
 
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use async_trait::async_trait;
+use futures::{StreamExt, stream};
 use indexmap::IndexSet;
 use localization::{Language, Localized};
 use money::Price;
@@ -41,11 +42,18 @@ pub struct ProductPushItem {
 /// Pushes each command through the canonical Product upsert use case.
 pub struct ProductPushServiceImpl {
     upsert_product: Arc<dyn UpsertProductUseCase>,
+    max_concurrent_upserts: usize,
 }
 
 impl ProductPushServiceImpl {
-    pub fn new(upsert_product: Arc<dyn UpsertProductUseCase>) -> Self {
-        Self { upsert_product }
+    pub fn new(
+        upsert_product: Arc<dyn UpsertProductUseCase>,
+        max_concurrent_upserts: usize,
+    ) -> Self {
+        Self {
+            upsert_product,
+            max_concurrent_upserts: max_concurrent_upserts.max(1),
+        }
     }
 }
 
@@ -165,30 +173,46 @@ impl ProductPushService for ProductPushServiceImpl {
             }
         }
 
-        for group in groups {
-            if !group.valid {
-                continue;
+        let upsert_product = Arc::clone(&self.upsert_product);
+
+        let outcomes = stream::iter(groups.into_iter().filter(|group| group.valid).map(|group| {
+            let upsert_product = Arc::clone(&upsert_product);
+
+            async move {
+                let CoalescedProductPush {
+                    command,
+                    input_indices,
+                    ..
+                } = group;
+
+                let context = crawler_operation_context(&command);
+                let shop_id = command.shop_id;
+                let shops_product_id = command.shops_product_id.clone();
+
+                let succeeded = match upsert_product.execute(&context, command).await {
+                    Ok(_) => true,
+                    Err(error) => {
+                        warn!(
+                            error = %error,
+                            shop_id = %shop_id,
+                            shops_product_id = %shops_product_id,
+                            request_id = %context.request_id,
+                            correlation_id = %context.correlation_id,
+                            "Product upsert failed; it will be retried on the next scrape cycle"
+                        );
+                        false
+                    }
+                };
+
+                (input_indices, succeeded)
             }
-            let context = crawler_operation_context(&group.command);
-            let succeeded = match self
-                .upsert_product
-                .execute(&context, group.command.clone())
-                .await
-            {
-                Ok(_) => true,
-                Err(error) => {
-                    warn!(
-                        error = %error,
-                        shop_id = %group.command.shop_id,
-                        shops_product_id = %group.command.shops_product_id,
-                        request_id = %context.request_id,
-                        correlation_id = %context.correlation_id,
-                        "Product upsert failed; it will be retried on the next scrape cycle"
-                    );
-                    false
-                }
-            };
-            for input_index in group.input_indices {
+        }))
+        .buffer_unordered(self.max_concurrent_upserts)
+        .collect::<Vec<_>>()
+        .await;
+
+        for (input_indices, succeeded) in outcomes {
+            for input_index in input_indices {
                 results[input_index] = succeeded;
             }
         }
@@ -439,7 +463,11 @@ mod tests {
         upsert_product::{UpsertProductError, UpsertProductResult},
     };
     use shop_core::{shop_id::ShopId, shop_type::ShopType};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use tokio::time::{Duration, sleep, timeout};
     use url::Url;
 
     #[derive(Default)]
@@ -502,13 +530,109 @@ mod tests {
         })
     }
 
+    fn push_item_with_id(id: &str) -> Result<ProductPushItem, url::ParseError> {
+        let mut item = push_item()?;
+        item.command.shops_product_id = ShopsProductId::from(id);
+        Ok(item)
+    }
+
+    struct ConcurrencyTrackingUpsert {
+        active: Arc<AtomicUsize>,
+        max_active: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl UpsertProductUseCase for ConcurrencyTrackingUpsert {
+        async fn execute(
+            &self,
+            _: &OperationContext,
+            _: UpsertProductCommand,
+        ) -> Result<UpsertProductResult, UpsertProductError> {
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_active.fetch_max(active, Ordering::SeqCst);
+
+            sleep(Duration::from_millis(25)).await;
+
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            Ok(UpsertProductResult::Updated(UpdateProductResult {
+                product_id: ProductId::new(),
+                event_id: None,
+            }))
+        }
+    }
+
+    struct DelayedSelectiveUpsert;
+
+    #[async_trait]
+    impl UpsertProductUseCase for DelayedSelectiveUpsert {
+        async fn execute(
+            &self,
+            _: &OperationContext,
+            command: UpsertProductCommand,
+        ) -> Result<UpsertProductResult, UpsertProductError> {
+            match command.shops_product_id.to_string().as_str() {
+                "slow-ok" => sleep(Duration::from_millis(40)).await,
+                "fast-fail" => {
+                    sleep(Duration::from_millis(1)).await;
+                    return Err(UpsertProductError::ShopNotFound);
+                }
+                "medium-ok" => sleep(Duration::from_millis(15)).await,
+                other => panic!("unexpected product id: {other}"),
+            }
+
+            Ok(UpsertProductResult::Updated(UpdateProductResult {
+                product_id: ProductId::new(),
+                event_id: None,
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn should_bound_concurrent_product_upserts() -> Result<(), url::ParseError> {
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let use_case = Arc::new(ConcurrencyTrackingUpsert {
+            active: Arc::clone(&active),
+            max_active: Arc::clone(&max_active),
+        });
+        let service = ProductPushServiceImpl::new(use_case, 2);
+
+        let products = (0..8)
+            .map(|index| push_item_with_id(&format!("prod-{index}")))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let result = timeout(Duration::from_secs(2), service.push(products))
+            .await
+            .expect("bounded upserts must complete");
+
+        assert_eq!(result, vec![true; 8]);
+        assert_eq!(max_active.load(Ordering::SeqCst), 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_restore_result_order_after_out_of_order_product_upserts()
+    -> Result<(), url::ParseError> {
+        let service = ProductPushServiceImpl::new(Arc::new(DelayedSelectiveUpsert), 3);
+        let products = vec![
+            push_item_with_id("slow-ok")?,
+            push_item_with_id("fast-fail")?,
+            push_item_with_id("medium-ok")?,
+        ];
+
+        let result = service.push(products).await;
+
+        assert_eq!(result, vec![true, false, true]);
+        Ok(())
+    }
+
     #[tokio::test]
     async fn should_return_ordered_success_results_with_deterministic_crawler_context()
     -> Result<(), url::ParseError> {
         let use_case = Arc::new(FakeUpsertProductUseCase::default());
         let commands = Arc::clone(&use_case.commands);
         let contexts = Arc::clone(&use_case.contexts);
-        let service = ProductPushServiceImpl::new(use_case);
+        let service = ProductPushServiceImpl::new(use_case, 1);
         let succeeded = service.push(vec![push_item()?, push_item()?]).await;
 
         assert_eq!(succeeded, vec![true, true]);
@@ -536,7 +660,7 @@ mod tests {
     -> Result<(), url::ParseError> {
         let use_case = Arc::new(FakeUpsertProductUseCase::default());
         let commands = Arc::clone(&use_case.commands);
-        let service = ProductPushServiceImpl::new(use_case);
+        let service = ProductPushServiceImpl::new(use_case, 1);
         let item = push_item()?;
 
         assert_eq!(
@@ -556,7 +680,7 @@ mod tests {
     -> Result<(), url::ParseError> {
         let use_case = Arc::new(FakeUpsertProductUseCase::default());
         let commands = Arc::clone(&use_case.commands);
-        let service = ProductPushServiceImpl::new(use_case);
+        let service = ProductPushServiceImpl::new(use_case, 1);
         let mut first = push_item()?;
         first.command.description = Some(Localized::new(
             Language::De,
@@ -587,7 +711,7 @@ mod tests {
     -> Result<(), url::ParseError> {
         let use_case = Arc::new(FakeUpsertProductUseCase::default());
         let commands = Arc::clone(&use_case.commands);
-        let service = ProductPushServiceImpl::new(use_case);
+        let service = ProductPushServiceImpl::new(use_case, 1);
         let mut first = push_item()?;
         first
             .command
@@ -616,7 +740,7 @@ mod tests {
             ..Default::default()
         });
         let commands = Arc::clone(&use_case.commands);
-        let service = ProductPushServiceImpl::new(use_case);
+        let service = ProductPushServiceImpl::new(use_case, 1);
         let first = push_item()?;
         let second = first.clone();
 
@@ -628,7 +752,7 @@ mod tests {
 
         let use_case = Arc::new(FakeUpsertProductUseCase::default());
         let commands = Arc::clone(&use_case.commands);
-        let service = ProductPushServiceImpl::new(use_case);
+        let service = ProductPushServiceImpl::new(use_case, 1);
         let first = push_item()?;
         let mut second = first.clone();
         second.command.seller_id = ShopId::new();
@@ -713,7 +837,7 @@ mod tests {
             fail: true,
             ..Default::default()
         });
-        let service = ProductPushServiceImpl::new(use_case);
+        let service = ProductPushServiceImpl::new(use_case, 1);
 
         assert_eq!(service.push(vec![push_item()?]).await, vec![false]);
         Ok(())

@@ -349,6 +349,10 @@ async fn main() {
             spider_classify_threshold: 400,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
             push_batch_size: 1000,
+            push_queue_capacity: 2000,
+            push_max_batch_age: Duration::from_secs(5),
+            push_max_concurrency: 4,
+            business_db_max_connections: 8,
             ..Default::default()
         };
 
@@ -365,6 +369,11 @@ async fn main() {
             scraper_auto_throttle_max_delay_ms = config.scraper_auto_throttle_max_delay.as_millis(),
             scraper_auto_throttle_alpha = config.scraper_auto_throttle_alpha,
             scraper_max_llm_calls_per_shop = config.scraper_max_llm_calls_per_shop,
+            push_batch_size = config.effective_push_batch_size(),
+            push_queue_capacity = config.effective_push_queue_capacity(),
+            push_max_batch_age_ms = config.effective_push_max_batch_age().as_millis(),
+            push_max_concurrency = config.effective_push_max_concurrency(),
+            business_db_max_connections = config.effective_business_db_max_connections(),
             "Crawler cron configuration loaded"
         );
 
@@ -394,12 +403,19 @@ async fn main() {
 
         let business_database_url = std::env::var("BUSINESS_DATABASE_URL")
             .expect("BUSINESS_DATABASE_URL environment variable must be set");
+        let business_db_max_connections = config.effective_business_db_max_connections();
         let business_pool = PgPoolOptions::new()
+            .max_connections(business_db_max_connections)
+            .acquire_timeout(Duration::from_secs(30))
             .connect(&business_database_url)
             .await
             .expect("Failed to connect to authoritative business Postgres");
         let business_unit_of_work = SqlxUnitOfWork::new(business_pool);
-        info!("Connected to authoritative business Postgres");
+        info!(
+            max_connections = business_db_max_connections,
+            product_push_max_concurrency = config.effective_push_max_concurrency(),
+            "Connected to authoritative business Postgres"
+        );
 
         let review_required = crawler_review_required();
         let url_pattern_review_required = crawler_review_url_pattern_required();
@@ -536,10 +552,17 @@ async fn main() {
             SqlxPartnerProductAuthorizerFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
         );
-        let product_push = Box::new(ProductPushServiceImpl::new(Arc::new(upsert_product)));
+        let product_push = Box::new(ProductPushServiceImpl::new(
+            Arc::new(upsert_product),
+            config.effective_push_max_concurrency(),
+        ));
 
         let db_max_connections = config.effective_db_max_connections();
         let scraper_max_llm_calls_per_shop = config.scraper_max_llm_calls_per_shop;
+        let push_batch_size = config.effective_push_batch_size();
+        let push_queue_capacity = config.effective_push_queue_capacity();
+        let push_max_batch_age_ms = config.effective_push_max_batch_age().as_millis();
+        let push_max_concurrency = config.effective_push_max_concurrency();
 
         // 7. Build cron job
         let cron_job = CrawlerCronJob::new(
@@ -557,6 +580,11 @@ async fn main() {
         info!(
             db_max_connections,
             scraper_max_llm_calls_per_shop,
+            push_batch_size,
+            push_queue_capacity,
+            push_max_batch_age_ms,
+            push_max_concurrency,
+            business_db_max_connections,
             llm_provider = "vertex_ai",
             schema_model = %vertex_ai_models.product_schema,
             state_mapping_model = %vertex_ai_models.product_state_mapping,

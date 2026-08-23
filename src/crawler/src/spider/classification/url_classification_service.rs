@@ -176,7 +176,7 @@ impl<Llm: LargeLanguageModel> UrlClassificationService for UrlClassificationServ
                     if pattern.is_empty() {
                         return Ok(None);
                     }
-                    Ok(Regex::new(pattern).ok())
+                    Regex::new(pattern).map(Some).map_err(|_| ())
                 },
                 |_: &()| "invalid_regex",
             )
@@ -370,12 +370,56 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_none_when_large_language_model_returns_invalid_regex() {
-        let result = service(r#"{"pattern":"["}"#)
+    async fn should_correct_invalid_regex_before_returning_url_pattern() {
+        let prompts = Arc::new(Mutex::new(Vec::new()));
+        let model = SequenceLargeLanguageModel {
+            responses: Mutex::new(VecDeque::from([
+                Ok(serde_json::json!({ "pattern": "[" })),
+                Ok(serde_json::json!({ "pattern": r"/product/\d+$" })),
+            ])),
+            prompts: Arc::clone(&prompts),
+        };
+
+        let result = UrlClassificationServiceImpl::new(model, None)
             .find_product_url_pattern(&["https://example.com/product/1".to_owned()])
             .await;
 
-        assert!(matches!(result, Ok(None)));
+        assert!(matches!(
+            result,
+            Ok(Some(pattern)) if pattern.as_str() == r"/product/\d+$"
+        ));
+
+        let prompts = prompts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert_eq!(prompts.len(), 2);
+        assert!(prompts[1].contains("invalid_regex"));
+    }
+
+    #[tokio::test]
+    async fn should_fail_after_all_invalid_regex_corrections_are_exhausted() {
+        let prompts = Arc::new(Mutex::new(Vec::new()));
+        let model = SequenceLargeLanguageModel {
+            responses: Mutex::new(VecDeque::from([
+                Ok(serde_json::json!({ "pattern": "[" })),
+                Ok(serde_json::json!({ "pattern": "(" })),
+                Ok(serde_json::json!({ "pattern": "(?P<" })),
+            ])),
+            prompts: Arc::clone(&prompts),
+        };
+
+        let result = UrlClassificationServiceImpl::new(model, None)
+            .find_product_url_pattern(&["https://example.com/product/1".to_owned()])
+            .await;
+
+        assert!(matches!(result, Err(UrlClassificationError::Llm(_))));
+
+        let prompts = prompts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert_eq!(prompts.len(), MAX_VALIDATION_ATTEMPTS);
+        assert!(prompts[1].contains("invalid_regex"));
+        assert!(prompts[2].contains("invalid_regex"));
     }
 
     #[tokio::test]

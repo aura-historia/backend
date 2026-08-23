@@ -93,39 +93,37 @@ impl CrawlerLlmGovernor {
     }
 
     async fn acquire(&self) -> Result<CrawlerLlmPermit<'_>, LargeLanguageModelError> {
-        loop {
-            let permit =
-                self.semaphore
-                    .acquire()
-                    .await
-                    .map_err(|_| LargeLanguageModelError::Retryable {
-                        advice: LargeLanguageModelRetryAdvice {
-                            kind: LargeLanguageModelRetryKind::Transient,
-                            retry_after: None,
-                        },
-                        source: static_error("crawler LLM governor closed"),
-                    })?;
-            let wait = {
-                let last_request_started_at = self.last_request_started_at.lock().await;
-                last_request_started_at.and_then(|last_start| {
-                    let elapsed = Instant::now()
-                        .checked_duration_since(last_start)
-                        .unwrap_or(Duration::ZERO);
-                    if elapsed < self.config.min_request_interval {
-                        Some(self.config.min_request_interval - elapsed)
-                    } else {
-                        None
-                    }
-                })
-            };
-            if let Some(wait) = wait {
-                drop(permit);
-                sleep(wait).await;
-                continue;
+        let permit =
+            self.semaphore
+                .acquire()
+                .await
+                .map_err(|_| LargeLanguageModelError::Retryable {
+                    advice: LargeLanguageModelRetryAdvice {
+                        kind: LargeLanguageModelRetryKind::Transient,
+                        retry_after: None,
+                    },
+                    source: static_error("crawler LLM governor closed"),
+                })?;
+
+        // This mutex is the request-start gate. Intentionally keep the guard
+        // across the pacing sleep so the eligibility check and timestamp update
+        // are one serialized operation.
+        let mut last_request_started_at = self.last_request_started_at.lock().await;
+
+        if let Some(last_start) = *last_request_started_at {
+            let elapsed = Instant::now()
+                .checked_duration_since(last_start)
+                .unwrap_or(Duration::ZERO);
+
+            if elapsed < self.config.min_request_interval {
+                sleep(self.config.min_request_interval - elapsed).await;
             }
-            *self.last_request_started_at.lock().await = Some(Instant::now());
-            return Ok(CrawlerLlmPermit { _permit: permit });
         }
+
+        *last_request_started_at = Some(Instant::now());
+        drop(last_request_started_at);
+
+        Ok(CrawlerLlmPermit { _permit: permit })
     }
 }
 
@@ -357,6 +355,7 @@ mod tests {
     use serde::de::DeserializeOwned;
     use std::collections::VecDeque;
     use std::sync::Mutex as StdMutex;
+    use tokio::task::JoinSet;
 
     fn request() -> StructuredGenerationRequest {
         StructuredGenerationRequest {
@@ -370,6 +369,34 @@ mod tests {
                 max_output_tokens: 32,
                 request_timeout: Duration::from_secs(180),
             },
+        }
+    }
+
+    struct StartRecordingModel {
+        starts: Arc<StdMutex<Vec<Instant>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl LargeLanguageModel for StartRecordingModel {
+        async fn generate<Output>(
+            &self,
+            _: StructuredGenerationRequest,
+        ) -> Result<Output, LargeLanguageModelError>
+        where
+            Output: DeserializeOwned + Send,
+        {
+            self.starts
+                .lock()
+                .map_err(|error| LargeLanguageModelError::InvalidResponse {
+                    source: Box::new(std::io::Error::other(error.to_string())),
+                })?
+                .push(Instant::now());
+
+            serde_json::from_value(serde_json::json!({ "ok": true })).map_err(|source| {
+                LargeLanguageModelError::InvalidResponse {
+                    source: Box::new(source),
+                }
+            })
         }
     }
 
@@ -499,6 +526,51 @@ mod tests {
             &request(),
         );
         assert_eq!(delay, Duration::from_secs(8));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_serialize_request_starts_when_multiple_permits_are_available() {
+        let min_interval = Duration::from_secs(2);
+        let starts = Arc::new(StdMutex::new(Vec::new()));
+        let model = Arc::new(StartRecordingModel {
+            starts: Arc::clone(&starts),
+        });
+        let governor = Arc::new(CrawlerLlmGovernor::new(CrawlerLlmRateLimitConfig {
+            max_concurrent_requests: 3,
+            min_request_interval: min_interval,
+        }));
+
+        let mut tasks = JoinSet::new();
+        for _ in 0..3 {
+            let model = Arc::clone(&model);
+            let governor = Arc::clone(&governor);
+            tasks.spawn(async move {
+                generate_with_governor::<_, serde_json::Value>(
+                    model.as_ref(),
+                    Some(&governor),
+                    request(),
+                )
+                .await
+            });
+        }
+
+        while let Some(result) = tasks.join_next().await {
+            assert!(result.expect("request task must join").is_ok());
+        }
+
+        let mut starts = starts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        starts.sort();
+
+        assert_eq!(starts.len(), 3);
+        for adjacent in starts.windows(2) {
+            assert!(
+                adjacent[1].duration_since(adjacent[0]) >= min_interval,
+                "request starts were not paced: {starts:?}"
+            );
+        }
     }
 
     #[tokio::test(start_paused = true)]
