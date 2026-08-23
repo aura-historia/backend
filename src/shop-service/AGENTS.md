@@ -3,7 +3,7 @@
 ## Purpose
 
 - Own `shop-service` crate.
-- Own canonical Shop use-case contracts, handlers, and outbound ports for migration.
+- Own canonical Shop use-case contracts, handlers, and outbound ports.
 
 ## Core Design
 
@@ -16,7 +16,7 @@
 - Repository writes return persisted storage-neutral state; write use cases must not read after write to build responses.
 - Query use cases return read-optimized payloads for their API use case and avoid controller-side N+1 hydration.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.
-- No SQLx, DynamoDB, OpenSearch, transport, or legacy `shop` dependency.
+- No SQLx, DynamoDB, OpenSearch, or transport dependency.
 
 ## Ownership
 

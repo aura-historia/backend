@@ -3,7 +3,7 @@
 ## Purpose
 
 - Own `shop-core` crate.
-- Own canonical Shop domain types for migration.
+- Own canonical Shop domain types.
 
 ## Core Design
 
@@ -13,7 +13,7 @@
 - `shop::Shop` is canonical aggregate. Fields private. Rehydrate boundary public for adapter crates.
 - Shop lifecycle defaults to `Drafted`; partner applications may create draft shops. A discarded draft is terminal and cannot be published.
 - Uses `domain-primitives` for neutral change outcomes plus pure `geo`, `money`, and `localization` values.
-- No dependency on `shop-service`, legacy `shop`, or adapters.
+- No dependency on `shop-service` or adapters.
 
 ## Ownership
 

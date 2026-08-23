@@ -71,7 +71,7 @@
 
 ## Runtime Guidance
 
-- Canonical composition roots init logging with `platform-observability`; legacy executables may use `common::logging` shim.
+- Canonical composition roots init logging with `platform-observability`.
 - Keep logs compact & structured for CloudWatch-Analysis. Error log mean real fire. Expected failure be `warn` or lower.
 - Do not hide business rules in handler glue. Parse, auth, and map in edge crate; real rule live deeper.
 - Keep env var names, queue names, and event shapes stable and documented in nearest crate doc.
@@ -91,9 +91,9 @@
 - `src/aws-tests/AGENTS.md` — `aws-tests` crate.
 - `src/ci-determinator/AGENTS.md` — `ci-determinator` crate.
 - `src/cloudwatch-log-retention-lambda/AGENTS.md` — `cloudwatch-log-retention-lambda` crate.
-- `src/cognito/AGENTS.md` — `cognito` crate.
+
 - `src/cognito-post-confirmation/AGENTS.md` — `cognito-post-confirmation` crate.
-- `src/common/AGENTS.md` — legacy compatibility crate.
+
 - `src/credential-core/AGENTS.md` — credential identifiers and scope vocabulary.
 - `src/domain-primitives/AGENTS.md` — domain-neutral primitives and newtype macros.
 - `src/embedding/AGENTS.md` — reusable Vertex AI embedding adapter crate.
@@ -114,11 +114,11 @@
 - `src/notification-service/AGENTS.md` — canonical Notification service/use-case crate.
 - `src/notification-postgres/AGENTS.md` — canonical Notification PostgreSQL adapter crate.
 
-- `src/oauth/AGENTS.md` — legacy `oauth` crate.
+
 - `src/oauth-core/AGENTS.md` — canonical OAuth domain crate.
 - `src/oauth-service/AGENTS.md` — canonical OAuth service/use-case crate.
 - `src/oauth-dynamodb/AGENTS.md` — canonical OAuth DynamoDB adapter crate.
-- `src/product/AGENTS.md` — legacy `product` crate.
+
 - `src/product-core/AGENTS.md` — canonical Product domain crate.
 - `src/product-service/AGENTS.md` — canonical Product service crate.
 - `src/product-translation-llm/AGENTS.md` — Product title LLM adapter crate.
@@ -130,12 +130,12 @@
 - `src/watchlist-core/AGENTS.md` — canonical Watchlist domain crate.
 - `src/watchlist-service/AGENTS.md` — canonical Watchlist service crate.
 - `src/watchlist-postgres/AGENTS.md` — canonical Watchlist Postgres adapter crate.
-- `src/search-filter/AGENTS.md` — legacy `search-filter` crate.
+
 - `src/search-filter-core/AGENTS.md` — canonical Search Filter domain crate.
 - `src/search-filter-service/AGENTS.md` — canonical Search Filter service crate.
 - `src/search-filter-postgres/AGENTS.md` — canonical Search Filter Postgres adapter crate.
 - `src/search-filter-opensearch/AGENTS.md` — canonical Search Filter OpenSearch adapter crate.
-- `src/shop/AGENTS.md` — legacy `shop` crate.
+
 - `src/shop-core/AGENTS.md` — canonical Shop domain crate.
 - `src/shop-service/AGENTS.md` — canonical Shop service crate.
 - `src/shop-postgres/AGENTS.md` — canonical Shop Postgres adapter crate.
@@ -145,7 +145,7 @@
 - `src/shopify-lambda/AGENTS.md` — `shopify-lambda` crate.
 - `src/stripe-lambda/AGENTS.md` — `stripe-lambda` crate.
 - `src/test-api/AGENTS.md` — `test-api` crate.
-- `src/user/AGENTS.md` — legacy `user` crate.
+
 - `src/user-core/AGENTS.md` — canonical User domain crate.
 - `src/user-service/AGENTS.md` — canonical User service crate.
 - `src/user-dynamodb/AGENTS.md` — canonical User DynamoDB adapter crate.

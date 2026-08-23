@@ -22,7 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Removed
 
-- **Breaking:** The legacy notification REST shape is replaced in `aura-historia-api`. Item paths now use canonical `{notificationId}` rather than `{eventId}`; list responses omit legacy origin-event, actor, external-delivery, and total fields. The former root `PATCH /api/v1/me/notifications` all-notifications behavior is removed.
+- **Breaking:** The prior notification REST shape is replaced in `aura-historia-api`. Item paths now use canonical `{notificationId}` rather than `{eventId}`; list responses omit origin-event, actor, external-delivery, and total fields. The former root `PATCH /api/v1/me/notifications` all-notifications behavior is removed.
 
 - Public Product search no longer accepts `sort=price`. `GET /api/v1/products` rejects it with `400 BAD_SORT_VALUE`; use `score`, `updated`, or `created`.
 - Product detail responses no longer emit `ETag` or `Last-Modified`. Anonymous detail display values can change when their current persisted FX snapshot changes, so they use cache freshness directives without entity validators.

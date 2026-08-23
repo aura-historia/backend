@@ -3,7 +3,7 @@
 ## Purpose
 
 - Own `user-core` crate.
-- Own canonical User domain types for migration.
+- Own canonical User domain types.
 
 ## Core Design
 
@@ -16,7 +16,7 @@
 - User sort defaults to `Name`; no score sort in canonical user.
 - Owns pure `MeasurementUnit`; adapter and API value mapping stays outside this crate.
 - Uses `credential-core` for credential vocabulary, `domain-primitives` for neutral primitives, plus pure `money` and `localization` values.
-- No dependency on `user-service`, legacy `user`, or adapters.
+- No dependency on `user-service` or adapters.
 
 ## Ownership
 
@@ -34,7 +34,7 @@
 
 - Think caveman. Talk caveman. Few word.
 - Keep business rules here.
-- No persistence, transport, or runtime glue. Legacy API token extraction stays out of this canonical core.
+- No persistence, transport, or runtime glue. API token extraction stays out of this core.
 
 ## Verification
 

@@ -3,7 +3,7 @@
 ## Purpose
 
 - Own `product-core` crate.
-- Own canonical Product domain types for migration.
+- Own canonical Product domain types.
 
 ## Core Design
 
@@ -14,7 +14,7 @@
 - `ProductKey` owns only the semantic `(ShopId, ShopsProductId)` pair; labeled storage and transport codecs live at their owning boundaries.
 - `EnhancedSearchDescription` canonicalizes outer Unicode whitespace, rejects blank values, and caps stored text at 1000 bytes; raw-text construction is fallible.
 - Uses `shop-core` identifiers plus `geo`, `money`, and `localization` values; `domain-primitives` stays for neutral event/outcome values.
-- No dependency on `product-service`, legacy `product`, or adapters.
+- No dependency on `product-service` or adapters.
 
 ## Ownership
 

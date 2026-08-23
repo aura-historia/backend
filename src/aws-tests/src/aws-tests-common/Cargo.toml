@@ -6,22 +6,3 @@ edition = "2024"
 [dependencies]
 serde_json = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-common = { workspace = true, features = ["opensearch"] }
-tokio = { workspace = true, features = ["full"] }
-product = { workspace = true, features = ["full"] }
-
-notification = { workspace = true, features = ["service", "dynamodb", "data", "test-data"] }
-shop = { workspace = true, features = ["full"] }
-user = { workspace = true, features = ["full"] }
-search-filter = { workspace = true, features = ["full"] }
-aws-config = { workspace = true }
-aws-sdk-dynamodb = { workspace = true }
-aws-sdk-sqs = { workspace = true }
-opensearch = { workspace = true }
-uuid = { workspace = true, features = ["v4"] }
-tracing-subscriber = { workspace = true, features = ["json"] }
-tracing = { workspace = true }
-aws-sdk-cognitoidentityprovider = { workspace = true }
-fake = { workspace = true }
-time = { workspace = true }
-reqwest = { workspace = true, features = ["default", "json"] }
