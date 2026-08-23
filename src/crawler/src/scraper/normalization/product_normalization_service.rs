@@ -205,15 +205,12 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
             has_auction_end = raw.auction_end.is_some(),
             "Normalizing raw extracted product"
         );
-        let prepared =
-            prepare_product(raw, url, default_currency).map_err(|error| NormalizationFailure {
-                error,
-                llm_calls_used: 0,
-            })?;
-
+        // Resolve state first.  The state-mapping result carries the LLM
+        // usage for the whole normalization attempt, including failures in
+        // the deterministic product fields below.
         let (state_record, state_llm_called) = self
             .state_mapping_service
-            .get_state_mapping(&prepared.raw_state)
+            .get_state_mapping(&raw.state)
             .await
             .map_err(|error| NormalizationFailure {
                 llm_calls_used: match &error {
@@ -233,6 +230,12 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
             })?;
         let state = state_record.normalized;
         let llm_calls_used = u32::from(state_llm_called);
+
+        let prepared =
+            prepare_product(raw, url, default_currency).map_err(|error| NormalizationFailure {
+                error,
+                llm_calls_used,
+            })?;
 
         Ok(NormalizationSuccess {
             product: NormalizedProduct {
