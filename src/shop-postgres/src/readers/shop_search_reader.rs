@@ -9,6 +9,7 @@ use shop_service::ports::{ShopSearchReadError, ShopSearchReader, ShopSearchReade
 use shop_service::shop_search::ShopSearch;
 use shop_service::use_cases::queries::search_shops::{SearchShopsRequest, SearchShopsResult};
 use sqlx::{PgConnection, Postgres, QueryBuilder};
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxShopSearchReaderFactory;
@@ -50,24 +51,37 @@ impl ShopSearchReader for SqlxShopSearchReader<'_> {
             order: SortOrder::Asc,
         });
 
-        let mut builder = QueryBuilder::<Postgres>::new("WITH filtered AS (SELECT ");
+        let cursor_value = match cursor.search_after {
+            Some(shop_id) => {
+                let value =
+                    find_cursor_value(self.connection, shop_id, sort.sort, &request.search).await?;
+                value.map(|value| (shop_id, value))
+            }
+            None => None,
+        };
+        if cursor.search_after.is_some() && cursor_value.is_none() {
+            return Ok(SearchShopsResult {
+                items: Vec::new(),
+                cursor: Cursor {
+                    size,
+                    search_after: None,
+                },
+                total: None,
+            });
+        }
+
+        let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
         builder
             .push(shop_summary_columns())
             .push(" FROM shops WHERE lifecycle = 'PUBLISHED'");
         push_filters(&mut builder, &request.search);
-        builder.push("), ranked AS (SELECT filtered.*, row_number() OVER (ORDER BY ");
+        if let Some((shop_id, cursor_value)) = &cursor_value {
+            push_keyset_predicate(&mut builder, sort.sort, sort.order, *shop_id, cursor_value);
+        }
+        builder.push(" ORDER BY ");
         builder.push(field_sql(sort.sort));
         push_order_direction(&mut builder, sort.order);
-        builder.push(", shop_id ASC) AS rn FROM filtered) SELECT ");
-        builder
-            .push(shop_summary_columns())
-            .push(" FROM ranked WHERE TRUE");
-        if let Some(search_after) = cursor.search_after {
-            builder.push(" AND rn > (SELECT rn FROM ranked WHERE shop_id = ");
-            builder.push_bind(uuid::Uuid::from(search_after));
-            builder.push(")");
-        }
-        builder.push(" ORDER BY rn LIMIT ").push_bind(limit);
+        builder.push(", shop_id ASC LIMIT ").push_bind(limit);
 
         let mut rows = builder
             .build_query_as::<ShopSummaryRow>()
@@ -101,6 +115,12 @@ impl ShopSearchReader for SqlxShopSearchReader<'_> {
     }
 }
 
+enum ShopSortCursor {
+    Name(String),
+    Updated(OffsetDateTime),
+    Created(OffsetDateTime),
+}
+
 struct SqlxShopSearchError(sqlx::Error);
 
 impl From<SqlxShopSearchError> for ShopSearchReadError {
@@ -110,6 +130,91 @@ impl From<SqlxShopSearchError> for ShopSearchReadError {
             source: box_error(source),
         }
     }
+}
+
+async fn find_cursor_value(
+    connection: &mut PgConnection,
+    shop_id: ShopId,
+    field: SortShopField,
+    search: &ShopSearch,
+) -> Result<Option<ShopSortCursor>, ShopSearchReadError> {
+    match field {
+        SortShopField::Name => {
+            let mut builder =
+                QueryBuilder::<Postgres>::new("SELECT name FROM shops WHERE shop_id = ");
+            builder
+                .push_bind(uuid::Uuid::from(shop_id))
+                .push(" AND lifecycle = 'PUBLISHED'");
+            push_filters(&mut builder, search);
+            builder
+                .build_query_scalar::<String>()
+                .fetch_optional(connection)
+                .await
+                .map(|value| value.map(ShopSortCursor::Name))
+                .map_err(SqlxShopSearchError)
+                .map_err(Into::into)
+        }
+        SortShopField::Updated => {
+            let mut builder =
+                QueryBuilder::<Postgres>::new("SELECT updated FROM shops WHERE shop_id = ");
+            builder
+                .push_bind(uuid::Uuid::from(shop_id))
+                .push(" AND lifecycle = 'PUBLISHED'");
+            push_filters(&mut builder, search);
+            builder
+                .build_query_scalar::<OffsetDateTime>()
+                .fetch_optional(connection)
+                .await
+                .map(|value| value.map(ShopSortCursor::Updated))
+                .map_err(SqlxShopSearchError)
+                .map_err(Into::into)
+        }
+        SortShopField::Created => {
+            let mut builder =
+                QueryBuilder::<Postgres>::new("SELECT created FROM shops WHERE shop_id = ");
+            builder
+                .push_bind(uuid::Uuid::from(shop_id))
+                .push(" AND lifecycle = 'PUBLISHED'");
+            push_filters(&mut builder, search);
+            builder
+                .build_query_scalar::<OffsetDateTime>()
+                .fetch_optional(connection)
+                .await
+                .map(|value| value.map(ShopSortCursor::Created))
+                .map_err(SqlxShopSearchError)
+                .map_err(Into::into)
+        }
+    }
+}
+
+fn push_keyset_predicate(
+    builder: &mut QueryBuilder<'_, Postgres>,
+    field: SortShopField,
+    order: SortOrder,
+    shop_id: ShopId,
+    cursor: &ShopSortCursor,
+) {
+    builder.push(" AND (").push(field_sql(field));
+    match order {
+        SortOrder::Asc => builder.push(" > "),
+        SortOrder::Desc => builder.push(" < "),
+    };
+    push_cursor_value(builder, cursor);
+    builder.push(" OR (").push(field_sql(field)).push(" = ");
+    push_cursor_value(builder, cursor);
+    builder
+        .push(" AND shop_id > ")
+        .push_bind(uuid::Uuid::from(shop_id));
+    builder.push("))");
+}
+
+fn push_cursor_value(builder: &mut QueryBuilder<'_, Postgres>, cursor: &ShopSortCursor) {
+    match cursor {
+        ShopSortCursor::Name(value) => builder.push_bind(value.clone()),
+        ShopSortCursor::Updated(value) | ShopSortCursor::Created(value) => {
+            builder.push_bind(*value)
+        }
+    };
 }
 
 fn push_filters(builder: &mut QueryBuilder<'_, Postgres>, search: &ShopSearch) {

@@ -178,6 +178,63 @@ async fn should_page_shop_search_with_shop_id_cursor() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_continue_created_sort_after_equal_timestamp() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let shops = SqlxShopRepositoryFactory::new();
+    let search = SqlxShopSearchReaderFactory::new();
+    let first = sample_shop("postgres-created-cursor-first");
+    let second = sample_shop("postgres-created-cursor-second");
+    let timestamp = OffsetDateTime::now_utc();
+
+    let mut tx = begin(&unit_of_work).await;
+    for shop in [&first, &second] {
+        if let Err(error) = shops.in_transaction(&mut tx).insert(shop).await {
+            panic!("failed to insert shop: {error:?}");
+        }
+    }
+    commit(tx).await;
+    for shop in [&first, &second] {
+        set_shop_timestamps(&pool, shop.id(), timestamp, timestamp).await;
+    }
+
+    let request = |search_after| SearchShopsRequest {
+        search: ShopSearch {
+            shop_name_query: Some(text_query("postgres-created-cursor")),
+            ..Default::default()
+        },
+        sort: Some(Sort {
+            sort: SortShopField::Created,
+            order: SortOrder::Desc,
+        }),
+        cursor: Some(Cursor::<ShopId> {
+            size: 1,
+            search_after,
+        }),
+    };
+    let mut tx = begin(&unit_of_work).await;
+    let first_page = match search.in_transaction(&mut tx).search(&request(None)).await {
+        Ok(result) => result,
+        Err(error) => panic!("failed to search first page: {error:?}"),
+    };
+    let second_page = match search
+        .in_transaction(&mut tx)
+        .search(&request(first_page.cursor.search_after))
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => panic!("failed to search second page: {error:?}"),
+    };
+    commit(tx).await;
+
+    let mut expected = [first.id(), second.id()];
+    expected.sort();
+    assert_eq!(expected[0], first_page.items[0].shop_id);
+    assert_eq!(expected[1], second_page.items[0].shop_id);
+    assert_eq!(None, second_page.cursor.search_after);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_return_empty_search_when_no_shop_matches() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);

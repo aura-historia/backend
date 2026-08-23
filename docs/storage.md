@@ -20,6 +20,13 @@ PostgreSQL is the sole production owner of notifications and external-delivery i
 - `product_watchlist.notifications_enabled_since` is non-null exactly when `notifications = true` and marks the beginning of the current email-enabled interval.
 - Watchlist notification readers compare both interval starts with immutable `product_events.event_time`; deactivation/reactivation and email disable/re-enable start new intervals. These fields are repository-owned persistence metadata, not REST payload fields.
 
+## Indexed read paths
+
+- User watchlist lists use `created DESC, product_id ASC`; reverse product watcher reads use `product_id, user_id ASC`.
+- Public shop search resolves an existing UUID cursor to its active sort value, then uses a keyset predicate. Default published-name plus descending updated and created ordering have partial indexes with `shop_id ASC` as the tie-breaker.
+- Saved-filter matches support both `created ASC, product_id ASC` and `created DESC, product_id ASC` for a fixed filter.
+- Product domain-event history orders by `event_time ASC, event_id ASC` for one product.
+
 ## FX snapshots
 
 PostgreSQL is authoritative for canonical FX data.

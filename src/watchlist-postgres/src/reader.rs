@@ -27,7 +27,7 @@ impl WatchlistReader for SqlxWatchlistReader<'_> {
     ) -> Result<Vec<WatchlistProductView>, WatchlistReadError> {
         sqlx::query_as::<_, WatchlistViewRow>(
             "SELECT user_id, product_id, notifications, state, created, updated \
-             FROM product_watchlist WHERE user_id = $1 ORDER BY created DESC",
+             FROM product_watchlist WHERE user_id = $1 ORDER BY created DESC, product_id ASC",
         )
         .bind(uuid::Uuid::from(user_id))
         .fetch_all(self.tx.connection())

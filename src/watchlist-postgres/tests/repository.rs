@@ -80,6 +80,57 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_order_user_watchlist_entries_by_created_then_product_id() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let repository = SqlxWatchlistRepositoryFactory;
+    let reader = SqlxWatchlistReaderFactory;
+    let user_id = seed_user(&pool, "watchlist-postgres-order@example.com").await;
+    let first_product_id = seed_product(&pool, "watchlist-postgres-order-first").await;
+    let second_product_id = seed_product(&pool, "watchlist-postgres-order-second").await;
+    let created = OffsetDateTime::now_utc()
+        .replace_nanosecond(0)
+        .unwrap_or_else(|error| panic!("failed to normalize timestamp: {error}"));
+
+    let mut tx = begin(&unit).await;
+    for product_id in [first_product_id, second_product_id] {
+        repository
+            .in_transaction(&mut tx)
+            .insert(&WatchlistProduct::rehydrate(
+                user_id,
+                product_id,
+                true,
+                WatchlistState::Active,
+            ))
+            .await
+            .unwrap_or_else(|error| panic!("insert watchlist entry failed: {error:?}"));
+    }
+    commit(tx).await;
+
+    sqlx::query("UPDATE product_watchlist SET created = $1 WHERE user_id = $2")
+        .bind(created)
+        .bind(uuid::Uuid::from(user_id))
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to align watchlist timestamps: {error:?}"));
+
+    let mut tx = begin(&unit).await;
+    let product_ids = reader
+        .in_transaction(&mut tx)
+        .find_for_user(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("read watchlist entries failed: {error:?}"))
+        .into_iter()
+        .map(|entry| entry.product_id)
+        .collect::<Vec<_>>();
+    commit(tx).await;
+
+    let mut expected = [first_product_id, second_product_id];
+    expected.sort();
+    assert_eq!(product_ids, expected);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_preserve_and_reset_current_interval_timestamps() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
