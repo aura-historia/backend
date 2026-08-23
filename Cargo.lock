@@ -330,7 +330,6 @@ dependencies = [
  "search-filter",
  "search-filter-core",
  "search-filter-opensearch",
- "search-filter-periodic-match",
  "search-filter-postgres",
  "search-filter-service",
  "shop",
@@ -6894,32 +6893,6 @@ dependencies = [
  "tokio",
  "url",
  "user-core",
-]
-
-[[package]]
-name = "search-filter-periodic-match"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-s3",
- "aws-sdk-sesv2",
- "common",
- "fake",
- "futures-util",
- "mockall",
- "notification",
- "product",
- "search-filter",
- "serde_json",
- "serial_test",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "user",
 ]
 
 [[package]]

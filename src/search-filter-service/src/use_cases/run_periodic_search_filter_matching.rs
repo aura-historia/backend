@@ -66,6 +66,7 @@ pub struct PeriodicSearchFilterMatchingReport {
     pub filters_completed: usize,
     pub filters_changed_or_inactive: usize,
     pub filters_failed: usize,
+    pub filters_invalid_persisted_state: usize,
     pub candidates_scanned: usize,
     pub candidates_existing: usize,
     pub candidates_missing_source: usize,
@@ -315,6 +316,7 @@ where
             filters_completed: 0,
             filters_changed_or_inactive: 0,
             filters_failed: 0,
+            filters_invalid_persisted_state: 0,
             candidates_scanned: 0,
             candidates_existing: 0,
             candidates_missing_source: 0,
@@ -343,16 +345,17 @@ where
             for candidate in page {
                 report.filters_selected += 1;
                 let mut completed = false;
+                let mut failed = false;
                 for _ in 0..self.policy.max_attempts.get() {
                     match self
                         .process_filter(&candidate, &snapshot, window_end, &mut report)
-                        .await?
+                        .await
                     {
-                        FilterOutcome::Completed => {
+                        Ok(FilterOutcome::Completed) => {
                             completed = true;
                             break;
                         }
-                        FilterOutcome::ChangedOrInactive => {
+                        Ok(FilterOutcome::ChangedOrInactive) => {
                             report.filters_changed_or_inactive += 1;
                             tracing::info!(
                                 search_filter_id = %candidate.search_filter_id,
@@ -361,12 +364,31 @@ where
                             completed = true;
                             break;
                         }
-                        FilterOutcome::Retryable => {
+                        Ok(FilterOutcome::InvalidPersistedState) => {
+                            mark_invalid_persisted_state(&mut report);
+                            tracing::error!(
+                                search_filter_id = %candidate.search_filter_id,
+                                outcome = "invalid_persisted_state",
+                                "search_filter.periodic_match.filter_invalid_persisted_state"
+                            );
+                            failed = true;
+                            break;
+                        }
+                        Ok(FilterOutcome::Retryable) => {
                             tracing::warn!(
                                 search_filter_id = %candidate.search_filter_id,
                                 "search_filter.periodic_match.filter_retry"
                             );
-                            continue;
+                        }
+                        Err(error) => {
+                            report.filters_failed += 1;
+                            tracing::error!(
+                                search_filter_id = %candidate.search_filter_id,
+                                error = %error,
+                                "search_filter.periodic_match.filter_failed"
+                            );
+                            failed = true;
+                            break;
                         }
                     }
                 }
@@ -379,7 +401,7 @@ where
                         matches_duplicate = report.matches_duplicate,
                         "search_filter.periodic_match.filter_completed"
                     );
-                } else {
+                } else if !failed {
                     report.filters_failed += 1;
                     tracing::warn!(
                         search_filter_id = %candidate.search_filter_id,
@@ -409,8 +431,9 @@ where
         window_end: OffsetDateTime,
         report: &mut PeriodicSearchFilterMatchingReport,
     ) -> Result<FilterOutcome, RunPeriodicSearchFilterMatchingError> {
-        let Some(embedding) = filter.embedding.as_deref() else {
-            return Ok(FilterOutcome::Retryable);
+        let embedding = match filter_embedding(filter) {
+            Ok(embedding) => embedding,
+            Err(outcome) => return Ok(outcome),
         };
         let Some(search) = periodic_search(filter, window_end, self.policy.replay_overlap) else {
             return self
@@ -665,7 +688,20 @@ where
 enum FilterOutcome {
     Completed,
     ChangedOrInactive,
+    InvalidPersistedState,
     Retryable,
+}
+
+fn filter_embedding(filter: &PeriodicSearchFilterCandidate) -> Result<&[f32], FilterOutcome> {
+    filter
+        .embedding
+        .as_deref()
+        .ok_or(FilterOutcome::InvalidPersistedState)
+}
+
+fn mark_invalid_persisted_state(report: &mut PeriodicSearchFilterMatchingReport) {
+    report.filters_failed += 1;
+    report.filters_invalid_persisted_state += 1;
 }
 
 async fn load_snapshot<U, F>(
@@ -1228,6 +1264,7 @@ mod tests {
             filters_completed: 0,
             filters_changed_or_inactive: 0,
             filters_failed: 0,
+            filters_invalid_persisted_state: 0,
             candidates_scanned: 0,
             candidates_existing: 0,
             candidates_missing_source: 0,
@@ -1238,6 +1275,31 @@ mod tests {
             matches_inserted: 0,
             matches_duplicate: 0,
         }
+    }
+
+    #[test]
+    fn should_report_missing_embedding_without_advancing_progress()
+    -> Result<(), RunPeriodicSearchFilterMatchingError> {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        let filter = filter();
+        let mut report = report();
+
+        assert_eq!(
+            filter_embedding(&filter),
+            Err(FilterOutcome::InvalidPersistedState)
+        );
+        mark_invalid_persisted_state(&mut report);
+
+        let state = state
+            .lock()
+            .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
+        assert_eq!(report.filters_failed, 1);
+        assert_eq!(report.filters_invalid_persisted_state, 1);
+        assert_eq!(state.checkpoints, 0);
+        assert_eq!(state.commits, 0);
+        Ok(())
     }
 
     #[tokio::test]

@@ -187,7 +187,6 @@ impl ScheduledJobRunner {
                     let finished_at = OffsetDateTime::now_utc();
                     let duration_ms = started_at.elapsed().as_millis() as u64;
                     error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "timed_out", "cron.job.timed_out");
-                    error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "timed_out", "cron.job.completed");
                     return;
                 }
             },

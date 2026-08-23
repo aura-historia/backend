@@ -1,4 +1,6 @@
 use crate::scheduled_job::CronJob;
+use chrono::Utc;
+use cron_tab::Cron;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use large_language_model::{VertexAiConfig, VertexAiGemini};
@@ -125,6 +127,8 @@ impl PeriodicMatchConfig {
             number("POSTGRES_MAX_CONNECTIONS", 2)? as u32,
         )
         .map_err(WiringError::PostgresConfig)?;
+        let schedule = optional("SEARCH_FILTER_PERIODIC_MATCH_CRON", "0 0 15 * * * *");
+        validate_schedule(&schedule)?;
         Ok(Self {
             postgres,
             endpoint,
@@ -132,7 +136,7 @@ impl PeriodicMatchConfig {
             vertex_project_id: required("VERTEX_AI_PROJECT_ID")?,
             vertex_location: required("VERTEX_AI_LOCATION")?,
             vertex_model: required("VERTEX_AI_MODEL")?,
-            schedule: optional("SEARCH_FILTER_PERIODIC_MATCH_CRON", "0 0 15 * * * *"),
+            schedule,
             max_run_duration: positive_duration("PERIODIC_MATCH_MAX_RUN_SECONDS", 7200)?,
             policy: PeriodicSearchFilterMatchingPolicy {
                 filter_page_size,
@@ -187,6 +191,16 @@ fn positive_duration(name: &'static str, default: u64) -> Result<Duration, Wirin
     let seconds = NonZeroU64::new(number(name, default)?).ok_or(WiringError::InvalidPolicy)?;
     Ok(Duration::from_secs(seconds.get()))
 }
+
+fn validate_schedule(schedule: &str) -> Result<(), WiringError> {
+    let mut cron = Cron::new(Utc);
+    cron.add_fn(schedule, || {})
+        .map(|_| ())
+        .map_err(|error| WiringError::InvalidSchedule {
+            value: schedule.to_owned(),
+            detail: error.to_string(),
+        })
+}
 fn opensearch_client(config: &PeriodicMatchConfig) -> Result<OpenSearch, WiringError> {
     let pool = SingleNodeConnectionPool::new(config.endpoint.clone());
     let builder = TransportBuilder::new(pool);
@@ -214,6 +228,8 @@ pub enum WiringError {
     },
     #[error("invalid periodic matching policy")]
     InvalidPolicy,
+    #[error("invalid SEARCH_FILTER_PERIODIC_MATCH_CRON {value}: {detail}")]
+    InvalidSchedule { value: String, detail: String },
     #[error("invalid PostgreSQL configuration")]
     PostgresConfig(#[source] PostgresPoolConfigError),
     #[error("invalid OpenSearch endpoint")]
@@ -238,5 +254,16 @@ mod tests {
     fn should_reject_zero_periodic_match_max_run_seconds() {
         let result = positive_duration("PERIODIC_MATCH_MAX_RUN_SECONDS", 0);
         assert!(matches!(result, Err(WiringError::InvalidPolicy)));
+    }
+
+    #[test]
+    fn should_reject_invalid_periodic_match_cron() {
+        let result = validate_schedule("invalid");
+        assert!(matches!(result, Err(WiringError::InvalidSchedule { .. })));
+    }
+
+    #[test]
+    fn should_accept_valid_seven_field_periodic_match_cron() {
+        assert!(validate_schedule("0 0 15 * * * *").is_ok());
     }
 }

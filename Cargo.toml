@@ -25,7 +25,6 @@ search-filter-service = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-opensearch = { workspace = true }
 large-language-model = { workspace = true }
-search-filter-periodic-match = { workspace = true }
 shop = { workspace = true }
 shop-core = { workspace = true }
 shop-service = { workspace = true }
@@ -92,7 +91,6 @@ members = [
     "src/search-filter-postgres",
     "src/search-filter-opensearch",
     "src/large-language-model",
-    "src/search-filter-periodic-match",
     "src/product",
     "src/product-core",
     "src/product-service",
@@ -165,7 +163,7 @@ aws-sdk-cloudwatch = "1.111.0"
 aws-sdk-cloudwatchlogs = "1.135.0"
 aws_lambda_events = { version = "1.2.0", default-features = false }
 chrono = "0.4"
-cron_tab = { version = "=0.2.14", default-features = false, features = ["async"] }
+cron_tab = { version = "=0.2.14", default-features = false, features = ["async", "sync"] }
 cloudwatch-log-retention-lambda = { path = "src/cloudwatch-log-retention-lambda" }
 common = { path = "src/common" }
 credential-core = { path = "src/credential-core" }
@@ -189,7 +187,6 @@ search-filter-service = { path = "src/search-filter-service" }
 search-filter-postgres = { path = "src/search-filter-postgres" }
 search-filter-opensearch = { path = "src/search-filter-opensearch" }
 large-language-model = { path = "src/large-language-model" }
-search-filter-periodic-match = { path = "src/search-filter-periodic-match" }
 shop = { path = "src/shop" }
 shop-core = { path = "src/shop-core" }
 shop-service = { path = "src/shop-service" }
