@@ -11,6 +11,7 @@ Use for purpose-specific reads and read models.
 
 - `backend/AGENTS.md` and path `AGENTS.md` files.
 - `docs/arch.md` §3, §6.2, §7, §9, §10.2, §11.7-11.8, §13-15, §20.4-20.6, §21-23.
+- Load `aura-rust-enum` too when persisted/read-model enum mapping changes.
 
 ## Before coding
 

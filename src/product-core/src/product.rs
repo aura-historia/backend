@@ -87,7 +87,7 @@ pub struct ProductPricing {
     pub price_estimate_max: Option<Price>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::EnumIter)]
 pub enum ProductPriceValuationBasis {
     Current,
     Event,
@@ -95,20 +95,11 @@ pub enum ProductPriceValuationBasis {
 }
 
 impl ProductPriceValuationBasis {
-    pub fn as_db_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Current => "CURRENT",
             Self::Event => "EVENT",
             Self::Sale => "SALE",
-        }
-    }
-
-    pub fn from_db_str(value: &str) -> Option<Self> {
-        match value {
-            "CURRENT" => Some(Self::Current),
-            "EVENT" => Some(Self::Event),
-            "SALE" => Some(Self::Sale),
-            _ => None,
         }
     }
 }
@@ -615,20 +606,21 @@ mod tests {
     }
 
     #[test]
-    fn should_round_trip_product_price_valuation_basis_database_values() {
-        for (basis, database_value) in [
-            (ProductPriceValuationBasis::Current, "CURRENT"),
-            (ProductPriceValuationBasis::Event, "EVENT"),
-            (ProductPriceValuationBasis::Sale, "SALE"),
-        ] {
-            assert_eq!(database_value, basis.as_db_str());
-            assert_eq!(
-                Some(basis),
-                ProductPriceValuationBasis::from_db_str(database_value)
-            );
-        }
+    fn should_round_trip_unique_canonical_product_price_valuation_basis_identifiers() {
+        use std::collections::HashSet;
+        use strum::IntoEnumIterator;
 
-        assert_eq!(None, ProductPriceValuationBasis::from_db_str("current"));
+        let identifiers = ProductPriceValuationBasis::iter()
+            .map(ProductPriceValuationBasis::as_str)
+            .collect::<HashSet<_>>();
+
+        assert_eq!(
+            ProductPriceValuationBasis::iter().count(),
+            identifiers.len()
+        );
+        for basis in ProductPriceValuationBasis::iter() {
+            assert!(matches!(basis.as_str(), "CURRENT" | "EVENT" | "SALE"));
+        }
     }
 
     #[test]

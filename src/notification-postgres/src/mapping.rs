@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use std::collections::{HashMap, HashSet};
+use strum::IntoEnumIterator;
 use time::OffsetDateTime;
 use url::Url;
 use user_core::user_id::UserId;
@@ -344,7 +345,7 @@ impl TryFrom<&Notification> for NotificationWriteValues {
         Ok(Self {
             notification_id: uuid::Uuid::from(notification.notification_id()),
             user_id: uuid::Uuid::from(notification.user_id()),
-            kind: notification_kind_db_value(notification.kind()),
+            kind: notification.kind().as_str(),
             origin_event_id,
             product_id,
             user_search_filter_id,
@@ -445,16 +446,6 @@ impl TryFrom<NotificationRow> for Notification {
     }
 }
 
-fn notification_kind_db_value(kind: NotificationKind) -> &'static str {
-    match kind {
-        NotificationKind::WatchlistPriceChanged => "WATCHLIST_PRICE_CHANGED",
-        NotificationKind::WatchlistStateChanged => "WATCHLIST_STATE_CHANGED",
-        NotificationKind::SearchFilterMatch => "SEARCH_FILTER_MATCH",
-        NotificationKind::PartnerApplicationApproved => "PARTNER_APPLICATION_APPROVED",
-        NotificationKind::PartnerApplicationRejected => "PARTNER_APPLICATION_REJECTED",
-    }
-}
-
 fn price_data_from_price(price: Price) -> PersistedPrice {
     let currency = match price.currency {
         Currency::Eur => PersistedCurrency::Eur,
@@ -528,14 +519,9 @@ fn parse_language(value: &str) -> Result<localization::Language, NotificationMap
 }
 
 fn parse_kind(value: &str) -> Result<NotificationKind, NotificationMappingError> {
-    match value {
-        "WATCHLIST_PRICE_CHANGED" => Ok(NotificationKind::WatchlistPriceChanged),
-        "WATCHLIST_STATE_CHANGED" => Ok(NotificationKind::WatchlistStateChanged),
-        "SEARCH_FILTER_MATCH" => Ok(NotificationKind::SearchFilterMatch),
-        "PARTNER_APPLICATION_APPROVED" => Ok(NotificationKind::PartnerApplicationApproved),
-        "PARTNER_APPLICATION_REJECTED" => Ok(NotificationKind::PartnerApplicationRejected),
-        _ => Err(NotificationMappingError::UnknownKind(value.to_owned())),
-    }
+    NotificationKind::iter()
+        .find(|kind| kind.as_str() == value)
+        .ok_or_else(|| NotificationMappingError::UnknownKind(value.to_owned()))
 }
 
 fn change_kind(change: &NotificationWatchlistChange) -> NotificationKind {
@@ -553,6 +539,24 @@ pub(crate) fn mapping_error(error: NotificationMappingError) -> BoxError {
 mod tests {
     use super::*;
     use money::{Currency, MonetaryAmount};
+
+    #[test]
+    fn should_parse_each_canonical_persisted_kind() {
+        for expected in NotificationKind::iter() {
+            assert!(matches!(
+                parse_kind(expected.as_str()),
+                Ok(actual) if actual == expected
+            ));
+        }
+    }
+
+    #[test]
+    fn should_reject_unknown_and_noncanonical_persisted_kind() {
+        assert!(matches!(
+            parse_kind("watchlist_price_changed"),
+            Err(NotificationMappingError::UnknownKind(value)) if value == "watchlist_price_changed"
+        ));
+    }
 
     #[test]
     fn should_serialize_source_currency_explicitly() -> Result<(), Box<dyn std::error::Error>> {

@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Hash, PartialEq, Eq, Default, Serialize, Deserialize, strum_macros::EnumIter,
+)]
 pub enum ProhibitedContent {
     #[default]
     Unknown,
@@ -18,11 +20,11 @@ impl ProhibitedContent {
         }
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
-            ProhibitedContent::Unknown => "UNKNOWN",
-            ProhibitedContent::None => "NONE",
-            ProhibitedContent::NaziGermany => "NAZI_GERMANY",
+            Self::Unknown => "UNKNOWN",
+            Self::None => "NONE",
+            Self::NaziGermany => "NAZI_GERMANY",
         }
     }
 }
@@ -44,6 +46,8 @@ impl ProhibitedContentReason {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
+    use strum::IntoEnumIterator;
 
     #[rstest::rstest]
     #[case(ProhibitedContent::Unknown, false, "UNKNOWN")]
@@ -56,6 +60,15 @@ mod tests {
     ) {
         assert_eq!(safe, content.is_safe());
         assert_eq!(value, content.as_str());
+    }
+
+    #[test]
+    fn should_keep_canonical_prohibited_content_identifiers_unique() {
+        let identifiers = ProhibitedContent::iter()
+            .map(ProhibitedContent::as_str)
+            .collect::<HashSet<_>>();
+
+        assert_eq!(ProhibitedContent::iter().count(), identifiers.len());
     }
 
     #[test]

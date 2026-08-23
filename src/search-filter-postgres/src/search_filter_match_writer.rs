@@ -59,7 +59,7 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
         .bind(
             product_match
                 .price_match_valuation
-                .map(|valuation| valuation.basis.as_db_str()),
+                .map(|valuation| valuation.basis.as_str()),
         )
         .bind(
             product_match
@@ -123,7 +123,7 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
             .map(|value| {
                 value
                     .price_match_valuation
-                    .map(|valuation| valuation.basis.as_db_str())
+                    .map(|valuation| valuation.basis.as_str())
             })
             .collect::<Vec<_>>();
         let fx_rate_ids = product_matches

@@ -22,6 +22,7 @@ use shop_service::ports::{ShopStorageVersion, StoredShop};
 use shop_service::use_cases::queries::get_shop::ShopDetailsView;
 use shop_service::use_cases::queries::search_shops::ShopSummary;
 use std::collections::HashSet;
+use strum::IntoEnumIterator;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -271,27 +272,15 @@ pub(crate) fn bind_affiliate_configuration(
 }
 
 pub(crate) fn bind_shop_type(value: ShopType) -> &'static str {
-    match value {
-        ShopType::AuctionHouse => "AUCTION_HOUSE",
-        ShopType::AuctionPlatform => "AUCTION_PLATFORM",
-        ShopType::CommercialDealer => "COMMERCIAL_DEALER",
-        ShopType::Marketplace => "MARKETPLACE",
-    }
+    value.as_str()
 }
 
 pub(crate) fn bind_partner_status(value: ShopPartnerStatus) -> &'static str {
-    match value {
-        ShopPartnerStatus::Scraped => "SCRAPED",
-        ShopPartnerStatus::Partnered => "PARTNERED",
-    }
+    value.as_str()
 }
 
 pub(crate) fn bind_lifecycle(value: ShopLifecycle) -> &'static str {
-    match value {
-        ShopLifecycle::Drafted => "DRAFTED",
-        ShopLifecycle::Published => "PUBLISHED",
-        ShopLifecycle::Discarded => "DISCARDED",
-    }
+    value.as_str()
 }
 
 pub(crate) fn bind_currency(value: Option<Currency>) -> Option<&'static str> {
@@ -488,27 +477,9 @@ fn parse_currency(
     value: &str,
     error: ShopRowMappingError,
 ) -> Result<Currency, ShopRowMappingError> {
-    match value.to_ascii_uppercase().as_str() {
-        "EUR" => Ok(Currency::Eur),
-        "GBP" => Ok(Currency::Gbp),
-        "USD" => Ok(Currency::Usd),
-        "AUD" => Ok(Currency::Aud),
-        "CAD" => Ok(Currency::Cad),
-        "NZD" => Ok(Currency::Nzd),
-        "CNY" => Ok(Currency::Cny),
-        "BRL" => Ok(Currency::Brl),
-        "PLN" => Ok(Currency::Pln),
-        "TRY" => Ok(Currency::Try),
-        "JPY" => Ok(Currency::Jpy),
-        "CZK" => Ok(Currency::Czk),
-        "RUB" => Ok(Currency::Rub),
-        "AED" => Ok(Currency::Aed),
-        "SAR" => Ok(Currency::Sar),
-        "HKD" => Ok(Currency::Hkd),
-        "SGD" => Ok(Currency::Sgd),
-        "CHF" => Ok(Currency::Chf),
-        _ => Err(error),
-    }
+    Currency::iter()
+        .find(|currency| currency.as_str() == value)
+        .ok_or(error)
 }
 
 fn parse_optional_language(
@@ -522,50 +493,27 @@ fn parse_language(
     value: &str,
     error: ShopRowMappingError,
 ) -> Result<Language, ShopRowMappingError> {
-    match value.to_ascii_lowercase().as_str() {
-        "de" => Ok(Language::De),
-        "en" => Ok(Language::En),
-        "fr" => Ok(Language::Fr),
-        "es" => Ok(Language::Es),
-        "it" => Ok(Language::It),
-        "zh" => Ok(Language::Zh),
-        "pt" => Ok(Language::Pt),
-        "pl" => Ok(Language::Pl),
-        "tr" => Ok(Language::Tr),
-        "nl" => Ok(Language::Nl),
-        "cs" => Ok(Language::Cs),
-        "ja" => Ok(Language::Ja),
-        "ru" => Ok(Language::Ru),
-        "ar" => Ok(Language::Ar),
-        _ => Err(error),
-    }
+    Language::iter()
+        .find(|language| language.as_str() == value)
+        .ok_or(error)
 }
 
 fn parse_shop_type(value: &str) -> Result<ShopType, ShopRowMappingError> {
-    match value {
-        "AUCTION_HOUSE" => Ok(ShopType::AuctionHouse),
-        "AUCTION_PLATFORM" => Ok(ShopType::AuctionPlatform),
-        "COMMERCIAL_DEALER" => Ok(ShopType::CommercialDealer),
-        "MARKETPLACE" => Ok(ShopType::Marketplace),
-        _ => Err(ShopRowMappingError::InvalidShopType),
-    }
+    ShopType::iter()
+        .find(|shop_type| shop_type.as_str() == value)
+        .ok_or(ShopRowMappingError::InvalidShopType)
 }
 
 fn parse_partner_status(value: &str) -> Result<ShopPartnerStatus, ShopRowMappingError> {
-    match value {
-        "SCRAPED" => Ok(ShopPartnerStatus::Scraped),
-        "PARTNERED" => Ok(ShopPartnerStatus::Partnered),
-        _ => Err(ShopRowMappingError::InvalidPartnerStatus),
-    }
+    ShopPartnerStatus::iter()
+        .find(|status| status.as_str() == value)
+        .ok_or(ShopRowMappingError::InvalidPartnerStatus)
 }
 
 fn parse_lifecycle(value: &str) -> Result<ShopLifecycle, ShopRowMappingError> {
-    match value {
-        "DRAFTED" => Ok(ShopLifecycle::Drafted),
-        "PUBLISHED" => Ok(ShopLifecycle::Published),
-        "DISCARDED" => Ok(ShopLifecycle::Discarded),
-        _ => Err(ShopRowMappingError::InvalidLifecycle),
-    }
+    ShopLifecycle::iter()
+        .find(|lifecycle| lifecycle.as_str() == value)
+        .ok_or(ShopRowMappingError::InvalidLifecycle)
 }
 
 #[cfg(test)]
@@ -655,28 +603,33 @@ mod tests {
         );
     }
 
-    #[rstest::rstest]
-    #[case("AUCTION_HOUSE", Ok(ShopType::AuctionHouse))]
-    #[case("AUCTION_PLATFORM", Ok(ShopType::AuctionPlatform))]
-    #[case("COMMERCIAL_DEALER", Ok(ShopType::CommercialDealer))]
-    #[case("MARKETPLACE", Ok(ShopType::Marketplace))]
-    #[case("UNKNOWN", Err(ShopRowMappingError::InvalidShopType))]
-    fn should_parse_shop_type_branches(
-        #[case] value: &str,
-        #[case] expected: Result<ShopType, ShopRowMappingError>,
-    ) {
-        assert_eq!(expected, parse_shop_type(value));
-    }
+    #[test]
+    fn should_parse_and_bind_all_canonical_shop_enum_values() {
+        for shop_type in ShopType::iter() {
+            assert_eq!(Ok(shop_type), parse_shop_type(shop_type.as_str()));
+            assert_eq!(shop_type.as_str(), bind_shop_type(shop_type));
+        }
+        for status in ShopPartnerStatus::iter() {
+            assert_eq!(Ok(status), parse_partner_status(status.as_str()));
+            assert_eq!(status.as_str(), bind_partner_status(status));
+        }
+        for lifecycle in ShopLifecycle::iter() {
+            assert_eq!(Ok(lifecycle), parse_lifecycle(lifecycle.as_str()));
+            assert_eq!(lifecycle.as_str(), bind_lifecycle(lifecycle));
+        }
 
-    #[rstest::rstest]
-    #[case("SCRAPED", Ok(ShopPartnerStatus::Scraped))]
-    #[case("PARTNERED", Ok(ShopPartnerStatus::Partnered))]
-    #[case("UNKNOWN", Err(ShopRowMappingError::InvalidPartnerStatus))]
-    fn should_parse_partner_status_branches(
-        #[case] value: &str,
-        #[case] expected: Result<ShopPartnerStatus, ShopRowMappingError>,
-    ) {
-        assert_eq!(expected, parse_partner_status(value));
+        assert_eq!(
+            Err(ShopRowMappingError::InvalidShopType),
+            parse_shop_type("UNKNOWN")
+        );
+        assert_eq!(
+            Err(ShopRowMappingError::InvalidPartnerStatus),
+            parse_partner_status("UNKNOWN")
+        );
+        assert_eq!(
+            Err(ShopRowMappingError::InvalidLifecycle),
+            parse_lifecycle("UNKNOWN")
+        );
     }
 
     #[rstest::rstest]
@@ -699,6 +652,7 @@ mod tests {
     #[case("SGD", Ok(Currency::Sgd))]
     #[case("CHF", Ok(Currency::Chf))]
     #[case("XXX", Err(ShopRowMappingError::InvalidShopifyCurrency))]
+    #[case("eur", Err(ShopRowMappingError::InvalidShopifyCurrency))]
     fn should_parse_currency_branches(
         #[case] value: &str,
         #[case] expected: Result<Currency, ShopRowMappingError>,
@@ -725,6 +679,7 @@ mod tests {
     #[case("ru", Ok(Language::Ru))]
     #[case("ar", Ok(Language::Ar))]
     #[case("xx", Err(ShopRowMappingError::InvalidShopifyLanguage))]
+    #[case("EN", Err(ShopRowMappingError::InvalidShopifyLanguage))]
     fn should_parse_language_branches(
         #[case] value: &str,
         #[case] expected: Result<Language, ShopRowMappingError>,

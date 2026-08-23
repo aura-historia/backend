@@ -3,6 +3,7 @@ use domain_primitives::event_id::EventId;
 use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use fxrate_core::FxRateId;
+use product_core::product::ProductPriceValuationBasis;
 use product_core::product_id::ProductId;
 use product_core::product_lifecycle::ProductLifecycle;
 use product_core::product_state::ProductState;
@@ -32,6 +33,7 @@ use serde::{Deserialize, Serialize};
 use shop_core::shop_type::ShopType;
 use sqlx::FromRow;
 use std::{collections::HashSet, error::Error, fmt};
+use strum::IntoEnumIterator;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 pub(crate) const FILTER_COLUMNS: &str = "user_search_filter_id, user_id, name, notifications, state, search, embedding, created, updated, version";
@@ -255,13 +257,6 @@ impl TryFrom<MatchRow> for SearchFilterMatchView {
     }
 }
 
-pub(crate) fn format_state(value: SearchFilterState) -> &'static str {
-    match value {
-        SearchFilterState::Active => "ACTIVE",
-        SearchFilterState::InactiveByUser => "INACTIVE_BY_USER",
-        SearchFilterState::InactiveByRestrictedPlan => "INACTIVE_BY_RESTRICTED_PLAN",
-    }
-}
 pub(crate) fn user_search_filter_uuid(id: UserSearchFilterId) -> Result<uuid::Uuid, uuid::Error> {
     uuid::Uuid::parse_str(&id.to_string())
 }
@@ -271,26 +266,22 @@ fn price_match_valuation(
 ) -> Result<Option<search_filter_core::PriceMatchValuation>, SearchFilterRowMappingError> {
     match (basis, fx_rate_id) {
         (None, None) => Ok(None),
-        (Some(basis), Some(fx_rate_id)) => {
-            product_core::product::ProductPriceValuationBasis::from_db_str(basis)
-                .map(|basis| search_filter_core::PriceMatchValuation {
-                    basis,
-                    fx_rate_id: FxRateId::from(fx_rate_id),
-                })
-                .ok_or(SearchFilterRowMappingError::InvalidPriceMatchValuation)
-                .map(Some)
-        }
+        (Some(basis), Some(fx_rate_id)) => ProductPriceValuationBasis::iter()
+            .find(|candidate| candidate.as_str() == basis)
+            .map(|basis| search_filter_core::PriceMatchValuation {
+                basis,
+                fx_rate_id: FxRateId::from(fx_rate_id),
+            })
+            .ok_or(SearchFilterRowMappingError::InvalidPriceMatchValuation)
+            .map(Some),
         _ => Err(SearchFilterRowMappingError::InvalidPriceMatchValuation),
     }
 }
 
-pub(crate) fn state(v: &str) -> Result<SearchFilterState, SearchFilterRowMappingError> {
-    match v {
-        "ACTIVE" => Ok(SearchFilterState::Active),
-        "INACTIVE_BY_USER" => Ok(SearchFilterState::InactiveByUser),
-        "INACTIVE_BY_RESTRICTED_PLAN" => Ok(SearchFilterState::InactiveByRestrictedPlan),
-        _ => Err(SearchFilterRowMappingError::InvalidState),
-    }
+pub(crate) fn state(value: &str) -> Result<SearchFilterState, SearchFilterRowMappingError> {
+    SearchFilterState::iter()
+        .find(|state| state.as_str() == value)
+        .ok_or(SearchFilterRowMappingError::InvalidState)
 }
 pub(crate) fn name(v: String) -> Result<UserSearchFilterName, SearchFilterRowMappingError> {
     if v.len() > 255 {
@@ -881,6 +872,49 @@ mod tests {
             error,
             ProductSearchJsonMappingError::Deserialize(_)
         ));
+    }
+
+    #[test]
+    fn should_parse_each_canonical_state() {
+        for expected in SearchFilterState::iter() {
+            assert!(matches!(state(expected.as_str()), Ok(actual) if actual == expected));
+        }
+    }
+
+    #[test]
+    fn should_parse_each_canonical_price_match_valuation_basis() {
+        let fx_rate_id = uuid::Uuid::nil();
+
+        for expected in ProductPriceValuationBasis::iter() {
+            let valuation = price_match_valuation(Some(expected.as_str()), Some(fx_rate_id));
+
+            assert!(matches!(
+                valuation,
+                Ok(Some(actual)) if actual.basis == expected && actual.fx_rate_id == FxRateId::from(fx_rate_id)
+            ));
+        }
+    }
+
+    #[test]
+    fn should_reject_unknown_and_noncanonical_price_match_valuation_bases() {
+        let fx_rate_id = uuid::Uuid::nil();
+
+        for basis in ["bad", "current"] {
+            assert!(matches!(
+                price_match_valuation(Some(basis), Some(fx_rate_id)),
+                Err(SearchFilterRowMappingError::InvalidPriceMatchValuation)
+            ));
+        }
+    }
+
+    #[test]
+    fn should_reject_unknown_and_noncanonical_states() {
+        for value in ["bad", "active"] {
+            assert!(matches!(
+                state(value),
+                Err(SearchFilterRowMappingError::InvalidState)
+            ));
+        }
     }
 
     #[test]

@@ -7,6 +7,8 @@ edition = "2024"
 domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
 product-core = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
 user-core = { workspace = true }
 fake = { workspace = true, optional = true }
 serde = { workspace = true }
