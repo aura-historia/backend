@@ -474,8 +474,26 @@ fn normalize_schema_node(
         object.insert("enum".to_owned(), serde_json::Value::Array(vec![constant]));
     }
 
+    for keyword in [
+        "$comment",
+        "default",
+        "examples",
+        "example",
+        "deprecated",
+        "readOnly",
+        "writeOnly",
+        "contentEncoding",
+        "contentMediaType",
+    ] {
+        object.remove(keyword);
+    }
+
     let has_ref = object.contains_key("$ref");
-    if has_ref && object.keys().any(|key| !key.starts_with('$')) {
+    if has_ref
+        && object
+            .keys()
+            .any(|key| !key.starts_with('$') && !matches!(key.as_str(), "title" | "description"))
+    {
         return Err(VertexResponseJsonSchemaError::RefWithSiblings {
             pointer: pointer.to_owned(),
         });
@@ -498,8 +516,6 @@ fn normalize_schema_node(
         "multipleOf",
         "exclusiveMinimum",
         "exclusiveMaximum",
-        "contentEncoding",
-        "contentMediaType",
     ] {
         if object.contains_key(keyword) {
             return Err(VertexResponseJsonSchemaError::UnsupportedKeyword {
@@ -507,18 +523,6 @@ fn normalize_schema_node(
                 keyword: keyword.to_owned(),
             });
         }
-    }
-
-    for keyword in [
-        "$comment",
-        "default",
-        "examples",
-        "example",
-        "deprecated",
-        "readOnly",
-        "writeOnly",
-    ] {
-        object.remove(keyword);
     }
 
     let known = [
@@ -1023,6 +1027,161 @@ mod tests {
     enum TestTaggedResponse {
         State { state: String },
         Regex { pattern: String, state: String },
+    }
+
+    #[allow(dead_code)]
+    #[derive(schemars::JsonSchema)]
+    struct Child {
+        value: String,
+    }
+
+    #[allow(dead_code)]
+    #[derive(schemars::JsonSchema)]
+    struct Parent {
+        #[schemars(description = "Documented custom field")]
+        child: Child,
+    }
+
+    #[allow(dead_code)]
+    #[derive(schemars::JsonSchema)]
+    struct NestedExtractionRule {
+        selector: String,
+        #[serde(flatten)]
+        extraction: NestedExtractionKind,
+        #[serde(default)]
+        cardinality: NestedExtractionCardinality,
+    }
+
+    #[allow(dead_code)]
+    #[derive(schemars::JsonSchema)]
+    #[serde(tag = "type", rename_all = "snake_case")]
+    enum NestedExtractionKind {
+        Text,
+        Attribute { name: String },
+        ImageUrl,
+    }
+
+    #[allow(dead_code)]
+    #[derive(Default, schemars::JsonSchema)]
+    enum NestedExtractionCardinality {
+        #[default]
+        First,
+        All,
+    }
+
+    #[allow(dead_code)]
+    #[derive(schemars::JsonSchema)]
+    struct NestedProductSchema {
+        #[schemars(description = "Title extraction rule")]
+        title: NestedExtractionRule,
+        #[schemars(description = "Image extraction rules")]
+        images: Vec<NestedExtractionRule>,
+    }
+
+    #[allow(dead_code)]
+    #[derive(schemars::JsonSchema)]
+    struct NestedFlattenedResponse {
+        schemas: Vec<NestedProductSchema>,
+        #[serde(flatten)]
+        evaluation: NestedEvaluation,
+    }
+
+    #[allow(dead_code)]
+    #[derive(schemars::JsonSchema)]
+    struct NestedEvaluation {
+        confidence: String,
+        summary: String,
+    }
+
+    fn request_with_response_json_schema(
+        response_json_schema: serde_json::Value,
+    ) -> StructuredGenerationRequest {
+        StructuredGenerationRequest {
+            operation: LlmOperation::CrawlerProductSchemaGeneration,
+            system_instruction: "system".to_owned(),
+            prompt: "prompt".to_owned(),
+            image_urls: Vec::new(),
+            response_json_schema,
+            options: GenerationOptions {
+                temperature: 0.0,
+                max_output_tokens: 32,
+                request_timeout: Duration::from_secs(60),
+            },
+        }
+    }
+
+    #[test]
+    fn should_accept_documented_custom_type_references_in_provider_requests() {
+        let response_json_schema = serde_json::to_value(schemars::schema_for!(Parent))
+            .unwrap_or_else(|error| panic!("parent schema should serialize: {error}"));
+
+        let provider = ProviderGenerateContentRequest::try_new(
+            request_with_response_json_schema(response_json_schema),
+            Vec::new(),
+        )
+        .unwrap_or_else(|error| panic!("provider request should normalize: {error}"));
+        let body = serde_json::to_value(provider.body)
+            .unwrap_or_else(|error| panic!("provider body should serialize: {error}"));
+        let child = &body["generationConfig"]["responseJsonSchema"]["properties"]["child"];
+
+        assert_eq!(child["$ref"], "#/$defs/Child");
+        assert_eq!(child["description"], "Documented custom field");
+    }
+
+    #[test]
+    fn should_accept_nested_flattened_response_schemas_in_provider_requests() {
+        let response_json_schema =
+            serde_json::to_value(schemars::schema_for!(NestedFlattenedResponse))
+                .unwrap_or_else(|error| panic!("nested schema should serialize: {error}"));
+
+        assert!(
+            ProviderGenerateContentRequest::try_new(
+                request_with_response_json_schema(response_json_schema),
+                Vec::new(),
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn should_strip_unsupported_ref_annotations_and_reject_validation_siblings() {
+        let annotations = serde_json::json!({
+            "$ref": "#/$defs/Child",
+            "$comment": "local documentation",
+            "default": {"value": "fallback"},
+            "examples": [{"value": "example"}],
+            "deprecated": true,
+            "readOnly": true,
+            "writeOnly": true,
+            "contentEncoding": "base64",
+            "contentMediaType": "text/plain",
+            "title": "Child value",
+            "description": "Child documentation"
+        });
+        let normalized = normalize_vertex_response_json_schema(annotations)
+            .unwrap_or_else(|error| panic!("annotations should normalize: {error}"));
+
+        assert_eq!(normalized["title"], "Child value");
+        assert_eq!(normalized["description"], "Child documentation");
+        for keyword in [
+            "$comment",
+            "default",
+            "examples",
+            "deprecated",
+            "readOnly",
+            "writeOnly",
+            "contentEncoding",
+            "contentMediaType",
+        ] {
+            assert!(normalized.get(keyword).is_none());
+        }
+        assert!(matches!(
+            normalize_vertex_response_json_schema(serde_json::json!({
+                "$ref": "#/$defs/Child",
+                "minLength": 1
+            })),
+            Err(VertexResponseJsonSchemaError::RefWithSiblings { .. })
+        ));
     }
 
     #[test]
