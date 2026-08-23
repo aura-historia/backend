@@ -691,7 +691,7 @@ impl ProviderGenerateContentRequest {
         Ok(Self {
             operation: request.operation,
             body: GenerateContentBody {
-                system_instruction: ProviderContent::text(request.system_instruction),
+                system_instruction: ProviderContent::system_text(request.system_instruction),
                 contents,
                 generation_config: GenerationConfig {
                     temperature: request.options.temperature,
@@ -714,18 +714,29 @@ struct GenerateContentBody {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ProviderContent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    role: Option<String>,
     parts: Vec<ProviderPart>,
 }
 
 impl ProviderContent {
     fn text(text: impl Into<String>) -> Self {
         Self {
+            role: Some("user".to_owned()),
+            parts: vec![ProviderPart::Text { text: text.into() }],
+        }
+    }
+
+    fn system_text(text: impl Into<String>) -> Self {
+        Self {
+            role: None,
             parts: vec![ProviderPart::Text { text: text.into() }],
         }
     }
 
     fn image(image: FetchedImage) -> Self {
         Self {
+            role: Some("user".to_owned()),
             parts: vec![ProviderPart::InlineData {
                 inline_data: ProviderInlineData {
                     mime_type: image.mime_type().to_owned(),
@@ -980,6 +991,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("request should normalize: {error}"));
         let body = serde_json::to_value(provider.body)
             .unwrap_or_else(|error| panic!("provider body should serialize: {error}"));
+        assert_eq!(body["contents"][0]["role"], "user");
+        assert!(body["systemInstruction"].get("role").is_none());
         let generation_config = &body["generationConfig"];
         assert_eq!(generation_config["responseMimeType"], "application/json");
         assert_eq!(generation_config["responseJsonSchema"]["type"], "object");

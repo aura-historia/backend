@@ -11,7 +11,7 @@ use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use serde_json::json;
 use shop_core::shop_id::ShopId;
-use tracing::info;
+use tracing::debug;
 use url::Url;
 
 pub(crate) struct FreshSchemaGenerationContext<'a> {
@@ -95,7 +95,7 @@ impl ScraperServiceImpl {
                     .await?
                 {
                     GeneratedSchemaReviewOutcome::Persisted(_) => {
-                        info!(domain = ctx.domain, url = %ctx.url, "Freshly generated schema produced valid product");
+                        debug!(domain = ctx.domain, url = %ctx.url, "Freshly generated schema produced valid product");
                         Ok(product)
                     }
                     GeneratedSchemaReviewOutcome::PendingReview(review_id) => {
