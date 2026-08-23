@@ -7,6 +7,7 @@ pub mod oauth;
 pub(crate) mod pagination_data;
 pub mod partner_applications;
 pub mod partner_products;
+pub(crate) mod patch_value;
 pub mod products;
 pub mod search_filters;
 pub mod shops;

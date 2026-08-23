@@ -19,6 +19,18 @@ pub struct UpdateOAuthClientCommand {
     pub scopes: Option<HashSet<Scope>>,
 }
 
+impl UpdateOAuthClientCommand {
+    pub fn is_empty(&self) -> bool {
+        self.name.is_none()
+            && self.redirect_uris.is_none()
+            && self.tos_uri.is_none()
+            && self.policy_uri.is_none()
+            && self.client_uri.is_none()
+            && self.logo_uri.is_none()
+            && self.scopes.is_none()
+    }
+}
+
 #[async_trait::async_trait]
 pub trait UpdateOAuthClientUseCase: Send + Sync {
     async fn execute(
@@ -49,6 +61,13 @@ where
         command: UpdateOAuthClientCommand,
     ) -> Result<OAuthClient, OAuthServiceError> {
         authorize_oauth_admin(context)?;
+        if command.is_empty() {
+            return self
+                .repository
+                .find_by_client_id(client_id)
+                .await?
+                .ok_or(OAuthServiceError::ClientNotFound);
+        }
         if let Some(redirect_uris) = &command.redirect_uris {
             validate_redirect_uris(redirect_uris)
                 .map_err(OAuthServiceError::InvalidClientMetadata)?;

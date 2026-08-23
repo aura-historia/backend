@@ -1,7 +1,8 @@
 use super::types::{OwnUserData, PatchOwnUserData};
-use super::util::{no_store, parse_json, patch};
+use super::util::{no_store, parse_json};
 use crate::auth::protected_context;
 use crate::error::ApiError;
+use crate::patch_value::{clearable, non_nullable_patch};
 use crate::state::UsersState;
 use axum::Json;
 use axum::extract::State;
@@ -59,19 +60,32 @@ pub(crate) async fn patch_user(
         Ok(v) => v,
         Err(r) => return r,
     };
-    let command = UpdateUserProfileCommand {
-        user_id,
-        email: patch(data.email),
-        first_name: patch(data.first_name),
-        last_name: patch(data.last_name),
-        language: patch(data.language.map(Into::into)),
-        currency: patch(data.currency.map(Into::into)),
-        measurement_unit: patch(data.measurement_unit.map(Into::into)),
-        prohibited_content_consent: patch(data.prohibited_content_consent),
-        structured_address: patch(data.structured_address.map(Into::into)),
+    let command = match into_command(data, user_id) {
+        Ok(command) => command,
+        Err(error) => return error.into_response(),
     };
     match state.update_user_profile.execute(&ctx, command).await {
         Ok(result) => no_store(Json(OwnUserData::from(result.view)).into_response()),
         Err(error) => ApiError::from(error).into_response(),
     }
+}
+
+fn into_command(
+    data: PatchOwnUserData,
+    user_id: UserId,
+) -> Result<UpdateUserProfileCommand, ApiError> {
+    Ok(UpdateUserProfileCommand {
+        user_id,
+        email: non_nullable_patch(data.email, "email")?,
+        first_name: clearable(data.first_name),
+        last_name: clearable(data.last_name),
+        language: clearable(data.language.map(Into::into)),
+        currency: clearable(data.currency.map(Into::into)),
+        measurement_unit: clearable(data.measurement_unit.map(Into::into)),
+        prohibited_content_consent: non_nullable_patch(
+            data.prohibited_content_consent,
+            "prohibitedContentConsent",
+        )?,
+        structured_address: clearable(data.structured_address.map(Into::into)),
+    })
 }

@@ -40,6 +40,11 @@ info:
 
     ## Data and response conventions
 
+    - **PATCH:** an omitted request member remains unchanged. A documented nullable PATCH member
+      accepts `null` to clear its value; `null` for any other member returns `400 BAD_BODY_VALUE`.
+      Use `[]`, not `null`, to replace a non-null collection with an empty collection. Empty HTTP
+      bodies are invalid, `{}` is a valid object-PATCH no-op, and the partner-product PATCH `[]`
+      remains a valid empty batch. Responses may omit absent optional values.
     - Product detail, watchlist, and saved-search match reads accept optional **`language`** and
       **`currency`** parameters. Currency defaults to `EUR`. Detail pricing contains the seller's source
       amounts, converted display amounts, and FX valuation metadata. Active products use the latest persisted
@@ -262,9 +267,10 @@ paths:
         Aura Historia access tokens on this endpoint must include the `products:write` scope.
         Allowed callers are Aura Historia admins and users partnered with the target shop.
 
-        The request body is an array of `PatchProductData` objects. Only the fields provided in
-        each entry are updated; omitted optional fields are left unchanged. Each entry is applied
-        synchronously in its own PostgreSQL transaction.
+        The request body is an array of `PatchProductData` objects. Omitted fields are unchanged;
+        `null` clears price and auction fields only. `null` for `state`, `url`, or `images` returns
+        `400 BAD_BODY_VALUE`; send `[]` to remove all images. The complete batch contract is
+        validated before any entry is applied synchronously in its own PostgreSQL transaction.
 
         The response returns HTTP 200 with failures as `{ shopId, shopsProductId, error }` objects when
         one or more entries succeed. `error` is the stable API error key for that entry. If every non-empty entry fails, the first failure is returned
@@ -2407,8 +2413,9 @@ paths:
       summary: Update a search filter
       description: |
         Updates a specific search filter by its ID for the authenticated user.
-        Allows partial updates - only provided fields will be modified.
-        If no fields are provided in the request body, returns the existing search filter unchanged.
+        Allows partial updates: omitted members remain unchanged, documented nullable criteria
+        accept `null` to clear, and `null` for required scalars or collections returns `400 BAD_BODY_VALUE`.
+        `{}` returns the existing search filter unchanged; an empty HTTP body is invalid.
         Requires a Cognito JWT or an Aura access token with `search-filters:write`.
 
         The set of usable search filter fields depends on the user's tier:
@@ -2431,10 +2438,9 @@ paths:
         - BearerAuth: []
         - AccessTokenAuth: []
       requestBody:
-        required: false
+        required: true
         description: |
-          Partial search filter update data.
-          Only provided fields will be updated. If body is empty, returns existing filter.
+          Partial search filter update data. `{}` is a no-op; an empty HTTP body is invalid.
         content:
           application/json:
             schema:
@@ -4562,8 +4568,9 @@ paths:
     patch:
       summary: Update an Aura Historia access token
       description: |
-        Updates metadata for one access token owned by the authenticated user.
-        Omitted or `null` optional properties leave the existing value unchanged.
+        Updates metadata for one access token owned by the authenticated user. Omitted properties
+        remain unchanged; `expires: null` clears expiry. `name` and `scopes` reject `null`; use
+        `scopes: []` to clear scopes.
         Requires valid Cognito JWT authentication.
       operationId: patchMyAccessToken
       tags:
@@ -4580,8 +4587,8 @@ paths:
             example:
               accessTokenId: "01970f22-2bf0-7000-8000-000000000001"
               name: "Renamed partner sync token"
-              scope: ["products:write"]
-              expiresAt: "2026-07-31T00:00:00Z"
+              scopes: ["products:write"]
+              expires: "2026-07-31T00:00:00Z"
       responses:
         "200":
           description: Access token updated successfully
@@ -6331,9 +6338,10 @@ paths:
         - a valid Cognito JWT for the partner user assigned to the shop or for an `ADMIN`, or
         - a valid Aura Historia access token owned by the partner user assigned to the shop.
 
-        The request body uses `PatchShopData`. Only fields present in the JSON body are applied;
-        omitted or `null` fields are left unchanged. The HTTP request body itself must not be absent
-        or an empty string; `{}` is valid.
+        The request body uses `PatchShopData`. Omitted fields are unchanged. `null` clears the
+        documented optional integration, presentation, address, and contact fields; `shopType` and
+        `domains` reject `null` (`domains: []` empties the set). The HTTP request body itself must
+        not be absent or an empty string; `{}` is valid.
       operationId: patchShopById
       tags:
         - Shops
@@ -9321,8 +9329,8 @@ paths:
     patch:
       summary: Update OAuth client metadata
       description: |
-        Updates one OAuth client metadata record.
-        Omitted or `null` optional properties leave the existing value unchanged.
+        Updates one OAuth client metadata record. Omitted properties leave existing values unchanged;
+        every explicit `null` is invalid because OAuth metadata is non-nullable. `{}` is a no-op.
         The returned `client_secret` value is masked and does not reveal the plaintext secret.
         Requires valid Cognito JWT authentication and the `ADMIN` role.
       operationId: patchOAuthClient
@@ -9355,7 +9363,7 @@ paths:
               redirect_uris:
                 - "https://client.example/updated"
               scope:
-                - "shops:manage"
+                - "shops:write"
       responses:
         "200":
           description: OAuth client metadata updated successfully.
@@ -11972,21 +11980,19 @@ components:
       type: object
       description: |
         Partial update for a shop.
-        Only the fields present in the request body are applied; omitted or `null` fields are left unchanged.
-        All fields are optional, so `{}` is accepted as a no-op update when sent as the JSON request body.
+        Omitted fields are unchanged. `null` clears documented nullable fields; `shopType` and
+        `domains` reject `null`. All fields are optional, so `{}` is accepted as a no-op update.
       properties:
         shopType:
           allOf:
             - $ref: "#/components/schemas/ShopTypeData"
-          nullable: true
-          description: Optional updated shop type classification.
+          description: Omit to leave unchanged. Null is invalid.
         domains:
           type: array
           items:
             type: string
-          nullable: true
           description: |
-            Optional updated set of domains for the shop.
+            Omit to leave unchanged. Send `[]` to replace with an empty set; null is invalid.
             When provided, this replaces the existing domains entirely.
             Domains are normalized (lowercase, no scheme, no www prefix, no path/query/fragment).
           example:
@@ -11998,7 +12004,7 @@ components:
           description: |
             Optional updated Shopify storefront domain used for Shopify partner-shop event matching.
             Normalized with the same rules as `domains`.
-            When omitted or set to `null`, the current Shopify domain remains unchanged.
+            Omit to leave unchanged. Send `null` to clear the current Shopify domain.
           example: "tech-store-premium.myshopify.com"
         shopifyCurrency:
           allOf:
@@ -12006,7 +12012,7 @@ components:
           nullable: true
           description: |
             Optional updated Shopify currency for the shop, serialized as an ISO 4217 code.
-            When omitted or set to `null`, the current Shopify currency remains unchanged.
+            Omit to leave unchanged. Send `null` to clear the current Shopify currency.
         shopifyLanguage:
           allOf:
             - $ref: "#/components/schemas/LanguageData"
@@ -12015,7 +12021,7 @@ components:
             Optional updated Shopify default language for the shop.
             When configured, Shopify product lifecycle events for this shop are ingested using this language.
             When absent on the stored shop record, Shopify product lifecycle events currently fail instead of inferring or defaulting a language.
-            When omitted or set to `null`, the current Shopify language remains unchanged.
+            Omit to leave unchanged. Send `null` to clear the current Shopify language.
         woocommerceWebhookSecret:
           type: string
           nullable: true
@@ -12023,7 +12029,7 @@ components:
           description: |
             Optional replacement WooCommerce webhook secret used to validate HMAC signatures on
             `POST /api/v1/webhooks/woocommerce/{shopId}`.
-            When omitted or set to `null`, the current webhook secret remains unchanged.
+            Omit to leave unchanged. Send `null` to clear the current webhook secret.
             This field is write-only and is never returned by read responses.
           example: "woocommerce-acceptance-secret"
         woocommerceCurrency:
@@ -12032,7 +12038,7 @@ components:
           nullable: true
           description: |
             Optional updated WooCommerce currency for the shop, serialized as an ISO 4217 code.
-            When omitted or set to `null`, the current WooCommerce currency remains unchanged.
+            Omit to leave unchanged. Send `null` to clear the current WooCommerce currency.
             This currency is used when WooCommerce webhook payloads provide a non-empty `price`.
         woocommerceLanguage:
           allOf:
@@ -12042,14 +12048,14 @@ components:
             Optional updated WooCommerce default language for the shop.
             When configured, WooCommerce webhook-ingested products for this shop are ingested using this language.
             When absent on the stored shop record, WooCommerce webhook requests currently fail instead of inferring or defaulting a language.
-            When omitted or set to `null`, the current WooCommerce language remains unchanged.
+            Omit to leave unchanged. Send `null` to clear the current WooCommerce language.
         url:
           type: string
           format: uri
           nullable: true
           description: |
             Optional updated primary URL of the shop website.
-            When omitted or set to `null`, the current URL remains unchanged.
+            Omit to leave unchanged. Send `null` to clear the current URL.
           example: "https://tech-store-premium.com/"
         image:
           type: string
@@ -12057,7 +12063,7 @@ components:
           nullable: true
           description: |
             Optional updated URL to the shop's logo or image.
-            When omitted or set to `null`, the current image is left unchanged.
+            Omit to leave unchanged. Send `null` to clear the current image.
           example: "https://tech-store-premium.com/new-logo.svg"
         structuredAddress:
           allOf:
@@ -12299,7 +12305,8 @@ components:
       type: object
       description: |
         Request body for updating access-token metadata.
-        Optional fields that are omitted or set to `null` leave the stored value unchanged.
+        Omitted fields remain unchanged. `expires: null` clears the expiry; `name` and `scopes`
+        reject null, and `scopes: []` replaces the scope set with an empty set.
       required:
         - accessTokenId
       properties:
@@ -12311,22 +12318,20 @@ components:
         name:
           type: string
           maxLength: 128
-          nullable: true
-          description: Optional replacement display name.
+          description: Omit to leave unchanged. Null is invalid.
           example: "Renamed partner sync token"
-        scope:
+        scopes:
           type: array
-          nullable: true
           items:
             $ref: "#/components/schemas/AccessTokenScopeData"
           uniqueItems: true
-          description: Optional replacement scope set.
+          description: Omit to leave unchanged. Send `[]` to empty the set; null is invalid.
           example: ["products:write"]
-        expiresAt:
+        expires:
           type: string
           format: date-time
           nullable: true
-          description: Optional replacement expiration timestamp in RFC 3339 format.
+          description: Omit to leave unchanged. Send null to clear the expiration timestamp.
           example: "2026-07-31T00:00:00Z"
 
     OAuthClientMetadataRequestData:
@@ -12388,41 +12393,35 @@ components:
     OAuthClientMetadataPatchData:
       type: object
       description: |
-        Request body for updating OAuth client metadata.
-        Omitted or `null` optional properties leave the stored value unchanged.
+        Request body for updating OAuth client metadata. Omitted properties remain unchanged;
+        every explicit null is invalid because metadata values are non-nullable.
       properties:
         client_name:
           type: string
-          nullable: true
           description: Optional replacement display name for the OAuth client.
           example: "Updated acceptance OAuth client"
         tos_uri:
           type: string
           format: uri
-          nullable: true
           description: Optional replacement terms-of-service document URL for the OAuth client.
           example: "https://client.example/updated-tos"
         policy_uri:
           type: string
           format: uri
-          nullable: true
           description: Optional replacement privacy-policy document URL for the OAuth client.
           example: "https://client.example/updated-policy"
         client_uri:
           type: string
           format: uri
-          nullable: true
           description: Optional replacement homepage or product-site URL for the OAuth client.
           example: "https://updated-client.example"
         logo_uri:
           type: string
           format: uri
-          nullable: true
           description: Optional replacement logo image URL for the OAuth client.
           example: "https://updated-client.example/logo.png"
         redirect_uris:
           type: array
-          nullable: true
           minItems: 1
           uniqueItems: true
           description: Optional replacement set of registered HTTPS redirect URIs.
@@ -12433,9 +12432,8 @@ components:
             - "https://client.example/updated"
         scope:
           type: array
-          nullable: true
           uniqueItems: true
-          description: Optional replacement set of allowed scopes for the OAuth client.
+          description: Omit to leave unchanged. Send `[]` to replace with an empty set; null is invalid.
           items:
             $ref: "#/components/schemas/AccessTokenScopeData"
           example:
@@ -13283,19 +13281,16 @@ components:
           description: New preferred measurement unit system.
         prohibitedContentConsent:
           type: boolean
-          nullable: true
-          description: New consent state for displaying prohibited content.
+          description: Omit to leave unchanged. Send false explicitly to disable; null is invalid.
           example: true
         tier:
           allOf:
             - $ref: "#/components/schemas/UserTierData"
-          nullable: true
-          description: New subscription tier.
+          description: Omit to leave unchanged. Null is invalid.
         role:
           allOf:
             - $ref: "#/components/schemas/UserRoleData"
-          nullable: true
-          description: New user role.
+          description: Omit to leave unchanged. Null is invalid.
 
         structuredAddress:
           allOf:
@@ -13741,8 +13736,8 @@ components:
       type: object
       description: |
         Data for synchronously updating a single product via the partner batch-update endpoint.
-        Only `shopsProductId` is required; all other fields are optional and, when omitted,
-        the corresponding product attribute is left unchanged.
+        Omitted fields remain unchanged. `null` clears price and auction fields only; `state`,
+        `url`, and `images` reject null. Send `images: []` to remove all images.
       required:
         - shopsProductId
       properties:
@@ -13754,47 +13749,45 @@ components:
           allOf:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
-          description: Optional updated asking price for the product. Omit to leave the current price unchanged.
+          description: Omit to leave unchanged. Send null to clear the current asking price.
         state:
           allOf:
             - $ref: "#/components/schemas/ProductStateData"
-          description: Optional updated product state. Omit to leave the current state unchanged.
+          description: Omit to leave unchanged. Null is invalid.
         priceEstimateMin:
           allOf:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
-          description: Optional updated lower bound of the estimated price range. Omit to leave the current value unchanged.
+          description: Omit to leave unchanged. Send null to clear the current value.
         priceEstimateMax:
           allOf:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
-          description: Optional updated upper bound of the estimated price range. Omit to leave the current value unchanged.
+          description: Omit to leave unchanged. Send null to clear the current value.
         url:
           type: string
           format: uri
-          nullable: true
-          description: Optional updated URL to the product on the shop's website. Omit to leave the current URL unchanged.
+          description: Omit to leave unchanged. Null is invalid.
           example: "https://my-shop.com/products/baroque-violin"
         images:
           type: array
           items:
             type: string
             format: uri
-          nullable: true
-          description: Optional updated list of image URLs for the product. Omit to leave the current images unchanged.
+          description: Omit to leave unchanged. Send [] to remove all images; null is invalid.
           example:
             - "https://my-shop.com/images/violin-1.jpg"
         auctionStart:
           type: string
           format: date-time
           nullable: true
-          description: Optional updated RFC3339 timestamp of when the auction starts. Omit to leave the current value unchanged.
+          description: Omit to leave unchanged. Send null to clear the auction start.
           example: "2026-04-10T10:00:00Z"
         auctionEnd:
           type: string
           format: date-time
           nullable: true
-          description: Optional updated RFC3339 timestamp of when the auction ends. Omit to leave the current value unchanged.
+          description: Omit to leave unchanged. Send null to clear the auction end.
           example: "2026-04-10T12:00:00Z"
     PutProductData:
       type: object

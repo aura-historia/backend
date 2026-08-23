@@ -2,6 +2,7 @@ use super::types::{PatchWatchlistData, WatchlistEntryData, watchlist_state};
 use super::util::parse_json;
 use crate::auth::protected_context;
 use crate::error::{ApiError, INVALID_UUID};
+use crate::patch_value::non_nullable_option;
 use crate::state::WatchlistState;
 use axum::Json;
 use axum::extract::{Path, State};
@@ -33,6 +34,14 @@ pub async fn patch_watchlist(
         Ok(v) => v,
         Err(r) => return r,
     };
+    let notifications = match non_nullable_option(data.notifications, "notifications") {
+        Ok(notifications) => notifications,
+        Err(error) => return error.into_response(),
+    };
+    let state_field = match non_nullable_option(data.state, "state") {
+        Ok(state_field) => state_field.map(watchlist_state),
+        Err(error) => return error.into_response(),
+    };
     match state
         .update_watchlist_product
         .execute(
@@ -40,8 +49,8 @@ pub async fn patch_watchlist(
             UpdateWatchlistProductCommand {
                 user_id,
                 product_id,
-                notifications: data.notifications,
-                state: data.state.map(watchlist_state),
+                notifications,
+                state: state_field,
             },
         )
         .await

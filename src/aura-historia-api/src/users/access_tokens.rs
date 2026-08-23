@@ -1,8 +1,8 @@
-use super::util::{no_store, parse_json, patch};
+use super::util::{no_store, parse_json};
 use crate::auth::protected_context;
 use crate::error::{ApiError, INVALID_UUID};
+use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
 use crate::state::UsersState;
-use application::patch_field::PatchField;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -32,10 +32,12 @@ struct PostTokenData {
 #[serde(rename_all = "camelCase")]
 struct PatchTokenData {
     access_token_id: AccessTokenId,
-    name: Option<String>,
-    scopes: Option<HashSet<String>>,
-    #[serde(default, with = "time::serde::rfc3339::option")]
-    expires: Option<OffsetDateTime>,
+    #[serde(default)]
+    name: PatchValue<String>,
+    #[serde(default)]
+    scopes: PatchValue<HashSet<String>>,
+    #[serde(default, deserialize_with = "crate::patch_value::rfc3339::deserialize")]
+    expires: PatchValue<OffsetDateTime>,
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -171,16 +173,9 @@ pub async fn patch_access_token(
         Ok(v) => v,
         Err(r) => return r,
     };
-    let id = data.access_token_id;
-    let command = UpdateAccessTokenCommand {
-        user_id,
-        access_token_id: id,
-        name: data
-            .name
-            .map(|name| PatchField::Set(AccessTokenName::from(name.as_str())))
-            .unwrap_or(PatchField::Unchanged),
-        scopes: patch(data.scopes.map(parse_scopes)),
-        expires: patch(data.expires),
+    let command = match data.into_command(user_id) {
+        Ok(command) => command,
+        Err(error) => return error.into_response(),
     };
     match state.update_access_token.execute(&ctx, command).await {
         Ok(result) => no_store(Json(TokenData::from(result.view)).into_response()),
@@ -220,6 +215,21 @@ pub async fn delete_access_token(
         Err(e) => ApiError::from(e).into_response(),
     }
 }
+impl PatchTokenData {
+    fn into_command(self, user_id: UserId) -> Result<UpdateAccessTokenCommand, ApiError> {
+        Ok(UpdateAccessTokenCommand {
+            user_id,
+            access_token_id: self.access_token_id,
+            name: non_nullable_patch(
+                self.name.map(|name| AccessTokenName::from(name.as_str())),
+                "name",
+            )?,
+            scopes: non_nullable_patch(self.scopes.map(parse_scopes), "scopes")?,
+            expires: clearable(self.expires),
+        })
+    }
+}
+
 fn parse_scopes(values: HashSet<String>) -> HashSet<Scope> {
     values
         .into_iter()

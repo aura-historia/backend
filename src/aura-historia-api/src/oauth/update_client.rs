@@ -2,6 +2,7 @@ use super::create_client::OAuthClientMetadataData;
 use super::{no_store, parse_scopes};
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
+use crate::patch_value::{PatchValue, non_nullable_option};
 use crate::state::OAuthState;
 use axum::{
     Json,
@@ -17,28 +18,44 @@ use std::collections::HashSet;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 struct UpdateOAuthClientData {
-    client_name: Option<String>,
-    redirect_uris: Option<HashSet<url::Url>>,
-    tos_uri: Option<url::Url>,
-    policy_uri: Option<url::Url>,
-    client_uri: Option<url::Url>,
-    logo_uri: Option<url::Url>,
-    scope: Option<HashSet<String>>,
+    #[serde(default)]
+    client_name: PatchValue<String>,
+    #[serde(default)]
+    redirect_uris: PatchValue<HashSet<url::Url>>,
+    #[serde(default)]
+    tos_uri: PatchValue<url::Url>,
+    #[serde(default)]
+    policy_uri: PatchValue<url::Url>,
+    #[serde(default)]
+    client_uri: PatchValue<url::Url>,
+    #[serde(default)]
+    logo_uri: PatchValue<url::Url>,
+    #[serde(default)]
+    scope: PatchValue<HashSet<String>>,
 }
 
 impl TryFrom<UpdateOAuthClientData> for UpdateOAuthClientCommand {
     type Error = Response;
     fn try_from(data: UpdateOAuthClientData) -> Result<Self, Self::Error> {
+        let scopes = non_nullable_option(data.scope, "scope")
+            .map_err(|error| error.into_response())?
+            .map(parse_scopes)
+            .transpose()?;
         Ok(Self {
-            name: data
-                .client_name
+            name: non_nullable_option(data.client_name, "client_name")
+                .map_err(|error| error.into_response())?
                 .map(oauth_core::client::OAuthClientName::from),
-            redirect_uris: data.redirect_uris,
-            tos_uri: data.tos_uri,
-            policy_uri: data.policy_uri,
-            client_uri: data.client_uri,
-            logo_uri: data.logo_uri,
-            scopes: data.scope.map(parse_scopes).transpose()?,
+            redirect_uris: non_nullable_option(data.redirect_uris, "redirect_uris")
+                .map_err(|error| error.into_response())?,
+            tos_uri: non_nullable_option(data.tos_uri, "tos_uri")
+                .map_err(|error| error.into_response())?,
+            policy_uri: non_nullable_option(data.policy_uri, "policy_uri")
+                .map_err(|error| error.into_response())?,
+            client_uri: non_nullable_option(data.client_uri, "client_uri")
+                .map_err(|error| error.into_response())?,
+            logo_uri: non_nullable_option(data.logo_uri, "logo_uri")
+                .map_err(|error| error.into_response())?,
+            scopes,
         })
     }
 }
