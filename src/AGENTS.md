@@ -86,6 +86,7 @@
 - `src/application/AGENTS.md` — shared technology-neutral application contracts.
 - `src/aura-historia-api/AGENTS.md` — `aura-historia-api` crate.
 - `src/aura-historia-worker/AGENTS.md` — `aura-historia-worker` crate.
+- `src/aura-historia-cron/AGENTS.md` — `aura-historia-cron` crate.
 - `src/billing-service/AGENTS.md` — canonical billing service/use-case crate.
 - `src/aws-tests/AGENTS.md` — `aws-tests` crate.
 - `src/ci-determinator/AGENTS.md` — `ci-determinator` crate.
@@ -107,7 +108,6 @@
 - `src/fxrate-fxratesapi/AGENTS.md` — canonical FxRatesApi adapter crate.
 - `src/fxrate-lambda/AGENTS.md` — scheduled FX capture Lambda.
 - `src/geo/AGENTS.md` — `geo` crate.
-- `src/notification/AGENTS.md` — legacy notification crate retained only for the untouched periodic matcher follow-up.
 - `src/notification-core/AGENTS.md` — canonical Notification domain crate.
 - `src/notification-email/AGENTS.md` — EMAIL target contract crate.
 - `src/notification-email-aws/AGENTS.md` — canonical Notification email AWS adapter crate.
@@ -135,7 +135,6 @@
 - `src/search-filter-service/AGENTS.md` — canonical Search Filter service crate.
 - `src/search-filter-postgres/AGENTS.md` — canonical Search Filter Postgres adapter crate.
 - `src/search-filter-opensearch/AGENTS.md` — canonical Search Filter OpenSearch adapter crate.
-- `src/search-filter-periodic-match/AGENTS.md` — `search-filter-periodic-match` crate.
 - `src/shop/AGENTS.md` — legacy `shop` crate.
 - `src/shop-core/AGENTS.md` — canonical Shop domain crate.
 - `src/shop-service/AGENTS.md` — canonical Shop service crate.

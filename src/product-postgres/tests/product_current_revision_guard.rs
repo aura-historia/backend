@@ -5,6 +5,7 @@ use product_core::product_id::ProductId;
 use product_postgres::SqlxProductCurrentRevisionGuardFactory;
 use product_service::ports::{
     ProductCurrentRevisionCheck, ProductCurrentRevisionGuard, ProductCurrentRevisionGuardFactory,
+    ProductCurrentRevisionRef,
 };
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use tokio::sync::oneshot;
@@ -26,11 +27,26 @@ async fn current_revision_guard_lock_flow() -> Result<(), Box<dyn std::error::Er
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let mut guard_transaction = unit_of_work.begin().await?;
 
-    let revision = SqlxProductCurrentRevisionGuardFactory::new()
+    let current_ref = ProductCurrentRevisionRef {
+        product_id,
+        expected_event_id: current_event_id,
+    };
+    let stale_ref = ProductCurrentRevisionRef {
+        product_id,
+        expected_event_id: EventId::new(),
+    };
+    let revisions = SqlxProductCurrentRevisionGuardFactory::new()
         .in_transaction(&mut guard_transaction)
-        .lock_and_check(product_id, current_event_id)
+        .lock_and_check_all(&[current_ref, stale_ref])
         .await?;
-    assert_eq!(ProductCurrentRevisionCheck::Current, revision);
+    assert_eq!(
+        Some(&ProductCurrentRevisionCheck::Current),
+        revisions.get(&current_ref)
+    );
+    assert_eq!(
+        Some(&ProductCurrentRevisionCheck::Stale),
+        revisions.get(&stale_ref)
+    );
 
     let next_event_id = EventId::new();
     sqlx::query(

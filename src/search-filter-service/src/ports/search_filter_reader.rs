@@ -17,7 +17,6 @@ pub struct SearchFilterView {
     pub embedding: Option<Vec<f32>>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
-    pub last_hybrid_search_matched: OffsetDateTime,
 }
 
 impl From<PersistedSearchFilter> for SearchFilterView {
@@ -33,7 +32,6 @@ impl From<PersistedSearchFilter> for SearchFilterView {
             embedding: filter.embedding().cloned(),
             created: persisted.created,
             updated: persisted.updated,
-            last_hybrid_search_matched: persisted.last_hybrid_search_matched,
         }
     }
 }

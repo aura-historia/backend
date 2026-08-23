@@ -1,4 +1,4 @@
-use common::product_state::domain::ProductState;
+use product_core::product_state::ProductState;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -148,7 +148,7 @@ pub struct CrawledUrlMetadata {
 #[cfg(test)]
 mod tests {
     use super::UrlState;
-    use common::product_state::domain::ProductState;
+    use product_core::product_state::ProductState;
 
     #[test]
     fn should_map_product_states_to_url_states() {

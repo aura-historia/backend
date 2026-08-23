@@ -259,8 +259,8 @@ fn notification_content(
 mod tests {
     use super::*;
     use crate::ports::{
-        ProductWatchlistNotificationSourceReadError, WatchlistNotificationRecipient,
-        WatchlistNotificationRecipientReadError,
+        ProductCurrentRevisionRef, ProductWatchlistNotificationSourceReadError,
+        WatchlistNotificationRecipient, WatchlistNotificationRecipientReadError,
     };
     use application::{
         error::static_error,
@@ -269,7 +269,7 @@ mod tests {
     use product_core::{product_slug_id::ProductSlugId, shops_product_id::ShopsProductId};
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
     use std::{
-        collections::VecDeque,
+        collections::{HashMap, VecDeque},
         sync::{Arc, Mutex, MutexGuard},
     };
     use time::OffsetDateTime;
@@ -440,6 +440,24 @@ mod tests {
                     })
                 }
             }
+        }
+
+        async fn lock_and_check_all(
+            &mut self,
+            refs: &[ProductCurrentRevisionRef],
+        ) -> Result<
+            HashMap<ProductCurrentRevisionRef, ProductCurrentRevisionCheck>,
+            ProductCurrentRevisionCheckError,
+        > {
+            let mut checks = HashMap::new();
+            for reference in refs {
+                checks.insert(
+                    *reference,
+                    self.lock_and_check(reference.product_id, reference.expected_event_id)
+                        .await?,
+                );
+            }
+            Ok(checks)
         }
     }
 

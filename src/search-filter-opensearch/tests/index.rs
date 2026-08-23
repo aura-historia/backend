@@ -263,7 +263,6 @@ fn sample_view(query_text: &str) -> SearchFilterView {
         embedding: None,
         created: datetime!(2026-01-01 00:00:00 UTC),
         updated: datetime!(2026-01-01 00:00:00 UTC),
-        last_hybrid_search_matched: datetime!(2026-01-01 00:00:00 UTC),
     }
 }
 
@@ -271,7 +270,10 @@ fn sample_view_with_enhanced_description(query_text: &str) -> SearchFilterView {
     SearchFilterView {
         search: ProductSearch::new(Language::En, Currency::Eur)
             .with_product_query(text_query(query_text))
-            .with_enhanced_search_description("brass lamp".into()),
+            .with_enhanced_search_description(
+                product_core::product_search::EnhancedSearchDescription::try_from("brass lamp")
+                    .unwrap(),
+            ),
         ..sample_view(query_text)
     }
 }

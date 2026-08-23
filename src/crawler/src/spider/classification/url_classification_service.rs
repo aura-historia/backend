@@ -1,28 +1,54 @@
-use regex::Regex;
-use std::collections::HashSet;
-use std::sync::Arc;
-use std::time::Instant;
-use tracing::{debug, info, warn};
-
-use crate::google_llm::{GeminiRateLimiter, run_with_gemini_rate_limiter};
-use crate::logging::llm_metrics;
-use crate::scraper::css_selector::product_schema_service::strip_markdown_json_embedding;
+use crate::llm_runtime::{
+    CrawlerLlmGovernor, ValidatedGenerationError, generate_validated_with_governor,
+};
 use large_language_model::{
-    GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation,
+    GenerationOptions, LargeLanguageModel, LargeLanguageModelError, LlmOperation,
+    StructuredGenerationRequest,
 };
-use llm::{
-    chat::{ChatMessage, ChatProvider},
-    error::LLMError,
-};
+use regex::Regex;
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use std::{collections::HashSet, sync::Arc, time::Duration};
 use thiserror::Error;
+use tracing::{debug, info};
 
 use crate::spider::utils::url::CrawledUrl;
 
 const SAMPLE_LIMIT: usize = 20;
+const MAX_VALIDATION_ATTEMPTS: usize = 3;
+const SYSTEM_INSTRUCTION: &str = "You are an expert at recognising e-commerce URL structures.\n\
+    TASK: return a single Rust-compatible regex that matches EVERY individual \
+    product-detail page URL in the list below and rejects everything else.\n\
+    \n\
+    STEP 1 - IDENTIFY THE STRUCTURAL SEPARATOR\n\
+    Look at every URL path and determine how the site separates product pages \
+    from other pages.\n\
+    A) SEGMENT-BASED: products live under a dedicated path segment like\n\
+       /product/<slug>, /produkt/<slug>, /lot/<slug>, /item/<slug>, etc.\n\
+       Other pages use different segments (/category/, /tag/, /about, ...).\n\
+       -> Anchor on that exact segment with slashes.\n\
+       -> Be careful: /produkt-kategorie/ shares a prefix with /produkt/ \
+          but is NOT a product page.\n\
+    B) FLAT / MIXED: all pages are top-level slugs with no stable segment.\n\
+       -> There is NO reliable structural pattern.\n\
+       -> Return an empty pattern string.\n\
+    \n\
+    STEP 2 - SLUG SUFFIX\n\
+    Only if you found a segment in Step 1:\n\
+    - If ALL product URLs under that segment end with -\\d+$, use -\\d+$\n\
+    - Otherwise use [\\w%.-]+$\n\
+    Never require a specific suffix pattern that appears in only some URLs.\n\
+    \n\
+    STEP 3 - STRICT SELF-CHECK\n\
+    Mentally test your pattern against EVERY URL in the list.\n\
+    a) Every product detail URL MUST match. If one does not -> return empty string.\n\
+    b) Category/listing/home/utility/pagination URLs MUST NOT match.\n\
+       If one matches and cannot be fixed safely -> return empty string.\n\
+    Prefer empty string over a pattern that misses products.\n\
+    \n\
+    Only answer with JSON matching the response schema.";
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Deserialize, JsonSchema)]
 struct PatternResponse {
     /// A Rust-compatible regex matching product page URLs. Empty string if no pattern found.
     pattern: String,
@@ -54,84 +80,38 @@ pub enum UrlClassificationError {
     NoProducts(String),
 }
 
-pub struct UrlClassificationServiceImpl {
-    llm: Box<dyn ChatProvider>,
-    rate_limiter: Option<Arc<GeminiRateLimiter>>,
-    service_tier: Option<GeminiServiceTier>,
+pub struct UrlClassificationServiceImpl<Llm: LargeLanguageModel> {
+    llm: Llm,
+    governor: Option<Arc<CrawlerLlmGovernor>>,
 }
 
-impl UrlClassificationServiceImpl {
-    pub fn new(
-        llm: llm::builder::LLMBuilder,
-        service_tier: Option<GeminiServiceTier>,
-        rate_limiter: Option<Arc<GeminiRateLimiter>>,
-    ) -> Result<Self, LLMError> {
-        let schema = schemars::schema_for!(PatternResponse);
-        let schema_json = serde_json::to_string_pretty(&schema)
-            .unwrap_or_else(|_| "Failed to generate schema".to_string());
-
-        let system_prompt = format!(
-            "You are an expert at recognising e-commerce URL structures.\n\
-            TASK: return a single Rust-compatible regex that matches EVERY individual \
-            product-detail page URL in the list below and rejects everything else.\n\
-            \n\
-            STEP 1 - IDENTIFY THE STRUCTURAL SEPARATOR\n\
-            Look at every URL path and determine how the site separates product pages \
-            from other pages.\n\
-            A) SEGMENT-BASED: products live under a dedicated path segment like\n\
-               /product/<slug>, /produkt/<slug>, /lot/<slug>, /item/<slug>, etc.\n\
-               Other pages use different segments (/category/, /tag/, /about, ...).\n\
-               -> Anchor on that exact segment with slashes.\n\
-               -> Be careful: /produkt-kategorie/ shares a prefix with /produkt/ \
-                  but is NOT a product page.\n\
-            B) FLAT / MIXED: all pages are top-level slugs with no stable segment.\n\
-               -> There is NO reliable structural pattern.\n\
-               -> Return an empty pattern string.\n\
-            \n\
-            STEP 2 - SLUG SUFFIX\n\
-            Only if you found a segment in Step 1:\n\
-            - If ALL product URLs under that segment end with -\\d+$, use -\\d+$\n\
-            - Otherwise use [\\w%.-]+$\n\
-            Never require a specific suffix pattern that appears in only some URLs.\n\
-            \n\
-            STEP 3 - STRICT SELF-CHECK\n\
-            Mentally test your pattern against EVERY URL in the list.\n\
-            a) Every product detail URL MUST match. If one does not -> return empty string.\n\
-            b) Category/listing/home/utility/pagination URLs MUST NOT match.\n\
-               If one matches and cannot be fixed safely -> return empty string.\n\
-            Prefer empty string over a pattern that misses products.\n\
-            \n\
-            Only answer with JSON for the following schema: \n\n {}",
-            schema_json
-        );
-
-        let llm = llm
-            .system(system_prompt)
-            .reasoning(true)
-            .timeout_seconds(180)
-            .validator(|res| {
-                serde_json::from_str::<PatternResponse>(strip_markdown_json_embedding(res))
-                    .map(|_| ())
-                    .map_err(|err| err.to_string())
-            })
-            .validator_attempts(3)
-            .build()?;
-        let llm: Box<dyn ChatProvider> = llm;
-
-        Ok(Self {
-            llm,
-            rate_limiter,
-            service_tier,
-        })
+impl<Llm: LargeLanguageModel> UrlClassificationServiceImpl<Llm> {
+    pub fn new(llm: Llm, governor: Option<Arc<CrawlerLlmGovernor>>) -> Self {
+        Self { llm, governor }
     }
 
-    #[cfg(test)]
-    pub fn new_with_provider(llm: Box<dyn ChatProvider>) -> Self {
-        Self {
-            llm,
-            rate_limiter: None,
-            service_tier: None,
-        }
+    fn build_generation_request(
+        all_urls: &[String],
+    ) -> Result<StructuredGenerationRequest, UrlClassificationError> {
+        let response_json_schema = serde_json::to_value(schemars::schema_for!(PatternResponse))
+            .map_err(|error| {
+                UrlClassificationError::Llm(format!(
+                    "Failed to serialize response JSON schema: {error}"
+                ))
+            })?;
+
+        Ok(StructuredGenerationRequest {
+            operation: LlmOperation::CrawlerUrlClassification,
+            system_instruction: SYSTEM_INSTRUCTION.to_owned(),
+            prompt: Self::build_prompt(all_urls),
+            image_urls: Vec::new(),
+            response_json_schema,
+            options: GenerationOptions {
+                temperature: 0.0,
+                max_output_tokens: 512,
+                request_timeout: Duration::from_secs(180),
+            },
+        })
     }
 
     fn dedupe_urls(urls: Vec<CrawledUrl>) -> Vec<CrawledUrl> {
@@ -166,29 +146,16 @@ impl UrlClassificationServiceImpl {
             all_urls = urls.join("\n")
         )
     }
+}
 
-    fn parse_pattern_response(
-        response_text: &str,
-    ) -> Result<Option<String>, UrlClassificationError> {
-        let parsed: PatternResponse =
-            serde_json::from_str(strip_markdown_json_embedding(response_text)).map_err(|e| {
-                UrlClassificationError::Llm(format!("Failed to parse response: {}", e))
-            })?;
-
-        let pattern = parsed.pattern.trim().to_string();
-
-        if pattern.is_empty() {
-            debug!("LLM returned empty product URL pattern");
-            Ok(None)
-        } else {
-            debug!(pattern = %pattern, "LLM returned product URL pattern");
-            Ok(Some(pattern))
-        }
+impl From<LargeLanguageModelError> for UrlClassificationError {
+    fn from(error: LargeLanguageModelError) -> Self {
+        Self::Llm(error.to_string())
     }
 }
 
 #[async_trait::async_trait]
-impl UrlClassificationService for UrlClassificationServiceImpl {
+impl<Llm: LargeLanguageModel> UrlClassificationService for UrlClassificationServiceImpl<Llm> {
     #[tracing::instrument(
         name = "spider_classify_product_url_pattern",
         skip(self, all_urls),
@@ -198,57 +165,30 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
         &self,
         all_urls: &[String],
     ) -> Result<Option<Regex>, UrlClassificationError> {
-        debug!("Analyzing crawled URLs with LLM");
-
-        let prompt = Self::build_prompt(all_urls);
-        let messages = vec![ChatMessage::user().content(prompt).build()];
-
-        let started_at = Instant::now();
-        let response =
-            match run_with_gemini_rate_limiter(&*self.llm, self.rate_limiter.as_deref(), &messages)
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    return Err(UrlClassificationError::Llm(format!(
-                        "LLM chat error: {}",
-                        e
-                    )));
+        let pattern =
+            generate_validated_with_governor::<_, PatternResponse, Option<Regex>, (), _, _>(
+                &self.llm,
+                self.governor.as_ref(),
+                Self::build_generation_request(all_urls)?,
+                MAX_VALIDATION_ATTEMPTS,
+                |response| {
+                    let pattern = response.pattern.trim();
+                    if pattern.is_empty() {
+                        return Ok(None);
+                    }
+                    Regex::new(pattern).map(Some).map_err(|_| ())
+                },
+                |_: &()| "invalid_regex",
+            )
+            .await
+            .map_err(|error| match error {
+                ValidatedGenerationError::Model(error) => UrlClassificationError::from(error),
+                ValidatedGenerationError::Validation(()) => {
+                    UrlClassificationError::Llm("URL response validation failed".to_owned())
                 }
-            };
-        log_llm_invocation(
-            LlmOperation::CrawlerUrlClassification,
-            LlmProvider::Google,
-            LlmModel::Configured,
-            started_at.elapsed(),
-            llm_metrics(response.usage(), Some(all_urls.len()), self.service_tier),
-        );
+            })?;
 
-        let response_text = response.text().ok_or_else(|| {
-            UrlClassificationError::Llm("LLM returned no text response".to_string())
-        })?;
-
-        match Self::parse_pattern_response(&response_text) {
-            Ok(Some(pattern)) => match Regex::new(&pattern) {
-                Ok(regex) => {
-                    info!(pattern = %pattern, "LLM returned a valid URL pattern");
-                    Ok(Some(regex))
-                }
-                Err(error) => {
-                    warn!(
-                        pattern = %pattern,
-                        error = ?error,
-                        "LLM returned an invalid regex pattern"
-                    );
-                    Ok(None)
-                }
-            },
-            Ok(None) => {
-                info!("LLM found no consistent product URL pattern");
-                Ok(None)
-            }
-            Err(error) => Err(error),
-        }
+        Ok(pattern)
     }
 
     #[tracing::instrument(
@@ -277,7 +217,7 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
 
         if matches.is_empty() {
             return Err(UrlClassificationError::NoProducts(
-                "Gemini pattern matched 0 URLs".to_string(),
+                "LLM pattern matched 0 URLs".to_string(),
             ));
         }
 
@@ -288,32 +228,206 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
 
-    #[test]
-    fn should_parse_valid_json() {
-        let json = r#"{"pattern": "/product/\\d+"}"#;
-        let result = UrlClassificationServiceImpl::parse_pattern_response(json).unwrap();
-        assert_eq!(result, Some(r"/product/\d+".to_string()));
+    struct SequenceLargeLanguageModel {
+        responses: Mutex<VecDeque<Result<serde_json::Value, LargeLanguageModelError>>>,
+        prompts: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl LargeLanguageModel for SequenceLargeLanguageModel {
+        async fn generate<Output>(
+            &self,
+            request: StructuredGenerationRequest,
+        ) -> Result<Output, LargeLanguageModelError>
+        where
+            Output: serde::de::DeserializeOwned + Send,
+        {
+            self.prompts
+                .lock()
+                .map_err(|error| LargeLanguageModelError::InvalidResponse {
+                    source: Box::new(std::io::Error::other(error.to_string())),
+                })?
+                .push(request.prompt);
+            let response = self
+                .responses
+                .lock()
+                .map_err(|error| LargeLanguageModelError::InvalidResponse {
+                    source: Box::new(std::io::Error::other(error.to_string())),
+                })?
+                .pop_front()
+                .ok_or_else(|| LargeLanguageModelError::Permanent {
+                    source: Box::new(std::io::Error::other("URL response sequence exhausted")),
+                })??;
+            serde_json::from_value(response).map_err(|source| {
+                LargeLanguageModelError::InvalidResponse {
+                    source: Box::new(source),
+                }
+            })
+        }
+    }
+
+    struct FixedLargeLanguageModel {
+        response: &'static str,
+    }
+
+    #[async_trait::async_trait]
+    impl LargeLanguageModel for FixedLargeLanguageModel {
+        async fn generate<Output>(
+            &self,
+            _request: StructuredGenerationRequest,
+        ) -> Result<Output, LargeLanguageModelError>
+        where
+            Output: serde::de::DeserializeOwned + Send,
+        {
+            serde_json::from_str(self.response).map_err(|source| {
+                LargeLanguageModelError::InvalidResponse {
+                    source: Box::new(source),
+                }
+            })
+        }
+    }
+
+    fn service(response: &'static str) -> UrlClassificationServiceImpl<FixedLargeLanguageModel> {
+        UrlClassificationServiceImpl::new(FixedLargeLanguageModel { response }, None)
     }
 
     #[test]
-    fn should_parse_json_with_markdown() {
-        let json = "```json\n{\"pattern\": \"/item/\"}\n```";
-        let result = UrlClassificationServiceImpl::parse_pattern_response(json).unwrap();
-        assert_eq!(result, Some("/item/".to_string()));
+    fn should_build_canonical_url_classification_request() {
+        let urls = vec!["https://example.com/product/desk-1".to_owned()];
+        let request =
+            UrlClassificationServiceImpl::<FixedLargeLanguageModel>::build_generation_request(
+                &urls,
+            );
+
+        match request {
+            Ok(request) => {
+                assert_eq!(request.operation, LlmOperation::CrawlerUrlClassification);
+                assert_eq!(request.system_instruction, SYSTEM_INSTRUCTION);
+                assert_eq!(
+                    request.prompt,
+                    UrlClassificationServiceImpl::<FixedLargeLanguageModel>::build_prompt(&urls)
+                );
+                assert!(request.image_urls.is_empty());
+                assert_eq!(request.options.temperature, 0.0);
+                assert_eq!(request.options.max_output_tokens, 512);
+                assert_eq!(request.options.request_timeout, Duration::from_secs(180));
+                assert_eq!(
+                    request
+                        .response_json_schema
+                        .pointer("/properties/pattern/type")
+                        .and_then(serde_json::Value::as_str),
+                    Some("string")
+                );
+            }
+            Err(error) => panic!("should serialize PatternResponse schema: {error}"),
+        }
     }
 
-    #[test]
-    fn should_return_none_for_empty_pattern() {
-        let json = r#"{"pattern": "  "}"#;
-        let result = UrlClassificationServiceImpl::parse_pattern_response(json).unwrap();
-        assert_eq!(result, None);
+    #[tokio::test]
+    async fn should_correct_malformed_json_before_returning_url_pattern() {
+        let prompts = Arc::new(Mutex::new(Vec::new()));
+        let model = SequenceLargeLanguageModel {
+            responses: Mutex::new(VecDeque::from([
+                Err(LargeLanguageModelError::InvalidResponse {
+                    source: Box::new(std::io::Error::other("malformed")),
+                }),
+                Ok(serde_json::json!({"pattern":r"/product/\d+$"})),
+            ])),
+            prompts: Arc::clone(&prompts),
+        };
+        let result = UrlClassificationServiceImpl::new(model, None)
+            .find_product_url_pattern(&["https://example.com/product/1".to_owned()])
+            .await;
+
+        assert!(matches!(result, Ok(Some(_))));
+        let prompts = prompts.lock().unwrap_or_else(|error| error.into_inner());
+        assert_eq!(prompts.len(), 2);
+        assert!(prompts[1].contains("response_not_valid_json"));
     }
 
-    #[test]
-    fn should_error_on_invalid_json() {
-        let json = "not json";
-        let result = UrlClassificationServiceImpl::parse_pattern_response(json);
-        assert!(result.is_err());
+    #[tokio::test]
+    async fn should_return_regex_from_large_language_model_response() {
+        let result = service(r#"{"pattern":"/product/\\d+$"}"#)
+            .find_product_url_pattern(&["https://example.com/product/1".to_owned()])
+            .await;
+
+        assert!(matches!(
+            result,
+            Ok(Some(pattern)) if pattern.as_str() == r"/product/\d+$"
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_return_none_when_large_language_model_returns_empty_pattern() {
+        let result = service(r#"{"pattern":"  "}"#)
+            .find_product_url_pattern(&["https://example.com/page".to_owned()])
+            .await;
+
+        assert!(matches!(result, Ok(None)));
+    }
+
+    #[tokio::test]
+    async fn should_correct_invalid_regex_before_returning_url_pattern() {
+        let prompts = Arc::new(Mutex::new(Vec::new()));
+        let model = SequenceLargeLanguageModel {
+            responses: Mutex::new(VecDeque::from([
+                Ok(serde_json::json!({ "pattern": "[" })),
+                Ok(serde_json::json!({ "pattern": r"/product/\d+$" })),
+            ])),
+            prompts: Arc::clone(&prompts),
+        };
+
+        let result = UrlClassificationServiceImpl::new(model, None)
+            .find_product_url_pattern(&["https://example.com/product/1".to_owned()])
+            .await;
+
+        assert!(matches!(
+            result,
+            Ok(Some(pattern)) if pattern.as_str() == r"/product/\d+$"
+        ));
+
+        let prompts = prompts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert_eq!(prompts.len(), 2);
+        assert!(prompts[1].contains("invalid_regex"));
+    }
+
+    #[tokio::test]
+    async fn should_fail_after_all_invalid_regex_corrections_are_exhausted() {
+        let prompts = Arc::new(Mutex::new(Vec::new()));
+        let model = SequenceLargeLanguageModel {
+            responses: Mutex::new(VecDeque::from([
+                Ok(serde_json::json!({ "pattern": "[" })),
+                Ok(serde_json::json!({ "pattern": "(" })),
+                Ok(serde_json::json!({ "pattern": "(?P<" })),
+            ])),
+            prompts: Arc::clone(&prompts),
+        };
+
+        let result = UrlClassificationServiceImpl::new(model, None)
+            .find_product_url_pattern(&["https://example.com/product/1".to_owned()])
+            .await;
+
+        assert!(matches!(result, Err(UrlClassificationError::Llm(_))));
+
+        let prompts = prompts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert_eq!(prompts.len(), MAX_VALIDATION_ATTEMPTS);
+        assert!(prompts[1].contains("invalid_regex"));
+        assert!(prompts[2].contains("invalid_regex"));
+    }
+
+    #[tokio::test]
+    async fn should_map_large_language_model_deserialization_error() {
+        let result = service("not json")
+            .find_product_url_pattern(&["https://example.com/product/1".to_owned()])
+            .await;
+
+        assert!(matches!(result, Err(UrlClassificationError::Llm(_))));
     }
 }

@@ -19,7 +19,9 @@ use user_core::user_id::UserId;
 use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
-use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use product_core::product_search::{
+    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductSearch,
+};
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_service::ports::{SearchFilterMatchView, SearchFilterView};
 use search_filter_service::use_cases::ProductSearchPatch;
@@ -93,6 +95,12 @@ impl UpdateSearchFilterData {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub(super) enum ProductSearchDataMappingError {
+    #[error(transparent)]
+    EnhancedSearchDescription(#[from] EnhancedSearchDescriptionError),
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ProductSearchPatchData {
@@ -164,10 +172,16 @@ impl ProductSearchPatchData {
             language: non_nullable_patch(self.language.map(Into::into), "search.language")?,
             currency: non_nullable_patch(self.currency.map(Into::into), "search.currency")?,
             product_query: non_nullable_patch(self.product_query, "search.productQuery")?,
-            enhanced_search_description: clearable(
-                self.enhanced_search_description
-                    .map(EnhancedSearchDescription::from),
-            ),
+            enhanced_search_description: match self.enhanced_search_description {
+                PatchValue::Omitted => PatchField::Unchanged,
+                PatchValue::Null => PatchField::Clear,
+                PatchValue::Value(value) => PatchField::Set(
+                    EnhancedSearchDescription::try_from(value).map_err(|error| {
+                        crate::error::ApiError::bad_request(crate::error::BAD_BODY_VALUE)
+                            .with_detail(error.to_string())
+                    })?,
+                ),
+            },
             shop_name_query: non_nullable_patch(
                 self.shop_name_query.map(AnyOfQuery::from),
                 "search.shopName",
@@ -391,15 +405,18 @@ enum ShopTypeData {
     Marketplace,
 }
 
-impl From<ProductSearchData> for ProductSearch {
-    fn from(data: ProductSearchData) -> Self {
-        Self {
+impl TryFrom<ProductSearchData> for ProductSearch {
+    type Error = ProductSearchDataMappingError;
+
+    fn try_from(data: ProductSearchData) -> Result<Self, Self::Error> {
+        Ok(Self {
             language: data.language.into(),
             currency: data.currency.into(),
             product_query: data.product_query,
             enhanced_search_description: data
                 .enhanced_search_description
-                .map(EnhancedSearchDescription::from),
+                .map(EnhancedSearchDescription::try_from)
+                .transpose()?,
             exclude_product_id_query: data.exclude_product_id_query.into(),
             shop_name_query: data.shop_name_query.into(),
             exclude_shop_name_query: data.exclude_shop_name_query.into(),
@@ -422,7 +439,7 @@ impl From<ProductSearchData> for ProductSearch {
             updated_query: data.updated_query,
             auction_start_query: data.auction_start_query,
             auction_end_query: data.auction_end_query,
-        }
+        })
     }
 }
 

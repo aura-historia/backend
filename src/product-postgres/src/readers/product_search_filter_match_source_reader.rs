@@ -23,6 +23,7 @@ use product_service::ports::{
     ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
     ProductSearchFilterMatchSourceEventKind, ProductSearchFilterMatchSourceReadError,
     ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
+    ProductSearchFilterMatchSourceRef,
 };
 use shop_core::seller_slug_id::SellerSlugId;
 use shop_core::shop_id::ShopId;
@@ -153,8 +154,38 @@ impl ProductSearchFilterMatchSourceReader for SqlxProductSearchFilterMatchSource
         product_id: ProductId,
     ) -> Result<Option<ProductSearchFilterMatchSource>, ProductSearchFilterMatchSourceReadError>
     {
+        let reference = ProductSearchFilterMatchSourceRef {
+            product_id,
+            event_id,
+        };
+        Ok(self.find_sources(&[reference]).await?.remove(&reference))
+    }
+
+    async fn find_sources(
+        &mut self,
+        refs: &[ProductSearchFilterMatchSourceRef],
+    ) -> Result<
+        HashMap<ProductSearchFilterMatchSourceRef, ProductSearchFilterMatchSource>,
+        ProductSearchFilterMatchSourceReadError,
+    > {
+        if refs.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let product_ids = refs
+            .iter()
+            .map(|reference| uuid::Uuid::from(reference.product_id))
+            .collect::<Vec<_>>();
+        let event_ids = refs
+            .iter()
+            .map(|reference| uuid::Uuid::from(reference.event_id))
+            .collect::<Vec<_>>();
         let rows = sqlx::query_as::<_, SourceRow>(
             r#"
+            WITH requested_events AS (
+                SELECT DISTINCT product_id, event_id
+                FROM UNNEST($1::uuid[], $2::uuid[]) AS requested(product_id, event_id)
+            )
             SELECT
                 event.event_id,
                 event.event_group,
@@ -203,23 +234,24 @@ impl ProductSearchFilterMatchSourceReader for SqlxProductSearchFilterMatchSource
                 translation.language AS translation_language,
                 translation.title AS translation_title,
                 translation.description AS translation_description
-            FROM product_events event
+            FROM requested_events requested
+            JOIN product_events event
+              ON event.product_id = requested.product_id
+             AND event.event_id = requested.event_id
             JOIN products product ON product.product_id = event.product_id
             JOIN shops shop ON shop.shop_id = product.shop_id
             JOIN shops seller ON seller.shop_id = product.seller_id
             LEFT JOIN product_translations translation ON translation.product_id = product.product_id
-            WHERE event.event_id = $1
-                AND event.product_id = $2
-            ORDER BY translation.language ASC
+            ORDER BY event.product_id ASC, event.event_id ASC, translation.language ASC
             "#,
         )
-        .bind(uuid::Uuid::from(event_id))
-        .bind(uuid::Uuid::from(product_id))
+        .bind(product_ids)
+        .bind(event_ids)
         .fetch_all(&mut *self.connection)
         .await
         .map_err(SourceQuerySqlxError)?;
 
-        source_from_rows(rows)
+        sources_from_rows(rows)
             .map_err(|_| {
                 SourceRowMappingError::invalid(
                     "persisted product search-filter match source row is invalid",
@@ -227,6 +259,27 @@ impl ProductSearchFilterMatchSourceReader for SqlxProductSearchFilterMatchSource
             })
             .map_err(Into::into)
     }
+}
+
+fn sources_from_rows(
+    rows: Vec<SourceRow>,
+) -> Result<HashMap<ProductSearchFilterMatchSourceRef, ProductSearchFilterMatchSource>, ()> {
+    let mut grouped_rows = HashMap::<ProductSearchFilterMatchSourceRef, Vec<SourceRow>>::new();
+    for row in rows {
+        let reference = ProductSearchFilterMatchSourceRef {
+            product_id: ProductId::from(row.product_id),
+            event_id: EventId::from(row.event_id),
+        };
+        grouped_rows.entry(reference).or_default().push(row);
+    }
+
+    grouped_rows
+        .into_iter()
+        .map(|(reference, rows)| {
+            let source = source_from_rows(rows)?.ok_or(())?;
+            Ok((reference, source))
+        })
+        .collect()
 }
 
 fn source_from_rows(rows: Vec<SourceRow>) -> Result<Option<ProductSearchFilterMatchSource>, ()> {

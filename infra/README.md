@@ -61,11 +61,20 @@ Each stack uses `CliCredentialsStackSynthesizer` with the existing staging bucke
 `aura-historia-cfn-artifcats-eu-central-1`. CDK uploads large CloudFormation
 templates and any future file assets under the stage prefix (`${stage}/`). Lambda
 ZIPs and scheduled Fargate images are still referenced as prebuilt S3/ECR
-artifacts keyed by `CommitSHA`, not as CDK-managed assets.
+artifacts keyed by `CommitSHA`, not as CDK-managed assets. The retired periodic
+matcher ECS image is no longer built or referenced by CDK.
 
 Rollback is performed by redeploying a previous `CommitSHA` parameter value to the
 compute stack. Lambda ZIP keys and mail-template prefixes include that SHA, so CDK
 points compute resources back to the previously uploaded artifacts.
+
+## Native processes
+
+Production native processes are:
+
+- `aura-historia-api`
+- `aura-historia-worker`
+- `aura-historia-cron`
 
 ## Deployment inputs
 

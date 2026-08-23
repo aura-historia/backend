@@ -8,7 +8,7 @@ use crate::spider::advisory_lock::LocalLockManager;
 use crate::spider::candidate_service::SpiderCandidateService;
 use crate::spider::service::SpiderService;
 #[cfg(test)]
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -122,7 +122,7 @@ mod tests {
     use crate::spider::advisory_lock::LocalLockManager;
     use crate::spider::candidate_service::MockSpiderCandidateService;
     use crate::spider::service::MockSpiderService;
-    use shop::core::shop_type::ShopType;
+    use shop_core::shop_type::ShopType;
 
     #[tokio::test]
     async fn should_run_shop_sync() {
@@ -134,10 +134,9 @@ mod tests {
                     shop_name: "Test Shop".to_string(),
                     shop_slug: "test-shop".to_string(),
                     shop_type: ShopType::CommercialDealer,
-                    domains: std::collections::HashSet::from([common::domain::Domain::try_from(
-                        "test.com",
-                    )
-                    .unwrap()]),
+                    domains: std::collections::HashSet::from([
+                        shop_core::domain::Domain::try_from("test.com").unwrap(),
+                    ]),
                 }])
             })
         });

@@ -393,10 +393,7 @@ fn build_query_body(query: &SearchFilterIndexQuery) -> serde_json::Value {
     let mut body = json!({
         "query":{"bool":{"filter":filter}},
         "size": cursor.size,
-        "sort":[
-            {"lastHybridSearchMatched":{"order":"asc","missing":"_first"}},
-            {"userSearchFilterId":{"order":"asc"}}
-        ]
+        "sort":[{"userSearchFilterId":{"order":"asc"}}]
     });
     if let Some(search_after) = cursor.search_after {
         body["search_after"] = search_after;

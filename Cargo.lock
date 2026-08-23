@@ -262,11 +262,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "aura-historia-cron"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "cron_tab",
+ "fxrate-postgres",
+ "google-cloud-auth",
+ "large-language-model",
+ "opensearch",
+ "platform-observability",
+ "platform-postgres",
+ "product-opensearch",
+ "product-postgres",
+ "reqwest 0.12.28",
+ "search-filter-postgres",
+ "search-filter-service",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "aura-historia-parent"
 version = "0.1.0"
 dependencies = [
  "application",
  "aura-historia-api",
+ "aura-historia-cron",
  "aura-historia-worker",
  "aws-tests",
  "cloudwatch-log-retention-lambda",
@@ -303,7 +330,6 @@ dependencies = [
  "search-filter",
  "search-filter-core",
  "search-filter-opensearch",
- "search-filter-periodic-match",
  "search-filter-postgres",
  "search-filter-service",
  "shop",
@@ -1929,27 +1955,33 @@ dependencies = [
 name = "crawler"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "aws-config",
  "aws-sdk-cloudwatchlogs",
- "aws-sdk-dynamodb",
  "bloomfilter",
- "common",
  "crawler",
  "dashmap",
+ "domain-primitives",
  "dotenvy",
  "fake",
  "futures",
+ "fxrate-postgres",
+ "google-cloud-auth",
  "imagesize",
+ "indexmap 2.14.0",
  "kuchiki",
  "large-language-model",
  "libc",
  "lingua",
- "llm",
+ "localization",
  "mockall",
+ "money",
  "once_cell",
- "opensearch",
- "product",
+ "platform-postgres",
+ "product-core",
+ "product-postgres",
+ "product-service",
  "regex",
  "reqwest 0.12.28",
  "rstest",
@@ -1959,7 +1991,9 @@ dependencies = [
  "serde_json",
  "serial_test",
  "sha2 0.11.0",
- "shop",
+ "shop-core",
+ "shop-postgres",
+ "shop-service",
  "spider",
  "sqlx",
  "test-api",
@@ -2018,6 +2052,41 @@ dependencies = [
  "domain-primitives",
  "serde",
  "uuid",
+]
+
+[[package]]
+name = "cron"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "089df96cf6a25253b4b6b6744d86f91150a3d4df546f31a95def47976b8cba97"
+dependencies = [
+ "chrono",
+ "once_cell",
+ "phf 0.11.3",
+ "winnow 0.7.15",
+]
+
+[[package]]
+name = "cron_tab"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b96f824a908f7e39d734d51e9f3848542131b5d50d2a02532ebcc381336e62da"
+dependencies = [
+ "chrono",
+ "cron",
+ "crossbeam-channel",
+ "futures",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
+name = "crossbeam-channel"
+version = "0.5.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d85363c37faeca707aef026efa9f3b34d077bce547e48f770770625c6013679e"
+dependencies = [
+ "crossbeam-utils",
 ]
 
 [[package]]
@@ -4189,8 +4258,10 @@ dependencies = [
  "async-trait",
  "futures",
  "google-cloud-auth",
+ "httpdate",
  "image-fetcher",
  "reqwest 0.12.28",
+ "schemars 1.2.2",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -6832,32 +6903,6 @@ dependencies = [
  "tokio",
  "url",
  "user-core",
-]
-
-[[package]]
-name = "search-filter-periodic-match"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-s3",
- "aws-sdk-sesv2",
- "common",
- "fake",
- "futures-util",
- "mockall",
- "notification",
- "product",
- "search-filter",
- "serde_json",
- "serial_test",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "user",
 ]
 
 [[package]]

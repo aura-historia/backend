@@ -1,6 +1,6 @@
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use std::collections::HashSet;
 use tracing::warn;
 use url::Url;

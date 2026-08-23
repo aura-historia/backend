@@ -1,7 +1,7 @@
 use crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use url::Url;
 
 impl ScraperServiceImpl {

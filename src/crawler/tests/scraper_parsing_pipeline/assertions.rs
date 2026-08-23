@@ -1,6 +1,4 @@
 use async_trait::async_trait;
-use common::currency::domain::Currency;
-use common::product_state::domain::ProductState;
 use crawler::scraper::css_selector::product_schema::{
     ProductCssSelectorSchema, RawExtractedProduct,
 };
@@ -11,7 +9,8 @@ use crawler::scraper::normalization::state::{ProductStateMappingRecord, StateMap
 use crawler::scraper::normalization::state_mapping_service::{
     ProductStateMappingService, StateMappingServiceError,
 };
-use product::dynamodb::product_state_record::ProductStateRecord;
+use money::Currency;
+use product_core::product_state::ProductState;
 use scraper::Html;
 use time::OffsetDateTime;
 use url::Url;
@@ -109,7 +108,7 @@ pub async fn assert_normalized(
     schema: &ProductCssSelectorSchema,
     html_src: &str,
     raw_state: &str,
-    state_record: ProductStateRecord,
+    state_record: ProductState,
     url: &str,
     expected: &NormalizedExpectation,
 ) {

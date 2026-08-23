@@ -379,7 +379,7 @@ impl ScraperServiceImpl {
 
     pub(crate) async fn pending_product_schema_review_id(
         &self,
-        shop_id: &common::shop_id::ShopId,
+        shop_id: &shop_core::shop_id::ShopId,
     ) -> Result<Option<uuid::Uuid>, ProductSchemaServiceError> {
         if !self.review_required {
             return Ok(None);

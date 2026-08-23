@@ -4,7 +4,6 @@ use crate::product_state::ProductState;
 use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
-use domain_primitives::string_newtype;
 use geo::core::continent::Continent;
 use geo::core::distance::GeoDistanceQuery;
 use isocountry::CountryCode;
@@ -16,7 +15,75 @@ use shop_core::shop_type::ShopType;
 use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use time::OffsetDateTime;
 
-string_newtype!(EnhancedSearchDescription, max_length(1000));
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EnhancedSearchDescription(String);
+
+#[derive(Debug, thiserror::Error, Clone, Copy, PartialEq, Eq)]
+pub enum EnhancedSearchDescriptionError {
+    #[error("enhanced search description must not be blank")]
+    Blank,
+}
+
+impl EnhancedSearchDescription {
+    const MAX_LENGTH: usize = 1000;
+
+    fn canonicalize(value: &str) -> Result<String, EnhancedSearchDescriptionError> {
+        let value = value.trim();
+        if value.is_empty() {
+            return Err(EnhancedSearchDescriptionError::Blank);
+        }
+        if value.len() <= Self::MAX_LENGTH {
+            return Ok(value.to_owned());
+        }
+        let mut end = Self::MAX_LENGTH - 3;
+        while !value.is_char_boundary(end) {
+            end -= 1;
+        }
+        Ok(format!("{}...", &value[..end]))
+    }
+}
+
+impl TryFrom<&str> for EnhancedSearchDescription {
+    type Error = EnhancedSearchDescriptionError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::canonicalize(value).map(Self)
+    }
+}
+
+impl TryFrom<String> for EnhancedSearchDescription {
+    type Error = EnhancedSearchDescriptionError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
+    }
+}
+
+impl AsRef<str> for EnhancedSearchDescription {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for EnhancedSearchDescription {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
+    }
+}
+
+impl std::fmt::Display for EnhancedSearchDescription {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl From<EnhancedSearchDescription> for String {
+    fn from(value: EnhancedSearchDescription) -> Self {
+        value.0
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Default, SerdeField)]
 pub struct ProductSearch {
@@ -234,7 +301,9 @@ mod tests {
         let product_id = ProductId::new();
         let search = ProductSearch::new(Language::En, Currency::Usd)
             .with_product_query(text_query("vase"))
-            .with_enhanced_search_description(EnhancedSearchDescription::from("bronze"))
+            .with_enhanced_search_description(
+                EnhancedSearchDescription::try_from("bronze").unwrap(),
+            )
             .with_exclude_product_id_query(HashSet::from([product_id]).into())
             .with_state_query(HashSet::from([ProductState::Listed]).into())
             .with_lifecycle_query(HashSet::from([ProductLifecycle::Active]).into())
@@ -252,10 +321,16 @@ mod tests {
     }
 
     #[test]
-    fn should_truncate_enhanced_search_description() {
-        let description = EnhancedSearchDescription::from("a".repeat(1200));
+    fn should_canonicalize_enhanced_search_description() {
+        let description = EnhancedSearchDescription::try_from("  bronze  ").unwrap();
+        let truncated = EnhancedSearchDescription::try_from("a".repeat(1200)).unwrap();
 
-        assert_eq!(1000, description.as_ref().len());
+        assert_eq!("bronze", description.as_ref());
+        assert_eq!(1000, truncated.as_ref().len());
+        assert!(matches!(
+            EnhancedSearchDescription::try_from(" \n\t "),
+            Err(EnhancedSearchDescriptionError::Blank)
+        ));
     }
 
     fn text_query(value: &str) -> TextQuery<1> {

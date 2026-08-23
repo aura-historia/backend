@@ -7,8 +7,8 @@ use crate::scraper::css_selector::product_schema_service::GeneratedProductSchema
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
-use common::shop_id::ShopId;
 use serde_json::json;
+use shop_core::shop_id::ShopId;
 use tracing::debug;
 use url::Url;
 

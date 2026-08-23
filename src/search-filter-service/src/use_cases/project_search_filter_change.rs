@@ -258,7 +258,6 @@ mod tests {
                 embedding: None,
                 created: datetime!(2026-01-01 0:00 UTC),
                 updated: datetime!(2026-01-01 0:00 UTC),
-                last_hybrid_search_matched: datetime!(2026-01-01 0:00 UTC),
             },
             source_version: version,
         }

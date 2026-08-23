@@ -284,7 +284,6 @@ CREATE TABLE search_filters (
     embedding real[],
     language text NOT NULL,
     currency text NOT NULL,
-    last_hybrid_search_matched timestamptz NOT NULL DEFAULT '1970-01-01T00:00:00Z',
     version bigint NOT NULL DEFAULT 1,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
@@ -294,11 +293,25 @@ CREATE TABLE search_filters (
     CONSTRAINT search_filters_language_check CHECK (language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
     CONSTRAINT search_filters_currency_check CHECK (currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT search_filters_embedding_dimension_check CHECK (embedding IS NULL OR (array_ndims(embedding) = 1 AND cardinality(embedding) = 768)),
+    CONSTRAINT search_filters_enhanced_description_non_blank CHECK (enhanced_search_description IS NULL OR btrim(enhanced_search_description) <> ''),
     CONSTRAINT search_filters_version_positive CHECK (version >= 1)
 );
 
 CREATE INDEX search_filters_user_created_idx ON search_filters (user_id, created DESC);
 CREATE INDEX search_filters_state_updated_idx ON search_filters (state, updated DESC);
+CREATE INDEX search_filters_periodic_match_eligible_idx
+    ON search_filters (user_search_filter_id)
+    WHERE state = 'ACTIVE'
+      AND enhanced_search_description IS NOT NULL;
+
+CREATE TABLE search_filter_periodic_match_state (
+    user_search_filter_id uuid PRIMARY KEY
+        REFERENCES search_filters(user_search_filter_id)
+        ON DELETE CASCADE,
+    matched_through timestamptz NOT NULL,
+    created timestamptz NOT NULL DEFAULT now(),
+    updated timestamptz NOT NULL DEFAULT now()
+);
 
 ALTER TABLE search_filters REPLICA IDENTITY FULL;
 
@@ -325,7 +338,7 @@ CREATE TABLE search_filter_matches (
     CONSTRAINT search_filter_matches_price_valuation_check CHECK (
         (price_valuation_basis IS NULL AND price_fx_rate_id IS NULL)
         OR (
-            price_valuation_basis IN ('EVENT', 'SALE')
+            price_valuation_basis IN ('CURRENT', 'EVENT', 'SALE')
             AND price_fx_rate_id IS NOT NULL
         )
     )

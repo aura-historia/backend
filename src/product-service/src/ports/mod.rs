@@ -27,7 +27,7 @@ pub use partner_product_authorizer::{
 };
 pub use product_current_revision_guard::{
     ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
-    ProductCurrentRevisionGuardFactory,
+    ProductCurrentRevisionGuardFactory, ProductCurrentRevisionRef,
 };
 pub use product_details_batch_reader::{
     ProductDetailsBatchReadError, ProductDetailsBatchReadRequest, ProductDetailsBatchReader,
@@ -62,6 +62,7 @@ pub use product_search_filter_match_source_reader::{
     ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
     ProductSearchFilterMatchSourceEventKind, ProductSearchFilterMatchSourceReadError,
     ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
+    ProductSearchFilterMatchSourceRef,
 };
 pub use product_search_projection::{
     ProductSearchProjection, ProductSearchProjectionWriteError, ProductSearchProjectionWriteOutcome,

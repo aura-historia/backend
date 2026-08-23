@@ -18,6 +18,17 @@ pub struct CrawlerCronConfig {
     pub scraper_urls_per_domain: i64,
     /// Number of scraped products to accumulate before flush.
     pub push_batch_size: usize,
+    /// Maximum product messages buffered between scraper workers and the
+    /// single product-push collector.
+    pub push_queue_capacity: usize,
+    /// Maximum age of the oldest item in a partial product-push batch.
+    pub push_max_batch_age: Duration,
+    /// Maximum number of unique Product upsert transactions executed in parallel
+    /// by one product-push batch.
+    pub push_max_concurrency: usize,
+    /// Maximum connections in the authoritative business Postgres pool used by
+    /// canonical Shop reads and Product writes.
+    pub business_db_max_connections: u32,
     pub spider_concurrency: usize,
     /// Per-site in-flight crawl limit for spider::Website.
     pub spider_site_concurrency_limit: usize,
@@ -50,6 +61,10 @@ impl Default for CrawlerCronConfig {
             scraper_domain_batch_size: None,
             scraper_urls_per_domain: 100,
             push_batch_size: 25,
+            push_queue_capacity: 100,
+            push_max_batch_age: Duration::from_secs(5),
+            push_max_concurrency: 4,
+            business_db_max_connections: 8,
             spider_concurrency: 3,
             spider_site_concurrency_limit: 8,
             scraper_concurrency: 10,
@@ -66,6 +81,36 @@ impl Default for CrawlerCronConfig {
 }
 
 impl CrawlerCronConfig {
+    pub fn effective_push_batch_size(&self) -> usize {
+        self.push_batch_size.max(1)
+    }
+
+    pub fn effective_push_queue_capacity(&self) -> usize {
+        self.push_queue_capacity.max(1)
+    }
+
+    pub fn effective_push_max_batch_age(&self) -> Duration {
+        self.push_max_batch_age.max(Duration::from_millis(1))
+    }
+
+    pub fn effective_push_max_concurrency(&self) -> usize {
+        self.push_max_concurrency.max(1)
+    }
+
+    pub fn effective_business_db_max_connections(&self) -> u32 {
+        self.business_db_max_connections.max(3)
+    }
+
+    pub fn validate_business_capacity(&self) {
+        let push = self.effective_push_max_concurrency() as u32;
+        let pool = self.effective_business_db_max_connections();
+
+        assert!(
+            push + 2 <= pool,
+            "product push concurrency must leave business database headroom"
+        );
+    }
+
     pub fn effective_db_max_connections(&self) -> u32 {
         self.db_max_connections
             .unwrap_or_else(|| (self.spider_concurrency + self.scraper_concurrency + 10) as u32)
@@ -100,5 +145,54 @@ impl CrawlerCronConfig {
             .acquire_timeout(Duration::from_secs(30))
             .connect(url)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_clamp_push_limits_to_non_zero_values() {
+        let config = CrawlerCronConfig {
+            push_batch_size: 0,
+            push_queue_capacity: 0,
+            push_max_batch_age: Duration::ZERO,
+            push_max_concurrency: 0,
+            business_db_max_connections: 0,
+            ..CrawlerCronConfig::default()
+        };
+
+        assert_eq!(config.effective_push_batch_size(), 1);
+        assert_eq!(config.effective_push_queue_capacity(), 1);
+        assert_eq!(
+            config.effective_push_max_batch_age(),
+            Duration::from_millis(1)
+        );
+        assert_eq!(config.effective_push_max_concurrency(), 1);
+        assert!(config.effective_business_db_max_connections() >= 3);
+    }
+
+    #[test]
+    #[should_panic]
+    fn should_reject_business_pool_without_push_headroom() {
+        let config = CrawlerCronConfig {
+            push_max_concurrency: 8,
+            business_db_max_connections: 8,
+            ..Default::default()
+        };
+
+        config.validate_business_capacity();
+    }
+
+    #[test]
+    fn should_accept_business_pool_with_push_headroom() {
+        let config = CrawlerCronConfig {
+            push_max_concurrency: 4,
+            business_db_max_connections: 8,
+            ..Default::default()
+        };
+
+        config.validate_business_capacity();
     }
 }

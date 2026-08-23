@@ -172,7 +172,9 @@ mod tests {
         let country_search = ProductSearch::new(Language::En, Currency::Eur)
             .with_country_query([CountryCode::DEU].into_iter().collect());
         let enhanced_search = ProductSearch::new(Language::En, Currency::Eur)
-            .with_enhanced_search_description(EnhancedSearchDescription::from("gold ring"));
+            .with_enhanced_search_description(
+                EnhancedSearchDescription::try_from("gold ring").unwrap(),
+            );
 
         assert_eq!(
             Err("countryQuery"),

@@ -18,7 +18,9 @@ use localization::Language;
 use money::{Currency, MonetaryAmount};
 use product_core::product_id::ProductId;
 use product_core::product_lifecycle::ProductLifecycle;
-use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use product_core::product_search::{
+    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductSearch,
+};
 use product_core::product_state::ProductState;
 use product_opensearch::build_percolator_query;
 use search_filter_core::search_filter_state::SearchFilterState;
@@ -78,8 +80,6 @@ pub(crate) struct SearchFilterDocument {
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
-    #[serde(with = "time::serde::rfc3339")]
-    pub last_hybrid_search_matched: OffsetDateTime,
 }
 
 /// Decode failure for the complete product-search payload stored in a search document.
@@ -92,6 +92,11 @@ pub enum ProductSearchDocumentMappingError {
     },
     #[error("OpenSearch document has an invalid product search timestamp")]
     InvalidTimestamp,
+    #[error("OpenSearch document has an invalid enhanced search description")]
+    InvalidEnhancedSearchDescription {
+        #[source]
+        source: EnhancedSearchDescriptionError,
+    },
 }
 
 impl TryFrom<&SearchFilterProjection> for SearchFilterDocument {
@@ -111,7 +116,6 @@ impl TryFrom<&SearchFilterProjection> for SearchFilterDocument {
             embedding: view.embedding.clone(),
             created: view.created,
             updated: view.updated,
-            last_hybrid_search_matched: view.last_hybrid_search_matched,
         })
     }
 }
@@ -130,7 +134,6 @@ impl TryFrom<SearchFilterDocument> for SearchFilterView {
             embedding: document.embedding,
             created: document.created,
             updated: document.updated,
-            last_hybrid_search_matched: document.last_hybrid_search_matched,
         })
     }
 }
@@ -645,7 +648,11 @@ impl TryFrom<ProductSearchDocument> for ProductSearch {
             product_query: document.product_query,
             enhanced_search_description: document
                 .enhanced_search_description
-                .map(EnhancedSearchDescription::from),
+                .map(EnhancedSearchDescription::try_from)
+                .transpose()
+                .map_err(|source| {
+                    ProductSearchDocumentMappingError::InvalidEnhancedSearchDescription { source }
+                })?,
             exclude_product_id_query: document.exclude_product_id_query.into(),
             shop_name_query: document.shop_name_query.into(),
             exclude_shop_name_query: document.exclude_shop_name_query.into(),
@@ -746,7 +753,6 @@ mod tests {
                 embedding: Some(vec![1.0]),
                 created: datetime!(2026-01-01 00:00:00 UTC),
                 updated: datetime!(2026-01-02 00:00:00 UTC),
-                last_hybrid_search_matched: datetime!(2026-01-03 00:00:00 UTC),
             },
             source_version: 12,
         }

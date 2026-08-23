@@ -1,15 +1,23 @@
 mod active_search_filter_match_candidate_reader;
+mod existing_search_filter_match_reader;
 mod mapping;
 mod match_notification_source_reader;
 mod match_repository;
+mod periodic_search_filter_candidate_reader;
+mod periodic_search_filter_matching_run_lock;
+mod periodic_search_filter_progress;
 mod readers;
 mod repository;
 mod search_filter_match_writer;
 mod search_filter_monthly_match_quota_reader;
 
 pub use active_search_filter_match_candidate_reader::SqlxActiveSearchFilterMatchCandidateReaderFactory;
+pub use existing_search_filter_match_reader::SqlxExistingSearchFilterMatchReader;
 pub use match_notification_source_reader::SqlxSearchFilterMatchNotificationSourceReaderFactory;
 pub use match_repository::SqlxSearchFilterMatchRepositoryFactory;
+pub use periodic_search_filter_candidate_reader::SqlxPeriodicSearchFilterCandidateReader;
+pub use periodic_search_filter_matching_run_lock::SqlxPeriodicSearchFilterMatchingRunLock;
+pub use periodic_search_filter_progress::SqlxPeriodicSearchFilterProgressFactory;
 pub use readers::{
     SqlxSearchFilterIndexReader, SqlxSearchFilterQuotaReaderFactory, SqlxSearchFilterReader,
 };
