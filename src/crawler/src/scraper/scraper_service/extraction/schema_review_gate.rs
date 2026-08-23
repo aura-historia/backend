@@ -10,8 +10,8 @@ use crate::scraper::css_selector::product_schema_service::{
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
-use common::shop_id::ShopId;
 use serde_json::{Value, json};
+use shop_core::shop_id::ShopId;
 use tracing::info;
 
 pub(crate) enum GeneratedSchemaReviewOutcome {

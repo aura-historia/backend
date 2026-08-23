@@ -1,8 +1,8 @@
-use common::domain::Domain;
-use common::shop_id::ShopId;
 use crawler::spider::classification::url_pattern_repository::{
     ShopUrlPatternRepository, ShopUrlPatternRepositoryImpl,
 };
+use shop_core::domain::Domain;
+use shop_core::shop_id::ShopId;
 
 use test_api::*;
 

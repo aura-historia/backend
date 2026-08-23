@@ -1,7 +1,7 @@
-use common::currency::domain::Currency;
-use common::price::domain::{MonetaryAmount, Price};
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
-use product::dynamodb::product_state_record::ProductStateRecord;
+use money::Currency;
+use money::{MonetaryAmount, Price};
+use product_core::product_state::ProductState;
 use serde::Deserialize;
 
 use crate::expectation_types::{NormalizedExpectation, NormalizedExpectationJson, RawExpectation};
@@ -9,7 +9,7 @@ use crate::expectation_types::{NormalizedExpectation, NormalizedExpectationJson,
 pub struct ScraperParsingPipelineFixture {
     pub schema: ProductCssSelectorSchema,
     pub raw_state: String,
-    pub state_record: ProductStateRecord,
+    pub state_record: ProductState,
     pub raw: RawExpectation,
     pub normalized: NormalizedExpectation,
     pub html_path: String,
@@ -68,14 +68,14 @@ fn fixture_from_json(f: FixtureJson) -> ScraperParsingPipelineFixture {
     }
 }
 
-fn parse_state_record(s: &str) -> ProductStateRecord {
+fn parse_state_record(s: &str) -> ProductState {
     match s {
-        "AVAILABLE" => ProductStateRecord::Available,
-        "LISTED" => ProductStateRecord::Listed,
-        "RESERVED" => ProductStateRecord::Reserved,
-        "SOLD" => ProductStateRecord::Sold,
-        "REMOVED" => ProductStateRecord::Removed,
-        "UNKNOWN" => ProductStateRecord::Unknown,
+        "AVAILABLE" => ProductState::Available,
+        "LISTED" => ProductState::Listed,
+        "RESERVED" => ProductState::Reserved,
+        "SOLD" => ProductState::Sold,
+        "REMOVED" => ProductState::Removed,
+        "UNKNOWN" => ProductState::Unknown,
         other => panic!("unsupported state_record '{other}' in fixtures.json"),
     }
 }
@@ -140,8 +140,8 @@ fn parse_currency(code: &str) -> Currency {
     }
 }
 
-fn parse_product_state(s: &str) -> common::product_state::domain::ProductState {
-    use common::product_state::domain::ProductState;
+fn parse_product_state(s: &str) -> product_core::product_state::ProductState {
+    use product_core::product_state::ProductState;
     match s {
         "LISTED" => ProductState::Listed,
         "AVAILABLE" => ProductState::Available,

@@ -1,5 +1,5 @@
-use common::domain::{Domain, NoDomainError};
 use regex::Regex;
+use shop_core::domain::{Domain, NoDomainError};
 use spider::compact_str::CompactString;
 use url_normalize::Options;
 

@@ -1,6 +1,6 @@
 use crate::spider::classification::url_metadata::{UrlClass, UrlState};
 use async_trait::async_trait;
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use sqlx::{FromRow, PgPool, Row};
 use time::OffsetDateTime;
 

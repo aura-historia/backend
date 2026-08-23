@@ -1,8 +1,5 @@
 use super::error::NormalizationError;
-use common::{
-    currency::domain::{Currency, HasMinorUnitExponent},
-    price::domain::{MonetaryAmount, Price},
-};
+use money::{Currency, HasMinorUnitExponent, MonetaryAmount, Price};
 use regex::regex;
 use tracing::debug;
 use url::Url;
@@ -486,7 +483,7 @@ fn is_price_on_request_marker(raw: &str) -> bool {
 mod tests {
     use rstest::rstest;
 
-    use common::currency::domain::Currency;
+    use money::Currency;
 
     use super::{
         PriceError, detect_currency, extract_price_number_candidate, is_price_on_request_marker,

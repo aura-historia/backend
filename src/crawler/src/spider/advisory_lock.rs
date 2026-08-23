@@ -1,6 +1,6 @@
-use common::shop_id::ShopId;
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
+use shop_core::shop_id::ShopId;
 use std::sync::Arc;
 use std::time::Instant;
 

@@ -422,7 +422,7 @@ async fn insert_product_url(
     domain_id: uuid::Uuid,
     url: &str,
 ) {
-    let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
+    let shop_id = shop_core::shop_id::ShopId::from(shop_id_uuid);
     let parsed = url::Url::parse(url).unwrap();
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
     repo.upsert_link(&shop_id, &domain_id, &parsed, &UrlClass::Product)
@@ -559,7 +559,7 @@ async fn scraper_should_not_return_candidate_when_url_class_is_not_product() {
     let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "scraper-class.example.com").await;
 
     // Insert as a category URL (not product)
-    let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
+    let shop_id = shop_core::shop_id::ShopId::from(shop_id_uuid);
     let url = url::Url::parse("https://scraper-class.example.com/category/1").unwrap();
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
     repo.upsert_link(&shop_id, &domain_id, &url, &UrlClass::Category)
@@ -589,7 +589,7 @@ async fn scraper_should_persist_url_class_other_and_exclude_candidate_when_set_c
         insert_shop_with_domain(&pool, shop_id_uuid, "scraper-set-class.example.com").await;
     let target_url = url::Url::parse("https://scraper-set-class.example.com/p/target").unwrap();
     let other_url = url::Url::parse("https://scraper-set-class.example.com/p/other").unwrap();
-    let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
+    let shop_id = shop_core::shop_id::ShopId::from(shop_id_uuid);
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
     repo.upsert_link(&shop_id, &domain_id, &target_url, &UrlClass::Product)
         .await
@@ -664,7 +664,7 @@ async fn scraper_should_not_return_candidate_when_state_is_excluded() {
     let shop_id_uuid = uuid::Uuid::new_v4();
     let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "scraper-state.example.com").await;
 
-    let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
+    let shop_id = shop_core::shop_id::ShopId::from(shop_id_uuid);
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
 
     let url_sold = url::Url::parse("https://scraper-state.example.com/p/sold").unwrap();
@@ -711,7 +711,7 @@ async fn scraper_should_return_candidate_for_all_included_states() {
     let domain_id =
         insert_shop_with_domain(&pool, shop_id_uuid, "scraper-states.example.com").await;
 
-    let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
+    let shop_id = shop_core::shop_id::ShopId::from(shop_id_uuid);
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
 
     let states = [
@@ -1057,7 +1057,7 @@ async fn scraper_mark_as_scraped_should_set_last_scraped_and_hash() {
     let url_str = "https://scraper-mark.example.com/p/1";
     insert_product_url(&pool, shop_id_uuid, domain_id, url_str).await;
 
-    let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
+    let shop_id = shop_core::shop_id::ShopId::from(shop_id_uuid);
     let url = url::Url::parse(url_str).unwrap();
     let scraped_hash = "m".repeat(64);
 
@@ -1107,7 +1107,7 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
         "URL should appear before mark_as_scraped"
     );
 
-    let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
+    let shop_id = shop_core::shop_id::ShopId::from(shop_id_uuid);
     let url = url::Url::parse(url_str).unwrap();
     service
         .mark_as_scraped(&shop_id, &url, &hash, &minimal_snapshot(url_str))
@@ -1140,7 +1140,7 @@ async fn scraper_seed_urls_should_exclude_current_url() {
     insert_product_url(&pool, shop_id_uuid, domain_id, exclude_url).await;
     insert_product_url(&pool, shop_id_uuid, domain_id, other_url).await;
 
-    let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
+    let shop_id = shop_core::shop_id::ShopId::from(shop_id_uuid);
     let exclude = url::Url::parse(exclude_url).unwrap();
     let sampled = service
         .get_random_product_urls_for_schema_seed(&shop_id, &exclude, 5)
@@ -1170,7 +1170,7 @@ async fn scraper_seed_urls_should_only_include_same_shop_product_urls_in_eligibl
     let seed_shop_uuid = uuid::Uuid::new_v4();
     let seed_domain_id =
         insert_shop_with_domain(&pool, seed_shop_uuid, "seed-filters.example.com").await;
-    let seed_shop_id = common::shop_id::ShopId::from(seed_shop_uuid);
+    let seed_shop_id = shop_core::shop_id::ShopId::from(seed_shop_uuid);
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
 
     let current_url = url::Url::parse("https://seed-filters.example.com/p/current").unwrap();
@@ -1223,7 +1223,7 @@ async fn scraper_seed_urls_should_only_include_same_shop_product_urls_in_eligibl
     let other_shop_uuid = uuid::Uuid::new_v4();
     let other_domain_id =
         insert_shop_with_domain(&pool, other_shop_uuid, "seed-other-shop.example.com").await;
-    let other_shop_id = common::shop_id::ShopId::from(other_shop_uuid);
+    let other_shop_id = shop_core::shop_id::ShopId::from(other_shop_uuid);
     let other_shop_url = url::Url::parse("https://seed-other-shop.example.com/p/other").unwrap();
     repo.upsert_link(
         &other_shop_id,
@@ -1273,7 +1273,7 @@ async fn scraper_seed_urls_should_respect_limit() {
 
     let shop_id_uuid = uuid::Uuid::new_v4();
     let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "seed-limit.example.com").await;
-    let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
+    let shop_id = shop_core::shop_id::ShopId::from(shop_id_uuid);
 
     let current_url = "https://seed-limit.example.com/p/current";
     insert_product_url(&pool, shop_id_uuid, domain_id, current_url).await;
