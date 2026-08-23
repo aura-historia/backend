@@ -9,8 +9,8 @@ use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
-use common::shop_id::ShopId;
 use serde_json::json;
+use shop_core::shop_id::ShopId;
 use tracing::info;
 use url::Url;
 
@@ -55,7 +55,7 @@ impl ScraperServiceImpl {
                 return Err(ScraperError::FreshSchemaNormalizationFailed {
                     url: ctx.url.clone(),
                     attempts: 1,
-                    last_norm_error: norm_err,
+                    last_norm_error: Box::new(norm_err),
                 });
             }
             Err(norm_err) => return Err(ScraperError::NormalizationError(norm_err)),
@@ -66,9 +66,7 @@ impl ScraperServiceImpl {
             .normalize(
                 reapplied,
                 ctx.url.clone(),
-                generated_schema
-                    .default_currency
-                    .map(common::currency::domain::Currency::from),
+                generated_schema.default_currency.map(money::Currency::from),
             )
             .await
         {
@@ -118,7 +116,7 @@ impl ScraperServiceImpl {
                     return Err(ScraperError::FreshSchemaNormalizationFailed {
                         url: ctx.url.clone(),
                         attempts: 1,
-                        last_norm_error: norm_err,
+                        last_norm_error: Box::new(norm_err),
                     });
                 }
                 Err(ScraperError::NormalizationError(norm_err))

@@ -376,9 +376,10 @@ async fn should_not_persist_generated_schema_when_normalization_keeps_failing_fi
             err,
             ScraperError::FreshSchemaNormalizationFailed {
                 attempts: 1,
-                last_norm_error: NormalizationError::TitleEmpty,
+                ref last_norm_error,
                 ..
             }
+            if matches!(last_norm_error.as_ref(), NormalizationError::TitleEmpty)
         ),
         "expected FreshSchemaNormalizationFailed, got {err:?}"
     );

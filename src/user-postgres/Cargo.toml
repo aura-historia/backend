@@ -1,0 +1,33 @@
+[package]
+name = "user-postgres"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+domain-primitives = { workspace = true }
+platform-postgres = { workspace = true }
+geo = { workspace = true }
+isocountry = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
+
+serde_json = { workspace = true }
+serde-email = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true, features = ["formatting", "parsing"] }
+user-core = { workspace = true }
+user-service = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+product-core = { workspace = true }
+rstest = { workspace = true }
+watchlist-core = { workspace = true }
+watchlist-postgres = { workspace = true }
+watchlist-service = { workspace = true }
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["postgres"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

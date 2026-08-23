@@ -1,5 +1,5 @@
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
 use uuid::Uuid;

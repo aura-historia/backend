@@ -1,5 +1,7 @@
 #[cfg(feature = "api-gateway")]
 mod api_gateway;
+#[cfg(feature = "aura-historia-api")]
+mod aura_historia_api;
 #[cfg(feature = "cloudformation")]
 mod cloudformation;
 #[cfg(feature = "cognito")]
@@ -14,6 +16,8 @@ mod opensearch;
 #[cfg(feature = "postgres")]
 mod postgres;
 mod s3;
+#[cfg(feature = "sequin")]
+mod sequin;
 #[cfg(feature = "ses")]
 mod ses;
 mod signal;
@@ -23,6 +27,8 @@ mod sqs;
 #[cfg(feature = "api-gateway")]
 pub use api_gateway::*;
 use async_trait::async_trait;
+#[cfg(feature = "aura-historia-api")]
+pub use aura_historia_api::{AuraHistoriaApi, AuraHistoriaApiAppFactory};
 #[cfg(feature = "cloudformation")]
 pub use cloudformation::Cloudformation;
 #[cfg(feature = "cognito")]
@@ -34,8 +40,10 @@ pub use eventbridge::get_eventbridge_client;
 #[cfg(feature = "opensearch")]
 pub use opensearch::{OpenSearch, get_opensearch_client, read_by_id, refresh_index};
 #[cfg(feature = "postgres")]
-pub use postgres::{Postgres, get_postgres_client};
+pub use postgres::{Postgres, get_postgres_client, get_postgres_host_gateway_connection_string};
 pub use s3::S3;
+#[cfg(feature = "sequin")]
+pub use sequin::*;
 pub use serial_test::serial;
 #[cfg(feature = "ses")]
 pub use ses::*;

@@ -1,0 +1,195 @@
+use super::util::{no_store, parse_json_query, parse_search_filter_id};
+use crate::auth::protected_context;
+use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE, SEARCH_FILTER_INTERNAL_ERROR};
+use crate::products::product_data::{
+    PersonalizedProductDetailsData, personalized_product_details_data,
+};
+use crate::state::SearchFiltersState;
+use crate::values::{CurrencyData, LanguageData};
+use axum::Json;
+use axum::extract::{Path, RawQuery, State};
+use axum::http::HeaderMap;
+use axum::response::{IntoResponse, Response};
+
+use crate::pagination_data::JsonCursoredData;
+use application::pagination::{Cursor, CursoredResult};
+use domain_primitives::sort::SortOrder;
+use product_core::product_id::ProductId;
+use search_filter_service::ports::SearchFilterMatchCursor;
+use search_filter_service::use_cases::ListSearchFilterMatchesRequest;
+use serde::Deserialize;
+use serde_json::{Value, json};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListSearchFilterMatchesQuery {
+    #[serde(default)]
+    language: LanguageData,
+    #[serde(default)]
+    currency: CurrencyData,
+    #[serde(default)]
+    size: Option<SearchFilterMatchPageSize>,
+    #[serde(default)]
+    search_after: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(transparent)]
+struct SearchFilterMatchPageSize(u64);
+
+pub(super) async fn list_search_filter_matches(
+    State(state): State<SearchFiltersState>,
+    headers: HeaderMap,
+    Path(raw_search_filter_id): Path<String>,
+    RawQuery(raw_query): RawQuery,
+) -> Response {
+    let search_filter_id = match parse_search_filter_id(&raw_search_filter_id) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let query: ListSearchFilterMatchesQuery =
+        match serde_qs::from_str(raw_query.as_deref().unwrap_or_default()) {
+            Ok(value) => value,
+            Err(error) => {
+                return ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+                    .with_detail(error.to_string())
+                    .into_response();
+            }
+        };
+    let cursor = match matches_cursor(query.size, query.search_after.as_deref()) {
+        Ok(cursor) => cursor,
+        Err(error) => return error.into_response(),
+    };
+    let (context, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
+        Ok(value) => value,
+        Err(response) => return *response,
+    };
+    match state
+        .list_search_filter_matches
+        .execute(
+            &context,
+            ListSearchFilterMatchesRequest {
+                user_id,
+                search_filter_id,
+                language: query.language.into(),
+                currency: query.currency.into(),
+                cursor: Some(cursor),
+                order: SortOrder::Asc,
+            },
+        )
+        .await
+    {
+        Ok(result) => {
+            let search_after = match result
+                .cursor
+                .search_after
+                .map(matches_cursor_value)
+                .transpose()
+            {
+                Ok(value) => value,
+                Err(error) => return error.into_response(),
+            };
+            no_store(
+                Json(JsonCursoredData::<PersonalizedProductDetailsData>::from(
+                    CursoredResult {
+                        items: result
+                            .items
+                            .into_iter()
+                            .map(personalized_product_details_data)
+                            .collect(),
+                        cursor: Cursor {
+                            size: result.cursor.size,
+                            search_after,
+                        },
+                        total: result.total,
+                    },
+                ))
+                .into_response(),
+            )
+        }
+        Err(error) => ApiError::from(error).into_response(),
+    }
+}
+
+fn matches_cursor(
+    size: Option<SearchFilterMatchPageSize>,
+    search_after: Option<&str>,
+) -> Result<Cursor<SearchFilterMatchCursor>, ApiError> {
+    let size = size.map_or(21, |value| value.0).clamp(1, 100);
+    let search_after = search_after.map(parse_matches_cursor).transpose()?;
+    Ok(Cursor { size, search_after })
+}
+
+fn parse_matches_cursor(raw: &str) -> Result<SearchFilterMatchCursor, ApiError> {
+    let value: Value = parse_json_query(raw, "searchAfter")?;
+    let Value::Array(values) = value else {
+        return Err(ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+            .with_query_field("searchAfter")
+            .with_detail("searchAfter must be a JSON array containing timestamp and product ID."));
+    };
+    let [Value::String(created), Value::String(product_id)] = values.as_slice() else {
+        return Err(ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+            .with_query_field("searchAfter")
+            .with_detail("searchAfter must contain an RFC3339 timestamp and product UUID."));
+    };
+    let created = OffsetDateTime::parse(created, &Rfc3339).map_err(|error| {
+        ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+            .with_query_field("searchAfter")
+            .with_detail(error.to_string())
+    })?;
+    let product_id = ProductId::try_from(product_id).map_err(|_| {
+        ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+            .with_query_field("searchAfter")
+            .with_detail("searchAfter must contain a product UUID.")
+    })?;
+    Ok(SearchFilterMatchCursor {
+        created,
+        product_id,
+    })
+}
+
+fn matches_cursor_value(cursor: SearchFilterMatchCursor) -> Result<Value, ApiError> {
+    cursor
+        .created
+        .format(&Rfc3339)
+        .map(|created| json!([created, cursor.product_id]))
+        .map_err(|_| {
+            ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
+                .with_detail("Search-filter match cursor failed internally.")
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_default_match_currency_to_eur_and_parse_requested_currency()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let default_query: ListSearchFilterMatchesQuery = serde_qs::from_str("")?;
+        let requested_query: ListSearchFilterMatchesQuery = serde_qs::from_str("currency=USD")?;
+
+        assert_eq!(CurrencyData::Eur, default_query.currency);
+        assert_eq!(CurrencyData::Usd, requested_query.currency);
+        Ok(())
+    }
+
+    #[test]
+    fn should_parse_tie_safe_match_cursor() -> Result<(), Box<dyn std::error::Error>> {
+        let product_id = ProductId::new();
+        let raw_cursor = serde_json::to_string(&json!(["2026-08-05T12:30:00Z", product_id]))?;
+        let cursor = parse_matches_cursor(&raw_cursor)?;
+
+        assert_eq!(
+            cursor.created,
+            OffsetDateTime::parse("2026-08-05T12:30:00Z", &Rfc3339)?
+        );
+        assert_eq!(cursor.product_id, product_id);
+        assert_eq!(
+            matches_cursor_value(cursor)?,
+            json!(["2026-08-05T12:30:00Z", product_id])
+        );
+        Ok(())
+    }
+}

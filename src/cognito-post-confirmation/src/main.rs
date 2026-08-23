@@ -1,25 +1,20 @@
-use aws_config::BehaviorVersion;
 use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
-use aws_sdk_dynamodb::Client;
 use cognito_post_confirmation::handler;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
-use user::service::user_service::UserServiceImpl;
+use platform_observability::{LogLevel, LoggingConfig, init};
+use platform_postgres::{PostgresPoolConfig, SqlxUnitOfWork};
+use std::{fmt::Display, str::FromStr};
+use user_postgres::SqlxUserRepositoryFactory;
+use user_service::use_cases::CreateUserHandler;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    common::logging::init_logging();
+    init(logging_config_from_env());
 
-    let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
-        .load()
-        .await;
-
-    let table_name = std::env::var("DYNAMODB_TABLE_NAME")
-        .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
-    let client = Client::new(&aws_config);
-    let repository = UserDynamoDbRepositoryImpl::new(&client, &table_name);
-    let service = UserServiceImpl::new(&repository);
+    let pool = postgres_config_from_env()?.connect().await?;
+    let service =
+        CreateUserHandler::new(SqlxUnitOfWork::new(pool), SqlxUserRepositoryFactory::new());
 
     debug!("Lambda initialized.");
 
@@ -29,4 +24,47 @@ async fn main() -> Result<(), Error> {
         },
     ))
     .await
+}
+
+fn logging_config_from_env() -> LoggingConfig {
+    let level = std::env::var("LOG_LEVEL")
+        .ok()
+        .as_deref()
+        .and_then(LogLevel::parse)
+        .unwrap_or_default();
+    LoggingConfig::new(level)
+}
+
+fn postgres_config_from_env() -> Result<PostgresPoolConfig, Error> {
+    let host = required_env("POSTGRES_HOST")?;
+    let database = required_env("POSTGRES_DATABASE")?;
+    let username = required_env("POSTGRES_USERNAME")?;
+    let password = required_env("POSTGRES_PASSWORD")?;
+    let port = optional_env("POSTGRES_PORT", 5432)?;
+    let max_connections = optional_env("POSTGRES_MAX_CONNECTIONS", 2)?;
+
+    PostgresPoolConfig::new(host, port, database, username, password, max_connections)
+        .map_err(|error| config_error(error.to_string()))
+}
+
+fn required_env(name: &str) -> Result<String, Error> {
+    std::env::var(name).map_err(|error| config_error(format!("failed to read {name}: {error}")))
+}
+
+fn optional_env<T>(name: &str, default: T) -> Result<T, Error>
+where
+    T: FromStr,
+    T::Err: Display,
+{
+    match std::env::var(name) {
+        Ok(value) => value
+            .parse()
+            .map_err(|error| config_error(format!("invalid {name} value: {error}"))),
+        Err(std::env::VarError::NotPresent) => Ok(default),
+        Err(error) => Err(config_error(format!("failed to read {name}: {error}"))),
+    }
+}
+
+fn config_error(message: String) -> Error {
+    std::io::Error::other(message).into()
 }

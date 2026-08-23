@@ -6,10 +6,10 @@ use crate::scraper::css_selector::product_schema_repository::{
 };
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::spider::utils::url::CrawledUrl;
-use common::shop_id::ShopId;
 use regex::Regex;
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use shop_core::shop_id::ShopId;
 use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
 use tracing::info;

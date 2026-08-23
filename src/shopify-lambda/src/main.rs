@@ -1,47 +1,81 @@
-use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
-use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
-use fxrate::service::FxRateServiceImpl;
+use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
-use product::service::command_service::CommandProductServiceImpl;
-use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
-use shop::service::get_service::GetShopServiceImpl;
+use platform_observability::{LogLevel, LoggingConfig, init};
+use platform_postgres::{PostgresPoolConfig, SqlxUnitOfWork};
+use product_postgres::{
+    SqlxPartnerProductAuthorizerFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
+};
+use product_service::use_cases::{IngestShopifyProductHandler, UpsertProductHandler};
+use shop_postgres::SqlxShopDetailsReaderFactory;
+use shop_service::use_cases::GetShopHandler;
 use shopify_lambda::handler;
+use std::{fmt::Display, str::FromStr};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    common::logging::init_logging();
+    init(logging_config_from_env());
 
-    let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
-        .load()
-        .await;
-    let table_name = std::env::var("DYNAMODB_TABLE_NAME")
-        .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
+    let pool = postgres_config_from_env()?.connect().await?;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let ingestion = IngestShopifyProductHandler::new(
+        GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
+        UpsertProductHandler::new_with_fx_rates(
+            unit_of_work,
+            SqlxProductRepositoryFactory::new(),
+            SqlxProductEventStoreFactory::new(),
+            SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
+        ),
+    );
 
-    let dynamodb = aws_sdk_dynamodb::Client::new(&aws_config);
-    // Box::leak is used throughout this initialization block to satisfy the
-    // 'static lifetime bounds required by the `service_fn` closure. Lambda
-    // processes run for the entire lifetime of the process, so the memory is
-    // never reclaimed, but that is acceptable here.
-    let shop_repository = Box::leak(Box::new(ShopDynamoDbRepositoryImpl::new(
-        &dynamodb,
-        &table_name,
-    )));
-    let get_shop_service = Box::leak(Box::new(GetShopServiceImpl::new(shop_repository)));
-    let product_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
-
-    let fxrate_repository = FxRateDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
-    let fxrate_service = FxRateServiceImpl::new_read_only(&fxrate_repository);
-    let product_service =
-        CommandProductServiceImpl::new(&product_repository, &fxrate_service, get_shop_service)
-            .await?;
-
-    debug!("Lambda initialized.");
-
+    debug!("Shopify Lambda initialized");
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-        handler(event, get_shop_service, &product_service).await
+        handler(event, &ingestion).await
     }))
     .await
+}
+
+fn logging_config_from_env() -> LoggingConfig {
+    let level = std::env::var("LOG_LEVEL")
+        .ok()
+        .as_deref()
+        .and_then(LogLevel::parse)
+        .unwrap_or_default();
+    LoggingConfig::new(level)
+}
+
+fn postgres_config_from_env() -> Result<PostgresPoolConfig, Error> {
+    let host = required_env("POSTGRES_HOST")?;
+    let database = required_env("POSTGRES_DATABASE")?;
+    let username = required_env("POSTGRES_USERNAME")?;
+    let password = required_env("POSTGRES_PASSWORD")?;
+    let port = optional_env("POSTGRES_PORT", 5432)?;
+    let max_connections = optional_env("POSTGRES_MAX_CONNECTIONS", 2)?;
+
+    PostgresPoolConfig::new(host, port, database, username, password, max_connections)
+        .map_err(|error| config_error(error.to_string()))
+}
+
+fn required_env(name: &str) -> Result<String, Error> {
+    std::env::var(name).map_err(|error| config_error(format!("failed to read {name}: {error}")))
+}
+
+fn optional_env<T>(name: &str, default: T) -> Result<T, Error>
+where
+    T: FromStr,
+    T::Err: Display,
+{
+    match std::env::var(name) {
+        Ok(value) => value
+            .parse()
+            .map_err(|error| config_error(format!("invalid {name} value: {error}"))),
+        Err(std::env::VarError::NotPresent) => Ok(default),
+        Err(error) => Err(config_error(format!("failed to read {name}: {error}"))),
+    }
+}
+
+fn config_error(message: String) -> Error {
+    std::io::Error::other(message).into()
 }

@@ -1,14 +1,11 @@
-use common::shop_id::ShopId;
 use crawler::spider::classification::url_metadata::{UrlClass, UrlState};
 use crawler::spider::classification::url_metadata_repository::{
     UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
+use shop_core::shop_id::ShopId;
 use test_api::*;
 
-const POSTGRES: Postgres = Postgres {
-    migrations_dir: "src/crawler/migrations",
-    setup_script: None,
-};
+const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 use url::Url;
 
 /// Helper: inserts a shop + domain and returns the generated domain_id.

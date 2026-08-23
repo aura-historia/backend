@@ -4,18 +4,25 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true }
-fxrate = { workspace = true }
+aws_lambda_events = { workspace = true, features = ["eventbridge"] }
+application = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
 lambda_runtime = { workspace = true }
-aws-config = { workspace = true }
-aws-sdk-dynamodb = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
-tracing-subscriber = { workspace = true, features = ["json"] }
-tracing = { workspace = true }
+fxrate-fxratesapi = { workspace = true }
+fxrate-postgres = { workspace = true }
+fxrate-service = { workspace = true }
 reqwest = { workspace = true }
 serde_json = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+tracing = { workspace = true }
+
 
 [dev-dependencies]
-test-api = { workspace = true, features = ["dynamodb"] }
+async-trait = { workspace = true }
+money = { workspace = true }
 serial_test = { workspace = true }
-rstest = { workspace = true }
+sqlx = { workspace = true }
+strum = { workspace = true }
+test-api = { workspace = true, features = ["postgres"] }

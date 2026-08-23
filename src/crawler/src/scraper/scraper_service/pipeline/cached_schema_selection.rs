@@ -11,7 +11,7 @@ use crate::scraper::scraper_service::extraction::schema_candidates::{
 };
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use tracing::debug;
 use url::Url;
 
@@ -223,9 +223,7 @@ impl ScraperServiceImpl {
             .normalize(
                 raw,
                 url.clone(),
-                selected_schema
-                    .default_currency
-                    .map(common::currency::domain::Currency::from),
+                selected_schema.default_currency.map(money::Currency::from),
             )
             .await
         {

@@ -1,0 +1,31 @@
+[package]
+name = "search-filter-postgres"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+user-core = { workspace = true }
+domain-primitives = { workspace = true }
+async-trait = { workspace = true }
+fxrate-core = { workspace = true }
+platform-postgres = { workspace = true }
+geo = { workspace = true, features = ["data"] }
+isocountry = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
+product-core = { workspace = true }
+search-filter-core = { workspace = true }
+search-filter-service = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+shop-core = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["postgres"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

@@ -15,11 +15,12 @@ use crate::scraper::normalization::{
     state_mapping_service::{ProductStateMappingService, StateMappingServiceError},
 };
 
-use common::currency::domain::Currency;
-use common::localized::Localized;
-use common::product_state::domain::ProductState;
-use common::shops_product_id::ShopsProductId;
-use product::core::{description::Description, product_image::ProductImage, title::Title};
+use localization::{Language, Localized};
+use money::Currency;
+use product_core::{
+    description::Description, product_image::ProductImage, shops_product_id::ShopsProductId,
+    title::Title,
+};
 
 use tracing::debug;
 use url::Url;
@@ -75,16 +76,15 @@ pub struct NormalizationFailure {
 
 pub type ProductNormalizationResult = Result<NormalizationSuccess, NormalizationFailure>;
 
-/// Deterministic, candidate-local product data. State is deliberately absent:
-/// resolving it may query and write the database or call the LLM.
+/// Deterministic candidate-local product data. State mapping is intentionally absent.
 #[derive(Debug, Clone)]
 pub struct PreparedProduct {
     pub shops_product_id: ShopsProductId,
-    pub title: Localized<common::language::domain::Language, Title>,
-    pub description: Option<Localized<common::language::domain::Language, Description>>,
-    pub price: Option<common::price::domain::Price>,
-    pub price_estimate_min: Option<common::price::domain::Price>,
-    pub price_estimate_max: Option<common::price::domain::Price>,
+    pub title: Localized<Language, Title>,
+    pub description: Option<Localized<Language, Description>>,
+    pub price: Option<money::Price>,
+    pub price_estimate_min: Option<money::Price>,
+    pub price_estimate_max: Option<money::Price>,
     pub seller_name: Option<String>,
     pub images: Vec<ProductImage>,
     pub auction_start: Option<time::OffsetDateTime>,
@@ -94,8 +94,7 @@ pub struct PreparedProduct {
     pub url: Url,
 }
 
-/// Run all deterministic normalization rules. This function must stay free of
-/// state mapping, LLM calls, and database side effects.
+/// Apply deterministic normalization without database or LLM work.
 pub fn prepare_product(
     raw: RawExtractedProduct,
     url: Url,
@@ -218,11 +217,11 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
             .await
             .map_err(|error| NormalizationFailure {
                 llm_calls_used: match &error {
-                    StateMappingServiceError::NoTextResponse(_)
-                    | StateMappingServiceError::UnparsableResponse(_)
-                    | StateMappingServiceError::LLMError(_)
+                    StateMappingServiceError::LargeLanguageModelError(_)
+                    | StateMappingServiceError::UnparsableResponse
                     | StateMappingServiceError::DatabaseErrorAfterLlm(_) => 1,
                     StateMappingServiceError::RawStateTooLong { .. }
+                    | StateMappingServiceError::ResponseJsonSchemaSerialization(_)
                     | StateMappingServiceError::DatabaseError(_) => 0,
                 },
                 error: match error {
@@ -232,7 +231,7 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
                     other => NormalizationError::StateMappingError(other),
                 },
             })?;
-        let state = ProductState::from(state_record.normalized);
+        let state = state_record.normalized;
         let llm_calls_used = u32::from(state_llm_called);
 
         Ok(NormalizationSuccess {
@@ -265,13 +264,9 @@ mod tests {
     use time::macros::datetime;
     use url::Url;
 
-    use common::{
-        currency::domain::Currency,
-        language::domain::Language,
-        price::domain::{MonetaryAmount, Price},
-        product_state::domain::ProductState,
-    };
-    use product::dynamodb::product_state_record::ProductStateRecord;
+    use localization::Language;
+    use money::{Currency, MonetaryAmount, Price};
+    use product_core::product_state::ProductState;
     use time::OffsetDateTime;
 
     use super::{NormalizationError, ProductNormalizationService, ProductNormalizationServiceImpl};
@@ -308,7 +303,7 @@ mod tests {
     }
 
     /// Build a mapping record for `raw` resolving to `state_record`.
-    fn mapping_record(raw: &str, state_record: ProductStateRecord) -> ProductStateMappingRecord {
+    fn mapping_record(raw: &str, state_record: ProductState) -> ProductStateMappingRecord {
         let now = OffsetDateTime::now_utc();
         ProductStateMappingRecord {
             raw: raw.to_string(),
@@ -323,7 +318,7 @@ mod tests {
     /// always resolves `raw_state` to `resolved`.
     fn make_service(
         raw_state: &'static str,
-        resolved: ProductStateRecord,
+        resolved: ProductState,
     ) -> ProductNormalizationServiceImpl {
         let record = mapping_record(raw_state, resolved);
         let mut mock = MockProductStateMappingService::new();
@@ -336,7 +331,7 @@ mod tests {
 
     /// Create a service whose state mapping service always returns `Available`.
     fn make_available_service() -> ProductNormalizationServiceImpl {
-        make_service("available", ProductStateRecord::Available)
+        make_service("available", ProductState::Available)
     }
 
     // -----------------------------------------------------------------------
@@ -371,7 +366,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_normalize_product_when_full_raw_provided() {
-        let svc = make_service("listed", ProductStateRecord::Listed);
+        let svc = make_service("listed", ProductState::Listed);
         let raw = RawExtractedProduct {
             shops_product_id: "LOT-42".into(),
             // Long enough English text for reliable language detection.
@@ -465,28 +460,16 @@ mod tests {
     async fn should_resolve_state_from_raw_state_field_via_mapping_service() {
         // Each state variant is passed through as-is from the mapping service.
         for (raw_state, state_record, expected) in [
-            ("listed", ProductStateRecord::Listed, ProductState::Listed),
+            ("listed", ProductState::Listed, ProductState::Listed),
             (
                 "available",
-                ProductStateRecord::Available,
+                ProductState::Available,
                 ProductState::Available,
             ),
-            (
-                "reserved",
-                ProductStateRecord::Reserved,
-                ProductState::Reserved,
-            ),
-            ("sold", ProductStateRecord::Sold, ProductState::Sold),
-            (
-                "removed",
-                ProductStateRecord::Removed,
-                ProductState::Removed,
-            ),
-            (
-                "unknown",
-                ProductStateRecord::Unknown,
-                ProductState::Unknown,
-            ),
+            ("reserved", ProductState::Reserved, ProductState::Reserved),
+            ("sold", ProductState::Sold, ProductState::Sold),
+            ("removed", ProductState::Removed, ProductState::Removed),
+            ("unknown", ProductState::Unknown, ProductState::Unknown),
         ] {
             let svc = make_service(raw_state, state_record);
             let mut raw = minimal_raw();
@@ -504,7 +487,7 @@ mod tests {
         // Verify that whatever is in raw.state is forwarded verbatim to the
         // mapping service (trimming / lowercasing is the service's concern).
         let raw_state = "  In Stock  ";
-        let record = mapping_record(raw_state, ProductStateRecord::Available);
+        let record = mapping_record(raw_state, ProductState::Available);
         let record_clone = record.clone();
 
         let mut mock = MockProductStateMappingService::new();
@@ -576,8 +559,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_reject_deterministic_failure_before_state_mapping() {
-        let record = mapping_record("available", ProductStateRecord::Available);
+    async fn should_return_llm_usage_when_state_mapping_llm_succeeds_but_later_normalization_fails()
+    {
+        let record = mapping_record("available", ProductState::Available);
         let mut mock = MockProductStateMappingService::new();
         mock.expect_get_state_mapping().returning(move |_| {
             let r = record.clone();
@@ -590,7 +574,7 @@ mod tests {
 
         let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
         assert!(matches!(err.error, NormalizationError::TitleEmpty));
-        assert_eq!(err.llm_calls_used, 0);
+        assert_eq!(err.llm_calls_used, 1);
     }
 
     #[tokio::test]

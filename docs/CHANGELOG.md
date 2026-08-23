@@ -6,6 +6,195 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-08-19 - Product User-State Unseen Notification IDs
+
+### Changed
+
+- **Breaking:** Canonical Product user-state responses now replace `notification.seen` and `notification.originEventId` with required `notification.unseenNotificationIds`: unseen notification UUIDs ordered newest first, or `[]` when none exist.
+
+## 2026-08-11 - Wire Canonical Google Geocoding
+
+### Changed
+
+- Canonical shop and partner-shop application writes now geocode supplied structured addresses through the shared Google Maps adapter. Valid addresses return the documented `geoAddress`; unavailable geocoding returns the existing temporary-service failure.
+
+## Unreleased
+
+### Removed
+
+- **Breaking:** The prior notification REST shape is replaced in `aura-historia-api`. Item paths now use canonical `{notificationId}` rather than `{eventId}`; list responses omit origin-event, actor, external-delivery, and total fields. The former root `PATCH /api/v1/me/notifications` all-notifications behavior is removed.
+
+- Public Product search no longer accepts `sort=price`. `GET /api/v1/products` rejects it with `400 BAD_SORT_VALUE`; use `score`, `updated`, or `created`.
+- Product detail responses no longer emit `ETag` or `Last-Modified`. Anonymous detail display values can change when their current persisted FX snapshot changes, so they use cache freshness directives without entity validators.
+
+### Changed
+
+- **Breaking:** Canonical PATCH endpoints now distinguish omitted members from explicit `null`. Omitted members remain unchanged; `null` clears only documented nullable members and returns `400 BAD_BODY_VALUE` for all other members. Clients must omit members they do not intend to modify, and use empty arrays rather than `null` to clear non-null collections.
+- **Breaking:** Empty HTTP bodies are invalid for object PATCH endpoints; `{}` remains a valid no-op. Partner-product PATCH continues to accept `[]` as an empty batch.
+- **Breaking:** OAuth client PATCH metadata no longer accepts `null`; OAuth metadata is non-nullable and clients must omit unchanged members.
+- Saved-search `enhancedSearchDescription` input now trims outer whitespace and rejects blank values before embedding or persistence. Canonical values remain capped at 1000 bytes.
+- **Breaking:** Watchlist price-change notifications now preserve the event’s immutable source currency in both REST and email output. The notification list no longer accepts a currency preference, and no FX conversion is applied.
+- **Breaking:** Canonical notification list payloads now include their immutable, localized rendering snapshot. Watchlist and saved-search items include Product/shop identifiers, names, optional localized title/image, URLs, and their reason-specific change data; partner-application items include decision, shop name, and optional image. `kind` remains the top-level discriminator. Origin-event and delivery/provider provenance remain hidden. Timestamps now serialize as RFC 3339.
+- Canonical notification routes now use PostgreSQL-backed notification use cases: `GET`, selected-ID `PATCH`, and `DELETE /api/v1/me/notifications`; `PATCH /api/v1/me/notifications/all`; and item `PATCH`/`DELETE /api/v1/me/notifications/{notificationId}`. All mutations return `204`; list responses are `no-store` and paginate with an opaque JSON `[created RFC3339 timestamp, notification UUID]` `searchAfter` cursor, emitted only when another page exists.
+- Watchlist aggregate writes now use hidden PostgreSQL optimistic-concurrency versions. Stale `PATCH` and `DELETE /api/v1/me/watchlist/{productId}` requests return `409 CONFLICT` instead of overwriting or deleting newer user intent; versions are not exposed in REST payloads.
+- Notification Product image classifications remain in the REST snapshot, while unsafe image URLs are omitted unless the authenticated user’s current prohibited-content consent is enabled.
+- Product search and similar-product summaries now expose breaking `displayPrice` and `priceValuation` fields instead of ambiguous `price`. They accept or inherit the requested display currency (similar defaults to `EUR`); active summaries use one persisted pinned snapshot and sold summaries use immutable sale values. Sold Products without a main source price retain `SALE` valuation metadata but have no display price, no `salePrices`, and never match price ranges.
+- Product detail, watchlist, and saved-search match reads now accept optional `currency` (default `EUR`). Their breaking `pricing` response is `{ source, display, valuation }`: source retains seller amounts, display is converted with HalfUp rounding from a persisted FX snapshot, and valuation states `CURRENT` or `SALE` with `fxRateId`, `capturedAt`, and sale `soldAt` when applicable. Removed flat detail `price`, `priceEstimateMin`, `priceEstimateMax`, and `currency` fields. Missing, invalid, or mismatched FX data fails the whole read; no provider fallback occurs.
+- Product `pricing` and immutable Product event pricing snapshots no longer expose `fxRateId`; they contain source `price`, `priceEstimateMin`, and `priceEstimateMax` only. Product sale valuation is now a separate immutable fact captured from the latest persisted FX snapshot when a Product is created or transitions to `SOLD`. A generic Product update cannot reopen a sold Product; `SOLD` to `REMOVED` preserves the sale valuation. Missing or invalid persisted FX data rejects the sale write.
+- FX ownership now lives in the canonical `fxrate-core`, `fxrate-service`, `fxrate-postgres`, and `fxrate-fxratesapi` crate family. Immutable snapshots have a database-assigned generation and complete EUR-base `units_per_eur` quotes, including EUR at the fixed scale. Capture remains idempotent by EventBridge event ID; the public Product API is unchanged in this foundation step.
+- Canonical Product search first pages now pin the latest persisted FX snapshot and compile display price ranges into exact native active-Product intervals. Its breaking `searchAfter` value is now an opaque JSON object containing `fxRateId` and the OpenSearch token; continuation pages use that exact snapshot instead of switching to a newer capture. Sold Products use immutable sale-time target-currency values. Product OpenSearch projections carry no converted top-level prices or estimates. Saved filters retain their requested price range and compile it directly against temporary `priceByCurrency.<currency>` fields; they store no FX ID or generation, and FX capture alone does not rewrite saved filters or alter matches.
+- Saved-filter percolation now values accepted current Product events at their event time: unsold Products use the newest persisted snapshot at or before the immutable Product event timestamp, while sold Products use their immutable sale snapshot. The temporary percolation Product expands its main source price into every supported currency; stored saved-filter documents remain FX-independent. Price-bearing matches persist `EVENT` or `SALE` FX provenance; non-price matches persist no valuation provenance.
+- Canonical billing route implementations are now available in `aura-historia-api` for `POST /api/v1/me/billing/checkout`, `/portal`, and `/manage`. The canonical routes use PostgreSQL User state and Stripe billing use cases. Cognito JWTs and Aura Historia access tokens are supported; delegated access tokens require `users:read`. Checkout customer association is committed before its Stripe session is created, so a later session failure leaves the customer association for safe management retry.
+- `aura-historia-api` now serves `PUT /api/v1/newsletter-subscriptions` through the canonical User bounded context. It accepts anonymous, Cognito JWT, or Aura Historia access-token callers; valid authenticated callers retain user-profile fallback for omitted `firstName`, `lastName`, `language`, and `currency` fields. Invalid supplied bearer credentials return `401 INVALID_CREDENTIALS`; Zoho invalid-email responses return `400 INVALID_EMAIL`; temporary provider failures return `503 NEWSLETTER_TEMPORARILY_UNAVAILABLE`; unexpected provider failures return `500 NEWSLETTER_INTERNAL_ERROR`.
+- Partner application decisions now use the canonical PostgreSQL state machine. `APPROVE` atomically publishes and partners the shop, grants applicant membership, and completes the application. `REJECT` and applicant withdrawal discard the unused draft shop created for a new-shop application.
+- Partner application responses no longer expose Step Functions execution state, and admin review no longer accepts a task token. Decision requests accept only typed `APPROVE` or `REJECT` values; unknown values return `400`.
+- Decision notifications are emitted after commit with the application ID as their idempotent origin key. Newly inserted notifications and their durable PostgreSQL delivery intents commit atomically; Sequin routes delivery inserts to the in-memory worker. The post-ack durability limitation remains tracked by #1558.
+- WooCommerce webhook intake now runs in `aura-historia-api` and persists synchronously through one canonical Product intake use case. Partner membership, Shop integration/signature checks, Product/events writes, and the success acknowledgment share one PostgreSQL transaction; successful requests return `204 No Content` only after that transaction commits.
+
+## 2026-08-12 - Harden Canonical API Transport
+
+### Changed
+
+- Canonical API responses now include server-generated `X-Request-Id` and `X-Correlation-Id` headers. Clients may supply `X-Correlation-Id` only when it is a non-empty, maximum-128-character ASCII identifier using letters, digits, `.`, `_`, or `-`; invalid values are replaced by the request ID.
+- The API now applies CORS, a 1 MiB request-body limit, a 30-second request timeout, and request tracing with credential headers redacted. `X-Request-Id` and `X-Correlation-Id` are exposed to browser clients.
+- `GET /ready` now returns `204 No Content` only when PostgreSQL, DynamoDB, and OpenSearch required by the configured API feature set are reachable; otherwise it returns `503 Service Unavailable`. `GET /health` remains the liveness endpoint.
+
+## 2026-08-12 - Restore Hybrid Product Search
+
+### Changed
+
+- `GET /api/v1/products` now uses native OpenSearch hybrid BM25 plus KNN retrieval for text queries with relevance ordering. Query-embedding failures transparently fall back to BM25; explicit price, creation, and update sorts remain BM25-only.
+
+## 2026-08-11 - Hide Non-Published Shops from Public Reads
+
+### Changed
+
+- Public `GET /api/v1/shops`, `GET /api/v1/shops/{shopId}`, and `GET /api/v1/by-slug/shops/{shopSlugId}` now return only published shops. Drafted, rejected, archived, and deleted records are hidden as absent. Approving a partner-shop application publishes its linked shop atomically with the approval.
+
+## 2026-08-11 - Enforce Cognito Access-Token Authentication
+
+### Changed
+
+- Canonical API runtime now verifies Cognito access JWTs with issuer, app-client, signature, and expiry checks. Cognito ID tokens are rejected; temporary JWKS retrieval failures return the documented `503 AUTH_TEMPORARILY_UNAVAILABLE` response. Aura Historia access tokens remain supported.
+
+## 2026-08-06 - Align Search Filter and Watchlist API Contracts
+
+### Changed
+
+- `GET /api/v1/me/search-filters` and `GET /api/v1/me/search-filters/{userSearchFilterId}/matches` no longer expose client-controlled `sort` or `order`; both use fixed service ordering. The match cursor is supplied as a JSON-encoded `[RFC3339 timestamp, product UUID]` `searchAfter` query string.
+- All migrated saved-search filter routes now document Cognito JWT and Aura access-token authentication. Aura access tokens require `search-filters:write`; missing or invalid credentials return `INVALID_CREDENTIALS`, and insufficient scope returns `FORBIDDEN`.
+- `POST /api/v1/me/watchlist` now documents its shipped `{ productId, notifications? }` request and `WatchlistEntryData` response. It no longer documents `Location`, `language`, or `currency`; Aura access tokens require `watchlist:write`.
+- Free saved-search filters retain legacy support for `excludeProductId` and `lifecycle` alongside `productQuery`, `price`, and `state`.
+
+## 2026-08-06 - Enforce Canonical Watchlist Tier Quotas
+
+### Changed
+
+- Canonical `POST /api/v1/me/watchlist` and inactive-to-active `PATCH /api/v1/me/watchlist/{productId}` now enforce the legacy active-entry quotas: Free 20, Pro 100, Ultimate unlimited.
+- Quota exhaustion returns `422` with `WATCHLIST_QUOTA_EXCEEDED`. `PATCH` again accepts `state` as documented; reactivation is subject to the same tier quota.
+
+## 2026-08-05 - Migrate Saved Search Filters to `aura-historia-api` (`backend#1341`)
+
+### Changed
+
+- `aura-historia-api` now serves saved-search filter CRUD and persisted match-feedback routes through canonical search-filter service use cases and Postgres adapters:
+  - `GET` and `POST /api/v1/me/search-filters`
+  - `GET`, `PATCH`, and `DELETE /api/v1/me/search-filters/{userSearchFilterId}`
+  - `GET /api/v1/me/search-filters/{userSearchFilterId}/matches`
+  - `PATCH /api/v1/me/search-filters/{userSearchFilterId}/matches/{productId}`
+- These routes accept Cognito JWTs or Aura access tokens. Delegated access tokens require `search-filters:write`.
+- Filter and match reads return `Cache-Control: no-store`; creation returns relative `Location` and `Content-Language` headers.
+- Match-list responses are fully hydrated localized `PersonalizedData<ProductDetailsData, ProductUserStateData>` values. They use `searchAfter` as a JSON `[match creation RFC3339 timestamp, product UUID]` cursor and default `language` to `en`; the feedback route uses canonical `productId`. The legacy `/products` preview route is intentionally not migrated to `aura-historia-api`.
+- Saved-search filter create and text-search updates now create normalized 768-dimensional Gemini embeddings through Vertex AI. Provider failures return the existing temporary-service error response rather than persisting a missing embedding.
+
+## 2026-08-05 - Synchronous Partner Product Batches (`backend#1341`)
+
+### Changed
+
+- Partner product `POST`, `PATCH`, and `PUT /api/v1/shops/{shopId}/products` now execute synchronously against canonical Product PostgreSQL storage. Each batch entry has its own transaction and no longer returns `202 Accepted` or forwards to an ingestion queue.
+- These routes return `200 OK` with `[]` when all entries succeed. If one or more entries succeed and others fail, the `200` body lists failed `{ shopId, shopsProductId, error }` entries; `error` is the stable API error key for that item. If every non-empty batch entry fails, the first failure returns as the normal problem response.
+- Product deletion is now batch `DELETE /api/v1/shops/{shopId}/products`, with an array body of `{ shopsProductId }` items. The former item delete route `DELETE /api/v1/shops/{shopId}/products/{shopsProductId}` is removed.
+- Partner product writes retain admin-or-linked-partner authorization; Aura Historia access tokens require `products:write`. Batches allow at most 100 entries.
+
+
+## 2026-08-04 - Personalize Canonical Watchlist Products
+
+### Changed
+
+- `GET /api/v1/me/watchlist` now returns the authenticated user's full canonical Product data with `userState`, not bare watchlist rows. It accepts optional `language` (default `en`) plus `size` and stable JSON-array `searchAfter` infinite-scroll pagination; it preserves watchlist creation order.
+- The read uses one joined PostgreSQL query for product, localization, and relational user state, then one DynamoDB read for all user notifications. The newest notification per product supplies `userState.notification`; DynamoDB failure returns `503` rather than a partial response.
+
+## 2026-08-04 - Document Deferred Product Currency Conversion (`backend#1466`)
+
+### Changed
+
+- Canonical Product detail, history, and similarity routes use either `productId` or the shop/product slug pair.
+- Product prices and event-price snapshots remain stored source amounts and currencies. This historical entry predates the current detail, watchlist, and saved-match display-pricing contract documented under Unreleased.
+- Similar-product KNN retrieval returns ready matches when an embedding exists; only a missing embedding returns `202 Accepted` with a polling location.
+- Canonical Product detail and similar reads accept optional `language` (default `en`). Detail resolves current title/description from `product_translations`; similar reads resolve projected titles; immutable history stays in its recorded language.
+
+## 2026-07-31 - Migrate REST APIs to `aura-historia-api` (`backend#1341`)
+
+### Changed
+
+- **REST API migration epic** now has `aura-historia-api` route implementations backed by canonical service use cases and Postgres/DynamoDB adapters for:
+  - Product routes:
+    - `GET /api/v1/products/{productId}`
+    - `GET /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}`
+    - `GET /api/v1/products/{productId}/history`
+    - `GET /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}/history`
+    - `GET /api/v1/products/{productId}/similar`
+    - `GET /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}/similar`
+    - `GET /api/v1/products`
+    - `POST /api/v1/products/search`
+  - Shop routes:
+    - `GET /api/v1/shops/{shopId}`
+    - `GET /api/v1/by-slug/shops/{shopSlugId}`
+    - `GET /api/v1/shops`
+    - `POST /api/v1/shops`
+    - `PATCH /api/v1/shops/{shopId}`
+    - `GET /api/v1/me/partner-shops`
+  - User routes:
+    - `GET /api/v1/me/account`
+    - `PATCH /api/v1/me/account`
+    - `DELETE /api/v1/me`
+    - `GET /api/v1/users`
+    - `GET /api/v1/users/{userId}`
+    - `PATCH /api/v1/users/{userId}`
+    - `DELETE /api/v1/users/{userId}`
+    - `POST /api/v1/me/access-tokens`
+    - `GET /api/v1/me/access-tokens`
+    - `GET /api/v1/me/access-tokens/{accessTokenId}`
+    - `PATCH /api/v1/me/access-tokens`
+    - `DELETE /api/v1/me/access-tokens/{accessTokenId}`
+  - Watchlist routes:
+    - `GET /api/v1/me/watchlist`
+    - `POST /api/v1/me/watchlist`
+    - `PATCH /api/v1/me/watchlist/{productId}`
+    - `DELETE /api/v1/me/watchlist/{productId}`
+  - Partner shop application routes:
+    - `GET /api/v1/me/partner-applications`
+    - `POST /api/v1/me/partner-applications`
+    - `GET /api/v1/me/partner-applications/{partnerApplicationId}`
+    - `PATCH /api/v1/me/partner-applications/{partnerApplicationId}`
+    - `DELETE /api/v1/me/partner-applications/{partnerApplicationId}`
+    - `GET /api/v1/partner-applications`
+    - `GET /api/v1/partner-applications/{partnerApplicationId}`
+    - `PATCH /api/v1/partner-applications/{partnerApplicationId}`
+    - `POST /api/v1/partner-applications/{partnerApplicationId}/decision`
+- Optional Aura Historia access tokens are accepted on public read routes; invalid supplied bearer tokens return `401`.
+- Admin partner-application routes now accept Cognito JWTs and Aura Historia access tokens. User callers must have stored `ADMIN` role; Aura access tokens also need `partner-shop-applications:write`.
+- Admin user PATCH now accepts one logical change category per request: profile/preferences fields, `role`, or `tier`. It no longer documents `stripeCustomerId` in that payload.
+- `/api/v1/me/account` now uses own-user DTOs for writes while still returning read-only `role`, `tier`, and `stripeCustomerId`; admin user routes use separate admin DTOs.
+- Watchlist list reads with Aura Historia access tokens now require `watchlist:read`; watchlist writes still require `watchlist:write`.
+- Partner-application payload responses now use camelCase `shopId`, matching `swagger.yaml`.
+- `DELETE /api/v1/me/partner-applications/{partnerApplicationId}` now withdraws the application instead of physically deleting it.
+- `GetShopData` no longer includes `createdBy` or `updatedBy` because canonical shop storage has no audit actor columns.
+- Canonical product detail and search responses omit `createdBy` and `updatedBy`. Product user-state personalization remains on legacy routes.
+- Product history by ID or slug uses canonical Product service/Postgres reads. It returns ordered immutable event snapshots with source `price`, estimate bounds, and `fxRateId`; it has no currency-conversion parameter.
+- Canonical Product pricing fields are `price`, `priceEstimateMin`, and `priceEstimateMax`; the old public `native*` names are removed. Similar-product discovery returns KNN matches when an embedding is ready and `202 Accepted` only while it is pending.
+- Migrated API errors use `application/problem+json` and stable `ApiErrorCode` constants.
+
 ## 2026-07-15 - Add User Measurement Unit Preference
 
 ### Added
@@ -862,7 +1051,7 @@ Backend PR `#1014` splits the old saved-search-filter product endpoints into two
   | Parameter | Type | Required | Description |
   |---|---|---|---|
   | `userSearchFilterId` | `string (uuid)` | Yes | Saved search-filter identifier whose stored search criteria are executed live. |
-  | `currency` | `CurrencyData` | No | Currency used for price normalization in the returned product summaries. |
+  | `currency` | `CurrencyData` | No | Currency used to select indexed product prices; no request-time conversion occurs. |
   | `language` | `LanguageData` | No | Preferred language for localized summary fields. Defaults to `en` when omitted. |
   | `size` | `integer` | No | Maximum number of results to return. Values above `10` are capped to `10`; default is `10`. |
   | `searchAfter` | `array` | No | Must not be provided. Any non-null value is rejected with `BAD_QUERY_PARAMETER_VALUE` because this live-preview endpoint does not allow client-driven pagination. |

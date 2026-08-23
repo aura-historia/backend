@@ -1,4 +1,3 @@
-use common::shop_id::ShopId;
 use crawler::scraper::css_selector::removed_page_schema::{
     RemovedPageSchema, ShopsRemovedPageSchema,
 };
@@ -6,15 +5,13 @@ use crawler::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository, RemovedPageSchemaRepositoryImpl,
 };
 use crawler::scraper::css_selector::rule::CssSelector;
+use shop_core::shop_id::ShopId;
 use sqlx::PgPool;
 use test_api::*;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-const POSTGRES: Postgres = Postgres {
-    migrations_dir: "src/crawler/migrations",
-    setup_script: None,
-};
+const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
 fn removed_schema(selector: &str, text: &str) -> RemovedPageSchema {
     RemovedPageSchema {

@@ -5,17 +5,27 @@ on:
     branches: [prod, develop]
     paths:
       - ".github/workflows/integrate.yml"
+      - ".github/workflows/deploy.yml"
+      - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "depgraph-rules.toml"
+      - "sonar-project.properties"
       - "src/**"
+      - "migrations/**"
       - "infra/**"
       - "mjml/**"
   pull_request:
     paths:
       - ".github/workflows/integrate.yml"
+      - ".github/workflows/deploy.yml"
+      - "rust-toolchain.toml"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "depgraph-rules.toml"
+      - "sonar-project.properties"
       - "src/**"
+      - "migrations/**"
       - "infra/**"
       - "opensearch/**"
       - "mjml/**"
@@ -63,35 +73,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          fetch-depth: 0
+
+      - name: Compute common baseline comparison ref
+        id: common-baseline-base
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          elif [[ -n "${{ github.event.before }}" \
+               && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            echo "sha=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=HEAD^" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Toolchain
+        run: rustup show
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Format check
         run: cargo fmt --all -- --check
 
+      - name: Install dependency graph checker
+        run: cargo install cargo-depgraph-check --version 0.1.0 --locked
+
+      - name: Check dependency graph rules
+        run: cargo depgraph-check check
+
       - name: Clippy lint
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::result-large-err
-
-  unit-test:
-    name: Unit-Test Workspace
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Test Workspace
-        run: cargo test --locked --workspace --lib --all-features -- --nocapture
 
   determine-affected-crates:
     name: Determine Affected Crates
@@ -100,14 +114,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       integration_test_crates: ${{ steps.determine.outputs.integration_test_crates }}
-      acceptance_test_crates: ${{ steps.determine.outputs.acceptance_test_crates }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Toolchain
+        run: rustup show
 
       - uses: Swatinem/rust-cache@v2
 
@@ -127,11 +140,12 @@ jobs:
         id: determine
         run: |
           result=$(./target/release/ci-determinator "${{ steps.base-ref.outputs.sha }}")
-          echo "integration_test_crates=$(echo "$result" | jq -c '.integration_test')" >> "$GITHUB_OUTPUT"
-          echo "acceptance_test_crates=$(echo "$result" | jq -c '.acceptance_test')" >> "$GITHUB_OUTPUT"
+          integration_test_crates=$(jq -c '.integration_test' <<< "$result")
 
-  integration-test:
-    name: Integration-Test ${{ matrix.crate }}
+          printf 'integration_test_crates=%s\n' "$integration_test_crates" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Test ${{ matrix.crate }}
     needs: [determine-affected-crates]
     if: needs.determine-affected-crates.outputs.integration_test_crates != '[]'
     permissions:
@@ -143,66 +157,95 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Toolchain
+        run: rustup show
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Create coverage output directory
+        run: |
+          mkdir -p "${{ github.workspace }}/coverage-profraw"
+          test -d "${{ github.workspace }}/coverage-profraw"
+          test -w "${{ github.workspace }}/coverage-profraw"
 
       - name: Test ${{ matrix.crate }}
         working-directory: ${{ matrix.crate }}
-        run: cargo test --locked --test '*' --all-features -- --nocapture
+        env:
+          CARGO_PROFILE_TEST_DEBUG: 1
+          RUSTFLAGS: "-C instrument-coverage"
+          LLVM_PROFILE_FILE: "${{ github.workspace }}/coverage-profraw/${{ strategy.job-index }}-%p-%m.profraw"
+        run: cargo test --locked --all-features -- --nocapture
+
+      - name: Add Cargo bin to PATH
+        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install grcov
+        run: cargo install grcov
+
+      - name: Generate coverage for ${{ matrix.crate }}
+        run: |
+          set -euo pipefail
+          if profile_path="$(find coverage-profraw -type f -name "*.profraw" -print -quit)"; then
+            if [ -z "$profile_path" ]; then
+              echo "No LLVM coverage profiles were written." >&2
+              exit 1
+            fi
+          else
+            status=$?
+            echo "Failed to search for LLVM coverage profiles (find exited with $status)." >&2
+            exit "$status"
+          fi
+          mkdir -p coverage-lcov
+          grcov coverage-profraw --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o "coverage-lcov/${{ strategy.job-index }}.lcov"
+          test -s "coverage-lcov/${{ strategy.job-index }}.lcov"
+
+      - name: Upload coverage for ${{ matrix.crate }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ strategy.job-index }}
+          path: coverage-lcov/${{ strategy.job-index }}.lcov
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Prune Docker volumes
         run: docker volume prune -f
 
-  acceptance-test:
-    name: Acceptance-Test
-    needs: [determine-affected-crates]
-    if: needs.determine-affected-crates.outputs.acceptance_test_crates != '[]'
+  sonar:
+    name: SonarQube-Cloud Analysis
+    needs: [test]
     permissions:
       contents: read
-    runs-on: self-hosted
+      pull-requests: read
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
         with:
-          node-version: "26"
+          fetch-depth: 0
 
-      - name: Cache cargo-lambda and Zig
-        uses: actions/cache@v6
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v4
         with:
-          path: |
-            ~/.cargo/bin/cargo-lambda
-            ~/.cache/zig
-          key: ${{ runner.os }}-cargo-lambda-zig-${{ hashFiles('**/Cargo.lock') }}
+          pattern: coverage-*
+          path: coverage-artifacts
+          merge-multiple: true
 
-      - name: Install Zig
+      - name: Merge coverage reports
         run: |
-          if ! command -v zig >/dev/null 2>&1; then
-            npm install -g @ziglang/cli
+          find coverage-artifacts -name "*.lcov" -type f | sort > coverage-files.txt
+          if ! [ -s coverage-files.txt ]; then
+            echo "No coverage reports were downloaded."
+            exit 1
           fi
+          xargs cat < coverage-files.txt > coverage.lcov
+          test -s coverage.lcov
 
-      - name: Install cargo-lambda
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Clean coverage artifacts
+        if: always()
         run: |
-          if ! command -v cargo-lambda >/dev/null 2>&1; then
-            cargo install cargo-lambda
-          fi
-
-      - name: Install CDK dependencies
-        run: npm --prefix infra ci
-
-      - name: Type-check CDK app
-        run: npm --prefix infra run build
-
-      - name: Test acceptance-tests
-        run: cargo test --locked --package acceptance-tests -- --nocapture
-
-      - name: Prune Docker volumes
-        run: docker volume prune -f
+          rm -rf coverage-artifacts coverage-files.txt coverage.lcov

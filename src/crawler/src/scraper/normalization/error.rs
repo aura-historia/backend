@@ -82,10 +82,12 @@ impl NormalizationError {
     pub(crate) const fn failure_reason(&self) -> &'static str {
         match self {
             Self::StateMappingError(error) => match error {
-                StateMappingServiceError::NoTextResponse(_) => "state_no_text_response",
-                StateMappingServiceError::UnparsableResponse(_) => "state_unparsable_response",
+                StateMappingServiceError::LargeLanguageModelError(_) => "state_llm_error",
+                StateMappingServiceError::UnparsableResponse => "state_unparsable_response",
+                StateMappingServiceError::ResponseJsonSchemaSerialization(_) => {
+                    "state_response_schema_serialization"
+                }
                 StateMappingServiceError::RawStateTooLong { .. } => "state_text_too_long",
-                StateMappingServiceError::LLMError(_) => "state_llm_error",
                 StateMappingServiceError::DatabaseError(_) => "state_database_error",
                 StateMappingServiceError::DatabaseErrorAfterLlm(_) => {
                     "state_database_error_after_llm"
@@ -112,17 +114,15 @@ impl NormalizationError {
     pub(crate) const fn failure_scope(&self) -> NormalizationFailureScope {
         match self {
             Self::StateMappingError(error) => match error {
-                StateMappingServiceError::NoTextResponse(_)
-                | StateMappingServiceError::UnparsableResponse(_) => {
+                StateMappingServiceError::LargeLanguageModelError(_)
+                | StateMappingServiceError::UnparsableResponse
+                | StateMappingServiceError::ResponseJsonSchemaSerialization(_)
+                | StateMappingServiceError::DatabaseError(_)
+                | StateMappingServiceError::DatabaseErrorAfterLlm(_) => {
                     NormalizationFailureScope::External
                 }
                 StateMappingServiceError::RawStateTooLong { .. } => {
                     NormalizationFailureScope::CandidateData
-                }
-                StateMappingServiceError::LLMError(_)
-                | StateMappingServiceError::DatabaseError(_)
-                | StateMappingServiceError::DatabaseErrorAfterLlm(_) => {
-                    NormalizationFailureScope::External
                 }
             },
             Self::ShopsProductIdEmpty

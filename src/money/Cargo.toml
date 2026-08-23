@@ -1,0 +1,17 @@
+[package]
+name = "money"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+strum = { workspace = true }
+strum_macros = { workspace = true }
+thiserror = { workspace = true }
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[features]
+default = []
+test-data = ["dep:fake"]

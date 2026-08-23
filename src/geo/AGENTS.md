@@ -7,8 +7,11 @@
 ## Core Design
 
 - Geo domain, data, and persistence across DynamoDB and OpenSearch.
-- Root modules: `core`, `dynamodb`, `opensearch`, `data`, `service`.
-- Library crate. Keep domain, persistence, and service seams explicit.
+- `core::distance` owns pure distance query values; `opensearch` owns OpenSearch distance formatting.
+- `Geocoder` is shared product-neutral geocoding port. `GoogleGeocoder` owns Google HTTP and private DTOs.
+- Composition root gives `GoogleGeocoderConfig`; crate reads no environment.
+- Legacy modules stay: `core`, `dynamodb`, `opensearch`, `data`, `service`.
+- Library crate. Keep domain, adapter, and legacy seams explicit.
 
 ## Ownership
 

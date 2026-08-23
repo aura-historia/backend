@@ -1,6 +1,4 @@
 use async_trait::async_trait;
-use common::currency::domain::Currency;
-use common::product_state::domain::ProductState;
 use crawler::scraper::css_selector::product_schema::{
     ProductCssSelectorSchema, RawExtractedProduct,
 };
@@ -12,7 +10,8 @@ use crawler::scraper::normalization::state_mapping_service::{
     ProductStateMappingService, StateMappingServiceError,
 };
 use crawler::scraper::scraper_service::rank_applicable_schema_indices;
-use product::dynamodb::product_state_record::ProductStateRecord;
+use money::Currency;
+use product_core::product_state::ProductState;
 use scraper::Html;
 use time::OffsetDateTime;
 use url::Url;
@@ -68,17 +67,13 @@ pub fn assert_extraction(
 ) {
     let html = Html::parse_document(html_src);
     let ranked_indices = rank_applicable_schema_indices(schemas, html_src);
-    assert_eq!(
-        ranked_indices.first().copied(),
-        Some(schema_index),
-        "production schema ranking"
-    );
-    let results: Vec<_> = schemas.iter().map(|schema| schema.apply(&html)).collect();
-    let result: RawExtractedProduct = results
-        .into_iter()
-        .nth(schema_index)
-        .unwrap_or_else(|| panic!("expected schema index {schema_index} to apply successfully"))
-        .unwrap_or_else(|e| panic!("schema {schema_index} apply failed: {e}"));
+    assert_eq!(ranked_indices.first().copied(), Some(schema_index));
+    let schema = schemas
+        .get(schema_index)
+        .unwrap_or_else(|| panic!("schema index {schema_index} out of range"));
+    let result: RawExtractedProduct = schema
+        .apply(&html)
+        .unwrap_or_else(|e| panic!("schema apply failed: {e}"));
 
     assert_eq!(
         result.shops_product_id, expected.shops_product_id,
@@ -120,7 +115,7 @@ pub async fn assert_normalized(
     schema: &ProductCssSelectorSchema,
     html_src: &str,
     raw_state: &str,
-    state_record: ProductStateRecord,
+    state_record: ProductState,
     url: &str,
     expected: &NormalizedExpectation,
 ) {

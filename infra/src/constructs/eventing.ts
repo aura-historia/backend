@@ -3,7 +3,10 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import * as pipes from "aws-cdk-lib/aws-pipes";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
@@ -51,6 +54,7 @@ export class Eventing extends Construct {
     createSqsEventSources(props.functions, props.queues);
 
     if (!props.config.isEphemeral && props.functions.fxRateSync) {
+      createInitialFxRateSnapshot(this, props.functions.fxRateSync, stageName);
       new events.Rule(this, "FxRateSyncStartSchedule", {
         schedule: events.Schedule.expression("cron(0 6,18 * * ? *)"),
         targets: [
@@ -62,6 +66,33 @@ export class Eventing extends Construct {
       });
     }
   }
+}
+
+function createInitialFxRateSnapshot(
+  scope: Construct,
+  fxRateSync: lambda.IFunction,
+  stageName: string,
+): void {
+  const provider = new lambda.Function(scope, "InitialFxRateSnapshotProvider", {
+    functionName: `fxrate-initial-snapshot-provider-${stageName}`,
+    runtime: lambda.Runtime.NODEJS_20_X,
+    handler: "index.handler",
+    timeout: cdk.Duration.seconds(30),
+    code: lambda.Code.fromInline(resourceCode("fx-rate-initial-snapshot-custom-resource.js")),
+  });
+  fxRateSync.grantInvoke(provider);
+
+  new cdk.CustomResource(scope, "InitialFxRateSnapshot", {
+    serviceToken: provider.functionArn,
+    properties: {
+      FunctionName: fxRateSync.functionName,
+      SourceEventId: `deployment:fxrate:initial:${stageName}:v1`,
+    },
+  });
+}
+
+function resourceCode(fileName: string): string {
+  return fs.readFileSync(path.join(__dirname, "..", "resources", fileName), "utf8");
 }
 
 function createDynamoDbStreamPipe(
@@ -106,137 +137,8 @@ function createDynamoDbRules(
   eventBus: events.EventBus,
   queues: QueueCatalog,
 ): void {
-  addDynamoDbRule(scope, eventBus, "DynamoDbNotificationSendEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          external: { BOOL: [true] },
-          sk: { S: [{ prefix: "user#notification#origin_event_id#" }] },
-        },
-      },
-    },
-    targets: ["notificationSend"],
-    queues,
-  });
 
-  addDynamoDbRule(scope, eventBus, "DynamoDbProductEventRecordPercolateSearchFilterEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          event_type: { S: [{ prefix: "DOMAIN_" }, { prefix: "ENRICHMENT_" }] },
-        },
-      },
-    },
-    targets: ["searchFilterPercolateProduct"],
-    queues,
-  });
 
-  addDynamoDbRule(scope, eventBus, "DynamoDbProductEventRecordUpdatedNotifyUserEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          event_type: { S: [{ prefix: "DOMAIN_PRICE_" }, { prefix: "DOMAIN_STATE_" }] },
-        },
-      },
-    },
-    targets: ["productUpdateNotifyUser"],
-    queues,
-  });
-
-  addDynamoDbRule(scope, eventBus, "DynamoDbProductMaterializeOpenSearchEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          event_type: { S: [{ prefix: "DOMAIN_" }, { prefix: "ENRICHMENT_" }, { prefix: "POLICY_" }, { prefix: "LIFECYCLE_" }] },
-        },
-      },
-    },
-    targets: ["productMaterializeOpenSearch"],
-    queues,
-  });
-
-  addDynamoDbRule(scope, eventBus, "DynamoDbProductDeleteProductEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          event_type: { S: ["LIFECYCLE_DELETED"] },
-        },
-      },
-    },
-    targets: ["productDeleteProduct"],
-    queues,
-  });
-
-  addDynamoDbRule(scope, eventBus, "DynamoDbPutShopRecordEventRule", table, {
-    detail: {
-      eventName: ["INSERT", "MODIFY"],
-      dynamodb: {
-        NewImage: {
-          sk: { S: ["shop#details"] },
-        },
-      },
-    },
-    targets: ["shopOpenSearchIndex"],
-    queues,
-  });
-
-  addDynamoDbRule(scope, eventBus, "DynamoDbSearchFilterSyncEventRule", table, {
-    detail: {
-      eventName: ["INSERT", "MODIFY", "REMOVE"],
-      dynamodb: {
-        $or: [
-          { NewImage: { sk: { S: [{ prefix: "search_filter#" }] } } },
-          { Keys: { sk: { S: [{ prefix: "search_filter#" }] } } },
-        ],
-      },
-    },
-    targets: ["searchFilterOpenSearchSync"],
-    queues,
-  });
-
-  addDynamoDbRule(scope, eventBus, "DynamoDbUserIndexEventRule", table, {
-    detail: {
-      eventName: ["INSERT", "MODIFY"],
-      dynamodb: {
-        NewImage: {
-          sk: { S: ["user#details"] },
-        },
-      },
-    },
-    targets: ["userOpenSearchIndex", "userTierUpdate"],
-    queues,
-  });
-
-  addDynamoDbRule(scope, eventBus, "ProductPipelineEmbedTextDynamoDbProductEventRecordCreatedEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          event_type: { S: ["DOMAIN_CREATED"] },
-        },
-      },
-    },
-    targets: ["productPipelineEmbedText"],
-    queues,
-  });
-
-  addDynamoDbRule(scope, eventBus, "ProductPipelineTranslateDynamoDbProductEventRecordCreatedEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          event_type: { S: ["ENRICHMENT_EMBEDDED"] },
-        },
-      },
-    },
-    targets: ["productPipelineTranslate"],
-    queues,
-  });
 }
 
 function addDynamoDbRule(
@@ -340,18 +242,9 @@ function createCloudWatchLogRetentionRule(scope: Construct, functions: LambdaFun
 }
 
 function createSqsEventSources(functions: LambdaFunctions, queues: QueueCatalog): void {
-  addSqsEventSource(functions.productPartnerIngest, queues.productPartnerIngest.queue, 10, true, 1);
-  addSqsEventSource(functions.searchFilterOpenSearchSync, queues.searchFilterOpenSearchSync.queue, 1, false);
-  addSqsEventSource(functions.shopOpenSearchIndex, queues.shopOpenSearchIndex.queue, 1, false);
-  addSqsEventSource(functions.userOpenSearchIndex, queues.userOpenSearchIndex.queue, 1, false);
-  addSqsEventSource(functions.userTierUpdate, queues.userTierUpdate.queue, 1, false);
-  addSqsEventSource(functions.notificationSend, queues.notificationSend.queue, 25, true, 1);
-  addSqsEventSource(functions.productMaterializeOpenSearch, queues.productMaterializeOpenSearch.queue, 2500, true, 1);
-  addSqsEventSource(functions.productDeleteProduct, queues.productDeleteProduct.queue, 100, true, 1);
-  addSqsEventSource(functions.productPipelineEmbedText, queues.productPipelineEmbedText.queue, 10, true, 1);
-  addSqsEventSource(functions.productPipelineTranslate, queues.productPipelineTranslate.queue, 10, true, 1);
-  addSqsEventSource(functions.productUpdateNotifyUser, queues.productUpdateNotifyUser.queue, 10, true, 1);
-  addSqsEventSource(functions.searchFilterPercolateProduct, queues.searchFilterPercolateProduct.queue, 10, true, 1);
+
+
+
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
 }
 
@@ -399,15 +292,7 @@ const DYNAMODB_STREAM_FILTER_PATTERNS = [
       },
     },
   }),
-  JSON.stringify({
-    eventName: ["INSERT"],
-    dynamodb: {
-      NewImage: {
-        pk: { S: [{ prefix: "user#" }] },
-        sk: { S: [{ prefix: "user#notification#origin_event_id#" }] },
-      },
-    },
-  }),
+
   JSON.stringify({
     eventName: ["INSERT", "MODIFY", "REMOVE"],
     dynamodb: {

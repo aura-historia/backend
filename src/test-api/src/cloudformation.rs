@@ -35,33 +35,9 @@ const STAGE: &str = "ephemeral";
 const LAMBDA_BINARIES: &[&str] = &[
     "cognito-post-confirmation",
     "cloudwatch-log-retention-lambda",
-    "product-api",
-    "product-api-partner",
-    "product-watchlist-api",
-    "notification-api",
-    "user-api",
-    "oauth-api",
-    "newsletter-api",
-    "partner-shop-application-api",
-    "partner-shop-application-lambda",
-    "shop-api",
-    "webhook-api",
-    "search-filter-api",
-    "notification-send",
-    "product-lambda-materialize-opensearch",
-    "product-lambda-ingest-partner-products",
-    "product-lambda-delete-product",
-    "product-pipeline-embed-text",
-    "product-pipeline-translate",
-    "shop-lambda-opensearch-index",
     "shopify-lambda",
-    "user-lambda-index-opensearch",
-    "user-lambda-tier-update",
-    "search-filter-lambda-opensearch-sync",
-    "product-lambda-update-notify-user",
-    "search-filter-lambda-percolate-product",
     "stripe-lambda",
-    "stripe-api",
+    "fxrate-lambda",
 ];
 
 /// Guards the one-time CloudFormation stack setup.
@@ -168,30 +144,7 @@ impl IntegrationTestService for Cloudformation {
         clear_all_indices().await;
 
         // ── SQS ──────────────────────────────────────────────────────────────
-        drain_queues(vec![
-            cfn.notification_send_queue_url.clone(),
-            cfn.notification_send_dead_letter_queue_url.clone(),
-            cfn.product_materialize_opensearch_queue_url.clone(),
-            cfn.product_materialize_opensearch_dead_letter_queue_url
-                .clone(),
-            cfn.product_delete_product_queue_url.clone(),
-            cfn.product_delete_product_dead_letter_queue_url.clone(),
-            cfn.product_partner_ingest_queue_url.clone(),
-            cfn.product_partner_ingest_dead_letter_queue_url.clone(),
-            cfn.shop_opensearch_index_queue_url.clone(),
-            cfn.shop_opensearch_index_dead_letter_queue_url.clone(),
-            cfn.search_filter_open_search_sync_queue_url.clone(),
-            cfn.search_filter_open_search_sync_dead_letter_queue_url
-                .clone(),
-            cfn.product_update_notify_user_queue_url.clone(),
-            cfn.product_update_notify_user_dead_letter_queue_url.clone(),
-            cfn.product_pipeline_translate_queue_url.clone(),
-            cfn.product_pipeline_translate_dead_letter_queue_url.clone(),
-            cfn.product_pipeline_embed_text_queue_url.clone(),
-            cfn.product_pipeline_embed_text_dead_letter_queue_url
-                .clone(),
-        ])
-        .await;
+        drain_queues(vec![]).await;
         debug!("Drained all SQS queues for test isolation");
 
         // ── Cognito ───────────────────────────────────────────────────────────
@@ -229,8 +182,6 @@ fn build_lambdas() {
             "--locked",
             "--exclude",
             "crawler",
-            "--exclude",
-            "acceptance-tests",
             "--exclude",
             "aws-tests",
             "--exclude",

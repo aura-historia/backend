@@ -6,8 +6,9 @@
 
 ## Core Design
 
-- Event worker that maps Stripe events into user tier updates.
-- Main neighbors: `common`, `user`.
+- Event worker that maps Stripe subscription events into canonical User service commands.
+- Main neighbors: `application`, `platform-observability`, `platform-postgres`, `user-core`, `user-service`, `user-postgres`.
+- Lambda connects to Postgres directly; it does not use DynamoDB user services.
 - Event/runtime edge crate. Keep init and handler glue here, behavior deeper when reusable.
 
 ## Ownership

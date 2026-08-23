@@ -6,6 +6,7 @@ fn invalid_schema() -> ProductCssSelectorSchema {
     schema
 }
 
+#[allow(clippy::result_large_err)]
 async fn scrape_with_schema_service(
     schema_svc: MockProductSchemaService,
     budget_increments: usize,

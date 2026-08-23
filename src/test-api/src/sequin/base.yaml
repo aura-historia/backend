@@ -1,0 +1,30 @@
+account:
+  name: "aura-historia-test"
+
+users:
+  - email: "admin@example.com"
+    password: "sequinpassword!"
+
+api_tokens:
+  - name: "test"
+    token: "test-token"
+
+databases:
+  - name: "aura-historia-business-__SUFFIX__"
+    username: "postgres"
+    password: "postgres"
+    hostname: "host.docker.internal"
+    port: __POSTGRES_PORT__
+    database: "postgres"
+    pool_size: 3
+    slot:
+      name: "aura_historia_test_slot___SUFFIX__"
+      create_if_not_exists: true
+    publication:
+      name: "aura_historia_test_pub___SUFFIX__"
+      create_if_not_exists: true
+      init_sql: |-
+        create publication aura_historia_test_pub___SUFFIX__ for table __PUBLICATION_TABLES__ with (publish_via_partition_root = true)
+    await_database:
+      timeout_ms: 30000
+      interval_ms: 1000

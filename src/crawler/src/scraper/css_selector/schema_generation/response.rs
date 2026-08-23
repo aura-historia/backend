@@ -93,42 +93,61 @@ enum SinglePageKind {
     NotProduct,
 }
 
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub(super) enum ProductSchemaResponseValidationError {
+    #[error("initial response classified page as non-product")]
+    InitialPageClassification,
+    #[error("initial response included removed-page schema")]
+    InitialRemovedSchema,
+    #[error("initial response included classification reason")]
+    InitialReason,
+    #[error("initial response contained no product schemas")]
+    InitialEmptySchemas,
+    #[error("single product response must contain exactly one schema")]
+    SingleProductSchemaCount,
+    #[error("removed response contained product schemas")]
+    RemovedContainsProductSchemas,
+    #[error("removed response omitted removed-page evidence")]
+    RemovedMissingSchema,
+    #[error("not-product response contained product schemas")]
+    NotProductContainsProductSchemas,
+    #[error("removed-page schema was invalid")]
+    InvalidRemovedSchema,
+}
+
+impl ProductSchemaResponseValidationError {
+    pub(super) const fn feedback_code(&self) -> &'static str {
+        match self {
+            Self::InitialPageClassification => "initial_page_classification",
+            Self::InitialRemovedSchema => "initial_removed_schema",
+            Self::InitialReason => "initial_reason_present",
+            Self::InitialEmptySchemas => "initial_empty_schemas",
+            Self::SingleProductSchemaCount => "single_product_schema_count",
+            Self::RemovedContainsProductSchemas => "removed_contains_product_schemas",
+            Self::RemovedMissingSchema => "removed_missing_schema",
+            Self::NotProductContainsProductSchemas => "not_product_contains_product_schemas",
+            Self::InvalidRemovedSchema => "invalid_removed_schema",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-struct ProductSchemaGenerationResponse {
+pub(super) struct ProductSchemaGenerationResponse {
     #[serde(default)]
-    pub page_kind: Option<SinglePageKind>,
+    page_kind: Option<SinglePageKind>,
     #[serde(default)]
-    pub schemas: Vec<ProductCssSelectorSchema>,
+    schemas: Vec<ProductCssSelectorSchema>,
     #[serde(default)]
-    pub removed_schema: Option<RemovedPageSchema>,
+    removed_schema: Option<RemovedPageSchema>,
     #[serde(default)]
-    pub reason: Option<String>,
-    pub confidence: SchemaLlmEvaluationConfidence,
-    pub summary: String,
+    reason: Option<String>,
+    confidence: SchemaLlmEvaluationConfidence,
+    summary: String,
     #[serde(default)]
-    pub risks: Vec<String>,
+    risks: Vec<String>,
 }
 
 impl ProductSchemaGenerationResponse {
-    fn into_generated(self) -> GeneratedProductSchemas {
-        let decision = if self.confidence == SchemaLlmEvaluationConfidence::High {
-            SchemaLlmEvaluationDecision::Approve
-        } else {
-            SchemaLlmEvaluationDecision::NeedsHumanReview
-        };
-
-        GeneratedProductSchemas {
-            schemas: self.schemas,
-            evaluation: SchemaLlmEvaluation {
-                decision,
-                confidence: self.confidence,
-                approved_by_llm: false,
-                summary: self.summary,
-                risks: self.risks,
-            },
-        }
-    }
-
     fn evaluation(&self) -> SchemaLlmEvaluation {
         let decision = if self.confidence == SchemaLlmEvaluationConfidence::High {
             SchemaLlmEvaluationDecision::Approve
@@ -145,105 +164,108 @@ impl ProductSchemaGenerationResponse {
         }
     }
 
-    fn into_generated_single(self) -> Result<GeneratedSingleSchema, serde_json::Error> {
+    pub(super) fn try_into_initial(
+        self,
+    ) -> Result<GeneratedProductSchemas, ProductSchemaResponseValidationError> {
+        if matches!(
+            self.page_kind,
+            Some(SinglePageKind::Removed | SinglePageKind::NotProduct)
+        ) {
+            return Err(ProductSchemaResponseValidationError::InitialPageClassification);
+        }
+        if self.removed_schema.is_some() {
+            return Err(ProductSchemaResponseValidationError::InitialRemovedSchema);
+        }
+        if self.reason.is_some() {
+            return Err(ProductSchemaResponseValidationError::InitialReason);
+        }
+        if self.schemas.is_empty() {
+            return Err(ProductSchemaResponseValidationError::InitialEmptySchemas);
+        }
+        let evaluation = self.evaluation();
+        Ok(GeneratedProductSchemas {
+            schemas: self.schemas,
+            evaluation,
+        })
+    }
+
+    pub(super) fn try_into_single(
+        self,
+    ) -> Result<GeneratedSingleSchema, ProductSchemaResponseValidationError> {
         let evaluation = self.evaluation();
         match self.page_kind.unwrap_or(SinglePageKind::Product) {
             SinglePageKind::Product => {
-                if self.schemas.len() != 1 || self.removed_schema.is_some() || self.reason.is_some()
-                {
-                    return Err(invalid_data(format!(
-                        "Product single-schema response must contain exactly one schema and no classification fields, got {} schemas",
-                        self.schemas.len()
-                    )));
+                if self.schemas.len() != 1 {
+                    return Err(ProductSchemaResponseValidationError::SingleProductSchemaCount);
                 }
+                let Some(schema) = self.schemas.into_iter().next() else {
+                    return Err(ProductSchemaResponseValidationError::SingleProductSchemaCount);
+                };
                 Ok(GeneratedSingleSchema::Product {
-                    schema: Box::new(self.schemas.into_iter().next().ok_or_else(|| {
-                        invalid_data("Expected one product schema for single-schema generation")
-                    })?),
+                    schema: Box::new(schema),
                     evaluation,
                 })
             }
             SinglePageKind::Removed => {
-                if !self.schemas.is_empty() || self.reason.is_some() {
-                    return Err(invalid_data(
-                        "Removed single-schema response requires no product schemas and no reason",
-                    ));
+                if !self.schemas.is_empty() {
+                    return Err(
+                        ProductSchemaResponseValidationError::RemovedContainsProductSchemas,
+                    );
                 }
-                let schema = self.removed_schema.ok_or_else(|| {
-                    invalid_data("Removed single-schema generation missing schema")
-                })?;
-                schema.validate_for_llm_response().map_err(invalid_data)?;
+                let Some(schema) = self.removed_schema else {
+                    return Err(ProductSchemaResponseValidationError::RemovedMissingSchema);
+                };
+                if schema.validate_for_llm_response().is_err() {
+                    return Err(ProductSchemaResponseValidationError::InvalidRemovedSchema);
+                }
                 Ok(GeneratedSingleSchema::Removed { schema, evaluation })
             }
             SinglePageKind::NotProduct => {
-                if !self.schemas.is_empty()
-                    || self.removed_schema.is_some()
-                    || self
-                        .reason
-                        .as_deref()
-                        .is_none_or(|reason| reason.trim().is_empty())
-                {
-                    return Err(invalid_data(
-                        "Not-product single-schema response requires an explicit reason and no schemas",
-                    ));
+                if !self.schemas.is_empty() {
+                    return Err(
+                        ProductSchemaResponseValidationError::NotProductContainsProductSchemas,
+                    );
                 }
-                let reason = self
-                    .reason
-                    .ok_or_else(|| invalid_data("Not-product response missing reason"))?;
-                Ok(GeneratedSingleSchema::NotProduct { reason, evaluation })
+                Ok(GeneratedSingleSchema::NotProduct {
+                    reason: self.reason.unwrap_or_else(|| "not product page".to_owned()),
+                    evaluation,
+                })
             }
         }
     }
 }
 
-pub(super) fn product_schema_generation_response_schema_json() -> String {
+pub(super) fn product_schema_generation_response_json_schema() -> String {
     serde_json::to_string_pretty(&schema_for!(ProductSchemaGenerationResponse))
-        .unwrap_or_else(|_| "Failed to generate response schema".to_string())
+        .unwrap_or_else(|_| "Failed to generate response schema".to_owned())
 }
 
+#[cfg(test)]
 pub(super) fn parse_product_schemas_response(
     raw: &str,
 ) -> Result<GeneratedProductSchemas, serde_json::Error> {
     let response = serde_json::from_str::<ProductSchemaGenerationResponse>(raw)?;
-    if matches!(
-        response.page_kind,
-        Some(SinglePageKind::Removed | SinglePageKind::NotProduct)
-    ) {
-        return Err(invalid_data(
-            "Initial schema generation must not classify pages as removed or not-product",
-        ));
-    }
-    if response.removed_schema.is_some() {
-        return Err(invalid_data(
-            "Initial schema generation must not include removed page schema",
-        ));
-    }
-    if response.reason.is_some() {
-        return Err(invalid_data(
-            "Initial schema generation must not include page classification reason",
-        ));
-    }
-    if response.schemas.is_empty() {
-        return Err(invalid_data("LLM produced zero schemas"));
-    }
-    Ok(response.into_generated())
+    response.try_into_initial().map_err(invalid_data)
 }
 
-pub(super) fn single_schema_generation_response_schema_json() -> String {
+pub(super) fn single_schema_generation_response_json_schema() -> String {
     serde_json::to_string_pretty(&schema_for!(ProductSchemaGenerationResponse))
-        .unwrap_or_else(|_| "Failed to generate response schema".to_string())
+        .unwrap_or_else(|_| "Failed to generate response schema".to_owned())
 }
 
+#[cfg(test)]
 pub(super) fn parse_single_schema_response(
     raw: &str,
 ) -> Result<GeneratedSingleSchema, serde_json::Error> {
-    serde_json::from_str::<ProductSchemaGenerationResponse>(raw)?.into_generated_single()
+    let response = serde_json::from_str::<ProductSchemaGenerationResponse>(raw)?;
+    response.try_into_single().map_err(invalid_data)
 }
 
-fn invalid_data(message: impl Into<String>) -> serde_json::Error {
+#[cfg(test)]
+fn invalid_data(error: ProductSchemaResponseValidationError) -> serde_json::Error {
     serde_json::Error::io(std::io::Error::new(
         std::io::ErrorKind::InvalidData,
-        message.into(),
+        error.to_string(),
     ))
 }
 

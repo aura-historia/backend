@@ -1,21 +1,21 @@
-use crate::google_llm::{GeminiRateLimiter, run_with_gemini_rate_limiter};
-use crate::logging::llm_metrics;
+use crate::llm_runtime::{
+    CrawlerLlmGovernor, ValidatedGenerationError, generate_validated_with_governor,
+};
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
 use crate::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepository;
-use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
-use common::shop_id::ShopId;
-use llm::{
-    chat::{ChatMessage, ChatProvider},
-    error::LLMError,
+use application::error::box_error;
+use large_language_model::{
+    GenerationOptions, LargeLanguageModel, LargeLanguageModelError, LlmOperation,
+    StructuredGenerationRequest,
 };
 use prompt::{build_create_schemas_instruction, build_single_schema_instruction};
 use response::{
-    parse_product_schemas_response, parse_single_schema_response,
-    product_schema_generation_response_schema_json, single_schema_generation_response_schema_json,
+    ProductSchemaGenerationResponse, ProductSchemaResponseValidationError,
+    product_schema_generation_response_json_schema, single_schema_generation_response_json_schema,
 };
 use schemars::schema_for;
-use std::sync::Arc;
-use std::time::Instant;
+use shop_core::shop_id::ShopId;
+use std::{sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tracing::{debug, info};
 
@@ -34,11 +34,17 @@ pub use response::{
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductSchemaServiceError {
-    #[error("LLM error: {0}")]
-    LLMError(#[from] LLMError),
+    #[error("large language model error: {0}")]
+    LargeLanguageModelError(#[from] LargeLanguageModelError),
 
     #[error("NoTextResponse: {0}")]
     NoTextResponse(String),
+
+    #[error("structured product schema response failed validation")]
+    StructuredResponseValidation {
+        #[source]
+        source: application::error::BoxError,
+    },
 
     #[error("JsonParsingTargetSchemaError: {0}")]
     JsonParsingTargetSchemaError(serde_json::Error),
@@ -60,7 +66,7 @@ pub trait ProductSchemaService {
         html_pages: &[String],
     ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError>;
 
-    /// Generate one new schema from one HTML page.
+    /// Generate a fresh single schema from one HTML page.
     async fn generate_single_schema_for_page(
         &self,
         html: &str,
@@ -90,102 +96,134 @@ pub trait ProductSchemaService {
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
 }
 
-pub struct ProductSchemaServiceImpl {
-    create_llm: Box<dyn ChatProvider>,
-    single_schema_llm: Box<dyn ChatProvider>,
-    rate_limiter: Option<Arc<GeminiRateLimiter>>,
-    service_tier: Option<GeminiServiceTier>,
+pub struct ProductSchemaServiceImpl<CreateLlm, SingleLlm> {
+    create_llm: CreateLlm,
+    single_schema_llm: SingleLlm,
+    governor: Option<Arc<CrawlerLlmGovernor>>,
     repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
 }
 
-impl ProductSchemaServiceImpl {
+impl<CreateLlm, SingleLlm> ProductSchemaServiceImpl<CreateLlm, SingleLlm> {
     pub fn new(
-        create_llm: llm::builder::LLMBuilder,
-        single_schema_llm: llm::builder::LLMBuilder,
-        service_tier: Option<GeminiServiceTier>,
+        create_llm: CreateLlm,
+        single_schema_llm: SingleLlm,
         repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
-        rate_limiter: Option<Arc<GeminiRateLimiter>>,
-    ) -> Result<Self, LLMError> {
-        let create_llm = build_create_schema_generation_llm(create_llm)?;
-        let single_schema_llm = build_single_schema_generation_llm(single_schema_llm)?;
-        Ok(Self {
+        governor: Option<Arc<CrawlerLlmGovernor>>,
+    ) -> Self {
+        Self {
             create_llm,
             single_schema_llm,
-            rate_limiter,
-            service_tier,
+            governor,
             repository,
-        })
+        }
     }
 }
 
-fn build_create_schema_generation_llm(
-    llm: llm::builder::LLMBuilder,
-) -> Result<Box<dyn ChatProvider>, LLMError> {
+fn create_schema_generation_system_instruction() -> String {
     let schema = serde_json::to_string_pretty(&schema_for!(ProductCssSelectorSchema))
         .unwrap_or_else(|_| "Failed to generate schema".to_string());
-    let response_schema = product_schema_generation_response_schema_json();
-    let system_prompt = format!(
+    let response_json_schema = product_schema_generation_response_json_schema();
+    format!(
         "You are an e-commerce scraper-assistant for antiques creating extraction-schemas for HTML given product-pages.
             Return only JSON matching ProductSchemaGenerationResponse.
             The response must include schemas plus confidence LOW, MEDIUM, or HIGH.
             HIGH means the selectors are product-specific, deterministic, and safe to auto-approve when local validation passes.
             MEDIUM means the schema is plausible but needs human review. LOW means uncertain or weak selectors and needs human review.
             ProductCssSelectorSchema schema:\n\n {schema}\n\n
-            ProductSchemaGenerationResponse schema:\n\n {response_schema}",
-    );
-    let llm = llm
-        .system(system_prompt)
-        .openai_enable_web_search(false)
-        .reasoning(true)
-        .timeout_seconds(180)
-        .validator(validate_create_schema_response)
-        .validator_attempts(3)
-        .build()?;
-    let llm: Box<dyn ChatProvider> = llm;
-    Ok(llm)
+            ProductSchemaGenerationResponse schema:\n\n {response_json_schema}",
+    )
 }
 
-fn build_single_schema_generation_llm(
-    llm: llm::builder::LLMBuilder,
-) -> Result<Box<dyn ChatProvider>, LLMError> {
+fn single_schema_generation_system_instruction() -> String {
     let schema = serde_json::to_string_pretty(&schema_for!(ProductCssSelectorSchema))
         .unwrap_or_else(|_| "Failed to generate schema".to_string());
-    let response_schema = single_schema_generation_response_schema_json();
-    let system_prompt = format!(
-        "You are an e-commerce scraper-assistant for antiques generating a new extraction schema for one HTML page.
-            Return only JSON matching ProductSchemaGenerationResponse.
+    let response_json_schema = single_schema_generation_response_json_schema();
+    format!(
+        "You are an e-commerce scraper-assistant for antiques generating a fresh extraction schema for one HTML page.
+            Return only JSON matching Single ProductSchemaGenerationResponse.
             The response may classify the page as product, removed, or not_product.
             ProductCssSelectorSchema schema:\n\n {schema}\n\n
-            ProductSchemaGenerationResponse schema:\n\n {response_schema}",
-    );
-    let llm = llm
-        .system(system_prompt)
-        .openai_enable_web_search(false)
-        .reasoning(true)
-        .timeout_seconds(180)
-        .validator(validate_single_schema_response)
-        .validator_attempts(3)
-        .build()?;
-    let llm: Box<dyn ChatProvider> = llm;
-    Ok(llm)
+            Single ProductSchemaGenerationResponse schema:\n\n {response_json_schema}",
+    )
 }
 
+fn response_json_schema(schema: String) -> Result<serde_json::Value, ProductSchemaServiceError> {
+    serde_json::from_str(&schema).map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)
+}
+
+fn map_product_schema_generation_error(
+    error: ValidatedGenerationError<ProductSchemaResponseValidationError>,
+) -> ProductSchemaServiceError {
+    match error {
+        ValidatedGenerationError::Model(error) => {
+            ProductSchemaServiceError::LargeLanguageModelError(error)
+        }
+        ValidatedGenerationError::Validation(error) => {
+            ProductSchemaServiceError::StructuredResponseValidation {
+                source: box_error(error),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 fn validate_create_schema_response(res: &str) -> Result<(), String> {
     let stripped = strip_markdown_json_embedding(res);
-    parse_product_schemas_response(stripped)
+    response::parse_product_schemas_response(stripped)
         .map(|_| ())
         .map_err(|_| "response did not match product schema response".to_string())
 }
 
+#[cfg(test)]
 fn validate_single_schema_response(res: &str) -> Result<(), String> {
     let stripped = strip_markdown_json_embedding(res);
-    parse_single_schema_response(stripped)
+    response::parse_single_schema_response(stripped)
         .map(|_| ())
         .map_err(|_| "response did not match single schema response".to_string())
 }
 
+fn create_schema_generation_request(
+    html_pages: &[String],
+) -> Result<StructuredGenerationRequest, ProductSchemaServiceError> {
+    Ok(StructuredGenerationRequest {
+        operation: LlmOperation::CrawlerProductSchemaGeneration,
+        system_instruction: create_schema_generation_system_instruction(),
+        prompt: build_create_schemas_instruction(html_pages),
+        image_urls: Vec::new(),
+        response_json_schema: response_json_schema(
+            product_schema_generation_response_json_schema(),
+        )?,
+        options: GenerationOptions {
+            temperature: 0.0,
+            max_output_tokens: 8192,
+            request_timeout: Duration::from_secs(180),
+        },
+    })
+}
+
+fn single_schema_generation_request(
+    html: &str,
+) -> Result<StructuredGenerationRequest, ProductSchemaServiceError> {
+    Ok(StructuredGenerationRequest {
+        operation: LlmOperation::CrawlerProductSchemaRepair,
+        system_instruction: single_schema_generation_system_instruction(),
+        prompt: build_single_schema_instruction(html),
+        image_urls: Vec::new(),
+        response_json_schema: response_json_schema(single_schema_generation_response_json_schema())?,
+        options: GenerationOptions {
+            temperature: 0.0,
+            max_output_tokens: 4096,
+            request_timeout: Duration::from_secs(180),
+        },
+    })
+}
+
 #[async_trait::async_trait]
-impl ProductSchemaService for ProductSchemaServiceImpl {
+impl<CreateLlm, SingleLlm> ProductSchemaService for ProductSchemaServiceImpl<CreateLlm, SingleLlm>
+where
+    CreateLlm: LargeLanguageModel,
+    SingleLlm: LargeLanguageModel,
+{
     async fn create_product_schema(
         &self,
         html_pages: &[String],
@@ -201,36 +239,23 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         &self,
         html_pages: &[String],
     ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError> {
-        let instruction = build_create_schemas_instruction(html_pages);
-        let message = ChatMessage::user().content(instruction).build();
-        let messages = vec![message];
-
-        let started_at = Instant::now();
-        let response = run_with_gemini_rate_limiter(
-            &*self.create_llm,
-            self.rate_limiter.as_deref(),
-            &messages,
+        let generated = generate_validated_with_governor::<
+            _,
+            ProductSchemaGenerationResponse,
+            GeneratedProductSchemas,
+            ProductSchemaResponseValidationError,
+            _,
+            _,
+        >(
+            &self.create_llm,
+            self.governor.as_ref(),
+            create_schema_generation_request(html_pages)?,
+            3,
+            ProductSchemaGenerationResponse::try_into_initial,
+            ProductSchemaResponseValidationError::feedback_code,
         )
-        .await?;
-        log_llm_invocation(
-            LlmOperation::CrawlerProductSchemaGeneration,
-            LlmProvider::Google,
-            LlmModel::Configured,
-            started_at.elapsed(),
-            llm_metrics(response.usage(), Some(html_pages.len()), self.service_tier),
-        );
-        let res = response.text().ok_or_else(|| {
-            ProductSchemaServiceError::NoTextResponse("Expected text response".to_string())
-        })?;
-
-        let parsed = strip_markdown_json_embedding(&res);
-        let generated = parse_product_schemas_response(parsed)
-            .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
-        if generated.schemas.is_empty() {
-            return Err(ProductSchemaServiceError::NoTextResponse(
-                "LLM produced zero schemas".to_string(),
-            ));
-        }
+        .await
+        .map_err(map_product_schema_generation_error)?;
 
         debug!(
             schemas_count = generated.schemas.len(),
@@ -246,36 +271,28 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         &self,
         html: &str,
     ) -> Result<GeneratedSingleSchema, ProductSchemaServiceError> {
-        let instruction = build_single_schema_instruction(html);
-        let message = ChatMessage::user().content(instruction).build();
-        let messages = vec![message];
-
-        let started_at = Instant::now();
-        let response = run_with_gemini_rate_limiter(
-            &*self.single_schema_llm,
-            self.rate_limiter.as_deref(),
-            &messages,
+        let generated = generate_validated_with_governor::<
+            _,
+            ProductSchemaGenerationResponse,
+            GeneratedSingleSchema,
+            ProductSchemaResponseValidationError,
+            _,
+            _,
+        >(
+            &self.single_schema_llm,
+            self.governor.as_ref(),
+            single_schema_generation_request(html)?,
+            3,
+            ProductSchemaGenerationResponse::try_into_single,
+            ProductSchemaResponseValidationError::feedback_code,
         )
-        .await?;
-        log_llm_invocation(
-            LlmOperation::CrawlerProductSchemaFreshGeneration,
-            LlmProvider::Google,
-            LlmModel::Configured,
-            started_at.elapsed(),
-            llm_metrics(response.usage(), Some(1), self.service_tier),
-        );
-        let res = response.text().ok_or_else(|| {
-            ProductSchemaServiceError::NoTextResponse("Expected text response".to_string())
-        })?;
-
-        let parsed = strip_markdown_json_embedding(&res);
-        let generated = parse_single_schema_response(parsed)
-            .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
+        .await
+        .map_err(map_product_schema_generation_error)?;
 
         debug!(
             page_kind = ?generated,
             confidence = ?generated.evaluation().confidence,
-            "Generated single schema response"
+            "Generated schema response for fresh-generation"
         );
         Ok(generated)
     }
@@ -374,6 +391,8 @@ mod tests {
     use crate::scraper::css_selector::rule::{
         ExtractionCardinality, ExtractionKind, ExtractionRule,
     };
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
 
     fn sample_css_schema() -> ProductCssSelectorSchema {
@@ -472,7 +491,7 @@ mod tests {
         }
     }
 
-    fn removed_single_response_json() -> String {
+    fn removed_append_response_json() -> String {
         serde_json::to_string(&serde_json::json!({
             "page_kind": "removed",
             "schemas": [],
@@ -487,7 +506,7 @@ mod tests {
         .expect("removed single response should serialize")
     }
 
-    fn removed_regex_single_response_json(pattern: &str) -> String {
+    fn removed_regex_append_response_json(pattern: &str) -> String {
         serde_json::to_string(&serde_json::json!({
             "page_kind": "removed",
             "schemas": [],
@@ -502,7 +521,7 @@ mod tests {
         .expect("removed regex single response should serialize")
     }
 
-    fn not_product_single_response_json() -> String {
+    fn not_product_append_response_json() -> String {
         serde_json::to_string(&serde_json::json!({
             "page_kind": "not_product",
             "schemas": [],
@@ -627,10 +646,9 @@ mod tests {
             .return_once(move |_| Box::pin(async move { Ok(Some(expected_clone)) }));
 
         let service = ProductSchemaServiceImpl {
-            create_llm: Box::new(MockLlmProvider),
-            single_schema_llm: Box::new(MockLlmProvider),
-            rate_limiter: None,
-            service_tier: None,
+            create_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
+            governor: None,
             repository: Box::new(repository),
         };
 
@@ -651,10 +669,9 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
 
         let service = ProductSchemaServiceImpl {
-            create_llm: Box::new(MockLlmProvider),
-            single_schema_llm: Box::new(MockLlmProvider),
-            rate_limiter: None,
-            service_tier: None,
+            create_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
+            governor: None,
             repository: Box::new(repository),
         };
 
@@ -672,10 +689,9 @@ mod tests {
             .return_once(|_| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
 
         let service = ProductSchemaServiceImpl {
-            create_llm: Box::new(MockLlmProvider),
-            single_schema_llm: Box::new(MockLlmProvider),
-            rate_limiter: None,
-            service_tier: None,
+            create_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
+            governor: None,
             repository: Box::new(repository),
         };
 
@@ -708,10 +724,9 @@ mod tests {
             .return_once(move |_, _| Box::pin(async move { Ok(expected_clone) }));
 
         let service = ProductSchemaServiceImpl {
-            create_llm: Box::new(MockLlmProvider),
-            single_schema_llm: Box::new(MockLlmProvider),
-            rate_limiter: None,
-            service_tier: None,
+            create_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
+            governor: None,
             repository: Box::new(repository),
         };
 
@@ -742,10 +757,9 @@ mod tests {
             .return_once(move |_, _| Box::pin(async move { Ok(updated_clone) }));
 
         let service = ProductSchemaServiceImpl {
-            create_llm: Box::new(MockLlmProvider),
-            single_schema_llm: Box::new(MockLlmProvider),
-            rate_limiter: None,
-            service_tier: None,
+            create_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
+            governor: None,
             repository: Box::new(repository),
         };
 
@@ -767,10 +781,9 @@ mod tests {
             .return_once(|_| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
 
         let service = ProductSchemaServiceImpl {
-            create_llm: Box::new(MockLlmProvider),
-            single_schema_llm: Box::new(MockLlmProvider),
-            rate_limiter: None,
-            service_tier: None,
+            create_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
+            governor: None,
             repository: Box::new(repository),
         };
 
@@ -796,10 +809,9 @@ mod tests {
             .return_once(|_, _| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
 
         let service = ProductSchemaServiceImpl {
-            create_llm: Box::new(MockLlmProvider),
-            single_schema_llm: Box::new(MockLlmProvider),
-            rate_limiter: None,
-            service_tier: None,
+            create_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
+            governor: None,
             repository: Box::new(repository),
         };
 
@@ -830,10 +842,9 @@ mod tests {
         repository.expect_update_product_schema().never();
 
         let service = ProductSchemaServiceImpl {
-            create_llm: Box::new(MockLlmProvider),
-            single_schema_llm: Box::new(MockLlmProvider),
-            rate_limiter: None,
-            service_tier: None,
+            create_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
+            governor: None,
             repository: Box::new(repository),
         };
 
@@ -872,10 +883,9 @@ mod tests {
             .return_once(move |_, _| Box::pin(async move { Ok(saved_clone) }));
 
         let service = ProductSchemaServiceImpl {
-            create_llm: Box::new(MockLlmProviderReturning(css_schema)),
-            single_schema_llm: Box::new(MockLlmProvider),
-            rate_limiter: None,
-            service_tier: None,
+            create_llm: MockLlmProviderReturning(css_schema),
+            single_schema_llm: MockLlmProvider,
+            governor: None,
             repository: Box::new(repository),
         };
 
@@ -891,10 +901,9 @@ mod tests {
     async fn should_preserve_raw_attribute_schema_from_mocked_llm_response() {
         let css_schema = sample_schema_with_raw_attributes();
         let service = ProductSchemaServiceImpl {
-            create_llm: Box::new(MockLlmProviderReturning(css_schema)),
-            single_schema_llm: Box::new(MockLlmProvider),
-            rate_limiter: None,
-            service_tier: None,
+            create_llm: MockLlmProviderReturning(css_schema),
+            single_schema_llm: MockLlmProvider,
+            governor: None,
             repository: Box::new(MockShopsProductSchemaRepository::new()),
         };
 
@@ -981,10 +990,9 @@ mod tests {
             .return_once(|_| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
 
         let service = ProductSchemaServiceImpl {
-            create_llm: Box::new(MockLlmProvider),
-            single_schema_llm: Box::new(MockLlmProvider),
-            rate_limiter: None,
-            service_tier: None,
+            create_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
+            governor: None,
             repository: Box::new(repository),
         };
 
@@ -1016,7 +1024,7 @@ mod tests {
     }
 
     #[test]
-    fn should_include_page_classification_in_single_schema_instruction() {
+    fn should_include_page_classification_in_append_instruction() {
         let instruction =
             build_single_schema_instruction("<html><body><h1>Missing</h1></body></html>");
 
@@ -1135,7 +1143,7 @@ mod tests {
     }
 
     #[test]
-    fn should_parse_product_single_response() {
+    fn should_parse_product_append_response() {
         let payload = generated_response_json(vec![sample_css_schema()]);
 
         let parsed = parse_single_schema_response(&payload).unwrap();
@@ -1144,8 +1152,8 @@ mod tests {
     }
 
     #[test]
-    fn should_parse_removed_single_response() {
-        let parsed = parse_single_schema_response(&removed_single_response_json()).unwrap();
+    fn should_parse_removed_append_response() {
+        let parsed = parse_single_schema_response(&removed_append_response_json()).unwrap();
 
         assert_eq!(
             parsed,
@@ -1167,8 +1175,8 @@ mod tests {
     }
 
     #[test]
-    fn should_accept_removed_regex_for_single_validator() {
-        let parsed = parse_single_schema_response(&removed_regex_single_response_json(
+    fn should_accept_removed_regex_for_append_validator() {
+        let parsed = parse_single_schema_response(&removed_regex_append_response_json(
             r"the .+ is not available anymore",
         ))
         .unwrap();
@@ -1193,15 +1201,15 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_removed_invalid_regex_for_single_validator() {
-        let payload = removed_regex_single_response_json("[unclosed");
+    fn should_reject_removed_invalid_regex_for_append_validator() {
+        let payload = removed_regex_append_response_json("[unclosed");
 
         assert!(parse_single_schema_response(&payload).is_err());
         assert!(validate_single_schema_response(&payload).is_err());
     }
 
     #[test]
-    fn should_reject_removed_text_and_regex_for_single_validator() {
+    fn should_reject_removed_text_and_regex_for_append_validator() {
         let payload = serde_json::to_string(&serde_json::json!({
             "page_kind": "removed",
             "schemas": [],
@@ -1220,7 +1228,7 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_removed_without_text_or_regex_for_single_validator() {
+    fn should_reject_removed_without_text_or_regex_for_append_validator() {
         let payload = serde_json::to_string(&serde_json::json!({
             "page_kind": "removed",
             "schemas": [],
@@ -1236,8 +1244,8 @@ mod tests {
     }
 
     #[test]
-    fn should_parse_not_product_single_response() {
-        let parsed = parse_single_schema_response(&not_product_single_response_json()).unwrap();
+    fn should_parse_not_product_append_response() {
+        let parsed = parse_single_schema_response(&not_product_append_response_json()).unwrap();
 
         assert_eq!(
             parsed,
@@ -1255,82 +1263,8 @@ mod tests {
     }
 
     #[test]
-    fn should_parse_non_high_confidence_single_page_classifications() {
-        for confidence in ["MEDIUM", "LOW"] {
-            let removed = removed_single_response_json().replace("HIGH", confidence);
-            let not_product = not_product_single_response_json().replace("HIGH", confidence);
-            let parsed_removed = parse_single_schema_response(&removed).unwrap();
-            let parsed_not_product = parse_single_schema_response(&not_product).unwrap();
-            assert!(matches!(
-                parsed_removed,
-                GeneratedSingleSchema::Removed { .. }
-            ));
-            assert!(matches!(
-                parsed_not_product,
-                GeneratedSingleSchema::NotProduct { .. }
-            ));
-            assert_eq!(
-                parsed_removed.evaluation().confidence,
-                match confidence {
-                    "MEDIUM" => SchemaLlmEvaluationConfidence::Medium,
-                    "LOW" => SchemaLlmEvaluationConfidence::Low,
-                    _ => unreachable!(),
-                }
-            );
-            assert_eq!(
-                parsed_not_product.evaluation().confidence,
-                match confidence {
-                    "MEDIUM" => SchemaLlmEvaluationConfidence::Medium,
-                    "LOW" => SchemaLlmEvaluationConfidence::Low,
-                    _ => unreachable!(),
-                }
-            );
-        }
-    }
-
-    #[test]
-    fn should_require_explicit_non_empty_not_product_reason() {
-        for reason in [None, Some(""), Some("   ")] {
-            let payload = serde_json::to_string(&serde_json::json!({
-                "page_kind": "not_product",
-                "schemas": [],
-                "reason": reason,
-                "confidence": "HIGH",
-                "summary": "missing evidence"
-            }))
-            .unwrap();
-            assert!(parse_single_schema_response(&payload).is_err());
-        }
-    }
-
-    #[test]
-    fn should_reject_contradictory_single_page_classification_fields() {
-        let product_with_reason = serde_json::to_string(&serde_json::json!({
-            "page_kind": "product",
-            "schemas": [sample_css_schema()],
-            "reason": "category page",
-            "confidence": "HIGH",
-            "summary": "contradictory"
-        }))
-        .unwrap();
-        let product_with_removed = serde_json::to_string(&serde_json::json!({
-            "page_kind": "product",
-            "schemas": [sample_css_schema()],
-            "removed_schema": { "selector": "#main", "text": "gone" },
-            "confidence": "HIGH",
-            "summary": "contradictory"
-        }))
-        .unwrap();
-        let removed_with_reason = removed_single_response_json()
-            .replace("\"risks\":[]", "\"reason\":\"extra\",\"risks\":[]");
-        assert!(parse_single_schema_response(&product_with_reason).is_err());
-        assert!(parse_single_schema_response(&product_with_removed).is_err());
-        assert!(parse_single_schema_response(&removed_with_reason).is_err());
-    }
-
-    #[test]
-    fn should_reject_single_classification_for_create_validator() {
-        let payload = not_product_single_response_json();
+    fn should_reject_append_classification_for_create_validator() {
+        let payload = not_product_append_response_json();
 
         let result = validate_create_schema_response(&payload);
 
@@ -1381,7 +1315,7 @@ mod tests {
                 "text": "Product removed"
             },
             "confidence": "HIGH",
-            "summary": "single-schema metadata"
+            "summary": "single-page metadata"
         }))
         .unwrap();
 
@@ -1396,7 +1330,7 @@ mod tests {
             "schemas": [sample_css_schema()],
             "reason": "category page",
             "confidence": "HIGH",
-            "summary": "single-schema metadata"
+            "summary": "single-page metadata"
         }))
         .unwrap();
 
@@ -1406,8 +1340,8 @@ mod tests {
     }
 
     #[test]
-    fn should_accept_single_classification_for_single_validator() {
-        let payload = not_product_single_response_json();
+    fn should_accept_append_classification_for_append_validator() {
+        let payload = not_product_append_response_json();
 
         let result = validate_single_schema_response(&payload);
 
@@ -1440,7 +1374,7 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_removed_single_response_without_schema() {
+    fn should_reject_removed_append_response_without_schema() {
         let payload = serde_json::to_string(&serde_json::json!({
             "page_kind": "removed",
             "schemas": [],
@@ -1453,7 +1387,7 @@ mod tests {
     }
 
     #[test]
-    fn should_parse_not_product_single_response_without_schema() {
+    fn should_parse_not_product_append_response_without_schema() {
         let payload = serde_json::to_string(&serde_json::json!({
             "page_kind": "not_product",
             "schemas": [],
@@ -1468,7 +1402,7 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_not_product_single_response_with_product_schema() {
+    fn should_reject_not_product_append_response_with_product_schema() {
         let payload = serde_json::to_string(&serde_json::json!({
             "page_kind": "not_product",
             "schemas": [sample_css_schema()],
@@ -1524,6 +1458,40 @@ mod tests {
         assert_eq!(evaluation.summary, "Selectors are product-specific.");
     }
 
+    #[tokio::test]
+    async fn should_correct_semantically_invalid_initial_schema_response() {
+        let invalid = serde_json::json!({
+            "schemas": [],
+            "confidence": "HIGH",
+            "summary": "sensitive previous response",
+            "risks": []
+        });
+        let valid = serde_json::from_str::<serde_json::Value>(&generated_response_json(vec![
+            sample_css_schema(),
+        ]))
+        .unwrap_or_else(|error| panic!("valid response should serialize: {error}"));
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let llm = SequenceSchemaLlm {
+            responses: Mutex::new(VecDeque::from([invalid, valid])),
+            requests: Arc::clone(&requests),
+        };
+        let service = ProductSchemaServiceImpl::new(
+            llm,
+            MockLlmProvider,
+            Box::new(MockShopsProductSchemaRepository::new()),
+            None,
+        );
+
+        let result = service
+            .create_product_schemas(&["<html>page</html>".to_owned()])
+            .await;
+        assert!(result.is_ok());
+        let requests = requests.lock().unwrap_or_else(|error| error.into_inner());
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1].prompt.contains("initial_empty_schemas"));
+        assert!(!requests[1].prompt.contains("sensitive previous response"));
+    }
+
     #[test]
     fn should_mark_unavailable_schema_evaluation_as_low_confidence_human_review() {
         let evaluation = SchemaLlmEvaluation::unavailable("budget exhausted");
@@ -1541,56 +1509,79 @@ mod tests {
     // Helpers: Mock LLM providers
     // -----------------------------------------------------------------------
 
-    /// A concrete [`llm::chat::ChatResponse`] for test doubles.
-    #[derive(Debug)]
-    struct FakeChatResponse(Option<String>);
-
-    impl std::fmt::Display for FakeChatResponse {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match &self.0 {
-                Some(text) => write!(f, "{text}"),
-                None => write!(f, ""),
-            }
-        }
-    }
-
-    impl llm::chat::ChatResponse for FakeChatResponse {
-        fn text(&self) -> Option<String> {
-            self.0.clone()
-        }
-
-        fn tool_calls(&self) -> Option<Vec<llm::ToolCall>> {
-            None
-        }
-    }
-
-    /// A mock LLM provider that panics if called — used when we expect no LLM
-    /// interaction.
+    /// A test model that fails if a test unexpectedly invokes it.
     struct MockLlmProvider;
 
     #[async_trait::async_trait]
-    impl llm::chat::ChatProvider for MockLlmProvider {
-        async fn chat_with_tools(
+    impl LargeLanguageModel for MockLlmProvider {
+        async fn generate<Output>(
             &self,
-            _: &[ChatMessage],
-            _: Option<&[llm::chat::Tool]>,
-        ) -> Result<Box<dyn llm::chat::ChatResponse>, LLMError> {
-            panic!("LLM should not be called in this test")
+            _: StructuredGenerationRequest,
+        ) -> Result<Output, LargeLanguageModelError>
+        where
+            Output: serde::de::DeserializeOwned + Send,
+        {
+            Err(LargeLanguageModelError::Permanent {
+                source: application::error::static_error("LLM should not be called in this test"),
+            })
         }
     }
 
-    /// A mock LLM provider that returns a fixed `ProductCssSelectorSchema`.
+    struct SequenceSchemaLlm {
+        responses: Mutex<VecDeque<serde_json::Value>>,
+        requests: Arc<Mutex<Vec<StructuredGenerationRequest>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl LargeLanguageModel for SequenceSchemaLlm {
+        async fn generate<Output>(
+            &self,
+            request: StructuredGenerationRequest,
+        ) -> Result<Output, LargeLanguageModelError>
+        where
+            Output: serde::de::DeserializeOwned + Send,
+        {
+            self.requests
+                .lock()
+                .map_err(|error| LargeLanguageModelError::InvalidResponse {
+                    source: application::error::box_error(std::io::Error::other(error.to_string())),
+                })?
+                .push(request);
+            let response = self
+                .responses
+                .lock()
+                .map_err(|error| LargeLanguageModelError::InvalidResponse {
+                    source: application::error::box_error(std::io::Error::other(error.to_string())),
+                })?
+                .pop_front()
+                .ok_or_else(|| LargeLanguageModelError::Permanent {
+                    source: application::error::static_error("schema response sequence exhausted"),
+                })?;
+            serde_json::from_value(response).map_err(|source| {
+                LargeLanguageModelError::InvalidResponse {
+                    source: application::error::box_error(source),
+                }
+            })
+        }
+    }
+
+    /// A test model that returns a fixed `ProductCssSelectorSchema` response.
     struct MockLlmProviderReturning(ProductCssSelectorSchema);
 
     #[async_trait::async_trait]
-    impl llm::chat::ChatProvider for MockLlmProviderReturning {
-        async fn chat_with_tools(
+    impl LargeLanguageModel for MockLlmProviderReturning {
+        async fn generate<Output>(
             &self,
-            _: &[ChatMessage],
-            _: Option<&[llm::chat::Tool]>,
-        ) -> Result<Box<dyn llm::chat::ChatResponse>, LLMError> {
-            let json = generated_response_json(vec![self.0.clone()]);
-            Ok(Box::new(FakeChatResponse(Some(json))))
+            _: StructuredGenerationRequest,
+        ) -> Result<Output, LargeLanguageModelError>
+        where
+            Output: serde::de::DeserializeOwned + Send,
+        {
+            serde_json::from_str(&generated_response_json(vec![self.0.clone()])).map_err(|source| {
+                LargeLanguageModelError::InvalidResponse {
+                    source: application::error::box_error(source),
+                }
+            })
         }
     }
 }

@@ -1,17 +1,14 @@
-use common::domain::Domain;
-use common::shop_id::ShopId;
 use crawler::service::shop_registration::{
     RegisteredShop, ShopRegistrationRepository, ShopRegistrationRepositoryImpl,
 };
-use shop::core::shop_type::ShopType;
+use shop_core::domain::Domain;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_type::ShopType;
 use std::collections::HashSet;
 
 use test_api::*;
 
-const POSTGRES: Postgres = Postgres {
-    migrations_dir: "src/crawler/migrations",
-    setup_script: None,
-};
+const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
 // ---------------------------------------------------------------------------
 // Helper

@@ -704,9 +704,13 @@ async fn should_generate_single_schema_without_failed_schema_context() {
         err,
         ScraperError::SchemaRegenerationExhausted {
             attempts: 1,
-            last_error: ApplySchemaError::Title(ExtractionError::NoElementMatched { ref selector }),
+            ref last_error,
             ..
-        } if selector == "non-existent-title-2"
+        } if matches!(
+            last_error.as_ref(),
+            ApplySchemaError::Title(ExtractionError::NoElementMatched { selector })
+                if selector == "non-existent-title-2"
+        )
     ));
 }
 
@@ -781,9 +785,9 @@ async fn should_fail_when_fresh_schema_normalization_keeps_failing() {
             err,
             ScraperError::FreshSchemaNormalizationFailed {
                 attempts: 1,
-                last_norm_error: NormalizationError::TitleEmpty,
+                ref last_norm_error,
                 ..
-            }
+            } if matches!(last_norm_error.as_ref(), NormalizationError::TitleEmpty)
         ),
         "expected FreshSchemaNormalizationFailed, got {err:?}"
     );

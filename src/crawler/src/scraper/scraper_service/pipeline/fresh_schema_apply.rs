@@ -8,7 +8,7 @@ use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::engine::try_apply_schemas;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use time::OffsetDateTime;
 use tracing::warn;
 use url::Url;
@@ -106,7 +106,7 @@ impl ScraperServiceImpl {
                 return Err(ScraperError::SchemaRegenerationExhausted {
                     url: url.clone(),
                     attempts: 1,
-                    last_error: err,
+                    last_error: Box::new(err),
                 });
             }
         };
@@ -162,10 +162,12 @@ pub(crate) fn page_classification_did_not_match(
     ScraperError::SchemaRegenerationExhausted {
         url: url.clone(),
         attempts: 1,
-        last_error: crate::scraper::css_selector::product_schema::ApplySchemaError::Title(
-            ExtractionError::NoElementMatched {
-                selector: selector.to_string(),
-            },
+        last_error: Box::new(
+            crate::scraper::css_selector::product_schema::ApplySchemaError::Title(
+                ExtractionError::NoElementMatched {
+                    selector: selector.to_string(),
+                },
+            ),
         ),
     }
 }

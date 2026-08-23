@@ -1,4 +1,3 @@
-use common::shop_id::ShopId;
 use crawler::review::model::{
     PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, STATUS_APPROVED,
     STATUS_PENDING_REVIEW, SchemaReviewPageInput,
@@ -13,15 +12,13 @@ use crawler::scraper::css_selector::product_schema_repository::{
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
 use regex::Regex;
 use serde_json::json;
+use shop_core::shop_id::ShopId;
 use sqlx::PgPool;
 use test_api::*;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-const POSTGRES: Postgres = Postgres {
-    migrations_dir: "src/crawler/migrations",
-    setup_script: None,
-};
+const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
 fn rule(selector: &str) -> ExtractionRule {
     ExtractionRule {
@@ -82,12 +79,11 @@ async fn fresh_generation_review_page_role_is_persisted() {
     let shop_id = ShopId::new();
     insert_shop(&pool, shop_id).await;
 
-    let schema = schema("h1");
     let review_id = review_repository
         .create_schema_review_with_status(SchemaReviewWithStatusInput {
             shop_id: &shop_id,
             reason: "fresh_schema_generation",
-            schemas: &[schema],
+            schemas: &[schema("h1")],
             pages: vec![SchemaReviewPageInput {
                 url: "https://example.com/products/1".to_string(),
                 role: PAGE_ROLE_TRIGGERING_GENERATION_PAGE.to_string(),

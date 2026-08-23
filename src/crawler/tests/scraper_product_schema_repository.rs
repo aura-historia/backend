@@ -1,4 +1,3 @@
-use common::shop_id::ShopId;
 use crawler::scraper::css_selector::product_schema::{
     ProductCssSelectorSchema, ShopsProductSchema,
 };
@@ -6,16 +5,14 @@ use crawler::scraper::css_selector::product_schema_repository::{
     ShopsProductSchemaRepository, ShopsProductSchemaRepositoryImpl,
 };
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
+use shop_core::shop_id::ShopId;
 use sqlx::PgPool;
 
 use test_api::*;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-const POSTGRES: Postgres = Postgres {
-    migrations_dir: "src/crawler/migrations",
-    setup_script: None,
-};
+const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
 fn minimal_css_schema() -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {

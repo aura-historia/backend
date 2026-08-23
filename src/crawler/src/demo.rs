@@ -6,8 +6,9 @@
 //! become ready before applying migrations. No manual setup required — just:
 //!
 //! ```powershell
-//! $env:GEMINI_API_KEY="..."
-//! $env:GEMINI_FLEX="true" # optional
+//! gcloud auth application-default login
+//! $env:VERTEX_AI_PROJECT_ID="my-project"
+//! $env:VERTEX_AI_LOCATION="europe-west3"
 //! cargo run -p crawler --bin demo
 //! ```
 //!
@@ -15,12 +16,15 @@
 //!
 //! | Env var          | Purpose                              | Default                                          |
 //! |------------------|--------------------------------------|--------------------------------------------------|
-//! | `GEMINI_API_KEY` | API key for the Gemini backend       | *(required)*                                     |
-//! | `GEMINI_MODEL`   | Model to use for LLM calls           | `gemini-3.1-pro-preview`                        |
-//! | `GEMINI_CHEAP_MODEL` | Default cheaper model for low-risk LLM calls | `gemini-3.1-flash-lite`                 |
-//! | `GEMINI_STATE_MAPPING_MODEL` | Optional override for state mapping calls | `GEMINI_CHEAP_MODEL`                 |
-//! | `GEMINI_URL_CLASSIFICATION_MODEL` | Optional override for URL classification calls | `GEMINI_CHEAP_MODEL`       |
-//! | `GEMINI_FLEX`    | Enable Gemini Flex inference         | unset / `false`                                  |
+//! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required)* |
+//! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required)* |
+//! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
+//! | `VERTEX_AI_MODEL` | Schema generation/repair model | `gemini-3.1-pro-preview` |
+//! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default low-risk crawler LLM model | `gemini-3.1-flash-lite` |
+//! | `CRAWLER_VERTEX_AI_STATE_MAPPING_MODEL` | Optional state mapping model override | `CRAWLER_VERTEX_AI_CHEAP_MODEL` |
+//! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override | `CRAWLER_VERTEX_AI_CHEAP_MODEL` |
+//! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls | `1` |
+//! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between LLM request starts | `2000` |
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL                | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
 //! | `CRAWLER_REVIEW_REQUIRED` | Block generated patterns/schemas until approved | unset / `false`                       |
 //! | `CRAWLER_REVIEW_URL_PATTERN_REQUIRED` | Block generated URL patterns until approved | unset / `false`            |
@@ -29,21 +33,16 @@
 //! | `LOG_LEVEL`      | Global log level                     | `info`                                           |
 //! | `CRAWLER_LOG_LEVEL` | Crawler-internal log level        | `info`                                           |
 //!
-//! Scraped products are written to `scraped_products.json` instead of being forwarded to DynamoDB.
+//! Scraped products are written to `scraped_products.json` instead of calling the Product upsert use case.
 
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use std::collections::HashSet;
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use common::domain::Domain;
-use common::logging::GeminiServiceTier;
-use crawler::google_llm::{
-    GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
-    state_mapping_gemini_model, url_classification_gemini_model,
-};
+use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
 use crawler::local_db::{DEMO_DB_NAME, bootstrap_local_database, demo_db_url};
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::review::repository::CrawlerReviewRepository;
@@ -72,7 +71,9 @@ use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepos
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
-use shop::core::shop_type::ShopType;
+use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
+use shop_core::domain::Domain;
+use shop_core::shop_type::ShopType;
 use tracing::{Instrument, error, info};
 
 // ---------------------------------------------------------------------------
@@ -213,28 +214,14 @@ async fn main() {
     init_logging();
 
     async {
-        let api_key = match env::var("GEMINI_API_KEY") {
-            Ok(api_key) => api_key,
-            Err(e) => {
-                error!("Missing GEMINI_API_KEY: {e}. Please set it to run the demo.");
+        let vertex_ai_config = match CrawlerVertexAiConfig::from_env() {
+            Ok(config) => config,
+            Err(error) => {
+                error!(%error, "Failed to load Vertex AI configuration");
                 return;
             }
         };
-
-        let model =
-            std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.1-pro-preview".to_string());
-        let state_model = state_mapping_gemini_model();
-        let classification_model = url_classification_gemini_model();
-        unsafe {
-            std::env::set_var("GEMINI_MODEL", &model);
-        }
-        let gemini_flex = gemini_flex_enabled();
-        let gemini_service_tier = if gemini_flex { "flex" } else { "default" };
-        let llm_service_tier = Some(if gemini_flex {
-            GeminiServiceTier::Flex
-        } else {
-            GeminiServiceTier::Standard
-        });
+        let vertex_ai_models = CrawlerVertexAiModels::from_env();
 
         let config = CrawlerCronConfig {
             spider_interval: Duration::from_secs(120),
@@ -276,46 +263,64 @@ async fn main() {
         let review_repo = CrawlerReviewRepository::new(pool.clone());
 
         info!(
-            gemini_model = %model,
-            gemini_state_mapping_model = %state_model,
-            gemini_url_classification_model = %classification_model,
-            gemini_service_tier,
+            llm_provider = "vertex_ai",
+            schema_model = %vertex_ai_models.product_schema,
+            state_mapping_model = %vertex_ai_models.product_state_mapping,
+            url_classification_model = %vertex_ai_models.url_classification,
             review_required,
             url_pattern_review_required,
             review_bind_addr = %review_config.bind_addr,
             "Wiring crawler dependencies..."
         );
-        let gemini_rate_limiter =
-            Arc::new(GeminiRateLimiter::new(GeminiRateLimitConfig::from_env()));
+        let llm_governor = Arc::new(CrawlerLlmGovernor::new(
+            CrawlerLlmRateLimitConfig::from_env(),
+        ));
 
-        let state_llm_builder = google_llm_builder(&api_key, &state_model, gemini_flex);
-
+        let state_llm =
+            match vertex_ai_config.create_model(vertex_ai_models.product_state_mapping.clone()) {
+                Ok(model) => model,
+                Err(error) => {
+                    error!(%error, "Failed to initialize Vertex AI model for state mapping");
+                    return;
+                }
+            };
         let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(Box::leak(
             Box::new(pool.clone()),
         )));
         let state_mapping_svc = ProductStateMappingServiceImpl::new(
-            state_llm_builder,
-            llm_service_tier,
+            state_llm,
             state_mapping_repo,
-            Some(Arc::clone(&gemini_rate_limiter)),
-        )
-        .expect("failed to build ProductStateMappingServiceImpl");
+            Some(Arc::clone(&llm_governor)),
+        );
         let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
-        let create_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
-        let single_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+        let create_schema_llm =
+            match vertex_ai_config.create_model(vertex_ai_models.product_schema.clone()) {
+                Ok(model) => model,
+                Err(error) => {
+                    error!(%error, "Failed to initialize Vertex AI model for schema generation");
+                    return;
+                }
+            };
+        let single_schema_llm = match vertex_ai_config
+            .create_model(vertex_ai_models.product_schema.clone())
+        {
+            Ok(model) => model,
+            Err(error) => {
+                error!(%error, "Failed to initialize Vertex AI model for fresh schema generation");
+                return;
+            }
+        };
 
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
         let schema_svc = ProductSchemaServiceImpl::new(
-            create_schema_llm_builder,
-            single_schema_llm_builder,
-            llm_service_tier,
+            create_schema_llm,
+            single_schema_llm,
             schema_repo,
-            Some(Arc::clone(&gemini_rate_limiter)),
-        )
-        .expect("failed to build ProductSchemaServiceImpl");
+            Some(Arc::clone(&llm_governor)),
+        );
         let removed_page_schema_repo = Box::new(RemovedPageSchemaRepositoryImpl::new(Box::leak(
             Box::new(pool.clone()),
         )));
@@ -351,15 +356,18 @@ async fn main() {
         let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
         let url_pattern_repo = Box::new(ShopUrlPatternRepositoryImpl::new(pool.clone()));
 
-        let class_llm_builder = google_llm_builder(&api_key, &classification_model, gemini_flex);
-        let class_svc = Box::new(
-            UrlClassificationServiceImpl::new(
-                class_llm_builder,
-                llm_service_tier,
-                Some(Arc::clone(&gemini_rate_limiter)),
-            )
-            .unwrap(),
-        );
+        let classification_llm =
+            match vertex_ai_config.create_model(vertex_ai_models.url_classification.clone()) {
+                Ok(model) => model,
+                Err(error) => {
+                    error!(%error, "Failed to initialize Vertex AI model for URL classification");
+                    return;
+                }
+            };
+        let class_svc = Box::new(UrlClassificationServiceImpl::new(
+            classification_llm,
+            Some(Arc::clone(&llm_governor)),
+        ));
         let pattern_svc = Box::new(UrlPatternServiceImpl::new_with_review(
             Arc::new(*url_pattern_repo),
             class_svc,
@@ -398,10 +406,10 @@ async fn main() {
 
         info!(
             shop_count = demo_shops().len(),
-            gemini_model = %model,
-            gemini_state_mapping_model = %state_model,
-            gemini_url_classification_model = %classification_model,
-            gemini_service_tier,
+            llm_provider = "vertex_ai",
+            schema_model = %vertex_ai_models.product_schema,
+            state_mapping_model = %vertex_ai_models.product_state_mapping,
+            url_classification_model = %vertex_ai_models.url_classification,
             review_required,
             url_pattern_review_required,
             review_bind_addr = %review_config.bind_addr,
@@ -488,7 +496,7 @@ fn init_logging() {
     let raw_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let crawler_level = env::var("CRAWLER_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let filter = tracing_subscriber::EnvFilter::new(format!(
-        "{raw_level},crawler={crawler_level},common::logging=info,spider=warn,sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE}"
+        "{raw_level},crawler={crawler_level},spider=warn,sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE}"
     ));
     tracing_subscriber::fmt()
         .json()

@@ -1,6 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
-import * as iam from "aws-cdk-lib/aws-iam";
+
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import {
@@ -17,10 +17,9 @@ import { Eventing } from "./constructs/eventing";
 import { addUserPoolEnvironment, grantCognitoAdminAccess, importLambdaCatalog, Lambdas } from "./constructs/lambdas";
 import { Observability } from "./constructs/observability";
 import { Search } from "./constructs/opensearch";
-import { PeriodicSearchFilterMatching } from "./constructs/periodic-matching";
 import { importQueueCatalog, Queues } from "./constructs/queues";
 import { Storage } from "./constructs/storage";
-import { PartnerShopApplicationWorkflow } from "./constructs/workflow";
+
 
 export interface ApplicationStackProps extends cdk.StackProps {
   readonly stage: StageName;
@@ -138,7 +137,6 @@ export interface ApplicationComputeStackProps extends ApplicationStackProps {
 export class ApplicationComputeStack extends cdk.Stack {
   readonly lambdas: Lambdas;
   readonly identity: Identity;
-  readonly workflow: PartnerShopApplicationWorkflow;
   readonly eventing: Eventing;
 
   constructor(scope: Construct, id: string, props: ApplicationComputeStackProps) {
@@ -166,14 +164,6 @@ export class ApplicationComputeStack extends cdk.Stack {
       search: props.search,
     });
 
-    new PeriodicSearchFilterMatching(this, "PeriodicSearchFilterMatching", {
-      config,
-      commitSha: parameters.commitSha,
-      table: props.storage.table,
-      postgres: props.storage.postgres,
-      mailTemplateBucket,
-      search: props.search,
-    });
 
     this.identity = new Identity(this, "Identity", {
       config,
@@ -186,28 +176,6 @@ export class ApplicationComputeStack extends cdk.Stack {
       this.identity.publicClient.userPoolClientId,
     );
     grantCognitoAdminAccess(this.lambdas.functions, this.identity.userPool.userPoolArn);
-
-    this.workflow = new PartnerShopApplicationWorkflow(this, "PartnerShopApplicationWorkflow", {
-      config,
-      stageName,
-      worker: this.lambdas.functions.partnerShopApplicationWorkflow,
-    });
-    this.lambdas.functions.partnerShopApplicationApi.addEnvironment(
-      "STATE_MACHINE_ARN",
-      this.workflow.stateMachine.stateMachineArn,
-    );
-    this.lambdas.functions.partnerShopApplicationApi.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ["states:StartExecution", "states:DescribeExecution"],
-        resources: [this.workflow.stateMachine.stateMachineArn],
-      }),
-    );
-    this.lambdas.functions.partnerShopApplicationApi.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ["states:SendTaskSuccess", "states:SendTaskFailure", "states:SendTaskHeartbeat"],
-        resources: ["*"],
-      }),
-    );
 
     this.eventing = new Eventing(this, "Eventing", {
       config,
@@ -262,7 +230,6 @@ export class ApplicationEphemeralStack extends cdk.Stack {
   readonly search: Search;
   readonly lambdas: Lambdas;
   readonly identity: Identity;
-  readonly workflow: PartnerShopApplicationWorkflow;
   readonly eventing: Eventing;
   readonly api: BackendHttpApi;
 
@@ -307,14 +274,6 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       search: this.search,
     });
 
-    new PeriodicSearchFilterMatching(this, "PeriodicSearchFilterMatching", {
-      config,
-      commitSha: parameters.commitSha,
-      table: this.storage.table,
-      postgres: this.storage.postgres,
-      mailTemplateBucket,
-      search: this.search,
-    });
 
     this.identity = new Identity(this, "Identity", {
       config,
@@ -327,28 +286,6 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       this.identity.publicClient.userPoolClientId,
     );
     grantCognitoAdminAccess(this.lambdas.functions, this.identity.userPool.userPoolArn);
-
-    this.workflow = new PartnerShopApplicationWorkflow(this, "PartnerShopApplicationWorkflow", {
-      config,
-      stageName,
-      worker: this.lambdas.functions.partnerShopApplicationWorkflow,
-    });
-    this.lambdas.functions.partnerShopApplicationApi.addEnvironment(
-      "STATE_MACHINE_ARN",
-      this.workflow.stateMachine.stateMachineArn,
-    );
-    this.lambdas.functions.partnerShopApplicationApi.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ["states:StartExecution", "states:DescribeExecution"],
-        resources: [this.workflow.stateMachine.stateMachineArn],
-      }),
-    );
-    this.lambdas.functions.partnerShopApplicationApi.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ["states:SendTaskSuccess", "states:SendTaskFailure", "states:SendTaskHeartbeat"],
-        resources: ["*"],
-      }),
-    );
 
     this.eventing = new Eventing(this, "Eventing", {
       config,
@@ -444,72 +381,16 @@ function dataOutputs(
     value: resources.search.endpointUrl,
   });
 
-  new cdk.CfnOutput(stack, "NotificationSendQueueUrl", {
-    value: resources.queues.catalog.notificationSend.queue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "NotificationSendDeadLetterQueueUrl", {
-    value: resources.queues.catalog.notificationSend.deadLetterQueue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ProductMaterializeOpensearchQueueUrl", {
-    value: resources.queues.catalog.productMaterializeOpenSearch.queue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ProductMaterializeOpensearchDeadLetterQueueUrl", {
-    value: resources.queues.catalog.productMaterializeOpenSearch.deadLetterQueue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ProductDeleteProductQueueUrl", {
-    value: resources.queues.catalog.productDeleteProduct.queue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ProductDeleteProductDeadLetterQueueUrl", {
-    value: resources.queues.catalog.productDeleteProduct.deadLetterQueue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ProductPartnerIngestQueueUrl", {
-    value: resources.queues.catalog.productPartnerIngest.queue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ProductPartnerIngestDeadLetterQueueUrl", {
-    value: resources.queues.catalog.productPartnerIngest.deadLetterQueue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ProductPipelineEmbedTextQueueUrl", {
-    value: resources.queues.catalog.productPipelineEmbedText.queue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ProductPipelineEmbedTextDeadLetterQueueUrl", {
-    value: resources.queues.catalog.productPipelineEmbedText.deadLetterQueue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ProductPipelineTranslateQueueUrl", {
-    value: resources.queues.catalog.productPipelineTranslate.queue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ProductPipelineTranslateDeadLetterQueueUrl", {
-    value: resources.queues.catalog.productPipelineTranslate.deadLetterQueue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ProductUpdateNotifyUserQueueUrl", {
-    value: resources.queues.catalog.productUpdateNotifyUser.queue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ProductUpdateNotifyUserDeadLetterQueueUrl", {
-    value: resources.queues.catalog.productUpdateNotifyUser.deadLetterQueue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "SearchFilterOpenSearchSyncQueueUrl", {
-    value: resources.queues.catalog.searchFilterOpenSearchSync.queue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "SearchFilterOpenSearchSyncDeadLetterQueueUrl", {
-    value: resources.queues.catalog.searchFilterOpenSearchSync.deadLetterQueue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ShopOpensearchIndexQueueUrl", {
-    value: resources.queues.catalog.shopOpenSearchIndex.queue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ShopOpensearchIndexDeadLetterQueueUrl", {
-    value: resources.queues.catalog.shopOpenSearchIndex.deadLetterQueue.queueUrl,
-  });
+
+
+
   new cdk.CfnOutput(stack, "ShopifyLambdaQueueUrl", {
     value: resources.queues.catalog.shopify.queue.queueUrl,
   });
   new cdk.CfnOutput(stack, "ShopifyLambdaDeadLetterQueueUrl", {
     value: resources.queues.catalog.shopify.deadLetterQueue.queueUrl,
   });
-  new cdk.CfnOutput(stack, "UserOpensearchIndexQueueUrl", {
-    value: resources.queues.catalog.userOpenSearchIndex.queue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "UserOpensearchIndexDeadLetterQueueUrl", {
-    value: resources.queues.catalog.userOpenSearchIndex.deadLetterQueue.queueUrl,
-  });
+
 }
 
 function computeOutputs(

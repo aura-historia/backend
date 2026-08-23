@@ -1,0 +1,29 @@
+[package]
+name = "user-dynamodb"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+credential-core = { workspace = true }
+application = { workspace = true }
+async-trait = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+serde = { workspace = true }
+serde_dynamo = { workspace = true, features = ["aws-sdk-dynamodb+1"] }
+serde_fields = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+user-core = { workspace = true }
+user-service = { workspace = true }
+
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+user-dynamodb = { workspace = true, features = ["test-data"] }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+
+[features]
+default = []
+test-data = ["fake", "user-core/test-data"]

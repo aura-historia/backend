@@ -8,41 +8,62 @@ use std::process::Command;
 /// Integration test crates that run on ubuntu-latest with LocalStack.
 /// These paths are relative to the workspace root.
 const INTEGRATION_TEST_CRATES: &[&str] = &[
+    "src/application",
+    "src/aura-historia-api",
+    "src/aura-historia-worker",
+    "src/aura-historia-cron",
+    "src/credential-core",
     "src/crawler",
-    "src/fxrate",
-    "src/notification",
-    "src/notification-api",
-    "src/oauth",
-    "src/partner-shop-application",
-    "src/partner-shop-application-api",
-    "src/partner-shop-application-lambda",
-    "src/product",
-    "src/product-api",
-    "src/product-api-partner",
-    "src/product-lambda/src/product-lambda-ingest-partner-products",
-    "src/product-lambda/src/product-lambda-delete-product",
-    "src/product-pipeline/src/product-pipeline-embed-text",
-    "src/product-pipeline/src/product-pipeline-translate",
-    "src/product-watchlist",
-    "src/product-watchlist-api",
-    "src/search-filter",
-    "src/search-filter-api",
-    "src/search-filter-lambda/src/search-filter-lambda-percolate-product",
-    "src/shop",
-    "src/shop-api",
-    "src/shop-lambda/src/shop-lambda-opensearch-index",
+    "src/domain-primitives",
+    "src/embedding",
+    "src/geo",
+    "src/image-fetcher",
+    "src/large-language-model",
+    "src/localization",
+    "src/money",
+    "src/platform-observability",
+    "src/platform-opensearch",
+    "src/platform-postgres",
+    "src/product-core",
+    "src/product-opensearch",
+    "src/product-postgres",
+    "src/product-service",
+    "src/shop-core",
+    "src/shop-postgres",
+    "src/shop-service",
+    "src/shop-partner-core",
+    "src/shop-partner-postgres",
+    "src/shop-partner-service",
+    "src/user-core",
+    "src/user-dynamodb",
+    "src/user-postgres",
+    "src/user-service",
+    "src/user-zoho",
+    "src/search-filter-core",
+    "src/search-filter-opensearch",
+    "src/search-filter-postgres",
+    "src/search-filter-service",
+    "src/watchlist-core",
+    "src/watchlist-postgres",
+    "src/watchlist-service",
+    "src/notification-core",
+    "src/notification-service",
+    "src/notification-postgres",
+    "src/notification-email",
+    "src/notification-email-aws",
+    "src/oauth-core",
+    "src/oauth-dynamodb",
+    "src/oauth-service",
+    "src/billing-service",
+    "src/billing-stripe",
+    "src/stripe-lambda",
     "src/shopify-lambda",
-    "src/test-api",
-    "src/user",
-    "src/user-api",
-    "src/user-lambda/src/user-lambda-index-opensearch",
-    "src/user-lambda/src/user-lambda-tier-update",
-    "src/webhook-api",
+    "src/fxrate-fxratesapi",
+    "src/fxrate-lambda",
+    "src/fxrate-core",
+    "src/fxrate-postgres",
+    "src/fxrate-service",
 ];
-
-/// Acceptance test crates that run on self-hosted runners with cargo-lambda.
-/// These paths are relative to the workspace root.
-const ACCEPTANCE_TEST_CRATES: &[&str] = &["src/acceptance-tests"];
 
 fn main() -> Result<()> {
     let base_ref = std::env::args()
@@ -54,17 +75,11 @@ fn main() -> Result<()> {
     if changed_files.is_empty() {
         let output = serde_json::json!({
             "integration_test": Vec::<&str>::new(),
-            "acceptance_test": Vec::<&str>::new(),
+
         });
         println!("{output}");
         return Ok(());
     }
-
-    let infrastructure_changed = changed_files.iter().any(|path| {
-        path.starts_with("infra/")
-            || path == ".github/workflows/deploy.yml"
-            || path == ".github/workflows/integrate.yml"
-    });
 
     let graph = MetadataCommand::new()
         .exec()
@@ -94,19 +109,9 @@ fn main() -> Result<()> {
         .filter(|c| affected_dirs.contains(*c))
         .collect();
 
-    let acceptance_test: Vec<&str> = if infrastructure_changed {
-        ACCEPTANCE_TEST_CRATES.to_vec()
-    } else {
-        ACCEPTANCE_TEST_CRATES
-            .iter()
-            .copied()
-            .filter(|c| affected_dirs.contains(*c))
-            .collect()
-    };
-
     let output = serde_json::json!({
         "integration_test": integration_test,
-        "acceptance_test": acceptance_test,
+
     });
     println!("{output}");
 

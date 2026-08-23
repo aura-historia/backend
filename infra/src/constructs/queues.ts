@@ -4,76 +4,13 @@ import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 
 export const QUEUE_DEFINITIONS = {
-  notificationSend: {
-    id: "NotificationSend",
-    queueName: "notification-send-queue",
-    deadLetterQueueName: "notification-send-dlq",
-    visibilityTimeoutSeconds: 180,
-    maxReceiveCount: 5,
-  },
-  productMaterializeOpenSearch: {
-    id: "ProductMaterializeOpenSearch",
-    queueName: "product-lambda-materialize-opensearch-queue",
-    deadLetterQueueName: "product-lambda-materialize-opensearch-dlq",
-    visibilityTimeoutSeconds: 360,
-    maxReceiveCount: 5,
-  },
-  productDeleteProduct: {
-    id: "ProductDeleteProduct",
-    queueName: "product-lambda-delete-product-queue",
-    deadLetterQueueName: "product-lambda-delete-product-dlq",
-    visibilityTimeoutSeconds: 360,
-    maxReceiveCount: 5,
-  },
-  productPartnerIngest: {
-    id: "ProductPartnerIngest",
-    queueName: "product-lambda-ingest-partner-products-queue",
-    deadLetterQueueName: "product-lambda-ingest-partner-products-dlq",
-    visibilityTimeoutSeconds: 180,
-    maxReceiveCount: 5,
-  },
-  productPipelineEmbedText: {
-    id: "ProductPipelineEmbedText",
-    queueName: "product-pipeline-embed-text-queue",
-    deadLetterQueueName: "product-pipeline-embed-text-dlq",
-    visibilityTimeoutSeconds: 300,
-    maxReceiveCount: 3,
-  },
-  productPipelineTranslate: {
-    id: "ProductPipelineTranslate",
-    queueName: "product-pipeline-translate-queue",
-    deadLetterQueueName: "product-pipeline-translate-dlq",
-    visibilityTimeoutSeconds: 300,
-    maxReceiveCount: 3,
-  },
-  productUpdateNotifyUser: {
-    id: "ProductUpdateNotifyUser",
-    queueName: "product-lambda-update-notify-user-queue",
-    deadLetterQueueName: "product-lambda-update-notify-user-dlq",
-    visibilityTimeoutSeconds: 360,
-    maxReceiveCount: 5,
-  },
-  searchFilterOpenSearchSync: {
-    id: "SearchFilterOpenSearchSync",
-    queueName: "search-filter-opensearch-sync-queue",
-    deadLetterQueueName: "search-filter-opensearch-sync-dlq",
-    visibilityTimeoutSeconds: 360,
-    maxReceiveCount: 5,
-  },
-  searchFilterPercolateProduct: {
-    id: "SearchFilterPercolateProduct",
-    queueName: "search-filter-percolate-product-queue",
-    deadLetterQueueName: "search-filter-percolate-product-dlq",
-    visibilityTimeoutSeconds: 360,
-    maxReceiveCount: 5,
-  },
-  shopOpenSearchIndex: {
-    id: "ShopOpenSearchIndex",
-    queueName: "shop-opensearch-index-queue",
-    deadLetterQueueName: "shop-opensearch-index-dlq",
-    visibilityTimeoutSeconds: 360,
-    maxReceiveCount: 5,
-  },
+
+
+
+
+
+
+
   shopify: {
     id: "ShopifyLambda",
     queueName: "shopify-lambda-queue",
@@ -81,22 +18,8 @@ export const QUEUE_DEFINITIONS = {
     visibilityTimeoutSeconds: 180,
     maxReceiveCount: 5,
   },
-  userOpenSearchIndex: {
-    id: "UserOpenSearchIndex",
-    queueName: "user-index-opensearch-queue",
-    deadLetterQueueName: "user-index-opensearch-dlq",
-    visibilityTimeoutSeconds: 360,
-    maxReceiveCount: 5,
-    managedSse: true,
-  },
-  userTierUpdate: {
-    id: "UserTierUpdate",
-    queueName: "user-tier-update-queue",
-    deadLetterQueueName: "user-tier-update-dlq",
-    visibilityTimeoutSeconds: 360,
-    maxReceiveCount: 5,
-    managedSse: true,
-  },
+
+
 } as const;
 
 export type QueueKey = keyof typeof QUEUE_DEFINITIONS;

@@ -25,7 +25,7 @@
 //! tests/fixtures/html/weitze_available.html
 //! ```
 //!
-//! No Postgres, no Gemini API key, no Docker — only an internet connection is
+//! No Postgres, no Vertex AI credentials, no Docker — only an internet connection is
 //! required.
 
 use crawler::scraper::scraper_service::{HtmlFetcher, ReqwestHtmlFetcher};

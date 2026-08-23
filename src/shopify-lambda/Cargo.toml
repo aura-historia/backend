@@ -4,18 +4,22 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aws-config = { workspace = true }
-aws-sdk-dynamodb = { workspace = true }
+async-trait = { workspace = true }
 aws_lambda_events = { workspace = true, features = ["eventbridge", "sqs"] }
-common = { workspace = true, features = ["api", "opensearch"] }
+application = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
+fxrate-postgres = { workspace = true }
+indexmap = { workspace = true }
 lambda_runtime = { workspace = true }
-llm = { workspace = true, features = ["google"] }
-opensearch = { workspace = true }
-fxrate = { workspace = true }
-product = { workspace = true, features = ["dynamodb", "service"] }
+product-core = { workspace = true }
+product-postgres = { workspace = true }
+product-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-shop = { workspace = true, features = ["dynamodb", "service", "seller"] }
+shop-core = { workspace = true }
+shop-postgres = { workspace = true }
+shop-service = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 tracing = { workspace = true }
@@ -23,12 +27,13 @@ url = { workspace = true }
 html-to-markdown-rs = { workspace = true }
 
 [dev-dependencies]
-common = { workspace = true, features = ["test-data"] }
-fake = { workspace = true }
-product = { workspace = true, features = ["full"] }
-rstest = { workspace = true }
-shop = { workspace = true, features = ["full"] }
-test-api = { workspace = true, features = ["dynamodb"] }
-time = { workspace = true }
+fxrate-core = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
+fxrate-service = { workspace = true }
+test-api = { workspace = true, features = ["postgres"] }
+sqlx = { workspace = true }
 serial_test = { workspace = true }
 uuid = { workspace = true }
+strum = { workspace = true }
+time = { workspace = true }

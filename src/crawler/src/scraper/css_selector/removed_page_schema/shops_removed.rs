@@ -1,5 +1,5 @@
-use common::shop_id::ShopId;
 use serde::{Deserialize, Serialize};
+use shop_core::shop_id::ShopId;
 use time::OffsetDateTime;
 
 use super::RemovedPageSchema;

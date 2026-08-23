@@ -1,7 +1,7 @@
 <h1 align="center">Aura Historia — Backend</h1>
 
 <p align="center">
-  <strong>Serverless AWS backend powering the <a href="https://aura-historia.com">Aura Historia</a> antiques marketplace</strong>
+  <strong>Backend powering the <a href="https://aura-historia.com">Aura Historia</a> art & antiques platform</strong>
 </p>
 
 <p align="center">
@@ -55,11 +55,8 @@ export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
 export AWS_REGION=eu-central-1
 export LOCALSTACK_AUTH_TOKEN=[your_localstack_pro_token]
-cargo test --workspace --test integration --all-features --exclude acceptance-tests
+cargo test --workspace --test integration --all-features
 
-# Run acceptance tests (full CDK-synthesized stack via LocalStack)
-npm --prefix infra install
-cargo test --package acceptance-tests
 ```
 
 ## License

@@ -10,8 +10,8 @@ use crate::scraper::scraper_service::util::hash::{hash_html, hash_main_fragment}
 use crate::scraper::scraper_service::util::html::extract_main_fragment;
 use crate::spider::classification::url_metadata::UrlState;
 use crate::spider::utils::url::CrawledUrl;
-use common::shop_id::ShopId;
 use regex::Regex;
+use shop_core::shop_id::ShopId;
 use tracing::{debug, warn};
 use url::Url;
 
@@ -90,6 +90,7 @@ impl ScraperServiceImpl {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     async fn removed_page_schemas_for(
         &self,
         shop_id: &ShopId,
@@ -108,6 +109,7 @@ impl ScraperServiceImpl {
         Ok(schemas)
     }
 
+    #[allow(clippy::result_large_err)]
     async fn is_removed_page(&self, shop_id: &ShopId, html: &str) -> Result<bool, ScraperError> {
         Ok(self
             .removed_page_schemas_for(shop_id)

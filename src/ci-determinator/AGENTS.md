@@ -6,7 +6,7 @@
 
 ## Core Design
 
-- CLI that maps changed files to integration and acceptance test crates.
+- CLI that maps changed files to integration and acceptance test crates, including canonical notification adapters.
 - Workspace utility. Inputs be changed file paths; output be stable machine JSON.
 
 ## Ownership

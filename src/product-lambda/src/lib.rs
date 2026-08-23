@@ -1,2 +1,0 @@
-pub use product_lambda_materialize_opensearch;
-pub use product_lambda_update_notify_user;

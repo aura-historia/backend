@@ -1,5 +1,5 @@
-use common::language::domain::Language;
 use lingua::{Language as LinguaLanguage, LanguageDetector, LanguageDetectorBuilder};
+use localization::Language;
 use once_cell::sync::Lazy;
 
 static DETECTOR: Lazy<LanguageDetector> = Lazy::new(|| {
@@ -47,7 +47,7 @@ pub(super) fn detect_language(text: &str) -> Option<Language> {
 
 #[cfg(test)]
 mod tests {
-    use common::language::domain::Language;
+    use localization::Language;
     use rstest::rstest;
 
     use super::detect_language;

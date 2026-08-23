@@ -24,35 +24,32 @@
 //! | Env var          | Purpose                              | Default                         |
 //! |------------------|--------------------------------------|--------------------|
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL               | `.../crawler_demo_scraper` |
-//! | `GEMINI_API_KEY` | API key forwarded to the LLM builder | *(required)*       |
-//! | `GEMINI_MODEL`   | Model name to use                    | `gemini-3.1-flash-lite-preview` |
-//! | `GEMINI_CHEAP_MODEL` | Default cheaper model for low-risk LLM calls | `gemini-2.5-flash-lite` |
-//! | `GEMINI_STATE_MAPPING_MODEL` | Optional override for state mapping calls | `GEMINI_CHEAP_MODEL` |
-//! | `GEMINI_FLEX`    | Enable Gemini Flex inference         | unset / `false` |
+//! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required)* |
+//! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required)* |
+//! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
+//! | `VERTEX_AI_MODEL` | Schema generation/repair model | `gemini-3.1-pro-preview` |
+//! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default low-risk crawler LLM model | `gemini-3.1-flash-lite` |
+//! | `CRAWLER_VERTEX_AI_STATE_MAPPING_MODEL` | Optional state mapping model override | `CRAWLER_VERTEX_AI_CHEAP_MODEL` |
+//! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls | `1` |
+//! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between LLM request starts | `2000` |
 //! | `LOG_LEVEL`      | Log level for `init_logging`         | `info`             |
 //!
 //! # Running
 //!
 //! ```powershell
-//! $env:GEMINI_API_KEY="sk-..."
-//! $env:GEMINI_FLEX="true" # optional
+//! gcloud auth application-default login
+//! $env:VERTEX_AI_PROJECT_ID="my-project"
+//! $env:VERTEX_AI_LOCATION="europe-west3"
 //! cargo run --bin demo-scraper -p crawler
 //! ```
 
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufWriter;
 use std::sync::Arc;
 
-use common::language::data::LocalizedTextData;
-use common::logging::GeminiServiceTier;
-use common::price::data::PriceData;
-use common::shops_product_id::ShopsProductId;
-use crawler::google_llm::{
-    GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
-    state_mapping_gemini_model,
-};
+use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
 use crawler::local_db::{DEMO_SCRAPER_DB_NAME, bootstrap_local_database, demo_scraper_db_url};
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
@@ -66,8 +63,13 @@ use crawler::scraper::normalization::state_mapping_service::ProductStateMappingS
 use crawler::scraper::scraper_service::{
     DEFAULT_MAX_LLM_CALLS_PER_SHOP, ReqwestHtmlFetcher, ScraperService, ScraperServiceImpl,
 };
-use product::data::product_image_data::ProductImageData;
-use product::data::product_state_data::ProductStateData;
+use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
+use localization::{Language, Localized};
+use money::Price;
+use product_core::{
+    product_image::ProductImage, product_state::ProductState, shops_product_id::ShopsProductId,
+};
+
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use time::OffsetDateTime;
@@ -93,6 +95,81 @@ struct ScrapeTarget {
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalizedTextData {
+    pub text: String,
+    pub language: &'static str,
+}
+
+impl<T: Into<String>> From<Localized<Language, T>> for LocalizedTextData {
+    fn from(value: Localized<Language, T>) -> Self {
+        Self {
+            text: value.payload.into(),
+            language: value.localization.as_str(),
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PriceData {
+    pub currency: &'static str,
+    pub amount: u64,
+}
+
+impl From<Price> for PriceData {
+    fn from(value: Price) -> Self {
+        Self {
+            currency: value.currency.as_str(),
+            amount: value.monetary_amount.into(),
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ProductStateData {
+    Listed,
+    Available,
+    Reserved,
+    Sold,
+    Removed,
+    Unknown,
+}
+
+impl From<ProductState> for ProductStateData {
+    fn from(value: ProductState) -> Self {
+        match value {
+            ProductState::Listed => Self::Listed,
+            ProductState::Available => Self::Available,
+            ProductState::Reserved => Self::Reserved,
+            ProductState::Sold => Self::Sold,
+            ProductState::Removed => Self::Removed,
+            ProductState::Unknown => Self::Unknown,
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductImageData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<Url>,
+    pub prohibited_content: &'static str,
+}
+
+impl From<ProductImage> for ProductImageData {
+    fn from(value: ProductImage) -> Self {
+        let url = value.prohibited_content.is_safe().then_some(value.url);
+
+        Self {
+            url,
+            prohibited_content: value.prohibited_content.as_str(),
+        }
+    }
+}
 
 #[derive(serde::Serialize)]
 pub struct DemoProduct {
@@ -169,7 +246,7 @@ async fn main() {
     ];
 
     unsafe { std::env::set_var("LOG_LEVEL", "info") };
-    common::logging::init_logging_with_directives(&[HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE]);
+    init_logging();
 
     async {
         let pool: &'static PgPool = connect_and_migrate().await;
@@ -232,6 +309,15 @@ async fn main() {
     .await;
 }
 
+fn init_logging() {
+    let log_level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+    let filter = tracing_subscriber::EnvFilter::new(format!(
+        "{log_level},{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE}"
+    ));
+
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+}
+
 // ---------------------------------------------------------------------------
 // Postgres helpers
 // ---------------------------------------------------------------------------
@@ -277,63 +363,54 @@ async fn connect_and_migrate() -> &'static PgPool {
 
 /// Constructs and returns a fully wired [`ScraperServiceImpl`].
 ///
-/// Both LLM-backed services receive a fresh [`LLMBuilder`] each — they apply
-/// their own system prompts internally via their `::new` constructors.
+/// Each LLM-backed service receives its own concrete model. The service implementations
+/// remain generic over the provider-neutral `LargeLanguageModel` capability.
 #[tracing::instrument(skip(pool))]
 fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
-    let api_key = std::env::var("GEMINI_API_KEY")
-        .expect("GEMINI_API_KEY must be set — see the module-level doc comment");
-    let model = std::env::var("GEMINI_MODEL")
-        .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
-    let state_model = state_mapping_gemini_model();
-    unsafe {
-        std::env::set_var("GEMINI_MODEL", &model);
-    }
-    let gemini_flex = gemini_flex_enabled();
-    let gemini_service_tier = if gemini_flex { "flex" } else { "default" };
-    let llm_service_tier = Some(if gemini_flex {
-        GeminiServiceTier::Flex
-    } else {
-        GeminiServiceTier::Standard
-    });
+    let vertex_ai_config = CrawlerVertexAiConfig::from_env()
+        .expect("VERTEX_AI_PROJECT_ID and VERTEX_AI_LOCATION must be set");
+    let vertex_ai_models = CrawlerVertexAiModels::from_env();
 
     info!(
-        gemini_model = %model,
-        gemini_state_mapping_model = %state_model,
-        gemini_service_tier,
-        "Crawler scraper demo Gemini configuration resolved"
+        llm_provider = "vertex_ai",
+        schema_model = %vertex_ai_models.product_schema,
+        state_mapping_model = %vertex_ai_models.product_state_mapping,
+        "Crawler scraper demo Vertex AI configuration resolved"
     );
-    let gemini_rate_limiter = Arc::new(GeminiRateLimiter::new(GeminiRateLimitConfig::from_env()));
+    let llm_governor = Arc::new(CrawlerLlmGovernor::new(
+        CrawlerLlmRateLimitConfig::from_env(),
+    ));
 
-    let create_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
-    let single_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
-
-    let state_llm_builder = google_llm_builder(&api_key, &state_model, gemini_flex);
+    let create_schema_llm = vertex_ai_config
+        .create_model(vertex_ai_models.product_schema.clone())
+        .expect("failed to initialize Vertex AI model for schema generation");
+    let single_schema_llm = vertex_ai_config
+        .create_model(vertex_ai_models.product_schema.clone())
+        .expect("failed to initialize Vertex AI model for fresh schema generation");
+    let state_llm = vertex_ai_config
+        .create_model(vertex_ai_models.product_state_mapping.clone())
+        .expect("failed to initialize Vertex AI model for state mapping");
 
     // State-mapping service (DB-backed + LLM fallback).
     let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(pool));
     let state_mapping_svc = ProductStateMappingServiceImpl::new(
-        state_llm_builder,
-        llm_service_tier,
+        state_llm,
         state_mapping_repo,
-        Some(Arc::clone(&gemini_rate_limiter)),
-    )
-    .expect("failed to build ProductStateMappingServiceImpl");
+        Some(Arc::clone(&llm_governor)),
+    );
 
     // Normalization service.
     let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
-    // Schema service (DB-backed + LLM creation/fix).
+    // Schema service (DB-backed + initial/fresh LLM generation).
     let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(pool));
     let removed_page_schema_repo = Box::new(RemovedPageSchemaRepositoryImpl::new(pool));
     let schema_svc = ProductSchemaServiceImpl::new(
-        create_schema_llm_builder,
-        single_schema_llm_builder,
-        llm_service_tier,
+        create_schema_llm,
+        single_schema_llm,
         schema_repo,
-        Some(Arc::clone(&gemini_rate_limiter)),
-    )
-    .expect("failed to build ProductSchemaServiceImpl");
+        Some(Arc::clone(&llm_governor)),
+    );
 
     // HTTP fetcher using spider.
     let fetcher = Box::new(ReqwestHtmlFetcher::new());

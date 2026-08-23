@@ -14,8 +14,8 @@ pub(super) mod test_support {
     use crate::service::shop_registration::{
         MockShopRegistrationRepository, MockShopRegistrationSource, ShopRegistrationService,
     };
-    use common::shop_id::ShopId;
-    use shop::core::shop_type::ShopType;
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_type::ShopType;
 
     pub(super) fn noop_shop_registration() -> ShopRegistrationService {
         let mut source = MockShopRegistrationSource::new();
@@ -28,14 +28,8 @@ pub(super) mod test_support {
 
     pub(super) fn noop_product_push() -> Box<MockProductPushService> {
         let mut push = MockProductPushService::new();
-        push.expect_push().returning(|products| {
-            Box::pin(async move {
-                products
-                    .into_iter()
-                    .map(|product| product.command)
-                    .collect()
-            })
-        });
+        push.expect_push()
+            .returning(|products| Box::pin(async move { vec![true; products.len()] }));
         Box::new(push)
     }
 

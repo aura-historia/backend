@@ -1,0 +1,82 @@
+[package]
+name = "aura-historia-api"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+application = { workspace = true }
+axum = { workspace = true }
+base64 = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+billing-service = { workspace = true }
+billing-stripe = { workspace = true }
+credential-core = { workspace = true }
+domain-primitives = { workspace = true }
+embedding = { workspace = true }
+fxrate-core = { workspace = true }
+fxrate-postgres = { workspace = true }
+geo = { workspace = true, features = ["data"] }
+google-cloud-auth = { workspace = true }
+http = { workspace = true }
+httpdate = { workspace = true }
+indexmap = { workspace = true }
+oauth-core = { workspace = true }
+oauth-dynamodb = { workspace = true }
+oauth-service = { workspace = true }
+opensearch = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
+isocountry = { workspace = true }
+jsonwebtokens = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
+notification-core = { workspace = true }
+notification-postgres = { workspace = true }
+notification-service = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+serde = { workspace = true, features = ["derive"] }
+serde-email = { workspace = true }
+serde_json = { workspace = true }
+serde_qs = { workspace = true }
+sqlx = { workspace = true }
+shop-core = { workspace = true }
+shop-partner-core = { workspace = true }
+shop-partner-postgres = { workspace = true }
+shop-partner-service = { workspace = true }
+shop-postgres = { workspace = true }
+shop-service = { workspace = true }
+product-core = { workspace = true }
+product-opensearch = { workspace = true }
+product-postgres = { workspace = true }
+product-service = { workspace = true }
+search-filter-core = { workspace = true }
+search-filter-postgres = { workspace = true }
+search-filter-service = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true, features = ["formatting"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync"] }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true, features = ["serde"] }
+user-core = { workspace = true }
+user-dynamodb = { workspace = true }
+user-postgres = { workspace = true }
+user-service = { workspace = true }
+user-zoho = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+watchlist-core = { workspace = true }
+watchlist-postgres = { workspace = true }
+watchlist-service = { workspace = true }
+
+[dev-dependencies]
+base64 = { workspace = true }
+mockall = { workspace = true }
+openssl = { workspace = true, features = ["vendored"] }
+rstest = { workspace = true }
+serial_test = { workspace = true }
+sqlx = { workspace = true }
+test-api = { workspace = true, features = ["aura-historia-api", "dynamodb", "opensearch", "postgres"] }
+time = { workspace = true }
+tower = { workspace = true, features = ["util"] }

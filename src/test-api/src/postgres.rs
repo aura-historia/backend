@@ -2,28 +2,72 @@ use crate::IntegrationTestService;
 use async_trait::async_trait;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::{ConnectOptions, Executor, PgConnection, PgPool};
+use std::collections::HashMap;
+use std::net::TcpListener;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
+use std::process::Stdio;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::OnceCell;
 use tracing::debug;
 
 const POSTGRES_USER: &str = "postgres";
 const POSTGRES_PASSWORD: &str = "postgres";
 const POSTGRES_DB: &str = "postgres";
-const POSTGRES_PORT: u16 = 5432;
-const POSTGRES_CONTAINER_NAME: &str = "aura-historia-aws-backend-postgres-test";
+const POSTGRES_CONTAINER_PORT: u16 = 5432;
+const POSTGRES_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-postgres-test";
+const HOST_GATEWAY: &str = "host.docker.internal";
+
+type MigrationInitializers = Mutex<HashMap<&'static str, Arc<OnceCell<()>>>>;
 
 /// Guards the one-time startup of the Postgres container.
 ///
 /// [`tokio::sync::OnceCell`] is used so concurrent async callers all await the same
 /// initialisation future instead of racing to start duplicate containers.
 static POSTGRES_CONTAINER_STARTED: OnceCell<()> = OnceCell::const_new();
+static POSTGRES_HOST_PORT: OnceLock<u16> = OnceLock::new();
+static MIGRATIONS_APPLIED: OnceLock<MigrationInitializers> = OnceLock::new();
+
+fn postgres_container_name() -> String {
+    format!("{POSTGRES_CONTAINER_NAME_PREFIX}-{}", std::process::id())
+}
+
+fn postgres_host_port() -> u16 {
+    *POSTGRES_HOST_PORT
+        .get()
+        .expect("Postgres host port not initialized; call `ensure_container_started()` first")
+}
+
+fn find_free_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0")
+        .expect("shouldn't fail binding to a random port")
+        .local_addr()
+        .expect("shouldn't fail reading local address")
+        .port()
+}
 
 fn connection_string() -> String {
+    postgres_connection_string("localhost", POSTGRES_DB)
+}
+
+pub fn get_postgres_host_gateway_connection_string(database: &str) -> String {
+    postgres_connection_string(HOST_GATEWAY, database)
+}
+
+#[cfg(feature = "sequin")]
+pub(crate) fn get_postgres_host_port() -> u16 {
+    postgres_host_port()
+}
+
+fn postgres_connection_string(host: &str, database: &str) -> String {
     format!(
-        "postgres://{}:{}@localhost:{}/{}",
-        POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_PORT, POSTGRES_DB,
+        "postgres://{}:{}@{}:{}/{}",
+        POSTGRES_USER,
+        POSTGRES_PASSWORD,
+        host,
+        postgres_host_port(),
+        database,
     )
 }
 
@@ -49,11 +93,14 @@ async fn ensure_container_started() {
     POSTGRES_CONTAINER_STARTED
         .get_or_init(|| async {
             install_cleanup();
-            // Remove any container left over from a previous aborted run.
-            let _ = Command::new("docker")
-                .args(["rm", "-f", POSTGRES_CONTAINER_NAME])
-                .stderr(Stdio::null())
-                .status();
+            let name = postgres_container_name();
+            let port = find_free_port();
+            POSTGRES_HOST_PORT
+                .set(port)
+                .expect("shouldn't fail setting Postgres host port");
+
+            // Remove any container left over from a previous aborted run of this process id.
+            let _ = docker_remove(&name);
 
             use testcontainers::ImageExt;
             use testcontainers::core::IntoContainerPort;
@@ -64,8 +111,10 @@ async fn ensure_container_started() {
                 .with_user(POSTGRES_USER)
                 .with_password(POSTGRES_PASSWORD)
                 .with_db_name(POSTGRES_DB)
-                .with_container_name(POSTGRES_CONTAINER_NAME)
-                .with_mapped_port(POSTGRES_PORT, POSTGRES_PORT.tcp())
+                .with_tag("16-alpine")
+                .with_cmd(["-c", "fsync=off", "-c", "wal_level=logical"])
+                .with_container_name(name)
+                .with_mapped_port(port, POSTGRES_CONTAINER_PORT.tcp())
                 .start()
                 .await
                 .expect("shouldn't fail starting Postgres test container");
@@ -79,10 +128,17 @@ async fn ensure_container_started() {
         .await;
 }
 
+fn docker_remove(name: &str) -> std::io::Result<std::process::ExitStatus> {
+    Command::new("docker")
+        .args(["rm", "-f", name])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+}
+
 extern "C" fn cleanup() {
-    let _ = Command::new("docker")
-        .args(["rm", "-f", POSTGRES_CONTAINER_NAME])
-        .status();
+    let name = postgres_container_name();
+    let _ = docker_remove(&name);
 }
 
 /// Installs cleanup hooks so that the Postgres container is removed both on normal
@@ -131,10 +187,10 @@ pub async fn get_postgres_client() -> PgPool {
 ///
 /// # Lifecycle
 ///
-/// - **Before each test** (`set_up`): Starts the Postgres container (once per process), then
-///   opens a fresh connection, runs every `*.sql` file found in `migrations_dir` in
-///   lexicographic (filename) order — mirroring exactly what `sqlx::migrate!` does at runtime —
-///   then runs `setup_script` when supplied.
+/// - **Before each test** (`set_up`): Starts the Postgres container once per process.
+///   [`Postgres::new`] and [`Postgres::new_schema_once`] apply schema-only migrations once per
+///   test process; `setup_script` still runs before each test. [`Postgres::new_per_test`]
+///   replays migrations before each test when they provide seed data.
 /// - **After each test** (`tear_down`): Opens a fresh connection and truncates every user
 ///   table in the `public` schema so that each test starts with a clean slate. Table
 ///   definitions (DDL) are preserved.
@@ -152,7 +208,7 @@ pub async fn get_postgres_client() -> PgPool {
 /// ```rust
 /// use test_api::*;
 ///
-/// const POSTGRES: Postgres = Postgres::new("src/my-crate/migrations");
+/// const POSTGRES: Postgres = Postgres::new("migrations");
 ///
 /// #[aura_integration_test(services = [POSTGRES])]
 /// async fn should_insert_and_read_row() {
@@ -178,13 +234,102 @@ pub struct Postgres {
     pub migrations_dir: &'static str,
     /// Optional SQL file, relative to workspace root, run after migrations and before the test.
     pub setup_script: Option<&'static str>,
+    migrate_once: bool,
+}
+
+async fn apply_migrations(migrations_dir: &'static str) {
+    let workspace_root = env!("CARGO_WORKSPACE_DIR");
+    let dir_path = Path::new(workspace_root).join(migrations_dir);
+    let mut entries: Vec<_> = std::fs::read_dir(&dir_path)
+        .unwrap_or_else(|error| {
+            panic!(
+                "failed to read migrations directory '{}': {error}",
+                dir_path.display()
+            )
+        })
+        .filter_map(|entry| {
+            let entry =
+                entry.unwrap_or_else(|error| panic!("failed to read migration entry: {error}"));
+            let path = entry.path();
+            (path.extension().and_then(|extension| extension.to_str()) == Some("sql"))
+                .then_some(path)
+        })
+        .collect();
+    entries.sort();
+
+    let mut connection = open_connection().await;
+    for path in &entries {
+        let sql = std::fs::read_to_string(path).unwrap_or_else(|error| {
+            panic!(
+                "failed to read migration file '{}': {error}",
+                path.display()
+            )
+        });
+        connection
+            .execute(sqlx::raw_sql(&sql))
+            .await
+            .unwrap_or_else(|error| {
+                panic!(
+                    "failed to execute migration file '{}': {error}",
+                    path.display()
+                )
+            });
+    }
+
+    debug!(
+        migrations_dir,
+        count = entries.len(),
+        "Applied Postgres migrations."
+    );
+}
+
+async fn apply_setup_script(setup_script: &'static str) {
+    let script_path = Path::new(env!("CARGO_WORKSPACE_DIR")).join(setup_script);
+    let sql = std::fs::read_to_string(&script_path).unwrap_or_else(|error| {
+        panic!(
+            "failed to read setup script '{}': {error}",
+            script_path.display()
+        )
+    });
+    let mut connection = open_connection().await;
+    connection
+        .execute(sqlx::raw_sql(&sql))
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "failed to execute setup script '{}': {error}",
+                script_path.display()
+            )
+        });
+    debug!(path = %script_path.display(), "Applied Postgres setup script.");
 }
 
 impl Postgres {
+    /// Uses a migration directory containing schema only, without migration-provided seed data.
+    /// The directory is applied once per test process; data isolation still uses truncation.
     pub const fn new(migrations_dir: &'static str) -> Self {
         Self {
             migrations_dir,
             setup_script: None,
+            migrate_once: true,
+        }
+    }
+
+    /// Alias for [`Postgres::new`] for callers that want to document schema-only intent.
+    pub const fn new_schema_once(migrations_dir: &'static str) -> Self {
+        Self {
+            migrations_dir,
+            setup_script: None,
+            migrate_once: true,
+        }
+    }
+
+    /// Reapplies migrations before each test to restore migration-provided seed data.
+    pub const fn new_per_test(migrations_dir: &'static str) -> Self {
+        Self {
+            migrations_dir,
+            setup_script: None,
+            migrate_once: false,
         }
     }
 
@@ -195,6 +340,7 @@ impl Postgres {
         Self {
             migrations_dir,
             setup_script: Some(setup_script),
+            migrate_once: false,
         }
     }
 }
@@ -206,71 +352,32 @@ impl IntegrationTestService for Postgres {
         &[]
     }
 
-    /// Starts the Postgres container (once), then runs all migrations in `migrations_dir`
-    /// in lexicographic order.
+    /// Starts the Postgres container and applies migrations according to the selected lifecycle.
     async fn set_up(&self) {
         ensure_container_started().await;
 
-        let workspace_root = env!("CARGO_WORKSPACE_DIR");
-        let dir_path = Path::new(workspace_root).join(self.migrations_dir);
+        if self.migrate_once {
+            let migrations = MIGRATIONS_APPLIED
+                .get_or_init(|| Mutex::new(HashMap::new()))
+                .lock()
+                .unwrap_or_else(|error| panic!("Postgres migration state lock poisoned: {error}"))
+                .entry(self.migrations_dir)
+                .or_insert_with(|| Arc::new(OnceCell::const_new()))
+                .clone();
+            let migrations_dir = self.migrations_dir;
 
-        // Collect all *.sql files and sort by filename so they run in migration order.
-        let mut entries: Vec<_> = std::fs::read_dir(&dir_path)
-            .unwrap_or_else(|e| {
-                panic!(
-                    "Failed to read migrations directory '{}': {e}",
-                    dir_path.display()
-                )
-            })
-            .filter_map(|entry| {
-                let entry = entry.expect("Failed to read directory entry");
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("sql") {
-                    Some(path)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        entries.sort();
-
-        let mut conn = open_connection().await;
-
-        for path in &entries {
-            let sql = std::fs::read_to_string(path).unwrap_or_else(|e| {
-                panic!("Failed to read migration file '{}': {e}", path.display())
-            });
-
-            conn.execute(sqlx::raw_sql(&sql)).await.unwrap_or_else(|e| {
-                panic!("Failed to execute migration file '{}': {e}", path.display())
-            });
-
-            debug!(path = %path.display(), "Applied migration file.");
+            migrations
+                .get_or_init(|| async move {
+                    apply_migrations(migrations_dir).await;
+                })
+                .await;
+        } else {
+            apply_migrations(self.migrations_dir).await;
         }
 
         if let Some(setup_script) = self.setup_script {
-            let script_path = Path::new(workspace_root).join(setup_script);
-            let sql = std::fs::read_to_string(&script_path).unwrap_or_else(|e| {
-                panic!(
-                    "Failed to read setup script '{}': {e}",
-                    script_path.display()
-                )
-            });
-            conn.execute(sqlx::raw_sql(&sql)).await.unwrap_or_else(|e| {
-                panic!(
-                    "Failed to execute setup script '{}': {e}",
-                    script_path.display()
-                )
-            });
-            debug!(path = %script_path.display(), "Applied setup script.");
+            apply_setup_script(setup_script).await;
         }
-
-        debug!(
-            migrations_dir = self.migrations_dir,
-            count = entries.len(),
-            "All migration files applied."
-        );
     }
 
     /// Truncates all user tables in the `public` schema to ensure test isolation.
