@@ -205,7 +205,7 @@ fn single_schema_generation_request(
     html: &str,
 ) -> Result<StructuredGenerationRequest, ProductSchemaServiceError> {
     Ok(StructuredGenerationRequest {
-        operation: LlmOperation::CrawlerProductSchemaRepair,
+        operation: LlmOperation::CrawlerProductSchemaFreshGeneration,
         system_instruction: single_schema_generation_system_instruction(),
         prompt: build_single_schema_instruction(html),
         image_urls: Vec::new(),
@@ -531,6 +531,17 @@ mod tests {
             "risks": [],
         }))
         .expect("not-product single response should serialize")
+    }
+
+    #[test]
+    fn should_mark_single_schema_generation_as_fresh_generation() {
+        let request = single_schema_generation_request("<main>product</main>")
+            .expect("fresh schema request should build");
+
+        assert_eq!(
+            request.operation,
+            LlmOperation::CrawlerProductSchemaFreshGeneration
+        );
     }
 
     #[test]
