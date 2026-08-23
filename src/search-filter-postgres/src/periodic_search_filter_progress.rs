@@ -4,7 +4,8 @@ use platform_postgres::SqlxTransaction;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
     PeriodicSearchFilterProgress, PeriodicSearchFilterProgressError,
-    PeriodicSearchFilterProgressFactory, PeriodicSearchFilterProgressWriteOutcome,
+    PeriodicSearchFilterProgressFactory, PeriodicSearchFilterProgressLockOutcome,
+    PeriodicSearchFilterProgressWriteOutcome,
 };
 use time::OffsetDateTime;
 
@@ -30,20 +31,31 @@ impl PeriodicSearchFilterProgress for SqlxPeriodicSearchFilterProgress<'_> {
     async fn lock_and_read(
         &mut self,
         search_filter_id: UserSearchFilterId,
+        expected_version: i64,
         created: OffsetDateTime,
-    ) -> Result<OffsetDateTime, PeriodicSearchFilterProgressError> {
+    ) -> Result<PeriodicSearchFilterProgressLockOutcome, PeriodicSearchFilterProgressError> {
         let id = user_search_filter_uuid(search_filter_id).map_err(|source| {
             PeriodicSearchFilterProgressError::PersistenceFailed {
                 source: box_error(source),
             }
         })?;
-        sqlx::query("SELECT user_search_filter_id FROM search_filters WHERE user_search_filter_id = $1 FOR UPDATE")
-            .bind(id).execute(self.tx.connection()).await
-            .map_err(|source| PeriodicSearchFilterProgressError::PersistenceFailed { source: box_error(source) })?;
-        sqlx::query_scalar::<_, OffsetDateTime>("SELECT matched_through FROM search_filter_periodic_match_state WHERE user_search_filter_id = $1 FOR UPDATE")
+        let version = sqlx::query_scalar::<_, i64>(
+            "SELECT version FROM search_filters WHERE user_search_filter_id = $1 AND state = 'ACTIVE' FOR UPDATE",
+        )
+        .bind(id)
+        .fetch_optional(self.tx.connection())
+        .await
+        .map_err(|source| PeriodicSearchFilterProgressError::PersistenceFailed {
+            source: box_error(source),
+        })?;
+        if version != Some(expected_version) {
+            return Ok(PeriodicSearchFilterProgressLockOutcome::ChangedOrInactive);
+        }
+        let matched_through = sqlx::query_scalar::<_, OffsetDateTime>("SELECT matched_through FROM search_filter_periodic_match_state WHERE user_search_filter_id = $1 FOR UPDATE")
             .bind(id).fetch_optional(self.tx.connection()).await
-            .map_err(|source| PeriodicSearchFilterProgressError::PersistenceFailed { source: box_error(source) })
-            .map(|value| value.unwrap_or(created))
+            .map_err(|source| PeriodicSearchFilterProgressError::PersistenceFailed { source: box_error(source) })?
+            .unwrap_or(created);
+        Ok(PeriodicSearchFilterProgressLockOutcome::Current { matched_through })
     }
 
     async fn compare_and_set(

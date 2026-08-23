@@ -3,8 +3,9 @@ use crate::ports::{
     PeriodicSearchFilterCandidateReadError, PeriodicSearchFilterCandidateReader,
     PeriodicSearchFilterMatchingRunLock, PeriodicSearchFilterMatchingRunLockError,
     PeriodicSearchFilterProgress, PeriodicSearchFilterProgressError,
-    PeriodicSearchFilterProgressFactory, PeriodicSearchFilterProgressWriteOutcome,
-    SearchFilterMatchWriteError, SearchFilterMatchWriter, SearchFilterMatchWriterFactory,
+    PeriodicSearchFilterProgressFactory, PeriodicSearchFilterProgressLockOutcome,
+    PeriodicSearchFilterProgressWriteOutcome, SearchFilterMatchWriteError, SearchFilterMatchWriter,
+    SearchFilterMatchWriterFactory,
 };
 use crate::product_match_evaluator::{
     ProductMatchEvaluationOutcome, ProductMatchEvaluationRequest, evaluate_product_matches,
@@ -274,6 +275,9 @@ where
             return Ok(RunPeriodicSearchFilterMatchingOutcome::SkippedAlreadyRunning);
         };
         let result = self.execute_locked(command).await;
+        if let Err(error) = &result {
+            tracing::error!(error = %error, "search_filter.periodic_match.failed");
+        }
         let release_result = lease.release().await.map_err(run_lock_error);
         match (result, release_result) {
             (Ok(value), Ok(())) => Ok(value),
@@ -303,6 +307,7 @@ where
     ) -> Result<RunPeriodicSearchFilterMatchingOutcome, RunPeriodicSearchFilterMatchingError> {
         let window_end = command.started_at - self.policy.projection_lag;
         tracing::Span::current().record("window_end", tracing::field::display(window_end));
+        tracing::info!(window_end = %window_end, "search_filter.periodic_match.started");
         let snapshot = load_snapshot(&self.unit_of_work, &self.fx_rates, window_end).await?;
         let mut report = PeriodicSearchFilterMatchingReport {
             window_end,
@@ -349,19 +354,51 @@ where
                         }
                         FilterOutcome::ChangedOrInactive => {
                             report.filters_changed_or_inactive += 1;
+                            tracing::info!(
+                                search_filter_id = %candidate.search_filter_id,
+                                "search_filter.periodic_match.filter_changed"
+                            );
                             completed = true;
                             break;
                         }
-                        FilterOutcome::Retryable => continue,
+                        FilterOutcome::Retryable => {
+                            tracing::warn!(
+                                search_filter_id = %candidate.search_filter_id,
+                                "search_filter.periodic_match.filter_retry"
+                            );
+                            continue;
+                        }
                     }
                 }
                 if completed {
                     report.filters_completed += 1;
+                    tracing::info!(
+                        search_filter_id = %candidate.search_filter_id,
+                        candidates_scanned = report.candidates_scanned,
+                        matches_inserted = report.matches_inserted,
+                        matches_duplicate = report.matches_duplicate,
+                        "search_filter.periodic_match.filter_completed"
+                    );
                 } else {
                     report.filters_failed += 1;
+                    tracing::warn!(
+                        search_filter_id = %candidate.search_filter_id,
+                        retryable_failures = report.retryable_evaluation_failures,
+                        "search_filter.periodic_match.filter_failed"
+                    );
                 }
             }
         }
+        tracing::info!(
+            window_end = %report.window_end,
+            filters_selected = report.filters_selected,
+            filters_completed = report.filters_completed,
+            filters_failed = report.filters_failed,
+            candidates_scanned = report.candidates_scanned,
+            matches_inserted = report.matches_inserted,
+            matches_duplicate = report.matches_duplicate,
+            "search_filter.periodic_match.completed"
+        );
         Ok(RunPeriodicSearchFilterMatchingOutcome::Applied(report))
     }
 
@@ -558,12 +595,15 @@ where
                 source: box_error(source),
             }
         })?;
-        let matched_through = self
+        let PeriodicSearchFilterProgressLockOutcome::Current { matched_through } = self
             .progress
             .in_transaction(&mut tx)
-            .lock_and_read(filter.search_filter_id, filter.created)
+            .lock_and_read(filter.search_filter_id, filter.version, filter.created)
             .await
-            .map_err(progress_error)?;
+            .map_err(progress_error)?
+        else {
+            return Ok(FilterOutcome::ChangedOrInactive);
+        };
         if matched_through > filter.matched_through {
             return Ok(FilterOutcome::ChangedOrInactive);
         }
@@ -769,5 +809,530 @@ fn match_write_error(error: SearchFilterMatchWriteError) -> RunPeriodicSearchFil
         error => RunPeriodicSearchFilterMatchingError::MatchPersistenceFailed {
             source: box_error(error),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ports::{
+        ExistingSearchFilterMatchReadError, PeriodicSearchFilterMatchingRunLease,
+        PeriodicSearchFilterProgressLockOutcome, SearchFilterMatchPersistOutcome,
+    };
+    use application::transaction::TransactionError;
+    use domain_primitives::event_id::EventId;
+    use fxrate_core::{FxRateId, NewFxRateSnapshot};
+    use fxrate_service::ports::FxRateSnapshotInsertOutcome;
+    use large_language_model::{LargeLanguageModelError, StructuredGenerationRequest};
+    use localization::Language;
+    use money::Currency;
+    use product_core::product_id::ProductId;
+    use search_filter_core::{
+        search_filter_state::SearchFilterState, user_search_filter_name::UserSearchFilterName,
+    };
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex};
+    use user_core::user_id::UserId;
+
+    #[derive(Debug)]
+    struct State {
+        lock_outcome: PeriodicSearchFilterProgressLockOutcome,
+        commits: usize,
+        revision_checks: usize,
+        persisted: Vec<SearchFilterProductMatch>,
+        checkpoints: usize,
+    }
+
+    #[derive(Clone)]
+    struct FakeUnitOfWork(Arc<Mutex<State>>);
+
+    struct FakeTransaction(Arc<Mutex<State>>);
+
+    #[async_trait::async_trait]
+    impl Transaction for FakeTransaction {
+        async fn commit(self) -> Result<(), TransactionError> {
+            let mut state = self.0.lock().map_err(|_| TransactionError::CommitFailed)?;
+            state.commits += 1;
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for FakeUnitOfWork {
+        type Tx = FakeTransaction;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            Ok(FakeTransaction(Arc::clone(&self.0)))
+        }
+    }
+
+    struct NoopRunLock;
+    struct NoopRunLease;
+
+    #[async_trait::async_trait]
+    impl PeriodicSearchFilterMatchingRunLease for NoopRunLease {
+        async fn release(self: Box<Self>) -> Result<(), PeriodicSearchFilterMatchingRunLockError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PeriodicSearchFilterMatchingRunLock for NoopRunLock {
+        async fn try_acquire(
+            &self,
+        ) -> Result<
+            Option<Box<dyn PeriodicSearchFilterMatchingRunLease>>,
+            PeriodicSearchFilterMatchingRunLockError,
+        > {
+            Ok(Some(Box::new(NoopRunLease)))
+        }
+    }
+
+    struct NoopCandidates;
+
+    #[async_trait::async_trait]
+    impl PeriodicSearchFilterCandidateReader for NoopCandidates {
+        async fn find_active_page(
+            &self,
+            _after: Option<search_filter_core::user_search_filter_id::UserSearchFilterId>,
+            _page_size: usize,
+            _run_started_at: OffsetDateTime,
+        ) -> Result<Vec<PeriodicSearchFilterCandidate>, PeriodicSearchFilterCandidateReadError>
+        {
+            Ok(Vec::new())
+        }
+    }
+
+    struct NoopFxRates;
+    struct ReadingNoopFxRates;
+
+    #[async_trait::async_trait]
+    impl FxRateSnapshotRepository for ReadingNoopFxRates {
+        async fn find_latest(
+            &mut self,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(None)
+        }
+
+        async fn find_latest_at_or_before(
+            &mut self,
+            _timestamp: OffsetDateTime,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(None)
+        }
+
+        async fn find_by_id(
+            &mut self,
+            _id: FxRateId,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(None)
+        }
+
+        async fn find_by_ids(
+            &mut self,
+            _ids: &[FxRateId],
+        ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(Vec::new())
+        }
+
+        async fn insert(
+            &mut self,
+            _snapshot: &NewFxRateSnapshot,
+            _source_event_id: &str,
+        ) -> Result<FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError> {
+            Ok(FxRateSnapshotInsertOutcome::Duplicate)
+        }
+    }
+
+    impl FxRateSnapshotRepositoryFactory<FakeTransaction> for NoopFxRates {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTransaction,
+        ) -> impl FxRateSnapshotRepository + 'tx {
+            ReadingNoopFxRates
+        }
+    }
+
+    struct NoopProducts;
+
+    #[async_trait::async_trait]
+    impl ProductSearchReader for NoopProducts {
+        async fn search(
+            &self,
+            _request: &ProductSearchReadRequest,
+        ) -> Result<
+            product_service::use_cases::queries::search_products::ProductSearchReadResult,
+            ProductSearchReadError,
+        > {
+            Err(ProductSearchReadError::ProductSearchQueryFailed)
+        }
+
+        async fn search_hybrid(
+            &self,
+            _request: &ProductSearchReadRequest,
+            _embedding: &[f32],
+        ) -> Result<
+            product_service::use_cases::queries::search_products::ProductSearchReadResult,
+            ProductSearchReadError,
+        > {
+            Err(ProductSearchReadError::ProductSearchQueryFailed)
+        }
+    }
+
+    struct NoopExistingMatches;
+
+    #[async_trait::async_trait]
+    impl ExistingSearchFilterMatchReader for NoopExistingMatches {
+        async fn find_existing_product_ids(
+            &self,
+            _search_filter_id: search_filter_core::user_search_filter_id::UserSearchFilterId,
+            _product_ids: &[ProductId],
+        ) -> Result<HashSet<ProductId>, ExistingSearchFilterMatchReadError> {
+            Ok(HashSet::new())
+        }
+    }
+
+    struct NoopSources;
+    struct ReadingNoopSources;
+
+    #[async_trait::async_trait]
+    impl ProductSearchFilterMatchSourceReader for ReadingNoopSources {
+        async fn find_source(
+            &mut self,
+            _event_id: EventId,
+            _product_id: ProductId,
+        ) -> Result<Option<ProductSearchFilterMatchSource>, ProductSearchFilterMatchSourceReadError>
+        {
+            Ok(None)
+        }
+    }
+
+    impl ProductSearchFilterMatchSourceReaderFactory<FakeTransaction> for NoopSources {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTransaction,
+        ) -> impl ProductSearchFilterMatchSourceReader + 'tx {
+            ReadingNoopSources
+        }
+    }
+
+    struct NoopEvaluator;
+
+    #[async_trait::async_trait]
+    impl LargeLanguageModel for NoopEvaluator {
+        async fn generate<Output>(
+            &self,
+            _request: StructuredGenerationRequest,
+        ) -> Result<Output, LargeLanguageModelError>
+        where
+            Output: serde::de::DeserializeOwned + Send,
+        {
+            Err(LargeLanguageModelError::Permanent {
+                source: box_error(std::io::Error::other("unused test evaluator")),
+            })
+        }
+    }
+
+    #[derive(Clone)]
+    struct FakeRevisions(Arc<Mutex<State>>);
+
+    struct CheckingRevisions<'a>(&'a Arc<Mutex<State>>);
+
+    #[async_trait::async_trait]
+    impl ProductCurrentRevisionGuard for CheckingRevisions<'_> {
+        async fn lock_and_check(
+            &mut self,
+            _product_id: ProductId,
+            _expected_event_id: EventId,
+        ) -> Result<
+            ProductCurrentRevisionCheck,
+            product_service::ports::ProductCurrentRevisionCheckError,
+        > {
+            let mut state = self.0.lock().map_err(|_| {
+                product_service::ports::ProductCurrentRevisionCheckError::CheckFailed {
+                    source: box_error(std::io::Error::other("test mutex poisoned")),
+                }
+            })?;
+            state.revision_checks += 1;
+            Ok(ProductCurrentRevisionCheck::Current)
+        }
+    }
+
+    impl ProductCurrentRevisionGuardFactory<FakeTransaction> for FakeRevisions {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTransaction,
+        ) -> impl ProductCurrentRevisionGuard + 'tx {
+            CheckingRevisions(&self.0)
+        }
+    }
+
+    #[derive(Clone)]
+    struct FakeMatches(Arc<Mutex<State>>);
+
+    struct WritingMatches<'a>(&'a Arc<Mutex<State>>);
+
+    #[async_trait::async_trait]
+    impl SearchFilterMatchWriter for WritingMatches<'_> {
+        async fn insert_if_absent(
+            &mut self,
+            product_match: &SearchFilterProductMatch,
+        ) -> Result<SearchFilterMatchPersistOutcome, SearchFilterMatchWriteError> {
+            let mut state =
+                self.0
+                    .lock()
+                    .map_err(|_| SearchFilterMatchWriteError::WriteFailed {
+                        source: box_error(std::io::Error::other("test mutex poisoned")),
+                    })?;
+            state.persisted.push(product_match.clone());
+            Ok(SearchFilterMatchPersistOutcome::Inserted)
+        }
+    }
+
+    impl SearchFilterMatchWriterFactory<FakeTransaction> for FakeMatches {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTransaction,
+        ) -> impl SearchFilterMatchWriter + 'tx {
+            WritingMatches(&self.0)
+        }
+    }
+
+    #[derive(Clone)]
+    struct FakeProgress(Arc<Mutex<State>>);
+
+    struct LockingProgress<'a>(&'a Arc<Mutex<State>>);
+
+    #[async_trait::async_trait]
+    impl PeriodicSearchFilterProgress for LockingProgress<'_> {
+        async fn lock_and_read(
+            &mut self,
+            _search_filter_id: search_filter_core::user_search_filter_id::UserSearchFilterId,
+            _expected_version: i64,
+            _created: OffsetDateTime,
+        ) -> Result<PeriodicSearchFilterProgressLockOutcome, PeriodicSearchFilterProgressError>
+        {
+            self.0.lock().map(|state| state.lock_outcome).map_err(|_| {
+                PeriodicSearchFilterProgressError::PersistenceFailed {
+                    source: box_error(std::io::Error::other("test mutex poisoned")),
+                }
+            })
+        }
+
+        async fn compare_and_set(
+            &mut self,
+            _search_filter_id: search_filter_core::user_search_filter_id::UserSearchFilterId,
+            _expected_matched_through: OffsetDateTime,
+            _matched_through: OffsetDateTime,
+        ) -> Result<PeriodicSearchFilterProgressWriteOutcome, PeriodicSearchFilterProgressError>
+        {
+            let mut state = self.0.lock().map_err(|_| {
+                PeriodicSearchFilterProgressError::PersistenceFailed {
+                    source: box_error(std::io::Error::other("test mutex poisoned")),
+                }
+            })?;
+            state.checkpoints += 1;
+            Ok(PeriodicSearchFilterProgressWriteOutcome::Advanced)
+        }
+    }
+
+    impl PeriodicSearchFilterProgressFactory<FakeTransaction> for FakeProgress {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTransaction,
+        ) -> impl PeriodicSearchFilterProgress + 'tx {
+            LockingProgress(&self.0)
+        }
+    }
+
+    type Handler = RunPeriodicSearchFilterMatchingHandler<
+        FakeUnitOfWork,
+        NoopRunLock,
+        NoopCandidates,
+        NoopFxRates,
+        NoopProducts,
+        NoopExistingMatches,
+        NoopSources,
+        NoopEvaluator,
+        FakeRevisions,
+        FakeMatches,
+        FakeProgress,
+    >;
+
+    fn state(lock_outcome: PeriodicSearchFilterProgressLockOutcome) -> Arc<Mutex<State>> {
+        Arc::new(Mutex::new(State {
+            lock_outcome,
+            commits: 0,
+            revision_checks: 0,
+            persisted: Vec::new(),
+            checkpoints: 0,
+        }))
+    }
+
+    fn handler(state: Arc<Mutex<State>>) -> Result<Handler, RunPeriodicSearchFilterMatchingError> {
+        RunPeriodicSearchFilterMatchingHandler::new(
+            FakeUnitOfWork(Arc::clone(&state)),
+            NoopRunLock,
+            NoopCandidates,
+            NoopFxRates,
+            NoopProducts,
+            NoopExistingMatches,
+            NoopSources,
+            NoopEvaluator,
+            FakeRevisions(Arc::clone(&state)),
+            FakeMatches(Arc::clone(&state)),
+            FakeProgress(state),
+            PeriodicSearchFilterMatchingPolicy {
+                filter_page_size: NonZeroUsize::MIN,
+                hybrid_scan_limit: NonZeroUsize::MIN,
+                evaluation_limit: NonZeroUsize::MIN,
+                llm_concurrency: NonZeroUsize::MIN,
+                max_attempts: NonZeroUsize::MIN,
+                projection_lag: Duration::ZERO,
+                replay_overlap: Duration::ZERO,
+            },
+        )
+    }
+
+    fn filter() -> PeriodicSearchFilterCandidate {
+        PeriodicSearchFilterCandidate {
+            search_filter_id: search_filter_core::user_search_filter_id::UserSearchFilterId::new(),
+            user_id: UserId::new(),
+            name: UserSearchFilterName::from("daily"),
+            version: 4,
+            state: SearchFilterState::Active,
+            search: ProductSearch::new(Language::En, Currency::Eur),
+            embedding: None,
+            created: OffsetDateTime::UNIX_EPOCH,
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    fn accepted_match(filter: &PeriodicSearchFilterCandidate) -> SearchFilterProductMatch {
+        SearchFilterProductMatch {
+            user_id: filter.user_id,
+            user_search_filter_id: filter.search_filter_id,
+            user_search_filter_name: Some(filter.name.clone()),
+            product_id: ProductId::new(),
+            origin_event_id: EventId::new(),
+            price_match_valuation: None,
+            enhanced_match_reason: None,
+            feedback: None,
+        }
+    }
+
+    fn report() -> PeriodicSearchFilterMatchingReport {
+        PeriodicSearchFilterMatchingReport {
+            window_end: OffsetDateTime::UNIX_EPOCH,
+            filters_selected: 0,
+            filters_completed: 0,
+            filters_changed_or_inactive: 0,
+            filters_failed: 0,
+            candidates_scanned: 0,
+            candidates_existing: 0,
+            candidates_missing_source: 0,
+            candidates_stale: 0,
+            candidates_rejected: 0,
+            permanent_evaluation_failures: 0,
+            retryable_evaluation_failures: 0,
+            matches_inserted: 0,
+            matches_duplicate: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn should_skip_revision_match_and_checkpoint_when_filter_changed_or_inactive()
+    -> Result<(), RunPeriodicSearchFilterMatchingError> {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::ChangedOrInactive);
+        let handler = handler(Arc::clone(&state))?;
+        let filter = filter();
+        let mut report = report();
+
+        let outcome = handler
+            .commit_filter(
+                &filter,
+                OffsetDateTime::UNIX_EPOCH,
+                vec![accepted_match(&filter)],
+                true,
+                &mut report,
+            )
+            .await?;
+
+        let state = state
+            .lock()
+            .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
+        assert_eq!(outcome, FilterOutcome::ChangedOrInactive);
+        assert_eq!(state.revision_checks, 0);
+        assert!(state.persisted.is_empty());
+        assert_eq!(state.checkpoints, 0);
+        assert_eq!(state.commits, 0);
+        assert_eq!(report.matches_inserted, 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_checkpoint_when_accepted_work_is_retryable()
+    -> Result<(), RunPeriodicSearchFilterMatchingError> {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        let handler = handler(Arc::clone(&state))?;
+        let filter = filter();
+        let accepted = accepted_match(&filter);
+        let mut report = report();
+
+        let outcome = handler
+            .commit_filter(
+                &filter,
+                OffsetDateTime::UNIX_EPOCH,
+                vec![accepted.clone()],
+                false,
+                &mut report,
+            )
+            .await?;
+
+        let state = state
+            .lock()
+            .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
+        assert_eq!(outcome, FilterOutcome::Completed);
+        assert_eq!(state.revision_checks, 1);
+        assert_eq!(state.persisted, vec![accepted]);
+        assert_eq!(state.checkpoints, 0);
+        assert_eq!(state.commits, 1);
+        assert_eq!(report.matches_inserted, 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_persist_accepted_work_only_after_current_filter_revalidation()
+    -> Result<(), RunPeriodicSearchFilterMatchingError> {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        let handler = handler(Arc::clone(&state))?;
+        let filter = filter();
+        let accepted = accepted_match(&filter);
+        let mut report = report();
+
+        let outcome = handler
+            .commit_filter(
+                &filter,
+                OffsetDateTime::UNIX_EPOCH,
+                vec![accepted.clone()],
+                true,
+                &mut report,
+            )
+            .await?;
+
+        let state = state
+            .lock()
+            .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
+        assert_eq!(outcome, FilterOutcome::Completed);
+        assert_eq!(state.revision_checks, 1);
+        assert_eq!(state.persisted, vec![accepted]);
+        assert_eq!(state.checkpoints, 1);
+        assert_eq!(state.commits, 1);
+        assert_eq!(report.matches_inserted, 1);
+        Ok(())
     }
 }

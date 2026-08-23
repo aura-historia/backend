@@ -1,7 +1,9 @@
 use async_trait::async_trait;
+use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use time::OffsetDateTime;
 use tokio::sync::{Mutex, Notify};
 use tracing::{error, info, warn};
 
@@ -13,17 +15,15 @@ pub trait CronJob: Send + Sync {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("{detail}")]
 #[doc(hidden)]
-pub struct CronJobExecutionError {
-    detail: String,
+pub enum CronJobExecutionError {
+    #[error("cron job execution failed")]
+    Failed(#[source] Box<dyn Error + Send + Sync>),
 }
 
 impl CronJobExecutionError {
-    pub fn new(detail: impl Into<String>) -> Self {
-        Self {
-            detail: detail.into(),
-        }
+    pub fn from_source(source: impl Error + Send + Sync + 'static) -> Self {
+        Self::Failed(Box::new(source))
     }
 }
 
@@ -122,6 +122,7 @@ pub struct ScheduledJobRunner {
     job: Arc<dyn CronJob>,
     running: AtomicBool,
     tracker: Arc<ActiveExecutionTracker>,
+    schedule: String,
     max_run_duration: Option<Duration>,
     status: Mutex<CronJobStatus>,
 }
@@ -130,12 +131,14 @@ impl ScheduledJobRunner {
     pub fn new(
         job: Arc<dyn CronJob>,
         tracker: Arc<ActiveExecutionTracker>,
+        schedule: String,
         max_run_duration: Option<Duration>,
     ) -> Self {
         Self {
             job,
             running: AtomicBool::new(false),
             tracker,
+            schedule,
             max_run_duration,
             status: Mutex::new(CronJobStatus::NeverRun),
         }
@@ -144,7 +147,12 @@ impl ScheduledJobRunner {
     pub async fn run(&self) {
         let Some(_active) = self.tracker.try_track() else {
             self.set_status(CronJobStatus::SkippedShutdown).await;
-            info!(job = self.job.name(), "cron.job.skipped_shutdown");
+            info!(
+                job = self.job.name(),
+                schedule = self.schedule,
+                outcome = "skipped_shutdown",
+                "cron.job.skipped_shutdown"
+            );
             return;
         };
         if self
@@ -153,12 +161,20 @@ impl ScheduledJobRunner {
             .is_err()
         {
             self.set_status(CronJobStatus::SkippedLocalOverlap).await;
-            warn!(job = self.job.name(), "cron.job.skipped_local_overlap");
+            warn!(
+                job = self.job.name(),
+                schedule = self.schedule,
+                outcome = "skipped_local_overlap",
+                "cron.job.skipped_local_overlap"
+            );
             return;
         }
         let _running = RunningGuard {
             running: &self.running,
         };
+        let started_at = Instant::now();
+        let actual_started_at = OffsetDateTime::now_utc();
+        info!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, "cron.job.started");
         let job = Arc::clone(&self.job);
         let mut child = tokio::spawn(async move { job.execute().await });
         let outcome = match self.max_run_duration {
@@ -168,7 +184,10 @@ impl ScheduledJobRunner {
                     child.abort();
                     let _ = child.await;
                     self.set_status(CronJobStatus::TimedOut).await;
-                    error!(job = self.job.name(), "cron.job.timed_out");
+                    let finished_at = OffsetDateTime::now_utc();
+                    let duration_ms = started_at.elapsed().as_millis() as u64;
+                    error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "timed_out", "cron.job.timed_out");
+                    error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "timed_out", "cron.job.completed");
                     return;
                 }
             },
@@ -177,19 +196,29 @@ impl ScheduledJobRunner {
         match outcome {
             Ok(Ok(())) => {
                 self.set_status(CronJobStatus::Succeeded).await;
-                info!(job = self.job.name(), "cron.job.succeeded");
+                let finished_at = OffsetDateTime::now_utc();
+                info!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms = started_at.elapsed().as_millis() as u64, outcome = "succeeded", "cron.job.completed");
             }
             Ok(Err(error)) => {
                 self.set_status(CronJobStatus::Failed).await;
-                error!(job = self.job.name(), %error, "cron.job.failed");
+                let finished_at = OffsetDateTime::now_utc();
+                let duration_ms = started_at.elapsed().as_millis() as u64;
+                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "failed", error = %error, error_source = ?error.source(), "cron.job.failed");
+                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "failed", error = %error, error_source = ?error.source(), "cron.job.completed");
             }
             Err(error) if error.is_panic() => {
                 self.set_status(CronJobStatus::Panicked).await;
-                error!(job = self.job.name(), "cron.job.panicked");
+                let finished_at = OffsetDateTime::now_utc();
+                let duration_ms = started_at.elapsed().as_millis() as u64;
+                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "panicked", "cron.job.panicked");
+                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "panicked", "cron.job.completed");
             }
             Err(error) => {
                 self.set_status(CronJobStatus::Failed).await;
-                error!(job = self.job.name(), %error, "cron.job.cancelled");
+                let finished_at = OffsetDateTime::now_utc();
+                let duration_ms = started_at.elapsed().as_millis() as u64;
+                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "cancelled", error = %error, "cron.job.failed");
+                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "cancelled", error = %error, "cron.job.completed");
             }
         }
     }
@@ -217,6 +246,10 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::Notify;
 
+    #[derive(Debug, thiserror::Error)]
+    #[error("test job failure")]
+    struct TestJobError;
+
     struct BlockingJob {
         started: Arc<Notify>,
         release: Arc<Notify>,
@@ -236,6 +269,101 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_record_failure_with_its_source() {
+        struct FailingJob;
+        #[async_trait]
+        impl CronJob for FailingJob {
+            fn name(&self) -> &'static str {
+                "failing"
+            }
+
+            async fn execute(&self) -> Result<(), CronJobExecutionError> {
+                Err(CronJobExecutionError::from_source(TestJobError))
+            }
+        }
+
+        let error = CronJobExecutionError::from_source(TestJobError);
+        assert!(error.source().is_some());
+        let runner = ScheduledJobRunner::new(
+            Arc::new(FailingJob),
+            Arc::new(ActiveExecutionTracker::new()),
+            "test schedule".to_owned(),
+            None,
+        );
+        runner.run().await;
+        assert_eq!(CronJobStatus::Failed, runner.status().await);
+    }
+
+    #[tokio::test]
+    async fn should_record_panic() {
+        struct PanickingJob;
+        #[async_trait]
+        impl CronJob for PanickingJob {
+            fn name(&self) -> &'static str {
+                "panicking"
+            }
+
+            async fn execute(&self) -> Result<(), CronJobExecutionError> {
+                std::panic::panic_any("test job panic");
+            }
+        }
+
+        let runner = ScheduledJobRunner::new(
+            Arc::new(PanickingJob),
+            Arc::new(ActiveExecutionTracker::new()),
+            "test schedule".to_owned(),
+            None,
+        );
+        runner.run().await;
+        assert_eq!(CronJobStatus::Panicked, runner.status().await);
+    }
+
+    #[tokio::test]
+    async fn should_record_timeout() {
+        struct SlowJob;
+        #[async_trait]
+        impl CronJob for SlowJob {
+            fn name(&self) -> &'static str {
+                "slow"
+            }
+
+            async fn execute(&self) -> Result<(), CronJobExecutionError> {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                Ok(())
+            }
+        }
+
+        let runner = ScheduledJobRunner::new(
+            Arc::new(SlowJob),
+            Arc::new(ActiveExecutionTracker::new()),
+            "test schedule".to_owned(),
+            Some(Duration::from_millis(10)),
+        );
+        runner.run().await;
+        assert_eq!(CronJobStatus::TimedOut, runner.status().await);
+    }
+
+    #[tokio::test]
+    async fn should_drain_after_active_execution_finishes() {
+        let tracker = ActiveExecutionTracker::new();
+        let active = tracker.try_track();
+        assert!(active.is_some());
+        let Some(active) = active else {
+            return;
+        };
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(10),
+                tracker.drain(Duration::from_secs(1))
+            )
+            .await
+            .is_err()
+        );
+        drop(active);
+        assert!(tracker.drain(Duration::from_secs(1)).await.is_ok());
+    }
+
+    #[tokio::test]
     async fn should_skip_overlapping_execution() {
         let started = Arc::new(Notify::new());
         let release = Arc::new(Notify::new());
@@ -247,6 +375,7 @@ mod tests {
                 runs: Arc::clone(&runs),
             }),
             Arc::new(ActiveExecutionTracker::new()),
+            "test schedule".to_owned(),
             None,
         ));
         let first = tokio::spawn({

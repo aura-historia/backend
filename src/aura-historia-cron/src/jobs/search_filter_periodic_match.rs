@@ -9,6 +9,12 @@ use time::OffsetDateTime;
 pub(crate) struct SearchFilterPeriodicMatchJob {
     use_case: Arc<dyn RunPeriodicSearchFilterMatchingUseCase>,
 }
+
+#[derive(Debug, thiserror::Error)]
+#[error("{filters_failed} filters remain failed")]
+struct PeriodicMatchIncompleteError {
+    filters_failed: usize,
+}
 impl SearchFilterPeriodicMatchJob {
     pub(crate) fn new(use_case: Arc<dyn RunPeriodicSearchFilterMatchingUseCase>) -> Self {
         Self { use_case }
@@ -26,7 +32,7 @@ impl CronJob for SearchFilterPeriodicMatchJob {
                 started_at: OffsetDateTime::now_utc(),
             })
             .await
-            .map_err(|error| CronJobExecutionError::new(error.to_string()))?
+            .map_err(CronJobExecutionError::from_source)?
         {
             RunPeriodicSearchFilterMatchingOutcome::SkippedAlreadyRunning => {
                 tracing::info!(job = self.name(), "cron.job.skipped_distributed_overlap");
@@ -35,20 +41,13 @@ impl CronJob for SearchFilterPeriodicMatchJob {
             RunPeriodicSearchFilterMatchingOutcome::Applied(report)
                 if report.filters_failed == 0 =>
             {
-                tracing::info!(job = self.name(), ?report, "cron.job.completed");
                 Ok(())
             }
-            RunPeriodicSearchFilterMatchingOutcome::Applied(report) => {
-                tracing::error!(
-                    job = self.name(),
-                    ?report,
-                    "cron.job.completed_with_failed_filters"
-                );
-                Err(CronJobExecutionError::new(format!(
-                    "{} filters remain failed",
-                    report.filters_failed
-                )))
-            }
+            RunPeriodicSearchFilterMatchingOutcome::Applied(report) => Err(
+                CronJobExecutionError::from_source(PeriodicMatchIncompleteError {
+                    filters_failed: report.filters_failed,
+                }),
+            ),
         }
     }
 }

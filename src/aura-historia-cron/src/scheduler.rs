@@ -3,8 +3,9 @@ use chrono::Utc;
 use cron_tab::AsyncCron;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
+use tracing::{error, info};
 
 #[doc(hidden)]
 pub struct JobRegistration {
@@ -39,6 +40,7 @@ impl CronScheduler {
             let runner = Arc::new(ScheduledJobRunner::new(
                 registration.job,
                 Arc::clone(&tracker),
+                registration.schedule.clone(),
                 registration.max_run_duration,
             ));
             cron.add_fn(&registration.schedule, move || {
@@ -52,6 +54,7 @@ impl CronScheduler {
             })?;
         }
         let scheduler_task = tokio::spawn(async move { cron.start_blocking().await });
+        info!(job_count = names.len(), "cron.scheduler.started");
         Ok(Self {
             tracker,
             scheduler_task,
@@ -63,11 +66,29 @@ impl CronScheduler {
     }
 
     pub async fn shutdown(self, grace: Duration) -> Result<(), CronSchedulerShutdownError> {
+        let started_at = Instant::now();
         self.tracker.stop_accepting();
         self.scheduler_task.abort();
         let _ = self.scheduler_task.await;
-        self.tracker.drain(grace).await?;
-        Ok(())
+        match self.tracker.drain(grace).await {
+            Ok(()) => {
+                info!(
+                    grace_ms = grace.as_millis() as u64,
+                    duration_ms = started_at.elapsed().as_millis() as u64,
+                    "cron.scheduler.drained"
+                );
+                Ok(())
+            }
+            Err(error @ CronDrainError::TimedOut { active }) => {
+                error!(
+                    grace_ms = grace.as_millis() as u64,
+                    duration_ms = started_at.elapsed().as_millis() as u64,
+                    active_executions = active,
+                    "cron.scheduler.drain_failed"
+                );
+                Err(error.into())
+            }
+        }
     }
 }
 

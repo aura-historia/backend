@@ -23,7 +23,12 @@ use search_filter_service::use_cases::{
     PeriodicSearchFilterMatchingPolicy, RunPeriodicSearchFilterMatchingHandler,
     RunPeriodicSearchFilterMatchingUseCase,
 };
-use std::{num::NonZeroUsize, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    num::{NonZeroU64, NonZeroUsize},
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const MAX_HYBRID_SCAN_LIMIT: usize = 100;
@@ -128,7 +133,7 @@ impl PeriodicMatchConfig {
             vertex_location: required("VERTEX_AI_LOCATION")?,
             vertex_model: required("VERTEX_AI_MODEL")?,
             schedule: optional("SEARCH_FILTER_PERIODIC_MATCH_CRON", "0 0 15 * * * *"),
-            max_run_duration: Duration::from_secs(number("PERIODIC_MATCH_MAX_RUN_SECONDS", 7200)?),
+            max_run_duration: positive_duration("PERIODIC_MATCH_MAX_RUN_SECONDS", 7200)?,
             policy: PeriodicSearchFilterMatchingPolicy {
                 filter_page_size,
                 hybrid_scan_limit,
@@ -177,6 +182,11 @@ where
 fn nonzero(name: &'static str, default: usize) -> Result<NonZeroUsize, WiringError> {
     NonZeroUsize::new(number(name, default)?).ok_or(WiringError::InvalidPolicy)
 }
+
+fn positive_duration(name: &'static str, default: u64) -> Result<Duration, WiringError> {
+    let seconds = NonZeroU64::new(number(name, default)?).ok_or(WiringError::InvalidPolicy)?;
+    Ok(Duration::from_secs(seconds.get()))
+}
 fn opensearch_client(config: &PeriodicMatchConfig) -> Result<OpenSearch, WiringError> {
     let pool = SingleNodeConnectionPool::new(config.endpoint.clone());
     let builder = TransportBuilder::new(pool);
@@ -218,4 +228,15 @@ pub enum WiringError {
     VertexClient(#[source] reqwest::Error),
     #[error("failed to build periodic matching handler")]
     Handler(#[source] search_filter_service::use_cases::RunPeriodicSearchFilterMatchingError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_reject_zero_periodic_match_max_run_seconds() {
+        let result = positive_duration("PERIODIC_MATCH_MAX_RUN_SECONDS", 0);
+        assert!(matches!(result, Err(WiringError::InvalidPolicy)));
+    }
 }
