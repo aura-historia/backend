@@ -2,8 +2,8 @@ use crate::mapping::{name, product_search_from_json, state, user_search_filter_u
 use application::error::box_error;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
-    PeriodicSearchFilterCandidate, PeriodicSearchFilterCandidateReadError,
-    PeriodicSearchFilterCandidateReader,
+    PeriodicSearchFilterCandidate, PeriodicSearchFilterCandidatePageRequest,
+    PeriodicSearchFilterCandidateReadError, PeriodicSearchFilterCandidateReader,
 };
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
@@ -36,11 +36,10 @@ struct PeriodicCandidateRow {
 impl PeriodicSearchFilterCandidateReader for SqlxPeriodicSearchFilterCandidateReader {
     async fn find_active_page(
         &self,
-        after: Option<UserSearchFilterId>,
-        page_size: usize,
-        run_started_at: OffsetDateTime,
+        request: PeriodicSearchFilterCandidatePageRequest,
     ) -> Result<Vec<PeriodicSearchFilterCandidate>, PeriodicSearchFilterCandidateReadError> {
-        let after = after
+        let after = request
+            .after
             .map(user_search_filter_uuid)
             .transpose()
             .map_err(
@@ -48,7 +47,7 @@ impl PeriodicSearchFilterCandidateReader for SqlxPeriodicSearchFilterCandidateRe
                     source: box_error(source),
                 },
             )?;
-        let limit = i64::try_from(page_size).map_err(|source| {
+        let limit = i64::try_from(request.page_size).map_err(|source| {
             PeriodicSearchFilterCandidateReadError::ReadFailed {
                 source: box_error(source),
             }
@@ -65,12 +64,13 @@ impl PeriodicSearchFilterCandidateReader for SqlxPeriodicSearchFilterCandidateRe
             WHERE filter.state = 'ACTIVE'
               AND filter.enhanced_search_description IS NOT NULL
               AND filter.created <= $1
+              AND (progress.matched_through IS NULL OR progress.matched_through < $1)
               AND ($2::uuid IS NULL OR filter.user_search_filter_id > $2)
             ORDER BY filter.user_search_filter_id ASC
             LIMIT $3
         "#,
         )
-        .bind(run_started_at)
+        .bind(request.eligible_at_or_before)
         .bind(after)
         .bind(limit)
         .fetch_all(&self.pool)

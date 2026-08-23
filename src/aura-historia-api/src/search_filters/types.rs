@@ -18,7 +18,9 @@ use user_core::user_id::UserId;
 use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
-use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use product_core::product_search::{
+    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductSearch,
+};
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_service::ports::{SearchFilterMatchView, SearchFilterView};
 use search_filter_service::use_cases::ProductSearchPatch;
@@ -56,6 +58,13 @@ fn default_notifications() -> bool {
     true
 }
 
+type UpdateSearchFilterFields = (
+    PatchField<UserSearchFilterName>,
+    PatchField<bool>,
+    PatchField<SearchFilterState>,
+    ProductSearchPatch,
+);
+
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct UpdateSearchFilterData {
@@ -72,19 +81,23 @@ pub(super) struct UpdateSearchFilterData {
 impl UpdateSearchFilterData {
     pub(super) fn into_fields(
         self,
-    ) -> (
-        PatchField<UserSearchFilterName>,
-        PatchField<bool>,
-        PatchField<SearchFilterState>,
-        ProductSearchPatch,
-    ) {
-        (
+    ) -> Result<UpdateSearchFilterFields, ProductSearchDataMappingError> {
+        Ok((
             patch(self.name),
             patch(self.notifications),
             patch(self.state.map(search_filter_state)),
-            self.search.map(Into::into).unwrap_or_default(),
-        )
+            self.search
+                .map(TryInto::try_into)
+                .transpose()?
+                .unwrap_or_default(),
+        ))
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(super) enum ProductSearchDataMappingError {
+    #[error(transparent)]
+    EnhancedSearchDescription(#[from] EnhancedSearchDescriptionError),
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -152,15 +165,18 @@ pub(super) struct ProductSearchPatchData {
     auction_end_query: Option<RangeQuery<OffsetDateTime>>,
 }
 
-impl From<ProductSearchPatchData> for ProductSearchPatch {
-    fn from(data: ProductSearchPatchData) -> Self {
-        Self {
+impl TryFrom<ProductSearchPatchData> for ProductSearchPatch {
+    type Error = ProductSearchDataMappingError;
+
+    fn try_from(data: ProductSearchPatchData) -> Result<Self, Self::Error> {
+        Ok(Self {
             language: patch(data.language.map(Into::into)),
             currency: patch(data.currency.map(Into::into)),
             product_query: patch(data.product_query),
             enhanced_search_description: patch(
                 data.enhanced_search_description
-                    .map(EnhancedSearchDescription::from),
+                    .map(EnhancedSearchDescription::try_from)
+                    .transpose()?,
             ),
             shop_name_query: patch(data.shop_name_query.map(AnyOfQuery::from)),
             exclude_shop_name_query: patch(data.exclude_shop_name_query.map(AnyOfQuery::from)),
@@ -196,7 +212,7 @@ impl From<ProductSearchPatchData> for ProductSearchPatch {
             updated_query: patch(data.updated_query),
             auction_start_query: patch(data.auction_start_query),
             auction_end_query: patch(data.auction_end_query),
-        }
+        })
     }
 }
 
@@ -363,15 +379,18 @@ enum ShopTypeData {
     Marketplace,
 }
 
-impl From<ProductSearchData> for ProductSearch {
-    fn from(data: ProductSearchData) -> Self {
-        Self {
+impl TryFrom<ProductSearchData> for ProductSearch {
+    type Error = ProductSearchDataMappingError;
+
+    fn try_from(data: ProductSearchData) -> Result<Self, Self::Error> {
+        Ok(Self {
             language: data.language.into(),
             currency: data.currency.into(),
             product_query: data.product_query,
             enhanced_search_description: data
                 .enhanced_search_description
-                .map(EnhancedSearchDescription::from),
+                .map(EnhancedSearchDescription::try_from)
+                .transpose()?,
             exclude_product_id_query: data.exclude_product_id_query.into(),
             shop_name_query: data.shop_name_query.into(),
             exclude_shop_name_query: data.exclude_shop_name_query.into(),
@@ -394,7 +413,7 @@ impl From<ProductSearchData> for ProductSearch {
             updated_query: data.updated_query,
             auction_start_query: data.auction_start_query,
             auction_end_query: data.auction_end_query,
-        }
+        })
     }
 }
 
@@ -589,7 +608,7 @@ mod tests {
             }"#,
         )?;
 
-        let (_, _, _, patch) = data.into_fields();
+        let (_, _, _, patch) = data.into_fields()?;
 
         assert!(matches!(patch.language, PatchField::Set(Language::De)));
         assert!(matches!(patch.currency, PatchField::Unchanged));

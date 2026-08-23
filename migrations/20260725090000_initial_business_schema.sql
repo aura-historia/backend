@@ -293,6 +293,7 @@ CREATE TABLE search_filters (
     CONSTRAINT search_filters_language_check CHECK (language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
     CONSTRAINT search_filters_currency_check CHECK (currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT search_filters_embedding_dimension_check CHECK (embedding IS NULL OR (array_ndims(embedding) = 1 AND cardinality(embedding) = 768)),
+    CONSTRAINT search_filters_enhanced_description_non_blank CHECK (enhanced_search_description IS NULL OR btrim(enhanced_search_description) <> ''),
     CONSTRAINT search_filters_version_positive CHECK (version >= 1)
 );
 

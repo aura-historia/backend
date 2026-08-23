@@ -19,7 +19,9 @@ use geo::{
 use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
-use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use product_core::product_search::{
+    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductSearch,
+};
 use search_filter_core::{SearchFilter, SearchFilterProductMatch};
 use search_filter_service::ports::{
     PersistedSearchFilter, PersistedSearchFilterMatch, SearchFilterIndexReadError,
@@ -64,6 +66,7 @@ pub(crate) enum ProductSearchJsonMappingError {
     Deserialize(serde_json::Error),
     FormatTimestamp(time::error::Format),
     ParseTimestamp(time::error::Parse),
+    EnhancedSearchDescription(EnhancedSearchDescriptionError),
 }
 
 impl fmt::Display for ProductSearchJsonMappingError {
@@ -79,7 +82,10 @@ impl fmt::Display for ProductSearchJsonMappingError {
                 formatter.write_str("search filter product search timestamp formatting failed")
             }
             Self::ParseTimestamp(_) => {
-                formatter.write_str("persisted search filter product search timestamp is invalid")
+                formatter.write_str("search filter product search timestamp is invalid")
+            }
+            Self::EnhancedSearchDescription(_) => {
+                formatter.write_str("persisted enhanced search description is invalid")
             }
         }
     }
@@ -91,6 +97,7 @@ impl Error for ProductSearchJsonMappingError {
             Self::Serialize(source) | Self::Deserialize(source) => Some(source),
             Self::FormatTimestamp(source) => Some(source),
             Self::ParseTimestamp(source) => Some(source),
+            Self::EnhancedSearchDescription(source) => Some(source),
         }
     }
 }
@@ -733,7 +740,9 @@ pub(crate) fn product_search_from_json(
         product_query: j.product_query,
         enhanced_search_description: j
             .enhanced_search_description
-            .map(EnhancedSearchDescription::from),
+            .map(EnhancedSearchDescription::try_from)
+            .transpose()
+            .map_err(ProductSearchJsonMappingError::EnhancedSearchDescription)?,
         exclude_product_id_query: j.exclude_product_id_query.into(),
         shop_name_query: j.shop_name_query.into(),
         exclude_shop_name_query: j.exclude_shop_name_query.into(),

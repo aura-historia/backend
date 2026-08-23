@@ -33,6 +33,7 @@ impl PeriodicSearchFilterProgress for SqlxPeriodicSearchFilterProgress<'_> {
         search_filter_id: UserSearchFilterId,
         expected_version: i64,
         created: OffsetDateTime,
+        window_end: OffsetDateTime,
     ) -> Result<PeriodicSearchFilterProgressLockOutcome, PeriodicSearchFilterProgressError> {
         let id = user_search_filter_uuid(search_filter_id).map_err(|source| {
             PeriodicSearchFilterProgressError::PersistenceFailed {
@@ -55,6 +56,7 @@ impl PeriodicSearchFilterProgress for SqlxPeriodicSearchFilterProgress<'_> {
             .bind(id).fetch_optional(self.tx.connection()).await
             .map_err(|source| PeriodicSearchFilterProgressError::PersistenceFailed { source: box_error(source) })?
             .unwrap_or(created);
+        let _ = window_end;
         Ok(PeriodicSearchFilterProgressLockOutcome::Current { matched_through })
     }
 
@@ -64,6 +66,9 @@ impl PeriodicSearchFilterProgress for SqlxPeriodicSearchFilterProgress<'_> {
         expected: OffsetDateTime,
         matched_through: OffsetDateTime,
     ) -> Result<PeriodicSearchFilterProgressWriteOutcome, PeriodicSearchFilterProgressError> {
+        if matched_through <= expected {
+            return Ok(PeriodicSearchFilterProgressWriteOutcome::AlreadyCovered);
+        }
         let id = user_search_filter_uuid(search_filter_id).map_err(|source| {
             PeriodicSearchFilterProgressError::PersistenceFailed {
                 source: box_error(source),
@@ -72,10 +77,12 @@ impl PeriodicSearchFilterProgress for SqlxPeriodicSearchFilterProgress<'_> {
         let changed = sqlx::query_scalar::<_, uuid::Uuid>(
             r#"
             INSERT INTO search_filter_periodic_match_state (user_search_filter_id, matched_through)
-            VALUES ($1, $3)
+            SELECT $1, $3
+            WHERE $2 < $3
             ON CONFLICT (user_search_filter_id) DO UPDATE
               SET matched_through = EXCLUDED.matched_through, updated = now()
               WHERE search_filter_periodic_match_state.matched_through = $2
+                AND search_filter_periodic_match_state.matched_through < EXCLUDED.matched_through
             RETURNING user_search_filter_id
         "#,
         )

@@ -18,7 +18,9 @@ use localization::Language;
 use money::{Currency, MonetaryAmount};
 use product_core::product_id::ProductId;
 use product_core::product_lifecycle::ProductLifecycle;
-use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use product_core::product_search::{
+    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductSearch,
+};
 use product_core::product_state::ProductState;
 use product_opensearch::build_percolator_query;
 use search_filter_core::search_filter_state::SearchFilterState;
@@ -90,6 +92,11 @@ pub enum ProductSearchDocumentMappingError {
     },
     #[error("OpenSearch document has an invalid product search timestamp")]
     InvalidTimestamp,
+    #[error("OpenSearch document has an invalid enhanced search description")]
+    InvalidEnhancedSearchDescription {
+        #[source]
+        source: EnhancedSearchDescriptionError,
+    },
 }
 
 impl TryFrom<&SearchFilterProjection> for SearchFilterDocument {
@@ -641,7 +648,11 @@ impl TryFrom<ProductSearchDocument> for ProductSearch {
             product_query: document.product_query,
             enhanced_search_description: document
                 .enhanced_search_description
-                .map(EnhancedSearchDescription::from),
+                .map(EnhancedSearchDescription::try_from)
+                .transpose()
+                .map_err(|source| {
+                    ProductSearchDocumentMappingError::InvalidEnhancedSearchDescription { source }
+                })?,
             exclude_product_id_query: document.exclude_product_id_query.into(),
             shop_name_query: document.shop_name_query.into(),
             exclude_shop_name_query: document.exclude_shop_name_query.into(),

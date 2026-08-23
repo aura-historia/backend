@@ -22,6 +22,14 @@ pub(super) async fn create_search_filter(
         Ok(value) => value,
         Err(response) => return response,
     };
+    let search = match product_core::product_search::ProductSearch::try_from(data.search) {
+        Ok(search) => search,
+        Err(error) => {
+            return ApiError::bad_request(crate::error::BAD_BODY_VALUE)
+                .with_detail(error.to_string())
+                .into_response();
+        }
+    };
     match state
         .create_search_filter
         .execute(
@@ -30,7 +38,7 @@ pub(super) async fn create_search_filter(
                 user_id,
                 name: data.name,
                 notifications: data.notifications,
-                search: data.search.into(),
+                search,
             },
         )
         .await

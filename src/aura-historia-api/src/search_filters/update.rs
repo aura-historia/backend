@@ -31,7 +31,14 @@ pub(super) async fn update_search_filter(
             Err(response) => return response,
         }
     };
-    let (name, notifications, state_field, search) = data.into_fields();
+    let (name, notifications, state_field, search) = match data.into_fields() {
+        Ok(fields) => fields,
+        Err(error) => {
+            return ApiError::bad_request(crate::error::BAD_BODY_VALUE)
+                .with_detail(error.to_string())
+                .into_response();
+        }
+    };
     match state
         .update_owned_search_filter
         .execute(

@@ -7,6 +7,13 @@ use search_filter_core::{
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PeriodicSearchFilterCandidatePageRequest {
+    pub after: Option<UserSearchFilterId>,
+    pub page_size: usize,
+    pub eligible_at_or_before: OffsetDateTime,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PeriodicSearchFilterCandidate {
     pub search_filter_id: UserSearchFilterId,
@@ -38,8 +45,6 @@ pub enum PeriodicSearchFilterCandidateReadError {
 pub trait PeriodicSearchFilterCandidateReader: Send + Sync {
     async fn find_active_page(
         &self,
-        after: Option<UserSearchFilterId>,
-        page_size: usize,
-        run_started_at: OffsetDateTime,
+        request: PeriodicSearchFilterCandidatePageRequest,
     ) -> Result<Vec<PeriodicSearchFilterCandidate>, PeriodicSearchFilterCandidateReadError>;
 }

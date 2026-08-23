@@ -87,10 +87,13 @@ impl ActiveExecutionTracker {
     pub async fn drain(&self, timeout: Duration) -> Result<(), CronDrainError> {
         let wait = async {
             loop {
+                let notified = self.drained.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
                 if self.active.load(Ordering::Acquire) == 0 {
                     return;
                 }
-                self.drained.notified().await;
+                notified.await;
             }
         };
         tokio::time::timeout(timeout, wait)
@@ -115,6 +118,30 @@ impl Drop for ActiveExecutionGuard<'_> {
 pub enum CronDrainError {
     #[error("timed out draining {active} active cron executions")]
     TimedOut { active: usize },
+}
+
+#[derive(Debug)]
+#[doc(hidden)]
+pub enum CronJobExecutionOutcome {
+    Succeeded,
+    Failed(CronJobExecutionError),
+    Panicked,
+    TimedOut,
+    SkippedLocalOverlap,
+    SkippedShutdown,
+}
+
+impl CronJobExecutionOutcome {
+    pub const fn status(&self) -> CronJobStatus {
+        match self {
+            Self::Succeeded => CronJobStatus::Succeeded,
+            Self::Failed(_) => CronJobStatus::Failed,
+            Self::Panicked => CronJobStatus::Panicked,
+            Self::TimedOut => CronJobStatus::TimedOut,
+            Self::SkippedLocalOverlap => CronJobStatus::SkippedLocalOverlap,
+            Self::SkippedShutdown => CronJobStatus::SkippedShutdown,
+        }
+    }
 }
 
 #[doc(hidden)]
@@ -145,81 +172,86 @@ impl ScheduledJobRunner {
     }
 
     pub async fn run(&self) {
+        let started_at = Instant::now();
+        let actual_started_at = OffsetDateTime::now_utc();
+        info!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, "cron.job.started");
+
+        let outcome = self.execute_once().await;
+        let finished_at = OffsetDateTime::now_utc();
+        let duration_ms = started_at.elapsed().as_millis();
+        match outcome {
+            CronJobExecutionOutcome::Succeeded => {
+                info!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "succeeded", "cron.job.completed");
+            }
+            CronJobExecutionOutcome::Failed(error) => {
+                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "failed", error = %error, error_source = ?error.source(), "cron.job.completed");
+            }
+            CronJobExecutionOutcome::Panicked => {
+                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "panicked", "cron.job.completed");
+            }
+            CronJobExecutionOutcome::TimedOut => {
+                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "timed_out", "cron.job.completed");
+            }
+            CronJobExecutionOutcome::SkippedLocalOverlap => {
+                warn!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "skipped_local_overlap", "cron.job.completed");
+            }
+            CronJobExecutionOutcome::SkippedShutdown => {
+                info!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "skipped_shutdown", "cron.job.completed");
+            }
+        }
+    }
+
+    pub async fn execute_once(&self) -> CronJobExecutionOutcome {
         let Some(_active) = self.tracker.try_track() else {
-            self.set_status(CronJobStatus::SkippedShutdown).await;
-            info!(
-                job = self.job.name(),
-                schedule = self.schedule,
-                outcome = "skipped_shutdown",
-                "cron.job.skipped_shutdown"
-            );
-            return;
+            return self
+                .complete(CronJobExecutionOutcome::SkippedShutdown)
+                .await;
         };
         if self
             .running
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
-            self.set_status(CronJobStatus::SkippedLocalOverlap).await;
-            warn!(
-                job = self.job.name(),
-                schedule = self.schedule,
-                outcome = "skipped_local_overlap",
-                "cron.job.skipped_local_overlap"
-            );
-            return;
+            return self
+                .complete(CronJobExecutionOutcome::SkippedLocalOverlap)
+                .await;
         }
+
         let _running = RunningGuard {
             running: &self.running,
         };
-        let started_at = Instant::now();
-        let actual_started_at = OffsetDateTime::now_utc();
-        info!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, "cron.job.started");
         let job = Arc::clone(&self.job);
         let mut child = tokio::spawn(async move { job.execute().await });
         let outcome = match self.max_run_duration {
             Some(duration) => match tokio::time::timeout(duration, &mut child).await {
-                Ok(result) => result,
+                Ok(Ok(Ok(()))) => CronJobExecutionOutcome::Succeeded,
+                Ok(Ok(Err(error))) => CronJobExecutionOutcome::Failed(error),
+                Ok(Err(error)) if error.is_panic() => CronJobExecutionOutcome::Panicked,
+                Ok(Err(error)) => {
+                    CronJobExecutionOutcome::Failed(CronJobExecutionError::from_source(error))
+                }
                 Err(_) => {
                     child.abort();
                     let _ = child.await;
-                    self.set_status(CronJobStatus::TimedOut).await;
-                    let finished_at = OffsetDateTime::now_utc();
-                    let duration_ms = started_at.elapsed().as_millis() as u64;
-                    error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "timed_out", "cron.job.timed_out");
-                    return;
+                    CronJobExecutionOutcome::TimedOut
                 }
             },
-            None => child.await,
+            None => match child.await {
+                Ok(Ok(())) => CronJobExecutionOutcome::Succeeded,
+                Ok(Err(error)) => CronJobExecutionOutcome::Failed(error),
+                Err(error) if error.is_panic() => CronJobExecutionOutcome::Panicked,
+                Err(error) => {
+                    CronJobExecutionOutcome::Failed(CronJobExecutionError::from_source(error))
+                }
+            },
         };
-        match outcome {
-            Ok(Ok(())) => {
-                self.set_status(CronJobStatus::Succeeded).await;
-                let finished_at = OffsetDateTime::now_utc();
-                info!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms = started_at.elapsed().as_millis() as u64, outcome = "succeeded", "cron.job.completed");
-            }
-            Ok(Err(error)) => {
-                self.set_status(CronJobStatus::Failed).await;
-                let finished_at = OffsetDateTime::now_utc();
-                let duration_ms = started_at.elapsed().as_millis() as u64;
-                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "failed", error = %error, error_source = ?error.source(), "cron.job.failed");
-                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "failed", error = %error, error_source = ?error.source(), "cron.job.completed");
-            }
-            Err(error) if error.is_panic() => {
-                self.set_status(CronJobStatus::Panicked).await;
-                let finished_at = OffsetDateTime::now_utc();
-                let duration_ms = started_at.elapsed().as_millis() as u64;
-                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "panicked", "cron.job.panicked");
-                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "panicked", "cron.job.completed");
-            }
-            Err(error) => {
-                self.set_status(CronJobStatus::Failed).await;
-                let finished_at = OffsetDateTime::now_utc();
-                let duration_ms = started_at.elapsed().as_millis() as u64;
-                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "cancelled", error = %error, "cron.job.failed");
-                error!(job = self.job.name(), schedule = self.schedule, actual_started_at = %actual_started_at, finished_at = %finished_at, duration_ms, outcome = "cancelled", error = %error, "cron.job.completed");
-            }
-        }
+
+        self.complete(outcome).await
+    }
+
+    async fn complete(&self, outcome: CronJobExecutionOutcome) -> CronJobExecutionOutcome {
+        self.set_status(outcome.status()).await;
+        outcome
     }
 
     pub async fn status(&self) -> CronJobStatus {
@@ -289,7 +321,8 @@ mod tests {
             "test schedule".to_owned(),
             None,
         );
-        runner.run().await;
+        let outcome = runner.execute_once().await;
+        assert!(matches!(outcome, CronJobExecutionOutcome::Failed(_)));
         assert_eq!(CronJobStatus::Failed, runner.status().await);
     }
 
@@ -313,7 +346,8 @@ mod tests {
             "test schedule".to_owned(),
             None,
         );
-        runner.run().await;
+        let outcome = runner.execute_once().await;
+        assert!(matches!(outcome, CronJobExecutionOutcome::Panicked));
         assert_eq!(CronJobStatus::Panicked, runner.status().await);
     }
 
@@ -338,28 +372,30 @@ mod tests {
             "test schedule".to_owned(),
             Some(Duration::from_millis(10)),
         );
-        runner.run().await;
+        let outcome = runner.execute_once().await;
+        assert!(matches!(outcome, CronJobExecutionOutcome::TimedOut));
         assert_eq!(CronJobStatus::TimedOut, runner.status().await);
     }
 
     #[tokio::test]
     async fn should_drain_after_active_execution_finishes() {
-        let tracker = ActiveExecutionTracker::new();
+        let tracker = Arc::new(ActiveExecutionTracker::new());
         let active = tracker.try_track();
         assert!(active.is_some());
         let Some(active) = active else {
             return;
         };
-        assert!(
-            tokio::time::timeout(
-                Duration::from_millis(10),
-                tracker.drain(Duration::from_secs(1))
-            )
-            .await
-            .is_err()
-        );
+        let drain = tokio::spawn({
+            let tracker = Arc::clone(&tracker);
+            async move { tracker.drain(Duration::from_secs(1)).await }
+        });
+        tokio::task::yield_now().await;
         drop(active);
-        assert!(tracker.drain(Duration::from_secs(1)).await.is_ok());
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), drain)
+                .await
+                .is_ok_and(|result| matches!(result, Ok(Ok(()))))
+        );
     }
 
     #[tokio::test]
@@ -382,10 +418,66 @@ mod tests {
             async move { runner.run().await }
         });
         started.notified().await;
-        runner.run().await;
+        let outcome = runner.execute_once().await;
+        assert!(matches!(
+            outcome,
+            CronJobExecutionOutcome::SkippedLocalOverlap
+        ));
         assert_eq!(CronJobStatus::SkippedLocalOverlap, runner.status().await);
         assert_eq!(1, runs.load(Ordering::SeqCst));
         release.notify_one();
         let _ = first.await;
+    }
+
+    #[tokio::test]
+    async fn should_return_shutdown_skip_outcome() {
+        struct SuccessJob;
+        #[async_trait]
+        impl CronJob for SuccessJob {
+            fn name(&self) -> &'static str {
+                "success"
+            }
+
+            async fn execute(&self) -> Result<(), CronJobExecutionError> {
+                Ok(())
+            }
+        }
+
+        let tracker = Arc::new(ActiveExecutionTracker::new());
+        tracker.stop_accepting();
+        let runner = ScheduledJobRunner::new(
+            Arc::new(SuccessJob),
+            tracker,
+            "test schedule".to_owned(),
+            None,
+        );
+        let outcome = runner.execute_once().await;
+        assert!(matches!(outcome, CronJobExecutionOutcome::SkippedShutdown));
+        assert_eq!(CronJobStatus::SkippedShutdown, runner.status().await);
+    }
+
+    #[tokio::test]
+    async fn should_return_successful_execution_outcome() {
+        struct SuccessJob;
+        #[async_trait]
+        impl CronJob for SuccessJob {
+            fn name(&self) -> &'static str {
+                "success"
+            }
+
+            async fn execute(&self) -> Result<(), CronJobExecutionError> {
+                Ok(())
+            }
+        }
+
+        let runner = ScheduledJobRunner::new(
+            Arc::new(SuccessJob),
+            Arc::new(ActiveExecutionTracker::new()),
+            "test schedule".to_owned(),
+            None,
+        );
+        let outcome = runner.execute_once().await;
+        assert!(matches!(outcome, CronJobExecutionOutcome::Succeeded));
+        assert_eq!(CronJobStatus::Succeeded, runner.status().await);
     }
 }

@@ -10748,7 +10748,9 @@ components:
             When provided on a saved search filter, a language model evaluates each matched product against
             this description and only keeps products that are a true match, attaching a user-facing reason
             to every confirmed hit.
-            Whitespace is trimmed and the value is silently truncated to 1000 characters if longer.
+            Leading and trailing whitespace is removed. Blank values are rejected; values longer than
+            1000 characters are canonicalized to the supported maximum length.
+          minLength: 1
           maxLength: 1000
           example: "Golden cufflinks from the Art Deco period, preferably from French workshops"
         excludeProductId:
@@ -11026,8 +11028,9 @@ components:
             When provided on a saved search filter, a language model evaluates each matched product against
             this description and only keeps products that are a true match, attaching a user-facing reason
             to every confirmed hit.
-            Whitespace is trimmed and the value is silently truncated to 1000 characters if longer.
-            Omit to leave unchanged.
+            Leading and trailing whitespace is removed. Blank values are rejected; values longer than
+            1000 characters are canonicalized to the supported maximum length. Omit to leave unchanged.
+          minLength: 1
           maxLength: 1000
           nullable: true
           example: "Golden cufflinks from the Art Deco period, preferably from French workshops"

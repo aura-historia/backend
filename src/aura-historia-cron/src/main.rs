@@ -1,9 +1,12 @@
-use aura_historia_cron::scheduled_job::CronJobExecutionError;
+use aura_historia_cron::scheduled_job::{
+    ActiveExecutionTracker, CronJobExecutionError, CronJobExecutionOutcome, ScheduledJobRunner,
+};
 use aura_historia_cron::wiring::{WiringError, build_from_env};
 use aura_historia_cron::{
     CRON_ENABLED_JOBS_ENV, CronRuntimeConfig, JobRegistration, run_until_shutdown,
 };
 use platform_observability::{LogLevel, LoggingConfig, init};
+use std::sync::Arc;
 
 const SEARCH_FILTER_PERIODIC_MATCH_JOB: &str = "search-filter-periodic-match";
 
@@ -20,7 +23,13 @@ async fn main() -> Result<(), MainError> {
     let config = CronRuntimeConfig::from_env(&[SEARCH_FILTER_PERIODIC_MATCH_JOB])?;
     let (job, schedule, max_run_duration) = build_from_env().await?;
     if run_once {
-        return job.execute().await.map_err(MainError::Job);
+        let runner = ScheduledJobRunner::new(
+            job,
+            Arc::new(ActiveExecutionTracker::new()),
+            schedule.clone(),
+            Some(max_run_duration),
+        );
+        return run_once_result(runner.execute_once().await);
     }
     if !config
         .enabled_jobs()
@@ -54,6 +63,16 @@ fn parse_run_once() -> Result<bool, MainError> {
     }
     Err(MainError::InvalidArguments)
 }
+fn run_once_result(outcome: CronJobExecutionOutcome) -> Result<(), MainError> {
+    match outcome {
+        CronJobExecutionOutcome::Succeeded | CronJobExecutionOutcome::SkippedLocalOverlap => Ok(()),
+        CronJobExecutionOutcome::Failed(error) => Err(MainError::Job(error)),
+        CronJobExecutionOutcome::Panicked => Err(MainError::JobPanicked),
+        CronJobExecutionOutcome::TimedOut => Err(MainError::JobTimedOut),
+        CronJobExecutionOutcome::SkippedShutdown => Err(MainError::JobSkippedShutdown),
+    }
+}
+
 async fn shutdown_signal() {
     #[cfg(unix)]
     {
@@ -89,4 +108,43 @@ enum MainError {
     InvalidArguments,
     #[error("cron job failed")]
     Job(#[source] CronJobExecutionError),
+    #[error("cron job panicked")]
+    JobPanicked,
+    #[error("cron job timed out")]
+    JobTimedOut,
+    #[error("cron job was skipped during shutdown")]
+    JobSkippedShutdown,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("test job failure")]
+    struct TestJobError;
+
+    #[test]
+    fn should_succeed_for_success_or_local_overlap_run_once_outcomes() {
+        assert!(run_once_result(CronJobExecutionOutcome::Succeeded).is_ok());
+        assert!(run_once_result(CronJobExecutionOutcome::SkippedLocalOverlap).is_ok());
+    }
+
+    #[test]
+    fn should_fail_for_terminal_run_once_failure_outcomes() {
+        assert!(matches!(
+            run_once_result(CronJobExecutionOutcome::Failed(
+                CronJobExecutionError::from_source(TestJobError)
+            )),
+            Err(MainError::Job(_))
+        ));
+        assert!(matches!(
+            run_once_result(CronJobExecutionOutcome::Panicked),
+            Err(MainError::JobPanicked)
+        ));
+        assert!(matches!(
+            run_once_result(CronJobExecutionOutcome::TimedOut),
+            Err(MainError::JobTimedOut)
+        ));
+    }
 }

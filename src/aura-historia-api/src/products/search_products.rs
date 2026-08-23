@@ -155,15 +155,18 @@ impl From<SortProductFieldData> for SortProductField {
     }
 }
 
-impl From<ProductSearchData> for ProductSearch {
-    fn from(data: ProductSearchData) -> Self {
-        Self {
+impl TryFrom<ProductSearchData> for ProductSearch {
+    type Error = product_core::product_search::EnhancedSearchDescriptionError;
+
+    fn try_from(data: ProductSearchData) -> Result<Self, Self::Error> {
+        Ok(Self {
             language: data.language.into(),
             currency: data.currency.into(),
             product_query: data.product_query,
             enhanced_search_description: data
                 .enhanced_search_description
-                .map(EnhancedSearchDescription::from),
+                .map(EnhancedSearchDescription::try_from)
+                .transpose()?,
             exclude_product_id_query: data.exclude_product_id.into(),
             shop_name_query: data.shop_name.into(),
             exclude_shop_name_query: data.exclude_shop_name.into(),
@@ -184,7 +187,7 @@ impl From<ProductSearchData> for ProductSearch {
             updated_query: data.updated,
             auction_start_query: data.auction_start,
             auction_end_query: data.auction_end,
-        }
+        })
     }
 }
 
@@ -297,13 +300,21 @@ async fn handle_search(
         Err(error) => return error.into_response(),
     };
 
+    let search = match ProductSearch::try_from(data) {
+        Ok(search) => search,
+        Err(error) => {
+            return ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+                .with_detail(error.to_string())
+                .into_response();
+        }
+    };
     let context = principal.operation_context(metadata);
     match state
         .search_products
         .execute(
             &context,
             SearchProductsRequest {
-                search: data.into(),
+                search,
                 sort,
                 cursor,
             },

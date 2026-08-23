@@ -519,9 +519,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_merge_only_patched_search_fields() -> Result<(), UpdateOwnedSearchFilterError> {
+    fn should_merge_only_patched_search_fields() -> Result<(), Box<dyn std::error::Error>> {
         let mut search = ProductSearch::new(Language::En, Currency::Eur);
-        search.enhanced_search_description = Some(EnhancedSearchDescription::from("gold ring"));
+        search.enhanced_search_description =
+            Some(EnhancedSearchDescription::try_from("gold ring")?);
         let patch = ProductSearchPatch {
             language: PatchField::Set(Language::De),
             ..Default::default()
@@ -533,17 +534,18 @@ mod tests {
         assert_eq!(Language::De, search.language);
         assert_eq!(Currency::Eur, search.currency);
         assert_eq!(
-            Some(EnhancedSearchDescription::from("gold ring")),
+            Some(EnhancedSearchDescription::try_from("gold ring")?),
             search.enhanced_search_description
         );
         Ok(())
     }
 
     #[test]
-    fn should_clear_optional_enhanced_search_description()
-    -> Result<(), UpdateOwnedSearchFilterError> {
+    fn should_clear_optional_enhanced_search_description() -> Result<(), Box<dyn std::error::Error>>
+    {
         let mut search = ProductSearch::new(Language::En, Currency::Eur);
-        search.enhanced_search_description = Some(EnhancedSearchDescription::from("gold ring"));
+        search.enhanced_search_description =
+            Some(EnhancedSearchDescription::try_from("gold ring")?);
         let patch = ProductSearchPatch {
             enhanced_search_description: PatchField::Clear,
             ..Default::default()

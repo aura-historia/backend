@@ -8,7 +8,7 @@
 ## Core Design
 
 - `cron_tab` triggers only. Aura owns overlap, timeout, panic handling, shutdown drain, and status.
-- UTC schedules only. Job execution returns `Result` before `cron_tab` boundary. Preserve job error sources.
+- UTC schedules only. Scheduled and `--run-once` execution share the guarded timeout, panic containment, overlap, and terminal-outcome path. Preserve job error sources.
 - Start health before scheduler; mark ready only after scheduler starts. Stop accepting work, stop scheduler, then drain active jobs when shutdown, health, or scheduler fails.
 - Observe scheduler termination. SIGINT and SIGTERM start graceful shutdown.
 - Runtime wiring composes adapters. No `aura-historia-worker` or `common` dependency.

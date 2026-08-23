@@ -1,11 +1,11 @@
 use crate::ports::{
     ExistingSearchFilterMatchReader, PeriodicSearchFilterCandidate,
-    PeriodicSearchFilterCandidateReadError, PeriodicSearchFilterCandidateReader,
-    PeriodicSearchFilterMatchingRunLock, PeriodicSearchFilterMatchingRunLockError,
-    PeriodicSearchFilterProgress, PeriodicSearchFilterProgressError,
-    PeriodicSearchFilterProgressFactory, PeriodicSearchFilterProgressLockOutcome,
-    PeriodicSearchFilterProgressWriteOutcome, SearchFilterMatchWriteError, SearchFilterMatchWriter,
-    SearchFilterMatchWriterFactory,
+    PeriodicSearchFilterCandidatePageRequest, PeriodicSearchFilterCandidateReadError,
+    PeriodicSearchFilterCandidateReader, PeriodicSearchFilterMatchingRunLock,
+    PeriodicSearchFilterMatchingRunLockError, PeriodicSearchFilterProgress,
+    PeriodicSearchFilterProgressError, PeriodicSearchFilterProgressFactory,
+    PeriodicSearchFilterProgressLockOutcome, PeriodicSearchFilterProgressWriteOutcome,
+    SearchFilterMatchWriteError, SearchFilterMatchWriter, SearchFilterMatchWriterFactory,
 };
 use crate::product_match_evaluator::{
     ProductMatchEvaluationOutcome, ProductMatchEvaluationRequest, evaluate_product_matches,
@@ -64,7 +64,11 @@ pub struct PeriodicSearchFilterMatchingReport {
     pub window_end: OffsetDateTime,
     pub filters_selected: usize,
     pub filters_completed: usize,
+    pub filters_already_covered: usize,
     pub filters_changed_or_inactive: usize,
+    pub filters_progress_superseded: usize,
+    pub filter_attempts: usize,
+    pub filters_retried: usize,
     pub filters_failed: usize,
     pub filters_invalid_persisted_state: usize,
     pub candidates_scanned: usize,
@@ -76,6 +80,37 @@ pub struct PeriodicSearchFilterMatchingReport {
     pub retryable_evaluation_failures: usize,
     pub matches_inserted: usize,
     pub matches_duplicate: usize,
+}
+
+#[derive(Debug, Default)]
+struct FilterAttemptReport {
+    candidates_scanned: usize,
+    candidates_existing: usize,
+    candidates_missing_source: usize,
+    candidates_stale: usize,
+    candidates_rejected: usize,
+    permanent_evaluation_failures: usize,
+    retryable_evaluation_failures: usize,
+    matches_inserted: usize,
+    matches_duplicate: usize,
+}
+
+impl PeriodicSearchFilterMatchingReport {
+    fn merge_terminal_attempt(&mut self, attempt: &FilterAttemptReport) {
+        self.candidates_scanned += attempt.candidates_scanned;
+        self.candidates_existing += attempt.candidates_existing;
+        self.candidates_missing_source += attempt.candidates_missing_source;
+        self.candidates_stale += attempt.candidates_stale;
+        self.candidates_rejected += attempt.candidates_rejected;
+        self.permanent_evaluation_failures += attempt.permanent_evaluation_failures;
+        self.retryable_evaluation_failures += attempt.retryable_evaluation_failures;
+        self.merge_durable_match_counts(attempt);
+    }
+
+    fn merge_durable_match_counts(&mut self, attempt: &FilterAttemptReport) {
+        self.matches_inserted += attempt.matches_inserted;
+        self.matches_duplicate += attempt.matches_duplicate;
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -282,8 +317,12 @@ where
         let release_result = lease.release().await.map_err(run_lock_error);
         match (result, release_result) {
             (Ok(value), Ok(())) => Ok(value),
-            (Err(error), _) => Err(error),
-            (_, Err(error)) => Err(error),
+            (Err(error), Ok(())) => Err(error),
+            (Err(error), Err(release_error)) => {
+                tracing::error!(error = %release_error, "search_filter.periodic_match.run_lock_release_failed");
+                Err(error)
+            }
+            (Ok(_), Err(error)) => Err(error),
         }
     }
 }
@@ -314,7 +353,11 @@ where
             window_end,
             filters_selected: 0,
             filters_completed: 0,
+            filters_already_covered: 0,
             filters_changed_or_inactive: 0,
+            filters_progress_superseded: 0,
+            filter_attempts: 0,
+            filters_retried: 0,
             filters_failed: 0,
             filters_invalid_persisted_state: 0,
             candidates_scanned: 0,
@@ -331,11 +374,11 @@ where
         loop {
             let page = self
                 .candidates
-                .find_active_page(
+                .find_active_page(PeriodicSearchFilterCandidatePageRequest {
                     after,
-                    self.policy.filter_page_size.get(),
-                    command.started_at,
-                )
+                    page_size: self.policy.filter_page_size.get(),
+                    eligible_at_or_before: window_end,
+                })
                 .await
                 .map_err(candidate_read_error)?;
             if page.is_empty() {
@@ -346,47 +389,80 @@ where
                 report.filters_selected += 1;
                 let mut completed = false;
                 let mut failed = false;
-                for _ in 0..self.policy.max_attempts.get() {
-                    match self
-                        .process_filter(&candidate, &snapshot, window_end, &mut report)
-                        .await
-                    {
+                let mut filter_candidates_scanned = 0;
+                let mut filter_matches_inserted = 0;
+                let mut filter_matches_duplicate = 0;
+                for attempt in 1..=self.policy.max_attempts.get() {
+                    report.filter_attempts += 1;
+                    let mut attempt_report = FilterAttemptReport::default();
+                    let result = self
+                        .process_filter(&candidate, &snapshot, window_end, &mut attempt_report)
+                        .await;
+                    filter_candidates_scanned = attempt_report.candidates_scanned;
+                    filter_matches_inserted += attempt_report.matches_inserted;
+                    filter_matches_duplicate += attempt_report.matches_duplicate;
+                    match result {
                         Ok(FilterOutcome::Completed) => {
+                            report.merge_terminal_attempt(&attempt_report);
+                            completed = true;
+                            break;
+                        }
+                        Ok(FilterOutcome::AlreadyCovered) => {
+                            report.merge_terminal_attempt(&attempt_report);
+                            report.filters_already_covered += 1;
+                            tracing::info!(search_filter_id = %candidate.search_filter_id, outcome = "already_covered", "search_filter.periodic_match.filter_noop");
                             completed = true;
                             break;
                         }
                         Ok(FilterOutcome::ChangedOrInactive) => {
+                            report.merge_terminal_attempt(&attempt_report);
                             report.filters_changed_or_inactive += 1;
-                            tracing::info!(
-                                search_filter_id = %candidate.search_filter_id,
-                                "search_filter.periodic_match.filter_changed"
-                            );
+                            tracing::info!(search_filter_id = %candidate.search_filter_id, "search_filter.periodic_match.filter_changed");
+                            completed = true;
+                            break;
+                        }
+                        Ok(FilterOutcome::ProgressSuperseded) => {
+                            report.merge_terminal_attempt(&attempt_report);
+                            report.filters_progress_superseded += 1;
+                            tracing::info!(search_filter_id = %candidate.search_filter_id, outcome = "progress_superseded", "search_filter.periodic_match.filter_noop");
                             completed = true;
                             break;
                         }
                         Ok(FilterOutcome::InvalidPersistedState) => {
+                            report.merge_terminal_attempt(&attempt_report);
                             mark_invalid_persisted_state(&mut report);
-                            tracing::error!(
-                                search_filter_id = %candidate.search_filter_id,
-                                outcome = "invalid_persisted_state",
-                                "search_filter.periodic_match.filter_invalid_persisted_state"
-                            );
+                            tracing::error!(search_filter_id = %candidate.search_filter_id, outcome = "invalid_persisted_state", "search_filter.periodic_match.filter_invalid_persisted_state");
                             failed = true;
                             break;
                         }
                         Ok(FilterOutcome::Retryable) => {
-                            tracing::warn!(
-                                search_filter_id = %candidate.search_filter_id,
-                                "search_filter.periodic_match.filter_retry"
-                            );
+                            if attempt == self.policy.max_attempts.get() {
+                                report.merge_terminal_attempt(&attempt_report);
+                                report.filters_failed += 1;
+                                failed = true;
+                            } else {
+                                report.merge_durable_match_counts(&attempt_report);
+                                report.filters_retried += 1;
+                                retry_delay(attempt).await;
+                            }
+                        }
+                        Err(error) if error.retry_class() == FilterRetryClass::Retryable => {
+                            if attempt == self.policy.max_attempts.get() {
+                                report.merge_terminal_attempt(&attempt_report);
+                                report.filters_failed += 1;
+                                tracing::error!(search_filter_id = %candidate.search_filter_id, attempt, error = %error, "search_filter.periodic_match.filter_failed");
+                                failed = true;
+                            } else {
+                                report.merge_durable_match_counts(&attempt_report);
+                                report.filters_retried += 1;
+                                tracing::warn!(search_filter_id = %candidate.search_filter_id, attempt, error = %error, "search_filter.periodic_match.filter_retry");
+                                retry_delay(attempt).await;
+                            }
                         }
                         Err(error) => {
+                            report.merge_terminal_attempt(&attempt_report);
                             report.filters_failed += 1;
-                            tracing::error!(
-                                search_filter_id = %candidate.search_filter_id,
-                                error = %error,
-                                "search_filter.periodic_match.filter_failed"
-                            );
+                            tracing::error!(search_filter_id = %candidate.search_filter_id, attempt, error = %error, "search_filter.periodic_match.filter_failed");
                             failed = true;
                             break;
                         }
@@ -396,16 +472,16 @@ where
                     report.filters_completed += 1;
                     tracing::info!(
                         search_filter_id = %candidate.search_filter_id,
-                        candidates_scanned = report.candidates_scanned,
-                        matches_inserted = report.matches_inserted,
-                        matches_duplicate = report.matches_duplicate,
+                        filter_candidates_scanned,
+                        filter_matches_inserted,
+                        filter_matches_duplicate,
+                        run_matches_inserted_total = report.matches_inserted,
                         "search_filter.periodic_match.filter_completed"
                     );
                 } else if !failed {
                     report.filters_failed += 1;
                     tracing::warn!(
                         search_filter_id = %candidate.search_filter_id,
-                        retryable_failures = report.retryable_evaluation_failures,
                         "search_filter.periodic_match.filter_failed"
                     );
                 }
@@ -429,8 +505,15 @@ where
         filter: &PeriodicSearchFilterCandidate,
         snapshot: &FxRateSnapshot,
         window_end: OffsetDateTime,
-        report: &mut PeriodicSearchFilterMatchingReport,
+        report: &mut FilterAttemptReport,
     ) -> Result<FilterOutcome, RunPeriodicSearchFilterMatchingError> {
+        if window_end <= filter.matched_through {
+            return Ok(FilterOutcome::AlreadyCovered);
+        }
+        let description = match periodic_search_description(filter) {
+            Ok(description) => description,
+            Err(outcome) => return Ok(outcome),
+        };
         let embedding = match filter_embedding(filter) {
             Ok(embedding) => embedding,
             Err(outcome) => return Ok(outcome),
@@ -506,11 +589,7 @@ where
                 Some(source) => evaluations.push(ProductMatchEvaluationRequest {
                     key: reference,
                     product: source,
-                    search_description: filter
-                        .search
-                        .enhanced_search_description
-                        .as_deref()
-                        .unwrap_or_default(),
+                    search_description: description.as_ref(),
                     search_language: filter.search.language,
                 }),
             }
@@ -611,24 +690,38 @@ where
         window_end: OffsetDateTime,
         matches: Vec<SearchFilterProductMatch>,
         advance_progress: bool,
-        report: &mut PeriodicSearchFilterMatchingReport,
+        report: &mut FilterAttemptReport,
     ) -> Result<FilterOutcome, RunPeriodicSearchFilterMatchingError> {
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             RunPeriodicSearchFilterMatchingError::BeginFinalTransactionFailed {
                 source: box_error(source),
             }
         })?;
-        let PeriodicSearchFilterProgressLockOutcome::Current { matched_through } = self
+        let matched_through = match self
             .progress
             .in_transaction(&mut tx)
-            .lock_and_read(filter.search_filter_id, filter.version, filter.created)
+            .lock_and_read(
+                filter.search_filter_id,
+                filter.version,
+                filter.created,
+                window_end,
+            )
             .await
             .map_err(progress_error)?
-        else {
-            return Ok(FilterOutcome::ChangedOrInactive);
+        {
+            PeriodicSearchFilterProgressLockOutcome::Current { matched_through } => matched_through,
+            PeriodicSearchFilterProgressLockOutcome::AlreadyCovered => {
+                return Ok(FilterOutcome::AlreadyCovered);
+            }
+            PeriodicSearchFilterProgressLockOutcome::ChangedOrInactive => {
+                return Ok(FilterOutcome::ChangedOrInactive);
+            }
         };
-        if matched_through > filter.matched_through {
-            return Ok(FilterOutcome::ChangedOrInactive);
+        if matched_through != filter.matched_through {
+            return Ok(FilterOutcome::ProgressSuperseded);
+        }
+        if window_end <= matched_through {
+            return Ok(FilterOutcome::AlreadyCovered);
         }
         let refs = matches
             .iter()
@@ -669,8 +762,14 @@ where
                 .compare_and_set(filter.search_filter_id, matched_through, window_end)
                 .await
                 .map_err(progress_error)?;
-            if progress == PeriodicSearchFilterProgressWriteOutcome::Superseded {
-                return Ok(FilterOutcome::ChangedOrInactive);
+            match progress {
+                PeriodicSearchFilterProgressWriteOutcome::Advanced => {}
+                PeriodicSearchFilterProgressWriteOutcome::AlreadyCovered => {
+                    return Ok(FilterOutcome::AlreadyCovered);
+                }
+                PeriodicSearchFilterProgressWriteOutcome::Superseded => {
+                    return Ok(FilterOutcome::ProgressSuperseded);
+                }
             }
         }
         tx.commit().await.map_err(|source| {
@@ -687,9 +786,67 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FilterOutcome {
     Completed,
+    AlreadyCovered,
     ChangedOrInactive,
+    ProgressSuperseded,
     InvalidPersistedState,
     Retryable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilterRetryClass {
+    Retryable,
+    Permanent,
+}
+
+impl RunPeriodicSearchFilterMatchingError {
+    const fn retry_class(&self) -> FilterRetryClass {
+        match self {
+            Self::ProductSearchFailed
+            | Self::ExistingMatchReadFailed { .. }
+            | Self::BeginProductSourceTransactionFailed { .. }
+            | Self::ProductSourceReadFailed { .. }
+            | Self::CommitProductSourceTransactionFailed { .. }
+            | Self::BeginFinalTransactionFailed { .. }
+            | Self::ProgressFailed { .. }
+            | Self::ProductRevisionCheckFailed { .. }
+            | Self::MatchPersistenceFailed { .. }
+            | Self::CommitFinalTransactionFailed { .. } => FilterRetryClass::Retryable,
+            Self::InvalidPolicy
+            | Self::RunLockFailed { .. }
+            | Self::RunLockReleaseFailed { .. }
+            | Self::BeginFxSnapshotTransactionFailed { .. }
+            | Self::FxSnapshotReadFailed { .. }
+            | Self::FxSnapshotInvalid { .. }
+            | Self::FxSnapshotNotFound
+            | Self::CommitFxSnapshotTransactionFailed { .. }
+            | Self::CandidateReadFailed { .. }
+            | Self::CandidateStateInvalid { .. }
+            | Self::ProductSearchResultInvalid
+            | Self::ProductSourceStateInvalid { .. }
+            | Self::ProductSourceMismatch
+            | Self::MatchStateInvalid { .. } => FilterRetryClass::Permanent,
+        }
+    }
+}
+
+async fn retry_delay(attempt: usize) {
+    let delay = if attempt == 1 {
+        std::time::Duration::from_millis(250)
+    } else {
+        std::time::Duration::from_secs(1)
+    };
+    tokio::time::sleep(delay).await;
+}
+
+fn periodic_search_description(
+    filter: &PeriodicSearchFilterCandidate,
+) -> Result<&product_core::product_search::EnhancedSearchDescription, FilterOutcome> {
+    filter
+        .search
+        .enhanced_search_description
+        .as_ref()
+        .ok_or(FilterOutcome::InvalidPersistedState)
 }
 
 fn filter_embedding(filter: &PeriodicSearchFilterCandidate) -> Result<&[f32], FilterOutcome> {
@@ -736,7 +893,11 @@ fn periodic_search(
     window_end: OffsetDateTime,
     replay_overlap: Duration,
 ) -> Option<ProductSearch> {
-    let replay_start = filter.matched_through - replay_overlap;
+    let replay_candidate = filter
+        .matched_through
+        .checked_sub(replay_overlap)
+        .unwrap_or(filter.created);
+    let replay_start = replay_candidate.max(filter.created);
     let min = filter
         .search
         .updated_query
@@ -760,7 +921,6 @@ fn periodic_search(
     if let Some(query) = search
         .enhanced_search_description
         .as_ref()
-        .filter(|description| !description.trim().is_empty())
         .and_then(|description| description.as_ref().try_into().ok())
         .filter(|query| {
             !search
@@ -857,7 +1017,9 @@ mod tests {
     };
     use application::transaction::TransactionError;
     use domain_primitives::event_id::EventId;
-    use fxrate_core::{FxRateId, NewFxRateSnapshot};
+    use fxrate_core::{
+        FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot,
+    };
     use fxrate_service::ports::FxRateSnapshotInsertOutcome;
     use large_language_model::{LargeLanguageModelError, StructuredGenerationRequest};
     use localization::Language;
@@ -868,6 +1030,7 @@ mod tests {
     };
     use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
+    use strum::IntoEnumIterator;
     use user_core::user_id::UserId;
 
     #[derive(Debug)]
@@ -930,9 +1093,7 @@ mod tests {
     impl PeriodicSearchFilterCandidateReader for NoopCandidates {
         async fn find_active_page(
             &self,
-            _after: Option<search_filter_core::user_search_filter_id::UserSearchFilterId>,
-            _page_size: usize,
-            _run_started_at: OffsetDateTime,
+            _request: PeriodicSearchFilterCandidatePageRequest,
         ) -> Result<Vec<PeriodicSearchFilterCandidate>, PeriodicSearchFilterCandidateReadError>
         {
             Ok(Vec::new())
@@ -1146,6 +1307,7 @@ mod tests {
             _search_filter_id: search_filter_core::user_search_filter_id::UserSearchFilterId,
             _expected_version: i64,
             _created: OffsetDateTime,
+            _window_end: OffsetDateTime,
         ) -> Result<PeriodicSearchFilterProgressLockOutcome, PeriodicSearchFilterProgressError>
         {
             self.0.lock().map(|state| state.lock_outcome).map_err(|_| {
@@ -1244,6 +1406,70 @@ mod tests {
         }
     }
 
+    #[test]
+    fn should_clamp_first_replay_window_to_filter_creation() {
+        let mut candidate = filter();
+        candidate.created = OffsetDateTime::UNIX_EPOCH + Duration::hours(10);
+        candidate.matched_through = candidate.created;
+        let window_end = candidate.created + Duration::hours(1);
+
+        let search = periodic_search(&candidate, window_end, Duration::hours(2));
+
+        assert_eq!(
+            Some(RangeQuery {
+                min: Some(candidate.created),
+                max: Some(window_end),
+            }),
+            search.and_then(|search| search.updated_query)
+        );
+    }
+
+    #[test]
+    fn should_intersect_replay_window_with_persisted_updated_bounds() {
+        let mut candidate = filter();
+        candidate.created = OffsetDateTime::UNIX_EPOCH;
+        candidate.matched_through = candidate.created + Duration::hours(10);
+        candidate.search.updated_query = Some(RangeQuery {
+            min: Some(candidate.created + Duration::hours(9)),
+            max: Some(candidate.created + Duration::hours(11)),
+        });
+        let window_end = candidate.created + Duration::hours(12);
+
+        let search = periodic_search(&candidate, window_end, Duration::hours(2));
+
+        assert_eq!(
+            Some(RangeQuery {
+                min: Some(candidate.created + Duration::hours(9)),
+                max: Some(candidate.created + Duration::hours(11)),
+            }),
+            search.and_then(|search| search.updated_query)
+        );
+    }
+
+    fn test_snapshot() -> FxRateSnapshot {
+        NewFxRateSnapshot::capture_eur(
+            FxRateId::new(),
+            OffsetDateTime::UNIX_EPOCH,
+            FxRateSource::FxRatesApi,
+            Currency::Eur,
+            Currency::iter().map(|currency| {
+                FxRateQuote::new(
+                    currency,
+                    if currency == Currency::Eur {
+                        FX_RATE_SCALE
+                    } else {
+                        1_250_000
+                    },
+                )
+            }),
+        )
+        .unwrap_or_else(|error| panic!("test snapshot invalid: {error}"))
+        .into_persisted(
+            FxRateGeneration::try_from(1)
+                .unwrap_or_else(|error| panic!("test generation invalid: {error}")),
+        )
+    }
+
     fn accepted_match(filter: &PeriodicSearchFilterCandidate) -> SearchFilterProductMatch {
         SearchFilterProductMatch {
             user_id: filter.user_id,
@@ -1262,7 +1488,11 @@ mod tests {
             window_end: OffsetDateTime::UNIX_EPOCH,
             filters_selected: 0,
             filters_completed: 0,
+            filters_already_covered: 0,
             filters_changed_or_inactive: 0,
+            filters_progress_superseded: 0,
+            filter_attempts: 0,
+            filters_retried: 0,
             filters_failed: 0,
             filters_invalid_persisted_state: 0,
             candidates_scanned: 0,
@@ -1303,12 +1533,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_skip_all_filter_work_when_window_is_already_covered()
+    -> Result<(), RunPeriodicSearchFilterMatchingError> {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        let handler = handler(Arc::clone(&state))?;
+        let filter = filter();
+        let snapshot = test_snapshot();
+        let mut attempt_report = FilterAttemptReport::default();
+
+        let equal = handler
+            .process_filter(
+                &filter,
+                &snapshot,
+                filter.matched_through,
+                &mut attempt_report,
+            )
+            .await?;
+        let older = handler
+            .process_filter(
+                &filter,
+                &snapshot,
+                filter.matched_through - Duration::seconds(1),
+                &mut attempt_report,
+            )
+            .await?;
+
+        let state = state
+            .lock()
+            .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
+        assert_eq!(FilterOutcome::AlreadyCovered, equal);
+        assert_eq!(FilterOutcome::AlreadyCovered, older);
+        assert_eq!(0, state.commits);
+        assert_eq!(0, state.revision_checks);
+        assert_eq!(0, state.checkpoints);
+        assert_eq!(0, attempt_report.candidates_scanned);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_report_progress_superseded_when_selected_checkpoint_changes()
+    -> Result<(), RunPeriodicSearchFilterMatchingError> {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH + Duration::seconds(1),
+        });
+        let handler = handler(Arc::clone(&state))?;
+        let filter = filter();
+        let mut attempt_report = FilterAttemptReport::default();
+
+        let outcome = handler
+            .commit_filter(
+                &filter,
+                OffsetDateTime::UNIX_EPOCH + Duration::seconds(2),
+                vec![accepted_match(&filter)],
+                true,
+                &mut attempt_report,
+            )
+            .await?;
+
+        let state = state
+            .lock()
+            .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
+        assert_eq!(FilterOutcome::ProgressSuperseded, outcome);
+        assert_eq!(0, state.revision_checks);
+        assert!(state.persisted.is_empty());
+        assert_eq!(0, state.checkpoints);
+        assert_eq!(0, state.commits);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_skip_revision_match_and_checkpoint_when_filter_changed_or_inactive()
     -> Result<(), RunPeriodicSearchFilterMatchingError> {
         let state = state(PeriodicSearchFilterProgressLockOutcome::ChangedOrInactive);
         let handler = handler(Arc::clone(&state))?;
         let filter = filter();
-        let mut report = report();
+        let mut attempt_report = FilterAttemptReport::default();
 
         let outcome = handler
             .commit_filter(
@@ -1316,7 +1617,7 @@ mod tests {
                 OffsetDateTime::UNIX_EPOCH,
                 vec![accepted_match(&filter)],
                 true,
-                &mut report,
+                &mut attempt_report,
             )
             .await?;
 
@@ -1328,7 +1629,7 @@ mod tests {
         assert!(state.persisted.is_empty());
         assert_eq!(state.checkpoints, 0);
         assert_eq!(state.commits, 0);
-        assert_eq!(report.matches_inserted, 0);
+        assert_eq!(attempt_report.matches_inserted, 0);
         Ok(())
     }
 
@@ -1341,15 +1642,15 @@ mod tests {
         let handler = handler(Arc::clone(&state))?;
         let filter = filter();
         let accepted = accepted_match(&filter);
-        let mut report = report();
+        let mut attempt_report = FilterAttemptReport::default();
 
         let outcome = handler
             .commit_filter(
                 &filter,
-                OffsetDateTime::UNIX_EPOCH,
+                OffsetDateTime::UNIX_EPOCH + Duration::seconds(1),
                 vec![accepted.clone()],
                 false,
-                &mut report,
+                &mut attempt_report,
             )
             .await?;
 
@@ -1361,7 +1662,7 @@ mod tests {
         assert_eq!(state.persisted, vec![accepted]);
         assert_eq!(state.checkpoints, 0);
         assert_eq!(state.commits, 1);
-        assert_eq!(report.matches_inserted, 1);
+        assert_eq!(attempt_report.matches_inserted, 1);
         Ok(())
     }
 
@@ -1374,15 +1675,15 @@ mod tests {
         let handler = handler(Arc::clone(&state))?;
         let filter = filter();
         let accepted = accepted_match(&filter);
-        let mut report = report();
+        let mut attempt_report = FilterAttemptReport::default();
 
         let outcome = handler
             .commit_filter(
                 &filter,
-                OffsetDateTime::UNIX_EPOCH,
+                OffsetDateTime::UNIX_EPOCH + Duration::seconds(1),
                 vec![accepted.clone()],
                 true,
-                &mut report,
+                &mut attempt_report,
             )
             .await?;
 
@@ -1394,7 +1695,7 @@ mod tests {
         assert_eq!(state.persisted, vec![accepted]);
         assert_eq!(state.checkpoints, 1);
         assert_eq!(state.commits, 1);
-        assert_eq!(report.matches_inserted, 1);
+        assert_eq!(attempt_report.matches_inserted, 1);
         Ok(())
     }
 }

@@ -270,7 +270,10 @@ fn sample_view_with_enhanced_description(query_text: &str) -> SearchFilterView {
     SearchFilterView {
         search: ProductSearch::new(Language::En, Currency::Eur)
             .with_product_query(text_query(query_text))
-            .with_enhanced_search_description("brass lamp".into()),
+            .with_enhanced_search_description(
+                product_core::product_search::EnhancedSearchDescription::try_from("brass lamp")
+                    .unwrap(),
+            ),
         ..sample_view(query_text)
     }
 }

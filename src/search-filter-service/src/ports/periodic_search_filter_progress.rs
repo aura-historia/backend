@@ -5,12 +5,14 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PeriodicSearchFilterProgressLockOutcome {
     Current { matched_through: OffsetDateTime },
+    AlreadyCovered,
     ChangedOrInactive,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PeriodicSearchFilterProgressWriteOutcome {
     Advanced,
+    AlreadyCovered,
     Superseded,
 }
 
@@ -30,6 +32,7 @@ pub trait PeriodicSearchFilterProgress: Send {
         search_filter_id: UserSearchFilterId,
         expected_version: i64,
         created: OffsetDateTime,
+        window_end: OffsetDateTime,
     ) -> Result<PeriodicSearchFilterProgressLockOutcome, PeriodicSearchFilterProgressError>;
 
     async fn compare_and_set(

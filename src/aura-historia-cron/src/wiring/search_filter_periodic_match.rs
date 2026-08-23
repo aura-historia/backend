@@ -26,7 +26,7 @@ use search_filter_service::use_cases::{
     RunPeriodicSearchFilterMatchingUseCase,
 };
 use std::{
-    num::{NonZeroU64, NonZeroUsize},
+    num::{NonZeroU32, NonZeroU64, NonZeroUsize},
     str::FromStr,
     sync::Arc,
     time::Duration,
@@ -96,7 +96,9 @@ struct PeriodicMatchConfig {
 }
 impl PeriodicMatchConfig {
     fn from_env() -> Result<Self, WiringError> {
-        let stage = std::env::var("STAGE").ok();
+        let stage = std::env::var("STAGE")
+            .ok()
+            .map(|value| value.trim().to_owned());
         let filter_page_size = nonzero("PERIODIC_MATCH_FILTER_PAGE_SIZE", 100)?;
         let hybrid_scan_limit = nonzero("PERIODIC_MATCH_HYBRID_SCAN_LIMIT", 100)?;
         let evaluation_limit = nonzero("PERIODIC_MATCH_EVALUATION_LIMIT", 50)?;
@@ -118,13 +120,17 @@ impl PeriodicMatchConfig {
                 required("OPENSEARCH_PASSWORD")?,
             ))
         };
+        let postgres_max_connections =
+            NonZeroU32::new(number::<u32>("POSTGRES_MAX_CONNECTIONS", 2)?)
+                .ok_or(WiringError::InvalidPolicy)?
+                .get();
         let postgres = PostgresPoolConfig::new(
             required("POSTGRES_HOST")?,
-            number("POSTGRES_PORT", 5432)? as u16,
+            number::<u16>("POSTGRES_PORT", 5432)?,
             required("POSTGRES_DATABASE")?,
             required("POSTGRES_USERNAME")?,
             required("POSTGRES_PASSWORD")?,
-            number("POSTGRES_MAX_CONNECTIONS", 2)? as u32,
+            postgres_max_connections,
         )
         .map_err(WiringError::PostgresConfig)?;
         let schedule = optional("SEARCH_FILTER_PERIODIC_MATCH_CRON", "0 0 15 * * * *");
@@ -144,14 +150,14 @@ impl PeriodicMatchConfig {
                 evaluation_limit,
                 llm_concurrency,
                 max_attempts,
-                projection_lag: time::Duration::seconds(number(
+                projection_lag: periodic_duration(
                     "PERIODIC_MATCH_PROJECTION_LAG_SECONDS",
-                    900,
-                )? as i64),
-                replay_overlap: time::Duration::seconds(number(
+                    number::<u64>("PERIODIC_MATCH_PROJECTION_LAG_SECONDS", 900)?,
+                )?,
+                replay_overlap: periodic_duration(
                     "PERIODIC_MATCH_REPLAY_OVERLAP_SECONDS",
-                    7200,
-                )? as i64),
+                    number::<u64>("PERIODIC_MATCH_REPLAY_OVERLAP_SECONDS", 7200)?,
+                )?,
             },
         })
     }
@@ -159,32 +165,56 @@ impl PeriodicMatchConfig {
 fn required(name: &'static str) -> Result<String, WiringError> {
     std::env::var(name)
         .ok()
-        .filter(|value| !value.is_empty())
+        .and_then(trimmed_non_empty)
         .ok_or(WiringError::MissingEnv { name })
 }
+
 fn optional(name: &'static str, default: &str) -> String {
     std::env::var(name)
         .ok()
-        .filter(|value| !value.is_empty())
+        .and_then(trimmed_non_empty)
         .unwrap_or_else(|| default.to_owned())
 }
+
+fn trimmed_non_empty(value: String) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
 fn number<T>(name: &'static str, default: T) -> Result<T, WiringError>
 where
-    T: FromStr + Copy,
+    T: FromStr,
     T::Err: std::error::Error + Send + Sync + 'static,
 {
     std::env::var(name)
         .ok()
-        .map(|value| {
-            value.parse().map_err(|source| WiringError::InvalidNumber {
-                name,
-                source: Box::new(source),
-            })
-        })
+        .map(|value| parse_number(name, &value))
         .unwrap_or(Ok(default))
+}
+
+fn parse_number<T>(name: &'static str, value: &str) -> Result<T, WiringError>
+where
+    T: FromStr,
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+    value
+        .trim()
+        .parse()
+        .map_err(|source| WiringError::InvalidNumber {
+            name,
+            source: Box::new(source),
+        })
 }
 fn nonzero(name: &'static str, default: usize) -> Result<NonZeroUsize, WiringError> {
     NonZeroUsize::new(number(name, default)?).ok_or(WiringError::InvalidPolicy)
+}
+
+fn periodic_duration(name: &'static str, seconds: u64) -> Result<time::Duration, WiringError> {
+    let seconds = i64::try_from(seconds).map_err(|source| WiringError::InvalidNumber {
+        name,
+        source: Box::new(source),
+    })?;
+    Ok(time::Duration::seconds(seconds))
 }
 
 fn positive_duration(name: &'static str, default: u64) -> Result<Duration, WiringError> {
@@ -265,5 +295,33 @@ mod tests {
     #[test]
     fn should_accept_valid_seven_field_periodic_match_cron() {
         assert!(validate_schedule("0 0 15 * * * *").is_ok());
+    }
+
+    #[test]
+    fn should_trim_string_and_numeric_wiring_inputs() {
+        assert_eq!(
+            trimmed_non_empty("  value  ".to_owned()),
+            Some("value".to_owned())
+        );
+        assert!(matches!(
+            parse_number::<u16>("POSTGRES_PORT", " 5432 "),
+            Ok(5432)
+        ));
+    }
+
+    #[test]
+    fn should_reject_numeric_values_outside_the_target_type() {
+        assert!(matches!(
+            parse_number::<u16>("POSTGRES_PORT", "65536"),
+            Err(WiringError::InvalidNumber { .. })
+        ));
+        assert!(matches!(
+            parse_number::<u64>("PERIODIC_MATCH_PROJECTION_LAG_SECONDS", "-1"),
+            Err(WiringError::InvalidNumber { .. })
+        ));
+        assert!(matches!(
+            periodic_duration("PERIODIC_MATCH_PROJECTION_LAG_SECONDS", u64::MAX),
+            Err(WiringError::InvalidNumber { .. })
+        ));
     }
 }

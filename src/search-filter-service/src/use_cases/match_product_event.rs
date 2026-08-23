@@ -1371,7 +1371,9 @@ mod tests {
         let product = product()?;
         let plain = filter(user_id, UserSearchFilterId::new());
         let mut enhanced = filter(user_id, UserSearchFilterId::new());
-        enhanced.search.enhanced_search_description = Some("only paintings".into());
+        enhanced.search.enhanced_search_description = Some(
+            product_core::product_search::EnhancedSearchDescription::try_from("only paintings")?,
+        );
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(vec![product.clone()]),
@@ -1411,7 +1413,9 @@ mod tests {
         let state = Arc::new(Mutex::new(State::default()));
         let user_id = UserId::new();
         let mut enhanced = filter(user_id, UserSearchFilterId::new());
-        enhanced.search.enhanced_search_description = Some("only paintings".into());
+        enhanced.search.enhanced_search_description = Some(
+            product_core::product_search::EnhancedSearchDescription::try_from("only paintings")?,
+        );
         let product = product()?;
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
