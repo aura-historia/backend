@@ -356,6 +356,8 @@ async fn main() {
             ..Default::default()
         };
 
+        config.validate_business_capacity();
+
         info!(
             spider_interval_s = config.spider_interval.as_secs(),
             scraper_interval_s = config.scraper_interval.as_secs(),

@@ -80,7 +80,7 @@ impl Default for CrawlerLlmRetryPolicy {
 pub struct CrawlerLlmGovernor {
     config: CrawlerLlmRateLimitConfig,
     semaphore: Semaphore,
-    last_request_started_at: Mutex<Option<Instant>>,
+    next_request_start_at: Mutex<Option<Instant>>,
 }
 
 impl CrawlerLlmGovernor {
@@ -88,7 +88,7 @@ impl CrawlerLlmGovernor {
         Self {
             semaphore: Semaphore::new(config.max_concurrent_requests),
             config,
-            last_request_started_at: Mutex::new(None),
+            next_request_start_at: Mutex::new(None),
         }
     }
 
@@ -105,23 +105,20 @@ impl CrawlerLlmGovernor {
                     source: static_error("crawler LLM governor closed"),
                 })?;
 
-        // This mutex is the request-start gate. Intentionally keep the guard
-        // across the pacing sleep so the eligibility check and timestamp update
-        // are one serialized operation.
-        let mut last_request_started_at = self.last_request_started_at.lock().await;
+        let start_at = {
+            let mut next = self.next_request_start_at.lock().await;
 
-        if let Some(last_start) = *last_request_started_at {
-            let elapsed = Instant::now()
-                .checked_duration_since(last_start)
-                .unwrap_or(Duration::ZERO);
+            let now = Instant::now();
+            let reserved = match *next {
+                Some(previous) => previous.max(now),
+                None => now,
+            };
 
-            if elapsed < self.config.min_request_interval {
-                sleep(self.config.min_request_interval - elapsed).await;
-            }
-        }
+            *next = Some(reserved + self.config.min_request_interval);
+            reserved
+        };
 
-        *last_request_started_at = Some(Instant::now());
-        drop(last_request_started_at);
+        tokio::time::sleep_until(start_at).await;
 
         Ok(CrawlerLlmPermit { _permit: permit })
     }
@@ -570,6 +567,50 @@ mod tests {
                 adjacent[1].duration_since(adjacent[0]) >= min_interval,
                 "request starts were not paced: {starts:?}"
             );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_release_start_gate_after_reserving_future_slots() {
+        let min_interval = Duration::from_secs(2);
+        let governor = Arc::new(CrawlerLlmGovernor::new(CrawlerLlmRateLimitConfig {
+            max_concurrent_requests: 4,
+            min_request_interval: min_interval,
+        }));
+
+        let first = governor.acquire().await.unwrap();
+        let first_start = Instant::now();
+        drop(first);
+
+        let mut tasks = JoinSet::new();
+        for _ in 0..3 {
+            let governor = Arc::clone(&governor);
+            tasks.spawn(async move {
+                let permit = governor.acquire().await;
+                drop(permit);
+            });
+        }
+
+        let expected_next_start = first_start + min_interval * 4;
+        for _ in 0..10 {
+            let next = governor
+                .next_request_start_at
+                .try_lock()
+                .expect("start gate must not be held while callers wait");
+            if *next == Some(expected_next_start) {
+                break;
+            }
+            drop(next);
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            *governor.next_request_start_at.lock().await,
+            Some(expected_next_start)
+        );
+
+        tokio::time::advance(min_interval * 3).await;
+        while let Some(result) = tasks.join_next().await {
+            result.expect("reservation task must join");
         }
     }
 

@@ -46,6 +46,9 @@ pub struct ProductPushServiceImpl {
 }
 
 impl ProductPushServiceImpl {
+    /// Maximum concurrent canonical product transactions.
+    /// Must remain below authoritative business database capacity.
+    /// Startup configuration validation enforces this boundary.
     pub fn new(
         upsert_product: Arc<dyn UpsertProductUseCase>,
         max_concurrent_upserts: usize,

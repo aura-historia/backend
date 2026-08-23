@@ -98,13 +98,17 @@ impl CrawlerCronConfig {
     }
 
     pub fn effective_business_db_max_connections(&self) -> u32 {
-        let required_for_push = u32::try_from(self.effective_push_max_concurrency())
-            .unwrap_or(u32::MAX)
-            .saturating_add(2);
+        self.business_db_max_connections.max(3)
+    }
 
-        self.business_db_max_connections
-            .max(required_for_push)
-            .max(3)
+    pub fn validate_business_capacity(&self) {
+        let push = self.effective_push_max_concurrency() as u32;
+        let pool = self.effective_business_db_max_connections();
+
+        assert!(
+            push + 2 <= pool,
+            "product push concurrency must leave business database headroom"
+        );
     }
 
     pub fn effective_db_max_connections(&self) -> u32 {
@@ -170,17 +174,25 @@ mod tests {
     }
 
     #[test]
-    fn should_keep_business_pool_larger_than_product_push_concurrency() {
+    #[should_panic]
+    fn should_reject_business_pool_without_push_headroom() {
         let config = CrawlerCronConfig {
-            push_max_concurrency: 6,
-            business_db_max_connections: 4,
-            ..CrawlerCronConfig::default()
+            push_max_concurrency: 8,
+            business_db_max_connections: 8,
+            ..Default::default()
         };
 
-        assert_eq!(config.effective_push_max_concurrency(), 6);
-        assert!(
-            config.effective_business_db_max_connections()
-                >= config.effective_push_max_concurrency() as u32 + 2
-        );
+        config.validate_business_capacity();
+    }
+
+    #[test]
+    fn should_accept_business_pool_with_push_headroom() {
+        let config = CrawlerCronConfig {
+            push_max_concurrency: 4,
+            business_db_max_connections: 8,
+            ..Default::default()
+        };
+
+        config.validate_business_capacity();
     }
 }
