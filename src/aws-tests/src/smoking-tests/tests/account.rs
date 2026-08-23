@@ -1,7 +1,7 @@
-mod common;
+mod http;
 
 use aws_tests_common::get_cfn_output;
-use common::http_client;
+use http::http_client;
 use smoking_tests::smoking_test;
 
 #[smoking_test]

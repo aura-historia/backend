@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-product = { workspace = true, features = ["full"] }
+
 aws-tests-common = { workspace = true }
 smoking-tests-macros = { workspace = true }
 
@@ -12,7 +12,7 @@ smoking-tests-macros = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 reqwest = { workspace = true, features = ["default", "json"] }
 serde_json = { workspace = true }
-fake = { workspace = true }
+
 serial_test = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 futures-util = { workspace = true }

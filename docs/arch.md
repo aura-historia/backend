@@ -2870,7 +2870,7 @@ Agents MUST read this document before implementing architecture-affecting work.
 - [ ] Add acceptance tests
 - [ ] Verify no N+1 access pattern was introduced.
 - [ ] Verify Cargo dependencies enforce core <- service <- adapters <- runtime/transport.
-- [ ] Verify canonical crates use durable shared owners directly and do not add `common` edges.
+- [ ] Verify canonical crates use durable shared owners directly.
 - [ ] Verify no service/core import points toward an adapter.
 - [ ] Verify no controller accesses a repository or database client.
 - [ ] Verify logs contain no secrets or sensitive payloads.

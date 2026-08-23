@@ -3,7 +3,7 @@
 ## Purpose
 
 - Own `user-service` crate.
-- Own canonical User use-case contracts, handlers, and outbound ports for migration.
+- Own canonical User use-case contracts, handlers, and outbound ports.
 
 ## Core Design
 
@@ -19,7 +19,7 @@
 - `UserTierEntitlements` locks one authoritative user row and reconciles tier-restricted search filters and watchlist entries inside the caller transaction; it avoids a User-service dependency on either resource service.
 - `AuthenticateAccessTokenUseCase` only validates token existence/expiry and returns token scopes; protected use cases enforce credential capability via `OperationContext`.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.
-- No SQLx, DynamoDB, OpenSearch, transport, or legacy `user` dependency.
+- No SQLx, DynamoDB, OpenSearch, or transport dependency.
 
 ## Ownership
 

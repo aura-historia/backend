@@ -8,7 +8,7 @@
 
 - Smoke tests for deployed or provisioned environments.
 - Child crates: `smoking-tests-macros`.
-- Main neighbors: `aws-tests-common`, `product`, `smoking-tests-macros`.
+- Main neighbors: `aws-tests-common`, `smoking-tests-macros`.
 - Test crate. Favor stable helpers and black-box assertions.
 
 ## Ownership

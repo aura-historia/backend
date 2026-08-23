@@ -12,20 +12,20 @@ platform-observability = { workspace = true }
 platform-opensearch = { workspace = true }
 platform-postgres = { workspace = true }
 aws-tests = { workspace = true }
-cognito = { workspace = true }
+
 cognito-post-confirmation = { workspace = true }
 cloudwatch-log-retention-lambda = { workspace = true }
-common = { workspace = true }
+
 embedding = { workspace = true }
 image-fetcher = { workspace = true }
 geo = { workspace = true }
-search-filter = { workspace = true }
+
 search-filter-core = { workspace = true }
 search-filter-service = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-opensearch = { workspace = true }
 large-language-model = { workspace = true }
-shop = { workspace = true }
+
 shop-core = { workspace = true }
 shop-service = { workspace = true }
 shop-postgres = { workspace = true }
@@ -34,7 +34,7 @@ shop-partner-service = { workspace = true }
 shop-partner-postgres = { workspace = true }
 shopify-lambda = { workspace = true }
 stripe-lambda = { workspace = true }
-product = { workspace = true }
+
 product-core = { workspace = true }
 product-service = { workspace = true }
 product-translation-llm = { workspace = true }
@@ -48,18 +48,18 @@ watchlist-core = { workspace = true }
 watchlist-service = { workspace = true }
 watchlist-postgres = { workspace = true }
 test-api = { workspace = true }
-user = { workspace = true }
+
 user-core = { workspace = true }
 user-service = { workspace = true }
 user-dynamodb = { workspace = true }
 user-postgres = { workspace = true }
 user-zoho = { workspace = true }
-notification = { workspace = true }
+
 notification-core = { workspace = true }
 notification-email = { workspace = true }
 notification-service = { workspace = true }
 notification-postgres = { workspace = true }
-oauth = { workspace = true }
+
 oauth-core = { workspace = true }
 oauth-service = { workspace = true }
 oauth-dynamodb = { workspace = true }
@@ -74,10 +74,10 @@ members = [
     "src/aws-tests",
     "src/billing-service",
     "src/billing-stripe",
-    "src/cognito",
+
     "src/cloudwatch-log-retention-lambda",
     "src/cognito-post-confirmation",
-    "src/common",
+
     "src/credential-core",
     "src/domain-primitives",
     "src/localization",
@@ -85,13 +85,13 @@ members = [
     "src/embedding",
     "src/image-fetcher",
     "src/geo",
-    "src/search-filter",
+
     "src/search-filter-core",
     "src/search-filter-service",
     "src/search-filter-postgres",
     "src/search-filter-opensearch",
     "src/large-language-model",
-    "src/product",
+
     "src/product-core",
     "src/product-service",
     "src/product-translation-llm",
@@ -108,7 +108,7 @@ members = [
     "src/watchlist-service",
     "src/watchlist-postgres",
     "src/test-api",
-    "src/shop",
+
     "src/shop-core",
     "src/shop-service",
     "src/shop-postgres",
@@ -117,19 +117,19 @@ members = [
     "src/shop-partner-postgres",
     "src/shopify-lambda",
     "src/stripe-lambda",
-    "src/user",
+
     "src/user-core",
     "src/user-service",
     "src/user-dynamodb",
     "src/user-postgres",
     "src/user-zoho",
-    "src/notification",
+
     "src/notification-core",
     "src/notification-email",
     "src/notification-email-aws",
     "src/notification-service",
     "src/notification-postgres",
-    "src/oauth",
+
     "src/oauth-core",
     "src/oauth-service",
     "src/oauth-dynamodb",
@@ -165,7 +165,7 @@ aws_lambda_events = { version = "1.2.0", default-features = false }
 chrono = "0.4"
 cron_tab = { version = "=0.2.14", default-features = false, features = ["async", "sync"] }
 cloudwatch-log-retention-lambda = { path = "src/cloudwatch-log-retention-lambda" }
-common = { path = "src/common" }
+
 credential-core = { path = "src/credential-core" }
 domain-primitives = { path = "src/domain-primitives" }
 localization = { path = "src/localization" }
@@ -181,13 +181,13 @@ application = { path = "src/application" }
 platform-observability = { path = "src/platform-observability" }
 platform-opensearch = { path = "src/platform-opensearch" }
 platform-postgres = { path = "src/platform-postgres" }
-search-filter = { path = "src/search-filter" }
+
 search-filter-core = { path = "src/search-filter-core" }
 search-filter-service = { path = "src/search-filter-service" }
 search-filter-postgres = { path = "src/search-filter-postgres" }
 search-filter-opensearch = { path = "src/search-filter-opensearch" }
 large-language-model = { path = "src/large-language-model" }
-shop = { path = "src/shop" }
+
 shop-core = { path = "src/shop-core" }
 shop-service = { path = "src/shop-service" }
 shop-postgres = { path = "src/shop-postgres" }
@@ -195,13 +195,13 @@ shop-partner-core = { path = "src/shop-partner-core" }
 shop-partner-service = { path = "src/shop-partner-service" }
 shop-partner-postgres = { path = "src/shop-partner-postgres" }
 stripe-lambda = { path = "src/stripe-lambda" }
-notification = { path = "src/notification" }
+
 notification-core = { path = "src/notification-core" }
 notification-email = { path = "src/notification-email" }
 notification-email-aws = { path = "src/notification-email-aws" }
 notification-service = { path = "src/notification-service" }
 notification-postgres = { path = "src/notification-postgres" }
-oauth = { path = "src/oauth" }
+
 oauth-core = { path = "src/oauth-core" }
 oauth-service = { path = "src/oauth-service" }
 oauth-dynamodb = { path = "src/oauth-dynamodb" }
@@ -209,7 +209,7 @@ futures = { version = "0.3.32", default-features = false }
 hex = "0.4.3"
 http = "1.4.2"
 httpdate = "1.0.3"
-product = { path = "src/product" }
+
 product-core = { path = "src/product-core" }
 product-service = { path = "src/product-service" }
 product-translation-llm = { path = "src/product-translation-llm" }
@@ -277,13 +277,13 @@ zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 futures-util = "0.3.32"
 proc-macro2 = "1.0.106"
 smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tests-macros" }
-user = { path = "src/user" }
+
 user-core = { path = "src/user-core" }
 user-service = { path = "src/user-service" }
 user-dynamodb = { path = "src/user-dynamodb" }
 user-postgres = { path = "src/user-postgres" }
 user-zoho = { path = "src/user-zoho" }
-cognito = { path = "src/cognito" }
+
 cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"
 handlebars = "6.4.1"

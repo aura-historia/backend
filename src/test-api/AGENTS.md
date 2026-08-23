@@ -9,7 +9,7 @@
 - LocalStack and AWS integration test harness.
 - Root modules: `api_gateway`, `aura_historia_api`, `cloudformation`, `cognito`, `dynamodb`, `eventbridge`, `localstack`, `opensearch`, `postgres`, `s3`, `sequin`, `ses`, `signal`, `sqs`.
 - Child crates: `test-api-macros`.
-- Main neighbors: `aws-tests-common`, `common`, `test-api-macros`, `user`.
+- Main neighbors: `aws-tests-common`, `application`, `test-api-macros`.
 - Test crate. Favor stable helpers and black-box assertions.
 - `#[aura_integration_test]` tests run serially inside one test process against process-local LocalStack and optional service containers like Postgres.
 - Postgres applies schema-only migrations once per test binary, then truncates data between tests. Use `Postgres::new_per_test` only for migrations that seed test data; optional setup scripts always run before each test.

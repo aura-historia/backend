@@ -1,7 +1,7 @@
 use crate::IntegrationTestService;
 use crate::localstack::{LOCALSTACK_CONTAINER_PORT, get_aws_config, get_endpoint_url};
+use application::error::{BoxError, box_error};
 use async_trait::async_trait;
-use common::error::boxed::BoxError;
 
 use aws_sdk_opensearch::operation::create_domain::CreateDomainOutput;
 
@@ -215,7 +215,7 @@ async fn set_up_domain(recreate_existing_domain: bool) -> Result<CreateDomainOut
         .access_policies(test_access_policies())
         .send()
         .await
-        .map_err(common::error::boxed::box_error)
+        .map_err(box_error)
 }
 
 async fn wait_until_domain_deleted(domain: &'static str) -> Result<(), BoxError> {

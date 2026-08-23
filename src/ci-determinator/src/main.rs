@@ -12,7 +12,6 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/aura-historia-api",
     "src/aura-historia-worker",
     "src/aura-historia-cron",
-    "src/common",
     "src/credential-core",
     "src/crawler",
     "src/domain-primitives",

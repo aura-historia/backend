@@ -1,2 +1,0 @@
-// Legacy shim. Owner: domain-primitives. Remove after legacy common consumers migrate.
-pub use domain_primitives::query::range_query::{RangeQuery, range_rfc3339};

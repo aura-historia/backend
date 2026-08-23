@@ -3,7 +3,7 @@
 ## Purpose
 
 - Own `product-service` crate.
-- Own canonical Product use-case contracts, handlers, and outbound ports for migration.
+- Own canonical Product use-case contracts, handlers, and outbound ports.
 
 ## Core Design
 
@@ -23,7 +23,7 @@
 - `ProductSearchFilterMatchSourceReader` is a transaction-scoped canonical source for accepted current Product CDC events. Its `find_sources` batch accepts exact `(ProductId, EventId)` refs and returns keyed typed sources: Product, Shop, localized text, image, native pricing, optional immutable `ProductSaleValuation`, immutable `product_events.event_time`, and query data; adapter rows stay private. `ProductCurrentRevisionGuard` batch-locks and verifies authoritative Product event IDs in the final match-write transaction. `ProductPercolationInput` carries only source plus closed-world converted values; no adapter receives an FX snapshot.
 - Ports are public because adapter crates implement them.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.
-- No SQLx, DynamoDB, OpenSearch, transport, or legacy `product` dependency.
+- No SQLx, DynamoDB, OpenSearch, or transport dependency.
 
 ## Ownership
 

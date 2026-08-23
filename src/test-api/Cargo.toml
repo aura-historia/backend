@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true }
+application = { workspace = true }
 test-api-macros = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, optional = true }
@@ -26,7 +26,7 @@ typed-builder = { workspace = true }
 walkdir = { workspace = true }
 libc = { workspace = true }
 ctrlc = { workspace = true }
-fake = { workspace = true }
+
 uuid = { workspace = true }
 
 # Optional deps
@@ -46,7 +46,7 @@ aws-sdk-cognitoidentityprovider = { workspace = true, optional = true}
 aws-tests-common = { workspace = true, optional = true }
 zip = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
-user = { workspace = true, optional = true }
+
 reqwest = { workspace = true, optional = true, features = ["json"] }
 base64 = { workspace = true, optional = true }
 aws-sdk-sesv2 = { workspace = true, optional = true }
@@ -76,6 +76,6 @@ postgres = ["dep:sqlx"]
 sequin = ["dep:base64", "dep:reqwest", "postgres"]
 sqs = ["dep:aws-sdk-sqs"]
 eventbridge = ["dep:aws-sdk-eventbridge"]
-cognito = ["dep:aws-sdk-cognitoidentityprovider", "user/full"]
+cognito = ["dep:aws-sdk-cognitoidentityprovider"]
 ses = ["dep:aws-sdk-sesv2", "dep:reqwest"]
 cloudformation = ["dep:aws-sdk-cloudformation", "dep:aws-sdk-s3", "dep:aws-tests-common", "dep:zip", "dep:futures", "dep:mrml", "cognito", "dynamodb", "opensearch", "sqs", "ses", "eventbridge"]

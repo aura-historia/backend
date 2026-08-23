@@ -1,5 +1,6 @@
 use crate::IntegrationTestService;
 use crate::localstack::get_aws_config;
+use application::error::BoxError;
 use async_trait::async_trait;
 use aws_sdk_dynamodb::Client;
 use aws_sdk_dynamodb::types::ScalarAttributeType::S;
@@ -7,7 +8,6 @@ use aws_sdk_dynamodb::types::{
     AttributeDefinition, BillingMode, GlobalSecondaryIndex, KeySchemaElement, KeyType,
     LocalSecondaryIndex, Projection, ProjectionType, PutRequest, TableClass, WriteRequest,
 };
-use common::error::boxed::BoxError;
 use serde::Serialize;
 use std::collections::HashMap;
 use tokio::sync::OnceCell;
