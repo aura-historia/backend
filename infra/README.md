@@ -8,7 +8,7 @@ synthesized for:
 
 - `prod` — real AWS production resources, production alarms enabled
 - `dev` — real AWS development resources, production alarms disabled
-- `ephemeral` — LocalStack acceptance-test resources, including a local OpenSearch domain
+- `ephemeral` — LocalStack resources, including a local OpenSearch domain
 
 ## Structure
 
@@ -44,7 +44,7 @@ npm run synth -- --context stage=ephemeral
 Synth creates these stacks per stage:
 
 - `application-{stage}-data` — DynamoDB, SQS, and LocalStack OpenSearch
-- `application-{stage}-compute` — Lambdas, Cognito, workflow, eventing, schedules
+- `application-{stage}-compute` — Lambdas, Cognito, eventing, schedules
 - `application-{stage}-api` — HTTP API Gateway routes, domain, CloudFront, integrations, authorizer
 - `application-prod-observability` — prod-only alarms and alarm topic
 
@@ -61,11 +61,20 @@ Each stack uses `CliCredentialsStackSynthesizer` with the existing staging bucke
 `aura-historia-cfn-artifcats-eu-central-1`. CDK uploads large CloudFormation
 templates and any future file assets under the stage prefix (`${stage}/`). Lambda
 ZIPs and scheduled Fargate images are still referenced as prebuilt S3/ECR
-artifacts keyed by `CommitSHA`, not as CDK-managed assets.
+artifacts keyed by `CommitSHA`, not as CDK-managed assets. The retired periodic
+matcher ECS image is no longer built or referenced by CDK.
 
 Rollback is performed by redeploying a previous `CommitSHA` parameter value to the
 compute stack. Lambda ZIP keys and mail-template prefixes include that SHA, so CDK
 points compute resources back to the previously uploaded artifacts.
+
+## Native processes
+
+Production native processes are:
+
+- `aura-historia-api`
+- `aura-historia-worker`
+- `aura-historia-cron`
 
 ## Deployment inputs
 
@@ -105,7 +114,7 @@ and `dev`:
 /secrets/{stage}/gemini-api-key
 /secrets/{stage}/google-application-credentials
 /secrets/{stage}/google-geocoding-api-key
-/secrets/{stage}/stripe-api-key
+
 /secrets/{stage}/zoho-accounts-url
 /secrets/{stage}/zoho-campaigns-url
 /secrets/{stage}/zoho-client-id
@@ -115,5 +124,8 @@ and `dev`:
 ```
 
 `fxrate-lambda` currently reads `/fxratesapi/prod/api-token` for the scheduled
-sync. The `ephemeral` stage uses local/mock values for third-party integrations
-where possible.
+sync. On first real-stage compute-stack creation, a custom resource synchronously
+invokes this same Lambda with stable deployment source ID `deployment:fxrate:initial:{stage}:v1`.
+Deployment fails when this initial capture fails; it must run after PostgreSQL
+business migrations. Updates, deletes, and `ephemeral` do not invoke it. The
+`ephemeral` stage uses local/mock values for third-party integrations where possible.

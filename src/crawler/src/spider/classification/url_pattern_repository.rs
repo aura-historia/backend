@@ -8,8 +8,8 @@
 //! [`crate::spider::advisory_lock`]. No `locked_at` column or lock methods live here.
 
 use async_trait::async_trait;
-use common::domain::Domain;
-use common::shop_id::ShopId;
+use shop_core::domain::Domain;
+use shop_core::shop_id::ShopId;
 use sqlx::{FromRow, PgPool, Row};
 use time::OffsetDateTime;
 

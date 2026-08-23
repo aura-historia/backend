@@ -2,7 +2,7 @@ use crate::network::policy::NetworkErrorKind;
 use crate::scraper::css_selector::product_schema::ApplySchemaError;
 use crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError;
 use crate::scraper::normalization::error::NormalizationError;
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use url::Url;
 
 #[derive(Debug, thiserror::Error)]
@@ -35,7 +35,7 @@ pub enum ScraperError {
     SchemaRegenerationExhausted {
         url: Url,
         attempts: u32,
-        last_error: ApplySchemaError,
+        last_error: Box<ApplySchemaError>,
     },
 
     /// All schema-fix attempts were consumed but normalization kept failing
@@ -45,7 +45,7 @@ pub enum ScraperError {
     NormalizationFixExhausted {
         url: Url,
         attempts: u32,
-        last_norm_error: NormalizationError,
+        last_norm_error: Box<NormalizationError>,
     },
 
     #[error("Normalization error: {0}")]

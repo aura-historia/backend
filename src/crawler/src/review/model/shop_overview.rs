@@ -1,5 +1,5 @@
-use common::shop_id::ShopId;
 use serde::Serialize;
+use shop_core::shop_id::ShopId;
 
 #[derive(Debug, Serialize)]
 pub struct ShopOverview {

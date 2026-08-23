@@ -6,7 +6,7 @@ use crate::scraper::css_selector::removed_page_schema_repository::MockRemovedPag
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::spider::classification::url_metadata::UrlClass;
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 
 fn invalid_schema() -> ProductCssSelectorSchema {
     let mut schema = minimal_schema();
@@ -144,11 +144,14 @@ async fn should_exhaust_append_repair_when_yaml_append_does_not_apply() {
         err,
         ScraperError::SchemaRegenerationExhausted {
             attempts: 1,
-            last_error: crate::scraper::css_selector::product_schema::ApplySchemaError::Title(
-                ExtractionError::NoElementMatched { .. }
-            ),
+            ref last_error,
             ..
-        }
+        } if matches!(
+            last_error.as_ref(),
+            crate::scraper::css_selector::product_schema::ApplySchemaError::Title(
+                ExtractionError::NoElementMatched { .. }
+            )
+        )
     ));
 }
 
@@ -196,11 +199,14 @@ async fn should_exhaust_append_repair_after_yaml_fails() {
         err,
         ScraperError::SchemaRegenerationExhausted {
             attempts: 1,
-            last_error: crate::scraper::css_selector::product_schema::ApplySchemaError::Title(
-                ExtractionError::NoElementMatched { .. }
-            ),
+            ref last_error,
             ..
-        }
+        } if matches!(
+            last_error.as_ref(),
+            crate::scraper::css_selector::product_schema::ApplySchemaError::Title(
+                ExtractionError::NoElementMatched { .. }
+            )
+        )
     ));
 }
 

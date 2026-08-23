@@ -1,5 +1,5 @@
-use common::price::domain::Price;
-use common::product_state::domain::ProductState;
+use money::Price;
+use product_core::product_state::ProductState;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]

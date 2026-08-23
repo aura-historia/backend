@@ -1,10 +1,10 @@
 use crate::IntegrationTestService;
 use crate::localstack::{LOCALSTACK_CONTAINER_PORT, get_aws_config, get_endpoint_url};
+use application::error::{BoxError, box_error};
 use async_trait::async_trait;
-use aws_sdk_opensearch::config::http::HttpResponse;
-use aws_sdk_opensearch::error::SdkError;
-use aws_sdk_opensearch::operation::create_domain::{CreateDomainError, CreateDomainOutput};
-use aws_sdk_opensearch::operation::describe_domain::DescribeDomainError;
+
+use aws_sdk_opensearch::operation::create_domain::CreateDomainOutput;
+
 use aws_sdk_opensearch::types::DomainEndpointOptions;
 use opensearch::http::headers::HeaderMap;
 use opensearch::http::request::JsonBody;
@@ -116,6 +116,7 @@ fn test_domain_access_policy() -> String {
     .to_string()
 }
 
+#[cfg(feature = "cloudformation")]
 pub(crate) async fn set_up_after_cloudformation() {
     set_up_open_search(true).await;
 }
@@ -132,9 +133,7 @@ async fn set_up_open_search(recreate_existing_domain: bool) {
         .expect("shouldn't fail setting up indices");
 }
 
-async fn set_up_domain(
-    recreate_existing_domain: bool,
-) -> Result<CreateDomainOutput, SdkError<CreateDomainError>> {
+async fn set_up_domain(recreate_existing_domain: bool) -> Result<CreateDomainOutput, BoxError> {
     let client = aws_sdk_opensearch::Client::new(get_aws_config().await);
     let custom_endpoint =
         format!("http://localhost:{LOCALSTACK_CONTAINER_PORT}/{TEST_DOMAIN_NAME}");
@@ -216,11 +215,10 @@ async fn set_up_domain(
         .access_policies(test_access_policies())
         .send()
         .await
+        .map_err(box_error)
 }
 
-async fn wait_until_domain_deleted(
-    domain: &'static str,
-) -> Result<(), SdkError<DescribeDomainError, HttpResponse>> {
+async fn wait_until_domain_deleted(domain: &'static str) -> Result<(), BoxError> {
     let mut retries = 100;
     loop {
         match aws_sdk_opensearch::Client::new(get_aws_config().await)
@@ -232,7 +230,7 @@ async fn wait_until_domain_deleted(
             Ok(_) => {
                 retries -= 1;
                 if retries < 0 {
-                    return Err(SdkError::timeout_error("Domain took too long to delete"));
+                    return Err(std::io::Error::other("Domain took too long to delete").into());
                 }
                 sleep(Duration::from_millis(500)).await;
             }
@@ -241,9 +239,7 @@ async fn wait_until_domain_deleted(
     }
 }
 
-async fn wait_until_domain_processed(
-    domain: &'static str,
-) -> Result<(), SdkError<DescribeDomainError, HttpResponse>> {
+async fn wait_until_domain_processed(domain: &'static str) -> Result<(), BoxError> {
     let mut retries = 500;
     let mut processing = true;
     while processing {
@@ -266,7 +262,7 @@ async fn wait_until_domain_processed(
                 "Domain is still being processed..."
             );
             if retries < 0 {
-                return Err(SdkError::timeout_error("Domain took too long to process"));
+                return Err(std::io::Error::other("Domain took too long to process").into());
             }
             sleep(Duration::from_millis(500)).await;
         } else {

@@ -1,0 +1,33 @@
+[package]
+name = "oauth-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+application = { workspace = true }
+base64 = { workspace = true }
+credential-core = { workspace = true }
+domain-primitives = { workspace = true }
+oauth-core = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true, features = ["serde", "formatting"] }
+tracing = { workspace = true }
+url = { workspace = true, features = ["serde"] }
+user-core = { workspace = true }
+user-service = { workspace = true }
+
+# Optional
+mockall = { workspace = true, optional = true }
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+oauth-service = { workspace = true, features = ["mock", "test-data"] }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[features]
+default = []
+mock = ["mockall"]
+test-data = ["fake", "oauth-core/test-data", "user-core/test-data"]

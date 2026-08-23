@@ -1,0 +1,60 @@
+[package]
+name = "aura-historia-worker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+application = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+aws-sdk-sesv2 = { workspace = true }
+aws-smithy-types = { workspace = true }
+
+domain-primitives = { workspace = true }
+fxrate-core = { workspace = true }
+embedding = { workspace = true }
+fxrate-postgres = { workspace = true }
+large-language-model = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
+google-cloud-auth = { workspace = true }
+indexmap = { workspace = true }
+notification-core = { workspace = true }
+notification-email-aws = { workspace = true }
+notification-postgres = { workspace = true }
+notification-service = { workspace = true }
+opensearch = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
+product-core = { workspace = true }
+product-opensearch = { workspace = true }
+product-postgres = { workspace = true }
+product-service = { workspace = true }
+product-translation-llm = { workspace = true }
+reqwest = { workspace = true }
+search-filter-core = { workspace = true }
+search-filter-opensearch = { workspace = true }
+search-filter-postgres = { workspace = true }
+search-filter-service = { workspace = true }
+watchlist-postgres = { workspace = true }
+user-core = { workspace = true }
+user-postgres = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+search-filter-core = { workspace = true }
+shop-core = { workspace = true }
+indexmap = { workspace = true }
+time = { workspace = true }
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["opensearch", "postgres", "sequin", "ses"] }
+uuid = { workspace = true }

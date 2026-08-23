@@ -15,8 +15,8 @@ use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSc
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::html::normalization_error_to_schema_hint;
-use common::shop_id::ShopId;
 use serde_json::json;
+use shop_core::shop_id::ShopId;
 use tracing::info;
 use url::Url;
 
@@ -57,6 +57,7 @@ impl ScraperServiceImpl {
             schema_count = schemas.len()
         )
     )]
+    #[allow(clippy::result_large_err)]
     pub(crate) async fn select_existing_schema_with_normalization(
         &self,
         shop_id: &ShopId,
@@ -110,6 +111,7 @@ impl ScraperServiceImpl {
         })
     }
 
+    #[allow(clippy::result_large_err)]
     async fn normalize_applied_schema(
         &self,
         shop_id: &ShopId,
@@ -128,9 +130,7 @@ impl ScraperServiceImpl {
             .normalize(
                 raw,
                 url.clone(),
-                selected_schema
-                    .default_currency
-                    .map(common::currency::domain::Currency::from),
+                selected_schema.default_currency.map(money::Currency::from),
             )
             .await
         {
@@ -170,6 +170,7 @@ impl ScraperServiceImpl {
             schema_count = ctx.existing_schemas.len()
         )
     )]
+    #[allow(clippy::result_large_err)]
     pub(crate) async fn normalize_with_schema_fix_retry(
         &self,
         ctx: NormalizationRetryContext<'_>,
@@ -191,7 +192,7 @@ impl ScraperServiceImpl {
                 ctx.url.clone(),
                 ctx.selected_schema
                     .default_currency
-                    .map(common::currency::domain::Currency::from),
+                    .map(money::Currency::from),
             )
             .await
         {
@@ -249,6 +250,7 @@ impl ScraperServiceImpl {
             schema_count = ctx.existing_schemas.len()
         )
     )]
+    #[allow(clippy::result_large_err)]
     pub(crate) async fn fix_normalization_with_schema_retry(
         &self,
         ctx: NormalizationRetryContext<'_>,
@@ -300,7 +302,7 @@ impl ScraperServiceImpl {
                 return Err(ScraperError::SchemaRegenerationExhausted {
                     url: ctx.url.clone(),
                     attempts: 1,
-                    last_error: apply_err,
+                    last_error: Box::new(apply_err),
                 });
             }
         };
@@ -317,7 +319,7 @@ impl ScraperServiceImpl {
                 return Err(ScraperError::NormalizationFixExhausted {
                     url: ctx.url.clone(),
                     attempts: 1,
-                    last_norm_error: norm_err,
+                    last_norm_error: Box::new(norm_err),
                 });
             }
             Err(norm_err) => return Err(ScraperError::NormalizationError(norm_err)),
@@ -328,9 +330,7 @@ impl ScraperServiceImpl {
             .normalize(
                 reapplied,
                 ctx.url.clone(),
-                generated_schema
-                    .default_currency
-                    .map(common::currency::domain::Currency::from),
+                generated_schema.default_currency.map(money::Currency::from),
             )
             .await
         {
@@ -388,7 +388,7 @@ impl ScraperServiceImpl {
                     return Err(ScraperError::NormalizationFixExhausted {
                         url: ctx.url.clone(),
                         attempts: 1,
-                        last_norm_error: norm_err,
+                        last_norm_error: Box::new(norm_err),
                     });
                 }
                 Err(ScraperError::NormalizationError(norm_err))

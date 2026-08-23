@@ -1,4 +1,3 @@
-use common::shop_id::ShopId;
 use crawler::review::model::{PAGE_ROLE_PRIMARY, STATUS_APPROVED, SchemaReviewPageInput};
 use crawler::review::repository::{CrawlerReviewRepository, SchemaReviewWithStatusInput};
 use crawler::scraper::css_selector::product_schema::{
@@ -10,15 +9,13 @@ use crawler::scraper::css_selector::product_schema_repository::{
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
 use regex::Regex;
 use serde_json::json;
+use shop_core::shop_id::ShopId;
 use sqlx::PgPool;
 use test_api::*;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-const POSTGRES: Postgres = Postgres {
-    migrations_dir: "src/crawler/migrations",
-    setup_script: None,
-};
+const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
 fn rule(selector: &str) -> ExtractionRule {
     ExtractionRule {

@@ -31,6 +31,11 @@
 
 ## Child DOX Index
 
-- `.agents/skills/add-backend-lambda/SKILL.md` — add Lambda workflow.
-- `.agents/skills/add-entity-type/SKILL.md` — add entity/type workflow.
-- `.agents/skills/add-rest-api-endpoint/SKILL.md` — add REST endpoint workflow.
+- `skills/aura-rust-api-endpoint/SKILL.md` — API route, controller, DTO, auth, error mapping.
+- `skills/aura-rust-projection/SKILL.md` — CDC, Sequin, projections, replay/rebuild.
+- `skills/aura-rust-reader/SKILL.md` — readers, read models, hydration.
+- `skills/aura-rust-repository/SKILL.md` — aggregate repositories, Postgres mapping, versions.
+- `skills/aura-rust-review-architecture/SKILL.md` — final/review architecture gate.
+- `skills/aura-rust-test/SKILL.md` — test placement and validation.
+- `skills/aura-rust-transactional-flow/SKILL.md` — UnitOfWork and transactional writes.
+- `skills/aura-rust-use-case/SKILL.md` — service use cases, ports, auth policy.

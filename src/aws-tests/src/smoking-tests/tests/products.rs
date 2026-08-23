@@ -1,9 +1,8 @@
-mod common;
+mod http;
 
 use aws_tests_common::get_cfn_output;
-use common::http_client;
-use fake::{Fake, Faker};
-use product::data::product_search_data::ProductSearchData;
+use http::http_client;
+
 use smoking_tests::smoking_test;
 use uuid::Uuid;
 
@@ -89,7 +88,7 @@ async fn should_respond_200_for_complex_search_products() {
             get_cfn_output().api_gateway_endpoint_url
         ))
         .query(&[("sort", "price"), ("order", "asc"), ("size", "5")])
-        .json(&Faker.fake::<ProductSearchData>())
+        .json(&serde_json::json!({}))
         .send()
         .await
         .unwrap();

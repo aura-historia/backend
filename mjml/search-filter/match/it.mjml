@@ -13,7 +13,7 @@
             .filter-name { color: #42120f; font-weight: 600; }
         </mj-style>
         <mj-title>Nuovo risultato per “{{search_filter_name}}”</mj-title>
-        <mj-preview>Un nuovo oggetto d'antiquariato corrisponde al tuo filtro di ricerca “{{search_filter_name}}”: {{title}}</mj-preview>
+        <mj-preview>Un nuovo oggetto d'antiquariato corrisponde al tuo filtro di ricerca “{{search_filter_name}}”{{#if title}}: {{title}}{{/if}}</mj-preview>
     </mj-head>
 
     <mj-body background-color="#F7F4E9" width="600px">
@@ -43,14 +43,16 @@
         <!-- Product info -->
         <mj-section background-color="#ffffff" padding="0 32px" border-radius="12px">
             <mj-column>
+                {{#if title}}
                 <mj-text font-family="'Newsreader', Georgia, serif" font-size="22px" font-weight="600" color="#1c1c16" padding-bottom="4px">
                     {{title}}
                 </mj-text>
+                {{/if}}
                 <mj-text font-size="14px" color="#6d625d" padding-bottom="16px">
                     Offerto da <b>{{shop_name}}</b>
                 </mj-text>
                 {{#if image_url}}
-                <mj-image src="{{image_url}}" alt="{{title}}" padding="0 0 16px" border-radius="8px" />
+                <mj-image src="{{image_url}}" alt="{{shop_name}}" padding="0 0 16px" border-radius="8px" />
                 {{/if}}
             </mj-column>
         </mj-section>

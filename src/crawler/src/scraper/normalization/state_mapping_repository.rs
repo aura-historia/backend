@@ -1,5 +1,5 @@
 use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
-use product::dynamodb::product_state_record::ProductStateRecord;
+use product_core::product_state::ProductState;
 use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
 
@@ -23,7 +23,7 @@ pub trait ProductStateMappingRepository {
     async fn update_mapping(
         &self,
         raw: &str,
-        normalized: &ProductStateRecord,
+        normalized: &ProductState,
         mapping_type: &StateMappingType,
     ) -> Result<ProductStateMappingRecord, sqlx::Error>;
 }
@@ -38,28 +38,28 @@ impl<'a> ProductStateMappingRepositoryImpl<'a> {
     }
 }
 
-fn product_state_record_to_db_str(record: &ProductStateRecord) -> &'static str {
+fn product_state_to_db_str(record: &ProductState) -> &'static str {
     match record {
-        ProductStateRecord::Listed => "LISTED",
-        ProductStateRecord::Available => "AVAILABLE",
-        ProductStateRecord::Reserved => "RESERVED",
-        ProductStateRecord::Sold => "SOLD",
-        ProductStateRecord::Removed => "REMOVED",
-        ProductStateRecord::Unknown => "UNKNOWN",
+        ProductState::Listed => "LISTED",
+        ProductState::Available => "AVAILABLE",
+        ProductState::Reserved => "RESERVED",
+        ProductState::Sold => "SOLD",
+        ProductState::Removed => "REMOVED",
+        ProductState::Unknown => "UNKNOWN",
     }
 }
 
-fn product_state_record_from_db_str(s: &str) -> Result<ProductStateRecord, sqlx::Error> {
+fn product_state_from_db_str(s: &str) -> Result<ProductState, sqlx::Error> {
     match s {
-        "LISTED" => Ok(ProductStateRecord::Listed),
-        "AVAILABLE" => Ok(ProductStateRecord::Available),
-        "RESERVED" => Ok(ProductStateRecord::Reserved),
-        "SOLD" => Ok(ProductStateRecord::Sold),
-        "REMOVED" => Ok(ProductStateRecord::Removed),
-        "UNKNOWN" => Ok(ProductStateRecord::Unknown),
+        "LISTED" => Ok(ProductState::Listed),
+        "AVAILABLE" => Ok(ProductState::Available),
+        "RESERVED" => Ok(ProductState::Reserved),
+        "SOLD" => Ok(ProductState::Sold),
+        "REMOVED" => Ok(ProductState::Removed),
+        "UNKNOWN" => Ok(ProductState::Unknown),
         other => Err(sqlx::Error::Decode(Box::new(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("Unknown ProductStateRecord: {other}"),
+            format!("Unknown ProductState: {other}"),
         )))),
     }
 }
@@ -89,7 +89,7 @@ fn row_to_record(row: sqlx::postgres::PgRow) -> Result<ProductStateMappingRecord
     let created: OffsetDateTime = row.try_get("created")?;
     let updated: OffsetDateTime = row.try_get("updated")?;
 
-    let normalized = product_state_record_from_db_str(&normalized_str)?;
+    let normalized = product_state_from_db_str(&normalized_str)?;
     let mapping_type = mapping_type_from_db_str(&mapping_type_str)?;
 
     Ok(ProductStateMappingRecord {
@@ -129,7 +129,7 @@ impl<'a> ProductStateMappingRepository for ProductStateMappingRepositoryImpl<'a>
              RETURNING raw, normalized, mapping_type, created, updated",
         )
         .bind(&record.raw)
-        .bind(product_state_record_to_db_str(&record.normalized))
+        .bind(product_state_to_db_str(&record.normalized))
         .bind(mapping_type_to_db_str(&record.mapping_type))
         .bind(record.created)
         .bind(record.updated)
@@ -154,7 +154,7 @@ impl<'a> ProductStateMappingRepository for ProductStateMappingRepositoryImpl<'a>
     async fn update_mapping(
         &self,
         raw: &str,
-        normalized: &ProductStateRecord,
+        normalized: &ProductState,
         mapping_type: &StateMappingType,
     ) -> Result<ProductStateMappingRecord, sqlx::Error> {
         sqlx::query(
@@ -164,7 +164,7 @@ impl<'a> ProductStateMappingRepository for ProductStateMappingRepositoryImpl<'a>
              RETURNING raw, normalized, mapping_type, created, updated",
         )
         .bind(raw)
-        .bind(product_state_record_to_db_str(normalized))
+        .bind(product_state_to_db_str(normalized))
         .bind(mapping_type_to_db_str(mapping_type))
         .fetch_one(self.pool)
         .await

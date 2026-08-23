@@ -1,0 +1,33 @@
+[package]
+name = "notification-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+application = { workspace = true }
+localization = { workspace = true }
+notification-core = { workspace = true }
+user-core = { workspace = true }
+shop-core = { workspace = true }
+shop-partner-core = { workspace = true }
+
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["rt", "time"] }
+tracing = { workspace = true }
+uuid = { workspace = true }
+mockall = { workspace = true, optional = true }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+notification-service = { workspace = true, features = ["test-data", "mock"] }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+
+[features]
+default = []
+mock = ["mockall"]
+test-data = ["fake", "notification-core/test-data"]

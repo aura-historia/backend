@@ -13,7 +13,7 @@
             .filter-name { color: #42120f; font-weight: 600; }
         </mj-style>
         <mj-title>Neues Ergebnis für „{{search_filter_name}}“</mj-title>
-        <mj-preview>Eine neue Antiquität passt zu Ihrem Suchfilter „{{search_filter_name}}“: {{title}}</mj-preview>
+        <mj-preview>Eine neue Antiquität passt zu Ihrem Suchfilter „{{search_filter_name}}“{{#if title}}: {{title}}{{/if}}</mj-preview>
     </mj-head>
 
     <mj-body background-color="#F7F4E9" width="600px">
@@ -35,7 +35,7 @@
                     {{#if user_first_name}}Hallo {{user_first_name}},{{else}}Guten Tag,{{/if}}
                 </mj-text>
                 <mj-text>
-                    Wir haben eine Antiquität gefunden, die zu Ihrem Suchfilter <span class="filter-name">„{{search_filter_name}}"</span> passt:
+                    Wir haben eine Antiquität gefunden, die zu Ihrem Suchfilter <span class="filter-name">„{{search_filter_name}}“</span> passt:
                 </mj-text>
             </mj-column>
         </mj-section>
@@ -43,14 +43,16 @@
         <!-- Product info -->
         <mj-section background-color="#ffffff" padding="0 32px" border-radius="12px">
             <mj-column>
+                {{#if title}}
                 <mj-text font-family="'Newsreader', Georgia, serif" font-size="22px" font-weight="600" color="#1c1c16" padding-bottom="4px">
                     {{title}}
                 </mj-text>
+                {{/if}}
                 <mj-text font-size="14px" color="#6d625d" padding-bottom="16px">
                     Angeboten von <b>{{shop_name}}</b>
                 </mj-text>
                 {{#if image_url}}
-                <mj-image src="{{image_url}}" alt="{{title}}" padding="0 0 16px" border-radius="8px" />
+                <mj-image src="{{image_url}}" alt="{{shop_name}}" padding="0 0 16px" border-radius="8px" />
                 {{/if}}
             </mj-column>
         </mj-section>
@@ -80,7 +82,7 @@
         <mj-section padding="24px 24px 0">
             <mj-column>
                 <mj-text color="#6d625d" font-size="13px" line-height="1.5" align="center">
-                    Sie erhalten diese E-Mail, weil dieses Produkt Ihrem Suchfilter <a href="https://aura-historia.com/search-filters/{{search_filter_id}}" style="color:#42120f;">„{{search_filter_name}}"</a> entspricht.
+                    Sie erhalten diese E-Mail, weil dieses Produkt Ihrem Suchfilter <a href="https://aura-historia.com/search-filters/{{search_filter_id}}" style="color:#42120f;">„{{search_filter_name}}“</a> entspricht.
                 </mj-text>
             </mj-column>
         </mj-section>

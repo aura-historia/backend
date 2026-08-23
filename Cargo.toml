@@ -4,100 +4,148 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application = { workspace = true }
+aura-historia-api = { workspace = true }
+aura-historia-worker = { workspace = true }
+aura-historia-cron = { workspace = true }
+platform-observability = { workspace = true }
+platform-opensearch = { workspace = true }
+platform-postgres = { workspace = true }
 aws-tests = { workspace = true }
-acceptance-tests = { workspace = true }
-cognito = { workspace = true }
+
 cognito-post-confirmation = { workspace = true }
 cloudwatch-log-retention-lambda = { workspace = true }
-common = { workspace = true }
+
+embedding = { workspace = true }
+image-fetcher = { workspace = true }
 geo = { workspace = true }
-search-filter = { workspace = true }
-search-filter-api = { workspace = true }
-search-filter-lambda = { workspace = true }
-search-filter-periodic-match = { workspace = true }
-shop = { workspace = true }
-    shop-api = { workspace = true }
-    webhook-api = { workspace = true }
-shop-lambda = { workspace = true }
+
+search-filter-core = { workspace = true }
+search-filter-service = { workspace = true }
+search-filter-postgres = { workspace = true }
+search-filter-opensearch = { workspace = true }
+large-language-model = { workspace = true }
+
+shop-core = { workspace = true }
+shop-service = { workspace = true }
+shop-postgres = { workspace = true }
+shop-partner-core = { workspace = true }
+shop-partner-service = { workspace = true }
+shop-partner-postgres = { workspace = true }
 shopify-lambda = { workspace = true }
 stripe-lambda = { workspace = true }
-stripe-api = { workspace = true }
-product = { workspace = true }
-product-api = { workspace = true }
-product-api-partner = { workspace = true }
-product-personalization = { workspace = true }
-product-watchlist = { workspace = true }
-product-watchlist-api = { workspace = true }
-product-lambda = { workspace = true }
-product-lambda-delete-product = { workspace = true }
+
+product-core = { workspace = true }
+product-service = { workspace = true }
+product-translation-llm = { workspace = true }
+product-postgres = { workspace = true }
+fxrate-core = { workspace = true }
+fxrate-service = { workspace = true }
+fxrate-postgres = { workspace = true }
+fxrate-fxratesapi = { workspace = true }
+product-opensearch = { workspace = true }
+watchlist-core = { workspace = true }
+watchlist-service = { workspace = true }
+watchlist-postgres = { workspace = true }
 test-api = { workspace = true }
-user = { workspace = true }
-user-api = { workspace = true }
-user-lambda = { workspace = true }
-notification-send = { workspace = true }
-notification = { workspace = true }
-newsletter-api = { workspace = true }
-notification-api = { workspace = true }
-oauth = { workspace = true }
-oauth-api = { workspace = true }
-product-pipeline = { workspace = true }
-fxrate = { workspace = true }
+
+user-core = { workspace = true }
+user-service = { workspace = true }
+user-dynamodb = { workspace = true }
+user-postgres = { workspace = true }
+user-zoho = { workspace = true }
+
+notification-core = { workspace = true }
+notification-email = { workspace = true }
+notification-service = { workspace = true }
+notification-postgres = { workspace = true }
+
+oauth-core = { workspace = true }
+oauth-service = { workspace = true }
+oauth-dynamodb = { workspace = true }
 fxrate-lambda = { workspace = true }
-partner-shop-application = { workspace = true }
-partner-shop-application-api = { workspace = true }
-partner-shop-application-lambda = { workspace = true }
 
 [workspace]
 members = [
-    "src/acceptance-tests",
+    "src/application",
+    "src/aura-historia-api",
+    "src/aura-historia-worker",
+    "src/aura-historia-cron",
     "src/aws-tests",
-    "src/cognito",
+    "src/billing-service",
+    "src/billing-stripe",
+
     "src/cloudwatch-log-retention-lambda",
     "src/cognito-post-confirmation",
-    "src/common",
+
+    "src/credential-core",
+    "src/domain-primitives",
+    "src/localization",
+    "src/money",
+    "src/embedding",
+    "src/image-fetcher",
     "src/geo",
-    "src/search-filter",
-    "src/search-filter-api",
-    "src/search-filter-lambda",
-    "src/search-filter-periodic-match",
-    "src/product",
-    "src/product-api",
-    "src/product-api-partner",
-    "src/product-personalization",
-    "src/product-watchlist",
-    "src/product-watchlist-api",
-    "src/product-lambda",
+
+    "src/search-filter-core",
+    "src/search-filter-service",
+    "src/search-filter-postgres",
+    "src/search-filter-opensearch",
+    "src/large-language-model",
+
+    "src/product-core",
+    "src/product-service",
+    "src/product-translation-llm",
+    "src/product-postgres",
+    "src/platform-observability",
+    "src/platform-opensearch",
+    "src/platform-postgres",
+    "src/fxrate-core",
+    "src/fxrate-service",
+    "src/fxrate-postgres",
+    "src/fxrate-fxratesapi",
+    "src/product-opensearch",
+    "src/watchlist-core",
+    "src/watchlist-service",
+    "src/watchlist-postgres",
     "src/test-api",
-    "src/shop",
-    "src/shop-api",
-    "src/webhook-api",
-    "src/shop-lambda",
+
+    "src/shop-core",
+    "src/shop-service",
+    "src/shop-postgres",
+    "src/shop-partner-core",
+    "src/shop-partner-service",
+    "src/shop-partner-postgres",
     "src/shopify-lambda",
     "src/stripe-lambda",
-    "src/stripe-api",
-    "src/user",
-    "src/user-api",
-    "src/user-lambda",
-    "src/notification-send",
-    "src/notification",
-    "src/notification-api",
-    "src/newsletter-api",
-    "src/oauth",
-    "src/oauth-api",
-    "src/product-pipeline",
-    "src/fxrate",
+
+    "src/user-core",
+    "src/user-service",
+    "src/user-dynamodb",
+    "src/user-postgres",
+    "src/user-zoho",
+
+    "src/notification-core",
+    "src/notification-email",
+    "src/notification-email-aws",
+    "src/notification-service",
+    "src/notification-postgres",
+
+    "src/oauth-core",
+    "src/oauth-service",
+    "src/oauth-dynamodb",
     "src/fxrate-lambda",
     "src/crawler",
     "src/ci-determinator",
-    "src/partner-shop-application",
-    "src/partner-shop-application-api",
-    "src/partner-shop-application-lambda",
 ]
 
 [workspace.dependencies]
+aura-historia-api = { path = "src/aura-historia-api" }
+aura-historia-worker = { path = "src/aura-historia-worker" }
+aura-historia-cron = { path = "src/aura-historia-cron" }
 async-stream = "0.3.6"
 base64 = "0.23.0"
 async-trait = "0.1.89"
+axum = "0.8.7"
 aws-config = "1.8.18"
 aws-sdk-account = "1.106.0"
 aws-sdk-autoscaling = "1.115.0"
@@ -109,54 +157,72 @@ aws-sdk-opensearch = "1.131.0"
 aws-sdk-sqs = "1.101.0"
 aws-sdk-sesv2 = "1.122.0"
 aws-sdk-s3 = "1.135.0"
+aws-smithy-types = "1.6.1"
 aws-sdk-sfn = "1.107.0"
 aws-sdk-cloudwatch = "1.111.0"
 aws-sdk-cloudwatchlogs = "1.135.0"
 aws_lambda_events = { version = "1.2.0", default-features = false }
+chrono = "0.4"
+cron_tab = { version = "=0.2.14", default-features = false, features = ["async", "sync"] }
 cloudwatch-log-retention-lambda = { path = "src/cloudwatch-log-retention-lambda" }
-common = { path = "src/common" }
+
+credential-core = { path = "src/credential-core" }
+domain-primitives = { path = "src/domain-primitives" }
+localization = { path = "src/localization" }
+money = { path = "src/money" }
+embedding = { path = "src/embedding" }
+image-fetcher = { path = "src/image-fetcher" }
 geo = { path = "src/geo" }
 google-cloud-auth = "1.12.0"
 derive_builder = "0.20.2"
 fake = { version = "5.1.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
-acceptance-tests = { path = "src/acceptance-tests" }
-search-filter = { path = "src/search-filter" }
-search-filter-api = { path = "src/search-filter-api" }
-search-filter-lambda = { path = "src/search-filter-lambda" }
-search-filter-lambda-opensearch-sync = { path = "src/search-filter-lambda/src/search-filter-lambda-opensearch-sync" }
-search-filter-lambda-percolate-product = { path = "src/search-filter-lambda/src/search-filter-lambda-percolate-product" }
-search-filter-periodic-match = { path = "src/search-filter-periodic-match" }
-shop = { path = "src/shop" }
-shop-lambda = { path = "src/shop-lambda" }
-shop-lambda-opensearch-index = { path = "src/shop-lambda/src/shop-lambda-opensearch-index" }
-shop-api = { path = "src/shop-api" }
+application = { path = "src/application" }
+platform-observability = { path = "src/platform-observability" }
+platform-opensearch = { path = "src/platform-opensearch" }
+platform-postgres = { path = "src/platform-postgres" }
+
+search-filter-core = { path = "src/search-filter-core" }
+search-filter-service = { path = "src/search-filter-service" }
+search-filter-postgres = { path = "src/search-filter-postgres" }
+search-filter-opensearch = { path = "src/search-filter-opensearch" }
+large-language-model = { path = "src/large-language-model" }
+
+shop-core = { path = "src/shop-core" }
+shop-service = { path = "src/shop-service" }
+shop-postgres = { path = "src/shop-postgres" }
+shop-partner-core = { path = "src/shop-partner-core" }
+shop-partner-service = { path = "src/shop-partner-service" }
+shop-partner-postgres = { path = "src/shop-partner-postgres" }
 stripe-lambda = { path = "src/stripe-lambda" }
-stripe-api = { path = "src/stripe-api" }
-notification-send = { path = "src/notification-send" }
-newsletter-api = { path = "src/newsletter-api" }
-notification = { path = "src/notification" }
-notification-api = { path = "src/notification-api" }
-oauth = { path = "src/oauth" }
-oauth-api = { path = "src/oauth-api" }
+
+notification-core = { path = "src/notification-core" }
+notification-email = { path = "src/notification-email" }
+notification-email-aws = { path = "src/notification-email-aws" }
+notification-service = { path = "src/notification-service" }
+notification-postgres = { path = "src/notification-postgres" }
+
+oauth-core = { path = "src/oauth-core" }
+oauth-service = { path = "src/oauth-service" }
+oauth-dynamodb = { path = "src/oauth-dynamodb" }
 futures = { version = "0.3.32", default-features = false }
 hex = "0.4.3"
 http = "1.4.2"
 httpdate = "1.0.3"
-product = { path = "src/product" }
-product-api = { path = "src/product-api" }
-product-api-partner = { path = "src/product-api-partner" }
-product-personalization = { path = "src/product-personalization" }
-product-watchlist = { path = "src/product-watchlist" }
-product-watchlist-api = { path = "src/product-watchlist-api" }
-product-lambda = { path = "src/product-lambda" }
-product-pipeline-embed-text = { path = "src/product-pipeline/src/product-pipeline-embed-text" }
-product-pipeline-translate = { path = "src/product-pipeline/src/product-pipeline-translate" }
-product-pipeline = { path = "src/product-pipeline" }
-product-lambda-materialize-opensearch = { path = "src/product-lambda/src/product-lambda-materialize-opensearch" }
-product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
-product-lambda-ingest-partner-products = { path = "src/product-lambda/src/product-lambda-ingest-partner-products" }
-product-lambda-delete-product = { path = "src/product-lambda/src/product-lambda-delete-product" }
+
+product-core = { path = "src/product-core" }
+product-service = { path = "src/product-service" }
+product-translation-llm = { path = "src/product-translation-llm" }
+product-postgres = { path = "src/product-postgres" }
+fxrate-core = { path = "src/fxrate-core" }
+fxrate-service = { path = "src/fxrate-service" }
+fxrate-postgres = { path = "src/fxrate-postgres" }
+fxrate-fxratesapi = { path = "src/fxrate-fxratesapi" }
+product-opensearch = { path = "src/product-opensearch" }
+watchlist-core = { path = "src/watchlist-core" }
+watchlist-service = { path = "src/watchlist-service" }
+watchlist-postgres = { path = "src/watchlist-postgres" }
+
 isocountry = "0.3.2"
 itertools = "0.15.0"
 lambda_runtime = "1.2.1"
@@ -183,6 +249,8 @@ serde_fields = "0.1.0"
 serial_test = "4.0.1"
 sha2 = "0.11.0"
 aws-tests = { path = "src/aws-tests" }
+billing-service = { path = "src/billing-service" }
+billing-stripe = { path = "src/billing-stripe" }
 aws-tests-common = { path = "src/aws-tests/src/aws-tests-common" }
 smoking-tests = { path = "src/aws-tests/src/smoking-tests" }
 strum = "0.28.0"
@@ -195,6 +263,8 @@ testcontainers-modules = "0.12.1"
 thiserror = "2.0.18"
 time = "0.3.47"
 tokio = { version = "1.52.3", default-features = false }
+tower = "0.5.2"
+tower-http = { version = "0.6.8", features = ["cors", "limit", "sensitive-headers", "timeout", "trace"] }
 tracing = "0.1.44"
 tracing-cloudwatch = { version = "=0.4.1", features = ["awssdk", "ordered_logs"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
@@ -207,12 +277,13 @@ zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 futures-util = "0.3.32"
 proc-macro2 = "1.0.106"
 smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tests-macros" }
-user = { path = "src/user" }
-user-api = { path = "src/user-api" }
-user-lambda = { path = "src/user-lambda" }
-user-lambda-index-opensearch = { path = "src/user-lambda/src/user-lambda-index-opensearch" }
-user-lambda-tier-update = { path = "src/user-lambda/src/user-lambda-tier-update" }
-cognito = { path = "src/cognito" }
+
+user-core = { path = "src/user-core" }
+user-service = { path = "src/user-service" }
+user-dynamodb = { path = "src/user-dynamodb" }
+user-postgres = { path = "src/user-postgres" }
+user-zoho = { path = "src/user-zoho" }
+
 cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"
 handlebars = "6.4.1"
@@ -224,7 +295,6 @@ aws-sdk-cognitoidentityprovider = "1.120.0"
 html-escape = "0.2.13"
 regex = "1.12.4"
 indexmap = { version = "2.14.0", features = ["serde"] }
-fxrate = { path = "src/fxrate" }
 fxrate-lambda = { path = "src/fxrate-lambda" }
 slug = "0.1.6"
 crawler = { path = "src/crawler" }
@@ -238,9 +308,5 @@ dotenvy = "0.15"
 url-normalize = "0.1.1"
 yaml_serde = "0.10"
 prefixed-api-key = { version = "0.3.0" }
-partner-shop-application = { path = "src/partner-shop-application" }
-partner-shop-application-api = { path = "src/partner-shop-application-api" }
-partner-shop-application-lambda = { path = "src/partner-shop-application-lambda" }
 shopify-lambda = { path = "src/shopify-lambda" }
-webhook-api = { path = "src/webhook-api" }
 html-to-markdown-rs = "3.5.7"

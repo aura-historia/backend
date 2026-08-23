@@ -1,0 +1,18 @@
+[package]
+name = "fxrate-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+fxrate-core = { workspace = true }
+user-core = { workspace = true }
+money = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+strum = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }

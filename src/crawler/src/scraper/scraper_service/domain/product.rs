@@ -1,7 +1,7 @@
 use crate::scraper::candidate_service::ProductSnapshot;
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use url::Url;
 
 /// Result of a successful scrape — the normalized product together with the

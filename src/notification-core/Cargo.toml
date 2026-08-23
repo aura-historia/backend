@@ -1,0 +1,29 @@
+[package]
+name = "notification-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+domain-primitives = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
+product-core = { workspace = true }
+search-filter-core = { workspace = true }
+serde = { workspace = true }
+shop-core = { workspace = true }
+shop-partner-core = { workspace = true }
+user-core = { workspace = true }
+
+thiserror = { workspace = true }
+url = { workspace = true, features = ["serde"] }
+uuid = { workspace = true, features = ["v7"] }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[features]
+default = []
+test-data = ["fake", "domain-primitives/test-data", "localization/test-data", "money/test-data", "product-core/test-data", "search-filter-core/test-data", "shop-partner-core/test-data", "user-core/test-data"]

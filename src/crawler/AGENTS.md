@@ -8,21 +8,23 @@
 ## Core Design
 
 - Crawler be async, Postgres-backed, LLM-assisted ingest system for antique shop sites.
-- Root modules: `google_llm`, `local_db`, `logging`, `network`, `review`, `scraper`, `service`, `spider`.
-- Main neighbors: `common`, `fxrate`, `product`, `shop`.
+- Root modules: `llm_runtime`, `local_db`, `logging`, `network`, `review`, `scraper`, `service`, `spider`, `vertex_ai`.
+- Main neighbors: `application`, `large-language-model`, `localization`, `money`, `platform-postgres`, `product-core`/`product-service`/`product-postgres`, `shop-core`/`shop-service`/`shop-postgres`.
 - Main binaries: `server`, `demo`, `demo-spider`, `demo-scraper`, `fetch-fixture`.
 - `service::cron` drive three parallel loops: shop sync, spider, scraper.
 - Spider and scraper cron use global slot schedulers. Refill only schedulable work; scraper fetch picks random eligible domains, takes up to 100 due URLs per domain by default, and excludes domains already seen in the pass.
-- Shop sync load active shops and domains from upstream shop search into local Postgres.
+- Shop sync reads published Shop summaries through `shop-service` and `shop-postgres` from authoritative business Postgres, then stores crawler scope locally.
 - Spider crawl shop domains, discover URLs, infer or refresh shop product regex, and batch-upsert URL metadata.
 - Spider HTTP asks for `gzip, br, deflate` only; avoid zstd decode noise from bad origins.
 - Scraper consume product URLs, fetch HTML with short inline retry backoff capped at 2s, detect stored soft-404 removed templates, reuse or grow CSS selector schemas, normalize products, and push results onward. `Retry-After` headers must not sleep domain workers; failed URLs use `shop_urls.next_retry_at` after final fetch failure.
+- Scraper product handoff uses one bounded in-memory channel and one collector per scheduler pass. Producers await capacity. Partial batches flush at size, maximum age, or channel close. The collector never overlaps flushes. Each batch coalesces duplicate Product keys and executes unique canonical Product upserts with bounded concurrency below the authoritative business Postgres pool size. URLs are marked scraped only for matching successful input positions. Structured logs expose enqueue wait, queue depth, oldest item age, upsert latency, persistence failures, and local mark failures.
 - Scraper description text without own language signal inherits title language only when language was detected from the title itself.
 - `review` own human-review rail and optional LLM-judge rail for URL patterns and schemas.
 - Postgres be crawler source of truth. Main durable tables be `shops`, `shop_domains`, `shop_urls`, `shops_product_schema`, `shops_removed_page_schema`, `crawler_reviews`, `crawler_review_pages`, `product_state_mapping`.
-- Main handoff be DB-backed: shop sync feeds spider; spider feeds scraper through `shop_urls`; scraper feeds backend product push.
+- Main handoff be DB-backed: shop sync feeds spider; spider feeds scraper through `shop_urls`; scraper calls the canonical `product-service` upsert use case against authoritative business Postgres. Crawler uses source Shop ID as Product seller ID; raw marketplace seller names are not canonical seller identities.
 - Locking be two-layer: process-local locks stop duplicate in one process, DB lock/cooldown metadata stop bad overlap and hot-loop retries across runs after final fetch failure.
-- LLM use stay bounded and explicit: URL regex inference, product schema generation, HTML-only append-repair page classification, schema evaluation, state mapping fallback.
+- LLM use stay bounded and explicit: URL regex inference, product schema generation, HTML-only append-repair page classification, schema evaluation, state mapping fallback. Services stay generic over `large-language-model::LargeLanguageModel`; provider/model selection stays in executable wiring. `vertex_ai` wires Vertex AI Gemini with Google Application Default Credentials, while `llm_runtime` owns crawler retry, concurrency, and pacing.
+- Crawler LLM budgets be explicit: product schema generation/repair and URL classification use 180 seconds; state mapping uses 60 seconds. Provider retry be bounded to 3 attempts with rate-limit, outage, transient, and timeout classes. Structured-response correction be bounded to 3 fresh attempts, so one logical call can make at most 9 provider calls. The crawler LLM governor reserves future request-start slots atomically. Reservation is serialized, but waiting for a reserved slot does not hold the start-gate mutex. Provider retry sleeps still release the request permit.
 - Shop-level LLM spend be budgeted through `shops.llm_calls_count`.
 - Review and schema cache be safety rail: generated artifacts can be audited, approved, repaired, or superseded.
 - Schema generation and append repair must use YAML-grounded selectors only. Prefer `null` over guessed optional-field selectors. State selector prompt must choose only availability/cart action nodes and exclude price text.
@@ -32,7 +34,8 @@
 - Append repair classifies failed pages as product, removed, or not-product. Removed needs verified selector-bound text or regex evidence, stores shop-scoped `shops_removed_page_schema`, and marks URL `REMOVED`. Not-product needs verified reason and only changes that URL class to `other`; never update shop URL pattern from one page.
 - Local dev support live here too: `docker-compose.yml`, `scripts/linux/`, `scripts/windows/`, `migrations/`, and test fixtures under `tests/`.
 - `fetch-fixture` writes fetched HTML to `tests/fixtures/html`.
-- `demo` and `server` auto-run migrations on startup. Migrations be authoritative DB contract.
+- `demo` and `server` auto-run crawler-local migrations on startup. Migrations be authoritative crawler DB contract.
+- `server` needs `BUSINESS_DATABASE_URL` for Shop reads and Product writes. LLM-enabled binaries need `VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION`, and Google Application Default Credentials (for example `GOOGLE_APPLICATION_CREDENTIALS` locally). `VERTEX_AI_MODEL` selects schema generation/repair; `CRAWLER_VERTEX_AI_CHEAP_MODEL` and operation-specific overrides select low-risk models. `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` and `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` bound all crawler LLM calls. Crawler-local state and business writes use separate Postgres transactions; a product commit followed by a local mark failure remains retryable. Server product-push tuning is held in `CrawlerCronConfig`: `push_batch_size`, `push_queue_capacity`, `push_max_batch_age`, `push_max_concurrency`, and `business_db_max_connections`. These are code-level settings, not environment variables.
 
 ## Ownership
 

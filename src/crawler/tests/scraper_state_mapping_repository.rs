@@ -2,19 +2,16 @@ use crawler::scraper::normalization::state::{ProductStateMappingRecord, StateMap
 use crawler::scraper::normalization::state_mapping_repository::{
     ProductStateMappingRepository, ProductStateMappingRepositoryImpl,
 };
-use product::dynamodb::product_state_record::ProductStateRecord;
+use product_core::product_state::ProductState;
 
 use test_api::*;
 use time::OffsetDateTime;
 
-const POSTGRES: Postgres = Postgres {
-    migrations_dir: "src/crawler/migrations",
-    setup_script: None,
-};
+const POSTGRES: Postgres = Postgres::new_per_test("src/crawler/migrations");
 
 fn make_record(
     raw: &str,
-    normalized: ProductStateRecord,
+    normalized: ProductState,
     mapping_type: StateMappingType,
 ) -> ProductStateMappingRecord {
     let now = OffsetDateTime::now_utc();
@@ -51,7 +48,7 @@ async fn should_return_mapping_when_exists_for_find() {
 
     let record = make_record(
         "test_available",
-        ProductStateRecord::Available,
+        ProductState::Available,
         StateMappingType::Value,
     );
     repository.insert_mapping(&record).await.unwrap();
@@ -63,7 +60,7 @@ async fn should_return_mapping_when_exists_for_find() {
         .unwrap();
 
     assert_eq!(result.raw, "test_available");
-    assert_eq!(result.normalized, ProductStateRecord::Available);
+    assert_eq!(result.normalized, ProductState::Available);
     assert_eq!(result.mapping_type, StateMappingType::Value);
 }
 
@@ -72,11 +69,7 @@ async fn should_return_none_for_unknown_raw_when_other_mappings_exist_for_find()
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
 
-    let record = make_record(
-        "known_value",
-        ProductStateRecord::Sold,
-        StateMappingType::Value,
-    );
+    let record = make_record("known_value", ProductState::Sold, StateMappingType::Value);
     repository.insert_mapping(&record).await.unwrap();
 
     let result = repository.find_mapping("unknown_value").await.unwrap();
@@ -93,7 +86,7 @@ async fn should_find_seed_data_value_mappings_for_find() {
     let result = repository.find_mapping("available").await.unwrap().unwrap();
 
     assert_eq!(result.raw, "available");
-    assert_eq!(result.normalized, ProductStateRecord::Available);
+    assert_eq!(result.normalized, ProductState::Available);
     assert_eq!(result.mapping_type, StateMappingType::Value);
 }
 
@@ -109,7 +102,7 @@ async fn should_find_seed_data_regex_mappings_for_find() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(result.normalized, ProductStateRecord::Sold);
+    assert_eq!(result.normalized, ProductState::Sold);
     assert_eq!(result.mapping_type, StateMappingType::Regex);
 }
 
@@ -122,15 +115,11 @@ async fn should_persist_and_return_value_mapping_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
 
-    let record = make_record(
-        "custom_sold",
-        ProductStateRecord::Sold,
-        StateMappingType::Value,
-    );
+    let record = make_record("custom_sold", ProductState::Sold, StateMappingType::Value);
     let returned = repository.insert_mapping(&record).await.unwrap();
 
     assert_eq!(returned.raw, "custom_sold");
-    assert_eq!(returned.normalized, ProductStateRecord::Sold);
+    assert_eq!(returned.normalized, ProductState::Sold);
     assert_eq!(returned.mapping_type, StateMappingType::Value);
 }
 
@@ -141,13 +130,13 @@ async fn should_persist_and_return_regex_mapping_for_insert() {
 
     let record = make_record(
         r"\bcustom\s+pattern\b",
-        ProductStateRecord::Reserved,
+        ProductState::Reserved,
         StateMappingType::Regex,
     );
     let returned = repository.insert_mapping(&record).await.unwrap();
 
     assert_eq!(returned.raw, r"\bcustom\s+pattern\b");
-    assert_eq!(returned.normalized, ProductStateRecord::Reserved);
+    assert_eq!(returned.normalized, ProductState::Reserved);
     assert_eq!(returned.mapping_type, StateMappingType::Regex);
 }
 
@@ -156,11 +145,7 @@ async fn should_preserve_created_and_updated_timestamps_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
 
-    let record = make_record(
-        "ts_test",
-        ProductStateRecord::Listed,
-        StateMappingType::Value,
-    );
+    let record = make_record("ts_test", ProductState::Listed, StateMappingType::Value);
     let created_before = record.created;
     let updated_before = record.updated;
 
@@ -182,12 +167,8 @@ async fn should_allow_inserting_mappings_for_different_raw_values_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
 
-    let record_a = make_record(
-        "raw_a",
-        ProductStateRecord::Available,
-        StateMappingType::Value,
-    );
-    let record_b = make_record("raw_b", ProductStateRecord::Sold, StateMappingType::Regex);
+    let record_a = make_record("raw_a", ProductState::Available, StateMappingType::Value);
+    let record_b = make_record("raw_b", ProductState::Sold, StateMappingType::Regex);
 
     repository.insert_mapping(&record_a).await.unwrap();
     repository.insert_mapping(&record_b).await.unwrap();
@@ -195,9 +176,9 @@ async fn should_allow_inserting_mappings_for_different_raw_values_for_insert() {
     let result_a = repository.find_mapping("raw_a").await.unwrap().unwrap();
     let result_b = repository.find_mapping("raw_b").await.unwrap().unwrap();
 
-    assert_eq!(result_a.normalized, ProductStateRecord::Available);
+    assert_eq!(result_a.normalized, ProductState::Available);
     assert_eq!(result_a.mapping_type, StateMappingType::Value);
-    assert_eq!(result_b.normalized, ProductStateRecord::Sold);
+    assert_eq!(result_b.normalized, ProductState::Sold);
     assert_eq!(result_b.mapping_type, StateMappingType::Regex);
 }
 
@@ -206,11 +187,7 @@ async fn should_fail_when_inserting_duplicate_raw_value_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
 
-    let record = make_record(
-        "dup_raw",
-        ProductStateRecord::Available,
-        StateMappingType::Value,
-    );
+    let record = make_record("dup_raw", ProductState::Available, StateMappingType::Value);
 
     repository.insert_mapping(&record).await.unwrap();
 
@@ -236,12 +213,12 @@ async fn should_persist_all_product_state_variants_for_insert() {
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
 
     let variants = [
-        ("variant_listed", ProductStateRecord::Listed),
-        ("variant_available", ProductStateRecord::Available),
-        ("variant_reserved", ProductStateRecord::Reserved),
-        ("variant_sold", ProductStateRecord::Sold),
-        ("variant_removed", ProductStateRecord::Removed),
-        ("variant_unknown", ProductStateRecord::Unknown),
+        ("variant_listed", ProductState::Listed),
+        ("variant_available", ProductState::Available),
+        ("variant_reserved", ProductState::Reserved),
+        ("variant_sold", ProductState::Sold),
+        ("variant_removed", ProductState::Removed),
+        ("variant_unknown", ProductState::Unknown),
     ];
 
     for (raw, state) in &variants {
@@ -267,11 +244,7 @@ async fn should_replace_normalized_and_refresh_updated_timestamp_for_update() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
 
-    let original = make_record(
-        "upd_test",
-        ProductStateRecord::Available,
-        StateMappingType::Value,
-    );
+    let original = make_record("upd_test", ProductState::Available, StateMappingType::Value);
     repository.insert_mapping(&original).await.unwrap();
 
     let inserted = repository.find_mapping("upd_test").await.unwrap().unwrap();
@@ -280,16 +253,12 @@ async fn should_replace_normalized_and_refresh_updated_timestamp_for_update() {
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
     let returned = repository
-        .update_mapping(
-            "upd_test",
-            &ProductStateRecord::Sold,
-            &StateMappingType::Value,
-        )
+        .update_mapping("upd_test", &ProductState::Sold, &StateMappingType::Value)
         .await
         .unwrap();
 
     assert_eq!(returned.raw, "upd_test");
-    assert_eq!(returned.normalized, ProductStateRecord::Sold);
+    assert_eq!(returned.normalized, ProductState::Sold);
     assert_ne!(returned.updated, inserted.updated);
     // created must remain unchanged
     assert!(
@@ -305,7 +274,7 @@ async fn should_update_mapping_type_from_value_to_regex_for_update() {
 
     let original = make_record(
         "type_change",
-        ProductStateRecord::Available,
+        ProductState::Available,
         StateMappingType::Value,
     );
     repository.insert_mapping(&original).await.unwrap();
@@ -313,7 +282,7 @@ async fn should_update_mapping_type_from_value_to_regex_for_update() {
     let returned = repository
         .update_mapping(
             "type_change",
-            &ProductStateRecord::Available,
+            &ProductState::Available,
             &StateMappingType::Regex,
         )
         .await
@@ -327,25 +296,17 @@ async fn should_persist_updated_mapping_so_find_returns_new_value_for_update() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
 
-    let original = make_record(
-        "upd_find",
-        ProductStateRecord::Listed,
-        StateMappingType::Value,
-    );
+    let original = make_record("upd_find", ProductState::Listed, StateMappingType::Value);
     repository.insert_mapping(&original).await.unwrap();
 
     repository
-        .update_mapping(
-            "upd_find",
-            &ProductStateRecord::Removed,
-            &StateMappingType::Value,
-        )
+        .update_mapping("upd_find", &ProductState::Removed, &StateMappingType::Value)
         .await
         .unwrap();
 
     let found = repository.find_mapping("upd_find").await.unwrap().unwrap();
 
-    assert_eq!(found.normalized, ProductStateRecord::Removed);
+    assert_eq!(found.normalized, ProductState::Removed);
 }
 
 #[aura_integration_test(services = [POSTGRES])]
@@ -356,7 +317,7 @@ async fn should_return_row_not_found_when_updating_non_existent_raw_value_for_up
     let err = repository
         .update_mapping(
             "does_not_exist",
-            &ProductStateRecord::Available,
+            &ProductState::Available,
             &StateMappingType::Value,
         )
         .await
@@ -373,31 +334,23 @@ async fn should_only_update_targeted_raw_value_and_leave_others_intact_for_updat
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
 
-    let record_a = make_record(
-        "iso_a",
-        ProductStateRecord::Available,
-        StateMappingType::Value,
-    );
-    let record_b = make_record(
-        "iso_b",
-        ProductStateRecord::Available,
-        StateMappingType::Value,
-    );
+    let record_a = make_record("iso_a", ProductState::Available, StateMappingType::Value);
+    let record_b = make_record("iso_b", ProductState::Available, StateMappingType::Value);
 
     repository.insert_mapping(&record_a).await.unwrap();
     repository.insert_mapping(&record_b).await.unwrap();
 
     repository
-        .update_mapping("iso_a", &ProductStateRecord::Sold, &StateMappingType::Regex)
+        .update_mapping("iso_a", &ProductState::Sold, &StateMappingType::Regex)
         .await
         .unwrap();
 
     let result_a = repository.find_mapping("iso_a").await.unwrap().unwrap();
     let result_b = repository.find_mapping("iso_b").await.unwrap().unwrap();
 
-    assert_eq!(result_a.normalized, ProductStateRecord::Sold);
+    assert_eq!(result_a.normalized, ProductState::Sold);
     assert_eq!(result_a.mapping_type, StateMappingType::Regex);
-    assert_eq!(result_b.normalized, ProductStateRecord::Available);
+    assert_eq!(result_b.normalized, ProductState::Available);
     assert_eq!(result_b.mapping_type, StateMappingType::Value);
 }
 
@@ -411,44 +364,36 @@ async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
 
     // 1. insert
-    let record = make_record(
-        "roundtrip",
-        ProductStateRecord::Reserved,
-        StateMappingType::Value,
-    );
+    let record = make_record("roundtrip", ProductState::Reserved, StateMappingType::Value);
     let inserted = repository.insert_mapping(&record).await.unwrap();
 
     assert_eq!(inserted.raw, "roundtrip");
-    assert_eq!(inserted.normalized, ProductStateRecord::Reserved);
+    assert_eq!(inserted.normalized, ProductState::Reserved);
     assert_eq!(inserted.mapping_type, StateMappingType::Value);
 
     // 2. find after insert
     let found_after_insert = repository.find_mapping("roundtrip").await.unwrap().unwrap();
 
     assert_eq!(found_after_insert.raw, "roundtrip");
-    assert_eq!(found_after_insert.normalized, ProductStateRecord::Reserved);
+    assert_eq!(found_after_insert.normalized, ProductState::Reserved);
     assert_eq!(found_after_insert.mapping_type, StateMappingType::Value);
 
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
     // 3. update
     let updated = repository
-        .update_mapping(
-            "roundtrip",
-            &ProductStateRecord::Sold,
-            &StateMappingType::Regex,
-        )
+        .update_mapping("roundtrip", &ProductState::Sold, &StateMappingType::Regex)
         .await
         .unwrap();
 
-    assert_eq!(updated.normalized, ProductStateRecord::Sold);
+    assert_eq!(updated.normalized, ProductState::Sold);
     assert_eq!(updated.mapping_type, StateMappingType::Regex);
     assert_ne!(updated.updated, inserted.updated);
 
     // 4. find after update
     let found_after_update = repository.find_mapping("roundtrip").await.unwrap().unwrap();
 
-    assert_eq!(found_after_update.normalized, ProductStateRecord::Sold);
+    assert_eq!(found_after_update.normalized, ProductState::Sold);
     assert_eq!(found_after_update.mapping_type, StateMappingType::Regex);
     assert_eq!(found_after_update.created, found_after_insert.created);
 }

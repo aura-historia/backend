@@ -1,4 +1,9 @@
 pub mod core;
+pub mod geocoder;
+
+pub use geocoder::{
+    Geocoder, GeocodingError, GeocodingErrorSource, GoogleGeocoder, GoogleGeocoderConfig,
+};
 
 pub mod dynamodb;
 

@@ -1,0 +1,37 @@
+[package]
+name = "search-filter-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+application = { workspace = true }
+domain-primitives = { workspace = true }
+embedding = { workspace = true }
+geo = { workspace = true }
+
+fxrate-core = { workspace = true }
+fxrate-service = { workspace = true }
+isocountry = { workspace = true }
+large-language-model = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
+notification-core = { workspace = true }
+notification-service = { workspace = true }
+product-core = { workspace = true }
+product-service = { workspace = true }
+shop-core = { workspace = true }
+search-filter-core = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
+time = { workspace = true }
+user-core = { workspace = true }
+user-service = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+indexmap = { workspace = true }
+strum = { workspace = true }
+url = { workspace = true }

@@ -101,39 +101,6 @@ pub fn default_log_stream_name() -> String {
         .unwrap_or_else(|| DEFAULT_LOG_STREAM_NAME.to_string())
 }
 
-pub fn current_gemini_model() -> String {
-    std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "unknown".to_string())
-}
-
-pub fn llm_metrics(
-    usage: Option<llm::chat::Usage>,
-    batch_size: Option<usize>,
-    service_tier: Option<common::logging::GeminiServiceTier>,
-) -> common::logging::LlmInvocationMetrics {
-    let Some(usage) = usage else {
-        return common::logging::LlmInvocationMetrics {
-            service_tier,
-            batch_size,
-            ..Default::default()
-        };
-    };
-
-    common::logging::LlmInvocationMetrics {
-        service_tier,
-        batch_size,
-        prompt_tokens: Some(usage.prompt_tokens),
-        completion_tokens: Some(usage.completion_tokens),
-        total_tokens: Some(usage.total_tokens),
-        cached_prompt_tokens: usage
-            .prompt_tokens_details
-            .and_then(|details| details.cached_tokens),
-        reasoning_tokens: usage
-            .completion_tokens_details
-            .and_then(|details| details.reasoning_tokens),
-        ..Default::default()
-    }
-}
-
 #[async_trait]
 #[cfg_attr(test, mockall::automock)]
 pub trait CloudWatchBootstrapClient: Send + Sync {

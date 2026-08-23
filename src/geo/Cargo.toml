@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+async-trait = { workspace = true }
 isocountry = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
-async-trait = { workspace = true, optional = true }
+thiserror = { workspace = true }
 mockall = { workspace = true, optional = true }
-thiserror = { workspace = true, optional = true }
-reqwest = { workspace = true, optional = true, features = ["json"] }
 fake = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -18,6 +18,6 @@ geo = { workspace = true, features = ["full"] }
 [features]
 default = []
 data = []
-service = ["async-trait", "mockall", "thiserror", "reqwest"]
+service = ["mockall"]
 test-data = ["fake"]
 full = ["data", "service", "test-data"]

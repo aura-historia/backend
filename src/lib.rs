@@ -1,11 +1,2 @@
-pub use acceptance_tests;
 pub use aws_tests;
-pub use common;
-pub use product;
-pub use product_api;
-pub use search_filter;
-pub use search_filter_api;
-pub use shop;
-pub use shop_api;
 pub use test_api;
-pub use user;

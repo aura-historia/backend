@@ -1,6 +1,7 @@
 use super::{error::NormalizationError, language::detect_language};
-use common::{language::domain::Language, localized::Localized, shops_product_id::ShopsProductId};
-use product::core::{description::Description, title::Title};
+use localization::{Language, Localized};
+use product_core::shops_product_id::ShopsProductId;
+use product_core::{description::Description, title::Title};
 use sha2::{Digest, Sha256};
 use url::Url;
 
@@ -246,7 +247,7 @@ mod tests {
 
     #[test]
     fn should_detect_language_for_title_when_english_text() {
-        use common::language::domain::Language;
+        use localization::Language;
         let localized = normalize_title_localized("This is an antique vase from England").unwrap();
         assert_eq!(localized.localization, Language::En);
     }
@@ -264,7 +265,7 @@ mod tests {
 
     #[test]
     fn should_use_description_language_for_short_title_when_available() {
-        use common::language::domain::Language;
+        use localization::Language;
         let title = normalize_title("La Saintongeoise").unwrap();
         let title_language = detect_language(title.as_ref());
         let localized =
@@ -274,7 +275,7 @@ mod tests {
 
     #[test]
     fn should_fallback_to_title_detection_when_description_language_missing_for_short_title() {
-        use common::language::domain::Language;
+        use localization::Language;
         let title = normalize_title("Vintage Poster").unwrap();
         let title_language = detect_language(title.as_ref());
         let localized = localize_normalized_title(title, title_language, None).unwrap();
@@ -283,7 +284,7 @@ mod tests {
 
     #[test]
     fn should_detect_description_language_when_long_description_provided() {
-        use common::language::domain::Language;
+        use localization::Language;
         let language = detect_description_language(&[
             "This vintage poster comes from a private collection and has documented ownership history."
                 .to_string(),
@@ -390,7 +391,7 @@ mod tests {
 
     #[test]
     fn should_use_fallback_language_when_description_language_cannot_be_detected() {
-        use common::language::domain::Language;
+        use localization::Language;
 
         let result = normalize_description(vec!["23-1/2\"18-1/4\"".into()], Some(Language::En))
             .unwrap()
