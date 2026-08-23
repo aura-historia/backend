@@ -5,22 +5,21 @@
 //! The crawler needs to know which shops exist and which domains they own so it can schedule
 //! spider and scraper work. This module provides:
 //!
-//! - [`ShopRegistrationSource`] — trait for fetching the authoritative shop list (e.g. OpenSearch).
+//! - [`ShopRegistrationSource`] — trait for fetching the authoritative Shop summary list.
 //! - [`ShopRegistrationRepository`] — trait for persisting shop + domain data to Postgres.
 //! - [`ShopRegistrationService`] — orchestrates a full sync cycle: fetch → upsert → deactivate stale.
 //! - [`ShopRegistrationRepositoryImpl`] — Postgres-backed repository implementation.
 //! - [`RegisteredShop`] — value object carrying shop identity, type, and domains.
 
 use async_trait::async_trait;
-use common::domain::Domain;
-use common::shop_id::ShopId;
-use shop::core::shop_type::ShopType;
+use shop_core::domain::Domain;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_type::ShopType;
 use sqlx::PgPool;
 use std::collections::HashSet;
 use tracing::{error, info, warn};
 
-/// A shop registered in the upstream system (e.g. the shop service backed by OpenSearch/DynamoDB)
-/// that needs to be synced into the crawler's local Postgres database.
+/// A shop summary from the authoritative Shop service that is synced into crawler-local Postgres.
 #[derive(Debug, Clone)]
 pub struct RegisteredShop {
     pub shop_id: ShopId,
@@ -33,8 +32,7 @@ pub struct RegisteredShop {
 /// Fetches all registered shops from an external source.
 ///
 /// The crawler crate owns this trait but does **not** provide an implementation —
-/// that lives at the binary level (e.g. `server.rs`) where the concrete shop service
-/// (OpenSearch, DynamoDB, etc.) is available.
+/// the binary composes the canonical Shop service and PostgreSQL reader.
 #[async_trait]
 #[mockall::automock]
 pub trait ShopRegistrationSource: Send + Sync {

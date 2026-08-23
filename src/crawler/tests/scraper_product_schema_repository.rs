@@ -1,4 +1,3 @@
-use common::shop_id::ShopId;
 use crawler::scraper::css_selector::product_schema::{
     ProductCssSelectorSchema, ShopsProductSchema,
 };
@@ -6,6 +5,7 @@ use crawler::scraper::css_selector::product_schema_repository::{
     ShopsProductSchemaRepository, ShopsProductSchemaRepositoryImpl,
 };
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
+use shop_core::shop_id::ShopId;
 use sqlx::PgPool;
 
 use test_api::*;

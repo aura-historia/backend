@@ -1,4 +1,4 @@
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 mod bookkeeping;
 mod budget;
 mod happy_path;
@@ -33,11 +33,11 @@ use crate::scraper::scraper_service::service::{
     DEFAULT_MAX_LLM_CALLS_PER_SHOP, FetchedHtml, MockHtmlFetcher, ScraperServiceImpl,
 };
 use crate::spider::classification::url_metadata::UrlState;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::product_state::domain::ProductState;
-use common::shops_product_id::ShopsProductId;
-use product::core::title::Title;
+use localization::Language;
+use localization::Localized;
+use product_core::product_state::ProductState;
+use product_core::shops_product_id::ShopsProductId;
+use product_core::title::Title;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use url::Url;

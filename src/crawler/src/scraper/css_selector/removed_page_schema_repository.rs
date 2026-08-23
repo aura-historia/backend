@@ -1,7 +1,7 @@
 use crate::scraper::css_selector::removed_page_schema::{
     RemovedPageSchema, ShopsRemovedPageSchema,
 };
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
 use uuid::Uuid;

@@ -660,10 +660,11 @@ fn enhanced_filter_request(
             .take(MAX_PRODUCT_MATCH_IMAGES)
             .map(|image| image.url.clone())
             .collect(),
-        response_schema: product_match_response_schema(),
+        response_json_schema: product_match_response_schema(),
         options: GenerationOptions {
             temperature: 0.0,
             max_output_tokens: 256,
+            request_timeout: std::time::Duration::from_secs(30),
         },
     })
 }
@@ -689,10 +690,10 @@ fn product_match_reason(
 
 fn product_match_response_schema() -> serde_json::Value {
     serde_json::json!({
-        "type": "OBJECT",
+        "type": "object",
         "properties": {
-            "matches": {"type": "BOOLEAN"},
-            "reason": {"type": "STRING"}
+            "matches": {"type": "boolean"},
+            "reason": {"type": "string"}
         },
         "required": ["matches"]
     })

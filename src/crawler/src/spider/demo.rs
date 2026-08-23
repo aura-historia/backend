@@ -13,31 +13,32 @@
 //! | Env var          | Purpose                 | Default                         |
 //! |------------------|-----------------------  |---------------------------------|
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL | `.../crawler_demo_spider`      |
-//! | `GEMINI_API_KEY` | API key for Gemini      | *(required)*                    |
-//! | `GEMINI_MODEL`   | Model name to use       | `gemini-3.1-flash-lite-preview` |
-//! | `GEMINI_CHEAP_MODEL` | Default cheaper model for low-risk LLM calls | `gemini-2.5-flash-lite` |
-//! | `GEMINI_URL_CLASSIFICATION_MODEL` | Optional override for URL classification calls | `GEMINI_CHEAP_MODEL` |
-//! | `GEMINI_FLEX`    | Enable Gemini Flex inference | unset / `false`             |
+//! | `VERTEX_AI_PROJECT_ID` | Google Cloud project for Vertex AI | *(required)* |
+//! | `VERTEX_AI_LOCATION` | Vertex AI location | *(required)* |
+//! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
+//! | `VERTEX_AI_MODEL` | Default model | `gemini-3.1-pro-preview` |
+//! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default low-risk crawler LLM model | `gemini-3.1-flash-lite` |
+//! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override | `CRAWLER_VERTEX_AI_CHEAP_MODEL` |
+//! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls | `1` |
+//! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between LLM request starts | `2000` |
 //! | `LOG_LEVEL`      | Log level for this demo | `info`                          |
 //!
 //! # Running
 //!
 //! ```powershell
-//! $env:GEMINI_API_KEY="..."
-//! $env:GEMINI_FLEX="true" # optional
+//! gcloud auth application-default login
+//! $env:VERTEX_AI_PROJECT_ID="my-project"
+//! $env:VERTEX_AI_LOCATION="europe-west3"
 //! cargo run --bin demo-spider -p crawler -- https://www.christies.com/en
 //! ```
 
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use std::env;
 use std::fs::File;
 use std::io::BufWriter;
 use std::sync::Arc;
 
-use crawler::google_llm::{
-    GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
-    url_classification_gemini_model,
-};
+use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
 use crawler::local_db::{DEMO_SPIDER_DB_NAME, bootstrap_local_database, demo_spider_db_url};
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::spider::SpiderRunResult;
@@ -49,7 +50,7 @@ use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderDiscoveryError;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
-use large_language_model::GeminiServiceTier;
+use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use thiserror::Error;
@@ -59,9 +60,6 @@ use tracing::{Instrument, error, info};
 enum DemoError {
     #[error("Demo error: {0}")]
     Demo(String),
-
-    #[error(transparent)]
-    EnvVar(#[from] std::env::VarError),
 
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -92,13 +90,14 @@ async fn main() {
     let shop_url = read_shop_url();
 
     async {
-        let api_key = match read_api_key() {
-            Ok(api_key) => api_key,
+        let vertex_ai_config = match CrawlerVertexAiConfig::from_env() {
+            Ok(config) => config,
             Err(error) => {
-                error!(error = ?error, "Failed to load configuration");
+                error!(%error, "Failed to load Vertex AI configuration");
                 return;
             }
         };
+        let vertex_ai_models = CrawlerVertexAiModels::from_env();
 
         let pool = match connect_and_migrate().await {
             Ok(p) => p,
@@ -111,36 +110,26 @@ async fn main() {
         let pattern_repository = build_pattern_repository(pool.clone());
         let url_repository = build_url_repository(pool.clone());
 
-        let model = env::var("GEMINI_MODEL")
-            .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
-        let classification_model = url_classification_gemini_model();
-        unsafe {
-            env::set_var("GEMINI_MODEL", &model);
-        }
-        let gemini_flex = gemini_flex_enabled();
-        let gemini_service_tier = if gemini_flex { "flex" } else { "default" };
-        let llm_service_tier = Some(if gemini_flex {
-            GeminiServiceTier::Flex
-        } else {
-            GeminiServiceTier::Standard
-        });
         info!(
-            gemini_model = %model,
-            gemini_url_classification_model = %classification_model,
-            gemini_service_tier,
-            "Crawler spider demo Gemini configuration resolved"
+            llm_provider = "vertex_ai",
+            url_classification_model = %vertex_ai_models.url_classification,
+            "Crawler spider demo Vertex AI configuration resolved"
         );
-        let gemini_rate_limiter =
-            Arc::new(GeminiRateLimiter::new(GeminiRateLimitConfig::from_env()));
-        let llm_builder = google_llm_builder(&api_key, &classification_model, gemini_flex);
-        let classification_service = Box::new(
-            UrlClassificationServiceImpl::new(
-                llm_builder,
-                llm_service_tier,
-                Some(gemini_rate_limiter),
-            )
-            .expect("Failed to initialize UrlClassificationService"),
-        );
+        let llm_governor = Arc::new(CrawlerLlmGovernor::new(
+            CrawlerLlmRateLimitConfig::from_env(),
+        ));
+        let classification_llm =
+            match vertex_ai_config.create_model(vertex_ai_models.url_classification.clone()) {
+                Ok(model) => model,
+                Err(error) => {
+                    error!(%error, "Failed to initialize Vertex AI model for URL classification");
+                    return;
+                }
+            };
+        let classification_service = Box::new(UrlClassificationServiceImpl::new(
+            classification_llm,
+            Some(llm_governor),
+        ));
         let pattern_service = Box::new(UrlPatternServiceImpl::new(
             pattern_repository.clone(),
             classification_service,
@@ -211,11 +200,6 @@ fn read_shop_url() -> String {
         .unwrap_or_else(|| DEFAULT_SHOP_URL.to_string());
 
     ensure_scheme(&raw_url)
-}
-
-#[tracing::instrument]
-fn read_api_key() -> Result<String, DemoError> {
-    Ok(env::var("GEMINI_API_KEY")?)
 }
 
 #[tracing::instrument(skip(pool))]

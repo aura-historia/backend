@@ -2,11 +2,11 @@ use crate::scraper::css_selector::currency_dto::CurrencyDto;
 use crate::scraper::css_selector::rule::{
     ExtractionError, ExtractionRule, split_image_candidate_group,
 };
-use common::shop_id::ShopId;
-use llm::chat::StructuredOutputFormat;
+
 use schemars::JsonSchema;
 use scraper::Html;
 use serde::{Deserialize, Serialize};
+use shop_core::shop_id::ShopId;
 use std::collections::BTreeMap;
 use time::OffsetDateTime;
 
@@ -334,19 +334,6 @@ impl ProductCssSelectorSchema {
             raw_attributes,
         })
     }
-
-    pub fn structured_output_format() -> StructuredOutputFormat {
-        let schema = schemars::schema_for!(ProductCssSelectorSchema);
-        let schema_json = serde_json::to_value(&schema).expect(
-            "shouldn't fail serializing schema-rs for ProductCssSelectorSchema to json-value",
-        );
-        StructuredOutputFormat {
-            name: "ProductCssSelectorSchema".to_string(),
-            description: None,
-            schema: Some(schema_json),
-            strict: Some(true),
-        }
-    }
 }
 
 fn image_rule_has_existing_empty_container(rule: &ExtractionRule, html: &Html) -> bool {
@@ -559,11 +546,6 @@ mod tests {
     #[test]
     fn should_create_schema() {
         drop(schemars::schema_for!(ProductCssSelectorSchema));
-    }
-
-    #[test]
-    fn should_create_structured_output_format() {
-        drop(ProductCssSelectorSchema::structured_output_format());
     }
 
     #[test]

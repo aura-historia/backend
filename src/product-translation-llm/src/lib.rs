@@ -8,7 +8,7 @@ use localization::Language;
 use product_core::title::Title;
 use product_service::ports::{ProductTitleTranslationError, ProductTitleTranslator};
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 
 const TRANSLATION_SYSTEM_INSTRUCTION: &str = "Translate antique product titles faithfully. Preserve proper nouns, periods, dimensions, and material names.";
 
@@ -91,14 +91,14 @@ fn translation_request(
             title = title.as_ref(),
         ),
         image_urls: Vec::new(),
-        response_schema: serde_json::json!({
-            "type": "OBJECT",
+        response_json_schema: serde_json::json!({
+            "type": "object",
             "properties": {
                 "titles": {
-                    "type": "OBJECT",
+                    "type": "object",
                     "properties": targets.iter().map(|language| (
                         (*language).to_owned(),
-                        serde_json::json!({ "type": "STRING" }),
+                        serde_json::json!({ "type": "string" }),
                     )).collect::<serde_json::Map<String, serde_json::Value>>(),
                     "required": targets,
                 }
@@ -108,6 +108,7 @@ fn translation_request(
         options: GenerationOptions {
             temperature: 0.0,
             max_output_tokens: 512,
+            request_timeout: Duration::from_secs(30),
         },
     }
 }
@@ -121,7 +122,8 @@ fn map_translation_error(error: LargeLanguageModelError) -> ProductTitleTranslat
                 source: box_error(error),
             }
         }
-        LargeLanguageModelError::Permanent { .. }
+        LargeLanguageModelError::InvalidRequest { .. }
+        | LargeLanguageModelError::Permanent { .. }
         | LargeLanguageModelError::InvalidResponse { .. } => {
             ProductTitleTranslationError::InvalidResponse {
                 source: box_error(error),
@@ -143,9 +145,9 @@ mod tests {
         );
 
         assert_eq!(
-            Some("OBJECT"),
+            Some("object"),
             request
-                .response_schema
+                .response_json_schema
                 .get("type")
                 .and_then(serde_json::Value::as_str)
         );

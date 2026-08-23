@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use sqlx::PgPool;
 
 pub struct SpiderCandidate {

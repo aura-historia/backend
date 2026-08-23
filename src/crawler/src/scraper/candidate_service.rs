@@ -7,8 +7,8 @@
 //! successfully scraped field values used for change detection.
 
 use async_trait::async_trait;
-use common::shop_id::ShopId;
-use shop::core::shop_type::ShopType;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_type::ShopType;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use url::Url;
@@ -82,7 +82,7 @@ impl ProductSnapshot {
     pub fn from_normalized(product: &NormalizedProduct) -> Self {
         use sha2::{Digest, Sha256};
 
-        fn serialize_price(p: &common::price::domain::Price) -> String {
+        fn serialize_price(p: &money::Price) -> String {
             format!("{:?} {:?}", p.currency, p.monetary_amount)
         }
 
@@ -748,11 +748,10 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{
-        language::domain::Language, localized::Localized, product_state::domain::ProductState,
-        shop_id::ShopId, shops_product_id::ShopsProductId,
-    };
-    use product::core::title::Title;
+    use localization::{Language, Localized};
+    use product_core::title::Title;
+    use product_core::{product_state::ProductState, shops_product_id::ShopsProductId};
+    use shop_core::shop_id::ShopId;
     use url::Url;
 
     fn base_url() -> Url {
@@ -843,7 +842,7 @@ mod tests {
             last_scraped_auction_end: snap.auction_end.clone(),
             shop_id: ShopId::new(),
             shop_name: "Test".to_string(),
-            shop_type: shop::core::shop_type::ShopType::CommercialDealer,
+            shop_type: shop_core::shop_type::ShopType::CommercialDealer,
             url_pattern: None,
             url: base_url(),
         };
@@ -860,8 +859,8 @@ mod tests {
 
     #[test]
     fn images_hash_is_order_independent() {
-        use product::core::product_image::ProductImage;
-        use product::core::prohibited_content::ProhibitedContent;
+        use product_core::product_image::ProductImage;
+        use product_core::prohibited_content::ProhibitedContent;
 
         let images_a = vec![
             ProductImage {
