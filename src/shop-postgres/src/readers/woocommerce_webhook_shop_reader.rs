@@ -9,6 +9,7 @@ use shop_service::ports::{
     WoocommerceWebhookShopReaderFactory,
 };
 use sqlx::PgConnection;
+use strum::IntoEnumIterator;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxWoocommerceWebhookShopReaderFactory;
@@ -77,11 +78,9 @@ impl TryFrom<WoocommerceWebhookShopRow> for WoocommerceWebhookShop {
     type Error = WoocommerceWebhookShopRowMappingError;
 
     fn try_from(row: WoocommerceWebhookShopRow) -> Result<Self, Self::Error> {
-        let partner_status = match row.partner_status.as_str() {
-            "SCRAPED" => ShopPartnerStatus::Scraped,
-            "PARTNERED" => ShopPartnerStatus::Partnered,
-            _ => return Err(WoocommerceWebhookShopRowMappingError::PartnerStatus),
-        };
+        let partner_status = ShopPartnerStatus::iter()
+            .find(|status| status.as_str() == row.partner_status)
+            .ok_or(WoocommerceWebhookShopRowMappingError::PartnerStatus)?;
         let currency = row
             .woocommerce_currency
             .as_deref()
@@ -112,47 +111,15 @@ enum WoocommerceWebhookShopRowMappingError {
 }
 
 fn parse_currency(value: &str) -> Result<Currency, WoocommerceWebhookShopRowMappingError> {
-    match value.to_ascii_uppercase().as_str() {
-        "EUR" => Ok(Currency::Eur),
-        "GBP" => Ok(Currency::Gbp),
-        "USD" => Ok(Currency::Usd),
-        "AUD" => Ok(Currency::Aud),
-        "CAD" => Ok(Currency::Cad),
-        "NZD" => Ok(Currency::Nzd),
-        "CNY" => Ok(Currency::Cny),
-        "BRL" => Ok(Currency::Brl),
-        "PLN" => Ok(Currency::Pln),
-        "TRY" => Ok(Currency::Try),
-        "JPY" => Ok(Currency::Jpy),
-        "CZK" => Ok(Currency::Czk),
-        "RUB" => Ok(Currency::Rub),
-        "AED" => Ok(Currency::Aed),
-        "SAR" => Ok(Currency::Sar),
-        "HKD" => Ok(Currency::Hkd),
-        "SGD" => Ok(Currency::Sgd),
-        "CHF" => Ok(Currency::Chf),
-        _ => Err(WoocommerceWebhookShopRowMappingError::Currency),
-    }
+    Currency::iter()
+        .find(|currency| currency.as_str() == value)
+        .ok_or(WoocommerceWebhookShopRowMappingError::Currency)
 }
 
 fn parse_language(value: &str) -> Result<Language, WoocommerceWebhookShopRowMappingError> {
-    match value.to_ascii_lowercase().as_str() {
-        "de" => Ok(Language::De),
-        "en" => Ok(Language::En),
-        "fr" => Ok(Language::Fr),
-        "es" => Ok(Language::Es),
-        "it" => Ok(Language::It),
-        "zh" => Ok(Language::Zh),
-        "pt" => Ok(Language::Pt),
-        "pl" => Ok(Language::Pl),
-        "tr" => Ok(Language::Tr),
-        "nl" => Ok(Language::Nl),
-        "cs" => Ok(Language::Cs),
-        "ja" => Ok(Language::Ja),
-        "ru" => Ok(Language::Ru),
-        "ar" => Ok(Language::Ar),
-        _ => Err(WoocommerceWebhookShopRowMappingError::Language),
-    }
+    Language::iter()
+        .find(|language| language.as_str() == value)
+        .ok_or(WoocommerceWebhookShopRowMappingError::Language)
 }
 
 struct WoocommerceWebhookShopSqlxError(sqlx::Error);

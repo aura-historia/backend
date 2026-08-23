@@ -1,6 +1,7 @@
 use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
 use product_core::product_state::ProductState;
 use sqlx::{PgPool, Row};
+use strum::IntoEnumIterator;
 use time::OffsetDateTime;
 
 #[async_trait::async_trait]
@@ -38,30 +39,15 @@ impl<'a> ProductStateMappingRepositoryImpl<'a> {
     }
 }
 
-fn product_state_to_db_str(record: &ProductState) -> &'static str {
-    match record {
-        ProductState::Listed => "LISTED",
-        ProductState::Available => "AVAILABLE",
-        ProductState::Reserved => "RESERVED",
-        ProductState::Sold => "SOLD",
-        ProductState::Removed => "REMOVED",
-        ProductState::Unknown => "UNKNOWN",
-    }
-}
-
-fn product_state_from_db_str(s: &str) -> Result<ProductState, sqlx::Error> {
-    match s {
-        "LISTED" => Ok(ProductState::Listed),
-        "AVAILABLE" => Ok(ProductState::Available),
-        "RESERVED" => Ok(ProductState::Reserved),
-        "SOLD" => Ok(ProductState::Sold),
-        "REMOVED" => Ok(ProductState::Removed),
-        "UNKNOWN" => Ok(ProductState::Unknown),
-        other => Err(sqlx::Error::Decode(Box::new(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("Unknown ProductState: {other}"),
-        )))),
-    }
+fn product_state_from_db_str(value: &str) -> Result<ProductState, sqlx::Error> {
+    ProductState::iter()
+        .find(|state| state.as_str() == value)
+        .ok_or_else(|| {
+            sqlx::Error::Decode(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Unknown ProductState: {value}"),
+            )))
+        })
 }
 
 fn mapping_type_to_db_str(t: &StateMappingType) -> &'static str {
@@ -129,7 +115,7 @@ impl<'a> ProductStateMappingRepository for ProductStateMappingRepositoryImpl<'a>
              RETURNING raw, normalized, mapping_type, created, updated",
         )
         .bind(&record.raw)
-        .bind(product_state_to_db_str(&record.normalized))
+        .bind(record.normalized.as_str())
         .bind(mapping_type_to_db_str(&record.mapping_type))
         .bind(record.created)
         .bind(record.updated)
@@ -164,7 +150,7 @@ impl<'a> ProductStateMappingRepository for ProductStateMappingRepositoryImpl<'a>
              RETURNING raw, normalized, mapping_type, created, updated",
         )
         .bind(raw)
-        .bind(product_state_to_db_str(normalized))
+        .bind(normalized.as_str())
         .bind(mapping_type_to_db_str(mapping_type))
         .fetch_one(self.pool)
         .await

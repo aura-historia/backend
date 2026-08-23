@@ -60,7 +60,7 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
             .bind(uuid::Uuid::from(v.origin_event_id))
             .bind(
                 v.price_match_valuation
-                    .map(|valuation| valuation.basis.as_db_str()),
+                    .map(|valuation| valuation.basis.as_str()),
             )
             .bind(
                 v.price_match_valuation

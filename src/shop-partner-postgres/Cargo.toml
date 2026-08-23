@@ -14,6 +14,8 @@ shop-partner-core = { workspace = true }
 shop-partner-service = { workspace = true }
 shop-service = { workspace = true }
 sqlx = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true, features = ["formatting", "parsing"] }
 uuid = { workspace = true }

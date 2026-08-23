@@ -1090,6 +1090,8 @@ External response     -> corresponding adapter mapping
 
 Storage and transport mapping MUST NOT be placed in `core`. A core crate MAY own the semantic fields of a composite domain key, but labeled string encodings for storage or transport MUST live at the owning boundary and preserve their legacy format there when compatibility requires it.
 
+Fieldless domain enums with a stable machine-readable identity MUST own it through an explicit exhaustive `as_str()` mapping. Inverse lookup derives `EnumIter` and compares that canonical value at the owning boundary; it MUST NOT maintain a second string-to-variant mapping or infer stable identifiers from Rust variant names. Persisted reads match exactly and reject unknown or noncanonical values. A data-carrying enum uses a fieldless discriminator when inverse textual lookup is needed. Database constraints and migrations remain a separate contract and MUST evolve with canonical values.
+
 ### 10.1 REST mapping
 
 REST request and response DTOs belong to the controller/API module.

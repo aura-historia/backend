@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 serde = { workspace = true }
 shop-core = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
 user-core = { workspace = true }
 uuid = { workspace = true }
 

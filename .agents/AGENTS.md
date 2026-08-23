@@ -31,7 +31,7 @@
 
 ## Child DOX Index
 
-- `skills/aura-rust-enum/SKILL.md` — Enums and serialization.
+- `skills/aura-rust-enum/SKILL.md` — enum design, canonical machine identifiers, iteration, and persisted enum evolution.
 - `skills/aura-rust-api-endpoint/SKILL.md` — API route, controller, DTO, auth, error mapping.
 - `skills/aura-rust-projection/SKILL.md` — CDC, Sequin, projections, replay/rebuild.
 - `skills/aura-rust-reader/SKILL.md` — readers, read models, hydration.

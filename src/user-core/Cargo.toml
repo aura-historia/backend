@@ -13,6 +13,8 @@ money = { workspace = true }
 prefixed-api-key = { workspace = true, features = ["sha2"] }
 serde = { workspace = true }
 serde-email = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 thiserror = { workspace = true }
 uuid = { workspace = true }

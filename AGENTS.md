@@ -47,6 +47,7 @@
 
 ## Skill Routing
 
+- Enum creation/change, canonical string identity, persisted enum mapping → `aura-rust-enum`.
 - Use case, service flow, command, query, port, service error → `aura-rust-use-case`.
 - Aggregate persistence, repository, PostgreSQL rows/mapping/version → `aura-rust-repository`.
 - Reader, read model, joined read, hydration, search/user-state read → `aura-rust-reader`.

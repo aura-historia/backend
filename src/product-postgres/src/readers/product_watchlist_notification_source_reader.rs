@@ -1,5 +1,6 @@
 use localization::Language;
 use std::collections::HashMap;
+use strum::IntoEnumIterator;
 
 use crate::url::append_utm_params;
 use application::error::{BoxError, box_error, static_error};
@@ -210,26 +211,14 @@ impl ProductWatchlistNotificationSourceReader for SqlxProductWatchlistNotificati
 }
 
 fn parse_language(value: &str) -> Result<Language, ProductWatchlistNotificationSourceReadError> {
-    match value.to_ascii_lowercase().as_str() {
-        "de" => Ok(Language::De),
-        "en" => Ok(Language::En),
-        "fr" => Ok(Language::Fr),
-        "es" => Ok(Language::Es),
-        "it" => Ok(Language::It),
-        "zh" => Ok(Language::Zh),
-        "pt" => Ok(Language::Pt),
-        "pl" => Ok(Language::Pl),
-        "tr" => Ok(Language::Tr),
-        "nl" => Ok(Language::Nl),
-        "cs" => Ok(Language::Cs),
-        "ja" => Ok(Language::Ja),
-        "ru" => Ok(Language::Ru),
-        "ar" => Ok(Language::Ar),
-        _ => Err(WatchlistNotificationSourceMappingError::invalid(
-            "persisted watchlist notification source language is invalid",
-        )
-        .into()),
-    }
+    Language::iter()
+        .find(|language| language.as_str() == value)
+        .ok_or_else(|| {
+            WatchlistNotificationSourceMappingError::invalid(
+                "persisted watchlist notification source language is invalid",
+            )
+            .into()
+        })
 }
 
 #[cfg(test)]
