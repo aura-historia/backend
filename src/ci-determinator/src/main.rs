@@ -39,6 +39,7 @@ fn main() -> Result<()> {
         .filter_map(|package| {
             relative_workspace_package_dir(package.manifest_path(), workspace_root)
         })
+        .filter(|package_dir| should_run_integration_test(package_dir))
         .collect();
 
     let output = serde_json::json!({
@@ -64,6 +65,10 @@ fn relative_workspace_package_dir(
     })
 }
 
+fn should_run_integration_test(package_dir: &str) -> bool {
+    !matches!(package_dir, "." | "src/test-api/src/test-api-macros")
+}
+
 fn get_changed_files(base_ref: &str) -> Result<Vec<String>> {
     let output = Command::new("git")
         .args(["diff", "--name-only", base_ref])
@@ -87,28 +92,33 @@ fn get_changed_files(base_ref: &str) -> Result<Vec<String>> {
 
 #[cfg(test)]
 mod tests {
-    use super::relative_workspace_package_dir;
+    use super::{relative_workspace_package_dir, should_run_integration_test};
     use camino::Utf8Path;
 
     #[test]
-    fn should_return_dot_for_workspace_root_package() {
-        assert_eq!(
-            relative_workspace_package_dir(
-                Utf8Path::new("/workspace/Cargo.toml"),
-                Utf8Path::new("/workspace"),
-            ),
-            Some(".".to_owned())
-        );
+    fn should_exclude_workspace_root_package() {
+        let package_dir = relative_workspace_package_dir(
+            Utf8Path::new("/workspace/Cargo.toml"),
+            Utf8Path::new("/workspace"),
+        )
+        .expect("workspace root package should have a path");
+
+        assert!(!should_run_integration_test(&package_dir));
     }
 
     #[test]
-    fn should_return_workspace_relative_directory_for_nested_package() {
-        assert_eq!(
-            relative_workspace_package_dir(
-                Utf8Path::new("/workspace/src/test-api/src/test-api-macros/Cargo.toml"),
-                Utf8Path::new("/workspace"),
-            ),
-            Some("src/test-api/src/test-api-macros".to_owned())
-        );
+    fn should_exclude_test_api_macros_package() {
+        let package_dir = relative_workspace_package_dir(
+            Utf8Path::new("/workspace/src/test-api/src/test-api-macros/Cargo.toml"),
+            Utf8Path::new("/workspace"),
+        )
+        .expect("nested package should have a path");
+
+        assert!(!should_run_integration_test(&package_dir));
+    }
+
+    #[test]
+    fn should_include_regular_workspace_package() {
+        assert!(should_run_integration_test("src/test-api"));
     }
 }
