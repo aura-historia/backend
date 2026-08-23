@@ -1,5 +1,5 @@
 use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
-use application::patch_field::PatchField;
+
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
@@ -25,9 +25,7 @@ pub(crate) fn parse_json<T: for<'de> Deserialize<'de>>(body: &str) -> Result<T, 
             .into_response()
     })
 }
-pub(crate) fn patch<T>(value: Option<T>) -> PatchField<T> {
-    value.map(PatchField::Set).unwrap_or(PatchField::Unchanged)
-}
+
 #[allow(clippy::result_large_err)]
 pub(crate) fn parse_user_id(raw: &str, field: &'static str) -> Result<UserId, Response> {
     UserId::try_from(raw).map_err(|_| {

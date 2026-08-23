@@ -27,12 +27,24 @@ pub async fn update_products(
         Err(error) => return error.into_response(),
     };
 
+    let mapped = match products
+        .into_iter()
+        .map(|product| {
+            let shops_product_id = product.shops_product_id.clone();
+            product
+                .into_key_and_command(shop_id)
+                .map(|(product_key, command)| (shops_product_id, product_key, command))
+        })
+        .collect::<Result<Vec<_>, ApiError>>()
+    {
+        Ok(mapped) => mapped,
+        Err(error) => return error.into_response(),
+    };
+
     let mut failures = Vec::new();
     let mut first_error = None;
     let mut successes = 0;
-    for product in products {
-        let shops_product_id = product.shops_product_id.clone();
-        let (product_key, command) = product.into_key_and_command(shop_id);
+    for (shops_product_id, product_key, command) in mapped {
         match state
             .update
             .execute_by_key(&context, product_key, command)
@@ -177,6 +189,27 @@ mod tests {
 
         assert_eq!(StatusCode::NOT_FOUND, response.status());
         assert_eq!("PRODUCT_NOT_FOUND", body_json(response).await?["error"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_null_for_non_nullable_batch_member_before_any_write()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut update = MockUpdateUseCase::new();
+        update.expect_execute_by_key().never();
+        let app = app(update);
+        let shop_id = ShopId::new();
+
+        let response = request(
+            &app,
+            &format!("/api/v1/shops/{shop_id}/products"),
+            r#"[{"shopsProductId":"valid","state":"AVAILABLE"},{"shopsProductId":"invalid","state":null}]"#,
+            true,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        assert_eq!("BAD_BODY_VALUE", body_json(response).await?["error"]);
         Ok(())
     }
 

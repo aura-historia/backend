@@ -1,6 +1,6 @@
 use crate::error::{ApiError, ApiErrorCode, BAD_BODY_VALUE};
+use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
 use crate::values::{LocalizedTextData, PriceData};
-use application::patch_field::PatchField;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use money::Price;
 use product_core::description::Description;
@@ -51,21 +51,21 @@ pub(super) struct CreateProductData {
 pub(super) struct UpdateProductData {
     pub(super) shops_product_id: ShopsProductId,
     #[serde(default)]
-    pub(super) price: Option<PriceData>,
+    pub(super) price: PatchValue<PriceData>,
     #[serde(default)]
-    pub(super) price_estimate_min: Option<PriceData>,
+    pub(super) price_estimate_min: PatchValue<PriceData>,
     #[serde(default)]
-    pub(super) price_estimate_max: Option<PriceData>,
+    pub(super) price_estimate_max: PatchValue<PriceData>,
     #[serde(default)]
-    pub(super) state: Option<ProductStateData>,
+    pub(super) state: PatchValue<ProductStateData>,
     #[serde(default)]
-    pub(super) url: Option<Url>,
+    pub(super) url: PatchValue<Url>,
     #[serde(default)]
-    pub(super) images: Option<Vec<Url>>,
-    #[serde(default, with = "time::serde::rfc3339::option")]
-    pub(super) auction_start: Option<OffsetDateTime>,
-    #[serde(default, with = "time::serde::rfc3339::option")]
-    pub(super) auction_end: Option<OffsetDateTime>,
+    pub(super) images: PatchValue<Vec<Url>>,
+    #[serde(default, deserialize_with = "crate::patch_value::rfc3339::deserialize")]
+    pub(super) auction_start: PatchValue<OffsetDateTime>,
+    #[serde(default, deserialize_with = "crate::patch_value::rfc3339::deserialize")]
+    pub(super) auction_end: PatchValue<OffsetDateTime>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -170,20 +170,20 @@ impl UpdateProductData {
     pub(super) fn into_key_and_command(
         self,
         shop_id: ShopId,
-    ) -> (ProductKey, UpdateProductCommand) {
+    ) -> Result<(ProductKey, UpdateProductCommand), ApiError> {
         let product_key = ProductKey::new(shop_id, self.shops_product_id);
         let command = UpdateProductCommand {
-            price: patch(self.price.map(price)),
-            price_estimate_min: patch(self.price_estimate_min.map(price)),
-            price_estimate_max: patch(self.price_estimate_max.map(price)),
-            state: patch(self.state.map(Into::into)),
-            url: patch(self.url),
-            images: patch(self.images.map(product_images)),
-            auction_start: patch(self.auction_start.map(Some)),
-            auction_end: patch(self.auction_end.map(Some)),
+            price: clearable(self.price.map(price)),
+            price_estimate_min: clearable(self.price_estimate_min.map(price)),
+            price_estimate_max: clearable(self.price_estimate_max.map(price)),
+            state: non_nullable_patch(self.state.map(Into::into), "state")?,
+            url: non_nullable_patch(self.url, "url")?,
+            images: non_nullable_patch(self.images.map(product_images), "images")?,
+            auction_start: clearable(self.auction_start.map(Some)),
+            auction_end: clearable(self.auction_end.map(Some)),
             ..Default::default()
         };
-        (product_key, command)
+        Ok((product_key, command))
     }
 }
 
@@ -239,10 +239,6 @@ impl From<ProductStateData> for ProductState {
             ProductStateData::Unknown => Self::Unknown,
         }
     }
-}
-
-fn patch<T>(value: Option<T>) -> PatchField<T> {
-    value.map(PatchField::Set).unwrap_or(PatchField::Unchanged)
 }
 
 fn title(value: LocalizedTextData) -> localization::Localized<localization::Language, Title> {

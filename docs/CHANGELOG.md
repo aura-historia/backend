@@ -29,6 +29,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **Breaking:** Canonical PATCH endpoints now distinguish omitted members from explicit `null`. Omitted members remain unchanged; `null` clears only documented nullable members and returns `400 BAD_BODY_VALUE` for all other members. Clients must omit members they do not intend to modify, and use empty arrays rather than `null` to clear non-null collections.
+- **Breaking:** Empty HTTP bodies are invalid for object PATCH endpoints; `{}` remains a valid no-op. Partner-product PATCH continues to accept `[]` as an empty batch.
+- **Breaking:** OAuth client PATCH metadata no longer accepts `null`; OAuth metadata is non-nullable and clients must omit unchanged members.
 - Saved-search `enhancedSearchDescription` input now trims outer whitespace and rejects blank values before embedding or persistence. Canonical values remain capped at 1000 bytes.
 - **Breaking:** Watchlist price-change notifications now preserve the event’s immutable source currency in both REST and email output. The notification list no longer accepts a currency preference, and no FX conversion is applied.
 - **Breaking:** Canonical notification list payloads now include their immutable, localized rendering snapshot. Watchlist and saved-search items include Product/shop identifiers, names, optional localized title/image, URLs, and their reason-specific change data; partner-application items include decision, shop name, and optional image. `kind` remains the top-level discriminator. Origin-event and delivery/provider provenance remain hidden. Timestamps now serialize as RFC 3339.

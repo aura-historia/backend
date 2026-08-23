@@ -1,3 +1,4 @@
+use crate::patch_value::PatchValue;
 use crate::values::{CurrencyData, LanguageData, MeasurementUnitData};
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::{Deserialize, Serialize};
@@ -192,27 +193,45 @@ pub(crate) struct CursorData<T, C> {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PatchOwnUserData {
-    pub(crate) email: Option<serde_email::Email>,
-    pub(crate) first_name: Option<user_core::first_name::FirstName>,
-    pub(crate) last_name: Option<user_core::last_name::LastName>,
-    pub(crate) language: Option<LanguageData>,
-    pub(crate) currency: Option<CurrencyData>,
-    pub(crate) measurement_unit: Option<MeasurementUnitData>,
-    pub(crate) prohibited_content_consent: Option<bool>,
-    pub(crate) structured_address: Option<StructuredAddressData>,
+    #[serde(default)]
+    pub(crate) email: PatchValue<serde_email::Email>,
+    #[serde(default)]
+    pub(crate) first_name: PatchValue<user_core::first_name::FirstName>,
+    #[serde(default)]
+    pub(crate) last_name: PatchValue<user_core::last_name::LastName>,
+    #[serde(default)]
+    pub(crate) language: PatchValue<LanguageData>,
+    #[serde(default)]
+    pub(crate) currency: PatchValue<CurrencyData>,
+    #[serde(default)]
+    pub(crate) measurement_unit: PatchValue<MeasurementUnitData>,
+    #[serde(default)]
+    pub(crate) prohibited_content_consent: PatchValue<bool>,
+    #[serde(default)]
+    pub(crate) structured_address: PatchValue<StructuredAddressData>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PatchAdminUserData {
-    pub(crate) email: Option<serde_email::Email>,
-    pub(crate) first_name: Option<user_core::first_name::FirstName>,
-    pub(crate) last_name: Option<user_core::last_name::LastName>,
-    pub(crate) language: Option<LanguageData>,
-    pub(crate) currency: Option<CurrencyData>,
-    pub(crate) measurement_unit: Option<MeasurementUnitData>,
-    pub(crate) prohibited_content_consent: Option<bool>,
-    pub(crate) tier: Option<UserTierData>,
-    pub(crate) role: Option<UserRoleData>,
-    pub(crate) structured_address: Option<StructuredAddressData>,
+    #[serde(default)]
+    pub(crate) email: PatchValue<serde_email::Email>,
+    #[serde(default)]
+    pub(crate) first_name: PatchValue<user_core::first_name::FirstName>,
+    #[serde(default)]
+    pub(crate) last_name: PatchValue<user_core::last_name::LastName>,
+    #[serde(default)]
+    pub(crate) language: PatchValue<LanguageData>,
+    #[serde(default)]
+    pub(crate) currency: PatchValue<CurrencyData>,
+    #[serde(default)]
+    pub(crate) measurement_unit: PatchValue<MeasurementUnitData>,
+    #[serde(default)]
+    pub(crate) prohibited_content_consent: PatchValue<bool>,
+    #[serde(default)]
+    pub(crate) tier: PatchValue<UserTierData>,
+    #[serde(default)]
+    pub(crate) role: PatchValue<UserRoleData>,
+    #[serde(default)]
+    pub(crate) structured_address: PatchValue<StructuredAddressData>,
 }

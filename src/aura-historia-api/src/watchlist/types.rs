@@ -1,3 +1,4 @@
+use crate::patch_value::PatchValue;
 use product_core::product_id::ProductId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -88,6 +89,8 @@ pub(crate) struct PostWatchlistData {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PatchWatchlistData {
-    pub(crate) notifications: Option<bool>,
-    pub(crate) state: Option<PatchWatchlistStateData>,
+    #[serde(default)]
+    pub(crate) notifications: PatchValue<bool>,
+    #[serde(default)]
+    pub(crate) state: PatchValue<PatchWatchlistStateData>,
 }

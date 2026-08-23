@@ -1,7 +1,10 @@
-use super::types::{AdminUserData, AdminUserSummaryData, CursorData, PatchAdminUserData};
-use super::util::{no_store, parse_json, parse_user_id, patch};
+use super::types::{
+    AdminUserData, AdminUserSummaryData, CursorData, PatchAdminUserData, PatchOwnUserData,
+};
+use super::util::{no_store, parse_json, parse_user_id};
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_BODY_VALUE};
+use crate::patch_value::{clearable, non_nullable_option, non_nullable_patch};
 use crate::state::UsersState;
 use application::pagination::Cursor;
 use axum::Json;
@@ -102,16 +105,16 @@ async fn admin_patch_user(
     user_id: user_core::user_id::UserId,
     data: PatchAdminUserData,
 ) -> Response {
-    let profile_changed = data.email.is_some()
-        || data.first_name.is_some()
-        || data.last_name.is_some()
-        || data.language.is_some()
-        || data.currency.is_some()
-        || data.measurement_unit.is_some()
-        || data.prohibited_content_consent.is_some()
-        || data.structured_address.is_some();
-    let role_changed = data.role.is_some();
-    let tier_changed = data.tier.is_some();
+    let profile_changed = data.email.is_present()
+        || data.first_name.is_present()
+        || data.last_name.is_present()
+        || data.language.is_present()
+        || data.currency.is_present()
+        || data.measurement_unit.is_present()
+        || data.prohibited_content_consent.is_present()
+        || data.structured_address.is_present();
+    let role_changed = data.role.is_present();
+    let tier_changed = data.tier.is_present();
     let change_count = u8::from(profile_changed) + u8::from(role_changed) + u8::from(tier_changed);
     if change_count > 1 {
         return ApiError::bad_request(BAD_BODY_VALUE)
@@ -119,7 +122,28 @@ async fn admin_patch_user(
             .into_response();
     }
 
-    if let Some(role) = data.role {
+    let PatchAdminUserData {
+        email,
+        first_name,
+        last_name,
+        language,
+        currency,
+        measurement_unit,
+        prohibited_content_consent,
+        tier,
+        role,
+        structured_address,
+    } = data;
+    let role = match non_nullable_option(role, "role") {
+        Ok(role) => role,
+        Err(error) => return error.into_response(),
+    };
+    let tier = match non_nullable_option(tier, "tier") {
+        Ok(tier) => tier,
+        Err(error) => return error.into_response(),
+    };
+
+    if let Some(role) = role {
         return match state
             .change_user_role
             .execute(
@@ -136,7 +160,7 @@ async fn admin_patch_user(
         };
     }
 
-    if let Some(tier) = data.tier {
+    if let Some(tier) = tier {
         return match state
             .change_user_tier
             .execute(
@@ -153,21 +177,46 @@ async fn admin_patch_user(
         };
     }
 
-    let command = UpdateUserProfileCommand {
+    let command = match profile_command(
+        PatchOwnUserData {
+            email,
+            first_name,
+            last_name,
+            language,
+            currency,
+            measurement_unit,
+            prohibited_content_consent,
+            structured_address,
+        },
         user_id,
-        email: patch(data.email),
-        first_name: patch(data.first_name),
-        last_name: patch(data.last_name),
-        language: patch(data.language.map(Into::into)),
-        currency: patch(data.currency.map(Into::into)),
-        measurement_unit: patch(data.measurement_unit.map(Into::into)),
-        prohibited_content_consent: patch(data.prohibited_content_consent),
-        structured_address: patch(data.structured_address.map(Into::into)),
+    ) {
+        Ok(command) => command,
+        Err(error) => return error.into_response(),
     };
     match state.update_user_profile.execute(&ctx, command).await {
         Ok(result) => no_store(Json(AdminUserData::from(result.view)).into_response()),
         Err(error) => ApiError::from(error).into_response(),
     }
+}
+
+fn profile_command(
+    data: PatchOwnUserData,
+    user_id: user_core::user_id::UserId,
+) -> Result<UpdateUserProfileCommand, ApiError> {
+    Ok(UpdateUserProfileCommand {
+        user_id,
+        email: non_nullable_patch(data.email, "email")?,
+        first_name: clearable(data.first_name),
+        last_name: clearable(data.last_name),
+        language: clearable(data.language.map(Into::into)),
+        currency: clearable(data.currency.map(Into::into)),
+        measurement_unit: clearable(data.measurement_unit.map(Into::into)),
+        prohibited_content_consent: non_nullable_patch(
+            data.prohibited_content_consent,
+            "prohibitedContentConsent",
+        )?,
+        structured_address: clearable(data.structured_address.map(Into::into)),
+    })
 }
 
 pub async fn delete_admin_user(

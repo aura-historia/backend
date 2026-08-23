@@ -1,5 +1,6 @@
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
+use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
 use crate::shops::shop_data::shop_response;
 use crate::shops::types::ShopTypeData;
 use crate::state::ShopsState;
@@ -23,31 +24,31 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 struct UpdateShopData {
     #[serde(default)]
-    shop_type: Option<ShopTypeData>,
+    shop_type: PatchValue<ShopTypeData>,
     #[serde(default)]
-    domains: Option<HashSet<Domain>>,
+    domains: PatchValue<HashSet<Domain>>,
     #[serde(default)]
-    shopify_domain: Option<Domain>,
+    shopify_domain: PatchValue<Domain>,
     #[serde(default)]
-    shopify_currency: Option<CurrencyData>,
+    shopify_currency: PatchValue<CurrencyData>,
     #[serde(default)]
-    shopify_language: Option<LanguageData>,
+    shopify_language: PatchValue<LanguageData>,
     #[serde(default)]
-    woocommerce_webhook_secret: Option<WoocommerceWebhookSecret>,
+    woocommerce_webhook_secret: PatchValue<WoocommerceWebhookSecret>,
     #[serde(default)]
-    woocommerce_currency: Option<CurrencyData>,
+    woocommerce_currency: PatchValue<CurrencyData>,
     #[serde(default)]
-    woocommerce_language: Option<LanguageData>,
+    woocommerce_language: PatchValue<LanguageData>,
     #[serde(default)]
-    url: Option<Url>,
+    url: PatchValue<Url>,
     #[serde(default)]
-    image: Option<Url>,
+    image: PatchValue<Url>,
     #[serde(default)]
-    structured_address: Option<StructuredAddressData>,
+    structured_address: PatchValue<StructuredAddressData>,
     #[serde(default)]
-    phone: Option<String>,
+    phone: PatchValue<String>,
     #[serde(default)]
-    email: Option<Email>,
+    email: PatchValue<Email>,
 }
 
 pub async fn update_shop(
@@ -73,22 +74,9 @@ pub async fn update_shop(
         Ok(data) => data,
         Err(error) => return error.into_response(),
     };
-    let command = UpdateShopCommand {
-        shop_id,
-        shop_type: patch(data.shop_type.map(Into::into)),
-        domains: patch(data.domains),
-        shopify_domain: patch(data.shopify_domain),
-        shopify_currency: patch(data.shopify_currency.map(Into::into)),
-        shopify_language: patch(data.shopify_language.map(Into::into)),
-        woocommerce_webhook_secret: patch(data.woocommerce_webhook_secret),
-        woocommerce_currency: patch(data.woocommerce_currency.map(Into::into)),
-        woocommerce_language: patch(data.woocommerce_language.map(Into::into)),
-        url: patch(data.url),
-        image: patch(data.image),
-        structured_address: patch(data.structured_address.map(Into::into)),
-        phone: patch(data.phone),
-        email: patch(data.email),
-        affiliate_configuration: PatchField::Unchanged,
+    let command = match data.into_command(shop_id) {
+        Ok(command) => command,
+        Err(error) => return error.into_response(),
     };
     match state.update_shop.execute(&context, command).await {
         Ok(view) => shop_response(view, None),
@@ -96,8 +84,26 @@ pub async fn update_shop(
     }
 }
 
-fn patch<T>(value: Option<T>) -> PatchField<T> {
-    value.map(PatchField::Set).unwrap_or(PatchField::Unchanged)
+impl UpdateShopData {
+    fn into_command(self, shop_id: ShopId) -> Result<UpdateShopCommand, ApiError> {
+        Ok(UpdateShopCommand {
+            shop_id,
+            shop_type: non_nullable_patch(self.shop_type.map(Into::into), "shopType")?,
+            domains: non_nullable_patch(self.domains, "domains")?,
+            shopify_domain: clearable(self.shopify_domain),
+            shopify_currency: clearable(self.shopify_currency.map(Into::into)),
+            shopify_language: clearable(self.shopify_language.map(Into::into)),
+            woocommerce_webhook_secret: clearable(self.woocommerce_webhook_secret),
+            woocommerce_currency: clearable(self.woocommerce_currency.map(Into::into)),
+            woocommerce_language: clearable(self.woocommerce_language.map(Into::into)),
+            url: clearable(self.url),
+            image: clearable(self.image),
+            structured_address: clearable(self.structured_address.map(Into::into)),
+            phone: clearable(self.phone),
+            email: clearable(self.email),
+            affiliate_configuration: PatchField::Unchanged,
+        })
+    }
 }
 
 fn parse_body(body: &str) -> Result<UpdateShopData, ApiError> {

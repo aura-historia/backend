@@ -1,5 +1,5 @@
 use super::types::{SearchFilterData, UpdateSearchFilterData};
-use super::util::{last_modified, no_store, parse_search_filter_id};
+use super::util::{last_modified, no_store, parse_json, parse_search_filter_id};
 use crate::auth::protected_context;
 use crate::error::ApiError;
 use crate::state::SearchFiltersState;
@@ -23,21 +23,13 @@ pub(super) async fn update_search_filter(
         Ok(value) => value,
         Err(response) => return *response,
     };
-    let data: UpdateSearchFilterData = if body.trim().is_empty() {
-        UpdateSearchFilterData::default()
-    } else {
-        match super::util::parse_json(&body) {
-            Ok(value) => value,
-            Err(response) => return response,
-        }
+    let data: UpdateSearchFilterData = match parse_json(&body) {
+        Ok(value) => value,
+        Err(response) => return response,
     };
     let (name, notifications, state_field, search) = match data.into_fields() {
         Ok(fields) => fields,
-        Err(error) => {
-            return ApiError::bad_request(crate::error::BAD_BODY_VALUE)
-                .with_detail(error.to_string())
-                .into_response();
-        }
+        Err(error) => return error.into_response(),
     };
     match state
         .update_owned_search_filter
