@@ -4,22 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+serde = { workspace = true }
+fake = { workspace = true, optional = true }
 async-trait = { workspace = true }
 application = { workspace = true }
 domain-primitives = { workspace = true }
 geo = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 serde-email = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 user-core = { workspace = true }
-
-# Optional
-fake = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

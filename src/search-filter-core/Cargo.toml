@@ -10,7 +10,6 @@ product-core = { workspace = true }
 user-core = { workspace = true }
 fake = { workspace = true, optional = true }
 serde = { workspace = true }
-serde_fields = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]

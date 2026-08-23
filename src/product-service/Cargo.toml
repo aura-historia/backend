@@ -4,13 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+geo = { workspace = true }
+shop-partner-core = { workspace = true }
+fake = { workspace = true, optional = true }
 async-trait = { workspace = true }
 application = { workspace = true }
 domain-primitives = { workspace = true }
 embedding = { workspace = true }
 fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
-geo = { workspace = true }
 indexmap = { workspace = true }
 html-to-markdown-rs = { workspace = true }
 localization = { workspace = true }
@@ -20,7 +22,6 @@ notification-service = { workspace = true }
 product-core = { workspace = true }
 search-filter-core = { workspace = true }
 shop-core = { workspace = true }
-shop-partner-core = { workspace = true }
 shop-service = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
@@ -30,9 +31,6 @@ tokio = { workspace = true, features = ["macros", "rt"] }
 tracing = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true }
-
-# Optional
-fake = { workspace = true, optional = true }
 
 [dev-dependencies]
 notification-core = { workspace = true }

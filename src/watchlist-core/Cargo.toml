@@ -7,7 +7,6 @@ edition = "2024"
 product-core = { workspace = true }
 user-core = { workspace = true }
 fake = { workspace = true, optional = true }
-time = { workspace = true }
 
 [features]
 default = []
