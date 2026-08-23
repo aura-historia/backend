@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+fake = { workspace = true, optional = true }
+mockall = { workspace = true, optional = true }
 async-trait = { workspace = true }
 application = { workspace = true }
 base64 = { workspace = true }
@@ -17,10 +19,6 @@ tracing = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 user-core = { workspace = true }
 user-service = { workspace = true }
-
-# Optional
-mockall = { workspace = true, optional = true }
-fake = { workspace = true, optional = true }
 
 [dev-dependencies]
 oauth-service = { workspace = true, features = ["mock", "test-data"] }

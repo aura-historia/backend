@@ -291,58 +291,7 @@ dependencies = [
 name = "aura-historia-parent"
 version = "0.1.0"
 dependencies = [
- "application",
- "aura-historia-api",
- "aura-historia-cron",
- "aura-historia-worker",
- "aws-tests",
- "cloudwatch-log-retention-lambda",
- "cognito-post-confirmation",
- "embedding",
- "fxrate-core",
- "fxrate-fxratesapi",
- "fxrate-lambda",
- "fxrate-postgres",
- "fxrate-service",
- "geo",
- "image-fetcher",
- "large-language-model",
- "notification-core",
- "notification-email",
- "notification-postgres",
- "notification-service",
- "oauth-core",
- "oauth-dynamodb",
- "oauth-service",
- "platform-observability",
- "platform-opensearch",
- "platform-postgres",
- "product-core",
- "product-opensearch",
- "product-postgres",
- "product-service",
- "product-translation-llm",
- "search-filter-core",
- "search-filter-opensearch",
- "search-filter-postgres",
- "search-filter-service",
- "shop-core",
- "shop-partner-core",
- "shop-partner-postgres",
- "shop-partner-service",
- "shop-postgres",
- "shop-service",
- "shopify-lambda",
- "stripe-lambda",
  "test-api",
- "user-core",
- "user-dynamodb",
- "user-postgres",
- "user-service",
- "user-zoho",
- "watchlist-core",
- "watchlist-postgres",
- "watchlist-service",
 ]
 
 [[package]]
@@ -1156,22 +1105,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aws-tests"
-version = "0.1.0"
-dependencies = [
- "aws-tests-common",
- "smoking-tests",
-]
-
-[[package]]
-name = "aws-tests-common"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "aws-types"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1663,7 +1596,6 @@ version = "0.1.0"
 dependencies = [
  "aws-config",
  "aws-sdk-cloudwatchlogs",
- "aws_lambda_events",
  "lambda_runtime",
  "platform-observability",
  "rstest",
@@ -1907,8 +1839,6 @@ dependencies = [
  "spider",
  "sqlx",
  "test-api",
- "testcontainers",
- "testcontainers-modules",
  "thiserror 2.0.20",
  "time",
  "tokio",
@@ -3649,22 +3579,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hyper-tls"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0"
-dependencies = [
- "bytes",
- "http-body-util",
- "hyper 1.11.0",
- "hyper-util",
- "native-tls",
- "tokio",
- "tokio-native-tls",
- "tower-service",
-]
-
-[[package]]
 name = "hyper-util"
 version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4579,23 +4493,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "native-tls"
-version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "465500e14ea162429d264d44189adc38b199b62b1c21eea9f69e4b73cb03bbf2"
-dependencies = [
- "libc",
- "log",
- "openssl",
- "openssl-probe",
- "openssl-sys",
- "schannel",
- "security-framework",
- "security-framework-sys",
- "tempfile",
-]
-
-[[package]]
 name = "nested"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4676,7 +4573,6 @@ dependencies = [
  "rstest",
  "serde_json",
  "shop-core",
- "shop-partner-core",
  "url",
  "user-core",
 ]
@@ -4869,10 +4765,8 @@ dependencies = [
  "serde_fields",
  "serial_test",
  "test-api",
- "thiserror 2.0.20",
  "time",
  "tokio",
- "tracing",
  "url",
  "user-core",
 ]
@@ -5582,7 +5476,6 @@ dependencies = [
  "rstest",
  "serde",
  "serde_fields",
- "serde_json",
  "shop-core",
  "strum 0.28.0",
  "strum_macros 0.28.0",
@@ -6060,22 +5953,17 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "encoding_rs",
  "futures-channel",
  "futures-core",
  "futures-util",
- "h2 0.4.15",
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
  "hyper 1.11.0",
  "hyper-rustls 0.27.9",
- "hyper-tls",
  "hyper-util",
  "js-sys",
  "log",
- "mime",
- "native-tls",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -6086,7 +5974,6 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper",
  "tokio",
- "tokio-native-tls",
  "tokio-rustls 0.26.4",
  "tower",
  "tower-http",
@@ -6475,7 +6362,6 @@ dependencies = [
  "money",
  "product-core",
  "serde",
- "serde_fields",
  "user-core",
  "uuid",
 ]
@@ -7100,10 +6986,8 @@ dependencies = [
  "isocountry",
  "localization",
  "money",
- "openssl",
  "serde",
  "serde-email",
- "serde_json",
  "shop-core",
  "thiserror 2.0.20",
  "time",
@@ -7240,28 +7124,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "smoking-tests"
-version = "0.1.0"
-dependencies = [
- "aws-tests-common",
- "futures-util",
- "reqwest 0.12.28",
- "serde_json",
- "serial_test",
- "smoking-tests-macros",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "smoking-tests-macros"
-version = "0.1.0"
-dependencies = [
- "quote",
- "syn 3.0.3",
 ]
 
 [[package]]
@@ -7854,19 +7716,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tempfile"
-version = "3.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
-dependencies = [
- "fastrand",
- "getrandom 0.4.3",
- "once_cell",
- "rustix",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "tendril"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7909,14 +7758,12 @@ dependencies = [
  "aws-sdk-s3",
  "aws-sdk-sesv2",
  "aws-sdk-sqs",
- "aws-tests-common",
  "aws_lambda_events",
  "axum",
  "base64 0.23.1",
  "ctrlc",
  "derive_builder",
  "futures",
- "hex",
  "libc",
  "mrml",
  "opensearch",
@@ -7926,7 +7773,6 @@ dependencies = [
  "serde_dynamo",
  "serde_json",
  "serial_test",
- "sha2 0.11.0",
  "sqlx",
  "test-api",
  "test-api-macros",
@@ -7937,7 +7783,6 @@ dependencies = [
  "tracing-subscriber",
  "typed-builder",
  "uuid",
- "walkdir",
  "zip",
 ]
 
@@ -8135,16 +7980,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.3",
-]
-
-[[package]]
-name = "tokio-native-tls"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2"
-dependencies = [
- "native-tls",
- "tokio",
 ]
 
 [[package]]
@@ -8601,7 +8436,6 @@ dependencies = [
  "money",
  "serde",
  "serde-email",
- "serde_json",
  "thiserror 2.0.20",
  "time",
  "tokio",
@@ -8805,7 +8639,6 @@ version = "0.1.0"
 dependencies = [
  "fake",
  "product-core",
- "time",
  "user-core",
 ]
 
@@ -8825,7 +8658,6 @@ dependencies = [
  "thiserror 2.0.20",
  "time",
  "tokio",
- "tracing",
  "user-core",
  "uuid",
  "watchlist-core",
@@ -8844,7 +8676,6 @@ dependencies = [
  "fxrate-service",
  "localization",
  "money",
- "notification-service",
  "product-core",
  "product-service",
  "serde",

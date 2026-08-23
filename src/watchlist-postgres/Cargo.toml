@@ -14,7 +14,6 @@ sqlx = { workspace = true }
 thiserror = { workspace = true }
 product-service = { workspace = true }
 time = { workspace = true }
-tracing = { workspace = true }
 uuid = { workspace = true }
 watchlist-core = { workspace = true }
 watchlist-service = { workspace = true }

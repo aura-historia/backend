@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-application = { workspace = true }
 domain-primitives = { workspace = true }
+application = { workspace = true }
 fxrate-postgres = { workspace = true }
 large-language-model = { workspace = true }
 localization = { workspace = true }
@@ -20,8 +20,6 @@ shop-postgres = { workspace = true }
 shop-service = { workspace = true }
 aws-config = { workspace = true, features = ["credentials-login"] }
 aws-sdk-cloudwatchlogs = { workspace = true }
-testcontainers = { workspace = true }
-testcontainers-modules = { workspace = true, features = ["postgres"] }
 scraper = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

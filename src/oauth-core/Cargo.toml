@@ -4,16 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+uuid = { workspace = true }
+fake = { workspace = true, optional = true }
 credential-core = { workspace = true }
 domain-primitives = { workspace = true }
 serde = { workspace = true }
 time = { workspace = true, features = ["serde"] }
 url = { workspace = true, features = ["serde"] }
 user-core = { workspace = true }
-uuid = { workspace = true }
-
-# Optional
-fake = { workspace = true, optional = true }
 
 [features]
 default = []

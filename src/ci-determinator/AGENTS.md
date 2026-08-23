@@ -6,8 +6,8 @@
 
 ## Core Design
 
-- CLI that maps changed files to integration and acceptance test crates, including canonical notification adapters.
-- Workspace utility. Inputs be changed file paths; output be stable machine JSON.
+- CLI maps changed files to every affected Cargo workspace package for test jobs.
+- Workspace package paths come from Cargo metadata; no manual crate list. Root package and `test-api-macros` be excluded. Inputs be changed file paths; output be stable machine JSON.
 
 ## Ownership
 

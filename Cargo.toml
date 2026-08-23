@@ -4,66 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-application = { workspace = true }
-aura-historia-api = { workspace = true }
-aura-historia-worker = { workspace = true }
-aura-historia-cron = { workspace = true }
-platform-observability = { workspace = true }
-platform-opensearch = { workspace = true }
-platform-postgres = { workspace = true }
-aws-tests = { workspace = true }
-
-cognito-post-confirmation = { workspace = true }
-cloudwatch-log-retention-lambda = { workspace = true }
-
-embedding = { workspace = true }
-image-fetcher = { workspace = true }
-geo = { workspace = true }
-
-search-filter-core = { workspace = true }
-search-filter-service = { workspace = true }
-search-filter-postgres = { workspace = true }
-search-filter-opensearch = { workspace = true }
-large-language-model = { workspace = true }
-
-shop-core = { workspace = true }
-shop-service = { workspace = true }
-shop-postgres = { workspace = true }
-shop-partner-core = { workspace = true }
-shop-partner-service = { workspace = true }
-shop-partner-postgres = { workspace = true }
-shopify-lambda = { workspace = true }
-stripe-lambda = { workspace = true }
-
-product-core = { workspace = true }
-product-service = { workspace = true }
-product-translation-llm = { workspace = true }
-product-postgres = { workspace = true }
-fxrate-core = { workspace = true }
-fxrate-service = { workspace = true }
-fxrate-postgres = { workspace = true }
-fxrate-fxratesapi = { workspace = true }
-product-opensearch = { workspace = true }
-watchlist-core = { workspace = true }
-watchlist-service = { workspace = true }
-watchlist-postgres = { workspace = true }
 test-api = { workspace = true }
-
-user-core = { workspace = true }
-user-service = { workspace = true }
-user-dynamodb = { workspace = true }
-user-postgres = { workspace = true }
-user-zoho = { workspace = true }
-
-notification-core = { workspace = true }
-notification-email = { workspace = true }
-notification-service = { workspace = true }
-notification-postgres = { workspace = true }
-
-oauth-core = { workspace = true }
-oauth-service = { workspace = true }
-oauth-dynamodb = { workspace = true }
-fxrate-lambda = { workspace = true }
 
 [workspace]
 members = [
@@ -71,13 +12,10 @@ members = [
     "src/aura-historia-api",
     "src/aura-historia-worker",
     "src/aura-historia-cron",
-    "src/aws-tests",
     "src/billing-service",
     "src/billing-stripe",
-
     "src/cloudwatch-log-retention-lambda",
     "src/cognito-post-confirmation",
-
     "src/credential-core",
     "src/domain-primitives",
     "src/localization",
@@ -85,13 +23,11 @@ members = [
     "src/embedding",
     "src/image-fetcher",
     "src/geo",
-
     "src/search-filter-core",
     "src/search-filter-service",
     "src/search-filter-postgres",
     "src/search-filter-opensearch",
     "src/large-language-model",
-
     "src/product-core",
     "src/product-service",
     "src/product-translation-llm",
@@ -108,7 +44,6 @@ members = [
     "src/watchlist-service",
     "src/watchlist-postgres",
     "src/test-api",
-
     "src/shop-core",
     "src/shop-service",
     "src/shop-postgres",
@@ -117,19 +52,16 @@ members = [
     "src/shop-partner-postgres",
     "src/shopify-lambda",
     "src/stripe-lambda",
-
     "src/user-core",
     "src/user-service",
     "src/user-dynamodb",
     "src/user-postgres",
     "src/user-zoho",
-
     "src/notification-core",
     "src/notification-email",
     "src/notification-email-aws",
     "src/notification-service",
     "src/notification-postgres",
-
     "src/oauth-core",
     "src/oauth-service",
     "src/oauth-dynamodb",
@@ -139,32 +71,24 @@ members = [
 ]
 
 [workspace.dependencies]
-aura-historia-api = { path = "src/aura-historia-api" }
 aura-historia-worker = { path = "src/aura-historia-worker" }
-aura-historia-cron = { path = "src/aura-historia-cron" }
-async-stream = "0.3.6"
 base64 = "0.23.0"
 async-trait = "0.1.89"
 axum = "0.8.7"
 aws-config = "1.8.18"
 aws-sdk-account = "1.106.0"
-aws-sdk-autoscaling = "1.115.0"
 aws-sdk-cloudformation = "1.115.0"
 aws-sdk-dynamodb = "1.115.0"
 aws-sdk-eventbridge = "1.108.0"
-aws-sdk-lambda = "1.100.0"
 aws-sdk-opensearch = "1.131.0"
 aws-sdk-sqs = "1.101.0"
 aws-sdk-sesv2 = "1.122.0"
 aws-sdk-s3 = "1.135.0"
 aws-smithy-types = "1.6.1"
-aws-sdk-sfn = "1.107.0"
-aws-sdk-cloudwatch = "1.111.0"
 aws-sdk-cloudwatchlogs = "1.135.0"
 aws_lambda_events = { version = "1.2.0", default-features = false }
 chrono = "0.4"
 cron_tab = { version = "=0.2.14", default-features = false, features = ["async", "sync"] }
-cloudwatch-log-retention-lambda = { path = "src/cloudwatch-log-retention-lambda" }
 
 credential-core = { path = "src/credential-core" }
 domain-primitives = { path = "src/domain-primitives" }
@@ -176,40 +100,32 @@ geo = { path = "src/geo" }
 google-cloud-auth = "1.12.0"
 derive_builder = "0.20.2"
 fake = { version = "5.1.0", features = ["derive", "time", "uuid", "url"] }
-field = "0.1.0"
 application = { path = "src/application" }
 platform-observability = { path = "src/platform-observability" }
 platform-opensearch = { path = "src/platform-opensearch" }
 platform-postgres = { path = "src/platform-postgres" }
-
 search-filter-core = { path = "src/search-filter-core" }
 search-filter-service = { path = "src/search-filter-service" }
 search-filter-postgres = { path = "src/search-filter-postgres" }
 search-filter-opensearch = { path = "src/search-filter-opensearch" }
 large-language-model = { path = "src/large-language-model" }
-
 shop-core = { path = "src/shop-core" }
 shop-service = { path = "src/shop-service" }
 shop-postgres = { path = "src/shop-postgres" }
 shop-partner-core = { path = "src/shop-partner-core" }
 shop-partner-service = { path = "src/shop-partner-service" }
 shop-partner-postgres = { path = "src/shop-partner-postgres" }
-stripe-lambda = { path = "src/stripe-lambda" }
-
 notification-core = { path = "src/notification-core" }
 notification-email = { path = "src/notification-email" }
 notification-email-aws = { path = "src/notification-email-aws" }
 notification-service = { path = "src/notification-service" }
 notification-postgres = { path = "src/notification-postgres" }
-
 oauth-core = { path = "src/oauth-core" }
 oauth-service = { path = "src/oauth-service" }
 oauth-dynamodb = { path = "src/oauth-dynamodb" }
 futures = { version = "0.3.32", default-features = false }
-hex = "0.4.3"
 http = "1.4.2"
 httpdate = "1.0.3"
-
 product-core = { path = "src/product-core" }
 product-service = { path = "src/product-service" }
 product-translation-llm = { path = "src/product-translation-llm" }
@@ -222,9 +138,7 @@ product-opensearch = { path = "src/product-opensearch" }
 watchlist-core = { path = "src/watchlist-core" }
 watchlist-service = { path = "src/watchlist-service" }
 watchlist-postgres = { path = "src/watchlist-postgres" }
-
 isocountry = "0.3.2"
-itertools = "0.15.0"
 lambda_runtime = "1.2.1"
 libc = "0.2.186"
 ctrlc = { version = "3.5.2", features = ["termination"] }
@@ -248,11 +162,8 @@ sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio
 serde_fields = "0.1.0"
 serial_test = "4.0.1"
 sha2 = "0.11.0"
-aws-tests = { path = "src/aws-tests" }
 billing-service = { path = "src/billing-service" }
 billing-stripe = { path = "src/billing-stripe" }
-aws-tests-common = { path = "src/aws-tests/src/aws-tests-common" }
-smoking-tests = { path = "src/aws-tests/src/smoking-tests" }
 strum = "0.28.0"
 strum_macros = "0.28.0"
 syn = "3.0.1"
@@ -272,41 +183,31 @@ typed-builder = "0.23.2"
 percent-encoding = "2.3.2"
 url = { version = "2.5.8", features = ["serde"] }
 uuid = { version = "1.23.3", features = ["serde"] }
-walkdir = "2.5.0"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 futures-util = "0.3.32"
 proc-macro2 = "1.0.106"
-smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tests-macros" }
-
 user-core = { path = "src/user-core" }
 user-service = { path = "src/user-service" }
 user-dynamodb = { path = "src/user-dynamodb" }
 user-postgres = { path = "src/user-postgres" }
 user-zoho = { path = "src/user-zoho" }
-
-cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"
 handlebars = "6.4.1"
 once_cell = "1.21.4"
 openssl = { version = "0.10.80", default-features = false }
 jsonwebtokens = "1.2.0"
-jsonwebtokens-cognito = "0.1.1"
 aws-sdk-cognitoidentityprovider = "1.120.0"
 html-escape = "0.2.13"
 regex = "1.12.4"
 indexmap = { version = "2.14.0", features = ["serde"] }
-fxrate-lambda = { path = "src/fxrate-lambda" }
 slug = "0.1.6"
-crawler = { path = "src/crawler" }
 spider = { version = "2", default-features = false, features = ["sync", "reqwest_rustls_tls", "auto_throttle", "robots_cache", "rate_limit"] }
 scraper = "0.27.0"
 schemars = "1.2.1"
-llm = { git = "https://github.com/bruderj15/llm", rev = "bc562d0f6547857c4af5171c8c5aea3671f2b771", default-features = false, features = ["rustls-tls"] }
 kuchiki = "0.8.1"
 lingua = { version = "1.7.2", default-features = false, features = ["english", "german", "french", "spanish", "italian", "chinese", "portuguese", "polish", "turkish", "dutch", "czech", "japanese", "russian", "arabic"] }
 dotenvy = "0.15"
 url-normalize = "0.1.1"
 yaml_serde = "0.10"
 prefixed-api-key = { version = "0.3.0" }
-shopify-lambda = { path = "src/shopify-lambda" }
 html-to-markdown-rs = "3.5.7"

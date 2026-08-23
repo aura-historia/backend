@@ -13,7 +13,6 @@ localization = { workspace = true }
 money = { workspace = true }
 product-core = { workspace = true }
 shop-core = { workspace = true }
-shop-partner-core = { workspace = true }
 user-core = { workspace = true }
 handlebars = { workspace = true }
 notification-core = { workspace = true }
