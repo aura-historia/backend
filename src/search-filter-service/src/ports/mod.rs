@@ -1,4 +1,8 @@
 mod active_search_filter_match_candidate_reader;
+mod existing_search_filter_match_reader;
+mod periodic_search_filter_candidate_reader;
+mod periodic_search_filter_matching_run_lock;
+mod periodic_search_filter_progress;
 mod search_filter_index;
 mod search_filter_index_reader;
 mod search_filter_match_notification_source_reader;
@@ -10,6 +14,10 @@ mod search_filter_reader;
 mod search_filter_repository;
 
 pub use active_search_filter_match_candidate_reader::*;
+pub use existing_search_filter_match_reader::*;
+pub use periodic_search_filter_candidate_reader::*;
+pub use periodic_search_filter_matching_run_lock::*;
+pub use periodic_search_filter_progress::*;
 pub use search_filter_index::*;
 pub use search_filter_index_reader::*;
 pub use search_filter_match_notification_source_reader::*;

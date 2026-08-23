@@ -222,7 +222,7 @@ mod tests {
     use super::*;
     use crate::ports::{
         ProductSearchFilterMatchShopType, ProductSearchFilterMatchSourceEventKind,
-        ProductSearchProjectionWriteError,
+        ProductSearchFilterMatchSourceRef, ProductSearchProjectionWriteError,
     };
     use application::error::box_error;
     use application::transaction::TransactionError;
@@ -357,6 +357,25 @@ mod tests {
                 Some(result) => result,
                 None => Ok(None),
             }
+        }
+
+        async fn find_sources(
+            &mut self,
+            refs: &[ProductSearchFilterMatchSourceRef],
+        ) -> Result<
+            HashMap<ProductSearchFilterMatchSourceRef, ProductSearchFilterMatchSource>,
+            ProductSearchFilterMatchSourceReadError,
+        > {
+            let mut sources = HashMap::new();
+            for reference in refs {
+                if let Some(source) = self
+                    .find_source(reference.event_id, reference.product_id)
+                    .await?
+                {
+                    sources.insert(*reference, source);
+                }
+            }
+            Ok(sources)
         }
     }
 

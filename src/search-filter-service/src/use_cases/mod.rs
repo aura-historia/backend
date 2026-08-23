@@ -9,6 +9,7 @@ mod list_owned_search_filters;
 mod list_search_filter_matches;
 mod match_product_event;
 mod project_search_filter_change;
+mod run_periodic_search_filter_matching;
 mod update_owned_search_filter;
 mod update_search_filter_match_feedback;
 
@@ -20,6 +21,7 @@ pub use list_owned_search_filters::*;
 pub use list_search_filter_matches::*;
 pub use match_product_event::*;
 pub use project_search_filter_change::*;
+pub use run_periodic_search_filter_matching::*;
 pub use update_owned_search_filter::*;
 pub use update_search_filter_match_feedback::*;
 

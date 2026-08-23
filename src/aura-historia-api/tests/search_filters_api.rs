@@ -310,7 +310,7 @@ async fn should_serialize_concurrent_search_filter_reactivations_at_free_quota()
     .await
     .unwrap_or_else(|error| panic!("failed to inactivate first search filter: {error}"));
     sqlx::query(
-        "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, enhanced_search_description, embedding, language, currency, version, created, updated, last_hybrid_search_matched) SELECT $1, user_id, 'Second alerts', notifications, 'INACTIVE_BY_USER', search, enhanced_search_description, embedding, language, currency, version, created, updated, last_hybrid_search_matched FROM search_filters WHERE user_search_filter_id = $2",
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, enhanced_search_description, embedding, language, currency, version, created, updated) SELECT $1, user_id, 'Second alerts', notifications, 'INACTIVE_BY_USER', search, enhanced_search_description, embedding, language, currency, version, created, updated FROM search_filters WHERE user_search_filter_id = $2",
     )
     .bind(second_filter_id)
     .bind(uuid::Uuid::parse_str(&first_filter_id).unwrap_or_else(|error| {

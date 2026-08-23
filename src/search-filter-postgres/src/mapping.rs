@@ -19,7 +19,9 @@ use geo::{
 use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
-use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use product_core::product_search::{
+    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductSearch,
+};
 use search_filter_core::{SearchFilter, SearchFilterProductMatch};
 use search_filter_service::ports::{
     PersistedSearchFilter, PersistedSearchFilterMatch, SearchFilterIndexReadError,
@@ -32,7 +34,7 @@ use sqlx::FromRow;
 use std::{collections::HashSet, error::Error, fmt};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
-pub(crate) const FILTER_COLUMNS: &str = "user_search_filter_id, user_id, name, notifications, state, search, embedding, created, updated, last_hybrid_search_matched, version";
+pub(crate) const FILTER_COLUMNS: &str = "user_search_filter_id, user_id, name, notifications, state, search, embedding, created, updated, version";
 pub(crate) const MATCH_COLUMNS: &str = "user_id, user_search_filter_id, product_id, origin_event_id, price_valuation_basis, price_fx_rate_id, user_search_filter_name, enhanced_match_reason, feedback, created, updated";
 
 #[derive(Debug)]
@@ -64,6 +66,7 @@ pub(crate) enum ProductSearchJsonMappingError {
     Deserialize(serde_json::Error),
     FormatTimestamp(time::error::Format),
     ParseTimestamp(time::error::Parse),
+    EnhancedSearchDescription(EnhancedSearchDescriptionError),
 }
 
 impl fmt::Display for ProductSearchJsonMappingError {
@@ -79,7 +82,10 @@ impl fmt::Display for ProductSearchJsonMappingError {
                 formatter.write_str("search filter product search timestamp formatting failed")
             }
             Self::ParseTimestamp(_) => {
-                formatter.write_str("persisted search filter product search timestamp is invalid")
+                formatter.write_str("search filter product search timestamp is invalid")
+            }
+            Self::EnhancedSearchDescription(_) => {
+                formatter.write_str("persisted enhanced search description is invalid")
             }
         }
     }
@@ -91,6 +97,7 @@ impl Error for ProductSearchJsonMappingError {
             Self::Serialize(source) | Self::Deserialize(source) => Some(source),
             Self::FormatTimestamp(source) => Some(source),
             Self::ParseTimestamp(source) => Some(source),
+            Self::EnhancedSearchDescription(source) => Some(source),
         }
     }
 }
@@ -106,7 +113,6 @@ pub(crate) struct FilterRow {
     pub embedding: Option<Vec<f32>>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
-    pub last_hybrid_search_matched: OffsetDateTime,
     pub version: i64,
 }
 impl FilterRow {
@@ -115,7 +121,6 @@ impl FilterRow {
     ) -> Result<PersistedSearchFilter, SearchFilterRepositoryError> {
         let created = self.created;
         let updated = self.updated;
-        let last_hybrid_search_matched = self.last_hybrid_search_matched;
         let filter = SearchFilter::rehydrate(
             UserSearchFilterId::from(self.user_search_filter_id),
             UserId::from(self.user_id),
@@ -141,14 +146,12 @@ impl FilterRow {
             filter,
             created,
             updated,
-            last_hybrid_search_matched,
             version: self.version,
         })
     }
     pub(crate) fn into_view(self) -> Result<SearchFilterView, SearchFilterReadError> {
         let created = self.created;
         let updated = self.updated;
-        let last_hybrid_search_matched = self.last_hybrid_search_matched;
         Ok(SearchFilterView {
             search_filter_id: UserSearchFilterId::from(self.user_search_filter_id),
             user_id: UserId::from(self.user_id),
@@ -160,7 +163,6 @@ impl FilterRow {
             embedding: self.embedding,
             created,
             updated,
-            last_hybrid_search_matched,
         })
     }
 
@@ -170,7 +172,6 @@ impl FilterRow {
         let source_version = self.version;
         let created = self.created;
         let updated = self.updated;
-        let last_hybrid_search_matched = self.last_hybrid_search_matched;
         let view = SearchFilterView {
             search_filter_id: UserSearchFilterId::from(self.user_search_filter_id),
             user_id: UserId::from(self.user_id),
@@ -193,7 +194,6 @@ impl FilterRow {
             embedding: self.embedding,
             created,
             updated,
-            last_hybrid_search_matched,
         };
         Ok(SearchFilterProjection {
             view,
@@ -284,7 +284,7 @@ fn price_match_valuation(
     }
 }
 
-fn state(v: &str) -> Result<SearchFilterState, SearchFilterRowMappingError> {
+pub(crate) fn state(v: &str) -> Result<SearchFilterState, SearchFilterRowMappingError> {
     match v {
         "ACTIVE" => Ok(SearchFilterState::Active),
         "INACTIVE_BY_USER" => Ok(SearchFilterState::InactiveByUser),
@@ -729,7 +729,7 @@ impl TryFrom<&ProductSearch> for ProductSearchJson {
         })
     }
 }
-fn product_search_from_json(
+pub(crate) fn product_search_from_json(
     v: serde_json::Value,
 ) -> Result<ProductSearch, ProductSearchJsonMappingError> {
     let j: ProductSearchJson =
@@ -740,7 +740,9 @@ fn product_search_from_json(
         product_query: j.product_query,
         enhanced_search_description: j
             .enhanced_search_description
-            .map(EnhancedSearchDescription::from),
+            .map(EnhancedSearchDescription::try_from)
+            .transpose()
+            .map_err(ProductSearchJsonMappingError::EnhancedSearchDescription)?,
         exclude_product_id_query: j.exclude_product_id_query.into(),
         shop_name_query: j.shop_name_query.into(),
         exclude_shop_name_query: j.exclude_shop_name_query.into(),
@@ -898,7 +900,6 @@ mod tests {
             embedding: None,
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,
-            last_hybrid_search_matched: OffsetDateTime::UNIX_EPOCH,
             version: 1,
         })
         .into_persisted()

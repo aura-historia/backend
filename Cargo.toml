@@ -7,6 +7,7 @@ edition = "2024"
 application = { workspace = true }
 aura-historia-api = { workspace = true }
 aura-historia-worker = { workspace = true }
+aura-historia-cron = { workspace = true }
 platform-observability = { workspace = true }
 platform-opensearch = { workspace = true }
 platform-postgres = { workspace = true }
@@ -24,7 +25,6 @@ search-filter-service = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-opensearch = { workspace = true }
 large-language-model = { workspace = true }
-search-filter-periodic-match = { workspace = true }
 shop = { workspace = true }
 shop-core = { workspace = true }
 shop-service = { workspace = true }
@@ -70,6 +70,7 @@ members = [
     "src/application",
     "src/aura-historia-api",
     "src/aura-historia-worker",
+    "src/aura-historia-cron",
     "src/aws-tests",
     "src/billing-service",
     "src/billing-stripe",
@@ -90,7 +91,6 @@ members = [
     "src/search-filter-postgres",
     "src/search-filter-opensearch",
     "src/large-language-model",
-    "src/search-filter-periodic-match",
     "src/product",
     "src/product-core",
     "src/product-service",
@@ -141,6 +141,7 @@ members = [
 [workspace.dependencies]
 aura-historia-api = { path = "src/aura-historia-api" }
 aura-historia-worker = { path = "src/aura-historia-worker" }
+aura-historia-cron = { path = "src/aura-historia-cron" }
 async-stream = "0.3.6"
 base64 = "0.23.0"
 async-trait = "0.1.89"
@@ -161,6 +162,8 @@ aws-sdk-sfn = "1.107.0"
 aws-sdk-cloudwatch = "1.111.0"
 aws-sdk-cloudwatchlogs = "1.135.0"
 aws_lambda_events = { version = "1.2.0", default-features = false }
+chrono = "0.4"
+cron_tab = { version = "=0.2.14", default-features = false, features = ["async", "sync"] }
 cloudwatch-log-retention-lambda = { path = "src/cloudwatch-log-retention-lambda" }
 common = { path = "src/common" }
 credential-core = { path = "src/credential-core" }
@@ -184,7 +187,6 @@ search-filter-service = { path = "src/search-filter-service" }
 search-filter-postgres = { path = "src/search-filter-postgres" }
 search-filter-opensearch = { path = "src/search-filter-opensearch" }
 large-language-model = { path = "src/large-language-model" }
-search-filter-periodic-match = { path = "src/search-filter-periodic-match" }
 shop = { path = "src/shop" }
 shop-core = { path = "src/shop-core" }
 shop-service = { path = "src/shop-service" }

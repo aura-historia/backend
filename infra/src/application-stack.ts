@@ -17,7 +17,6 @@ import { Eventing } from "./constructs/eventing";
 import { addUserPoolEnvironment, grantCognitoAdminAccess, importLambdaCatalog, Lambdas } from "./constructs/lambdas";
 import { Observability } from "./constructs/observability";
 import { Search } from "./constructs/opensearch";
-import { PeriodicSearchFilterMatching } from "./constructs/periodic-matching";
 import { importQueueCatalog, Queues } from "./constructs/queues";
 import { Storage } from "./constructs/storage";
 
@@ -165,14 +164,6 @@ export class ApplicationComputeStack extends cdk.Stack {
       search: props.search,
     });
 
-    new PeriodicSearchFilterMatching(this, "PeriodicSearchFilterMatching", {
-      config,
-      commitSha: parameters.commitSha,
-      table: props.storage.table,
-      postgres: props.storage.postgres,
-      mailTemplateBucket,
-      search: props.search,
-    });
 
     this.identity = new Identity(this, "Identity", {
       config,
@@ -283,14 +274,6 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       search: this.search,
     });
 
-    new PeriodicSearchFilterMatching(this, "PeriodicSearchFilterMatching", {
-      config,
-      commitSha: parameters.commitSha,
-      table: this.storage.table,
-      postgres: this.storage.postgres,
-      mailTemplateBucket,
-      search: this.search,
-    });
 
     this.identity = new Identity(this, "Identity", {
       config,

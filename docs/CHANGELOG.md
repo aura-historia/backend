@@ -29,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- Saved-search `enhancedSearchDescription` input now trims outer whitespace and rejects blank values before embedding or persistence. Canonical values remain capped at 1000 bytes.
 - **Breaking:** Watchlist price-change notifications now preserve the event’s immutable source currency in both REST and email output. The notification list no longer accepts a currency preference, and no FX conversion is applied.
 - **Breaking:** Canonical notification list payloads now include their immutable, localized rendering snapshot. Watchlist and saved-search items include Product/shop identifiers, names, optional localized title/image, URLs, and their reason-specific change data; partner-application items include decision, shop name, and optional image. `kind` remains the top-level discriminator. Origin-event and delivery/provider provenance remain hidden. Timestamps now serialize as RFC 3339.
 - Canonical notification routes now use PostgreSQL-backed notification use cases: `GET`, selected-ID `PATCH`, and `DELETE /api/v1/me/notifications`; `PATCH /api/v1/me/notifications/all`; and item `PATCH`/`DELETE /api/v1/me/notifications/{notificationId}`. All mutations return `204`; list responses are `no-store` and paginate with an opaque JSON `[created RFC3339 timestamp, notification UUID]` `searchAfter` cursor, emitted only when another page exists.

@@ -237,6 +237,8 @@ The composition root MAY depend on every crate required to assemble the process.
 
 In `aura-historia-api`, concrete adapter wiring belongs in `lib.rs` or a dedicated wiring module. Route files MUST receive use-case trait objects through `state.rs`; they MUST NOT construct repositories, readers, SQL clients, or AWS clients. Route files authenticate and map only; protected endpoint authorization policies MUST live inside service use cases or service-owned policies, not in controllers.
 
+`aura-historia-cron` is the canonical scheduled runtime. It registers UTC timer triggers and invokes service-owned use cases; scheduler libraries never own idempotency, transactions, checkpoints, or business retries. The runtime owns local overlap prevention, execution timeout/panic containment, shutdown draining, and health/readiness only.
+
 ### 3.6 Dependency direction
 
 ```text

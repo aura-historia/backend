@@ -23,7 +23,7 @@ product-service = { workspace = true }
 shop-core = { workspace = true }
 search-filter-core = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
 time = { workspace = true }
 user-core = { workspace = true }
 user-service = { workspace = true }

@@ -17,6 +17,7 @@ See `docs/hetzner_postgres_sequin_migration.md` for the ADR.
 | OpenSearch | Search projection | Rebuildable product/shop/search-filter projection. |
 | DynamoDB access tokens | AWS DynamoDB | Existing access-token storage and lookup. |
 | FxRate Lambda | AWS Lambda | Captures immutable canonical EUR-base FX snapshots in Postgres. |
+| `aura-historia-cron` | Rust process | UTC scheduled triggers for service-owned use cases. |
 | Shopify Lambda | AWS Lambda | Handles Shopify events, writes Postgres directly. |
 | Stripe Lambda | AWS Lambda | Handles Stripe subscription events, writes Postgres directly. |
 
@@ -165,7 +166,7 @@ Examples:
 | Shop OpenSearch projector | `aura-historia-worker` | Shop changed job | OpenSearch shop document write. |
 | Search-filter OpenSearch sync | `aura-historia-worker` | Search-filter changed job | OpenSearch percolator document write/delete from complete Postgres state, with external source-version protection. Search-filter embedding stays in Postgres. |
 | User tier enforcement | `aura-historia-worker` | User tier changed job | Postgres watchlist/search-filter state updates. |
-| Periodic matcher | ECS periodic matcher | Scheduled job | Separate follow-up; it has no canonical notification role in this migration. |
+| Periodic matcher | retired ECS periodic matcher | `aura-historia-cron` native UTC cron daemon | Runs `RunPeriodicSearchFilterMatching`; it writes only idempotent `search_filter_matches`. CDC remains the sole notification trigger. |
 
 The canonical Product OpenSearch projector, search-filter OpenSearch sync, search-filter percolator, search-filter match notification generator, watchlist notification generator, notification delivery sender, Product embedding worker, and Product translation worker are implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
 
