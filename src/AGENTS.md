@@ -88,7 +88,7 @@
 - `src/aura-historia-worker/AGENTS.md` — `aura-historia-worker` crate.
 - `src/aura-historia-cron/AGENTS.md` — `aura-historia-cron` crate.
 - `src/billing-service/AGENTS.md` — canonical billing service/use-case crate.
-- `src/aws-tests/AGENTS.md` — `aws-tests` crate.
+
 - `src/ci-determinator/AGENTS.md` — `ci-determinator` crate.
 - `src/cloudwatch-log-retention-lambda/AGENTS.md` — `cloudwatch-log-retention-lambda` crate.
 

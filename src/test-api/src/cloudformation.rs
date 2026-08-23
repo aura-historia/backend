@@ -1,4 +1,5 @@
 use crate::IntegrationTestService;
+use crate::cloudformation_output::{CloudFormationOutput, get_cfn_output, set_cfn_output};
 use crate::cognito::Cognito;
 use crate::dynamodb::clear_table_data;
 use crate::localstack::{get_aws_config, get_endpoint_url};
@@ -8,7 +9,7 @@ use crate::sqs::drain_queues;
 use async_trait::async_trait;
 use aws_sdk_cloudformation::{error::ProvideErrorMetadata, types::StackStatus};
 use aws_sdk_s3::types::{BucketLocationConstraint, CreateBucketConfiguration};
-use aws_tests_common::{CloudFormationOutput, get_cfn_output, set_cfn_output};
+
 use futures::stream::{self, StreamExt};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -182,12 +183,6 @@ fn build_lambdas() {
             "--locked",
             "--exclude",
             "crawler",
-            "--exclude",
-            "aws-tests",
-            "--exclude",
-            "aws-tests-common",
-            "--exclude",
-            "smoking-tests",
             "--exclude",
             "ci-determinator",
         ])

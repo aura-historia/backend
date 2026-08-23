@@ -291,7 +291,6 @@ dependencies = [
 name = "aura-historia-parent"
 version = "0.1.0"
 dependencies = [
- "aws-tests",
  "test-api",
 ]
 
@@ -1103,22 +1102,6 @@ dependencies = [
  "aws-smithy-schema",
  "aws-smithy-types",
  "xmlparser",
-]
-
-[[package]]
-name = "aws-tests"
-version = "0.1.0"
-dependencies = [
- "aws-tests-common",
- "smoking-tests",
-]
-
-[[package]]
-name = "aws-tests-common"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -3596,22 +3579,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hyper-tls"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0"
-dependencies = [
- "bytes",
- "http-body-util",
- "hyper 1.11.0",
- "hyper-util",
- "native-tls",
- "tokio",
- "tokio-native-tls",
- "tower-service",
-]
-
-[[package]]
 name = "hyper-util"
 version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4523,23 +4490,6 @@ dependencies = [
  "itertools 0.14.0",
  "rustc-hash",
  "thiserror 2.0.20",
-]
-
-[[package]]
-name = "native-tls"
-version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "465500e14ea162429d264d44189adc38b199b62b1c21eea9f69e4b73cb03bbf2"
-dependencies = [
- "libc",
- "log",
- "openssl",
- "openssl-probe",
- "openssl-sys",
- "schannel",
- "security-framework",
- "security-framework-sys",
- "tempfile",
 ]
 
 [[package]]
@@ -6003,22 +5953,17 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "encoding_rs",
  "futures-channel",
  "futures-core",
  "futures-util",
- "h2 0.4.15",
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
  "hyper 1.11.0",
  "hyper-rustls 0.27.9",
- "hyper-tls",
  "hyper-util",
  "js-sys",
  "log",
- "mime",
- "native-tls",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -6029,7 +5974,6 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper",
  "tokio",
- "tokio-native-tls",
  "tokio-rustls 0.26.4",
  "tower",
  "tower-http",
@@ -7183,28 +7127,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "smoking-tests"
-version = "0.1.0"
-dependencies = [
- "aws-tests-common",
- "futures-util",
- "reqwest 0.12.28",
- "serde_json",
- "serial_test",
- "smoking-tests-macros",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "smoking-tests-macros"
-version = "0.1.0"
-dependencies = [
- "quote",
- "syn 3.0.3",
-]
-
-[[package]]
 name = "socket2"
 version = "0.5.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7794,19 +7716,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tempfile"
-version = "3.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
-dependencies = [
- "fastrand",
- "getrandom 0.4.3",
- "once_cell",
- "rustix",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "tendril"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7849,7 +7758,6 @@ dependencies = [
  "aws-sdk-s3",
  "aws-sdk-sesv2",
  "aws-sdk-sqs",
- "aws-tests-common",
  "aws_lambda_events",
  "axum",
  "base64 0.23.1",
@@ -8072,16 +7980,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.3",
-]
-
-[[package]]
-name = "tokio-native-tls"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2"
-dependencies = [
- "native-tls",
- "tokio",
 ]
 
 [[package]]

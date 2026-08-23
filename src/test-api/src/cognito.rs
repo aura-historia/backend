@@ -1,5 +1,5 @@
+use crate::cloudformation_output::get_cfn_output;
 use crate::{IntegrationTestService, localstack::get_aws_config};
-use aws_tests_common::get_cfn_output;
 use tokio::sync::OnceCell;
 
 pub struct Cognito();

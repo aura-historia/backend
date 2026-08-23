@@ -5,6 +5,8 @@ mod aura_historia_api;
 #[cfg(feature = "cloudformation")]
 mod cloudformation;
 #[cfg(feature = "cognito")]
+mod cloudformation_output;
+#[cfg(feature = "cognito")]
 mod cognito;
 #[cfg(feature = "dynamodb")]
 mod dynamodb;

@@ -40,7 +40,6 @@ aws-sdk-cloudformation = { workspace = true, optional = true }
 aws-sdk-s3 = { workspace = true, optional = true }
 mrml = { workspace = true, optional = true }
 aws-sdk-cognitoidentityprovider = { workspace = true, optional = true}
-aws-tests-common = { workspace = true, optional = true }
 zip = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 
@@ -75,4 +74,4 @@ sqs = ["dep:aws-sdk-sqs"]
 eventbridge = ["dep:aws-sdk-eventbridge"]
 cognito = ["dep:aws-sdk-cognitoidentityprovider"]
 ses = ["dep:aws-sdk-sesv2", "dep:reqwest"]
-cloudformation = ["dep:aws-sdk-cloudformation", "dep:aws-sdk-s3", "dep:aws-tests-common", "dep:zip", "dep:futures", "dep:mrml", "cognito", "dynamodb", "opensearch", "sqs", "ses", "eventbridge"]
+cloudformation = ["dep:aws-sdk-cloudformation", "dep:aws-sdk-s3", "dep:zip", "dep:futures", "dep:mrml", "cognito", "dynamodb", "opensearch", "sqs", "ses", "eventbridge"]
