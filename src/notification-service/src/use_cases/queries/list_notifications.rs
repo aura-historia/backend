@@ -4,8 +4,10 @@ use crate::ports::notification_list_reader::{
 use crate::presentation::NotificationPresentationPreferences;
 use application::operation_context::{OperationAuthorizationError, OperationContext, Principal};
 use localization::Language;
-use notification_core::notification::LocalizedNotificationContent;
 use notification_core::notification_id::NotificationId;
+use notification_core::{
+    notification::LocalizedNotificationContent, notification_kind::NotificationKind,
+};
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
 
@@ -19,6 +21,7 @@ pub struct ListNotificationsRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListedNotification {
     pub notification_id: NotificationId,
+    pub kind: NotificationKind,
     pub content: LocalizedNotificationContent,
     pub seen: bool,
     pub created: OffsetDateTime,
@@ -79,12 +82,18 @@ where
         let items = page
             .items
             .into_iter()
-            .map(|item| ListedNotification {
-                notification_id: item.notification_id,
-                content: item.content.localized(&request.languages),
-                seen: item.seen,
-                created: item.created,
-                updated: item.updated,
+            .map(|item| {
+                let kind = item.content.kind();
+                let content = item.content.localized(&request.languages);
+
+                ListedNotification {
+                    notification_id: item.notification_id,
+                    kind,
+                    content,
+                    seen: item.seen,
+                    created: item.created,
+                    updated: item.updated,
+                }
             })
             .collect();
         Ok(ListNotificationsResult {

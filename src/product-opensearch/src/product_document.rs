@@ -61,19 +61,43 @@ pub(crate) mod currency {
 
 pub(crate) mod language {
     use super::*;
+    use strum::IntoEnumIterator;
+
+    fn code(value: Language) -> &'static str {
+        match value {
+            Language::De => "DE",
+            Language::En => "EN",
+            Language::Fr => "FR",
+            Language::Es => "ES",
+            Language::It => "IT",
+            Language::Zh => "ZH",
+            Language::Pt => "PT",
+            Language::Pl => "PL",
+            Language::Tr => "TR",
+            Language::Nl => "NL",
+            Language::Cs => "CS",
+            Language::Ja => "JA",
+            Language::Ru => "RU",
+            Language::Ar => "AR",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Language> {
+        Language::iter().find(|language| code(*language) == value)
+    }
 
     pub(crate) fn serialize<S>(value: &Language, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serialize_code(value, serializer, Language::as_str)
+        serialize_code(value, serializer, code)
     }
 
     pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Language, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        deserialize_code(deserializer, Language::from_code)
+        deserialize_code(deserializer, parse)
     }
 }
 
@@ -408,6 +432,25 @@ mod tests {
             created: datetime!(2025-01-01 0:00 UTC),
             updated: datetime!(2025-01-02 0:00 UTC),
         })
+    }
+
+    #[test]
+    fn should_preserve_historical_uppercase_language_codec()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let value = serde_json::to_value(TextDocument::new("Vase", Language::En))?;
+
+        assert_eq!(
+            serde_json::json!({
+                "text": "Vase",
+                "language": "EN",
+            }),
+            value
+        );
+
+        let restored = serde_json::from_value::<TextDocument>(value)?;
+        assert_eq!(TextDocument::new("Vase", Language::En), restored);
+
+        Ok(())
     }
 
     #[test]

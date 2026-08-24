@@ -251,6 +251,18 @@ pub(crate) mod language {
     }
 }
 
+pub(crate) mod notification_kind {
+    use super::*;
+    use notification_core::notification_kind::NotificationKind;
+
+    pub(crate) fn serialize<S>(value: &NotificationKind, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_code(value, serializer, NotificationKind::as_str)
+    }
+}
+
 pub(crate) mod shop_type {
     use super::*;
     use shop_core::shop_type::ShopType;

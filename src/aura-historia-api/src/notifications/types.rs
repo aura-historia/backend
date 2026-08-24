@@ -10,6 +10,7 @@ use notification_core::{
         LocalizedProductNotificationSnapshot, PartnerApplicationDecision,
     },
     notification_id::NotificationId,
+    notification_kind::NotificationKind,
     presentation::present_image,
 };
 use notification_service::presentation::NotificationPresentationPreferences;
@@ -42,7 +43,8 @@ pub(crate) struct NotificationData {
     created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     updated: OffsetDateTime,
-    kind: NotificationKindData,
+    #[serde(with = "crate::wire::notification_kind")]
+    kind: NotificationKind,
     payload: NotificationContentData,
 }
 
@@ -58,7 +60,7 @@ impl From<(ListedNotification, NotificationPresentationPreferences)> for Notific
             seen: value.seen,
             created: value.created,
             updated: value.updated,
-            kind: NotificationKindData::from(&value.content),
+            kind: value.kind,
             payload: (value.content, presentation_preferences).into(),
         }
     }
@@ -144,36 +146,6 @@ struct PartnerApplicationNotificationPayloadData {
     decision: PartnerApplicationDecision,
     shop_name: String,
     image: Option<Url>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum NotificationKindData {
-    WatchlistPriceChanged,
-    WatchlistStateChanged,
-    SearchFilterMatch,
-    PartnerApplicationApproved,
-    PartnerApplicationRejected,
-}
-
-impl From<&LocalizedNotificationContent> for NotificationKindData {
-    fn from(value: &LocalizedNotificationContent) -> Self {
-        match value {
-            LocalizedNotificationContent::Watchlist {
-                change: LocalizedNotificationWatchlistChange::PriceChange { .. },
-                ..
-            } => Self::WatchlistPriceChanged,
-            LocalizedNotificationContent::Watchlist { .. } => Self::WatchlistStateChanged,
-            LocalizedNotificationContent::SearchFilter { .. } => Self::SearchFilterMatch,
-            LocalizedNotificationContent::PartnerApplication {
-                decision: PartnerApplicationDecision::Approved,
-                ..
-            } => Self::PartnerApplicationApproved,
-            LocalizedNotificationContent::PartnerApplication { .. } => {
-                Self::PartnerApplicationRejected
-            }
-        }
-    }
 }
 
 impl
