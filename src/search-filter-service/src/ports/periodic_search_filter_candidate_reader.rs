@@ -1,5 +1,5 @@
 use application::error::BoxError;
-use product_core::product_search::ProductSearch;
+use product_listing_core::product_search::ProductSearch;
 use search_filter_core::{
     search_filter_state::SearchFilterState, user_search_filter_id::UserSearchFilterId,
     user_search_filter_name::UserSearchFilterName,

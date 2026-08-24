@@ -733,8 +733,8 @@ mod tests {
     use crate::spider::advisory_lock::LocalLockManager;
     use crate::spider::candidate_service::MockSpiderCandidateService;
     use crate::spider::service::MockSpiderService;
-    use product_core::{product::ProductAddress, shops_product_id::ShopsProductId};
-    use product_service::use_cases::commands::upsert_product::UpsertProductCommand;
+    use product_listing_core::{product::ProductAddress, shops_product_id::ShopsProductId};
+    use product_listing_service::use_cases::commands::upsert_product::UpsertProductCommand;
     use shop_core::{shop_id::ShopId, shop_type::ShopType};
     use std::future::Future;
     use std::pin::Pin;

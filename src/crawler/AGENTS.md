@@ -9,7 +9,7 @@
 
 - Crawler be async, Postgres-backed, LLM-assisted ingest system for antique shop sites.
 - Root modules: `llm_runtime`, `local_db`, `logging`, `network`, `review`, `scraper`, `service`, `spider`, `vertex_ai`.
-- Main neighbors: `application`, `large-language-model`, `localization`, `money`, `platform-postgres`, `product-core`/`product-service`/`product-postgres`, `shop-core`/`shop-service`/`shop-postgres`.
+- Main neighbors: `application`, `large-language-model`, `localization`, `money`, `platform-postgres`, `product-listing-core`/`product-listing-service`/`product-listing-postgres`, `shop-core`/`shop-service`/`shop-postgres`.
 - Main binaries: `server`, `demo`, `demo-spider`, `demo-scraper`, `fetch-fixture`.
 - `service::cron` drive three parallel loops: shop sync, spider, scraper.
 - Spider and scraper cron use global slot schedulers. Refill only schedulable work; scraper fetch picks random eligible domains, takes up to 100 due URLs per domain by default, and excludes domains already seen in the pass.
@@ -22,7 +22,7 @@
 - Scraper description text without own language signal inherits title language only when language was detected from the title itself.
 - `review` own human-review rail and optional LLM-judge rail for URL patterns and schemas.
 - Postgres be crawler source of truth. Main durable tables be `shops`, `shop_domains`, `shop_urls`, `shops_product_schema`, `shops_removed_page_schema`, `crawler_reviews`, `crawler_review_pages`, `product_state_mapping`.
-- Main handoff be DB-backed: shop sync feeds spider; spider feeds scraper through `shop_urls`; scraper calls the canonical `product-service` upsert use case against authoritative business Postgres. Crawler uses source Shop ID as Product seller ID; raw marketplace seller names are not canonical seller identities.
+- Main handoff be DB-backed: shop sync feeds spider; spider feeds scraper through `shop_urls`; scraper calls the canonical `product-listing-service` upsert use case against authoritative business Postgres. Crawler uses source Shop ID as Product seller ID; raw marketplace seller names are not canonical seller identities.
 - Locking be two-layer: process-local locks stop duplicate in one process, DB lock/cooldown metadata stop bad overlap and hot-loop retries across runs after final fetch failure.
 - LLM use stay bounded and explicit: URL regex inference, product schema generation, HTML-only fresh page classification, schema evaluation, state mapping fallback. Services stay generic over `large-language-model::LargeLanguageModel`; provider/model selection stays in executable wiring. `vertex_ai` wires Vertex AI Gemini with Google Application Default Credentials, while `llm_runtime` owns crawler retry, concurrency, and pacing.
 - Product normalization completes deterministic preparation before state mapping. A deterministic candidate-data failure makes no state-mapping DB/LLM call and consumes zero state-mapping LLM budget.

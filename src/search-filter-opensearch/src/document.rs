@@ -9,13 +9,13 @@ use geo::{
 use isocountry::CountryCode;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
-use product_core::product_id::ProductId;
-use product_core::product_lifecycle::ProductLifecycle;
-use product_core::product_search::{
+use product_listing_core::product_id::ProductId;
+use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::product_search::{
     EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductSearch,
 };
-use product_core::product_state::ProductState;
-use product_opensearch::build_percolator_query;
+use product_listing_core::product_state::ProductState;
+use product_listing_opensearch::build_percolator_query;
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;

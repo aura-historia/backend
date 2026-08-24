@@ -71,14 +71,16 @@ use opensearch::{
 };
 use platform_postgres::{PostgresConnectError, PostgresPoolConfig, SqlxUnitOfWork};
 
-use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
-use product_postgres::{
+use product_listing_opensearch::{
+    OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader,
+};
+use product_listing_postgres::{
     SqlxPartnerProductAuthorizerFactory, SqlxProductDetailsBatchReader,
     SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
     SqlxProductEventReaderFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
     SqlxProductUserStateReader, SqlxProductWatchlistDetailsReaderFactory,
 };
-use product_service::use_cases::{
+use product_listing_service::use_cases::{
     CreateProductHandler, DeleteProductHandler, GetProductEventsHandler, GetProductHandler,
     GetSimilarProductsHandler, IngestWoocommerceProductHandler, SearchProductsHandler,
     UpdateProductHandler, UpsertProductHandler,

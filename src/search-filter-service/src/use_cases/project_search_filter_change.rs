@@ -160,7 +160,7 @@ mod tests {
     use application::pagination::CursoredResult;
     use localization::Language;
     use money::Currency;
-    use product_core::product_search::ProductSearch;
+    use product_listing_core::product_search::ProductSearch;
     use search_filter_core::search_filter_state::SearchFilterState;
     use search_filter_core::user_search_filter_name::UserSearchFilterName;
     use std::sync::Mutex;
@@ -232,7 +232,7 @@ mod tests {
 
         async fn percolate(
             &self,
-            _input: &product_service::ports::ProductPercolationInput,
+            _input: &product_listing_service::ports::ProductPercolationInput,
         ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
             Ok(Vec::new())
         }

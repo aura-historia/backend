@@ -3,12 +3,14 @@ use crate::values::{LocalizedTextData, PriceData};
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
-use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
-use product_core::product_id::ProductId;
-use product_core::product_image::ProductImage;
-use product_core::product_lifecycle::ProductLifecycle;
-use product_core::product_state::ProductState;
-use product_service::use_cases::{ProductEvent, ProductEventPayload, ProductEventType};
+use product_listing_core::product::{
+    ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
+};
+use product_listing_core::product_id::ProductId;
+use product_listing_core::product_image::ProductImage;
+use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::product_state::ProductState;
+use product_listing_service::use_cases::{ProductEvent, ProductEventPayload, ProductEventType};
 use serde::Serialize;
 use time::OffsetDateTime;
 use url::Url;

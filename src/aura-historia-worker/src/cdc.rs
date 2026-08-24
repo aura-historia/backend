@@ -366,7 +366,7 @@ impl CdcFanout {
         }
     }
 
-    pub fn product_opensearch(registry: WorkerQueueRegistry) -> Self {
+    pub fn product_listing_opensearch(registry: WorkerQueueRegistry) -> Self {
         Self {
             registry,
             scope: CdcFanoutScope::ProductOpenSearch,

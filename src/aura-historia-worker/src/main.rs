@@ -1,6 +1,6 @@
 use aura_historia_worker::notification_delivery::consume_notification_delivery_queue;
 use aura_historia_worker::product_embedding::consume_product_embedding_queue;
-use aura_historia_worker::product_opensearch::consume_product_opensearch_queue;
+use aura_historia_worker::product_listing_opensearch::consume_product_listing_opensearch_queue;
 use aura_historia_worker::product_translation::consume_product_translation_queue;
 use aura_historia_worker::search_filter_match_notifications::consume_search_filter_match_notification_queue;
 use aura_historia_worker::search_filter_percolator::consume_search_filter_percolator_queue;
@@ -44,19 +44,19 @@ use opensearch::{
 };
 use platform_observability::{LogLevel, LoggingConfig, init};
 use platform_postgres::{PostgresConnectError, SqlxUnitOfWork};
-use product_opensearch::OpenSearchProductSearchProjection;
-use product_postgres::{
+use product_listing_opensearch::OpenSearchProductSearchProjection;
+use product_listing_postgres::{
     SqlxProductCurrentRevisionGuardFactory, SqlxProductEmbeddingSourceReader,
     SqlxProductEmbeddingWriterFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
     SqlxProductTranslationSourceReader, SqlxProductTranslationWriterFactory,
     SqlxProductWatchlistNotificationSourceReaderFactory,
 };
-use product_service::use_cases::{
+use product_listing_service::use_cases::{
     EmbedProductEventHandler, EmbedProductEventUseCase, GenerateWatchlistNotificationsHandler,
     GenerateWatchlistNotificationsUseCase, ProjectProductHandler, ProjectProductUseCase,
     TranslateProductEventHandler, TranslateProductEventUseCase,
 };
-use product_translation_llm::LargeLanguageModelProductTitleTranslator;
+use product_listing_translation_llm::LargeLanguageModelProductTitleTranslator;
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{
     SqlxActiveSearchFilterMatchCandidateReaderFactory, SqlxSearchFilterIndexReader,
@@ -126,7 +126,7 @@ async fn main() -> Result<(), MainError> {
             let opensearch = startup
                 .opensearch()
                 .ok_or(MainError::MissingScopeConfig { scope })?;
-            run_product_opensearch(worker_config, pool, composition, opensearch).await
+            run_product_listing_opensearch(worker_config, pool, composition, opensearch).await
         }
         WorkerScope::ProductEmbedding => {
             let vertex_ai = startup
@@ -207,7 +207,7 @@ async fn run_search_filter_match_notifications(
     finish_runtime(config, runtime, task).await
 }
 
-async fn run_product_opensearch(
+async fn run_product_listing_opensearch(
     config: aura_historia_worker::WorkerConfig,
     pool: sqlx::PgPool,
     composition: WorkerRuntimeComposition,
@@ -220,7 +220,7 @@ async fn run_product_opensearch(
         OpenSearchProductSearchProjection::new(opensearch_client(opensearch)?),
     ));
     let (runtime, receiver) = composition.into_parts();
-    let task = tokio::spawn(consume_product_opensearch_queue(receiver, handler));
+    let task = tokio::spawn(consume_product_listing_opensearch_queue(receiver, handler));
     finish_runtime(config, runtime, task).await
 }
 

@@ -20,7 +20,7 @@
 ### Workspace and crate family
 
 - Root: `Cargo.toml`, `Cargo.lock`, `depgraph-rules.toml`, CI/package selectors, and workspace wiring reference the five `product-*` crates.
-- Crates: `src/product-core`, `src/product-service`, `src/product-postgres`, `src/product-opensearch`, and `src/product-translation-llm`.
+- Crates: `src/product-listing-core`, `src/product-listing-service`, `src/product-listing-postgres`, `src/product-listing-opensearch`, and `src/product-listing-translation-llm`.
 - Consumers include API/runtime/worker/test composition plus `search-filter-*`, `watchlist-*`, `notification-*`, crawler, Shopify, CI determination, and infrastructure.
 
 ### Core, service, persistence, and events
@@ -39,7 +39,7 @@
 
 ### Search, projection, and downstream contexts
 
-- OpenSearch mapping/index assets under `opensearch/mappings` and `src/product-opensearch` require rename and optional availability handling.
+- OpenSearch mapping/index assets under `opensearch/mappings` and `src/product-listing-opensearch` require rename and optional availability handling.
 - CDC routing, source-version checks, worker jobs, percolation, saved filters, notification sources, watchlist readers, translations, embeddings, and acceptance fixtures use listing identifiers and must be audited together.
 - Search-filter match records and notifications contain `product_id` and product-event relationships in the initial business schema.
 - MJML/templates and `infra` may contain route, index, queue, or human-copy references; classify each hit before changing it.
@@ -68,7 +68,7 @@
 Run and classify all remaining results before completion:
 
 ```sh
-rg -n --hidden --glob '!target/**' 'product-core|product-service|product-postgres|product-opensearch|product-translation-llm'
+rg -n --hidden --glob '!target/**' 'product-listing-core|product-listing-service|product-listing-postgres|product-listing-opensearch|product-listing-translation-llm'
 rg -n --hidden --glob '!target/**' 'ProductState|ProductLifecycle|ProductSaleValuation|DeleteProduct|mark_removed|mark_unknown|mark_sold'
 rg -n --hidden --glob '!target/**' 'PRODUCT_STATE_CHANGED|DOMAIN_STATE_CHANGED|PRODUCT_DELETED|\bLISTED\b|\bUNKNOWN\b|\bREMOVED\b'
 rg -n --hidden --glob '!target/**' 'products|product_id|product_slug_id|shops_product_id|product_events|product_translations|product_watchlist'

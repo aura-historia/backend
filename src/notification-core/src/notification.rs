@@ -2,7 +2,7 @@ use crate::{notification_id::NotificationId, notification_kind::NotificationKind
 use domain_primitives::event_id::EventId;
 use localization::Localized;
 use money::Price;
-use product_core::{
+use product_listing_core::{
     product_id::ProductId, product_image::ProductImage, product_slug_id::ProductSlugId,
     product_state::ProductState, shops_product_id::ShopsProductId, title::Title,
 };

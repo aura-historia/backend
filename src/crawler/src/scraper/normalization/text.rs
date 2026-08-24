@@ -1,7 +1,7 @@
 use super::{error::NormalizationError, language::detect_language};
 use localization::{Language, Localized};
-use product_core::shops_product_id::ShopsProductId;
-use product_core::{description::Description, title::Title};
+use product_listing_core::shops_product_id::ShopsProductId;
+use product_listing_core::{description::Description, title::Title};
 use sha2::{Digest, Sha256};
 use url::Url;
 

@@ -28,10 +28,10 @@ members = [
     "src/search-filter-postgres",
     "src/search-filter-opensearch",
     "src/large-language-model",
-    "src/product-core",
-    "src/product-service",
-    "src/product-translation-llm",
-    "src/product-postgres",
+    "src/product-listing-core",
+    "src/product-listing-service",
+    "src/product-listing-translation-llm",
+    "src/product-listing-postgres",
     "src/platform-observability",
     "src/platform-opensearch",
     "src/platform-postgres",
@@ -39,7 +39,7 @@ members = [
     "src/fxrate-service",
     "src/fxrate-postgres",
     "src/fxrate-fxratesapi",
-    "src/product-opensearch",
+    "src/product-listing-opensearch",
     "src/watchlist-core",
     "src/watchlist-service",
     "src/watchlist-postgres",
@@ -124,15 +124,15 @@ oauth-postgres = { path = "src/oauth-postgres" }
 futures = { version = "0.3.32", default-features = false }
 http = "1.4.2"
 httpdate = "1.0.3"
-product-core = { path = "src/product-core" }
-product-service = { path = "src/product-service" }
-product-translation-llm = { path = "src/product-translation-llm" }
-product-postgres = { path = "src/product-postgres" }
+product-listing-core = { path = "src/product-listing-core" }
+product-listing-service = { path = "src/product-listing-service" }
+product-listing-translation-llm = { path = "src/product-listing-translation-llm" }
+product-listing-postgres = { path = "src/product-listing-postgres" }
 fxrate-core = { path = "src/fxrate-core" }
 fxrate-service = { path = "src/fxrate-service" }
 fxrate-postgres = { path = "src/fxrate-postgres" }
 fxrate-fxratesapi = { path = "src/fxrate-fxratesapi" }
-product-opensearch = { path = "src/product-opensearch" }
+product-listing-opensearch = { path = "src/product-listing-opensearch" }
 watchlist-core = { path = "src/watchlist-core" }
 watchlist-service = { path = "src/watchlist-service" }
 watchlist-postgres = { path = "src/watchlist-postgres" }

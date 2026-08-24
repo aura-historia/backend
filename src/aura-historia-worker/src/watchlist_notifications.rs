@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
-use product_core::product_id::ProductId;
-use product_service::use_cases::{
+use product_listing_core::product_id::ProductId;
+use product_listing_service::use_cases::{
     GenerateWatchlistNotificationsCommand, GenerateWatchlistNotificationsUseCase,
 };
 use tracing::{error, info};
@@ -110,7 +110,7 @@ async fn generate_watchlist_notifications(
         })
         .await
         .map(|result| match result {
-            product_service::use_cases::GenerateWatchlistNotificationsResult::Applied {
+            product_listing_service::use_cases::GenerateWatchlistNotificationsResult::Applied {
                 recipient_count,
                 inserted_count,
                 already_exists_count,
@@ -120,7 +120,7 @@ async fn generate_watchlist_notifications(
                     already_exists_count,
                 }
             }
-            product_service::use_cases::GenerateWatchlistNotificationsResult::Applied {
+            product_listing_service::use_cases::GenerateWatchlistNotificationsResult::Applied {
                 recipient_count,
                 inserted_count,
                 already_exists_count,
@@ -129,10 +129,10 @@ async fn generate_watchlist_notifications(
                 inserted_count,
                 already_exists_count,
             },
-            product_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForMissingSource => {
+            product_listing_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForMissingSource => {
                 WatchlistNotificationWorkerOutcome::SuppressedForMissingSource
             }
-            product_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForStaleProductEvent => {
+            product_listing_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForStaleProductEvent => {
                 WatchlistNotificationWorkerOutcome::SuppressedForStaleProductEvent
             }
         })
@@ -187,7 +187,7 @@ mod tests {
         cdc::{IdempotencyKey, OrderingKey, ProductEventJob, WorkerQueue},
         in_memory_queue,
     };
-    use product_service::use_cases::GenerateWatchlistNotificationsResult;
+    use product_listing_service::use_cases::GenerateWatchlistNotificationsResult;
 
     struct Handler {
         commands: Mutex<Vec<GenerateWatchlistNotificationsCommand>>,
@@ -220,12 +220,12 @@ mod tests {
             command: GenerateWatchlistNotificationsCommand,
         ) -> Result<
             GenerateWatchlistNotificationsResult,
-            product_service::use_cases::GenerateWatchlistNotificationsError,
+            product_listing_service::use_cases::GenerateWatchlistNotificationsError,
         > {
             self.commands
                 .lock()
                 .map_err(|_| {
-                    product_service::use_cases::GenerateWatchlistNotificationsError::NotificationCreateFailed {
+                    product_listing_service::use_cases::GenerateWatchlistNotificationsError::NotificationCreateFailed {
                         source: box_error(std::io::Error::other("test mutex poisoned")),
                     }
                 })?

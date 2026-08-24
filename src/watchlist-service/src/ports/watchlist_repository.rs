@@ -1,6 +1,6 @@
 use application::error::BoxError;
 use domain_primitives::versioned::Versioned;
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use user_core::user_id::UserId;
 use watchlist_core::WatchlistProduct;
 

@@ -9,8 +9,8 @@ use localization::Language;
 use money::Currency;
 
 use money::MonetaryAmount;
-use product_core::product_id::ProductId;
-use product_core::product_state::ProductState;
+use product_listing_core::product_id::ProductId;
+use product_listing_core::product_state::ProductState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use shop_core::seller_slug_id::SellerSlugId;
@@ -21,7 +21,7 @@ use user_core::user_id::UserId;
 use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
-use product_core::product_search::{
+use product_listing_core::product_search::{
     EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductSearch,
 };
 use search_filter_core::search_filter_state::SearchFilterState;

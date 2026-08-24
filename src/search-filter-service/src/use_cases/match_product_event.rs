@@ -20,9 +20,9 @@ use fxrate_service::ports::{
 #[cfg(test)]
 use large_language_model::StructuredGenerationRequest;
 use large_language_model::{LargeLanguageModel, LargeLanguageModelError};
-use product_core::product::ProductPriceValuationBasis;
-use product_core::product_id::ProductId;
-use product_service::ports::{
+use product_listing_core::product::ProductPriceValuationBasis;
+use product_listing_core::product_id::ProductId;
+use product_listing_service::ports::{
     ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
     ProductCurrentRevisionGuardFactory, ProductPercolationInput, ProductPercolationValuation,
     ProductPricesByCurrency, ProductSearchFilterMatchSource,
@@ -679,15 +679,15 @@ mod tests {
     use indexmap::IndexSet;
     use localization::Language;
     use money::{Currency, MonetaryAmount, Price};
-    use product_core::shops_product_id::ShopsProductId;
-    use product_core::{
+    use product_listing_core::shops_product_id::ShopsProductId;
+    use product_listing_core::{
         product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
         product_image::ProductImage,
         product_lifecycle::ProductLifecycle,
         product_slug_id::ProductSlugId,
         product_state::ProductState,
     };
-    use product_service::ports::{
+    use product_listing_service::ports::{
         ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
         ProductCurrentRevisionGuardFactory, ProductSearchFilterMatchShopType,
         ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceEventKind,
@@ -1076,7 +1076,7 @@ mod tests {
             origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: event_id,
             projection_version: 1,
-            product_id: product_core::product_id::ProductId::new(),
+            product_id: product_listing_core::product_id::ProductId::new(),
             product_slug_id: ProductSlugId::from("product"),
             shop_id: ShopId::new(),
             shop_slug_id: ShopSlugId::from("shop"),
@@ -1140,7 +1140,10 @@ mod tests {
             name: UserSearchFilterName::from("daily"),
             notifications: true,
             state: SearchFilterState::Active,
-            search: product_core::product_search::ProductSearch::new(Language::En, Currency::Eur),
+            search: product_listing_core::product_search::ProductSearch::new(
+                Language::En,
+                Currency::Eur,
+            ),
             embedding: None,
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,
@@ -1372,7 +1375,9 @@ mod tests {
         let plain = filter(user_id, UserSearchFilterId::new());
         let mut enhanced = filter(user_id, UserSearchFilterId::new());
         enhanced.search.enhanced_search_description = Some(
-            product_core::product_search::EnhancedSearchDescription::try_from("only paintings")?,
+            product_listing_core::product_search::EnhancedSearchDescription::try_from(
+                "only paintings",
+            )?,
         );
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
@@ -1414,7 +1419,9 @@ mod tests {
         let user_id = UserId::new();
         let mut enhanced = filter(user_id, UserSearchFilterId::new());
         enhanced.search.enhanced_search_description = Some(
-            product_core::product_search::EnhancedSearchDescription::try_from("only paintings")?,
+            product_listing_core::product_search::EnhancedSearchDescription::try_from(
+                "only paintings",
+            )?,
         );
         let product = product()?;
         let handler = MatchProductEventHandler::new(

@@ -2,7 +2,7 @@ use application::transaction::{Transaction, UnitOfWork};
 use localization::Language;
 use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
-use product_core::product_search::ProductSearch;
+use product_listing_core::product_search::ProductSearch;
 use search_filter_core::{
     NewSearchFilter, SearchFilter, search_filter_state::SearchFilterState,
     user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,

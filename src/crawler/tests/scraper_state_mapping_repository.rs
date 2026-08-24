@@ -2,7 +2,7 @@ use crawler::scraper::normalization::state::{ProductStateMappingRecord, StateMap
 use crawler::scraper::normalization::state_mapping_repository::{
     ProductStateMappingRepository, ProductStateMappingRepositoryImpl,
 };
-use product_core::product_state::ProductState;
+use product_listing_core::product_state::ProductState;
 
 use test_api::*;
 use time::OffsetDateTime;

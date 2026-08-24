@@ -1,6 +1,6 @@
 use super::error::NormalizationError;
 use crate::scraper::css_selector::rule::split_image_candidate_group;
-use product_core::{product_image::ProductImage, prohibited_content::ProhibitedContent};
+use product_listing_core::{product_image::ProductImage, prohibited_content::ProhibitedContent};
 use url::Url;
 
 /// Converts a list of raw image URL strings into [`ProductImage`] values.
@@ -43,7 +43,7 @@ mod tests {
     use rstest::rstest;
     use url::Url;
 
-    use product_core::prohibited_content::ProhibitedContent;
+    use product_listing_core::prohibited_content::ProhibitedContent;
 
     use super::normalize_images;
     use crate::scraper::normalization::error::NormalizationError;

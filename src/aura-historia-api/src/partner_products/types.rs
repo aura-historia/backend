@@ -3,15 +3,15 @@ use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
 use crate::values::{LocalizedTextData, PriceData};
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use money::Price;
-use product_core::description::Description;
-use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
-use product_core::product_id::ProductKey;
-use product_core::product_image::ProductImage;
-use product_core::product_state::ProductState;
-use product_core::prohibited_content::ProhibitedContent;
-use product_core::shops_product_id::ShopsProductId;
-use product_core::title::Title;
-use product_service::use_cases::{
+use product_listing_core::description::Description;
+use product_listing_core::product::{ProductAddress, ProductAuction, ProductPricing};
+use product_listing_core::product_id::ProductKey;
+use product_listing_core::product_image::ProductImage;
+use product_listing_core::product_state::ProductState;
+use product_listing_core::prohibited_content::ProhibitedContent;
+use product_listing_core::shops_product_id::ShopsProductId;
+use product_listing_core::title::Title;
+use product_listing_service::use_cases::{
     CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};

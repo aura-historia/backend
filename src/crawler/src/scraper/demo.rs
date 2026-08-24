@@ -66,7 +66,7 @@ use crawler::scraper::scraper_service::{
 use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
 use localization::{Language, Localized};
 use money::Price;
-use product_core::{
+use product_listing_core::{
     product_image::ProductImage, product_state::ProductState, shops_product_id::ShopsProductId,
 };
 

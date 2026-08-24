@@ -7,8 +7,8 @@ use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use localization::Language;
 use money::Currency;
-use product_core::product_slug_id::ProductSlugId;
-use product_service::use_cases::{GetProductRequest, ProductLookup};
+use product_listing_core::product_slug_id::ProductSlugId;
+use product_listing_service::use_cases::{GetProductRequest, ProductLookup};
 use serde::Deserialize;
 use shop_core::shop_slug_id::ShopSlugId;
 
@@ -94,7 +94,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use localization::Language;
-    use product_service::use_cases::{
+    use product_listing_service::use_cases::{
         GetProductError, GetProductUseCase, GetSimilarProductsError, GetSimilarProductsRequest,
         GetSimilarProductsResult, GetSimilarProductsUseCase, SearchProductsError,
         SearchProductsRequest, SearchProductsResult, SearchProductsUseCase,
@@ -114,8 +114,10 @@ mod tests {
             &self,
             _context: &OperationContext,
             request: GetProductRequest,
-        ) -> Result<product_service::use_cases::PersonalizedProductDetailsView, GetProductError>
-        {
+        ) -> Result<
+            product_listing_service::use_cases::PersonalizedProductDetailsView,
+            GetProductError,
+        > {
             lock(&self.calls).push(request);
             Err(GetProductError::NotFound)
         }

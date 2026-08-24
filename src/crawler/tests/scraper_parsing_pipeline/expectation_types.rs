@@ -1,5 +1,5 @@
 use money::Price;
-use product_core::product_state::ProductState;
+use product_listing_core::product_state::ProductState;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]

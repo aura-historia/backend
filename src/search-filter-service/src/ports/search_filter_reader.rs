@@ -1,5 +1,5 @@
 use crate::ports::PersistedSearchFilter;
-use product_core::product_search::ProductSearch;
+use product_listing_core::product_search::ProductSearch;
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;

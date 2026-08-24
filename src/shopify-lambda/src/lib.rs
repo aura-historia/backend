@@ -10,7 +10,7 @@ use application::operation_context::{CorrelationId, OperationContext, Principal,
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use lambda_runtime::LambdaEvent;
-use product_service::use_cases::{
+use product_listing_service::use_cases::{
     IngestShopifyProductError, IngestShopifyProductResult, IngestShopifyProductUseCase,
 };
 use serde_json::Value;
@@ -165,7 +165,7 @@ mod tests {
     use super::*;
     use aws_lambda_events::sqs::SqsMessage;
     use lambda_runtime::Context;
-    use product_service::use_cases::{
+    use product_listing_service::use_cases::{
         IngestShopifyProductCommand, IngestShopifyProductError, IngestShopifyProductResult,
     };
     use std::sync::{Arc, Mutex};

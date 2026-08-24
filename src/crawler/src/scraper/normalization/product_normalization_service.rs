@@ -17,7 +17,7 @@ use crate::scraper::normalization::{
 
 use localization::{Language, Localized};
 use money::Currency;
-use product_core::{
+use product_listing_core::{
     description::Description, product_image::ProductImage, shops_product_id::ShopsProductId,
     title::Title,
 };
@@ -268,7 +268,7 @@ mod tests {
 
     use localization::Language;
     use money::{Currency, MonetaryAmount, Price};
-    use product_core::product_state::ProductState;
+    use product_listing_core::product_state::ProductState;
     use time::OffsetDateTime;
 
     use super::{NormalizationError, ProductNormalizationService, ProductNormalizationServiceImpl};

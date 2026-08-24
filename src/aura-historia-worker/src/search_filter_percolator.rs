@@ -5,7 +5,7 @@ use crate::{
 };
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use search_filter_service::use_cases::{
     MatchProductEventCommand, MatchProductEventOutcome, MatchProductEventUseCase,
 };

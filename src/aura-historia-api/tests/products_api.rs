@@ -647,7 +647,7 @@ async fn should_reject_invalid_optional_product_authentication() {
         .get(format!(
             "{}/api/v1/products/{}",
             AURA_API.base_url(),
-            product_core::product_id::ProductId::new()
+            product_listing_core::product_id::ProductId::new()
         ))
         .bearer_auth("invalid")
         .send()

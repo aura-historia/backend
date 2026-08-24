@@ -294,13 +294,11 @@ impl SearchFilterIndex for OpenSearchSearchFilterIndex {
 
     async fn percolate(
         &self,
-        input: &product_service::ports::ProductPercolationInput,
+        input: &product_listing_service::ports::ProductPercolationInput,
     ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
-        let product_document =
-            product_opensearch::product_percolation_document(input).map_err(|source| {
-                SearchFilterIndexError::PercolateFailed {
-                    source: box_error(source),
-                }
+        let product_document = product_listing_opensearch::product_percolation_document(input)
+            .map_err(|source| SearchFilterIndexError::PercolateFailed {
+                source: box_error(source),
             })?;
         let pit_id = self.open_point_in_time().await?;
         let percolation_result = self.percolate_all(&product_document, &pit_id).await;

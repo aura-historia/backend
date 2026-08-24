@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use application::transaction::{Transaction, UnitOfWork};
 use platform_postgres::SqlxUnitOfWork;
-use product_core::product_id::ProductId;
-use product_service::ports::{
+use product_listing_core::product_id::ProductId;
+use product_listing_service::ports::{
     WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,
 };
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};

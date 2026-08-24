@@ -1,4 +1,4 @@
-use product_core::product_search::ProductSearch;
+use product_listing_core::product_search::ProductSearch;
 use user_core::tier::UserTier;
 
 pub(crate) fn active_filter_quota(tier: UserTier) -> usize {
@@ -150,7 +150,7 @@ mod tests {
     use isocountry::CountryCode;
     use localization::Language;
     use money::Currency;
-    use product_core::{
+    use product_listing_core::{
         product_id::ProductId,
         product_lifecycle::ProductLifecycle,
         product_search::{EnhancedSearchDescription, ProductSearch},

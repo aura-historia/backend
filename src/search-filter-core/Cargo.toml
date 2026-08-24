@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
-product-core = { workspace = true }
+product-listing-core = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 user-core = { workspace = true }
@@ -20,4 +20,4 @@ money = { workspace = true }
 
 [features]
 default = []
-test-data = ["fake", "domain-primitives/test-data", "fxrate-core/test-data", "product-core/test-data", "user-core/test-data"]
+test-data = ["fake", "domain-primitives/test-data", "fxrate-core/test-data", "product-listing-core/test-data", "user-core/test-data"]

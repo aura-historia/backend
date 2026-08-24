@@ -5,17 +5,17 @@ use domain_primitives::event_id::EventId;
 use localization::{Language, Localized};
 use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
-use product_core::product_id::ProductId;
-use product_core::product_lifecycle::ProductLifecycle;
-use product_core::product_search::ProductSearch;
-use product_core::product_slug_id::ProductSlugId;
-use product_core::product_state::ProductState;
-use product_core::shops_product_id::ShopsProductId;
-use product_core::{
+use product_listing_core::product_id::ProductId;
+use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::product_search::ProductSearch;
+use product_listing_core::product_slug_id::ProductSlugId;
+use product_listing_core::product_state::ProductState;
+use product_listing_core::shops_product_id::ShopsProductId;
+use product_listing_core::{
     product::{ProductAddress, ProductAuction, ProductPricing},
     title::Title,
 };
-use product_service::ports::{
+use product_listing_service::ports::{
     ProductPercolationInput, ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
 };
 use search_filter_core::search_filter_state::SearchFilterState;
@@ -377,7 +377,7 @@ fn product_source(
 
     Ok(ProductSearchFilterMatchSource {
         event_id,
-        event_kind: product_service::ports::ProductSearchFilterMatchSourceEventKind::Domain,
+        event_kind: product_listing_service::ports::ProductSearchFilterMatchSourceEventKind::Domain,
         origin_event_time: time::OffsetDateTime::UNIX_EPOCH,
         current_event_id: event_id,
         projection_version: 1,

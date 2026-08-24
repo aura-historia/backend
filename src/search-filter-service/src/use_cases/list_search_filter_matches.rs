@@ -14,15 +14,15 @@ use fxrate_service::ports::{
 };
 use localization::Language;
 use money::Currency;
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use user_core::user_id::UserId;
 
-use product_service::ports::{
+use product_listing_service::ports::{
     PersonalizedProductDetailsReadModel, ProductDetailsBatchReadError,
     ProductDetailsBatchReadRequest, ProductDetailsBatchReader,
 };
-use product_service::use_cases::{
+use product_listing_service::use_cases::{
     PersonalizedProductDetailsView, ProductPricingPresentationError, present_product_details,
     redact_hidden_product,
 };
@@ -412,18 +412,18 @@ mod tests {
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
-    use product_core::{
+    use product_listing_core::{
         product_lifecycle::ProductLifecycle, product_slug_id::ProductSlugId,
         product_state::ProductState, shops_product_id::ShopsProductId,
     };
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 
-    use product_core::product::{
+    use product_listing_core::product::{
         ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     };
-    use product_service::ports::ProductDetailsReadModel;
-    use product_service::use_cases::ProductPricingValuation;
-    use product_service::user_state::{NotificationUserState, ProductUserState};
+    use product_listing_service::ports::ProductDetailsReadModel;
+    use product_listing_service::use_cases::ProductPricingValuation;
+    use product_listing_service::user_state::{NotificationUserState, ProductUserState};
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;

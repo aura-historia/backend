@@ -8,7 +8,7 @@ use notification_core::{
     presentation::present_image,
 };
 use notification_service::ports::notification_delivery_repository::NotificationDeliverySource;
-use product_core::product_state::ProductState;
+use product_listing_core::product_state::ProductState;
 use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -355,7 +355,7 @@ mod tests {
         ports::notification_delivery_repository::NotificationDeliverySource,
         presentation::NotificationPresentationPreferences,
     };
-    use product_core::{
+    use product_listing_core::{
         product_id::ProductId, product_slug_id::ProductSlugId, product_state::ProductState,
         shops_product_id::ShopsProductId,
     };

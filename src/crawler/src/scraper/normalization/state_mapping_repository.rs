@@ -1,5 +1,5 @@
 use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
-use product_core::product_state::ProductState;
+use product_listing_core::product_state::ProductState;
 use sqlx::{PgPool, Row};
 
 use time::OffsetDateTime;

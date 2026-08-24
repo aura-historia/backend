@@ -7,8 +7,8 @@ use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use localization::Language;
 use money::Currency;
-use product_core::product_id::ProductId;
-use product_service::use_cases::{GetProductRequest, ProductLookup};
+use product_listing_core::product_id::ProductId;
+use product_listing_service::use_cases::{GetProductRequest, ProductLookup};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -88,20 +88,20 @@ mod tests {
     use money::Currency;
     use money::{MonetaryAmount, Price};
     use notification_core::notification_id::NotificationId;
-    use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
-    use product_core::product_lifecycle::ProductLifecycle;
-    use product_core::product_slug_id::ProductSlugId;
-    use product_core::product_state::ProductState;
-    use product_core::shops_product_id::ShopsProductId;
-    use product_core::title::Title;
-    use product_service::use_cases::{
+    use product_listing_core::product::{ProductAddress, ProductAuction, ProductPricing};
+    use product_listing_core::product_lifecycle::ProductLifecycle;
+    use product_listing_core::product_slug_id::ProductSlugId;
+    use product_listing_core::product_state::ProductState;
+    use product_listing_core::shops_product_id::ShopsProductId;
+    use product_listing_core::title::Title;
+    use product_listing_service::use_cases::{
         DisplayProductPricing, GetProductError, GetProductUseCase, GetSimilarProductsError,
         GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,
         PersonalizedProductDetailsView, ProductDetailsView, ProductPricingPresentation,
         ProductPricingValuation, SearchProductsError, SearchProductsRequest, SearchProductsResult,
         SearchProductsUseCase,
     };
-    use product_service::user_state::{
+    use product_listing_service::user_state::{
         NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
         WatchlistUserState,
     };

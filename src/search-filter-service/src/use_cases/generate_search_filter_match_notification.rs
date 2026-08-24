@@ -15,8 +15,8 @@ use notification_service::ports::notification_creator::{
     ExternalDeliveryRequest, NewNotification, NotificationCreationError,
     NotificationCreationOutcome, NotificationCreator, NotificationCreatorFactory,
 };
-use product_core::product_id::ProductId;
-use product_service::ports::{
+use product_listing_core::product_id::ProductId;
+use product_listing_service::ports::{
     ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
     ProductCurrentRevisionGuardFactory, ProductSearchFilterMatchSource,
     ProductSearchFilterMatchSourceReadError, ProductSearchFilterMatchSourceReader,
@@ -391,7 +391,7 @@ fn commit_error(source: TransactionError) -> GenerateSearchFilterMatchNotificati
 mod tests {
     use super::*;
     use indexmap::IndexSet;
-    use product_core::{
+    use product_listing_core::{
         product::{ProductAddress, ProductAuction, ProductPricing},
         product_image::ProductImage,
         product_lifecycle::ProductLifecycle,
@@ -399,8 +399,8 @@ mod tests {
         product_state::ProductState,
         shops_product_id::ShopsProductId,
     };
-    use product_service::ports::ProductSearchFilterMatchShopType;
-    use product_service::ports::ProductSearchFilterMatchSourceEventKind;
+    use product_listing_service::ports::ProductSearchFilterMatchShopType;
+    use product_listing_service::ports::ProductSearchFilterMatchSourceEventKind;
     use search_filter_core::user_search_filter_name::UserSearchFilterName;
     use shop_core::{
         seller_slug_id::SellerSlugId, shop_id::ShopId, shop_name::ShopName,

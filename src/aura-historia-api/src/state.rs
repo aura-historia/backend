@@ -15,7 +15,7 @@ use oauth_service::use_cases::{
     IntrospectTokenUseCase, ListOAuthClientsUseCase, RevokeTokenUseCase,
     TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
 };
-use product_service::use_cases::{
+use product_listing_service::use_cases::{
     CreateProductUseCase, DeleteProductUseCase, GetProductEventsUseCase, GetProductUseCase,
     GetSimilarProductsUseCase, IngestWoocommerceProductUseCase, SearchProductsUseCase,
     UpdateProductUseCase, UpsertProductUseCase,

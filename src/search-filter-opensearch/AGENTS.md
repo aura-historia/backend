@@ -24,7 +24,7 @@
 
 ## Work Guidance
 
-- Product percolator JSON may cross from `product-opensearch`; product document types may not.
+- Product percolator JSON may cross from `product-listing-opensearch`; product document types may not.
 - Preserve complete ProductSearch round-trip and percolator tests.
 
 ## Verification

@@ -1,5 +1,5 @@
 pub use crate::watchlist_state::WatchlistState;
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use user_core::user_id::UserId;
 
 pub mod watchlist_state;

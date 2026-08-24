@@ -6,11 +6,11 @@ use futures::{StreamExt, stream};
 use indexmap::IndexSet;
 use localization::{Language, Localized};
 use money::Price;
-use product_core::{
+use product_listing_core::{
     description::Description, product::ProductAddress, product_id::ProductKey,
     product_state::ProductState, title::Title,
 };
-use product_service::use_cases::commands::upsert_product::{
+use product_listing_service::use_cases::commands::upsert_product::{
     UpsertProductCommand, UpsertProductUseCase,
 };
 
@@ -460,8 +460,8 @@ fn product_state_name(value: ProductState) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use product_core::{product_id::ProductId, shops_product_id::ShopsProductId};
-    use product_service::use_cases::commands::{
+    use product_listing_core::{product_id::ProductId, shops_product_id::ShopsProductId};
+    use product_listing_service::use_cases::commands::{
         update_product::UpdateProductResult,
         upsert_product::{UpsertProductError, UpsertProductResult},
     };
@@ -719,9 +719,10 @@ mod tests {
         first
             .command
             .images
-            .insert(product_core::product_image::ProductImage {
+            .insert(product_listing_core::product_image::ProductImage {
                 url: Url::parse("https://example.com/image.jpg")?,
-                prohibited_content: product_core::prohibited_content::ProhibitedContent::None,
+                prohibited_content:
+                    product_listing_core::prohibited_content::ProhibitedContent::None,
             });
         let mut second = first.clone();
         second.command.images.clear();

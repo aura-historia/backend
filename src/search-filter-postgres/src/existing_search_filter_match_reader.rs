@@ -1,6 +1,6 @@
 use crate::mapping::user_search_filter_uuid;
 use application::error::box_error;
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
     ExistingSearchFilterMatchReadError, ExistingSearchFilterMatchReader,

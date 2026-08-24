@@ -13,8 +13,8 @@ use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use localization::Language;
 use money::Currency;
-use product_core::product_id::ProductId;
-use product_service::ports::ProductWatchlistDetailsCursor;
+use product_listing_core::product_id::ProductId;
+use product_listing_service::ports::ProductWatchlistDetailsCursor;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -172,13 +172,13 @@ mod tests {
     use fxrate_core::FxRateId;
     use localization::Language;
     use money::Currency;
-    use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
-    use product_core::product_id::ProductId;
-    use product_core::product_lifecycle::ProductLifecycle;
-    use product_core::product_slug_id::ProductSlugId;
-    use product_core::product_state::ProductState;
-    use product_core::shops_product_id::ShopsProductId;
-    use product_service::user_state::ProductUserState;
+    use product_listing_core::product::{ProductAddress, ProductAuction, ProductPricing};
+    use product_listing_core::product_id::ProductId;
+    use product_listing_core::product_lifecycle::ProductLifecycle;
+    use product_listing_core::product_slug_id::ProductSlugId;
+    use product_listing_core::product_state::ProductState;
+    use product_listing_core::shops_product_id::ShopsProductId;
+    use product_listing_service::user_state::ProductUserState;
     use shop_core::shop_id::ShopId;
     use shop_core::shop_name::ShopName;
     use shop_core::shop_slug_id::ShopSlugId;
@@ -292,10 +292,11 @@ mod tests {
 
     fn product(
         product_id: ProductId,
-    ) -> Result<product_service::use_cases::PersonalizedProductDetailsView, url::ParseError> {
+    ) -> Result<product_listing_service::use_cases::PersonalizedProductDetailsView, url::ParseError>
+    {
         let url = Url::parse("https://example.test/product")?;
         Ok(Personalized {
-            item: product_service::use_cases::ProductDetailsView {
+            item: product_listing_service::use_cases::ProductDetailsView {
                 product_id,
                 product_slug_id: ProductSlugId::from("product"),
                 event_id: EventId::new(),
@@ -311,17 +312,18 @@ mod tests {
                 product_description: None,
                 title: None,
                 description: None,
-                pricing: product_service::use_cases::ProductPricingPresentation {
+                pricing: product_listing_service::use_cases::ProductPricingPresentation {
                     source: ProductPricing::default(),
-                    display: product_service::use_cases::DisplayProductPricing {
+                    display: product_listing_service::use_cases::DisplayProductPricing {
                         price: None,
                         price_estimate_min: None,
                         price_estimate_max: None,
                     },
-                    valuation: product_service::use_cases::ProductPricingValuation::Current {
-                        fx_rate_id: FxRateId::new(),
-                        captured_at: OffsetDateTime::UNIX_EPOCH,
-                    },
+                    valuation:
+                        product_listing_service::use_cases::ProductPricingValuation::Current {
+                            fx_rate_id: FxRateId::new(),
+                            captured_at: OffsetDateTime::UNIX_EPOCH,
+                        },
                 },
                 state: ProductState::Available,
                 lifecycle: ProductLifecycle::Active,
@@ -338,7 +340,7 @@ mod tests {
 
     fn app(
         user_id: UserId,
-        products: Vec<product_service::use_cases::PersonalizedProductDetailsView>,
+        products: Vec<product_listing_service::use_cases::PersonalizedProductDetailsView>,
         reject_auth: bool,
     ) -> (Router, ListRequests) {
         let requests = Arc::new(Mutex::new(Vec::new()));

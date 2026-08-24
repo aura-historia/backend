@@ -5,7 +5,7 @@ use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_wit
 use application::error::box_error;
 use domain_primitives::event_id::EventId;
 use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -16,14 +16,14 @@ use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
     notification_creation::NotificationCreationCoordinatorFactory,
 };
-use product_postgres::{
+use product_listing_postgres::{
     SqlxProductCurrentRevisionGuardFactory, SqlxProductWatchlistNotificationSourceReaderFactory,
 };
-use product_service::ports::{
+use product_listing_service::ports::{
     ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
     ProductCurrentRevisionGuardFactory,
 };
-use product_service::use_cases::{
+use product_listing_service::use_cases::{
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
 };
 use serde_json::json;
@@ -291,7 +291,7 @@ async fn hold_product_revision_lock_until_watchlist_notification_commit()
     let generation = tokio::spawn(async move {
         handler
             .execute(
-                product_service::use_cases::GenerateWatchlistNotificationsCommand {
+                product_listing_service::use_cases::GenerateWatchlistNotificationsCommand {
                     event_id,
                     product_id,
                 },
@@ -331,7 +331,7 @@ async fn hold_product_revision_lock_until_watchlist_notification_commit()
     let notification_result = generation.await??;
     assert!(matches!(
         notification_result,
-        product_service::use_cases::GenerateWatchlistNotificationsResult::Applied {
+        product_listing_service::use_cases::GenerateWatchlistNotificationsResult::Applied {
             inserted_count: 1,
             ..
         }

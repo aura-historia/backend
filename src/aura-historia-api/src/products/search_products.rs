@@ -20,12 +20,12 @@ use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
 use money::MonetaryAmount;
-use product_core::product_id::ProductId;
-use product_core::product_lifecycle::ProductLifecycle;
-use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
-use product_core::product_state::ProductState;
-use product_core::sort_product_field::SortProductField;
-use product_service::use_cases::{ProductSearchCursor, SearchProductsRequest};
+use product_listing_core::product_id::ProductId;
+use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use product_listing_core::product_state::ProductState;
+use product_listing_core::sort_product_field::SortProductField;
+use product_listing_service::use_cases::{ProductSearchCursor, SearchProductsRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use shop_core::seller_slug_id::SellerSlugId;
@@ -135,7 +135,7 @@ impl From<SortProductFieldData> for SortProductField {
 }
 
 impl TryFrom<ProductSearchData> for ProductSearch {
-    type Error = product_core::product_search::EnhancedSearchDescriptionError;
+    type Error = product_listing_core::product_search::EnhancedSearchDescriptionError;
 
     fn try_from(data: ProductSearchData) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -388,7 +388,7 @@ mod tests {
     use domain_primitives::sort::SortOrder;
     use localization::Language;
     use money::Currency;
-    use product_service::use_cases::{
+    use product_listing_service::use_cases::{
         GetProductError, GetProductRequest, GetProductUseCase, GetSimilarProductsError,
         GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,
         SearchProductsError, SearchProductsResult, SearchProductsUseCase,
@@ -407,8 +407,10 @@ mod tests {
             &self,
             _context: &OperationContext,
             _request: GetProductRequest,
-        ) -> Result<product_service::use_cases::PersonalizedProductDetailsView, GetProductError>
-        {
+        ) -> Result<
+            product_listing_service::use_cases::PersonalizedProductDetailsView,
+            GetProductError,
+        > {
             Err(GetProductError::NotFound)
         }
     }

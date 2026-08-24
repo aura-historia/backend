@@ -4,13 +4,13 @@ use domain_primitives::query::text_query::TextQuery;
 use indexmap::IndexSet;
 use localization::Language;
 use money::Currency;
-use product_core::{
+use product_listing_core::{
     product::{ProductAddress, ProductAuction, ProductPricing},
     product_image::ProductImage,
     product_search::ProductSearch,
     title::Title,
 };
-use product_service::ports::{
+use product_listing_service::ports::{
     ProductPercolationInput, ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
 };
 use search_filter_core::search_filter_state::SearchFilterState;
@@ -208,12 +208,12 @@ fn product_source(title: &str) -> ProductSearchFilterMatchSource {
     let event_id = EventId::new();
     ProductSearchFilterMatchSource {
         event_id,
-        event_kind: product_service::ports::ProductSearchFilterMatchSourceEventKind::Domain,
+        event_kind: product_listing_service::ports::ProductSearchFilterMatchSourceEventKind::Domain,
         origin_event_time: OffsetDateTime::UNIX_EPOCH,
         current_event_id: event_id,
         projection_version: 1,
-        product_id: product_core::product_id::ProductId::new(),
-        product_slug_id: product_core::product_slug_id::ProductSlugId::from("product"),
+        product_id: product_listing_core::product_id::ProductId::new(),
+        product_slug_id: product_listing_core::product_slug_id::ProductSlugId::from("product"),
         shop_id: shop_core::shop_id::ShopId::new(),
         shop_slug_id: shop_core::shop_slug_id::ShopSlugId::from("shop"),
         shop_name: shop_core::shop_name::ShopName::from("Shop"),
@@ -221,7 +221,7 @@ fn product_source(title: &str) -> ProductSearchFilterMatchSource {
         seller_id: shop_core::shop_id::ShopId::new(),
         seller_slug_id: shop_core::seller_slug_id::SellerSlugId::from("seller"),
         seller_name: shop_core::shop_name::ShopName::from("Seller"),
-        shops_product_id: product_core::shops_product_id::ShopsProductId::from("sku-1"),
+        shops_product_id: product_listing_core::shops_product_id::ShopsProductId::from("sku-1"),
         address: ProductAddress::default(),
         product_title: None,
         product_description: None,
@@ -229,8 +229,8 @@ fn product_source(title: &str) -> ProductSearchFilterMatchSource {
         descriptions: HashMap::new(),
         pricing: ProductPricing::default(),
         sale_valuation: None,
-        state: product_core::product_state::ProductState::Available,
-        lifecycle: product_core::product_lifecycle::ProductLifecycle::Active,
+        state: product_listing_core::product_state::ProductState::Available,
+        lifecycle: product_listing_core::product_lifecycle::ProductLifecycle::Active,
         url: Url::parse("https://shop.example.test/products/sku-1")
             .unwrap_or_else(|error| panic!("test URL must be valid: {error}")),
         view_url: Url::parse("https://aura.example.test/products/product")
@@ -271,8 +271,10 @@ fn sample_view_with_enhanced_description(query_text: &str) -> SearchFilterView {
         search: ProductSearch::new(Language::En, Currency::Eur)
             .with_product_query(text_query(query_text))
             .with_enhanced_search_description(
-                product_core::product_search::EnhancedSearchDescription::try_from("brass lamp")
-                    .unwrap(),
+                product_listing_core::product_search::EnhancedSearchDescription::try_from(
+                    "brass lamp",
+                )
+                .unwrap(),
             ),
         ..sample_view(query_text)
     }

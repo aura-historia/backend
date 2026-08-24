@@ -1,4 +1,4 @@
-use product_core::product_state::ProductState;
+use product_listing_core::product_state::ProductState;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 

@@ -80,9 +80,9 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, header};
     use domain_primitives::event_id::EventId;
-    use product_core::product_id::{ProductId, ProductKey};
-    use product_core::product_slug_id::ProductSlugId;
-    use product_service::use_cases::{
+    use product_listing_core::product_id::{ProductId, ProductKey};
+    use product_listing_core::product_slug_id::ProductSlugId;
+    use product_listing_service::use_cases::{
         CreateProductCommand, CreateProductError, CreateProductResult, CreateProductUseCase,
         DeleteProductError, DeleteProductResult, DeleteProductUseCase, UpdateProductCommand,
         UpdateProductError, UpdateProductResult, UpdateProductUseCase, UpsertProductCommand,

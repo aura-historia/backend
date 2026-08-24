@@ -10,11 +10,11 @@ use notification_core::{
     notification_id::NotificationId,
     notification_kind::NotificationKind,
 };
-use product_core::{
+use product_listing_core::{
     product_id::ProductId, product_slug_id::ProductSlugId, product_state::ProductState,
     shops_product_id::ShopsProductId,
 };
-use product_core::{product_image::ProductImage, title::Title};
+use product_listing_core::{product_image::ProductImage, title::Title};
 use search_filter_core::{
     user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
 };

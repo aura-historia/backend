@@ -1,5 +1,5 @@
 use crate::patch_value::PatchValue;
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use user_core::user_id::UserId;

@@ -51,9 +51,11 @@ use oauth_service::use_cases::{
     TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
 };
 use platform_postgres::SqlxUnitOfWork;
-use product_core::product_id::ProductId;
-use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
-use product_postgres::{
+use product_listing_core::product_id::ProductId;
+use product_listing_opensearch::{
+    OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader,
+};
+use product_listing_postgres::{
     SqlxPartnerProductAuthorizerFactory, SqlxProductDetailsBatchReader,
     SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
     SqlxProductEventReaderFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
@@ -64,7 +66,7 @@ use shop_core::shop_id::ShopId;
 use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user_id::UserId;
 
-use product_service::use_cases::{
+use product_listing_service::use_cases::{
     CreateProductHandler, DeleteProductHandler, GetProductEventsHandler, GetProductHandler,
     GetSimilarProductsHandler, IngestWoocommerceProductHandler, SearchProductsHandler,
     UpdateProductHandler, UpsertProductHandler,
@@ -442,7 +444,8 @@ pub async fn product_route_slugs(product_id: ProductId) -> (String, String) {
 pub async fn seed_product() -> ProductId {
     let shop = seed_shop().await;
     let product_id = ProductId::new();
-    let product_slug_id = product_core::product_slug_id::ProductSlugId::from("acceptance-product");
+    let product_slug_id =
+        product_listing_core::product_slug_id::ProductSlugId::from("acceptance-product");
     let event_id = uuid::Uuid::new_v4();
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;

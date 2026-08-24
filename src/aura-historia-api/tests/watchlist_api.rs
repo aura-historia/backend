@@ -4,7 +4,7 @@ use api_support::{
     assert_problem, json_response, seed_access_token_for, seed_active_watchlist_entries,
     seed_inactive_watchlist_entry, seed_product, seed_user, seed_user_with_tier,
 };
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use test_api::{
     AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
     get_postgres_client,

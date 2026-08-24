@@ -12,11 +12,11 @@ use localization::Language;
 use money::Currency;
 use user_core::user_id::UserId;
 
-use product_service::ports::{
+use product_listing_service::ports::{
     ProductWatchlistDetailsCursor, ProductWatchlistDetailsReadError, ProductWatchlistDetailsReader,
     ProductWatchlistDetailsReaderFactory, ProductWatchlistDetailsRequest,
 };
-use product_service::use_cases::{
+use product_listing_service::use_cases::{
     PersonalizedProductDetailsView, ProductPricingPresentationError, present_product_details,
     redact_hidden_product,
 };
@@ -183,7 +183,7 @@ struct PricingSnapshots {
 async fn pricing_snapshots<Tx, F>(
     fx_rates: &F,
     tx: &mut Tx,
-    factual_details: &[product_service::ports::PersonalizedProductDetailsReadModel],
+    factual_details: &[product_listing_service::ports::PersonalizedProductDetailsReadModel],
     valuation_at: OffsetDateTime,
 ) -> Result<PricingSnapshots, ListWatchlistError>
 where
@@ -229,7 +229,7 @@ where
 }
 
 fn present_with_pricing_snapshot(
-    factual_details: product_service::ports::PersonalizedProductDetailsReadModel,
+    factual_details: product_listing_service::ports::PersonalizedProductDetailsReadModel,
     pricing_snapshots: &PricingSnapshots,
     currency: Currency,
 ) -> Result<PersonalizedProductDetailsView, ListWatchlistError> {
@@ -324,23 +324,25 @@ mod tests {
     };
     use localization::Localized;
     use money::{MonetaryAmount, Price};
-    use product_core::product_id::ProductId;
-    use product_core::product_lifecycle::ProductLifecycle;
-    use product_core::product_slug_id::ProductSlugId;
-    use product_core::product_state::ProductState;
-    use product_core::shops_product_id::ShopsProductId;
+    use product_listing_core::product_id::ProductId;
+    use product_listing_core::product_lifecycle::ProductLifecycle;
+    use product_listing_core::product_slug_id::ProductSlugId;
+    use product_listing_core::product_state::ProductState;
+    use product_listing_core::shops_product_id::ShopsProductId;
     use shop_core::shop_id::ShopId;
     use shop_core::shop_name::ShopName;
     use shop_core::shop_slug_id::ShopSlugId;
 
-    use product_core::description::Description;
-    use product_core::product::{
+    use product_listing_core::description::Description;
+    use product_listing_core::product::{
         ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     };
-    use product_core::title::Title;
-    use product_service::ports::{PersonalizedProductDetailsReadModel, ProductDetailsReadModel};
-    use product_service::use_cases::ProductPricingValuation;
-    use product_service::user_state::{NotificationUserState, ProductUserState};
+    use product_listing_core::title::Title;
+    use product_listing_service::ports::{
+        PersonalizedProductDetailsReadModel, ProductDetailsReadModel,
+    };
+    use product_listing_service::use_cases::ProductPricingValuation;
+    use product_listing_service::user_state::{NotificationUserState, ProductUserState};
 
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;

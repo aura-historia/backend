@@ -1,5 +1,5 @@
 use application::error::BoxError;
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::{SearchFilter, SearchFilterProductMatch};
 use time::OffsetDateTime;

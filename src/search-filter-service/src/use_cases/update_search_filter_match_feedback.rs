@@ -9,7 +9,7 @@ use application::operation_context::{
 };
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use user_core::user_id::UserId;
 

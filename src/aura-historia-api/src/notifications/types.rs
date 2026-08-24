@@ -15,7 +15,7 @@ use notification_core::{
 };
 use notification_service::presentation::NotificationPresentationPreferences;
 use notification_service::use_cases::queries::list_notifications::ListedNotification;
-use product_core::{product_state::ProductState, title::Title};
+use product_listing_core::{product_state::ProductState, title::Title};
 use serde::{Deserialize, Serialize, Serializer};
 use time::OffsetDateTime;
 use url::Url;

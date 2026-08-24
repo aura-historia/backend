@@ -2,7 +2,7 @@ use crate::ports::PersistedSearchFilterMatch;
 use application::pagination::{Cursor, CursoredResult};
 use domain_primitives::event_id::EventId;
 use domain_primitives::sort::SortOrder;
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;

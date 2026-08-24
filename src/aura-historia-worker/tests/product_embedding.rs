@@ -8,9 +8,11 @@ use embedding::{
     EmbeddingVector,
 };
 use platform_postgres::SqlxUnitOfWork;
-use product_core::product_id::ProductId;
-use product_postgres::{SqlxProductEmbeddingSourceReader, SqlxProductEmbeddingWriterFactory};
-use product_service::use_cases::{EmbedProductEventHandler, EmbedProductEventUseCase};
+use product_listing_core::product_id::ProductId;
+use product_listing_postgres::{
+    SqlxProductEmbeddingSourceReader, SqlxProductEmbeddingWriterFactory,
+};
+use product_listing_service::use_cases::{EmbedProductEventHandler, EmbedProductEventUseCase};
 use std::{sync::Arc, time::Duration};
 use test_api::{
     IntegrationTestService, Postgres, Sequin, aura_integration_test, get_postgres_client,

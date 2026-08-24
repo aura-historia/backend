@@ -8,10 +8,10 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use localization::Language;
 use money::Currency;
-use product_core::product_id::ProductId;
-use product_core::product_slug_id::ProductSlugId;
-use product_service::ports::ProductEmbeddingLookup;
-use product_service::use_cases::{GetSimilarProductsRequest, GetSimilarProductsResult};
+use product_listing_core::product_id::ProductId;
+use product_listing_core::product_slug_id::ProductSlugId;
+use product_listing_service::ports::ProductEmbeddingLookup;
+use product_listing_service::use_cases::{GetSimilarProductsRequest, GetSimilarProductsResult};
 use serde::Deserialize;
 use shop_core::shop_slug_id::ShopSlugId;
 
@@ -136,7 +136,7 @@ async fn similar_response(
 }
 
 fn ready_response(
-    products: Vec<product_service::use_cases::PersonalizedProductSummary>,
+    products: Vec<product_listing_service::use_cases::PersonalizedProductSummary>,
     principal: &crate::auth::TransportPrincipal,
 ) -> Response {
     let mut response = Json(
@@ -199,19 +199,19 @@ mod tests {
     use localization::{Language, Localized};
     use money::Currency;
     use money::{MonetaryAmount, Price};
-    use product_core::product_lifecycle::ProductLifecycle;
-    use product_core::product_slug_id::ProductSlugId;
-    use product_core::product_state::ProductState;
-    use product_core::shops_product_id::ShopsProductId;
-    use product_core::title::Title;
-    use product_service::use_cases::{
+    use product_listing_core::product_lifecycle::ProductLifecycle;
+    use product_listing_core::product_slug_id::ProductSlugId;
+    use product_listing_core::product_state::ProductState;
+    use product_listing_core::shops_product_id::ShopsProductId;
+    use product_listing_core::title::Title;
+    use product_listing_service::use_cases::{
         GetProductError, GetProductRequest, GetProductUseCase, GetSimilarProductsError,
         GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,
         PersonalizedProductDetailsView, PersonalizedProductSummary, ProductSummary,
         ProductSummaryPriceValuation, SearchProductsError, SearchProductsRequest,
         SearchProductsResult, SearchProductsUseCase,
     };
-    use product_service::user_state::ProductUserState;
+    use product_listing_service::user_state::ProductUserState;
     use shop_core::shop_id::ShopId;
     use shop_core::shop_name::ShopName;
     use shop_core::shop_slug_id::ShopSlugId;

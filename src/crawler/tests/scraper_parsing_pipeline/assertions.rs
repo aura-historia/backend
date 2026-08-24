@@ -11,7 +11,7 @@ use crawler::scraper::normalization::state_mapping_service::{
 };
 use crawler::scraper::scraper_service::rank_applicable_schema_indices;
 use money::Currency;
-use product_core::product_state::ProductState;
+use product_listing_core::product_state::ProductState;
 use scraper::Html;
 use time::OffsetDateTime;
 use url::Url;

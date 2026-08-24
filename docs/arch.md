@@ -101,10 +101,10 @@ runtime/                # composition root and process startup
 The neutral `record` example corresponds to concrete crate families such as:
 
 ```text
-product-core
-product-service
-product-postgres
-product-opensearch
+product-listing-core
+product-listing-service
+product-listing-postgres
+product-listing-opensearch
 ```
 
 ### 3.1 Core crate

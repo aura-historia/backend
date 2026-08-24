@@ -3,10 +3,10 @@ use domain_primitives::event_id::EventId;
 use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use fxrate_core::FxRateId;
-use product_core::product::ProductPriceValuationBasis;
-use product_core::product_id::ProductId;
-use product_core::product_lifecycle::ProductLifecycle;
-use product_core::product_state::ProductState;
+use product_listing_core::product::ProductPriceValuationBasis;
+use product_listing_core::product_id::ProductId;
+use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::product_state::ProductState;
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
@@ -20,7 +20,7 @@ use geo::{
 use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
-use product_core::product_search::{
+use product_listing_core::product_search::{
     EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductSearch,
 };
 use search_filter_core::{SearchFilter, SearchFilterProductMatch};

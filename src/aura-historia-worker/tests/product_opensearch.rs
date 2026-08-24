@@ -1,15 +1,15 @@
 use aura_historia_worker::{
     QueueConfig, WorkerRunError, WorkerRuntime, cdc::WorkerQueue,
-    product_opensearch::consume_product_opensearch_queue, serve_with_runtime,
+    product_listing_opensearch::consume_product_listing_opensearch_queue, serve_with_runtime,
 };
 use domain_primitives::event_id::EventId;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use opensearch::GetParts;
 use platform_postgres::SqlxUnitOfWork;
-use product_core::product_id::ProductId;
-use product_opensearch::OpenSearchProductSearchProjection;
-use product_postgres::SqlxProductSearchFilterMatchSourceReaderFactory;
-use product_service::use_cases::{ProjectProductHandler, ProjectProductUseCase};
+use product_listing_core::product_id::ProductId;
+use product_listing_opensearch::OpenSearchProductSearchProjection;
+use product_listing_postgres::SqlxProductSearchFilterMatchSourceReaderFactory;
+use product_listing_service::use_cases::{ProjectProductHandler, ProjectProductUseCase};
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
 use test_api::{
@@ -311,14 +311,15 @@ impl ProductOpenSearchWorker {
             SqlxFxRateSnapshotRepositoryFactory,
             OpenSearchProductSearchProjection::new(get_opensearch_client().await.clone()),
         ));
-        let (runtime, mut receivers) = WorkerRuntime::with_product_opensearch_queue(
-            QueueConfig::new(16),
-        )
-        .unwrap_or_else(|error| panic!("valid Product OpenSearch queue configuration: {error}"));
+        let (runtime, mut receivers) =
+            WorkerRuntime::with_product_listing_opensearch_queue(QueueConfig::new(16))
+                .unwrap_or_else(|error| {
+                    panic!("valid Product OpenSearch queue configuration: {error}")
+                });
         let receiver = receivers
             .take(WorkerQueue::ProductOpenSearch)
             .unwrap_or_else(|| panic!("Product OpenSearch queue is registered"));
-        let consumer = tokio::spawn(consume_product_opensearch_queue(receiver, handler));
+        let consumer = tokio::spawn(consume_product_listing_opensearch_queue(receiver, handler));
         let listener = tokio::net::TcpListener::bind(get_sequin_worker_webhook_bind_addr())
             .await
             .unwrap_or_else(|error| panic!("worker webhook bind address is available: {error}"));

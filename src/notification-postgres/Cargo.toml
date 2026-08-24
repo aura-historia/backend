@@ -13,7 +13,7 @@ money = { workspace = true }
 notification-core = { workspace = true }
 notification-email = { workspace = true }
 notification-service = { workspace = true }
-product-core = { workspace = true }
+product-listing-core = { workspace = true }
 search-filter-core = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 shop-core = { workspace = true }

@@ -1,4 +1,4 @@
-use product_core::{product_image::ProductImage, prohibited_content::ProhibitedContent};
+use product_listing_core::{product_image::ProductImage, prohibited_content::ProhibitedContent};
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

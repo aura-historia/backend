@@ -1,7 +1,7 @@
 use localization::{Language, Localized};
 use money::Price;
-use product_core::{description::Description, product_image::ProductImage, title::Title};
-use product_core::{product_state::ProductState, shops_product_id::ShopsProductId};
+use product_listing_core::{description::Description, product_image::ProductImage, title::Title};
+use product_listing_core::{product_state::ProductState, shops_product_id::ShopsProductId};
 use std::collections::BTreeMap;
 use time::OffsetDateTime;
 use url::Url;

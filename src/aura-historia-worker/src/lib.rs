@@ -1,7 +1,7 @@
 pub mod cdc;
 pub mod notification_delivery;
 pub mod product_embedding;
-pub mod product_opensearch;
+pub mod product_listing_opensearch;
 pub mod product_translation;
 pub mod retry;
 pub mod search_filter_match_notifications;
@@ -92,7 +92,7 @@ impl WorkerScope {
             "watchlist-notification" => Ok(Self::WatchlistNotification),
             "product-translation" => Ok(Self::ProductTranslation),
             "product-embedding" => Ok(Self::ProductEmbedding),
-            "product-opensearch" => Ok(Self::ProductOpenSearch),
+            "product-listing-opensearch" => Ok(Self::ProductOpenSearch),
             "notification-delivery" => Ok(Self::NotificationDelivery),
             _ => Err(WorkerStartupConfigError::InvalidScope { value }),
         }
@@ -603,7 +603,7 @@ impl WorkerRuntime {
         ))
     }
 
-    pub fn with_product_opensearch_queue(
+    pub fn with_product_listing_opensearch_queue(
         config: QueueConfig,
     ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
         let (sender, receiver) = in_memory_queue(config)?;
@@ -612,7 +612,7 @@ impl WorkerRuntime {
         let mut receivers = WorkerQueueReceivers::new();
         receivers.insert(WorkerQueue::ProductOpenSearch, receiver);
         Ok((
-            Self::new(CdcFanout::product_opensearch(registry)),
+            Self::new(CdcFanout::product_listing_opensearch(registry)),
             receivers,
         ))
     }
@@ -701,7 +701,9 @@ impl WorkerRuntimeComposition {
                 WorkerRuntime::with_product_translation_queue(config)?
             }
             WorkerScope::ProductEmbedding => WorkerRuntime::with_product_embedding_queue(config)?,
-            WorkerScope::ProductOpenSearch => WorkerRuntime::with_product_opensearch_queue(config)?,
+            WorkerScope::ProductOpenSearch => {
+                WorkerRuntime::with_product_listing_opensearch_queue(config)?
+            }
             WorkerScope::NotificationDelivery => {
                 WorkerRuntime::with_notification_delivery_queue(config)?
             }

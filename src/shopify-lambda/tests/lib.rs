@@ -11,10 +11,10 @@ use lambda_runtime::{Context, LambdaEvent};
 use localization::Language;
 use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
-use product_postgres::{
+use product_listing_postgres::{
     SqlxPartnerProductAuthorizerFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
 };
-use product_service::use_cases::{IngestShopifyProductHandler, UpsertProductHandler};
+use product_listing_service::use_cases::{IngestShopifyProductHandler, UpsertProductHandler};
 use shop_core::domain::Domain;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation, ShopifyIntegration};
@@ -385,7 +385,7 @@ async fn invoke_event(event: LambdaEvent<SqsEvent>) -> aws_lambda_events::sqs::S
 
 async fn invoke_with_ingestion(
     event: LambdaEvent<SqsEvent>,
-    ingestion: &(dyn product_service::use_cases::IngestShopifyProductUseCase + Send + Sync),
+    ingestion: &(dyn product_listing_service::use_cases::IngestShopifyProductUseCase + Send + Sync),
 ) -> aws_lambda_events::sqs::SqsBatchResponse {
     match handler(event, ingestion).await {
         Ok(response) => response,

@@ -1,7 +1,7 @@
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use money::Currency;
 use money::{MonetaryAmount, Price};
-use product_core::product_state::ProductState;
+use product_listing_core::product_state::ProductState;
 use serde::Deserialize;
 
 use crate::expectation_types::{NormalizedExpectation, NormalizedExpectationJson, RawExpectation};
@@ -111,7 +111,7 @@ fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectatio
         shops_product_id: data.shops_product_id,
         title: data.title,
         description: data.description.map(|description| {
-            product_core::description::Description::from(description.as_str()).to_string()
+            product_listing_core::description::Description::from(description.as_str()).to_string()
         }),
         price: price_from_parts(data.price, data.price_currency.as_deref()),
         price_estimate_min: price_from_parts(
@@ -168,8 +168,8 @@ fn parse_currency(code: &str) -> Currency {
     }
 }
 
-fn parse_product_state(s: &str) -> product_core::product_state::ProductState {
-    use product_core::product_state::ProductState;
+fn parse_product_state(s: &str) -> product_listing_core::product_state::ProductState {
+    use product_listing_core::product_state::ProductState;
     match s {
         "LISTED" => ProductState::Listed,
         "AVAILABLE" => ProductState::Available,

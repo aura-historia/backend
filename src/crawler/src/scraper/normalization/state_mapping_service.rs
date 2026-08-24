@@ -7,7 +7,7 @@ use large_language_model::{
     GenerationOptions, LargeLanguageModel, LargeLanguageModelError, LlmOperation,
     StructuredGenerationRequest,
 };
-use product_core::product_state::ProductState;
+use product_listing_core::product_state::ProductState;
 use regex::Regex;
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};

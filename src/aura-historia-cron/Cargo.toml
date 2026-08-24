@@ -14,8 +14,8 @@ large-language-model = { workspace = true }
 opensearch = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
-product-opensearch = { workspace = true }
-product-postgres = { workspace = true }
+product-listing-opensearch = { workspace = true }
+product-listing-postgres = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }
 thiserror = { workspace = true }

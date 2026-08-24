@@ -1,7 +1,7 @@
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
-use product_core::product_id::ProductId;
-use product_service::ports::{
+use product_listing_core::product_id::ProductId;
+use product_listing_service::ports::{
     WatchlistNotificationRecipient, WatchlistNotificationRecipientReadError,
     WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,
 };

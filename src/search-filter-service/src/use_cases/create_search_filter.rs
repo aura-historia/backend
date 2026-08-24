@@ -15,7 +15,7 @@ use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use user_core::user_id::UserId;
 
 use embedding::{EmbeddingError, EmbeddingGenerator};
-use product_core::product_search::ProductSearch;
+use product_listing_core::product_search::ProductSearch;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use search_filter_core::{NewSearchFilter, SearchFilter};
 use user_service::ports::{

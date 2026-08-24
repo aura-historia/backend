@@ -749,8 +749,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 mod tests {
     use super::*;
     use localization::{Language, Localized};
-    use product_core::title::Title;
-    use product_core::{product_state::ProductState, shops_product_id::ShopsProductId};
+    use product_listing_core::title::Title;
+    use product_listing_core::{product_state::ProductState, shops_product_id::ShopsProductId};
     use shop_core::shop_id::ShopId;
     use url::Url;
 
@@ -859,8 +859,8 @@ mod tests {
 
     #[test]
     fn images_hash_is_order_independent() {
-        use product_core::product_image::ProductImage;
-        use product_core::prohibited_content::ProhibitedContent;
+        use product_listing_core::product_image::ProductImage;
+        use product_listing_core::prohibited_content::ProhibitedContent;
 
         let images_a = vec![
             ProductImage {

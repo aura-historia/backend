@@ -23,8 +23,8 @@ use notification_service::{
 };
 use opensearch::GetParts;
 use platform_postgres::SqlxUnitOfWork;
-use product_core::{product_id::ProductId, product_search::ProductSearch};
-use product_postgres::{
+use product_listing_core::{product_id::ProductId, product_search::ProductSearch};
+use product_listing_postgres::{
     SqlxProductCurrentRevisionGuardFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
 };
 use search_filter_core::{

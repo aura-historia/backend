@@ -4,7 +4,7 @@ use large_language_model::{
     StructuredGenerationRequest,
 };
 use localization::Language;
-use product_service::ports::ProductSearchFilterMatchSource;
+use product_listing_service::ports::ProductSearchFilterMatchSource;
 use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
 use serde::Deserialize;
 use std::num::NonZeroUsize;
@@ -177,7 +177,7 @@ mod tests {
     use super::*;
     use domain_primitives::event_id::EventId;
     use indexmap::IndexSet;
-    use product_core::{
+    use product_listing_core::{
         product::{ProductAddress, ProductAuction, ProductPricing},
         product_image::ProductImage,
         product_lifecycle::ProductLifecycle,
@@ -185,7 +185,7 @@ mod tests {
         product_state::ProductState,
         shops_product_id::ShopsProductId,
     };
-    use product_service::ports::{
+    use product_listing_service::ports::{
         ProductSearchFilterMatchShopType, ProductSearchFilterMatchSourceEventKind,
     };
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
@@ -200,7 +200,7 @@ mod tests {
             origin_event_time: time::OffsetDateTime::UNIX_EPOCH,
             current_event_id: event_id,
             projection_version: 1,
-            product_id: product_core::product_id::ProductId::new(),
+            product_id: product_listing_core::product_id::ProductId::new(),
             product_slug_id: ProductSlugId::from("product"),
             shop_id: ShopId::new(),
             shop_slug_id: ShopSlugId::from("shop"),
@@ -258,7 +258,8 @@ mod tests {
         for url in &image_urls {
             product.images.insert(ProductImage {
                 url: url.clone(),
-                prohibited_content: product_core::prohibited_content::ProhibitedContent::None,
+                prohibited_content:
+                    product_listing_core::prohibited_content::ProhibitedContent::None,
             });
         }
 

@@ -1,7 +1,7 @@
 use crate::mapping::WatchlistRepositoryRow;
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
 use watchlist_core::WatchlistProduct;

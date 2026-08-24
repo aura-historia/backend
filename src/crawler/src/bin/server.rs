@@ -82,10 +82,10 @@ use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServic
 use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use platform_postgres::SqlxUnitOfWork;
-use product_postgres::{
+use product_listing_postgres::{
     SqlxPartnerProductAuthorizerFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
 };
-use product_service::use_cases::UpsertProductHandler;
+use product_listing_service::use_cases::UpsertProductHandler;
 use shop_core::{partner_status::ShopPartnerStatus, shop_id::ShopId};
 use shop_postgres::SqlxShopSearchReaderFactory;
 use shop_service::{

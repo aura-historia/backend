@@ -4,10 +4,10 @@ use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_observability::{LogLevel, LoggingConfig, init};
 use platform_postgres::{PostgresPoolConfig, SqlxUnitOfWork};
-use product_postgres::{
+use product_listing_postgres::{
     SqlxPartnerProductAuthorizerFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
 };
-use product_service::use_cases::{IngestShopifyProductHandler, UpsertProductHandler};
+use product_listing_service::use_cases::{IngestShopifyProductHandler, UpsertProductHandler};
 use shop_postgres::SqlxShopDetailsReaderFactory;
 use shop_service::use_cases::GetShopHandler;
 use shopify_lambda::handler;

@@ -8,8 +8,8 @@ use application::{
     operation_context::{CorrelationId, OperationContext, Principal, RequestId},
 };
 use domain_primitives::event_id::EventId;
-use product_core::product_id::ProductId;
-use product_service::use_cases::{
+use product_listing_core::product_id::ProductId;
+use product_listing_service::use_cases::{
     EmbedProductCommand, EmbedProductEventOutcome, EmbedProductEventUseCase,
 };
 use std::sync::Arc;

@@ -36,9 +36,9 @@ use crate::scraper::scraper_service::service::{
 use crate::spider::classification::url_metadata::UrlState;
 use localization::Language;
 use localization::Localized;
-use product_core::product_state::ProductState;
-use product_core::shops_product_id::ShopsProductId;
-use product_core::title::Title;
+use product_listing_core::product_state::ProductState;
+use product_listing_core::shops_product_id::ShopsProductId;
+use product_listing_core::title::Title;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use url::Url;

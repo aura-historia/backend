@@ -15,7 +15,7 @@ use money::Currency;
 use crate::pagination_data::JsonCursoredData;
 use application::pagination::{Cursor, CursoredResult};
 use domain_primitives::sort::SortOrder;
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use search_filter_service::ports::SearchFilterMatchCursor;
 use search_filter_service::use_cases::ListSearchFilterMatchesRequest;
 use serde::Deserialize;

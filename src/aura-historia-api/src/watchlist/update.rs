@@ -8,7 +8,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use watchlist_service::use_cases::UpdateWatchlistProductCommand;
 
 pub async fn patch_watchlist(

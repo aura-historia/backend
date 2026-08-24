@@ -12,9 +12,9 @@ platform-postgres = { workspace = true }
 fxrate-postgres = { workspace = true }
 indexmap = { workspace = true }
 lambda_runtime = { workspace = true }
-product-core = { workspace = true }
-product-postgres = { workspace = true }
-product-service = { workspace = true }
+product-listing-core = { workspace = true }
+product-listing-postgres = { workspace = true }
+product-listing-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 shop-core = { workspace = true }

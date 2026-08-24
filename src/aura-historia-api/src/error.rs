@@ -13,7 +13,7 @@ use notification_service::use_cases::commands::update_notification_seen::UpdateN
 use notification_service::use_cases::commands::update_notifications_seen::UpdateNotificationsSeenError;
 use notification_service::use_cases::queries::list_notifications::ListNotificationsError;
 use oauth_service::error::OAuthServiceError;
-use product_service::use_cases::{
+use product_listing_service::use_cases::{
     CreateProductError, DeleteProductError, GetProductError, GetProductEventsError,
     GetSimilarProductsError, IngestWoocommerceProductError, SearchProductsError,
     UpdateProductError, UpsertProductError,

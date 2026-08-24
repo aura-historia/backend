@@ -4,8 +4,8 @@ use crate::{
 };
 use domain_primitives::{change_outcome::ChangeOutcome, event_id::EventId};
 use fxrate_core::FxRateId;
-use product_core::product_id::ProductId;
-use product_core::product_search::ProductSearch;
+use product_listing_core::product_id::ProductId;
+use product_listing_core::product_search::ProductSearch;
 use user_core::user_id::UserId;
 pub mod enhanced_match_reason;
 pub mod search_filter_state;
@@ -129,7 +129,7 @@ impl SearchFilter {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PriceMatchValuation {
-    pub basis: product_core::product::ProductPriceValuationBasis,
+    pub basis: product_listing_core::product::ProductPriceValuationBasis,
     pub fx_rate_id: FxRateId,
 }
 

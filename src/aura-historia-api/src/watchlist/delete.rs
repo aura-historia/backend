@@ -4,7 +4,7 @@ use crate::state::WatchlistState;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use watchlist_service::use_cases::UnwatchProductCommand;
 
 pub async fn delete_watchlist(

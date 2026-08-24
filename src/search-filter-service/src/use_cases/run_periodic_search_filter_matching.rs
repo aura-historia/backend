@@ -20,10 +20,10 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use large_language_model::LargeLanguageModel;
-use product_core::product::ProductPriceValuationBasis;
+use product_listing_core::product::ProductPriceValuationBasis;
 
-use product_core::product_search::ProductSearch;
-use product_service::ports::{
+use product_listing_core::product_search::ProductSearch;
+use product_listing_service::ports::{
     CompiledProductSearch, ProductCurrentRevisionCheck, ProductCurrentRevisionGuard,
     ProductCurrentRevisionGuardFactory, ProductCurrentRevisionRef, ProductPriceFilterPlan,
     ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceReadError,
@@ -841,7 +841,7 @@ async fn retry_delay(attempt: usize) {
 
 fn periodic_search_description(
     filter: &PeriodicSearchFilterCandidate,
-) -> Result<&product_core::product_search::EnhancedSearchDescription, FilterOutcome> {
+) -> Result<&product_listing_core::product_search::EnhancedSearchDescription, FilterOutcome> {
     filter
         .search
         .enhanced_search_description
@@ -1024,7 +1024,7 @@ mod tests {
     use large_language_model::{LargeLanguageModelError, StructuredGenerationRequest};
     use localization::Language;
     use money::Currency;
-    use product_core::product_id::ProductId;
+    use product_listing_core::product_id::ProductId;
     use search_filter_core::{
         search_filter_state::SearchFilterState, user_search_filter_name::UserSearchFilterName,
     };
@@ -1158,7 +1158,7 @@ mod tests {
             &self,
             _request: &ProductSearchReadRequest,
         ) -> Result<
-            product_service::use_cases::queries::search_products::ProductSearchReadResult,
+            product_listing_service::use_cases::queries::search_products::ProductSearchReadResult,
             ProductSearchReadError,
         > {
             Err(ProductSearchReadError::ProductSearchQueryFailed)
@@ -1169,7 +1169,7 @@ mod tests {
             _request: &ProductSearchReadRequest,
             _embedding: &[f32],
         ) -> Result<
-            product_service::use_cases::queries::search_products::ProductSearchReadResult,
+            product_listing_service::use_cases::queries::search_products::ProductSearchReadResult,
             ProductSearchReadError,
         > {
             Err(ProductSearchReadError::ProductSearchQueryFailed)
@@ -1243,10 +1243,10 @@ mod tests {
             _expected_event_id: EventId,
         ) -> Result<
             ProductCurrentRevisionCheck,
-            product_service::ports::ProductCurrentRevisionCheckError,
+            product_listing_service::ports::ProductCurrentRevisionCheckError,
         > {
             let mut state = self.0.lock().map_err(|_| {
-                product_service::ports::ProductCurrentRevisionCheckError::CheckFailed {
+                product_listing_service::ports::ProductCurrentRevisionCheckError::CheckFailed {
                     source: box_error(std::io::Error::other("test mutex poisoned")),
                 }
             })?;

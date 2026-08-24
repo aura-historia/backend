@@ -219,10 +219,10 @@ dependencies = [
  "openssl",
  "platform-observability",
  "platform-postgres",
- "product-core",
- "product-opensearch",
- "product-postgres",
- "product-service",
+ "product-listing-core",
+ "product-listing-opensearch",
+ "product-listing-postgres",
+ "product-listing-service",
  "reqwest 0.12.28",
  "rstest",
  "search-filter-core",
@@ -272,8 +272,8 @@ dependencies = [
  "opensearch",
  "platform-observability",
  "platform-postgres",
- "product-opensearch",
- "product-postgres",
+ "product-listing-opensearch",
+ "product-listing-postgres",
  "reqwest 0.12.28",
  "search-filter-postgres",
  "search-filter-service",
@@ -317,11 +317,11 @@ dependencies = [
  "opensearch",
  "platform-observability",
  "platform-postgres",
- "product-core",
- "product-opensearch",
- "product-postgres",
- "product-service",
- "product-translation-llm",
+ "product-listing-core",
+ "product-listing-opensearch",
+ "product-listing-postgres",
+ "product-listing-service",
+ "product-listing-translation-llm",
  "reqwest 0.12.28",
  "rstest",
  "search-filter-core",
@@ -1786,9 +1786,9 @@ dependencies = [
  "money",
  "once_cell",
  "platform-postgres",
- "product-core",
- "product-postgres",
- "product-service",
+ "product-listing-core",
+ "product-listing-postgres",
+ "product-listing-service",
  "regex",
  "reqwest 0.12.28",
  "rstest",
@@ -4551,7 +4551,7 @@ dependencies = [
  "fake",
  "localization",
  "money",
- "product-core",
+ "product-listing-core",
  "rstest",
  "search-filter-core",
  "serde",
@@ -4592,7 +4592,7 @@ dependencies = [
  "notification-core",
  "notification-email",
  "notification-service",
- "product-core",
+ "product-listing-core",
  "rstest",
  "serde_json",
  "shop-core",
@@ -4613,7 +4613,7 @@ dependencies = [
  "notification-email",
  "notification-service",
  "platform-postgres",
- "product-core",
+ "product-listing-core",
  "search-filter-core",
  "serde",
  "serde-email",
@@ -5455,7 +5455,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "product-core"
+name = "product-listing-core"
 version = "0.1.0"
 dependencies = [
  "domain-primitives",
@@ -5481,7 +5481,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "product-opensearch"
+name = "product-listing-opensearch"
 version = "0.1.0"
 dependencies = [
  "application",
@@ -5495,8 +5495,8 @@ dependencies = [
  "money",
  "opensearch",
  "platform-opensearch",
- "product-core",
- "product-service",
+ "product-listing-core",
+ "product-listing-service",
  "rstest",
  "serde",
  "serde_fields",
@@ -5514,7 +5514,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "product-postgres"
+name = "product-listing-postgres"
 version = "0.1.0"
 dependencies = [
  "application",
@@ -5528,8 +5528,8 @@ dependencies = [
  "money",
  "notification-core",
  "platform-postgres",
- "product-core",
- "product-service",
+ "product-listing-core",
+ "product-listing-service",
  "rstest",
  "search-filter-core",
  "serde",
@@ -5548,7 +5548,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "product-service"
+name = "product-listing-service"
 version = "0.1.0"
 dependencies = [
  "application",
@@ -5565,7 +5565,7 @@ dependencies = [
  "money",
  "notification-core",
  "notification-service",
- "product-core",
+ "product-listing-core",
  "search-filter-core",
  "serde_json",
  "shop-core",
@@ -5582,7 +5582,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "product-translation-llm"
+name = "product-listing-translation-llm"
 version = "0.1.0"
 dependencies = [
  "application",
@@ -5590,8 +5590,8 @@ dependencies = [
  "indexmap 2.14.0",
  "large-language-model",
  "localization",
- "product-core",
- "product-service",
+ "product-listing-core",
+ "product-listing-service",
  "serde",
  "serde_json",
 ]
@@ -6326,7 +6326,7 @@ dependencies = [
  "fxrate-core",
  "localization",
  "money",
- "product-core",
+ "product-listing-core",
  "serde",
  "strum 0.28.0",
  "strum_macros 0.28.0",
@@ -6348,9 +6348,9 @@ dependencies = [
  "money",
  "opensearch",
  "platform-opensearch",
- "product-core",
- "product-opensearch",
- "product-service",
+ "product-listing-core",
+ "product-listing-opensearch",
+ "product-listing-service",
  "search-filter-core",
  "search-filter-service",
  "serde",
@@ -6379,7 +6379,7 @@ dependencies = [
  "localization",
  "money",
  "platform-postgres",
- "product-core",
+ "product-listing-core",
  "search-filter-core",
  "search-filter-service",
  "serde",
@@ -6414,8 +6414,8 @@ dependencies = [
  "money",
  "notification-core",
  "notification-service",
- "product-core",
- "product-service",
+ "product-listing-core",
+ "product-listing-service",
  "search-filter-core",
  "serde",
  "serde_json",
@@ -6978,9 +6978,9 @@ dependencies = [
  "money",
  "platform-observability",
  "platform-postgres",
- "product-core",
- "product-postgres",
- "product-service",
+ "product-listing-core",
+ "product-listing-postgres",
+ "product-listing-service",
  "serde",
  "serde_json",
  "serial_test",
@@ -8347,7 +8347,7 @@ dependencies = [
  "localization",
  "money",
  "platform-postgres",
- "product-core",
+ "product-listing-core",
  "rstest",
  "serde-email",
  "serde_json",
@@ -8575,7 +8575,7 @@ name = "watchlist-core"
 version = "0.1.0"
 dependencies = [
  "fake",
- "product-core",
+ "product-listing-core",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "user-core",
@@ -8589,8 +8589,8 @@ dependencies = [
  "async-trait",
  "domain-primitives",
  "platform-postgres",
- "product-core",
- "product-service",
+ "product-listing-core",
+ "product-listing-service",
  "serial_test",
  "sqlx",
  "strum 0.28.0",
@@ -8616,8 +8616,8 @@ dependencies = [
  "fxrate-service",
  "localization",
  "money",
- "product-core",
- "product-service",
+ "product-listing-core",
+ "product-listing-service",
  "serde",
  "serde-email",
  "shop-core",

@@ -354,7 +354,7 @@ pub(crate) mod shop_partner_status {
 
 pub(crate) mod product_state {
     use super::*;
-    use product_core::product_state::ProductState;
+    use product_listing_core::product_state::ProductState;
 
     fn parse(value: &str) -> Option<ProductState> {
         ProductState::from_code(value)
@@ -441,7 +441,7 @@ pub(crate) mod product_state {
 
 pub(crate) mod product_lifecycle {
     use super::*;
-    use product_core::product_lifecycle::ProductLifecycle;
+    use product_listing_core::product_lifecycle::ProductLifecycle;
 
     fn parse(value: &str) -> Option<ProductLifecycle> {
         ProductLifecycle::from_code(value)
@@ -470,7 +470,7 @@ pub(crate) mod product_lifecycle {
 
 pub(crate) mod prohibited_content {
     use super::*;
-    use product_core::prohibited_content::ProhibitedContent;
+    use product_listing_core::prohibited_content::ProhibitedContent;
 
     pub(crate) fn serialize<S>(value: &ProhibitedContent, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -618,7 +618,7 @@ pub(crate) mod partner_shop_application_state {
 
 pub(crate) mod product_event_type {
     use super::*;
-    use product_service::use_cases::ProductEventType;
+    use product_listing_service::use_cases::ProductEventType;
 
     fn code(value: ProductEventType) -> &'static str {
         match value {
@@ -713,9 +713,9 @@ mod tests {
     use geo::core::distance::DistanceUnit;
     use localization::Language;
     use money::Currency;
-    use product_core::product_lifecycle::ProductLifecycle;
-    use product_core::product_state::ProductState;
-    use product_core::prohibited_content::ProhibitedContent;
+    use product_listing_core::product_lifecycle::ProductLifecycle;
+    use product_listing_core::product_state::ProductState;
+    use product_listing_core::prohibited_content::ProhibitedContent;
     use serde::de::DeserializeOwned;
     use serde_json::json;
     use shop_core::partner_status::ShopPartnerStatus;
@@ -868,35 +868,35 @@ mod tests {
     fn should_serialize_rest_product_event_type_codes() -> Result<(), serde_json::Error> {
         let values = [
             (
-                product_service::use_cases::ProductEventType::Created,
+                product_listing_service::use_cases::ProductEventType::Created,
                 "CREATED",
             ),
             (
-                product_service::use_cases::ProductEventType::StateChanged,
+                product_listing_service::use_cases::ProductEventType::StateChanged,
                 "STATE_CHANGED",
             ),
             (
-                product_service::use_cases::ProductEventType::AddressChanged,
+                product_listing_service::use_cases::ProductEventType::AddressChanged,
                 "ADDRESS_CHANGED",
             ),
             (
-                product_service::use_cases::ProductEventType::PriceChanged,
+                product_listing_service::use_cases::ProductEventType::PriceChanged,
                 "PRICE_CHANGED",
             ),
             (
-                product_service::use_cases::ProductEventType::UrlChanged,
+                product_listing_service::use_cases::ProductEventType::UrlChanged,
                 "URL_CHANGED",
             ),
             (
-                product_service::use_cases::ProductEventType::ImagesChanged,
+                product_listing_service::use_cases::ProductEventType::ImagesChanged,
                 "IMAGES_CHANGED",
             ),
             (
-                product_service::use_cases::ProductEventType::AuctionChanged,
+                product_listing_service::use_cases::ProductEventType::AuctionChanged,
                 "AUCTION_CHANGED",
             ),
             (
-                product_service::use_cases::ProductEventType::Deleted,
+                product_listing_service::use_cases::ProductEventType::Deleted,
                 "DELETED",
             ),
         ];
@@ -947,7 +947,7 @@ mod tests {
     #[derive(serde::Serialize)]
     #[serde(transparent)]
     struct WireProductEventType(
-        #[serde(with = "product_event_type")] product_service::use_cases::ProductEventType,
+        #[serde(with = "product_event_type")] product_listing_service::use_cases::ProductEventType,
     );
 
     #[derive(serde::Deserialize)]

@@ -1,6 +1,6 @@
 use crate::mapping::{MATCH_COLUMNS, MatchRow, user_search_filter_uuid};
 use platform_postgres::SqlxTransaction;
-use product_core::product_id::ProductId;
+use product_listing_core::product_id::ProductId;
 use search_filter_core::SearchFilterProductMatch;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{

@@ -10,19 +10,19 @@ use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use notification_core::{
     notification_id::NotificationId, presentation::NotificationImagePresentation,
 };
-use product_core::product::ProductPricing;
-use product_core::product_id::ProductId;
-use product_core::product_lifecycle::ProductLifecycle;
-use product_core::product_slug_id::ProductSlugId;
-use product_core::product_state::ProductState;
-use product_core::prohibited_content::ProhibitedContent;
-use product_core::shops_product_id::ShopsProductId;
-use product_service::use_cases::{
+use product_listing_core::product::ProductPricing;
+use product_listing_core::product_id::ProductId;
+use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::product_slug_id::ProductSlugId;
+use product_listing_core::product_state::ProductState;
+use product_listing_core::prohibited_content::ProhibitedContent;
+use product_listing_core::shops_product_id::ShopsProductId;
+use product_listing_service::use_cases::{
     DisplayProductPricing, PersonalizedProductDetailsView, PersonalizedProductSummary,
     ProductDetailsView, ProductPricingPresentation, ProductPricingValuation, ProductSummary,
     ProductSummaryPriceValuation,
 };
-use product_service::user_state::{
+use product_listing_service::user_state::{
     NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
     WatchlistUserState,
 };
@@ -436,7 +436,7 @@ impl ProductImageData {
     }
 
     pub(crate) fn from_with_consent(
-        image: product_core::product_image::ProductImage,
+        image: product_listing_core::product_image::ProductImage,
         prohibited_content_consent: bool,
     ) -> Self {
         Self {
@@ -447,8 +447,8 @@ impl ProductImageData {
     }
 }
 
-impl From<product_core::product_image::ProductImage> for ProductImageData {
-    fn from(image: product_core::product_image::ProductImage) -> Self {
+impl From<product_listing_core::product_image::ProductImage> for ProductImageData {
+    fn from(image: product_listing_core::product_image::ProductImage) -> Self {
         Self::from_with_consent(image, false)
     }
 }
@@ -519,7 +519,7 @@ pub(crate) fn product_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use product_core::product_image::ProductImage;
+    use product_listing_core::product_image::ProductImage;
     use serde_json::json;
 
     #[test]

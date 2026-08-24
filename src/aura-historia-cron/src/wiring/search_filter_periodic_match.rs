@@ -12,8 +12,8 @@ use opensearch::{
 use platform_postgres::{
     PostgresConnectError, PostgresPoolConfig, PostgresPoolConfigError, SqlxUnitOfWork,
 };
-use product_opensearch::OpenSearchProductSearchReader;
-use product_postgres::{
+use product_listing_opensearch::OpenSearchProductSearchReader;
+use product_listing_postgres::{
     SqlxProductCurrentRevisionGuardFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
 };
 use search_filter_postgres::{
