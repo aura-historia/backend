@@ -10,6 +10,7 @@ use notification_core::{
         LocalizedProductNotificationSnapshot, PartnerApplicationDecision,
     },
     notification_id::NotificationId,
+    notification_kind::NotificationKind,
     presentation::present_image,
 };
 use notification_service::presentation::NotificationPresentationPreferences;
@@ -42,7 +43,8 @@ pub(crate) struct NotificationData {
     created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     updated: OffsetDateTime,
-    kind: NotificationKindData,
+    #[serde(with = "crate::wire::notification_kind")]
+    kind: NotificationKind,
     payload: NotificationContentData,
 }
 
@@ -58,7 +60,7 @@ impl From<(ListedNotification, NotificationPresentationPreferences)> for Notific
             seen: value.seen,
             created: value.created,
             updated: value.updated,
-            kind: NotificationKindData::from(&value.content),
+            kind: value.kind,
             payload: (value.content, presentation_preferences).into(),
         }
     }
@@ -112,8 +114,10 @@ enum WatchlistNotificationChangeData {
         new_price: Option<PriceData>,
     },
     StateChange {
-        old_state: NotificationProductStateData,
-        new_state: NotificationProductStateData,
+        #[serde(with = "crate::wire::product_state")]
+        old_state: ProductState,
+        #[serde(with = "crate::wire::product_state")]
+        new_state: ProductState,
     },
 }
 
@@ -138,63 +142,10 @@ struct SearchFilterNotificationPayloadData {
 #[serde(rename_all = "camelCase")]
 struct PartnerApplicationNotificationPayloadData {
     partner_shop_application_id: Uuid,
-    decision: PartnerApplicationDecisionData,
+    #[serde(with = "crate::wire::partner_application_decision")]
+    decision: PartnerApplicationDecision,
     shop_name: String,
     image: Option<Url>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum NotificationProductStateData {
-    Listed,
-    Available,
-    Reserved,
-    Sold,
-    Removed,
-    Unknown,
-}
-
-impl From<ProductState> for NotificationProductStateData {
-    fn from(value: ProductState) -> Self {
-        match value {
-            ProductState::Listed => Self::Listed,
-            ProductState::Available => Self::Available,
-            ProductState::Reserved => Self::Reserved,
-            ProductState::Sold => Self::Sold,
-            ProductState::Removed => Self::Removed,
-            ProductState::Unknown => Self::Unknown,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum NotificationKindData {
-    WatchlistPriceChanged,
-    WatchlistStateChanged,
-    SearchFilterMatch,
-    PartnerApplicationApproved,
-    PartnerApplicationRejected,
-}
-
-impl From<&LocalizedNotificationContent> for NotificationKindData {
-    fn from(value: &LocalizedNotificationContent) -> Self {
-        match value {
-            LocalizedNotificationContent::Watchlist {
-                change: LocalizedNotificationWatchlistChange::PriceChange { .. },
-                ..
-            } => Self::WatchlistPriceChanged,
-            LocalizedNotificationContent::Watchlist { .. } => Self::WatchlistStateChanged,
-            LocalizedNotificationContent::SearchFilter { .. } => Self::SearchFilterMatch,
-            LocalizedNotificationContent::PartnerApplication {
-                decision: PartnerApplicationDecision::Approved,
-                ..
-            } => Self::PartnerApplicationApproved,
-            LocalizedNotificationContent::PartnerApplication { .. } => {
-                Self::PartnerApplicationRejected
-            }
-        }
-    }
 }
 
 impl
@@ -258,7 +209,7 @@ impl
                 decision,
             } => Self::PartnerApplication(PartnerApplicationNotificationPayloadData {
                 partner_shop_application_id: Uuid::from(partner_shop_application_id),
-                decision: decision.into(),
+                decision,
                 shop_name: snapshot.shop_name.to_string(),
                 image: snapshot.image,
             }),
@@ -290,13 +241,13 @@ fn notification_product_snapshot(
 fn localized_text_data(value: Localized<Language, Title>) -> LocalizedTextData {
     LocalizedTextData {
         text: value.payload.into(),
-        language: value.localization.into(),
+        language: value.localization,
     }
 }
 
 fn price_data(value: Price) -> PriceData {
     PriceData {
-        currency: value.currency.into(),
+        currency: value.currency,
         amount: value.monetary_amount.into(),
     }
 }
@@ -327,25 +278,9 @@ impl From<LocalizedNotificationWatchlistChange> for WatchlistNotificationChangeD
                 old_state,
                 new_state,
             } => Self::StateChange {
-                old_state: old_state.into(),
-                new_state: new_state.into(),
+                old_state,
+                new_state,
             },
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum PartnerApplicationDecisionData {
-    Approved,
-    Rejected,
-}
-
-impl From<PartnerApplicationDecision> for PartnerApplicationDecisionData {
-    fn from(value: PartnerApplicationDecision) -> Self {
-        match value {
-            PartnerApplicationDecision::Approved => Self::Approved,
-            PartnerApplicationDecision::Rejected => Self::Rejected,
         }
     }
 }

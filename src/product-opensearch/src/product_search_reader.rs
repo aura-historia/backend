@@ -1,8 +1,5 @@
-use crate::continent_document::ContinentDocument;
 use crate::product_document::{ProductDocument, ProductDocumentSerdeField};
-use crate::product_lifecycle_document::ProductLifecycleDocument;
-use crate::product_state_document::ProductStateDocument;
-use crate::shop_type_document::ShopTypeDocument;
+
 use application::pagination::{Cursor, CursoredResult};
 use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::text_query::TextQuery;
@@ -18,7 +15,9 @@ use opensearch::http::Method;
 use opensearch::http::headers::HeaderMap;
 use opensearch::http::request::JsonBody;
 use opensearch::{OpenSearch, SearchParts};
+use product_core::product_lifecycle::ProductLifecycle;
 use product_core::product_search::ProductSearch;
+use product_core::product_state::ProductState;
 use product_core::sort_product_field::SortProductField;
 use product_core::title::Title;
 use product_service::ports::{
@@ -30,6 +29,7 @@ use product_service::use_cases::queries::search_products::{
 };
 use serde::ser::Error;
 use serde_json::json;
+use shop_core::shop_type::ShopType;
 use std::collections::HashMap;
 use std::hash::Hash;
 use strum::EnumCount;
@@ -191,8 +191,8 @@ fn map_summary_fields(
         title,
         display_price,
         price_valuation,
-        state: document.state.into(),
-        lifecycle: document.lifecycle.into(),
+        state: document.state,
+        lifecycle: document.lifecycle,
         url: document.url,
         view_url: document.view_url,
         images: document.images.into_iter().map(Into::into).collect(),
@@ -211,7 +211,7 @@ fn resolve_title(
     insert_title(&mut titles, Language::Es, &document.title_es);
     insert_title(&mut titles, Language::It, &document.title_it);
     titles
-        .entry(Language::from(document.title.language))
+        .entry(document.title.language)
         .or_insert_with(|| Title::from(document.title.text.clone()));
     Language::resolve(&[preferred_language], titles)
 }
@@ -553,12 +553,12 @@ pub(crate) fn build_common_filter_clauses(
     let mut filter = Vec::new();
 
     let lifecycle_terms = if search.lifecycle_query.is_empty() {
-        vec![ProductLifecycleDocument::Active.as_str().to_owned()]
+        vec![ProductLifecycle::Active.as_str().to_owned()]
     } else {
         search
             .lifecycle_query
             .iter()
-            .map(|value| ProductLifecycleDocument::from(*value).as_str().to_owned())
+            .map(|value| value.as_str().to_owned())
             .collect()
     };
     filter.push(json!({
@@ -613,7 +613,7 @@ pub(crate) fn build_common_filter_clauses(
     if !search.continent_query.is_empty() {
         filter.push(json!({
             "terms": {
-                ProductDocumentSerdeField::StructuredAddressContinent.as_str(): search.continent_query.iter().map(|continent| ContinentDocument::from(*continent).as_str()).collect::<Vec<_>>()
+                ProductDocumentSerdeField::StructuredAddressContinent.as_str(): search.continent_query.iter().map(|continent| (*continent).as_str()).collect::<Vec<_>>()
             }
         }));
     }
@@ -656,27 +656,17 @@ pub(crate) fn build_common_filter_clauses(
         }));
     }
 
-    let state_query = search
-        .state_query
-        .iter()
-        .map(|value| ProductStateDocument::from(*value))
-        .collect();
     apply_any_of_filter(
         &mut filter,
-        &state_query,
+        &search.state_query,
         ProductDocumentSerdeField::State,
-        ProductStateDocument::as_str,
+        |value: &ProductState| value.as_str(),
     );
-    let shop_type_query = search
-        .shop_type_query
-        .iter()
-        .map(|value| ShopTypeDocument::from(*value))
-        .collect();
     apply_any_of_filter(
         &mut filter,
-        &shop_type_query,
+        &search.shop_type_query,
         ProductDocumentSerdeField::ShopType,
-        ShopTypeDocument::as_str,
+        |value: &ShopType| value.as_str(),
     );
 
     for (query, field) in [
@@ -842,19 +832,19 @@ fn apply_any_of_filter<T: Hash + Eq + EnumCount>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::product_document::{
-        CurrencyDocument, LanguageDocument, SalePricesDocument, SourcePriceDocument, TextDocument,
-    };
+    use crate::product_document::{SalePricesDocument, SourcePriceDocument, TextDocument};
     use domain_primitives::event_id::EventId;
     use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use geo::core::distance::{Distance, DistanceUnit, GeoDistanceQuery};
     use indexmap::IndexSet;
     use money::MonetaryAmount;
     use product_core::{
-        product_id::ProductId, product_slug_id::ProductSlugId, shops_product_id::ShopsProductId,
+        product_id::ProductId, product_lifecycle::ProductLifecycle, product_slug_id::ProductSlugId,
+        product_state::ProductState, shops_product_id::ShopsProductId,
     };
     use shop_core::shop_id::ShopId;
     use shop_core::shop_slug_id::ShopSlugId;
+    use shop_core::shop_type::ShopType;
     use strum::IntoEnumIterator;
     use time::{OffsetDateTime, macros::datetime};
     use url::Url;
@@ -912,7 +902,7 @@ mod tests {
             shops_product_id: ShopsProductId::from("sku-1"),
             shop_name: "Shop".to_owned(),
             seller_name: "Seller".to_owned(),
-            shop_type: ShopTypeDocument::CommercialDealer,
+            shop_type: ShopType::CommercialDealer,
             structured_address_addressline: None,
             structured_address_addressline_extra: None,
             structured_address_locality: None,
@@ -921,7 +911,7 @@ mod tests {
             structured_address_country: None,
             structured_address_continent: None,
             geo_address: None,
-            title: TextDocument::new("Vase", LanguageDocument::En),
+            title: TextDocument::new("Vase", Language::En),
             title_de: None,
             title_en: Some("Vase".to_owned()),
             title_fr: None,
@@ -929,13 +919,13 @@ mod tests {
             title_it: None,
             source_price: Some(SourcePriceDocument {
                 amount: 100,
-                currency: CurrencyDocument::Eur,
+                currency: Currency::Eur,
             }),
             sale_prices: None,
             sale_fx_rate_id: None,
             sold_at: None,
-            state: ProductStateDocument::Available,
-            lifecycle: ProductLifecycleDocument::Active,
+            state: ProductState::Available,
+            lifecycle: ProductLifecycle::Active,
             url: Url::parse("https://shop.example/products/sku-1")?,
             view_url: Url::parse("https://aura.example/products/vase-abcdef")?,
             images: IndexSet::new(),

@@ -9,6 +9,12 @@ pub enum PartnerShopApplicationState {
 }
 
 impl PartnerShopApplicationState {
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|state| state.as_str() == value)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Submitted => "SUBMITTED",
@@ -49,5 +55,16 @@ mod tests {
                 .map(PartnerShopApplicationState::as_str)
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn should_round_trip_canonical_partner_application_state_identifiers() {
+        for state in PartnerShopApplicationState::iter() {
+            assert_eq!(
+                Some(state),
+                PartnerShopApplicationState::from_code(state.as_str())
+            );
+        }
+        assert_eq!(None, PartnerShopApplicationState::from_code("submitted"));
     }
 }

@@ -158,6 +158,12 @@ impl Currency {
         )
     }
 
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|currency| currency.as_str() == value)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Currency::Eur => "EUR",
@@ -192,5 +198,19 @@ impl HasMinorUnitExponent for Currency {
             Currency::Jpy => MinorUnitExponent(0),
             _ => MinorUnitExponent(2),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use strum::IntoEnumIterator;
+
+    #[test]
+    fn should_round_trip_all_canonical_currency_codes() {
+        for currency in Currency::iter() {
+            assert_eq!(Some(currency), Currency::from_code(currency.as_str()));
+        }
+        assert_eq!(None, Currency::from_code("eur"));
     }
 }

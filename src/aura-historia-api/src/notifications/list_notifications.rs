@@ -3,12 +3,12 @@ use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE};
 use crate::pagination_data::JsonCursoredData;
 use crate::state::NotificationsState;
-use crate::values::LanguageData;
 use application::pagination::{Cursor, CursoredResult};
 use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
+use localization::Language;
 
 use notification_core::notification_id::NotificationId;
 use notification_service::ports::notification_list_reader::NotificationListCursor;
@@ -22,7 +22,8 @@ use uuid::Uuid;
 #[serde(rename_all = "camelCase")]
 struct ListNotificationsQuery {
     #[serde(default)]
-    language: LanguageData,
+    #[serde(with = "crate::wire::language")]
+    language: Language,
     size: Option<u64>,
     search_after: Option<String>,
 }
@@ -56,7 +57,7 @@ pub(super) async fn list_notifications(
         .execute(
             &context,
             ListNotificationsRequest {
-                languages: vec![query.language.into()],
+                languages: vec![query.language],
                 cursor,
                 limit,
             },

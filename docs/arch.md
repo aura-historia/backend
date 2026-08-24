@@ -430,6 +430,29 @@ Domain code SHOULD be deterministic and testable without mocks, databases, clock
 | REST request DTO | `RenameRecordRequestDto` | `api` | private or `pub(crate)` |
 | REST response DTO | `RecordDetailsResponseDto` | `api` | private or `pub(crate)` |
 
+### 5.1.1 Semantic leaf types across boundaries
+
+Architectural ownership of a DTO, command, read model, row, or document does not mean every field needs a layer-local type. Boundary structures SHOULD reuse public canonical identifiers, value objects, and enums when meaning and the intended value set are identical, reuse preserves dependency direction, and no technology representation escapes its owner.
+
+A boundary-local field type SHOULD exist only for a distinct vocabulary, compatibility rule, validation rule, unknown-value policy, representation metadata, or independent lifecycle. A variant-for-variant mirror enum with only identity conversions is a smell and needs a concrete reason.
+
+REST owns request/response structure, JSON field names, omission and null rules, aliases, REST-specific compatibility vocabulary, and HTTP validation. A semantic owner MAY also own a stable canonical machine identifier when that identifier is genuinely shared across first-party representations. REST may expose that identifier through an API-local codec without adding Serde to core types; if REST vocabulary diverges, the API-local codec owns the divergent mapping. REST does not own a duplicate of every semantic field.
+
+PostgreSQL owns row types and storage encoding. A row MAY decode directly into canonical semantic leaf types; an intermediate storage enum is unnecessary unless it carries distinct storage semantics.
+
+```rust
+#[derive(serde::Deserialize)]
+struct CreateShopDto {
+    name: ShopName,
+    #[serde(with = "shop_type_wire")]
+    shop_type: ShopType,
+}
+```
+
+Avoid a boundary mirror such as `ShopTypeDto` plus exhaustive identity conversions unless an intentional contract divergence requires it.
+
+For bounded-context enums, this workspace uses the policy that the canonical value set equals the REST value set when the API delegates to the canonical identifier. Adding a canonical variant therefore intentionally makes it REST-visible. A REST-specific alias, subset, or compatibility value still requires an API-local codec and review.
+
 ### 5.2 Visibility rules
 
 Use the narrowest visibility that satisfies a real production crate boundary.
@@ -1153,7 +1176,7 @@ api/record/mapping.rs
 
 Small mappings used by only one controller MAY live in the controller file.
 
-REST enum/value DTOs shared by multiple endpoints in the same unit SHOULD live in that unit's `types.rs`, for example `shops/types.rs`. Do not put endpoint-specific request or response DTOs there. Keep endpoint payload DTOs beside the endpoint unless they are genuinely shared public REST shapes.
+REST enum/value DTOs shared by multiple endpoints in the same unit SHOULD live in that unit's `types.rs`, for example `shops/types.rs`. Do not put endpoint-specific request or response DTOs there. Keep endpoint payload DTOs beside the endpoint unless they are genuinely shared public REST shapes. A unit-local `types.rs` MAY instead hold wire codecs for canonical semantic leaf types; REST keeps its wire contract without duplicating the semantic type.
 
 The service MUST NOT know REST DTOs or HTTP status codes.
 

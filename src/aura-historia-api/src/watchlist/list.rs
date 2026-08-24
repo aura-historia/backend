@@ -6,12 +6,13 @@ use crate::products::product_data::{
     PersonalizedProductDetailsData, personalized_product_details_data,
 };
 use crate::state::WatchlistState;
-use crate::values::{CurrencyData, LanguageData};
 use application::pagination::{Cursor, CursoredResult};
 use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
+use localization::Language;
+use money::Currency;
 use product_core::product_id::ProductId;
 use product_service::ports::ProductWatchlistDetailsCursor;
 use serde::Deserialize;
@@ -22,9 +23,10 @@ use watchlist_service::use_cases::ListWatchlistRequest;
 #[derive(Debug, Deserialize)]
 struct ListWatchlistQuery {
     #[serde(default)]
-    language: LanguageData,
-    #[serde(default)]
-    currency: CurrencyData,
+    #[serde(with = "crate::wire::language")]
+    language: Language,
+    #[serde(default, with = "crate::wire::currency")]
+    currency: Currency,
     size: Option<u64>,
     #[serde(rename = "searchAfter")]
     search_after: Option<String>,
@@ -58,8 +60,8 @@ pub async fn list_watchlist(
             &ctx,
             ListWatchlistRequest {
                 user_id,
-                language: query.language.into(),
-                currency: query.currency.into(),
+                language: query.language,
+                currency: query.currency,
                 cursor,
             },
         )

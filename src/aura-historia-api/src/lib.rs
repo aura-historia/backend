@@ -17,6 +17,7 @@ pub mod users;
 pub(crate) mod values;
 pub mod watchlist;
 pub mod webhooks;
+pub(crate) mod wire;
 
 use crate::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, CognitoJwtAuthenticator,

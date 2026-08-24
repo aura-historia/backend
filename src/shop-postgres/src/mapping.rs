@@ -477,9 +477,7 @@ fn parse_currency(
     value: &str,
     error: ShopRowMappingError,
 ) -> Result<Currency, ShopRowMappingError> {
-    Currency::iter()
-        .find(|currency| currency.as_str() == value)
-        .ok_or(error)
+    Currency::from_code(value).ok_or(error)
 }
 
 fn parse_optional_language(
@@ -493,21 +491,15 @@ fn parse_language(
     value: &str,
     error: ShopRowMappingError,
 ) -> Result<Language, ShopRowMappingError> {
-    Language::iter()
-        .find(|language| language.as_str() == value)
-        .ok_or(error)
+    Language::from_code(value).ok_or(error)
 }
 
 fn parse_shop_type(value: &str) -> Result<ShopType, ShopRowMappingError> {
-    ShopType::iter()
-        .find(|shop_type| shop_type.as_str() == value)
-        .ok_or(ShopRowMappingError::InvalidShopType)
+    ShopType::from_code(value).ok_or(ShopRowMappingError::InvalidShopType)
 }
 
 fn parse_partner_status(value: &str) -> Result<ShopPartnerStatus, ShopRowMappingError> {
-    ShopPartnerStatus::iter()
-        .find(|status| status.as_str() == value)
-        .ok_or(ShopRowMappingError::InvalidPartnerStatus)
+    ShopPartnerStatus::from_code(value).ok_or(ShopRowMappingError::InvalidPartnerStatus)
 }
 
 fn parse_lifecycle(value: &str) -> Result<ShopLifecycle, ShopRowMappingError> {

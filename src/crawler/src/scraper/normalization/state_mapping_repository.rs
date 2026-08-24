@@ -1,7 +1,7 @@
 use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
 use product_core::product_state::ProductState;
 use sqlx::{PgPool, Row};
-use strum::IntoEnumIterator;
+
 use time::OffsetDateTime;
 
 #[async_trait::async_trait]
@@ -40,14 +40,12 @@ impl<'a> ProductStateMappingRepositoryImpl<'a> {
 }
 
 fn product_state_from_db_str(value: &str) -> Result<ProductState, sqlx::Error> {
-    ProductState::iter()
-        .find(|state| state.as_str() == value)
-        .ok_or_else(|| {
-            sqlx::Error::Decode(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("Unknown ProductState: {value}"),
-            )))
-        })
+    ProductState::from_code(value).ok_or_else(|| {
+        sqlx::Error::Decode(Box::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Unknown ProductState: {value}"),
+        )))
+    })
 }
 
 fn mapping_type_to_db_str(t: &StateMappingType) -> &'static str {

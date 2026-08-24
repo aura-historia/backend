@@ -9,7 +9,6 @@ use shop_service::ports::{
     WoocommerceWebhookShopReaderFactory,
 };
 use sqlx::PgConnection;
-use strum::IntoEnumIterator;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxWoocommerceWebhookShopReaderFactory;
@@ -78,8 +77,7 @@ impl TryFrom<WoocommerceWebhookShopRow> for WoocommerceWebhookShop {
     type Error = WoocommerceWebhookShopRowMappingError;
 
     fn try_from(row: WoocommerceWebhookShopRow) -> Result<Self, Self::Error> {
-        let partner_status = ShopPartnerStatus::iter()
-            .find(|status| status.as_str() == row.partner_status)
+        let partner_status = ShopPartnerStatus::from_code(&row.partner_status)
             .ok_or(WoocommerceWebhookShopRowMappingError::PartnerStatus)?;
         let currency = row
             .woocommerce_currency
@@ -111,15 +109,11 @@ enum WoocommerceWebhookShopRowMappingError {
 }
 
 fn parse_currency(value: &str) -> Result<Currency, WoocommerceWebhookShopRowMappingError> {
-    Currency::iter()
-        .find(|currency| currency.as_str() == value)
-        .ok_or(WoocommerceWebhookShopRowMappingError::Currency)
+    Currency::from_code(value).ok_or(WoocommerceWebhookShopRowMappingError::Currency)
 }
 
 fn parse_language(value: &str) -> Result<Language, WoocommerceWebhookShopRowMappingError> {
-    Language::iter()
-        .find(|language| language.as_str() == value)
-        .ok_or(WoocommerceWebhookShopRowMappingError::Language)
+    Language::from_code(value).ok_or(WoocommerceWebhookShopRowMappingError::Language)
 }
 
 struct WoocommerceWebhookShopSqlxError(sqlx::Error);

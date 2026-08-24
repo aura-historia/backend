@@ -21,6 +21,12 @@ pub enum ProductState {
 }
 
 impl ProductState {
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|state| state.as_str() == value)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Listed => "LISTED",
@@ -52,5 +58,7 @@ mod tests {
         assert_eq!("SOLD", ProductState::Sold.as_str());
         assert_eq!("REMOVED", ProductState::Removed.as_str());
         assert_eq!("UNKNOWN", ProductState::Unknown.as_str());
+        assert_eq!(Some(ProductState::Sold), ProductState::from_code("SOLD"));
+        assert_eq!(None, ProductState::from_code("sold"));
     }
 }

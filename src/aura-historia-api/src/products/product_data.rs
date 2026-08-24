@@ -68,8 +68,10 @@ pub(crate) struct ProductDetailsData {
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<LocalizedTextData>,
     pricing: ProductPricingPresentationData,
-    state: ProductStateData,
-    lifecycle: ProductLifecycleData,
+    #[serde(with = "crate::wire::product_state")]
+    state: ProductState,
+    #[serde(with = "crate::wire::product_lifecycle")]
+    lifecycle: ProductLifecycle,
     url: Url,
     view_url: Url,
     images: Vec<ProductImageData>,
@@ -139,8 +141,10 @@ pub(crate) struct ProductSummaryData {
     #[serde(skip_serializing_if = "Option::is_none")]
     display_price: Option<PriceData>,
     price_valuation: ProductSummaryPriceValuationData,
-    state: ProductStateData,
-    lifecycle: ProductLifecycleData,
+    #[serde(with = "crate::wire::product_state")]
+    state: ProductState,
+    #[serde(with = "crate::wire::product_lifecycle")]
+    lifecycle: ProductLifecycle,
     url: Url,
     view_url: Url,
     images: Vec<ProductImageData>,
@@ -208,15 +212,8 @@ enum ProductSummaryPriceValuationData {
 pub(crate) struct ProductImageData {
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<Url>,
-    prohibited_content: ProductProhibitedContentData,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductProhibitedContentData {
-    Unknown,
-    None,
-    NaziGermany,
+    #[serde(with = "crate::wire::prohibited_content")]
+    prohibited_content: ProhibitedContent,
 }
 
 #[derive(Debug, Serialize)]
@@ -226,24 +223,6 @@ struct ProductAuctionData {
     start: Option<OffsetDateTime>,
     #[serde(with = "time::serde::rfc3339::option")]
     end: Option<OffsetDateTime>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductStateData {
-    Listed,
-    Available,
-    Reserved,
-    Sold,
-    Removed,
-    Unknown,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductLifecycleData {
-    Active,
-    Deleted,
 }
 
 impl ProductDetailsData {
@@ -266,8 +245,8 @@ impl ProductDetailsData {
             title: view.title.map(Into::into),
             description: view.description.map(Into::into),
             pricing: view.pricing.into(),
-            state: view.state.into(),
-            lifecycle: view.lifecycle.into(),
+            state: view.state,
+            lifecycle: view.lifecycle,
             url: view.url,
             view_url: view.view_url,
             images: view
@@ -428,8 +407,8 @@ impl ProductSummaryData {
             title: summary.title.map(Into::into),
             display_price: summary.display_price.map(Into::into),
             price_valuation: summary.price_valuation.into(),
-            state: summary.state.into(),
-            lifecycle: summary.lifecycle.into(),
+            state: summary.state,
+            lifecycle: summary.lifecycle,
             url: summary.url,
             view_url: summary.view_url,
             images: summary
@@ -452,7 +431,7 @@ impl ProductImageData {
     pub(crate) fn from_presented(image: NotificationImagePresentation) -> Self {
         Self {
             url: image.url,
-            prohibited_content: image.prohibited_content.into(),
+            prohibited_content: image.prohibited_content,
         }
     }
 
@@ -463,7 +442,7 @@ impl ProductImageData {
         Self {
             url: (image.prohibited_content.is_safe() || prohibited_content_consent)
                 .then_some(image.url),
-            prohibited_content: image.prohibited_content.into(),
+            prohibited_content: image.prohibited_content,
         }
     }
 }
@@ -471,16 +450,6 @@ impl ProductImageData {
 impl From<product_core::product_image::ProductImage> for ProductImageData {
     fn from(image: product_core::product_image::ProductImage) -> Self {
         Self::from_with_consent(image, false)
-    }
-}
-
-impl From<ProhibitedContent> for ProductProhibitedContentData {
-    fn from(value: ProhibitedContent) -> Self {
-        match value {
-            ProhibitedContent::Unknown => Self::Unknown,
-            ProhibitedContent::None => Self::None,
-            ProhibitedContent::NaziGermany => Self::NaziGermany,
-        }
     }
 }
 
@@ -512,28 +481,6 @@ pub(crate) fn personalized_product_summary_data(
     PersonalizedData {
         item: ProductSummaryData::from_view(personalized.item, prohibited_content_consent),
         user_state: personalized.user_state.map(Into::into),
-    }
-}
-
-impl From<ProductState> for ProductStateData {
-    fn from(state: ProductState) -> Self {
-        match state {
-            ProductState::Listed => Self::Listed,
-            ProductState::Available => Self::Available,
-            ProductState::Reserved => Self::Reserved,
-            ProductState::Sold => Self::Sold,
-            ProductState::Removed => Self::Removed,
-            ProductState::Unknown => Self::Unknown,
-        }
-    }
-}
-
-impl From<ProductLifecycle> for ProductLifecycleData {
-    fn from(lifecycle: ProductLifecycle) -> Self {
-        match lifecycle {
-            ProductLifecycle::Active => Self::Active,
-            ProductLifecycle::Deleted => Self::Deleted,
-        }
     }
 }
 

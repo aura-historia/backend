@@ -14,7 +14,7 @@
 - Readers and repositories bind to caller-owned transactions through service factory ports.
 - Real Postgres integration tests live under `tests/` one file per dedicated adapter impl, with helpers inline per file.
 - Does not read or write `shops.view_url`; derive view URL from `url` and affiliate config.
-- Reads and writes `shops.lifecycle`; database default is `DRAFTED`. Public search and details readers return only `PUBLISHED` shops; shop search uses a UUID cursor resolved to its sort key, then a keyset predicate with `shop_id ASC` as tie-breaker. Admin workflows use repositories or dedicated admin readers. A dedicated transaction-scoped WooCommerce webhook reader exposes safe shop configuration; its paired verifier reads the secret, checks the HMAC, and returns only a semantic outcome. Rows and raw secrets stay private.
+- Reads and writes `shops.lifecycle`; database default is `DRAFTED`. Public search and details readers return only `PUBLISHED` shops; shop search uses a UUID cursor resolved to its sort key, then a keyset predicate with `shop_id ASC` as tie-breaker. Postgres rows retain exact string columns and decode canonical shop, currency, and language codes through their semantic owners. Admin workflows use repositories or dedicated admin readers. A dedicated transaction-scoped WooCommerce webhook reader exposes safe shop configuration; its paired verifier reads the secret, checks the HMAC, and returns only a semantic outcome. Rows and raw secrets stay private.
 
 ## Ownership
 

@@ -8,6 +8,12 @@ pub enum SearchFilterState {
 }
 
 impl SearchFilterState {
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|state| state.as_str() == value)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Active => "ACTIVE",
@@ -49,5 +55,13 @@ mod tests {
             "INACTIVE_BY_RESTRICTED_PLAN",
             SearchFilterState::InactiveByRestrictedPlan.as_str()
         );
+    }
+
+    #[test]
+    fn should_round_trip_canonical_search_filter_state_identifiers() {
+        for state in SearchFilterState::iter() {
+            assert_eq!(Some(state), SearchFilterState::from_code(state.as_str()));
+        }
+        assert_eq!(None, SearchFilterState::from_code("active"));
     }
 }

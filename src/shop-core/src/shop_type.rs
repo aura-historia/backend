@@ -1,5 +1,7 @@
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, strum_macros::EnumIter)]
+#[derive(
+    Copy, Clone, Eq, PartialEq, Debug, Hash, strum_macros::EnumIter, strum_macros::EnumCount,
+)]
 pub enum ShopType {
     AuctionHouse,
     AuctionPlatform,
@@ -8,6 +10,12 @@ pub enum ShopType {
 }
 
 impl ShopType {
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|shop_type| shop_type.as_str() == value)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::AuctionHouse => "AUCTION_HOUSE",
@@ -39,5 +47,10 @@ mod tests {
         assert_eq!("AUCTION_PLATFORM", ShopType::AuctionPlatform.as_str());
         assert_eq!("COMMERCIAL_DEALER", ShopType::CommercialDealer.as_str());
         assert_eq!("MARKETPLACE", ShopType::Marketplace.as_str());
+        assert_eq!(
+            Some(ShopType::Marketplace),
+            ShopType::from_code("MARKETPLACE")
+        );
+        assert_eq!(None, ShopType::from_code("marketplace"));
     }
 }

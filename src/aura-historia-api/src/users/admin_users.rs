@@ -146,13 +146,7 @@ async fn admin_patch_user(
     if let Some(role) = role {
         return match state
             .change_user_role
-            .execute(
-                &ctx,
-                ChangeUserRoleCommand {
-                    user_id,
-                    role: role.into(),
-                },
-            )
+            .execute(&ctx, ChangeUserRoleCommand { user_id, role })
             .await
         {
             Ok(result) => no_store(Json(AdminUserData::from(result.view)).into_response()),
@@ -163,13 +157,7 @@ async fn admin_patch_user(
     if let Some(tier) = tier {
         return match state
             .change_user_tier
-            .execute(
-                &ctx,
-                ChangeUserTierCommand {
-                    user_id,
-                    tier: tier.into(),
-                },
-            )
+            .execute(&ctx, ChangeUserTierCommand { user_id, tier })
             .await
         {
             Ok(result) => no_store(Json(AdminUserData::from(result.view)).into_response()),
@@ -208,9 +196,9 @@ fn profile_command(
         email: non_nullable_patch(data.email, "email")?,
         first_name: clearable(data.first_name),
         last_name: clearable(data.last_name),
-        language: clearable(data.language.map(Into::into)),
-        currency: clearable(data.currency.map(Into::into)),
-        measurement_unit: clearable(data.measurement_unit.map(Into::into)),
+        language: clearable(data.language),
+        currency: clearable(data.currency),
+        measurement_unit: clearable(data.measurement_unit),
         prohibited_content_consent: non_nullable_patch(
             data.prohibited_content_consent,
             "prohibitedContentConsent",

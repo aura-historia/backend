@@ -26,8 +26,8 @@ pub(crate) async fn checkout(
         .execute(
             &context,
             CreateBillingCheckoutSessionCommand {
-                plan: request.plan.into(),
-                cycle: request.cycle.into(),
+                plan: request.plan,
+                cycle: request.cycle,
                 idempotency_key: None,
             },
         )

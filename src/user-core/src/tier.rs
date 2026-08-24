@@ -10,6 +10,12 @@ pub enum UserTier {
 }
 
 impl UserTier {
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|tier| tier.as_str() == value)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Free => "FREE",
@@ -59,5 +65,13 @@ mod tests {
             .collect::<std::collections::HashSet<_>>();
 
         assert_eq!(UserTier::iter().count(), identifiers.len());
+    }
+
+    #[test]
+    fn should_round_trip_canonical_user_tier_identifiers() {
+        for tier in UserTier::iter() {
+            assert_eq!(Some(tier), UserTier::from_code(tier.as_str()));
+        }
+        assert_eq!(None, UserTier::from_code("pro"));
     }
 }

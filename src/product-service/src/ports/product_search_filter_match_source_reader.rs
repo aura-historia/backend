@@ -17,17 +17,12 @@ use shop_core::seller_slug_id::SellerSlugId;
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;
+use shop_core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use url::Url;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProductSearchFilterMatchShopType {
-    AuctionHouse,
-    AuctionPlatform,
-    CommercialDealer,
-    Marketplace,
-}
+pub use shop_core::shop_type::ShopType as ProductSearchFilterMatchShopType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductSearchFilterMatchSourceEventKind {
@@ -66,7 +61,7 @@ pub struct ProductSearchFilterMatchSource {
     pub shop_id: ShopId,
     pub shop_slug_id: ShopSlugId,
     pub shop_name: ShopName,
-    pub shop_type: ProductSearchFilterMatchShopType,
+    pub shop_type: ShopType,
     pub seller_id: ShopId,
     pub seller_slug_id: SellerSlugId,
     pub seller_name: ShopName,

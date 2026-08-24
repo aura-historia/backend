@@ -237,11 +237,11 @@ pub(crate) fn map_snapshots(
 ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
     let mut quotes_by_snapshot = HashMap::<uuid::Uuid, Vec<FxRateQuote>>::new();
     for quote in quotes {
-        let currency = Currency::iter()
-            .find(|currency| currency.as_str() == quote.currency)
-            .ok_or_else(|| FxRateSnapshotRepositoryError::InvalidPersistedSnapshot {
+        let currency = Currency::from_code(&quote.currency).ok_or_else(|| {
+            FxRateSnapshotRepositoryError::InvalidPersistedSnapshot {
                 source: static_error("persisted FX quote currency is unsupported"),
-            })?;
+            }
+        })?;
         let units_per_eur = u64::try_from(quote.units_per_eur).map_err(|_| {
             FxRateSnapshotRepositoryError::InvalidPersistedSnapshot {
                 source: static_error("persisted FX quote is negative"),

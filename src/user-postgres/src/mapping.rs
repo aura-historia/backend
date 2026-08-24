@@ -5,7 +5,6 @@ use localization::Language;
 use money::Currency;
 use serde_email::Email;
 use sqlx::FromRow;
-use strum::IntoEnumIterator;
 use time::OffsetDateTime;
 use user_core::first_name::FirstName;
 use user_core::last_name::LastName;
@@ -274,9 +273,7 @@ pub(crate) fn parse_optional_language(
 }
 
 fn parse_language(value: &str) -> Result<Language, UserRowMappingError> {
-    Language::iter()
-        .find(|language| language.as_str() == value)
-        .ok_or(UserRowMappingError::InvalidLanguage)
+    Language::from_code(value).ok_or(UserRowMappingError::InvalidLanguage)
 }
 
 pub(crate) fn parse_optional_currency(
@@ -286,9 +283,7 @@ pub(crate) fn parse_optional_currency(
 }
 
 fn parse_currency(value: &str) -> Result<Currency, UserRowMappingError> {
-    Currency::iter()
-        .find(|currency| currency.as_str() == value)
-        .ok_or(UserRowMappingError::InvalidCurrency)
+    Currency::from_code(value).ok_or(UserRowMappingError::InvalidCurrency)
 }
 
 fn parse_optional_measurement_unit(
@@ -298,21 +293,15 @@ fn parse_optional_measurement_unit(
 }
 
 fn parse_measurement_unit(value: &str) -> Result<MeasurementUnit, UserRowMappingError> {
-    MeasurementUnit::iter()
-        .find(|unit| unit.as_str() == value)
-        .ok_or(UserRowMappingError::InvalidMeasurementUnit)
+    MeasurementUnit::from_code(value).ok_or(UserRowMappingError::InvalidMeasurementUnit)
 }
 
 pub(crate) fn parse_tier(value: &str) -> Result<UserTier, UserRowMappingError> {
-    UserTier::iter()
-        .find(|tier| tier.as_str() == value)
-        .ok_or(UserRowMappingError::InvalidTier)
+    UserTier::from_code(value).ok_or(UserRowMappingError::InvalidTier)
 }
 
 fn parse_role(value: &str) -> Result<UserRole, UserRowMappingError> {
-    UserRole::iter()
-        .find(|role| role.as_str() == value)
-        .ok_or(UserRowMappingError::InvalidRole)
+    UserRole::from_code(value).ok_or(UserRowMappingError::InvalidRole)
 }
 
 #[cfg(test)]

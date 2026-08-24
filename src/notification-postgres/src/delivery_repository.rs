@@ -232,23 +232,7 @@ fn source_from_row(
 }
 
 fn parse_language(value: &str) -> Result<Language, NotificationDeliveryError> {
-    match value {
-        "de" => Ok(Language::De),
-        "en" => Ok(Language::En),
-        "fr" => Ok(Language::Fr),
-        "es" => Ok(Language::Es),
-        "it" => Ok(Language::It),
-        "zh" => Ok(Language::Zh),
-        "pt" => Ok(Language::Pt),
-        "pl" => Ok(Language::Pl),
-        "tr" => Ok(Language::Tr),
-        "nl" => Ok(Language::Nl),
-        "cs" => Ok(Language::Cs),
-        "ja" => Ok(Language::Ja),
-        "ru" => Ok(Language::Ru),
-        "ar" => Ok(Language::Ar),
-        _ => Err(invalid_delivery_source("unknown user language")),
-    }
+    Language::from_code(value).ok_or_else(|| invalid_delivery_source("unknown user language"))
 }
 
 fn invalid_delivery_source(message: &'static str) -> NotificationDeliveryError {

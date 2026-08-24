@@ -16,25 +16,13 @@ use url::Url;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductEventData {
-    event_type: ProductEventTypeData,
+    #[serde(with = "crate::wire::product_event_type")]
+    event_type: ProductEventType,
     product_id: ProductId,
     event_id: EventId,
     payload: ProductEventPayloadData,
     #[serde(with = "time::serde::rfc3339")]
     timestamp: OffsetDateTime,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductEventTypeData {
-    Created,
-    StateChanged,
-    AddressChanged,
-    PriceChanged,
-    UrlChanged,
-    ImagesChanged,
-    AuctionChanged,
-    Deleted,
 }
 
 #[derive(Debug, Serialize)]
@@ -65,7 +53,8 @@ struct ProductCreatedHistoryPayloadData {
     pricing: ProductPricingData,
     #[serde(skip_serializing_if = "Option::is_none")]
     sale_valuation: Option<ProductSaleValuationData>,
-    state: ProductStateData,
+    #[serde(with = "crate::wire::product_state")]
+    state: ProductState,
     url: Url,
     images: Vec<ProductImageData>,
     auction: ProductAuctionData,
@@ -74,8 +63,10 @@ struct ProductCreatedHistoryPayloadData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProductStateChangedHistoryPayloadData {
-    old_state: ProductStateData,
-    new_state: ProductStateData,
+    #[serde(with = "crate::wire::product_state")]
+    old_state: ProductState,
+    #[serde(with = "crate::wire::product_state")]
+    new_state: ProductState,
     #[serde(skip_serializing_if = "Option::is_none")]
     sale_valuation: Option<ProductSaleValuationData>,
 }
@@ -116,8 +107,10 @@ struct ProductAuctionChangedHistoryPayloadData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProductDeletedHistoryPayloadData {
-    old_lifecycle: ProductLifecycleData,
-    new_lifecycle: ProductLifecycleData,
+    #[serde(with = "crate::wire::product_lifecycle")]
+    old_lifecycle: ProductLifecycle,
+    #[serde(with = "crate::wire::product_lifecycle")]
+    new_lifecycle: ProductLifecycle,
 }
 
 #[derive(Debug, Serialize)]
@@ -148,47 +141,14 @@ struct ProductAuctionData {
     end: Option<OffsetDateTime>,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductStateData {
-    Listed,
-    Available,
-    Reserved,
-    Sold,
-    Removed,
-    Unknown,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductLifecycleData {
-    Active,
-    Deleted,
-}
-
 impl From<ProductEvent> for ProductEventData {
     fn from(event: ProductEvent) -> Self {
         Self {
-            event_type: event.event_type.into(),
+            event_type: event.event_type,
             product_id: event.product_id,
             event_id: event.event_id,
             payload: event.payload.into(),
             timestamp: event.timestamp,
-        }
-    }
-}
-
-impl From<ProductEventType> for ProductEventTypeData {
-    fn from(value: ProductEventType) -> Self {
-        match value {
-            ProductEventType::Created => Self::Created,
-            ProductEventType::StateChanged => Self::StateChanged,
-            ProductEventType::AddressChanged => Self::AddressChanged,
-            ProductEventType::PriceChanged => Self::PriceChanged,
-            ProductEventType::UrlChanged => Self::UrlChanged,
-            ProductEventType::ImagesChanged => Self::ImagesChanged,
-            ProductEventType::AuctionChanged => Self::AuctionChanged,
-            ProductEventType::Deleted => Self::Deleted,
         }
     }
 }
@@ -204,7 +164,7 @@ impl From<ProductEventPayload> for ProductEventPayloadData {
                     geo_address: value.address.geo.map(Into::into),
                     pricing: value.pricing.into(),
                     sale_valuation: value.sale_valuation.map(Into::into),
-                    state: value.state.into(),
+                    state: value.state,
                     url: value.url,
                     images: images(value.images),
                     auction: value.auction.into(),
@@ -212,8 +172,8 @@ impl From<ProductEventPayload> for ProductEventPayloadData {
             }
             ProductEventPayload::StateChanged(value) => {
                 Self::StateChanged(ProductStateChangedHistoryPayloadData {
-                    old_state: value.old_state.into(),
-                    new_state: value.new_state.into(),
+                    old_state: value.old_state,
+                    new_state: value.new_state,
                     sale_valuation: value.sale_valuation.map(Into::into),
                 })
             }
@@ -244,8 +204,8 @@ impl From<ProductEventPayload> for ProductEventPayloadData {
             }
             ProductEventPayload::Deleted(value) => {
                 Self::Deleted(ProductDeletedHistoryPayloadData {
-                    old_lifecycle: value.old_lifecycle.into(),
-                    new_lifecycle: value.new_lifecycle.into(),
+                    old_lifecycle: value.old_lifecycle,
+                    new_lifecycle: value.new_lifecycle,
                 })
             }
         }
@@ -285,28 +245,6 @@ impl From<ProductAuction> for ProductAuctionData {
         Self {
             start: auction.start,
             end: auction.end,
-        }
-    }
-}
-
-impl From<ProductState> for ProductStateData {
-    fn from(state: ProductState) -> Self {
-        match state {
-            ProductState::Listed => Self::Listed,
-            ProductState::Available => Self::Available,
-            ProductState::Reserved => Self::Reserved,
-            ProductState::Sold => Self::Sold,
-            ProductState::Removed => Self::Removed,
-            ProductState::Unknown => Self::Unknown,
-        }
-    }
-}
-
-impl From<ProductLifecycle> for ProductLifecycleData {
-    fn from(lifecycle: ProductLifecycle) -> Self {
-        match lifecycle {
-            ProductLifecycle::Active => Self::Active,
-            ProductLifecycle::Deleted => Self::Deleted,
         }
     }
 }
