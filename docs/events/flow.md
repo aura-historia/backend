@@ -1,6 +1,6 @@
 # Event Flow
 
-This document describes the target event flow for #1341. Current AWS DynamoDB Stream/EventBridge/SQS/Lambda rails stay only for AWS survivor workflows until cutover.
+This document describes the current Postgres/Sequin event flow for #1341.
 
 See `docs/hetzner_postgres_sequin_migration.md` for the ADR.
 
@@ -138,7 +138,7 @@ Crash rule:
 
 ## Domain jobs
 
-Worker sub-jobs use domain payloads or compact IDs. They do not use DynamoDB stream records and should not depend on raw Sequin JSON outside the router.
+Worker sub-jobs use domain payloads or compact IDs and should not depend on raw Sequin JSON outside the router.
 
 Current router jobs carry compact domain refs. Sub-worker implementation issues must introduce typed DTOs/payloads where behavior depends on event/change fields. Those DTOs should be derived from Postgres/domain rows, not from Sequin envelopes.
 
@@ -292,4 +292,4 @@ Postgres is business truth and Sequin depends on replication health. Production 
 - Use fake CDC envelopes for router fanout tests.
 - Use `test-api` Sequin helpers for real Sequin webhook delivery tests when CDC behavior matters.
 - Use existing LocalStack OpenSearch for projection/percolator tests.
-- Keep DynamoDB and CDK/CloudFormation helpers for AWS survivor tests.
+- Keep CDK/CloudFormation helpers only for AWS services still used by the test stack.

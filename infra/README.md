@@ -26,7 +26,7 @@ src/constructs/            # focused infrastructure modules
   observability.ts         # prod-only alarms and alarm topic
   opensearch.ts            # external dev/prod endpoint or LocalStack domain
   queues.ts                # SQS queues and DLQs
-  storage.ts               # DynamoDB table and indexes
+  storage.ts               # Postgres connection settings
   workflow.ts              # partner application Step Functions workflow
 ```
 
@@ -43,7 +43,7 @@ npm run synth -- --context stage=ephemeral
 
 Synth creates these stacks per stage:
 
-- `application-{stage}-data` — DynamoDB, SQS, and LocalStack OpenSearch
+- `application-{stage}-data` — Postgres settings, SQS, and LocalStack OpenSearch
 - `application-{stage}-compute` — Lambdas, Cognito, eventing, schedules
 - `application-{stage}-api` — HTTP API Gateway routes, domain, CloudFront, integrations, authorizer
 - `application-prod-observability` — prod-only alarms and alarm topic

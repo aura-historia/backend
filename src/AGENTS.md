@@ -14,11 +14,11 @@
 - Crate submodule-design
   - core: domain logic and business rules
   - data: REST-API payloads
-  - dynamodb: DynamoDB payloads
+
   - opensearch: OpenSearch payloads
   - service: service glue, orchestration, and cross-crate integration
-- DynamoDB owns only its remaining bounded contexts. PostgreSQL owns migrated business truth, including notifications, User access tokens, and canonical OAuth credentials. OpenSearch is re-computable read-optimized view for search and discovery.
-- Cognito is only Identity-Provider. User-Details and User-Profile are stored in DynamoDB.
+- PostgreSQL owns durable business truth, including users, notifications, User access tokens, and canonical OAuth credentials. OpenSearch is a re-computable read-optimized view for search and discovery.
+- Cognito is only the Identity Provider. User details and profiles are stored in PostgreSQL.
 
 ## Ownership
 
@@ -32,7 +32,6 @@
 - New `src` doc go at crate root. No module doc unless module become crate boundary.
 - Update nearest doc when crate purpose, route, event, env var, dependency edge, test flow, or child index change.
 - If REST endpoint, payload, auth, or error behavior change, update `docs/swagger.yaml` and `docs/CHANGELOG.md`.
-- If relevant DynamoDB structure change, update `docs/dynamodb/table_1.md`
 - If OpenSearch DTOs change, make sure the corresponding index-mappings in `opensearch/mappings` are aligned
 - If relevant event structure or flow change, update `docs/events/flow.md`
 - If new Lambda appear, wire deploy, `src/ci-determinator`, `src/test-api/src/cloudformation.rs`, and `infra/` when needed.
@@ -48,7 +47,7 @@
 - Avoid `unsafe` and `unsafe`-like patterns like `unwrap`, `expect`, and `panic!`. Use `Result` and `Option` instead. 
 - Never swallow errors (e.g. `.ok()`). Use `?` operator to propagate errors. Use `thiserror` with well-typed error-enums.
 - Apply semi-strict DDD. Keep domain logic in domain modules, services thin, and use newtypes.
-- Keep type layers strict: domain no suffix, REST `Data`, DynamoDB `Record`, OpenSearch `Document`.
+- Keep type layers strict: domain no suffix, REST `Data`, OpenSearch `Document`.
 
 ## Build And Validate
 

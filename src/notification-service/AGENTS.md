@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Depends on `notification-core` plus pure `money` and `localization` values; never depend on DynamoDB or runtime adapters.
+- Depends on `notification-core` plus pure `money` and `localization` values; never depend on runtime adapters.
 - Root modules:
   - `use_cases/commands` — creation and owner-scoped notification mutation handlers/contracts.
   - `use_cases/queries` — list handler/contracts and dedicated views.

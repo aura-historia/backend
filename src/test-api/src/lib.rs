@@ -6,8 +6,6 @@ mod aura_historia_api;
 mod cloudformation;
 #[cfg(feature = "cognito")]
 mod cognito;
-#[cfg(feature = "dynamodb")]
-mod dynamodb;
 #[cfg(feature = "eventbridge")]
 mod eventbridge;
 pub mod localstack;
@@ -33,8 +31,7 @@ pub use aura_historia_api::{AuraHistoriaApi, AuraHistoriaApiAppFactory};
 pub use cloudformation::Cloudformation;
 #[cfg(feature = "cognito")]
 pub use cognito::*;
-#[cfg(feature = "dynamodb")]
-pub use dynamodb::{DynamoDB, get_dynamodb_client, mk_partial_put_batch_failure};
+
 #[cfg(feature = "eventbridge")]
 pub use eventbridge::get_eventbridge_client;
 #[cfg(feature = "opensearch")]
@@ -59,8 +56,8 @@ pub use tokio;
 ///
 /// # Required Items
 ///
-/// - `SERVICE_NAME`: The name of the AWS service as expected by LocalStack (e.g., `"s3"`, `"dynamodb"`).
-/// - `async fn set_up()`: Prepares the service for the test (e.g., create buckets, tables, etc.).
+/// - `SERVICE_NAME`: The name of the AWS service as expected by LocalStack (e.g., `"s3"`).
+/// - `async fn set_up()`: Prepares the service for the test (e.g., create buckets).
 ///
 /// # Optional
 ///
@@ -79,7 +76,7 @@ pub trait IntegrationTestService: Sized {
     fn env_vars(&self) -> Vec<(&'static str, &'static str)> {
         vec![]
     }
-    /// Prepares the service for the test (e.g., create buckets, tables, etc.)
+    /// Prepares the service for the test (e.g., create buckets).
     async fn set_up(&self);
     /// Cleans up after the test (defaults to a no-op)
     async fn tear_down(&self) {}

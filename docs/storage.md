@@ -2,7 +2,7 @@
 
 ## Notifications
 
-PostgreSQL is the sole production owner of notifications and external-delivery intent. DynamoDB stores no notification rows, and notification storage has no TTL.
+PostgreSQL is the sole production owner of notifications and external-delivery intent. Notification storage has no TTL.
 
 - `notifications` stores one immutable typed content snapshot per semantic reason. `origin_event_id` is provenance only and is absent for partner-application notifications.
 - Watchlist idempotency is `(user_id, origin_event_id, kind)`. Search-filter idempotency is `(user_id, user_search_filter_id, product_id, origin_event_id)`. Partner-application idempotency is `(user_id, partner_shop_application_id)`.

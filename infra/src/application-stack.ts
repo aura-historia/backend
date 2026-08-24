@@ -1,6 +1,4 @@
 import * as cdk from "aws-cdk-lib";
-import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
-
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import {
@@ -19,7 +17,6 @@ import { Observability } from "./constructs/observability";
 import { Search } from "./constructs/opensearch";
 import { importQueueCatalog, Queues } from "./constructs/queues";
 import { Storage } from "./constructs/storage";
-
 
 export interface ApplicationStackProps extends cdk.StackProps {
   readonly stage: StageName;
@@ -108,7 +105,6 @@ export class ApplicationDataStack extends cdk.Stack {
 
     this.storage = new Storage(this, "Storage", {
       config,
-      stageName,
     });
 
     this.queues = new Queues(this, "Queues", {
@@ -158,9 +154,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       parameters,
       artifactBucket,
       mailTemplateBucket,
-      table: props.storage.table,
       postgres: props.storage.postgres,
-      queues: props.queues.catalog,
       search: props.search,
     });
 
@@ -179,7 +173,6 @@ export class ApplicationComputeStack extends cdk.Stack {
 
     this.eventing = new Eventing(this, "Eventing", {
       config,
-      table: props.storage.table,
       queues: importQueueCatalog(this, "EventingQueueImports", stageName),
       functions: this.lambdas.functions,
     });
@@ -250,7 +243,6 @@ export class ApplicationEphemeralStack extends cdk.Stack {
 
     this.storage = new Storage(this, "Storage", {
       config,
-      stageName,
     });
     this.queues = new Queues(this, "Queues", {
       config,
@@ -268,9 +260,7 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       parameters,
       artifactBucket,
       mailTemplateBucket,
-      table: this.storage.table,
       postgres: this.storage.postgres,
-      queues: this.queues.catalog,
       search: this.search,
     });
 
@@ -289,7 +279,6 @@ export class ApplicationEphemeralStack extends cdk.Stack {
 
     this.eventing = new Eventing(this, "Eventing", {
       config,
-      table: this.storage.table,
       queues: this.queues.catalog,
       functions: this.lambdas.functions,
     });
@@ -335,7 +324,6 @@ export class ApplicationObservabilityStack extends cdk.Stack {
       config,
       stageName,
       api: props.api.api,
-      table: dynamodb.Table.fromTableName(this, "TableOneImport", `table_1-${stageName}`),
       functions: importLambdaCatalog(this, "LambdaAlarmImports", config),
     });
 
@@ -371,7 +359,6 @@ function dataOutputs(
     readonly queues: Queues;
   },
 ): void {
-  new cdk.CfnOutput(stack, "DynamodbTable1Name", { value: resources.storage.table.tableName });
   new cdk.CfnOutput(stack, "PostgresHost", { value: resources.storage.postgres.host });
   new cdk.CfnOutput(stack, "PostgresPort", { value: resources.storage.postgres.port });
   new cdk.CfnOutput(stack, "PostgresDatabase", { value: resources.storage.postgres.database });

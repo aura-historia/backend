@@ -7,7 +7,7 @@
 ## Core Design
 
 - LocalStack and AWS integration test harness.
-- Root modules: `api_gateway`, `aura_historia_api`, `cloudformation`, `cognito`, `dynamodb`, `eventbridge`, `localstack`, `opensearch`, `postgres`, `s3`, `sequin`, `ses`, `signal`, `sqs`.
+- Root modules: `api_gateway`, `aura_historia_api`, `cloudformation`, `cognito`, `eventbridge`, `localstack`, `opensearch`, `postgres`, `s3`, `sequin`, `ses`, `signal`, `sqs`.
 - Child crates: `test-api-macros`.
 - Main neighbors: `aws-tests-common`, `application`, `test-api-macros`.
 - Test crate. Favor stable helpers and black-box assertions.

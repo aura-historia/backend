@@ -2,7 +2,6 @@ import * as cdk from "aws-cdk-lib";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as actions from "aws-cdk-lib/aws-cloudwatch-actions";
-import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as sns from "aws-cdk-lib/aws-sns";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
@@ -12,7 +11,6 @@ export interface ObservabilityProps {
   readonly config: StageConfig;
   readonly stageName: string;
   readonly api: apigwv2.HttpApi;
-  readonly table: dynamodb.ITable;
   readonly functions: LambdaCatalog;
 }
 
@@ -35,10 +33,6 @@ export class Observability extends Construct {
     apiAlarm(this, props.stageName, "Api4XXErrorAlarm", "4XXError", props.api, 50, 2, "Sum").addAlarmAction(alarmAction);
     apiAlarm(this, props.stageName, "Api5XXErrorAlarm", "5XXError", props.api, 5, 1, "Sum").addAlarmAction(alarmAction);
     apiAlarm(this, props.stageName, "ApiLatencyAlarm", "IntegrationLatency", props.api, 3000, 2, "Average").addAlarmAction(alarmAction);
-
-    dynamoAlarm(this, props.stageName, "TableOneSystemErrorsAlarm", "SystemErrors", props.table, 1, 1).addAlarmAction(alarmAction);
-    dynamoAlarm(this, props.stageName, "TableOneThrottledRequestsAlarm", "ThrottledRequests", props.table, 5, 1).addAlarmAction(alarmAction);
-    dynamoAlarm(this, props.stageName, "TableOneConditionalCheckFailedRequestsAlarm", "ConditionalCheckFailedRequests", props.table, 100, 2).addAlarmAction(alarmAction);
 
     lambdaAlarm(
       this,
@@ -113,34 +107,6 @@ function apiAlarm(
     evaluationPeriods,
     comparisonOperator:
       metricName === "IntegrationLatency"
-        ? cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
-        : cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-    treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-  });
-}
-
-function dynamoAlarm(
-  scope: Construct,
-  stageName: string,
-  id: string,
-  metricName: string,
-  table: dynamodb.ITable,
-  threshold: number,
-  evaluationPeriods: number,
-): cloudwatch.Alarm {
-  return new cloudwatch.Alarm(scope, id, {
-    alarmName: `${stageName}-dynamodb-${toKebabCase(metricName)}`,
-    metric: new cloudwatch.Metric({
-      namespace: "AWS/DynamoDB",
-      metricName,
-      dimensionsMap: { TableName: table.tableName },
-      statistic: "Sum",
-      period: cdk.Duration.minutes(5),
-    }),
-    threshold,
-    evaluationPeriods,
-    comparisonOperator:
-      metricName === "ConditionalCheckFailedRequests"
         ? cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
         : cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
     treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,

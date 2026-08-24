@@ -55,7 +55,7 @@ info:
     - Many list and search endpoints use **cursor-based pagination** via `searchAfter`
     - Every canonical API response includes server-generated `X-Request-Id` and `X-Correlation-Id` headers. Clients may send `X-Correlation-Id` to preserve a trace only when it is a 1–128-character ASCII value containing letters, digits, `.`, `_`, or `-`; invalid values are replaced. Both headers are CORS-exposed.
     - Requests are limited to 1 MiB and time out after 30 seconds.
-    - `GET /health` is a process liveness check. `GET /ready` returns `204` only when the configured PostgreSQL, DynamoDB, and OpenSearch dependencies are reachable; it otherwise returns `503`.
+    - `GET /health` is a process liveness check. `GET /ready` returns `204` only when the configured PostgreSQL and OpenSearch dependencies are reachable; it otherwise returns `503`.
     - WooCommerce webhook ingestion responds with **`204 No Content`** only after signed validation
       and canonical Product persistence commits; partner Product batch writes are synchronous
 

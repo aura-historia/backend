@@ -1,5 +1,4 @@
 import * as cdk from "aws-cdk-lib";
-import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -8,14 +7,11 @@ import type { StageConfig, StageName } from "../config";
 import { ssmValue } from "../config";
 import type { ApplicationParameters } from "../parameters";
 import type { Search } from "./opensearch";
-import type { QueueCatalog } from "./queues";
 import type { PostgresConnectionSettings } from "./storage";
 
 interface LambdaEnvironmentContext {
   readonly config: StageConfig;
-  readonly table: dynamodb.Table;
   readonly postgres: PostgresConnectionSettings;
-  readonly queues: QueueCatalog;
   readonly search: Search;
 }
 
@@ -55,7 +51,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 30,
     environment: (context) =>
       withOpenSearchCredentials(context.config, {
-        ...baseEnvironment(context),
         GEMINI_API_KEY: secretOrTest(context.config, "gemini-api-key", "test-key"),
         GOOGLE_GEOCODING_API_KEY: secretOrTest(context.config, "google-geocoding-api-key", "test-key"),
         OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
@@ -68,7 +63,6 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 30,
     environment: (context) => ({
-      ...baseEnvironment(context),
       STRIPE_PRO_PRODUCT_ID: context.config.stripeProProductId,
       STRIPE_ULTIMATE_PRODUCT_ID: context.config.stripeUltimateProductId,
     }),
@@ -97,9 +91,7 @@ export interface LambdasProps {
   readonly parameters: ApplicationParameters;
   readonly artifactBucket: s3.IBucket;
   readonly mailTemplateBucket: s3.IBucket;
-  readonly table: dynamodb.Table;
   readonly postgres: PostgresConnectionSettings;
-  readonly queues: QueueCatalog;
   readonly search: Search;
 }
 
@@ -112,9 +104,7 @@ export class Lambdas extends Construct {
     const functions = {} as Partial<Record<LambdaKey, lambda.Function>>;
     const environmentContext: LambdaEnvironmentContext = {
       config: props.config,
-      table: props.table,
       postgres: props.postgres,
-      queues: props.queues,
       search: props.search,
     };
 
@@ -145,14 +135,8 @@ export class Lambdas extends Construct {
 }
 
 function lambdaEnvironment(definition: LambdaDefinition, context: LambdaEnvironmentContext): Record<string, string> {
-  const env = definition.environment?.(context) ?? baseEnvironment(context);
+  const env = definition.environment?.(context) ?? {};
   return definition.postgres ? withPostgresEnvironment(context, env) : env;
-}
-
-function baseEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
-  return {
-    DYNAMODB_TABLE_NAME: context.table.tableName,
-  };
 }
 
 function withPostgresEnvironment(context: LambdaEnvironmentContext, env: Record<string, string>): Record<string, string> {
@@ -168,14 +152,6 @@ function withPostgresEnvironment(context: LambdaEnvironmentContext, env: Record<
 }
 
 function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): void {
-  for (const [key, fn] of Object.entries(functions) as [LambdaKey, lambda.Function | undefined][]) {
-    if (!fn || key === "cloudWatchLogRetention" || key === "fxRateSync") {
-      continue;
-    }
-
-    props.table.grantReadWriteData(fn);
-  }
-
   props.search.grantReadWrite(functions.shopify);
   functions.cloudWatchLogRetention.addToRolePolicy(
     new iam.PolicyStatement({

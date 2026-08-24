@@ -16,7 +16,7 @@
 - Repository writes return persisted storage-neutral state; write use cases must not read after write to build responses.
 - Query use cases return read-optimized payloads for their API use case and avoid controller-side N+1 hydration.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.
-- No SQLx, DynamoDB, OpenSearch, or transport dependency.
+- No SQLx, OpenSearch, or transport dependency.
 
 ## Ownership
 

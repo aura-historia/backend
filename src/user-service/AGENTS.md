@@ -20,7 +20,7 @@
 - Access-token writes use an `AccessTokenRepositoryFactory` inside a service-owned `UnitOfWork`; details/list use presentation readers, while `AccessTokenAuthenticationReader::find_authentication_by_hashed_token` returns only an authentication model. The repository's same-key lookup is only for transactional aggregate mutation.
 - `AuthenticateAccessTokenUseCase` only validates token existence/expiry and returns token scopes; protected use cases enforce credential capability via `OperationContext`.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.
-- No SQLx, DynamoDB, OpenSearch, or transport dependency.
+- No SQLx, OpenSearch, or transport dependency.
 
 ## Ownership
 

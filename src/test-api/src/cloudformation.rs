@@ -1,6 +1,5 @@
 use crate::IntegrationTestService;
 use crate::cognito::Cognito;
-use crate::dynamodb::clear_table_data;
 use crate::localstack::{get_aws_config, get_endpoint_url};
 use crate::opensearch::clear_all_indices;
 use crate::ses::{Ses, clear_sent_emails};
@@ -8,7 +7,7 @@ use crate::sqs::drain_queues;
 use async_trait::async_trait;
 use aws_sdk_cloudformation::{error::ProvideErrorMetadata, types::StackStatus};
 use aws_sdk_s3::types::{BucketLocationConstraint, CreateBucketConfiguration};
-use aws_tests_common::{CloudFormationOutput, get_cfn_output, set_cfn_output};
+use aws_tests_common::{CloudFormationOutput, set_cfn_output};
 use futures::stream::{self, StreamExt};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -88,10 +87,8 @@ impl IntegrationTestService for Cloudformation {
             "iam",
             "logs",
             "events",
-            "pipes",
             "sqs",
             "cognito-idp",
-            "dynamodb",
             "opensearch",
             "apigatewayv2",
             "s3",
@@ -122,24 +119,12 @@ impl IntegrationTestService for Cloudformation {
     /// Delegates to the same helpers used by the individual service
     /// `IntegrationTestService` implementations:
     ///
-    /// - **DynamoDB** – scans and batch-deletes every item in the main table.
     /// - **OpenSearch** – deletes all documents from every standard index.
     /// - **SQS** – drains all queues (and their DLQs) via receive-delete loop,
     ///   avoiding the 60 s cooldown imposed by `purge_queue`.
     /// - **Cognito** – deletes every user in the user pool.
     /// - **SES** – clears all sent emails from LocalStack's in-memory store.
     async fn tear_down(&self) {
-        let cfn = get_cfn_output();
-
-        // ── DynamoDB ─────────────────────────────────────────────────────────
-        clear_table_data(&cfn.dynamodb_table_1_name)
-            .await
-            .expect("shouldn't fail clearing DynamoDB table data");
-        debug!(
-            "Cleared DynamoDB table '{}' for test isolation",
-            cfn.dynamodb_table_1_name
-        );
-
         // ── OpenSearch ───────────────────────────────────────────────────────
         clear_all_indices().await;
 
