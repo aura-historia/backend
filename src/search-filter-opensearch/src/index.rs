@@ -1,4 +1,4 @@
-use crate::document::{SearchFilterDocument, state_to_document};
+use crate::document::SearchFilterDocument;
 use application::error::box_error;
 use application::pagination::{Cursor, CursoredResult};
 use platform_opensearch::search_response::SearchResponse;
@@ -380,7 +380,7 @@ fn projection_write_outcome(
 fn build_query_body(query: &SearchFilterIndexQuery) -> serde_json::Value {
     let mut filter = Vec::new();
     if let Some(state) = query.state {
-        filter.push(json!({"term": {"state": state_to_document(state)}}));
+        filter.push(json!({"term": {"state": state.as_str()}}));
     }
     if let Some(has) = query.has_enhanced_search_description {
         filter.push(if has {

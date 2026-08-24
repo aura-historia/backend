@@ -18,13 +18,13 @@ where
 fn deserialize_code<'de, T, D>(
     deserializer: D,
     parse: fn(&str) -> Option<T>,
-    expected: &'static [&'static str],
+    expected: Option<&'static [&'static str]>,
 ) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
 {
     let value = String::deserialize(deserializer)?;
-    parse(&value).ok_or_else(|| serde::de::Error::unknown_variant(&value, expected))
+    parse(&value).ok_or_else(|| invalid_code(&value, expected))
 }
 
 fn serialize_option_code<T, S>(
@@ -45,7 +45,7 @@ where
 fn deserialize_option_code<'de, T, D>(
     deserializer: D,
     parse: fn(&str) -> Option<T>,
-    expected: &'static [&'static str],
+    expected: Option<&'static [&'static str]>,
 ) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
@@ -53,7 +53,7 @@ where
     Option::<String>::deserialize(deserializer)?.map_or(Ok(None), |value| {
         parse(&value)
             .map(Some)
-            .ok_or_else(|| serde::de::Error::unknown_variant(&value, expected))
+            .ok_or_else(|| invalid_code(&value, expected))
     })
 }
 
@@ -72,7 +72,7 @@ where
 fn deserialize_set_code<'de, T, D>(
     deserializer: D,
     parse: fn(&str) -> Option<T>,
-    expected: &'static [&'static str],
+    expected: Option<&'static [&'static str]>,
 ) -> Result<HashSet<T>, D::Error>
 where
     T: Eq + Hash,
@@ -80,16 +80,14 @@ where
 {
     Vec::<String>::deserialize(deserializer)?
         .into_iter()
-        .map(|value| {
-            parse(&value).ok_or_else(|| serde::de::Error::unknown_variant(&value, expected))
-        })
+        .map(|value| parse(&value).ok_or_else(|| invalid_code(&value, expected)))
         .collect()
 }
 
 fn deserialize_patch_code<'de, T, D>(
     deserializer: D,
     parse: fn(&str) -> Option<T>,
-    expected: &'static [&'static str],
+    expected: Option<&'static [&'static str]>,
 ) -> Result<PatchValue<T>, D::Error>
 where
     D: Deserializer<'de>,
@@ -97,14 +95,14 @@ where
     Option::<String>::deserialize(deserializer)?.map_or(Ok(PatchValue::Null), |value| {
         parse(&value)
             .map(PatchValue::Value)
-            .ok_or_else(|| serde::de::Error::unknown_variant(&value, expected))
+            .ok_or_else(|| invalid_code(&value, expected))
     })
 }
 
 fn deserialize_patch_set_code<'de, T, D>(
     deserializer: D,
     parse: fn(&str) -> Option<T>,
-    expected: &'static [&'static str],
+    expected: Option<&'static [&'static str]>,
 ) -> Result<PatchValue<HashSet<T>>, D::Error>
 where
     T: Eq + Hash,
@@ -113,22 +111,25 @@ where
     Option::<Vec<String>>::deserialize(deserializer)?.map_or(Ok(PatchValue::Null), |values| {
         values
             .into_iter()
-            .map(|value| {
-                parse(&value).ok_or_else(|| serde::de::Error::unknown_variant(&value, expected))
-            })
+            .map(|value| parse(&value).ok_or_else(|| invalid_code(&value, expected)))
             .collect::<Result<HashSet<_>, D::Error>>()
             .map(PatchValue::Value)
     })
 }
 
+fn invalid_code<E>(value: &str, expected: Option<&'static [&'static str]>) -> E
+where
+    E: serde::de::Error,
+{
+    match expected {
+        Some(expected) => E::unknown_variant(value, expected),
+        None => E::custom(format!("unsupported code `{value}`")),
+    }
+}
+
 pub(crate) mod currency {
     use super::*;
     use money::Currency;
-
-    const EXPECTED: &[&str] = &[
-        "EUR", "GBP", "USD", "AUD", "CAD", "NZD", "CNY", "BRL", "PLN", "TRY", "JPY", "CZK", "RUB",
-        "AED", "SAR", "HKD", "SGD", "CHF",
-    ];
 
     pub(crate) fn serialize<S>(value: &Currency, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -141,7 +142,7 @@ pub(crate) mod currency {
     where
         D: Deserializer<'de>,
     {
-        deserialize_code(deserializer, Currency::from_code, EXPECTED)
+        deserialize_code(deserializer, Currency::from_code, None)
     }
 
     pub(crate) mod option {
@@ -161,7 +162,7 @@ pub(crate) mod currency {
         where
             D: Deserializer<'de>,
         {
-            deserialize_option_code(deserializer, Currency::from_code, EXPECTED)
+            deserialize_option_code(deserializer, Currency::from_code, None)
         }
     }
 
@@ -172,7 +173,7 @@ pub(crate) mod currency {
         where
             D: Deserializer<'de>,
         {
-            deserialize_patch_code(deserializer, Currency::from_code, EXPECTED)
+            deserialize_patch_code(deserializer, Currency::from_code, None)
         }
     }
 }
@@ -180,10 +181,6 @@ pub(crate) mod currency {
 pub(crate) mod language {
     use super::*;
     use localization::Language;
-
-    const EXPECTED: &[&str] = &[
-        "de", "en", "fr", "es", "it", "zh", "pt", "pl", "tr", "nl", "cs", "ja", "ru", "ar",
-    ];
 
     fn parse(value: &str) -> Option<Language> {
         match value {
@@ -218,7 +215,7 @@ pub(crate) mod language {
     where
         D: Deserializer<'de>,
     {
-        deserialize_code(deserializer, parse, EXPECTED)
+        deserialize_code(deserializer, parse, None)
     }
 
     pub(crate) mod option {
@@ -238,7 +235,7 @@ pub(crate) mod language {
         where
             D: Deserializer<'de>,
         {
-            deserialize_option_code(deserializer, parse, EXPECTED)
+            deserialize_option_code(deserializer, parse, None)
         }
     }
 
@@ -249,7 +246,7 @@ pub(crate) mod language {
         where
             D: Deserializer<'de>,
         {
-            deserialize_patch_code(deserializer, parse, EXPECTED)
+            deserialize_patch_code(deserializer, parse, None)
         }
     }
 }
@@ -257,13 +254,6 @@ pub(crate) mod language {
 pub(crate) mod shop_type {
     use super::*;
     use shop_core::shop_type::ShopType;
-
-    const EXPECTED: &[&str] = &[
-        "AUCTION_HOUSE",
-        "AUCTION_PLATFORM",
-        "COMMERCIAL_DEALER",
-        "MARKETPLACE",
-    ];
 
     pub(crate) fn serialize<S>(value: &ShopType, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -276,7 +266,7 @@ pub(crate) mod shop_type {
     where
         D: Deserializer<'de>,
     {
-        deserialize_code(deserializer, ShopType::from_code, EXPECTED)
+        deserialize_code(deserializer, ShopType::from_code, None)
     }
 
     pub(crate) mod set {
@@ -296,7 +286,7 @@ pub(crate) mod shop_type {
         where
             D: Deserializer<'de>,
         {
-            deserialize_set_code(deserializer, ShopType::from_code, EXPECTED)
+            deserialize_set_code(deserializer, ShopType::from_code, None)
         }
     }
 
@@ -309,7 +299,7 @@ pub(crate) mod shop_type {
         where
             D: Deserializer<'de>,
         {
-            deserialize_patch_set_code(deserializer, ShopType::from_code, EXPECTED)
+            deserialize_patch_set_code(deserializer, ShopType::from_code, None)
         }
     }
 
@@ -320,7 +310,7 @@ pub(crate) mod shop_type {
         where
             D: Deserializer<'de>,
         {
-            deserialize_patch_code(deserializer, ShopType::from_code, EXPECTED)
+            deserialize_patch_code(deserializer, ShopType::from_code, None)
         }
     }
 }
@@ -328,8 +318,6 @@ pub(crate) mod shop_type {
 pub(crate) mod shop_partner_status {
     use super::*;
     use shop_core::partner_status::ShopPartnerStatus;
-
-    const EXPECTED: &[&str] = &["SCRAPED", "PARTNERED"];
 
     pub(crate) fn serialize<S>(value: &ShopPartnerStatus, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -347,7 +335,7 @@ pub(crate) mod shop_partner_status {
         where
             D: Deserializer<'de>,
         {
-            deserialize_set_code(deserializer, ShopPartnerStatus::from_code, EXPECTED)
+            deserialize_set_code(deserializer, ShopPartnerStatus::from_code, None)
         }
     }
 }
@@ -355,15 +343,6 @@ pub(crate) mod shop_partner_status {
 pub(crate) mod product_state {
     use super::*;
     use product_core::product_state::ProductState;
-
-    const EXPECTED: &[&str] = &[
-        "LISTED",
-        "AVAILABLE",
-        "RESERVED",
-        "SOLD",
-        "REMOVED",
-        "UNKNOWN",
-    ];
 
     fn parse(value: &str) -> Option<ProductState> {
         ProductState::from_code(value)
@@ -380,7 +359,7 @@ pub(crate) mod product_state {
     where
         D: Deserializer<'de>,
     {
-        deserialize_code(deserializer, parse, EXPECTED)
+        deserialize_code(deserializer, parse, None)
     }
 
     pub(crate) mod option {
@@ -390,7 +369,7 @@ pub(crate) mod product_state {
         where
             D: Deserializer<'de>,
         {
-            deserialize_option_code(deserializer, parse, EXPECTED)
+            deserialize_option_code(deserializer, parse, None)
         }
     }
 
@@ -417,7 +396,7 @@ pub(crate) mod product_state {
         where
             D: Deserializer<'de>,
         {
-            deserialize_set_code(deserializer, parse, EXPECTED)
+            deserialize_set_code(deserializer, parse, None)
         }
     }
 
@@ -430,7 +409,7 @@ pub(crate) mod product_state {
         where
             D: Deserializer<'de>,
         {
-            deserialize_patch_set_code(deserializer, parse, EXPECTED)
+            deserialize_patch_set_code(deserializer, parse, None)
         }
     }
 
@@ -443,7 +422,7 @@ pub(crate) mod product_state {
         where
             D: Deserializer<'de>,
         {
-            deserialize_patch_code(deserializer, parse, EXPECTED)
+            deserialize_patch_code(deserializer, parse, None)
         }
     }
 }
@@ -451,8 +430,6 @@ pub(crate) mod product_state {
 pub(crate) mod product_lifecycle {
     use super::*;
     use product_core::product_lifecycle::ProductLifecycle;
-
-    const EXPECTED: &[&str] = &["ACTIVE", "DELETED"];
 
     fn parse(value: &str) -> Option<ProductLifecycle> {
         ProductLifecycle::from_code(value)
@@ -474,7 +451,7 @@ pub(crate) mod product_lifecycle {
         where
             D: Deserializer<'de>,
         {
-            deserialize_set_code(deserializer, parse, EXPECTED)
+            deserialize_set_code(deserializer, parse, None)
         }
     }
 }
@@ -495,74 +472,24 @@ pub(crate) mod distance_unit {
     use super::*;
     use geo::core::distance::DistanceUnit;
 
-    const EXPECTED: &[&str] = &[
-        "MILES",
-        "YARDS",
-        "FEET",
-        "INCHES",
-        "KILOMETERS",
-        "METERS",
-        "CENTIMETERS",
-        "MILLIMETERS",
-        "NAUTICAL_MILES",
-    ];
-
-    fn code(value: DistanceUnit) -> &'static str {
-        match value {
-            DistanceUnit::Miles => "MILES",
-            DistanceUnit::Yards => "YARDS",
-            DistanceUnit::Feet => "FEET",
-            DistanceUnit::Inches => "INCHES",
-            DistanceUnit::Kilometers => "KILOMETERS",
-            DistanceUnit::Meters => "METERS",
-            DistanceUnit::Centimeters => "CENTIMETERS",
-            DistanceUnit::Millimeters => "MILLIMETERS",
-            DistanceUnit::NauticalMiles => "NAUTICAL_MILES",
-        }
-    }
-
-    fn parse(value: &str) -> Option<DistanceUnit> {
-        match value {
-            "MILES" => Some(DistanceUnit::Miles),
-            "YARDS" => Some(DistanceUnit::Yards),
-            "FEET" => Some(DistanceUnit::Feet),
-            "INCHES" => Some(DistanceUnit::Inches),
-            "KILOMETERS" => Some(DistanceUnit::Kilometers),
-            "METERS" => Some(DistanceUnit::Meters),
-            "CENTIMETERS" => Some(DistanceUnit::Centimeters),
-            "MILLIMETERS" => Some(DistanceUnit::Millimeters),
-            "NAUTICAL_MILES" => Some(DistanceUnit::NauticalMiles),
-            _ => None,
-        }
-    }
-
     pub(crate) fn serialize<S>(value: &DistanceUnit, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serialize_code(value, serializer, code)
+        serialize_code(value, serializer, DistanceUnit::as_str)
     }
 
     pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<DistanceUnit, D::Error>
     where
         D: Deserializer<'de>,
     {
-        deserialize_code(deserializer, parse, EXPECTED)
+        deserialize_code(deserializer, DistanceUnit::from_code, None)
     }
 }
 
 pub(crate) mod measurement_unit {
     use super::*;
     use user_core::measurement_unit::MeasurementUnit;
-
-    const EXPECTED: &[&str] = &["METRIC", "IMPERIAL"];
-
-    fn code(value: MeasurementUnit) -> &'static str {
-        match value {
-            MeasurementUnit::Metric => "METRIC",
-            MeasurementUnit::Imperial => "IMPERIAL",
-        }
-    }
 
     pub(crate) mod option {
         use super::*;
@@ -574,7 +501,7 @@ pub(crate) mod measurement_unit {
         where
             S: Serializer,
         {
-            serialize_option_code(value, serializer, code)
+            serialize_option_code(value, serializer, MeasurementUnit::as_str)
         }
     }
 
@@ -587,7 +514,7 @@ pub(crate) mod measurement_unit {
         where
             D: Deserializer<'de>,
         {
-            deserialize_patch_code(deserializer, MeasurementUnit::from_code, EXPECTED)
+            deserialize_patch_code(deserializer, MeasurementUnit::from_code, None)
         }
     }
 }
@@ -595,8 +522,6 @@ pub(crate) mod measurement_unit {
 pub(crate) mod user_tier {
     use super::*;
     use user_core::tier::UserTier;
-
-    const EXPECTED: &[&str] = &["FREE", "PRO", "ULTIMATE"];
 
     pub(crate) fn serialize<S>(value: &UserTier, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -612,7 +537,7 @@ pub(crate) mod user_tier {
         where
             D: Deserializer<'de>,
         {
-            deserialize_patch_code(deserializer, UserTier::from_code, EXPECTED)
+            deserialize_patch_code(deserializer, UserTier::from_code, None)
         }
     }
 }
@@ -620,8 +545,6 @@ pub(crate) mod user_tier {
 pub(crate) mod user_role {
     use super::*;
     use user_core::role::UserRole;
-
-    const EXPECTED: &[&str] = &["USER", "ADMIN"];
 
     pub(crate) fn serialize<S>(value: &UserRole, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -637,7 +560,7 @@ pub(crate) mod user_role {
         where
             D: Deserializer<'de>,
         {
-            deserialize_patch_code(deserializer, UserRole::from_code, EXPECTED)
+            deserialize_patch_code(deserializer, UserRole::from_code, None)
         }
     }
 }
@@ -685,11 +608,24 @@ pub(crate) mod product_event_type {
     use super::*;
     use product_service::use_cases::ProductEventType;
 
+    fn code(value: ProductEventType) -> &'static str {
+        match value {
+            ProductEventType::Created => "CREATED",
+            ProductEventType::StateChanged => "STATE_CHANGED",
+            ProductEventType::AddressChanged => "ADDRESS_CHANGED",
+            ProductEventType::PriceChanged => "PRICE_CHANGED",
+            ProductEventType::UrlChanged => "URL_CHANGED",
+            ProductEventType::ImagesChanged => "IMAGES_CHANGED",
+            ProductEventType::AuctionChanged => "AUCTION_CHANGED",
+            ProductEventType::Deleted => "DELETED",
+        }
+    }
+
     pub(crate) fn serialize<S>(value: &ProductEventType, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serialize_code(value, serializer, ProductEventType::as_str)
+        serialize_code(value, serializer, code)
     }
 }
 
@@ -733,7 +669,7 @@ pub(crate) mod billing_plan {
     where
         D: Deserializer<'de>,
     {
-        deserialize_code(deserializer, parse, EXPECTED)
+        deserialize_code(deserializer, parse, Some(EXPECTED))
     }
 }
 
@@ -755,7 +691,7 @@ pub(crate) mod billing_cycle {
     where
         D: Deserializer<'de>,
     {
-        deserialize_code(deserializer, parse, EXPECTED)
+        deserialize_code(deserializer, parse, Some(EXPECTED))
     }
 }
 
@@ -844,7 +780,7 @@ mod tests {
 
         let error = error_text::<WireCurrencyOption>(json!({"value": "NOPE"}));
         assert!(error.contains("NOPE"));
-        assert!(error.contains("EUR"));
+        assert!(error.contains("unsupported code"));
         Ok(())
     }
 
@@ -866,7 +802,7 @@ mod tests {
 
         let error = error_text::<WireCurrencyPatch>(json!({"value": "NOPE"}));
         assert!(error.contains("NOPE"));
-        assert!(error.contains("EUR"));
+        assert!(error.contains("unsupported code"));
         Ok(())
     }
 
@@ -887,7 +823,7 @@ mod tests {
 
         let error = error_text::<WireShopTypes>(json!({"value": ["NOPE"]}));
         assert!(error.contains("NOPE"));
-        assert!(error.contains("AUCTION_HOUSE"));
+        assert!(error.contains("unsupported code"));
         Ok(())
     }
 
@@ -912,7 +848,53 @@ mod tests {
 
         let error = error_text::<WireShopTypePatchSet>(json!({"value": ["NOPE"]}));
         assert!(error.contains("NOPE"));
-        assert!(error.contains("AUCTION_HOUSE"));
+        assert!(error.contains("unsupported code"));
+        Ok(())
+    }
+
+    #[test]
+    fn should_serialize_rest_product_event_type_codes() -> Result<(), serde_json::Error> {
+        let values = [
+            (
+                product_service::use_cases::ProductEventType::Created,
+                "CREATED",
+            ),
+            (
+                product_service::use_cases::ProductEventType::StateChanged,
+                "STATE_CHANGED",
+            ),
+            (
+                product_service::use_cases::ProductEventType::AddressChanged,
+                "ADDRESS_CHANGED",
+            ),
+            (
+                product_service::use_cases::ProductEventType::PriceChanged,
+                "PRICE_CHANGED",
+            ),
+            (
+                product_service::use_cases::ProductEventType::UrlChanged,
+                "URL_CHANGED",
+            ),
+            (
+                product_service::use_cases::ProductEventType::ImagesChanged,
+                "IMAGES_CHANGED",
+            ),
+            (
+                product_service::use_cases::ProductEventType::AuctionChanged,
+                "AUCTION_CHANGED",
+            ),
+            (
+                product_service::use_cases::ProductEventType::Deleted,
+                "DELETED",
+            ),
+        ];
+
+        for (value, expected) in values {
+            assert_eq!(
+                json!(expected),
+                serde_json::to_value(WireProductEventType(value))?
+            );
+        }
         Ok(())
     }
 
@@ -949,6 +931,12 @@ mod tests {
     #[derive(serde::Deserialize)]
     #[serde(transparent)]
     struct WireProductState(#[serde(with = "product_state")] ProductState);
+
+    #[derive(serde::Serialize)]
+    #[serde(transparent)]
+    struct WireProductEventType(
+        #[serde(with = "product_event_type")] product_service::use_cases::ProductEventType,
+    );
 
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]

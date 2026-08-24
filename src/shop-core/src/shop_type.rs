@@ -1,5 +1,7 @@
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, strum_macros::EnumIter)]
+#[derive(
+    Copy, Clone, Eq, PartialEq, Debug, Hash, strum_macros::EnumIter, strum_macros::EnumCount,
+)]
 pub enum ShopType {
     AuctionHouse,
     AuctionPlatform,

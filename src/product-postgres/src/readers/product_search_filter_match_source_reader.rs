@@ -553,14 +553,7 @@ fn event_kind(value: &str) -> ProductSearchFilterMatchSourceEventKind {
 }
 
 fn shop_type(value: &str) -> Result<ProductSearchFilterMatchShopType, ()> {
-    ShopType::from_code(value)
-        .map(|shop_type| match shop_type {
-            ShopType::AuctionHouse => ProductSearchFilterMatchShopType::AuctionHouse,
-            ShopType::AuctionPlatform => ProductSearchFilterMatchShopType::AuctionPlatform,
-            ShopType::CommercialDealer => ProductSearchFilterMatchShopType::CommercialDealer,
-            ShopType::Marketplace => ProductSearchFilterMatchShopType::Marketplace,
-        })
-        .ok_or(())
+    ShopType::from_code(value).ok_or(())
 }
 
 #[cfg(test)]

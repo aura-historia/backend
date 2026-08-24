@@ -1,6 +1,6 @@
 use isocountry::CountryCode;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum_macros::EnumIter)]
 pub enum Continent {
     Africa,
     Antarctica,
@@ -9,6 +9,26 @@ pub enum Continent {
     NorthAmerica,
     Oceania,
     SouthAmerica,
+}
+
+impl Continent {
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|continent| continent.as_str() == value)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Africa => "AFRICA",
+            Self::Antarctica => "ANTARCTICA",
+            Self::Asia => "ASIA",
+            Self::Europe => "EUROPE",
+            Self::NorthAmerica => "NORTH_AMERICA",
+            Self::Oceania => "OCEANIA",
+            Self::SouthAmerica => "SOUTH_AMERICA",
+        }
+    }
 }
 
 impl From<CountryCode> for Continent {
@@ -315,5 +335,21 @@ mod tests {
         for code in CountryCode::iter().copied() {
             let _ = Continent::from(code);
         }
+    }
+
+    #[test]
+    fn should_round_trip_all_canonical_continent_codes() {
+        use std::collections::HashSet;
+        use strum::IntoEnumIterator;
+
+        let identifiers = Continent::iter()
+            .map(Continent::as_str)
+            .collect::<HashSet<_>>();
+
+        assert_eq!(Continent::iter().count(), identifiers.len());
+        for continent in Continent::iter() {
+            assert_eq!(Some(continent), Continent::from_code(continent.as_str()));
+        }
+        assert_eq!(None, Continent::from_code("europe"));
     }
 }

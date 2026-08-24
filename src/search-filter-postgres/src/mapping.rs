@@ -289,17 +289,183 @@ pub(crate) fn name(v: String) -> Result<UserSearchFilterName, SearchFilterRowMap
     }
 }
 
+fn serialize_code<T, S>(
+    value: &T,
+    serializer: S,
+    code: fn(T) -> &'static str,
+) -> Result<S::Ok, S::Error>
+where
+    T: Copy,
+    S: serde::Serializer,
+{
+    serializer.serialize_str(code(*value))
+}
+
+fn deserialize_code<'de, T, D>(deserializer: D, parse: fn(&str) -> Option<T>) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    parse(&value).ok_or_else(|| serde::de::Error::custom(format!("unsupported code `{value}`")))
+}
+
+fn serialize_set_code<T, S>(
+    values: &HashSet<T>,
+    serializer: S,
+    code: fn(T) -> &'static str,
+) -> Result<S::Ok, S::Error>
+where
+    T: Copy + Eq + std::hash::Hash,
+    S: serde::Serializer,
+{
+    serializer.collect_seq(values.iter().map(|value| code(*value)))
+}
+
+fn deserialize_set_code<'de, T, D>(
+    deserializer: D,
+    parse: fn(&str) -> Option<T>,
+) -> Result<HashSet<T>, D::Error>
+where
+    T: Eq + std::hash::Hash,
+    D: serde::Deserializer<'de>,
+{
+    Vec::<String>::deserialize(deserializer)?
+        .into_iter()
+        .map(|value| {
+            parse(&value)
+                .ok_or_else(|| serde::de::Error::custom(format!("unsupported code `{value}`")))
+        })
+        .collect()
+}
+
+mod distance_unit {
+    use super::*;
+
+    pub(crate) fn serialize<S>(value: &DistanceUnit, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_code(value, serializer, DistanceUnit::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<DistanceUnit, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_code(deserializer, DistanceUnit::from_code)
+    }
+}
+
+mod language {
+    use super::*;
+
+    pub(crate) fn serialize<S>(value: &Language, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_code(value, serializer, Language::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Language, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_code(deserializer, Language::from_code)
+    }
+}
+
+mod currency {
+    use super::*;
+
+    pub(crate) fn serialize<S>(value: &Currency, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_code(value, serializer, Currency::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Currency, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_code(deserializer, Currency::from_code)
+    }
+}
+
+mod shop_type {
+    use super::*;
+
+    pub(crate) fn serialize<S>(values: &HashSet<ShopType>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_set_code(values, serializer, ShopType::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<HashSet<ShopType>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_set_code(deserializer, ShopType::from_code)
+    }
+}
+
+mod product_state {
+    use super::*;
+
+    pub(crate) fn serialize<S>(
+        values: &HashSet<ProductState>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_set_code(values, serializer, ProductState::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<HashSet<ProductState>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_set_code(deserializer, ProductState::from_code)
+    }
+}
+
+mod product_lifecycle {
+    use super::*;
+
+    pub(crate) fn serialize<S>(
+        values: &HashSet<ProductLifecycle>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_set_code(values, serializer, ProductLifecycle::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<HashSet<ProductLifecycle>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_set_code(deserializer, ProductLifecycle::from_code)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 struct DistanceJson {
     amount: f64,
-    unit: DistanceUnitJson,
+    #[serde(with = "distance_unit")]
+    unit: DistanceUnit,
 }
 
 impl From<Distance> for DistanceJson {
     fn from(value: Distance) -> Self {
         Self {
             amount: value.amount,
-            unit: value.unit.into(),
+            unit: value.unit,
         }
     }
 }
@@ -308,7 +474,7 @@ impl From<DistanceJson> for Distance {
     fn from(value: DistanceJson) -> Self {
         Self {
             amount: value.amount,
-            unit: value.unit.into(),
+            unit: value.unit,
         }
     }
 }
@@ -340,57 +506,13 @@ impl From<GeoDistanceQueryJson> for GeoDistanceQuery {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum DistanceUnitJson {
-    Miles,
-    Yards,
-    Feet,
-    Inches,
-    Kilometers,
-    Meters,
-    Centimeters,
-    Millimeters,
-    NauticalMiles,
-}
-
-impl From<DistanceUnit> for DistanceUnitJson {
-    fn from(value: DistanceUnit) -> Self {
-        match value {
-            DistanceUnit::Miles => Self::Miles,
-            DistanceUnit::Yards => Self::Yards,
-            DistanceUnit::Feet => Self::Feet,
-            DistanceUnit::Inches => Self::Inches,
-            DistanceUnit::Kilometers => Self::Kilometers,
-            DistanceUnit::Meters => Self::Meters,
-            DistanceUnit::Centimeters => Self::Centimeters,
-            DistanceUnit::Millimeters => Self::Millimeters,
-            DistanceUnit::NauticalMiles => Self::NauticalMiles,
-        }
-    }
-}
-
-impl From<DistanceUnitJson> for DistanceUnit {
-    fn from(value: DistanceUnitJson) -> Self {
-        match value {
-            DistanceUnitJson::Miles => Self::Miles,
-            DistanceUnitJson::Yards => Self::Yards,
-            DistanceUnitJson::Feet => Self::Feet,
-            DistanceUnitJson::Inches => Self::Inches,
-            DistanceUnitJson::Kilometers => Self::Kilometers,
-            DistanceUnitJson::Meters => Self::Meters,
-            DistanceUnitJson::Centimeters => Self::Centimeters,
-            DistanceUnitJson::Millimeters => Self::Millimeters,
-            DistanceUnitJson::NauticalMiles => Self::NauticalMiles,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductSearchJson {
-    language: LanguageJson,
-    currency: CurrencyJson,
+    #[serde(with = "language")]
+    language: Language,
+    #[serde(with = "currency")]
+    currency: Currency,
     product_query: Vec<domain_primitives::query::text_query::TextQuery<1>>,
     enhanced_search_description: Option<String>,
     exclude_product_id_query: HashSet<ProductId>,
@@ -402,239 +524,20 @@ struct ProductSearchJson {
     exclude_shop_slug_id_query: HashSet<ShopSlugId>,
     seller_slug_id_query: HashSet<SellerSlugId>,
     exclude_seller_slug_id_query: HashSet<SellerSlugId>,
-    shop_type_query: HashSet<ShopTypeJson>,
+    #[serde(with = "shop_type")]
+    shop_type_query: HashSet<ShopType>,
     country_query: HashSet<CountryCode>,
     continent_query: HashSet<ContinentData>,
     geo_address_distance_query: Option<GeoDistanceQueryJson>,
     price_query: Option<RangeQuery<u64>>,
-    state_query: HashSet<ProductStateJson>,
-    lifecycle_query: HashSet<ProductLifecycleJson>,
+    #[serde(with = "product_state")]
+    state_query: HashSet<ProductState>,
+    #[serde(with = "product_lifecycle")]
+    lifecycle_query: HashSet<ProductLifecycle>,
     created_query: Option<TimeRangeJson>,
     updated_query: Option<TimeRangeJson>,
     auction_start_query: Option<TimeRangeJson>,
     auction_end_query: Option<TimeRangeJson>,
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum LanguageJson {
-    De,
-    En,
-    Fr,
-    Es,
-    It,
-    Zh,
-    Pt,
-    Pl,
-    Tr,
-    Nl,
-    Cs,
-    Ja,
-    Ru,
-    Ar,
-}
-
-impl From<Language> for LanguageJson {
-    fn from(value: Language) -> Self {
-        match value {
-            Language::De => Self::De,
-            Language::En => Self::En,
-            Language::Fr => Self::Fr,
-            Language::Es => Self::Es,
-            Language::It => Self::It,
-            Language::Zh => Self::Zh,
-            Language::Pt => Self::Pt,
-            Language::Pl => Self::Pl,
-            Language::Tr => Self::Tr,
-            Language::Nl => Self::Nl,
-            Language::Cs => Self::Cs,
-            Language::Ja => Self::Ja,
-            Language::Ru => Self::Ru,
-            Language::Ar => Self::Ar,
-        }
-    }
-}
-
-impl From<LanguageJson> for Language {
-    fn from(value: LanguageJson) -> Self {
-        match value {
-            LanguageJson::De => Self::De,
-            LanguageJson::En => Self::En,
-            LanguageJson::Fr => Self::Fr,
-            LanguageJson::Es => Self::Es,
-            LanguageJson::It => Self::It,
-            LanguageJson::Zh => Self::Zh,
-            LanguageJson::Pt => Self::Pt,
-            LanguageJson::Pl => Self::Pl,
-            LanguageJson::Tr => Self::Tr,
-            LanguageJson::Nl => Self::Nl,
-            LanguageJson::Cs => Self::Cs,
-            LanguageJson::Ja => Self::Ja,
-            LanguageJson::Ru => Self::Ru,
-            LanguageJson::Ar => Self::Ar,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum CurrencyJson {
-    Eur,
-    Gbp,
-    Usd,
-    Aud,
-    Cad,
-    Nzd,
-    Cny,
-    Brl,
-    Pln,
-    Try,
-    Jpy,
-    Czk,
-    Rub,
-    Aed,
-    Sar,
-    Hkd,
-    Sgd,
-    Chf,
-}
-
-impl From<Currency> for CurrencyJson {
-    fn from(value: Currency) -> Self {
-        match value {
-            Currency::Eur => Self::Eur,
-            Currency::Gbp => Self::Gbp,
-            Currency::Usd => Self::Usd,
-            Currency::Aud => Self::Aud,
-            Currency::Cad => Self::Cad,
-            Currency::Nzd => Self::Nzd,
-            Currency::Cny => Self::Cny,
-            Currency::Brl => Self::Brl,
-            Currency::Pln => Self::Pln,
-            Currency::Try => Self::Try,
-            Currency::Jpy => Self::Jpy,
-            Currency::Czk => Self::Czk,
-            Currency::Rub => Self::Rub,
-            Currency::Aed => Self::Aed,
-            Currency::Sar => Self::Sar,
-            Currency::Hkd => Self::Hkd,
-            Currency::Sgd => Self::Sgd,
-            Currency::Chf => Self::Chf,
-        }
-    }
-}
-
-impl From<CurrencyJson> for Currency {
-    fn from(value: CurrencyJson) -> Self {
-        match value {
-            CurrencyJson::Eur => Self::Eur,
-            CurrencyJson::Gbp => Self::Gbp,
-            CurrencyJson::Usd => Self::Usd,
-            CurrencyJson::Aud => Self::Aud,
-            CurrencyJson::Cad => Self::Cad,
-            CurrencyJson::Nzd => Self::Nzd,
-            CurrencyJson::Cny => Self::Cny,
-            CurrencyJson::Brl => Self::Brl,
-            CurrencyJson::Pln => Self::Pln,
-            CurrencyJson::Try => Self::Try,
-            CurrencyJson::Jpy => Self::Jpy,
-            CurrencyJson::Czk => Self::Czk,
-            CurrencyJson::Rub => Self::Rub,
-            CurrencyJson::Aed => Self::Aed,
-            CurrencyJson::Sar => Self::Sar,
-            CurrencyJson::Hkd => Self::Hkd,
-            CurrencyJson::Sgd => Self::Sgd,
-            CurrencyJson::Chf => Self::Chf,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ShopTypeJson {
-    AuctionHouse,
-    AuctionPlatform,
-    CommercialDealer,
-    Marketplace,
-}
-impl From<ShopType> for ShopTypeJson {
-    fn from(v: ShopType) -> Self {
-        match v {
-            ShopType::AuctionHouse => Self::AuctionHouse,
-            ShopType::AuctionPlatform => Self::AuctionPlatform,
-            ShopType::CommercialDealer => Self::CommercialDealer,
-            ShopType::Marketplace => Self::Marketplace,
-        }
-    }
-}
-impl From<ShopTypeJson> for ShopType {
-    fn from(v: ShopTypeJson) -> Self {
-        match v {
-            ShopTypeJson::AuctionHouse => Self::AuctionHouse,
-            ShopTypeJson::AuctionPlatform => Self::AuctionPlatform,
-            ShopTypeJson::CommercialDealer => Self::CommercialDealer,
-            ShopTypeJson::Marketplace => Self::Marketplace,
-        }
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductStateJson {
-    Listed,
-    Available,
-    Reserved,
-    Sold,
-    Removed,
-    Unknown,
-}
-impl From<ProductState> for ProductStateJson {
-    fn from(v: ProductState) -> Self {
-        match v {
-            ProductState::Listed => Self::Listed,
-            ProductState::Available => Self::Available,
-            ProductState::Reserved => Self::Reserved,
-            ProductState::Sold => Self::Sold,
-            ProductState::Removed => Self::Removed,
-            ProductState::Unknown => Self::Unknown,
-        }
-    }
-}
-impl From<ProductStateJson> for ProductState {
-    fn from(v: ProductStateJson) -> Self {
-        match v {
-            ProductStateJson::Listed => Self::Listed,
-            ProductStateJson::Available => Self::Available,
-            ProductStateJson::Reserved => Self::Reserved,
-            ProductStateJson::Sold => Self::Sold,
-            ProductStateJson::Removed => Self::Removed,
-            ProductStateJson::Unknown => Self::Unknown,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductLifecycleJson {
-    #[default]
-    Active,
-    Deleted,
-}
-
-impl From<ProductLifecycle> for ProductLifecycleJson {
-    fn from(value: ProductLifecycle) -> Self {
-        match value {
-            ProductLifecycle::Active => Self::Active,
-            ProductLifecycle::Deleted => Self::Deleted,
-        }
-    }
-}
-
-impl From<ProductLifecycleJson> for ProductLifecycle {
-    fn from(value: ProductLifecycleJson) -> Self {
-        match value {
-            ProductLifecycleJson::Active => Self::Active,
-            ProductLifecycleJson::Deleted => Self::Deleted,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -682,8 +585,8 @@ impl TryFrom<&ProductSearch> for ProductSearchJson {
 
     fn try_from(v: &ProductSearch) -> Result<Self, Self::Error> {
         Ok(Self {
-            language: v.language.into(),
-            currency: v.currency.into(),
+            language: v.language,
+            currency: v.currency,
             product_query: v.product_query.clone(),
             enhanced_search_description: v
                 .enhanced_search_description
@@ -698,13 +601,13 @@ impl TryFrom<&ProductSearch> for ProductSearchJson {
             exclude_shop_slug_id_query: v.exclude_shop_slug_id_query.iter().cloned().collect(),
             seller_slug_id_query: v.seller_slug_id_query.iter().cloned().collect(),
             exclude_seller_slug_id_query: v.exclude_seller_slug_id_query.iter().cloned().collect(),
-            shop_type_query: v.shop_type_query.iter().copied().map(Into::into).collect(),
+            shop_type_query: v.shop_type_query.iter().copied().collect(),
             country_query: v.country_query.iter().copied().collect(),
             continent_query: v.continent_query.iter().copied().map(Into::into).collect(),
             geo_address_distance_query: v.geo_address_distance_query.map(Into::into),
             price_query: v.price_query.map(|v| v.map(u64::from)),
-            state_query: v.state_query.iter().copied().map(Into::into).collect(),
-            lifecycle_query: v.lifecycle_query.iter().copied().map(Into::into).collect(),
+            state_query: v.state_query.iter().copied().collect(),
+            lifecycle_query: v.lifecycle_query.iter().copied().collect(),
             created_query: v.created_query.map(TimeRangeJson::try_from).transpose()?,
             updated_query: v.updated_query.map(TimeRangeJson::try_from).transpose()?,
             auction_start_query: v
@@ -724,8 +627,8 @@ pub(crate) fn product_search_from_json(
     let j: ProductSearchJson =
         serde_json::from_value(v).map_err(ProductSearchJsonMappingError::Deserialize)?;
     Ok(ProductSearch {
-        language: j.language.into(),
-        currency: j.currency.into(),
+        language: j.language,
+        currency: j.currency,
         product_query: j.product_query,
         enhanced_search_description: j
             .enhanced_search_description
@@ -741,11 +644,7 @@ pub(crate) fn product_search_from_json(
         exclude_shop_slug_id_query: j.exclude_shop_slug_id_query.into(),
         seller_slug_id_query: j.seller_slug_id_query.into(),
         exclude_seller_slug_id_query: j.exclude_seller_slug_id_query.into(),
-        shop_type_query: j
-            .shop_type_query
-            .into_iter()
-            .map(Into::into)
-            .collect::<AnyOfQuery<_>>(),
+        shop_type_query: j.shop_type_query.into(),
         country_query: j.country_query.into(),
         continent_query: j
             .continent_query
@@ -754,16 +653,8 @@ pub(crate) fn product_search_from_json(
             .collect::<AnyOfQuery<_>>(),
         geo_address_distance_query: j.geo_address_distance_query.map(Into::into),
         price_query: j.price_query.map(|v| v.map(Into::into)),
-        state_query: j
-            .state_query
-            .into_iter()
-            .map(Into::into)
-            .collect::<AnyOfQuery<_>>(),
-        lifecycle_query: j
-            .lifecycle_query
-            .into_iter()
-            .map(Into::into)
-            .collect::<AnyOfQuery<_>>(),
+        state_query: j.state_query.into(),
+        lifecycle_query: j.lifecycle_query.into(),
         created_query: j.created_query.map(TryInto::try_into).transpose()?,
         updated_query: j.updated_query.map(TryInto::try_into).transpose()?,
         auction_start_query: j.auction_start_query.map(TryInto::try_into).transpose()?,
@@ -782,23 +673,6 @@ mod tests {
     use super::*;
     use localization::Language;
     use money::Currency;
-
-    #[test]
-    fn should_encode_legacy_lifecycle_json_in_screaming_snake_case()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let lifecycle =
-            ProductLifecycleJson::from(product_core::product_lifecycle::ProductLifecycle::Deleted);
-
-        assert_eq!(
-            serde_json::json!("DELETED"),
-            serde_json::to_value(lifecycle)?
-        );
-        assert_eq!(
-            product_core::product_lifecycle::ProductLifecycle::Deleted,
-            serde_json::from_value::<ProductLifecycleJson>(serde_json::json!("DELETED"))?.into()
-        );
-        Ok(())
-    }
 
     #[test]
     fn should_round_trip_geo_distance_query_with_legacy_json_shape()
@@ -840,6 +714,57 @@ mod tests {
             Err(error) => panic!("failed to deserialize product search: {error}"),
         };
         assert_eq!(search, decoded);
+    }
+
+    #[test]
+    fn should_preserve_legacy_product_search_leaf_codes() -> Result<(), Box<dyn Error>> {
+        let mut persisted =
+            product_search_to_json(&ProductSearch::new(Language::En, Currency::Eur))?;
+        persisted["shop_type_query"] = serde_json::json!(["COMMERCIAL_DEALER"]);
+        persisted["state_query"] = serde_json::json!(["AVAILABLE"]);
+        persisted["lifecycle_query"] = serde_json::json!(["ACTIVE"]);
+        persisted["geo_address_distance_query"] = serde_json::json!({
+            "lat": 52.52,
+            "lon": 13.405,
+            "distance": {"amount": 50.0, "unit": "KILOMETERS"}
+        });
+
+        assert_eq!(Some(&serde_json::json!("en")), persisted.get("language"));
+        assert_eq!(Some(&serde_json::json!("EUR")), persisted.get("currency"));
+        assert_eq!(
+            Some(&serde_json::json!("COMMERCIAL_DEALER")),
+            persisted.pointer("/shop_type_query/0")
+        );
+        assert_eq!(
+            Some(&serde_json::json!("AVAILABLE")),
+            persisted.pointer("/state_query/0")
+        );
+        assert_eq!(
+            Some(&serde_json::json!("ACTIVE")),
+            persisted.pointer("/lifecycle_query/0")
+        );
+        assert_eq!(
+            Some(&serde_json::json!("KILOMETERS")),
+            persisted.pointer("/geo_address_distance_query/distance/unit")
+        );
+
+        let decoded = product_search_from_json(persisted)?;
+        assert_eq!(Language::En, decoded.language);
+        assert_eq!(Currency::Eur, decoded.currency);
+        assert!(
+            decoded
+                .shop_type_query
+                .contains(&ShopType::CommercialDealer)
+        );
+        assert!(decoded.state_query.contains(&ProductState::Available));
+        assert!(decoded.lifecycle_query.contains(&ProductLifecycle::Active));
+        assert_eq!(
+            Some(DistanceUnit::Kilometers),
+            decoded
+                .geo_address_distance_query
+                .map(|query| query.distance.unit)
+        );
+        Ok(())
     }
     #[test]
     fn should_serialize_every_product_search_field() {
