@@ -6,7 +6,7 @@
 
 ## Core Design
 
-- `Language` and `Localized<L, T>` live here.
+- `Language` and `Localized<L, T>` live here. `Language::as_str` and exact `from_code` own canonical short language codes; HTTP aliases stay at the API boundary.
 - No DTO, record, document, SQL, HTTP, AWS, OpenSearch, or environment code.
 
 ## Ownership

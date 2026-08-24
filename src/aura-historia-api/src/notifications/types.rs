@@ -112,8 +112,10 @@ enum WatchlistNotificationChangeData {
         new_price: Option<PriceData>,
     },
     StateChange {
-        old_state: NotificationProductStateData,
-        new_state: NotificationProductStateData,
+        #[serde(with = "crate::wire::product_state")]
+        old_state: ProductState,
+        #[serde(with = "crate::wire::product_state")]
+        new_state: ProductState,
     },
 }
 
@@ -141,30 +143,6 @@ struct PartnerApplicationNotificationPayloadData {
     decision: PartnerApplicationDecisionData,
     shop_name: String,
     image: Option<Url>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum NotificationProductStateData {
-    Listed,
-    Available,
-    Reserved,
-    Sold,
-    Removed,
-    Unknown,
-}
-
-impl From<ProductState> for NotificationProductStateData {
-    fn from(value: ProductState) -> Self {
-        match value {
-            ProductState::Listed => Self::Listed,
-            ProductState::Available => Self::Available,
-            ProductState::Reserved => Self::Reserved,
-            ProductState::Sold => Self::Sold,
-            ProductState::Removed => Self::Removed,
-            ProductState::Unknown => Self::Unknown,
-        }
-    }
 }
 
 #[derive(Debug, Serialize)]
@@ -290,13 +268,13 @@ fn notification_product_snapshot(
 fn localized_text_data(value: Localized<Language, Title>) -> LocalizedTextData {
     LocalizedTextData {
         text: value.payload.into(),
-        language: value.localization.into(),
+        language: value.localization,
     }
 }
 
 fn price_data(value: Price) -> PriceData {
     PriceData {
-        currency: value.currency.into(),
+        currency: value.currency,
         amount: value.monetary_amount.into(),
     }
 }
@@ -327,8 +305,8 @@ impl From<LocalizedNotificationWatchlistChange> for WatchlistNotificationChangeD
                 old_state,
                 new_state,
             } => Self::StateChange {
-                old_state: old_state.into(),
-                new_state: new_state.into(),
+                old_state,
+                new_state,
             },
         }
     }

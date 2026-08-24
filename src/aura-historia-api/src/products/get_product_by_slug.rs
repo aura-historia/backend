@@ -2,10 +2,11 @@ use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE};
 use crate::products::product_data::product_response;
 use crate::state::ProductsState;
-use crate::values::{CurrencyData, LanguageData};
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
+use localization::Language;
+use money::Currency;
 use product_core::product_slug_id::ProductSlugId;
 use product_service::use_cases::{GetProductRequest, ProductLookup};
 use serde::Deserialize;
@@ -14,9 +15,10 @@ use shop_core::shop_slug_id::ShopSlugId;
 #[derive(Debug, Deserialize)]
 struct ProductDetailsQuery {
     #[serde(default)]
-    language: LanguageData,
-    #[serde(default)]
-    currency: CurrencyData,
+    #[serde(with = "crate::wire::language")]
+    language: Language,
+    #[serde(default, with = "crate::wire::currency")]
+    currency: Currency,
 }
 
 pub async fn get_product_by_slug(
@@ -72,8 +74,8 @@ pub async fn get_product_by_slug(
                     shop_slug_id,
                     product_slug_id,
                 },
-                language: query.language.into(),
-                currency: query.currency.into(),
+                language: query.language,
+                currency: query.currency,
             },
         )
         .await

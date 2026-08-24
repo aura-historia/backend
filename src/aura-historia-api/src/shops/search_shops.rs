@@ -3,7 +3,7 @@ use crate::error::{
     ApiError, BAD_ORDER_VALUE, BAD_QUERY_PARAMETER_VALUE, BAD_SORT_VALUE, INVALID_UUID,
 };
 use crate::shops::shop_data::{ShopSummaryData, cache_control};
-use crate::shops::types::{ShopContinentData, ShopPartnerStatusData, ShopTypeData};
+use crate::shops::types::ShopContinentData;
 use crate::state::ShopsState;
 use application::pagination::Cursor;
 use axum::Json;
@@ -31,9 +31,11 @@ struct ShopSearchData {
     #[serde(default)]
     shop_name_query: Option<TextQuery<0>>,
     #[serde(rename = "shopType", default)]
-    shop_type_query: HashSet<ShopTypeData>,
+    #[serde(with = "crate::wire::shop_type::set")]
+    shop_type_query: HashSet<ShopType>,
     #[serde(rename = "partnerStatus", default)]
-    partner_status_query: HashSet<ShopPartnerStatusData>,
+    #[serde(with = "crate::wire::shop_partner_status::set")]
+    partner_status_query: HashSet<ShopPartnerStatus>,
     #[serde(default)]
     countries: HashSet<CountryCode>,
     #[serde(default)]
@@ -167,16 +169,8 @@ fn parse_search(raw_query: Option<&str>) -> Result<ShopSearch, ApiError> {
         })?;
     Ok(ShopSearch {
         shop_name_query: data.shop_name_query,
-        shop_type_query: data
-            .shop_type_query
-            .into_iter()
-            .map(ShopType::from)
-            .collect(),
-        partner_status_query: data
-            .partner_status_query
-            .into_iter()
-            .map(ShopPartnerStatus::from)
-            .collect(),
+        shop_type_query: data.shop_type_query.into_iter().collect(),
+        partner_status_query: data.partner_status_query.into_iter().collect(),
         countries: data.countries.into_iter().collect(),
         continents: data.continents.into_iter().map(Continent::from).collect(),
         created: data.created,

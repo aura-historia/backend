@@ -65,7 +65,8 @@ struct ProductCreatedHistoryPayloadData {
     pricing: ProductPricingData,
     #[serde(skip_serializing_if = "Option::is_none")]
     sale_valuation: Option<ProductSaleValuationData>,
-    state: ProductStateData,
+    #[serde(with = "crate::wire::product_state")]
+    state: ProductState,
     url: Url,
     images: Vec<ProductImageData>,
     auction: ProductAuctionData,
@@ -74,8 +75,10 @@ struct ProductCreatedHistoryPayloadData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProductStateChangedHistoryPayloadData {
-    old_state: ProductStateData,
-    new_state: ProductStateData,
+    #[serde(with = "crate::wire::product_state")]
+    old_state: ProductState,
+    #[serde(with = "crate::wire::product_state")]
+    new_state: ProductState,
     #[serde(skip_serializing_if = "Option::is_none")]
     sale_valuation: Option<ProductSaleValuationData>,
 }
@@ -116,8 +119,10 @@ struct ProductAuctionChangedHistoryPayloadData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProductDeletedHistoryPayloadData {
-    old_lifecycle: ProductLifecycleData,
-    new_lifecycle: ProductLifecycleData,
+    #[serde(with = "crate::wire::product_lifecycle")]
+    old_lifecycle: ProductLifecycle,
+    #[serde(with = "crate::wire::product_lifecycle")]
+    new_lifecycle: ProductLifecycle,
 }
 
 #[derive(Debug, Serialize)]
@@ -146,24 +151,6 @@ struct ProductAuctionData {
     start: Option<OffsetDateTime>,
     #[serde(with = "time::serde::rfc3339::option")]
     end: Option<OffsetDateTime>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductStateData {
-    Listed,
-    Available,
-    Reserved,
-    Sold,
-    Removed,
-    Unknown,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductLifecycleData {
-    Active,
-    Deleted,
 }
 
 impl From<ProductEvent> for ProductEventData {
@@ -204,7 +191,7 @@ impl From<ProductEventPayload> for ProductEventPayloadData {
                     geo_address: value.address.geo.map(Into::into),
                     pricing: value.pricing.into(),
                     sale_valuation: value.sale_valuation.map(Into::into),
-                    state: value.state.into(),
+                    state: value.state,
                     url: value.url,
                     images: images(value.images),
                     auction: value.auction.into(),
@@ -212,8 +199,8 @@ impl From<ProductEventPayload> for ProductEventPayloadData {
             }
             ProductEventPayload::StateChanged(value) => {
                 Self::StateChanged(ProductStateChangedHistoryPayloadData {
-                    old_state: value.old_state.into(),
-                    new_state: value.new_state.into(),
+                    old_state: value.old_state,
+                    new_state: value.new_state,
                     sale_valuation: value.sale_valuation.map(Into::into),
                 })
             }
@@ -244,8 +231,8 @@ impl From<ProductEventPayload> for ProductEventPayloadData {
             }
             ProductEventPayload::Deleted(value) => {
                 Self::Deleted(ProductDeletedHistoryPayloadData {
-                    old_lifecycle: value.old_lifecycle.into(),
-                    new_lifecycle: value.new_lifecycle.into(),
+                    old_lifecycle: value.old_lifecycle,
+                    new_lifecycle: value.new_lifecycle,
                 })
             }
         }
@@ -285,28 +272,6 @@ impl From<ProductAuction> for ProductAuctionData {
         Self {
             start: auction.start,
             end: auction.end,
-        }
-    }
-}
-
-impl From<ProductState> for ProductStateData {
-    fn from(state: ProductState) -> Self {
-        match state {
-            ProductState::Listed => Self::Listed,
-            ProductState::Available => Self::Available,
-            ProductState::Reserved => Self::Reserved,
-            ProductState::Sold => Self::Sold,
-            ProductState::Removed => Self::Removed,
-            ProductState::Unknown => Self::Unknown,
-        }
-    }
-}
-
-impl From<ProductLifecycle> for ProductLifecycleData {
-    fn from(lifecycle: ProductLifecycle) -> Self {
-        match lifecycle {
-            ProductLifecycle::Active => Self::Active,
-            ProductLifecycle::Deleted => Self::Deleted,
         }
     }
 }

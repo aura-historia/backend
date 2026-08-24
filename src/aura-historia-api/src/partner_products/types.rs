@@ -33,7 +33,8 @@ pub(super) struct CreateProductData {
     pub(super) price_estimate_min: Option<PriceData>,
     #[serde(default)]
     pub(super) price_estimate_max: Option<PriceData>,
-    pub(super) state: ProductStateData,
+    #[serde(with = "crate::wire::product_state")]
+    pub(super) state: ProductState,
     pub(super) url: Url,
     pub(super) images: Vec<Url>,
     #[serde(default, with = "time::serde::rfc3339::option")]
@@ -57,7 +58,8 @@ pub(super) struct UpdateProductData {
     #[serde(default)]
     pub(super) price_estimate_max: PatchValue<PriceData>,
     #[serde(default)]
-    pub(super) state: PatchValue<ProductStateData>,
+    #[serde(deserialize_with = "crate::wire::product_state::patch::deserialize")]
+    pub(super) state: PatchValue<ProductState>,
     #[serde(default)]
     pub(super) url: PatchValue<Url>,
     #[serde(default)]
@@ -83,7 +85,8 @@ pub(super) struct UpsertProductData {
     #[serde(default)]
     pub(super) price_estimate_max: Option<PriceData>,
     #[serde(default)]
-    pub(super) state: Option<ProductStateData>,
+    #[serde(with = "crate::wire::product_state::option")]
+    pub(super) state: Option<ProductState>,
     #[serde(default)]
     pub(super) url: Option<Url>,
     #[serde(default)]
@@ -110,17 +113,6 @@ pub(super) struct PartnerProductFailureData {
     shop_id: ShopId,
     shops_product_id: ShopsProductId,
     error: ApiErrorCode,
-}
-
-#[derive(Debug, Deserialize, Clone, Copy)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(super) enum ProductStateData {
-    Listed,
-    Available,
-    Reserved,
-    Sold,
-    Removed,
-    Unknown,
 }
 
 pub(super) fn parse_partner_product_batch<T: DeserializeOwned>(
@@ -155,7 +147,7 @@ impl CreateProductData {
                 price_estimate_min: self.price_estimate_min.map(price),
                 price_estimate_max: self.price_estimate_max.map(price),
             },
-            state: self.state.into(),
+            state: self.state,
             url: self.url,
             images: product_images(self.images),
             auction: ProductAuction {
@@ -176,7 +168,7 @@ impl UpdateProductData {
             price: clearable(self.price.map(price)),
             price_estimate_min: clearable(self.price_estimate_min.map(price)),
             price_estimate_max: clearable(self.price_estimate_max.map(price)),
-            state: non_nullable_patch(self.state.map(Into::into), "state")?,
+            state: non_nullable_patch(self.state, "state")?,
             url: non_nullable_patch(self.url, "url")?,
             images: non_nullable_patch(self.images.map(product_images), "images")?,
             auction_start: clearable(self.auction_start.map(Some)),
@@ -199,7 +191,7 @@ impl UpsertProductData {
             price: self.price.map(price),
             price_estimate_min: self.price_estimate_min.map(price),
             price_estimate_max: self.price_estimate_max.map(price),
-            state: self.state.map(Into::into),
+            state: self.state,
             url: self.url,
             images: product_images(self.images.unwrap_or_default()),
             auction_start: self.auction_start,
@@ -224,19 +216,6 @@ impl PartnerProductFailureData {
             shop_id,
             shops_product_id,
             error,
-        }
-    }
-}
-
-impl From<ProductStateData> for ProductState {
-    fn from(value: ProductStateData) -> Self {
-        match value {
-            ProductStateData::Listed => Self::Listed,
-            ProductStateData::Available => Self::Available,
-            ProductStateData::Reserved => Self::Reserved,
-            ProductStateData::Sold => Self::Sold,
-            ProductStateData::Removed => Self::Removed,
-            ProductStateData::Unknown => Self::Unknown,
         }
     }
 }

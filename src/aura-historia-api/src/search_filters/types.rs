@@ -1,10 +1,12 @@
 use crate::patch_value::{PatchValue, clearable, non_nullable_option, non_nullable_patch};
-use crate::values::{CurrencyData, GeoDistanceQueryData, LanguageData};
+use crate::values::GeoDistanceQueryData;
 use application::patch_field::PatchField;
 use domain_primitives::event_id::EventId;
 use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
+use localization::Language;
+use money::Currency;
 
 use money::MonetaryAmount;
 use product_core::product_id::ProductId;
@@ -105,9 +107,11 @@ pub(super) enum ProductSearchDataMappingError {
 #[serde(rename_all = "camelCase")]
 pub(super) struct ProductSearchPatchData {
     #[serde(default)]
-    language: PatchValue<LanguageData>,
+    #[serde(deserialize_with = "crate::wire::language::patch::deserialize")]
+    language: PatchValue<Language>,
     #[serde(default)]
-    currency: PatchValue<CurrencyData>,
+    #[serde(deserialize_with = "crate::wire::currency::patch::deserialize")]
+    currency: PatchValue<Currency>,
     #[serde(rename = "productQuery", default)]
     product_query: PatchValue<Vec<TextQuery<1>>>,
     #[serde(rename = "enhancedSearchDescription", default)]
@@ -129,7 +133,8 @@ pub(super) struct ProductSearchPatchData {
     #[serde(rename = "excludeSellerSlugId", default)]
     exclude_seller_slug_id_query: PatchValue<HashSet<SellerSlugId>>,
     #[serde(rename = "shopType", default)]
-    shop_type_query: PatchValue<HashSet<ShopTypeData>>,
+    #[serde(deserialize_with = "crate::wire::shop_type::patch_set::deserialize")]
+    shop_type_query: PatchValue<HashSet<ShopType>>,
     #[serde(rename = "country", default)]
     country_query: PatchValue<HashSet<CountryCode>>,
     #[serde(rename = "continent", default)]
@@ -139,7 +144,8 @@ pub(super) struct ProductSearchPatchData {
     #[serde(rename = "price", default)]
     price_query: PatchValue<RangeQuery<u64>>,
     #[serde(rename = "state", default)]
-    state_query: PatchValue<HashSet<ProductStateData>>,
+    #[serde(deserialize_with = "crate::wire::product_state::patch_set::deserialize")]
+    state_query: PatchValue<HashSet<ProductState>>,
     #[serde(
         rename = "created",
         default,
@@ -169,8 +175,8 @@ pub(super) struct ProductSearchPatchData {
 impl ProductSearchPatchData {
     fn try_into_patch(self) -> Result<ProductSearchPatch, crate::error::ApiError> {
         Ok(ProductSearchPatch {
-            language: non_nullable_patch(self.language.map(Into::into), "search.language")?,
-            currency: non_nullable_patch(self.currency.map(Into::into), "search.currency")?,
+            language: non_nullable_patch(self.language, "search.language")?,
+            currency: non_nullable_patch(self.currency, "search.currency")?,
             product_query: non_nullable_patch(self.product_query, "search.productQuery")?,
             enhanced_search_description: match self.enhanced_search_description {
                 PatchValue::Omitted => PatchField::Unchanged,
@@ -215,8 +221,7 @@ impl ProductSearchPatchData {
                 "search.excludeSellerSlugId",
             )?,
             shop_type_query: non_nullable_patch(
-                self.shop_type_query
-                    .map(|values| values.into_iter().map(ShopType::from).collect()),
+                self.shop_type_query.map(AnyOfQuery::from),
                 "search.shopType",
             )?,
             country_query: non_nullable_patch(
@@ -234,8 +239,7 @@ impl ProductSearchPatchData {
                     .map(|query| query.map(MonetaryAmount::from)),
             ),
             state_query: non_nullable_patch(
-                self.state_query
-                    .map(|values| values.into_iter().map(ProductState::from).collect()),
+                self.state_query.map(AnyOfQuery::from),
                 "search.state",
             )?,
             created_query: clearable(self.created_query),
@@ -262,9 +266,10 @@ impl UpdateSearchFilterMatchFeedbackData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct ProductSearchData {
     #[serde(default)]
-    language: LanguageData,
-    #[serde(default)]
-    currency: CurrencyData,
+    #[serde(with = "crate::wire::language")]
+    language: Language,
+    #[serde(default, with = "crate::wire::currency")]
+    currency: Currency,
     #[serde(
         rename = "productQuery",
         skip_serializing_if = "Vec::is_empty",
@@ -336,7 +341,8 @@ pub(super) struct ProductSearchData {
         skip_serializing_if = "HashSet::is_empty",
         default
     )]
-    shop_type_query: HashSet<ShopTypeData>,
+    #[serde(with = "crate::wire::shop_type::set")]
+    shop_type_query: HashSet<ShopType>,
     #[serde(rename = "country", skip_serializing_if = "HashSet::is_empty", default)]
     country_query: HashSet<CountryCode>,
     #[serde(
@@ -354,7 +360,8 @@ pub(super) struct ProductSearchData {
     #[serde(rename = "price", skip_serializing_if = "Option::is_none", default)]
     price_query: Option<RangeQuery<u64>>,
     #[serde(rename = "state", skip_serializing_if = "HashSet::is_empty", default)]
-    state_query: HashSet<ProductStateData>,
+    #[serde(with = "crate::wire::product_state::set")]
+    state_query: HashSet<ProductState>,
     #[serde(
         rename = "created",
         with = "domain_primitives::query::range_query::range_rfc3339::option",
@@ -385,33 +392,13 @@ pub(super) struct ProductSearchData {
     auction_end_query: Option<RangeQuery<OffsetDateTime>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductStateData {
-    Listed,
-    Available,
-    Reserved,
-    Sold,
-    Removed,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ShopTypeData {
-    AuctionHouse,
-    AuctionPlatform,
-    CommercialDealer,
-    Marketplace,
-}
-
 impl TryFrom<ProductSearchData> for ProductSearch {
     type Error = ProductSearchDataMappingError;
 
     fn try_from(data: ProductSearchData) -> Result<Self, Self::Error> {
         Ok(Self {
-            language: data.language.into(),
-            currency: data.currency.into(),
+            language: data.language,
+            currency: data.currency,
             product_query: data.product_query,
             enhanced_search_description: data
                 .enhanced_search_description
@@ -426,14 +413,14 @@ impl TryFrom<ProductSearchData> for ProductSearch {
             exclude_shop_slug_id_query: data.exclude_shop_slug_id_query.into(),
             seller_slug_id_query: data.seller_slug_id_query.into(),
             exclude_seller_slug_id_query: data.exclude_seller_slug_id_query.into(),
-            shop_type_query: data.shop_type_query.into_iter().map(Into::into).collect(),
+            shop_type_query: data.shop_type_query.into(),
             country_query: data.country_query.into(),
             continent_query: data.continent_query.into_iter().map(Into::into).collect(),
             geo_address_distance_query: data.geo_address_distance_query.map(Into::into),
             price_query: data
                 .price_query
                 .map(|query| query.map(MonetaryAmount::from)),
-            state_query: data.state_query.into_iter().map(Into::into).collect(),
+            state_query: data.state_query.into(),
             lifecycle_query: Default::default(),
             created_query: data.created_query,
             updated_query: data.updated_query,
@@ -446,8 +433,8 @@ impl TryFrom<ProductSearchData> for ProductSearch {
 impl From<ProductSearch> for ProductSearchData {
     fn from(search: ProductSearch) -> Self {
         Self {
-            language: search.language.into(),
-            currency: search.currency.into(),
+            language: search.language,
+            currency: search.currency,
             product_query: search.product_query,
             enhanced_search_description: search.enhanced_search_description.map(Into::into),
             exclude_product_id_query: search.exclude_product_id_query.into(),
@@ -459,61 +446,16 @@ impl From<ProductSearch> for ProductSearchData {
             exclude_shop_slug_id_query: search.exclude_shop_slug_id_query.into(),
             seller_slug_id_query: search.seller_slug_id_query.into(),
             exclude_seller_slug_id_query: search.exclude_seller_slug_id_query.into(),
-            shop_type_query: search.shop_type_query.into_iter().map(Into::into).collect(),
+            shop_type_query: search.shop_type_query.into(),
             country_query: search.country_query.into(),
             continent_query: search.continent_query.into_iter().map(Into::into).collect(),
             geo_address_distance_query: search.geo_address_distance_query.map(Into::into),
             price_query: search.price_query.map(|query| query.map(u64::from)),
-            state_query: search.state_query.into_iter().map(Into::into).collect(),
+            state_query: search.state_query.into(),
             created_query: search.created_query,
             updated_query: search.updated_query,
             auction_start_query: search.auction_start_query,
             auction_end_query: search.auction_end_query,
-        }
-    }
-}
-
-impl From<ProductStateData> for ProductState {
-    fn from(value: ProductStateData) -> Self {
-        match value {
-            ProductStateData::Listed => Self::Listed,
-            ProductStateData::Available => Self::Available,
-            ProductStateData::Reserved => Self::Reserved,
-            ProductStateData::Sold => Self::Sold,
-            ProductStateData::Removed => Self::Removed,
-            ProductStateData::Unknown => Self::Unknown,
-        }
-    }
-}
-impl From<ProductState> for ProductStateData {
-    fn from(value: ProductState) -> Self {
-        match value {
-            ProductState::Listed => Self::Listed,
-            ProductState::Available => Self::Available,
-            ProductState::Reserved => Self::Reserved,
-            ProductState::Sold => Self::Sold,
-            ProductState::Removed => Self::Removed,
-            ProductState::Unknown => Self::Unknown,
-        }
-    }
-}
-impl From<ShopTypeData> for ShopType {
-    fn from(value: ShopTypeData) -> Self {
-        match value {
-            ShopTypeData::AuctionHouse => Self::AuctionHouse,
-            ShopTypeData::AuctionPlatform => Self::AuctionPlatform,
-            ShopTypeData::CommercialDealer => Self::CommercialDealer,
-            ShopTypeData::Marketplace => Self::Marketplace,
-        }
-    }
-}
-impl From<ShopType> for ShopTypeData {
-    fn from(value: ShopType) -> Self {
-        match value {
-            ShopType::AuctionHouse => Self::AuctionHouse,
-            ShopType::AuctionPlatform => Self::AuctionPlatform,
-            ShopType::CommercialDealer => Self::CommercialDealer,
-            ShopType::Marketplace => Self::Marketplace,
         }
     }
 }

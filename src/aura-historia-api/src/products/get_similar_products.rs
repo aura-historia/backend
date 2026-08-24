@@ -2,11 +2,12 @@ use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_PATH_PARAMETER_VALUE, INVALID_UUID, PRODUCT_INTERNAL_ERROR};
 use crate::products::product_data::personalized_product_summary_data;
 use crate::state::ProductsState;
-use crate::values::{CurrencyData, LanguageData};
 use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use localization::Language;
+use money::Currency;
 use product_core::product_id::ProductId;
 use product_core::product_slug_id::ProductSlugId;
 use product_service::ports::ProductEmbeddingLookup;
@@ -17,9 +18,10 @@ use shop_core::shop_slug_id::ShopSlugId;
 #[derive(Debug, Deserialize)]
 struct SimilarProductsQuery {
     #[serde(default)]
-    language: LanguageData,
-    #[serde(default)]
-    currency: CurrencyData,
+    #[serde(with = "crate::wire::language")]
+    language: Language,
+    #[serde(default, with = "crate::wire::currency")]
+    currency: Currency,
 }
 
 const READY_CACHE_CONTROL: &str = "public, max-age=180, s-maxage=900";
@@ -121,8 +123,8 @@ async fn similar_response(
             &context,
             GetSimilarProductsRequest {
                 lookup: lookup.clone(),
-                language: query.language.into(),
-                currency: query.currency.into(),
+                language: query.language,
+                currency: query.currency,
             },
         )
         .await
@@ -299,12 +301,12 @@ mod tests {
     fn should_parse_similar_products_currency_and_language() {
         let query = parse_query(Some("language=de&currency=USD"));
         assert!(
-            matches!(query, Ok(query) if query.language == LanguageData::De && query.currency == CurrencyData::Usd)
+            matches!(query, Ok(query) if query.language == Language::De && query.currency == Currency::Usd)
         );
 
         let default_query = parse_query(None);
         assert!(
-            matches!(default_query, Ok(query) if query.language == LanguageData::En && query.currency == CurrencyData::Eur)
+            matches!(default_query, Ok(query) if query.language == Language::En && query.currency == Currency::Eur)
         );
     }
 

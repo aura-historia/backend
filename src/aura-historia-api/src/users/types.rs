@@ -1,7 +1,9 @@
 use crate::patch_value::PatchValue;
-use crate::values::{CurrencyData, LanguageData, MeasurementUnitData};
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
+use localization::Language;
+use money::Currency;
 use serde::{Deserialize, Serialize};
+use user_core::measurement_unit::MeasurementUnit;
 use user_core::role::UserRole;
 use user_core::tier::UserTier;
 use user_core::user_id::UserId;
@@ -70,12 +72,21 @@ pub(crate) struct OwnUserData {
     pub(crate) first_name: Option<user_core::first_name::FirstName>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) last_name: Option<user_core::last_name::LastName>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) language: Option<LanguageData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) currency: Option<CurrencyData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) measurement_unit: Option<MeasurementUnitData>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::language::option"
+    )]
+    pub(crate) language: Option<Language>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::currency::option"
+    )]
+    pub(crate) currency: Option<Currency>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::measurement_unit::option"
+    )]
+    pub(crate) measurement_unit: Option<MeasurementUnit>,
     pub(crate) prohibited_content_consent: bool,
     pub(crate) tier: UserTierData,
     pub(crate) role: UserRoleData,
@@ -94,9 +105,9 @@ impl From<UserDetailsView> for OwnUserData {
             email: view.email,
             first_name: view.first_name,
             last_name: view.last_name,
-            language: view.language.map(Into::into),
-            currency: view.currency.map(Into::into),
-            measurement_unit: view.measurement_unit.map(Into::into),
+            language: view.language,
+            currency: view.currency,
+            measurement_unit: view.measurement_unit,
             prohibited_content_consent: view.prohibited_content_consent,
             tier: view.tier.into(),
             role: view.role.into(),
@@ -116,12 +127,21 @@ pub(crate) struct AdminUserData {
     pub(crate) first_name: Option<user_core::first_name::FirstName>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) last_name: Option<user_core::last_name::LastName>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) language: Option<LanguageData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) currency: Option<CurrencyData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) measurement_unit: Option<MeasurementUnitData>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::language::option"
+    )]
+    pub(crate) language: Option<Language>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::currency::option"
+    )]
+    pub(crate) currency: Option<Currency>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::measurement_unit::option"
+    )]
+    pub(crate) measurement_unit: Option<MeasurementUnit>,
     pub(crate) prohibited_content_consent: bool,
     pub(crate) tier: UserTierData,
     pub(crate) role: UserRoleData,
@@ -140,9 +160,9 @@ impl From<UserDetailsView> for AdminUserData {
             email: view.email,
             first_name: view.first_name,
             last_name: view.last_name,
-            language: view.language.map(Into::into),
-            currency: view.currency.map(Into::into),
-            measurement_unit: view.measurement_unit.map(Into::into),
+            language: view.language,
+            currency: view.currency,
+            measurement_unit: view.measurement_unit,
             prohibited_content_consent: view.prohibited_content_consent,
             tier: view.tier.into(),
             role: view.role.into(),
@@ -199,12 +219,21 @@ pub(crate) struct PatchOwnUserData {
     pub(crate) first_name: PatchValue<user_core::first_name::FirstName>,
     #[serde(default)]
     pub(crate) last_name: PatchValue<user_core::last_name::LastName>,
-    #[serde(default)]
-    pub(crate) language: PatchValue<LanguageData>,
-    #[serde(default)]
-    pub(crate) currency: PatchValue<CurrencyData>,
-    #[serde(default)]
-    pub(crate) measurement_unit: PatchValue<MeasurementUnitData>,
+    #[serde(
+        default,
+        deserialize_with = "crate::wire::language::patch::deserialize"
+    )]
+    pub(crate) language: PatchValue<Language>,
+    #[serde(
+        default,
+        deserialize_with = "crate::wire::currency::patch::deserialize"
+    )]
+    pub(crate) currency: PatchValue<Currency>,
+    #[serde(
+        default,
+        deserialize_with = "crate::wire::measurement_unit::patch::deserialize"
+    )]
+    pub(crate) measurement_unit: PatchValue<MeasurementUnit>,
     #[serde(default)]
     pub(crate) prohibited_content_consent: PatchValue<bool>,
     #[serde(default)]
@@ -220,12 +249,21 @@ pub(crate) struct PatchAdminUserData {
     pub(crate) first_name: PatchValue<user_core::first_name::FirstName>,
     #[serde(default)]
     pub(crate) last_name: PatchValue<user_core::last_name::LastName>,
-    #[serde(default)]
-    pub(crate) language: PatchValue<LanguageData>,
-    #[serde(default)]
-    pub(crate) currency: PatchValue<CurrencyData>,
-    #[serde(default)]
-    pub(crate) measurement_unit: PatchValue<MeasurementUnitData>,
+    #[serde(
+        default,
+        deserialize_with = "crate::wire::language::patch::deserialize"
+    )]
+    pub(crate) language: PatchValue<Language>,
+    #[serde(
+        default,
+        deserialize_with = "crate::wire::currency::patch::deserialize"
+    )]
+    pub(crate) currency: PatchValue<Currency>,
+    #[serde(
+        default,
+        deserialize_with = "crate::wire::measurement_unit::patch::deserialize"
+    )]
+    pub(crate) measurement_unit: PatchValue<MeasurementUnit>,
     #[serde(default)]
     pub(crate) prohibited_content_consent: PatchValue<bool>,
     #[serde(default)]

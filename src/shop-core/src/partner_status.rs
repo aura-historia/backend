@@ -7,6 +7,12 @@ pub enum ShopPartnerStatus {
 }
 
 impl ShopPartnerStatus {
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|status| status.as_str() == value)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Scraped => "SCRAPED",
@@ -35,5 +41,10 @@ mod tests {
         assert_eq!(ShopPartnerStatus::iter().count(), statuses.len());
         assert_eq!("SCRAPED", ShopPartnerStatus::Scraped.as_str());
         assert_eq!("PARTNERED", ShopPartnerStatus::Partnered.as_str());
+        assert_eq!(
+            Some(ShopPartnerStatus::Partnered),
+            ShopPartnerStatus::from_code("PARTNERED")
+        );
+        assert_eq!(None, ShopPartnerStatus::from_code("partnered"));
     }
 }

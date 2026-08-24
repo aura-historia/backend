@@ -4,7 +4,7 @@ use crate::products::product_data::{
     PersonalizedProductSummaryData, personalized_product_summary_data,
 };
 use crate::state::ProductsState;
-use crate::values::{CurrencyData, GeoDistanceQueryData, LanguageData};
+use crate::values::GeoDistanceQueryData;
 use application::operation_context::Principal;
 use application::pagination::Cursor;
 use axum::Json;
@@ -17,6 +17,8 @@ use domain_primitives::sort::{Sort, SortOrder};
 use fxrate_core::FxRateId;
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
+use localization::Language;
+use money::Currency;
 use money::MonetaryAmount;
 use product_core::product_id::ProductId;
 use product_core::product_lifecycle::ProductLifecycle;
@@ -37,9 +39,10 @@ use time::OffsetDateTime;
 #[serde(rename_all = "camelCase")]
 struct ProductSearchData {
     #[serde(default)]
-    language: LanguageData,
-    #[serde(default)]
-    currency: CurrencyData,
+    #[serde(with = "crate::wire::language")]
+    language: Language,
+    #[serde(default, with = "crate::wire::currency")]
+    currency: Currency,
     #[serde(default)]
     product_query: Vec<TextQuery<1>>,
     #[serde(default)]
@@ -63,7 +66,8 @@ struct ProductSearchData {
     #[serde(default)]
     exclude_seller_slug_id: HashSet<SellerSlugId>,
     #[serde(default)]
-    shop_type: HashSet<ShopTypeData>,
+    #[serde(with = "crate::wire::shop_type::set")]
+    shop_type: HashSet<ShopType>,
     #[serde(default)]
     country: HashSet<CountryCode>,
     #[serde(default)]
@@ -73,9 +77,11 @@ struct ProductSearchData {
     #[serde(default)]
     price: Option<RangeQuery<u64>>,
     #[serde(default)]
-    state: HashSet<ProductStateData>,
+    #[serde(with = "crate::wire::product_state::set")]
+    state: HashSet<ProductState>,
     #[serde(default)]
-    lifecycle: HashSet<ProductLifecycleData>,
+    #[serde(with = "crate::wire::product_lifecycle::set")]
+    lifecycle: HashSet<ProductLifecycle>,
     #[serde(
         with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
@@ -96,33 +102,6 @@ struct ProductSearchData {
         default
     )]
     auction_end: Option<RangeQuery<OffsetDateTime>>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductStateData {
-    Listed,
-    Available,
-    Reserved,
-    Sold,
-    Removed,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductLifecycleData {
-    Active,
-    Deleted,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ShopTypeData {
-    AuctionHouse,
-    AuctionPlatform,
-    CommercialDealer,
-    Marketplace,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -160,8 +139,8 @@ impl TryFrom<ProductSearchData> for ProductSearch {
 
     fn try_from(data: ProductSearchData) -> Result<Self, Self::Error> {
         Ok(Self {
-            language: data.language.into(),
-            currency: data.currency.into(),
+            language: data.language,
+            currency: data.currency,
             product_query: data.product_query,
             enhanced_search_description: data
                 .enhanced_search_description
@@ -176,51 +155,18 @@ impl TryFrom<ProductSearchData> for ProductSearch {
             exclude_shop_slug_id_query: data.exclude_shop_slug_id.into(),
             seller_slug_id_query: data.seller_slug_id.into(),
             exclude_seller_slug_id_query: data.exclude_seller_slug_id.into(),
-            shop_type_query: data.shop_type.into_iter().map(Into::into).collect(),
+            shop_type_query: data.shop_type.into(),
             country_query: data.country.into(),
             continent_query: data.continent.into_iter().map(Into::into).collect(),
             geo_address_distance_query: data.geo_address.map(Into::into),
             price_query: data.price.map(|range| range.map(MonetaryAmount::from)),
-            state_query: data.state.into_iter().map(Into::into).collect(),
-            lifecycle_query: data.lifecycle.into_iter().map(Into::into).collect(),
+            state_query: data.state.into(),
+            lifecycle_query: data.lifecycle.into(),
             created_query: data.created,
             updated_query: data.updated,
             auction_start_query: data.auction_start,
             auction_end_query: data.auction_end,
         })
-    }
-}
-
-impl From<ProductStateData> for ProductState {
-    fn from(data: ProductStateData) -> Self {
-        match data {
-            ProductStateData::Listed => Self::Listed,
-            ProductStateData::Available => Self::Available,
-            ProductStateData::Reserved => Self::Reserved,
-            ProductStateData::Sold => Self::Sold,
-            ProductStateData::Removed => Self::Removed,
-            ProductStateData::Unknown => Self::Unknown,
-        }
-    }
-}
-
-impl From<ProductLifecycleData> for ProductLifecycle {
-    fn from(data: ProductLifecycleData) -> Self {
-        match data {
-            ProductLifecycleData::Active => Self::Active,
-            ProductLifecycleData::Deleted => Self::Deleted,
-        }
-    }
-}
-
-impl From<ShopTypeData> for ShopType {
-    fn from(data: ShopTypeData) -> Self {
-        match data {
-            ShopTypeData::AuctionHouse => Self::AuctionHouse,
-            ShopTypeData::AuctionPlatform => Self::AuctionPlatform,
-            ShopTypeData::CommercialDealer => Self::CommercialDealer,
-            ShopTypeData::Marketplace => Self::Marketplace,
-        }
     }
 }
 

@@ -7,6 +7,12 @@ pub enum ProductLifecycle {
 }
 
 impl ProductLifecycle {
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|lifecycle| lifecycle.as_str() == value)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Active => "ACTIVE",
@@ -30,5 +36,10 @@ mod tests {
         assert_eq!(ProductLifecycle::iter().count(), identifiers.len());
         assert_eq!("ACTIVE", ProductLifecycle::Active.as_str());
         assert_eq!("DELETED", ProductLifecycle::Deleted.as_str());
+        assert_eq!(
+            Some(ProductLifecycle::Active),
+            ProductLifecycle::from_code("ACTIVE")
+        );
+        assert_eq!(None, ProductLifecycle::from_code("active"));
     }
 }
