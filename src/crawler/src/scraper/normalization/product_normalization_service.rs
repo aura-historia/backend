@@ -15,7 +15,12 @@ use crate::scraper::normalization::{
     state_mapping_service::{ProductStateMappingService, StateMappingServiceError},
 };
 
+use localization::{Language, Localized};
 use money::Currency;
+use product_core::{
+    description::Description, product_image::ProductImage, shops_product_id::ShopsProductId,
+    title::Title,
+};
 
 use tracing::debug;
 use url::Url;
@@ -71,6 +76,96 @@ pub struct NormalizationFailure {
 
 pub type ProductNormalizationResult = Result<NormalizationSuccess, NormalizationFailure>;
 
+/// Deterministic candidate-local product data. State mapping is intentionally absent.
+#[derive(Debug, Clone)]
+pub struct PreparedProduct {
+    pub shops_product_id: ShopsProductId,
+    pub title: Localized<Language, Title>,
+    pub description: Option<Localized<Language, Description>>,
+    pub price: Option<money::Price>,
+    pub price_estimate_min: Option<money::Price>,
+    pub price_estimate_max: Option<money::Price>,
+    pub seller_name: Option<String>,
+    pub images: Vec<ProductImage>,
+    pub auction_start: Option<time::OffsetDateTime>,
+    pub auction_end: Option<time::OffsetDateTime>,
+    pub raw_attributes: std::collections::BTreeMap<String, Vec<String>>,
+    pub raw_state: String,
+    pub url: Url,
+}
+
+/// Apply deterministic normalization without database or LLM work.
+pub fn prepare_product(
+    raw: RawExtractedProduct,
+    url: Url,
+    default_currency: Option<Currency>,
+) -> Result<PreparedProduct, NormalizationError> {
+    let state_len = raw.state.trim().len();
+    if state_len > crate::scraper::normalization::state_mapping_service::MAX_STATE_RAW_LEN {
+        return Err(NormalizationError::StateTextTooLong {
+            len: state_len,
+            max: crate::scraper::normalization::state_mapping_service::MAX_STATE_RAW_LEN,
+        });
+    }
+    let shops_product_id =
+        normalize_shops_product_id_with_url_sha_fallback(&raw.shops_product_id, &url);
+    let title = normalize_title(&raw.title)?;
+    let title_language = detect_language(title.as_ref());
+    let description_language = detect_description_language(&raw.description);
+    let title = localize_normalized_title(title, title_language, description_language)?;
+    let description = normalize_description(raw.description, title_language)?;
+    let seller_name = raw.seller_name.and_then(|value| match value.trim() {
+        "" => None,
+        trimmed => Some(trimmed.to_string()),
+    });
+    let price = normalize_price_field(
+        raw.price,
+        "price",
+        &url,
+        default_currency,
+        |r| NormalizationError::PriceUnknownCurrency { raw: r },
+        |r| NormalizationError::PriceParseError { raw: r },
+    )?;
+    let price_estimate_min = normalize_price_field(
+        raw.price_estimate_min,
+        "price_estimate_min",
+        &url,
+        default_currency,
+        |r| NormalizationError::PriceEstimateMinUnknownCurrency { raw: r },
+        |r| NormalizationError::PriceEstimateMinParseError { raw: r },
+    )?;
+    let price_estimate_max = normalize_price_field(
+        raw.price_estimate_max,
+        "price_estimate_max",
+        &url,
+        default_currency,
+        |r| NormalizationError::PriceEstimateMaxUnknownCurrency { raw: r },
+        |r| NormalizationError::PriceEstimateMaxParseError { raw: r },
+    )?;
+    let images = normalize_images(raw.images, &url)?;
+    let auction_start = normalize_datetime_field(raw.auction_start, |r| {
+        NormalizationError::AuctionStartParseError { raw: r }
+    })?;
+    let auction_end = normalize_datetime_field(raw.auction_end, |r| {
+        NormalizationError::AuctionEndParseError { raw: r }
+    })?;
+    Ok(PreparedProduct {
+        shops_product_id,
+        title,
+        description,
+        price,
+        price_estimate_min,
+        price_estimate_max,
+        seller_name,
+        images,
+        auction_start,
+        auction_end,
+        raw_attributes: raw.raw_attributes,
+        raw_state: raw.state,
+        url,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Implementation
 // ---------------------------------------------------------------------------
@@ -110,100 +205,52 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
             has_auction_end = raw.auction_end.is_some(),
             "Normalizing raw extracted product"
         );
-        // Resolve state first — this is the only async step.
-        let (state_record, state_llm_called) = self
-            .state_mapping_service
-            .get_state_mapping(&raw.state)
-            .await
-            .map_err(|e| match e {
-                StateMappingServiceError::RawStateTooLong { len, max } => {
-                    NormalizationError::StateTextTooLong { len, max }
-                }
-                other => NormalizationError::StateMappingError(other),
-            })
-            .map_err(|error| NormalizationFailure {
+        let prepared =
+            prepare_product(raw, url, default_currency).map_err(|error| NormalizationFailure {
                 error,
                 llm_calls_used: 0,
             })?;
+
+        // Resolve state only after deterministic candidate validation. This
+        // avoids DB/LLM work for candidates that cannot become a product.
+        let (state_record, state_llm_called) = self
+            .state_mapping_service
+            .get_state_mapping(&prepared.raw_state)
+            .await
+            .map_err(|error| NormalizationFailure {
+                llm_calls_used: match &error {
+                    StateMappingServiceError::LargeLanguageModelError(_)
+                    | StateMappingServiceError::UnparsableResponse
+                    | StateMappingServiceError::DatabaseErrorAfterLlm(_) => 1,
+                    StateMappingServiceError::RawStateTooLong { .. }
+                    | StateMappingServiceError::ResponseJsonSchemaSerialization(_)
+                    | StateMappingServiceError::DatabaseError(_) => 0,
+                },
+                error: match error {
+                    StateMappingServiceError::RawStateTooLong { len, max } => {
+                        NormalizationError::StateTextTooLong { len, max }
+                    }
+                    other => NormalizationError::StateMappingError(other),
+                },
+            })?;
         let state = state_record.normalized;
         let llm_calls_used = u32::from(state_llm_called);
-        let fail = |error| NormalizationFailure {
-            error,
-            llm_calls_used,
-        };
-
-        let shops_product_id =
-            normalize_shops_product_id_with_url_sha_fallback(&raw.shops_product_id, &url);
-        let title = normalize_title(&raw.title).map_err(fail)?;
-        let title_language = detect_language(title.as_ref());
-        let description_language = detect_description_language(&raw.description);
-        let title =
-            localize_normalized_title(title, title_language, description_language).map_err(fail)?;
-        let description = normalize_description(raw.description, title_language).map_err(fail)?;
-        let seller_name = raw.seller_name.and_then(|value| match value.trim() {
-            "" => None,
-            trimmed => Some(trimmed.to_string()),
-        });
-
-        debug!(
-            default_currency = ?default_currency,
-            "Using schema default_currency as fallback for price normalization"
-        );
-
-        let price = normalize_price_field(
-            raw.price,
-            "price",
-            &url,
-            default_currency,
-            |r| NormalizationError::PriceUnknownCurrency { raw: r },
-            |r| NormalizationError::PriceParseError { raw: r },
-        )
-        .map_err(fail)?;
-        let price_estimate_min = normalize_price_field(
-            raw.price_estimate_min,
-            "price_estimate_min",
-            &url,
-            default_currency,
-            |r| NormalizationError::PriceEstimateMinUnknownCurrency { raw: r },
-            |r| NormalizationError::PriceEstimateMinParseError { raw: r },
-        )
-        .map_err(fail)?;
-        let price_estimate_max = normalize_price_field(
-            raw.price_estimate_max,
-            "price_estimate_max",
-            &url,
-            default_currency,
-            |r| NormalizationError::PriceEstimateMaxUnknownCurrency { raw: r },
-            |r| NormalizationError::PriceEstimateMaxParseError { raw: r },
-        )
-        .map_err(fail)?;
-
-        let images = normalize_images(raw.images, &url).map_err(fail)?;
-
-        let auction_start = normalize_datetime_field(raw.auction_start, |r| {
-            NormalizationError::AuctionStartParseError { raw: r }
-        })
-        .map_err(fail)?;
-        let auction_end = normalize_datetime_field(raw.auction_end, |r| {
-            NormalizationError::AuctionEndParseError { raw: r }
-        })
-        .map_err(fail)?;
 
         Ok(NormalizationSuccess {
             product: NormalizedProduct {
-                shops_product_id,
-                title,
-                description,
-                price,
-                price_estimate_min,
-                price_estimate_max,
-                seller_name,
+                shops_product_id: prepared.shops_product_id,
+                title: prepared.title,
+                description: prepared.description,
+                price: prepared.price,
+                price_estimate_min: prepared.price_estimate_min,
+                price_estimate_max: prepared.price_estimate_max,
+                seller_name: prepared.seller_name,
                 state,
-                url,
-                images,
-                auction_start,
-                auction_end,
-                raw_attributes: raw.raw_attributes,
+                url: prepared.url,
+                images: prepared.images,
+                auction_start: prepared.auction_start,
+                auction_end: prepared.auction_end,
+                raw_attributes: prepared.raw_attributes,
             },
             llm_calls_used,
         })
@@ -227,6 +274,7 @@ mod tests {
     use super::{NormalizationError, ProductNormalizationService, ProductNormalizationServiceImpl};
     use crate::scraper::css_selector::product_schema::RawExtractedProduct;
     use crate::scraper::normalization::{
+        error::NormalizationFailureScope,
         state::{ProductStateMappingRecord, StateMappingType},
         state_mapping_service::{MockProductStateMappingService, StateMappingServiceError},
     };
@@ -287,6 +335,12 @@ mod tests {
     /// Create a service whose state mapping service always returns `Available`.
     fn make_available_service() -> ProductNormalizationServiceImpl {
         make_service("available", ProductState::Available)
+    }
+
+    fn make_service_that_must_not_map_state() -> ProductNormalizationServiceImpl {
+        let mut mock = MockProductStateMappingService::new();
+        mock.expect_get_state_mapping().times(0);
+        ProductNormalizationServiceImpl::new(Box::new(mock))
     }
 
     // -----------------------------------------------------------------------
@@ -468,7 +522,7 @@ mod tests {
     #[tokio::test]
     async fn should_propagate_state_mapping_error_when_service_fails() {
         let mut mock = MockProductStateMappingService::new();
-        mock.expect_get_state_mapping().returning(|_| {
+        mock.expect_get_state_mapping().times(1).returning(|_| {
             Box::pin(async {
                 Err(StateMappingServiceError::DatabaseError(
                     sqlx::Error::RowNotFound,
@@ -484,6 +538,63 @@ mod tests {
         assert!(
             matches!(err.error, NormalizationError::StateMappingError(_)),
             "expected StateMappingError, got {err:?}"
+        );
+        assert_eq!(err.llm_calls_used, 0);
+        assert_eq!(
+            err.error.failure_scope(),
+            NormalizationFailureScope::External
+        );
+    }
+
+    #[tokio::test]
+    async fn should_preserve_llm_usage_and_scope_for_unparsable_state_mapping_response() {
+        let mut mock = MockProductStateMappingService::new();
+        mock.expect_get_state_mapping()
+            .times(1)
+            .returning(|_| Box::pin(async { Err(StateMappingServiceError::UnparsableResponse) }));
+
+        let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
+        let err = svc
+            .normalize(minimal_raw(), base_url(), None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            err.error,
+            NormalizationError::StateMappingError(_)
+        ));
+        assert_eq!(err.llm_calls_used, 1);
+        assert_eq!(
+            err.error.failure_scope(),
+            NormalizationFailureScope::External
+        );
+    }
+
+    #[tokio::test]
+    async fn should_preserve_llm_usage_and_scope_for_database_failure_after_state_mapping_llm() {
+        let mut mock = MockProductStateMappingService::new();
+        mock.expect_get_state_mapping().times(1).returning(|_| {
+            Box::pin(async {
+                Err(StateMappingServiceError::DatabaseErrorAfterLlm(
+                    sqlx::Error::RowNotFound,
+                ))
+            })
+        });
+
+        let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
+        let err = svc
+            .normalize(minimal_raw(), base_url(), None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            err.error,
+            NormalizationError::StateMappingError(_)
+        ));
+        assert_eq!(err.llm_calls_used, 1);
+        assert_eq!(
+            err.error.failure_scope(),
+            NormalizationFailureScope::External
         );
     }
 
@@ -506,35 +617,38 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_error_when_title_is_empty_for_normalize() {
-        let svc = make_available_service();
+        let svc = make_service_that_must_not_map_state();
         let mut raw = minimal_raw();
         raw.title = "".into();
         let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
         assert!(matches!(err.error, NormalizationError::TitleEmpty));
+        assert_eq!(err.llm_calls_used, 0);
     }
 
     #[tokio::test]
-    async fn should_return_llm_usage_when_state_mapping_llm_succeeds_but_later_normalization_fails()
-    {
+    async fn should_count_one_llm_call_when_state_mapping_uses_llm_after_preparation() {
         let record = mapping_record("available", ProductState::Available);
         let mut mock = MockProductStateMappingService::new();
-        mock.expect_get_state_mapping().returning(move |_| {
-            let r = record.clone();
-            Box::pin(async move { Ok((r, true)) })
-        });
+        mock.expect_get_state_mapping()
+            .withf(|raw_state| raw_state == "available")
+            .times(1)
+            .returning(move |_| {
+                let r = record.clone();
+                Box::pin(async move { Ok((r, true)) })
+            });
 
         let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
-        let mut raw = minimal_raw();
-        raw.title = "".into();
-
-        let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
-        assert!(matches!(err.error, NormalizationError::TitleEmpty));
-        assert_eq!(err.llm_calls_used, 1);
+        let result = svc
+            .normalize(minimal_raw(), base_url(), None)
+            .await
+            .unwrap();
+        assert_eq!(result.llm_calls_used, 1);
+        assert_eq!(result.product.state, ProductState::Available);
     }
 
     #[tokio::test]
     async fn should_return_error_when_price_has_no_currency_for_normalize() {
-        let svc = make_available_service();
+        let svc = make_service_that_must_not_map_state();
         let mut raw = minimal_raw();
         raw.price = Some("1234.56".into());
         let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
@@ -542,11 +656,12 @@ mod tests {
             err.error,
             NormalizationError::PriceUnknownCurrency { .. }
         ));
+        assert_eq!(err.llm_calls_used, 0);
     }
 
     #[tokio::test]
     async fn should_return_error_when_price_is_unparseable_for_normalize() {
-        let svc = make_available_service();
+        let svc = make_service_that_must_not_map_state();
         let mut raw = minimal_raw();
         raw.price = Some("€".into());
         let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
@@ -558,7 +673,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_error_when_price_estimate_min_has_no_currency_for_normalize() {
-        let svc = make_available_service();
+        let svc = make_service_that_must_not_map_state();
         let mut raw = minimal_raw();
         raw.price_estimate_min = Some("800.00".into());
         let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
@@ -570,7 +685,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_error_when_price_estimate_min_is_unparseable_for_normalize() {
-        let svc = make_available_service();
+        let svc = make_service_that_must_not_map_state();
         let mut raw = minimal_raw();
         raw.price_estimate_min = Some("£".into());
         let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
@@ -582,7 +697,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_error_when_price_estimate_max_has_no_currency_for_normalize() {
-        let svc = make_available_service();
+        let svc = make_service_that_must_not_map_state();
         let mut raw = minimal_raw();
         raw.price_estimate_max = Some("1200".into());
         let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
@@ -594,7 +709,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_error_when_price_estimate_max_is_unparseable_for_normalize() {
-        let svc = make_available_service();
+        let svc = make_service_that_must_not_map_state();
         let mut raw = minimal_raw();
         raw.price_estimate_max = Some("£".into());
         let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
@@ -606,7 +721,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_error_when_auction_start_is_unparseable_for_normalize() {
-        let svc = make_available_service();
+        let svc = make_service_that_must_not_map_state();
         let mut raw = minimal_raw();
         raw.auction_start = Some("yesterday at noon".into());
         let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
@@ -614,11 +729,12 @@ mod tests {
             err.error,
             NormalizationError::AuctionStartParseError { .. }
         ));
+        assert_eq!(err.llm_calls_used, 0);
     }
 
     #[tokio::test]
     async fn should_return_error_when_auction_end_is_unparseable_for_normalize() {
-        let svc = make_available_service();
+        let svc = make_service_that_must_not_map_state();
         let mut raw = minimal_raw();
         raw.auction_end = Some("next tuesday".into());
         let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
@@ -630,7 +746,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_error_when_image_url_is_invalid_for_normalize() {
-        let svc = make_available_service();
+        let svc = make_service_that_must_not_map_state();
         let mut raw = minimal_raw();
         raw.images = vec!["//".into()];
         let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
@@ -738,35 +854,31 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // RawStateTooLong → StateTextTooLong conversion
+    // State text validation
     // -----------------------------------------------------------------------
 
     #[tokio::test]
-    async fn should_map_raw_state_too_long_to_state_text_too_long_normalization_error() {
-        let mut mock = MockProductStateMappingService::new();
-        mock.expect_get_state_mapping().returning(|_| {
-            Box::pin(async {
-                Err(StateMappingServiceError::RawStateTooLong {
-                    len: 1024,
-                    max: 512,
-                })
-            })
-        });
+    async fn should_reject_overlong_state_without_mapping_it() {
+        let svc = make_service_that_must_not_map_state();
+        let mut raw = minimal_raw();
+        raw.state =
+            "x".repeat(crate::scraper::normalization::state_mapping_service::MAX_STATE_RAW_LEN + 1);
 
-        let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
-        let err = svc
-            .normalize(minimal_raw(), base_url(), None)
-            .await
-            .unwrap_err();
+        let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
         assert!(
             matches!(
                 err.error,
                 NormalizationError::StateTextTooLong {
-                    len: 1024,
-                    max: 512
-                }
+                    len,
+                    max: crate::scraper::normalization::state_mapping_service::MAX_STATE_RAW_LEN,
+                } if len == crate::scraper::normalization::state_mapping_service::MAX_STATE_RAW_LEN + 1
             ),
             "expected StateTextTooLong, got {err:?}"
+        );
+        assert_eq!(err.llm_calls_used, 0);
+        assert_eq!(
+            err.error.failure_scope(),
+            NormalizationFailureScope::CandidateData
         );
     }
 

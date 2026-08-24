@@ -1,11 +1,12 @@
-use crate::shops::types::ShopTypeData;
-use crate::values::{CurrencyData, LanguageData};
 use geo::data::address_data::StructuredAddressData;
+use localization::Language;
+use money::Currency;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use shop_core::domain::Domain;
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
+use shop_core::shop_type::ShopType;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_partner_core::partner_shop_application::{
     PartnerShopApplication, PartnerShopApplicationPayload,
@@ -21,7 +22,8 @@ use user_core::user_id::UserId;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct OwnPartnerApplicationData {
     pub(crate) id: PartnerShopApplicationId,
-    pub(crate) business_state: PartnerShopApplicationStateData,
+    #[serde(with = "crate::wire::partner_shop_application_state")]
+    pub(crate) business_state: PartnerShopApplicationState,
     pub(crate) payload: PartnerApplicationPayloadData,
 }
 
@@ -30,30 +32,9 @@ pub(crate) struct OwnPartnerApplicationData {
 pub(crate) struct AdminPartnerApplicationData {
     pub(crate) id: PartnerShopApplicationId,
     pub(crate) applicant_user_id: UserId,
-    pub(crate) business_state: PartnerShopApplicationStateData,
+    #[serde(with = "crate::wire::partner_shop_application_state")]
+    pub(crate) business_state: PartnerShopApplicationState,
     pub(crate) payload: PartnerApplicationPayloadData,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum PartnerShopApplicationStateData {
-    Submitted,
-    InReview,
-    Rejected,
-    Approved,
-    Withdrawn,
-}
-
-impl From<PartnerShopApplicationState> for PartnerShopApplicationStateData {
-    fn from(state: PartnerShopApplicationState) -> Self {
-        match state {
-            PartnerShopApplicationState::Submitted => Self::Submitted,
-            PartnerShopApplicationState::InReview => Self::InReview,
-            PartnerShopApplicationState::Rejected => Self::Rejected,
-            PartnerShopApplicationState::Approved => Self::Approved,
-            PartnerShopApplicationState::Withdrawn => Self::Withdrawn,
-        }
-    }
 }
 
 #[derive(Debug, Serialize)]
@@ -82,7 +63,7 @@ impl From<PartnerShopApplication> for OwnPartnerApplicationData {
     fn from(a: PartnerShopApplication) -> Self {
         Self {
             id: a.id(),
-            business_state: a.business_state().into(),
+            business_state: a.business_state(),
             payload: payload_data(&a),
         }
     }
@@ -92,7 +73,7 @@ impl From<PartnerShopApplicationView> for OwnPartnerApplicationData {
     fn from(v: PartnerShopApplicationView) -> Self {
         Self {
             id: v.id,
-            business_state: v.business_state.into(),
+            business_state: v.business_state,
             payload: match v.payload {
                 PartnerShopApplicationPayload::Existing { shop_id } => {
                     PartnerApplicationPayloadData::Existing { shop_id }
@@ -110,7 +91,7 @@ impl From<PartnerShopApplication> for AdminPartnerApplicationData {
         Self {
             id: a.id(),
             applicant_user_id: a.applicant_user_id(),
-            business_state: a.business_state().into(),
+            business_state: a.business_state(),
             payload: payload_data(&a),
         }
     }
@@ -121,7 +102,7 @@ impl From<PartnerShopApplicationView> for AdminPartnerApplicationData {
         Self {
             id: v.id,
             applicant_user_id: v.applicant_user_id,
-            business_state: v.business_state.into(),
+            business_state: v.business_state,
             payload: match v.payload {
                 PartnerShopApplicationPayload::Existing { shop_id } => {
                     PartnerApplicationPayloadData::Existing { shop_id }
@@ -150,20 +131,25 @@ pub(crate) enum PostPayloadData {
     #[serde(rename = "NEW", alias = "New", alias = "new")]
     New {
         shop_name: ShopName,
-        shop_type: ShopTypeData,
+        #[serde(with = "crate::wire::shop_type")]
+        shop_type: ShopType,
         shop_domains: HashSet<Domain>,
         #[serde(default)]
         shopify_domain: Option<Domain>,
         #[serde(default)]
-        shopify_currency: Option<CurrencyData>,
+        #[serde(with = "crate::wire::currency::option")]
+        shopify_currency: Option<Currency>,
         #[serde(default)]
-        shopify_language: Option<LanguageData>,
+        #[serde(with = "crate::wire::language::option")]
+        shopify_language: Option<Language>,
         #[serde(default)]
         woocommerce_webhook_secret: Option<WoocommerceWebhookSecret>,
         #[serde(default)]
-        woocommerce_currency: Option<CurrencyData>,
+        #[serde(with = "crate::wire::currency::option")]
+        woocommerce_currency: Option<Currency>,
         #[serde(default)]
-        woocommerce_language: Option<LanguageData>,
+        #[serde(with = "crate::wire::language::option")]
+        woocommerce_language: Option<Language>,
         #[serde(default)]
         shop_url: Option<Url>,
         #[serde(default)]

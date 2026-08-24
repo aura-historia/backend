@@ -1,5 +1,11 @@
 use crate::scraper::normalization::state_mapping_service::StateMappingServiceError;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NormalizationFailureScope {
+    CandidateData,
+    External,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum NormalizationError {
     #[error("failed to resolve product state: {0}")]
@@ -70,4 +76,70 @@ pub enum NormalizationError {
         "failed to normalize `state`: extracted text is too long ({len} bytes, max {max}) — CSS selector likely extracting wrong content"
     )]
     StateTextTooLong { len: usize, max: usize },
+}
+
+impl NormalizationError {
+    pub(crate) const fn failure_reason(&self) -> &'static str {
+        match self {
+            Self::StateMappingError(error) => match error {
+                StateMappingServiceError::LargeLanguageModelError(_) => "state_llm_error",
+                StateMappingServiceError::UnparsableResponse => "state_unparsable_response",
+                StateMappingServiceError::ResponseJsonSchemaSerialization(_) => {
+                    "state_response_schema_serialization"
+                }
+                StateMappingServiceError::RawStateTooLong { .. } => "state_text_too_long",
+                StateMappingServiceError::DatabaseError(_) => "state_database_error",
+                StateMappingServiceError::DatabaseErrorAfterLlm(_) => {
+                    "state_database_error_after_llm"
+                }
+            },
+            Self::ShopsProductIdEmpty => "shops_product_id_empty",
+            Self::TitleEmpty => "title_empty",
+            Self::TitleUnknownLanguage { .. } => "title_unknown_language",
+            Self::DescriptionUnknownLanguage { .. } => "description_unknown_language",
+            Self::PriceUnknownCurrency { .. } => "price_unknown_currency",
+            Self::PriceParseError { .. } => "price_parse_error",
+            Self::PriceEstimateMinUnknownCurrency { .. } => "price_estimate_min_unknown_currency",
+            Self::PriceEstimateMinParseError { .. } => "price_estimate_min_parse_error",
+            Self::PriceEstimateMaxUnknownCurrency { .. } => "price_estimate_max_unknown_currency",
+            Self::PriceEstimateMaxParseError { .. } => "price_estimate_max_parse_error",
+            Self::InvalidImageUrl { .. } => "invalid_image_url",
+            Self::NoValidImages { .. } => "no_valid_images",
+            Self::AuctionStartParseError { .. } => "auction_start_parse_error",
+            Self::AuctionEndParseError { .. } => "auction_end_parse_error",
+            Self::StateTextTooLong { .. } => "state_text_too_long",
+        }
+    }
+
+    pub(crate) const fn failure_scope(&self) -> NormalizationFailureScope {
+        match self {
+            Self::StateMappingError(error) => match error {
+                StateMappingServiceError::LargeLanguageModelError(_)
+                | StateMappingServiceError::UnparsableResponse
+                | StateMappingServiceError::ResponseJsonSchemaSerialization(_)
+                | StateMappingServiceError::DatabaseError(_)
+                | StateMappingServiceError::DatabaseErrorAfterLlm(_) => {
+                    NormalizationFailureScope::External
+                }
+                StateMappingServiceError::RawStateTooLong { .. } => {
+                    NormalizationFailureScope::CandidateData
+                }
+            },
+            Self::ShopsProductIdEmpty
+            | Self::TitleEmpty
+            | Self::TitleUnknownLanguage { .. }
+            | Self::DescriptionUnknownLanguage { .. }
+            | Self::PriceUnknownCurrency { .. }
+            | Self::PriceParseError { .. }
+            | Self::PriceEstimateMinUnknownCurrency { .. }
+            | Self::PriceEstimateMinParseError { .. }
+            | Self::PriceEstimateMaxUnknownCurrency { .. }
+            | Self::PriceEstimateMaxParseError { .. }
+            | Self::InvalidImageUrl { .. }
+            | Self::NoValidImages { .. }
+            | Self::AuctionStartParseError { .. }
+            | Self::AuctionEndParseError { .. }
+            | Self::StateTextTooLong { .. } => NormalizationFailureScope::CandidateData,
+        }
+    }
 }

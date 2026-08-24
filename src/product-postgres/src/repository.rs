@@ -29,6 +29,7 @@ use product_service::ports::product_repository::{
 use serde::{Deserialize, Serialize};
 use shop_core::shop_id::ShopId;
 use sqlx::PgConnection;
+
 use time::OffsetDateTime;
 use url::Url;
 
@@ -240,8 +241,8 @@ impl ProductRepository for SqlxProductRepository<'_> {
         )
         .bind(product.sale_valuation().map(|value| uuid::Uuid::from(value.fx_rate_id)))
         .bind(product.sale_valuation().map(|value| value.sold_at))
-        .bind(product_state_as_str(product.state()))
-        .bind(product_lifecycle_as_str(product.lifecycle()))
+        .bind(product.state().as_str())
+        .bind(product.lifecycle().as_str())
         .bind(product.url().to_string())
         .bind(product_images)
         .bind(auction.start)
@@ -392,8 +393,8 @@ impl ProductRepository for SqlxProductRepository<'_> {
                 .map(|value| uuid::Uuid::from(value.fx_rate_id)),
         )
         .bind(product.sale_valuation().map(|value| value.sold_at))
-        .bind(product_state_as_str(product.state()))
-        .bind(product_lifecycle_as_str(product.lifecycle()))
+        .bind(product.state().as_str())
+        .bind(product.lifecycle().as_str())
         .bind(product.url().to_string())
         .bind(product_images)
         .bind(auction.start)
@@ -597,94 +598,25 @@ fn parse_language(
     value: &str,
     error: ProductRepositoryError,
 ) -> Result<Language, ProductRepositoryError> {
-    match value.to_ascii_lowercase().as_str() {
-        "de" => Ok(Language::De),
-        "en" => Ok(Language::En),
-        "fr" => Ok(Language::Fr),
-        "es" => Ok(Language::Es),
-        "it" => Ok(Language::It),
-        "zh" => Ok(Language::Zh),
-        "pt" => Ok(Language::Pt),
-        "pl" => Ok(Language::Pl),
-        "tr" => Ok(Language::Tr),
-        "nl" => Ok(Language::Nl),
-        "cs" => Ok(Language::Cs),
-        "ja" => Ok(Language::Ja),
-        "ru" => Ok(Language::Ru),
-        "ar" => Ok(Language::Ar),
-        _ => Err(error),
-    }
+    Language::from_code(value).ok_or(error)
 }
 
 fn parse_currency(value: &str) -> Result<Currency, ProductRepositoryError> {
-    match value.to_ascii_uppercase().as_str() {
-        "EUR" => Ok(Currency::Eur),
-        "GBP" => Ok(Currency::Gbp),
-        "USD" => Ok(Currency::Usd),
-        "AUD" => Ok(Currency::Aud),
-        "CAD" => Ok(Currency::Cad),
-        "NZD" => Ok(Currency::Nzd),
-        "CNY" => Ok(Currency::Cny),
-        "BRL" => Ok(Currency::Brl),
-        "PLN" => Ok(Currency::Pln),
-        "TRY" => Ok(Currency::Try),
-        "JPY" => Ok(Currency::Jpy),
-        "CZK" => Ok(Currency::Czk),
-        "RUB" => Ok(Currency::Rub),
-        "AED" => Ok(Currency::Aed),
-        "SAR" => Ok(Currency::Sar),
-        "HKD" => Ok(Currency::Hkd),
-        "SGD" => Ok(Currency::Sgd),
-        "CHF" => Ok(Currency::Chf),
-        _ => Err(ProductRepositoryError::InvalidPriceCurrencyPersisted),
-    }
+    Currency::from_code(value).ok_or(ProductRepositoryError::InvalidPriceCurrencyPersisted)
 }
 
 fn parse_product_state(value: &str) -> Result<ProductState, ProductRepositoryError> {
-    match value {
-        "LISTED" => Ok(ProductState::Listed),
-        "AVAILABLE" => Ok(ProductState::Available),
-        "RESERVED" => Ok(ProductState::Reserved),
-        "SOLD" => Ok(ProductState::Sold),
-        "REMOVED" => Ok(ProductState::Removed),
-        "UNKNOWN" => Ok(ProductState::Unknown),
-        _ => Err(ProductRepositoryError::InvalidProductStatePersisted),
-    }
-}
-
-fn product_state_as_str(value: ProductState) -> &'static str {
-    match value {
-        ProductState::Listed => "LISTED",
-        ProductState::Available => "AVAILABLE",
-        ProductState::Reserved => "RESERVED",
-        ProductState::Sold => "SOLD",
-        ProductState::Removed => "REMOVED",
-        ProductState::Unknown => "UNKNOWN",
-    }
+    ProductState::from_code(value).ok_or(ProductRepositoryError::InvalidProductStatePersisted)
 }
 
 fn parse_product_lifecycle(value: &str) -> Result<ProductLifecycle, ProductRepositoryError> {
-    match value {
-        "ACTIVE" => Ok(ProductLifecycle::Active),
-        "DELETED" => Ok(ProductLifecycle::Deleted),
-        _ => Err(ProductRepositoryError::InvalidProductLifecyclePersisted),
-    }
-}
-
-fn product_lifecycle_as_str(value: ProductLifecycle) -> &'static str {
-    match value {
-        ProductLifecycle::Active => "ACTIVE",
-        ProductLifecycle::Deleted => "DELETED",
-    }
+    ProductLifecycle::from_code(value)
+        .ok_or(ProductRepositoryError::InvalidProductLifecyclePersisted)
 }
 
 fn parse_prohibited_content(value: &str) -> Result<ProhibitedContent, ProductRepositoryError> {
-    match value {
-        "UNKNOWN" => Ok(ProhibitedContent::Unknown),
-        "NONE" => Ok(ProhibitedContent::None),
-        "NAZI_GERMANY" => Ok(ProhibitedContent::NaziGermany),
-        _ => Err(ProductRepositoryError::InvalidProductImageProhibitedContentPersisted),
-    }
+    ProhibitedContent::from_code(value)
+        .ok_or(ProductRepositoryError::InvalidProductImageProhibitedContentPersisted)
 }
 
 struct ProductLookupByIdSqlxError(sqlx::Error);
@@ -752,6 +684,7 @@ mod tests {
     use super::*;
     use domain_primitives::event_id::EventId;
     use serde_json::json;
+    use strum::IntoEnumIterator;
 
     #[test]
     fn should_preserve_key_lookup_sqlx_source() {
@@ -775,7 +708,7 @@ mod tests {
 
     #[test]
     fn should_map_complete_and_empty_prices_from_parts() {
-        let price = match price_from_parts(Some(123), Some("eur".to_owned())) {
+        let price = match price_from_parts(Some(123), Some("EUR".to_owned())) {
             Ok(Some(price)) => price,
             Ok(None) => panic!("missing mapped price"),
             Err(error) => panic!("failed to map price: {error:?}"),
@@ -802,6 +735,10 @@ mod tests {
         ));
         assert!(matches!(
             price_from_parts(Some(123), Some("NOPE".to_owned())),
+            Err(ProductRepositoryError::InvalidPriceCurrencyPersisted)
+        ));
+        assert!(matches!(
+            price_from_parts(Some(123), Some("eur".to_owned())),
             Err(ProductRepositoryError::InvalidPriceCurrencyPersisted)
         ));
     }
@@ -885,32 +822,16 @@ mod tests {
     }
 
     #[test]
-    fn should_map_all_product_state_lifecycle_and_prohibited_content_values() {
-        assert_eq!(ProductState::Listed, parse_state("LISTED"));
-        assert_eq!(ProductState::Available, parse_state("AVAILABLE"));
-        assert_eq!(ProductState::Reserved, parse_state("RESERVED"));
-        assert_eq!(ProductState::Sold, parse_state("SOLD"));
-        assert_eq!(ProductState::Removed, parse_state("REMOVED"));
-        assert_eq!(ProductState::Unknown, parse_state("UNKNOWN"));
-        assert_eq!("LISTED", product_state_as_str(ProductState::Listed));
-        assert_eq!("AVAILABLE", product_state_as_str(ProductState::Available));
-        assert_eq!("RESERVED", product_state_as_str(ProductState::Reserved));
-        assert_eq!("SOLD", product_state_as_str(ProductState::Sold));
-        assert_eq!("REMOVED", product_state_as_str(ProductState::Removed));
-        assert_eq!("UNKNOWN", product_state_as_str(ProductState::Unknown));
-        assert_eq!(ProductLifecycle::Active, parse_lifecycle("ACTIVE"));
-        assert_eq!(ProductLifecycle::Deleted, parse_lifecycle("DELETED"));
-        assert_eq!("ACTIVE", product_lifecycle_as_str(ProductLifecycle::Active));
-        assert_eq!(
-            "DELETED",
-            product_lifecycle_as_str(ProductLifecycle::Deleted)
-        );
-        assert_eq!(ProhibitedContent::Unknown, parse_prohibited("UNKNOWN"));
-        assert_eq!(ProhibitedContent::None, parse_prohibited("NONE"));
-        assert_eq!(
-            ProhibitedContent::NaziGermany,
-            parse_prohibited("NAZI_GERMANY")
-        );
+    fn should_map_all_canonical_product_enum_values() {
+        for state in ProductState::iter() {
+            assert_eq!(state, parse_state(state.as_str()));
+        }
+        for lifecycle in ProductLifecycle::iter() {
+            assert_eq!(lifecycle, parse_lifecycle(lifecycle.as_str()));
+        }
+        for content in ProhibitedContent::iter() {
+            assert_eq!(content, parse_prohibited(content.as_str()));
+        }
     }
 
     #[test]

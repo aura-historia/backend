@@ -11,6 +11,7 @@ Use for aggregate persistence. Not for presentation reads.
 
 - `backend/AGENTS.md` and path `AGENTS.md` files.
 - `docs/arch.md` §3, §5, §8, §10.2-10.3, §11, §17, §20.5, §21-23.
+- Load `aura-rust-enum` too when persisted enum/text mapping changes.
 
 ## Before coding
 

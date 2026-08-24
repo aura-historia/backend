@@ -9,6 +9,7 @@ use crawler::scraper::normalization::state::{ProductStateMappingRecord, StateMap
 use crawler::scraper::normalization::state_mapping_service::{
     ProductStateMappingService, StateMappingServiceError,
 };
+use crawler::scraper::scraper_service::rank_applicable_schema_indices;
 use money::Currency;
 use product_core::product_state::ProductState;
 use scraper::Html;
@@ -59,11 +60,17 @@ impl ProductStateMappingService for FixedStateMappingService {
 }
 
 pub fn assert_extraction(
-    schema: &ProductCssSelectorSchema,
+    schemas: &[ProductCssSelectorSchema],
+    schema_index: usize,
     html_src: &str,
     expected: &RawExpectation,
 ) {
     let html = Html::parse_document(html_src);
+    let ranked_indices = rank_applicable_schema_indices(schemas, html_src);
+    assert_eq!(ranked_indices.first().copied(), Some(schema_index));
+    let schema = schemas
+        .get(schema_index)
+        .unwrap_or_else(|| panic!("schema index {schema_index} out of range"));
     let result: RawExtractedProduct = schema
         .apply(&html)
         .unwrap_or_else(|e| panic!("schema apply failed: {e}"));

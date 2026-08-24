@@ -9,11 +9,9 @@ test-api-macros = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, optional = true }
 derive_builder = { workspace = true }
-hex = { workspace = true }
 serial_test = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true, features = ["localstack", "postgres"] }
@@ -23,7 +21,6 @@ aws-sdk-account = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["json"] }
 tracing = { workspace = true }
 typed-builder = { workspace = true }
-walkdir = { workspace = true }
 libc = { workspace = true }
 ctrlc = { workspace = true }
 
@@ -39,7 +36,6 @@ aws-sdk-cloudformation = { workspace = true, optional = true }
 aws-sdk-s3 = { workspace = true, optional = true }
 mrml = { workspace = true, optional = true }
 aws-sdk-cognitoidentityprovider = { workspace = true, optional = true}
-aws-tests-common = { workspace = true, optional = true }
 zip = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 
@@ -72,4 +68,4 @@ sqs = ["dep:aws-sdk-sqs"]
 eventbridge = ["dep:aws-sdk-eventbridge"]
 cognito = ["dep:aws-sdk-cognitoidentityprovider"]
 ses = ["dep:aws-sdk-sesv2", "dep:reqwest"]
-cloudformation = ["dep:aws-sdk-cloudformation", "dep:aws-sdk-s3", "dep:aws-tests-common", "dep:zip", "dep:futures", "dep:mrml", "cognito", "opensearch", "sqs", "ses", "eventbridge"]
+cloudformation = ["dep:aws-sdk-cloudformation", "dep:aws-sdk-s3", "dep:zip", "dep:futures", "dep:mrml", "cognito", "opensearch", "sqs", "ses", "eventbridge"]

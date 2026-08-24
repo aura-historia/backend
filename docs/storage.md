@@ -33,6 +33,13 @@ PostgreSQL is authoritative for User access tokens and canonical OAuth credentia
 
 The initial business schema requires a provisioned and preloaded `pg_ttl_index` extension before it runs.
 
+## Indexed read paths
+
+- User watchlist lists use `created DESC, product_id ASC`; reverse product watcher reads use `product_id, user_id ASC`.
+- Public shop search resolves an existing UUID cursor to its active sort value, then uses a keyset predicate. Default published-name plus descending updated and created ordering have partial indexes with `shop_id ASC` as the tie-breaker.
+- Saved-filter matches support both `created ASC, product_id ASC` and `created DESC, product_id ASC` for a fixed filter.
+- Product domain-event history orders by `event_time ASC, event_id ASC` for one product.
+
 ## FX snapshots
 
 PostgreSQL is authoritative for canonical FX data.

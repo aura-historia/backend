@@ -6,7 +6,7 @@ use time::OffsetDateTime;
 
 pub const FX_RATE_SCALE: u64 = 1_000_000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::EnumIter)]
 pub enum FxRateSource {
     FxRatesApi,
 }
@@ -15,13 +15,6 @@ impl FxRateSource {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::FxRatesApi => "fxratesapi",
-        }
-    }
-
-    pub fn try_from_persisted(value: &str) -> Result<Self, FxRateSnapshotError> {
-        match value {
-            "fxratesapi" => Ok(Self::FxRatesApi),
-            _ => Err(FxRateSnapshotError::InvalidSource),
         }
     }
 }
@@ -427,6 +420,26 @@ mod tests {
 
     fn price(amount: u64, currency: Currency) -> Price {
         Price::new(MonetaryAmount::from(amount), currency)
+    }
+
+    #[test]
+    fn should_define_unique_canonical_source_identifiers() {
+        use std::collections::HashSet;
+
+        let sources = FxRateSource::iter().collect::<Vec<_>>();
+        let identifiers = sources
+            .iter()
+            .map(|source| source.as_str())
+            .collect::<HashSet<_>>();
+
+        assert_eq!(sources.len(), identifiers.len());
+        assert_eq!(
+            vec!["fxratesapi"],
+            sources
+                .into_iter()
+                .map(FxRateSource::as_str)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

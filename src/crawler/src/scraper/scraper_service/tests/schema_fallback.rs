@@ -112,10 +112,10 @@ async fn should_use_yaml_schema_when_yaml_confidence_is_low() {
 }
 
 #[tokio::test]
-async fn should_repair_after_yaml_schema_does_not_cover_raw_html_without_initial_fallback() {
+async fn should_generate_fresh_schema_after_yaml_schema_does_not_cover_raw_html() {
     let id = shop_id();
     let schema = shops_product_schema(id);
-    let repair_schema = schema.product_schemas.first().cloned().unwrap();
+    let generated_schema = schema.product_schemas.first().cloned().unwrap();
 
     let mut schema_svc = MockProductSchemaService::new();
     schema_svc
@@ -134,12 +134,12 @@ async fn should_repair_after_yaml_schema_does_not_cover_raw_html_without_initial
             })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(move |_| {
-            let s = repair_schema.clone();
+            let s = generated_schema.clone();
             Box::pin(async move {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     s,
                     SchemaLlmEvaluationConfidence::High,
                 ))

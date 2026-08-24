@@ -4,16 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+serde = { workspace = true }
+fake = { workspace = true, optional = true }
 domain-primitives = { workspace = true }
 money = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
 strum = { workspace = true }
+strum_macros = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-
-# Optional
-fake = { workspace = true, optional = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

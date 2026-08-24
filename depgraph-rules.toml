@@ -9,7 +9,7 @@ platform-opensearch = []
 platform-postgres = ["application"]
 
 geo = []
-smoking-tests-macros = []
+
 test-api-macros = []
 aura-historia-worker = ["application", "domain-primitives", "embedding", "fxrate-core", "fxrate-postgres", "large-language-model", "localization", "money", "notification-core", "notification-email-aws", "notification-postgres", "notification-service", "platform-observability", "platform-postgres", "product-core", "product-opensearch", "product-postgres", "product-service", "product-translation-llm", "search-filter-core", "search-filter-opensearch", "search-filter-postgres", "search-filter-service", "user-core", "user-postgres", "watchlist-postgres"]
 aura-historia-cron = ["fxrate-postgres", "large-language-model", "platform-observability", "platform-postgres", "product-opensearch", "product-postgres", "search-filter-postgres", "search-filter-service"]
@@ -64,13 +64,10 @@ search-filter-opensearch = ["application", "domain-primitives", "fxrate-core", "
 search-filter-postgres = ["application", "domain-primitives", "fxrate-core", "geo", "localization", "money", "platform-postgres", "product-core", "search-filter-core", "search-filter-service", "shop-core", "user-core"]
 shop-partner-postgres = ["application", "domain-primitives", "platform-postgres", "shop-core", "shop-partner-core", "shop-partner-service", "shop-service", "user-core"]
 aura-historia-api = ["application", "billing-service", "billing-stripe", "credential-core", "domain-primitives", "platform-observability", "platform-postgres", "embedding", "fxrate-core", "fxrate-postgres", "geo", "localization", "money", "notification-core", "notification-postgres", "notification-service", "oauth-core", "oauth-postgres", "oauth-service", "product-core", "product-opensearch", "product-postgres", "product-service", "search-filter-core", "search-filter-postgres", "search-filter-service", "shop-core", "shop-partner-core", "shop-partner-postgres", "shop-partner-service", "shop-postgres", "shop-service", "user-core", "user-postgres", "user-service", "user-zoho", "watchlist-core", "watchlist-postgres", "watchlist-service"]
-smoking-tests = ["aws-tests-common", "smoking-tests-macros"]
-test-api = ["application", "aws-tests-common", "test-api-macros"]
-aws-tests = ["aws-tests-common", "smoking-tests"]
+test-api = ["application", "test-api-macros"]
 billing-service = ["application", "user-core", "user-service"]
 billing-stripe = ["application", "billing-service", "user-core"]
-aura-historia-parent = ["application", "aura-historia-api", "aura-historia-worker", "aura-historia-cron", "platform-observability", "platform-opensearch", "platform-postgres", "aws-tests", "cognito-post-confirmation", "cloudwatch-log-retention-lambda", "embedding", "image-fetcher", "geo", "search-filter-core", "search-filter-service", "search-filter-postgres", "search-filter-opensearch", "large-language-model", "shop-core", "shop-service", "shop-postgres", "shop-partner-core", "shop-partner-service", "shop-partner-postgres", "shopify-lambda", "stripe-lambda", "product-core", "product-service", "product-translation-llm", "product-postgres", "fxrate-core", "fxrate-service", "fxrate-postgres", "fxrate-fxratesapi", "product-opensearch", "watchlist-core", "watchlist-service", "watchlist-postgres", "test-api", "user-core", "user-service", "user-postgres", "user-zoho", "notification-core", "notification-email", "notification-service", "notification-postgres", "oauth-core", "oauth-service", "oauth-postgres", "fxrate-lambda"]
-aws-tests-common = []
+aura-historia-parent = ["application", "aura-historia-api", "aura-historia-worker", "aura-historia-cron", "platform-observability", "platform-opensearch", "platform-postgres", "cognito-post-confirmation", "cloudwatch-log-retention-lambda", "embedding", "image-fetcher", "geo", "search-filter-core", "search-filter-service", "search-filter-postgres", "search-filter-opensearch", "large-language-model", "shop-core", "shop-service", "shop-postgres", "shop-partner-core", "shop-partner-service", "shop-partner-postgres", "shopify-lambda", "stripe-lambda", "product-core", "product-service", "product-translation-llm", "product-postgres", "fxrate-core", "fxrate-service", "fxrate-postgres", "fxrate-fxratesapi", "product-opensearch", "watchlist-core", "watchlist-service", "watchlist-postgres", "test-api", "user-core", "user-service", "user-postgres", "user-zoho", "notification-core", "notification-email", "notification-service", "notification-postgres", "oauth-core", "oauth-service", "oauth-postgres", "fxrate-lambda"]
 
 [options]
 strict = true

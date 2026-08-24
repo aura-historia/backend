@@ -46,7 +46,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
     };
 
     let schema = shops_product_schema(id);
-    let final_schema_for_append = schema.product_schemas.first().cloned().unwrap();
+    let final_schema_for_generation = schema.product_schemas.first().cloned().unwrap();
 
     let mut schema_svc = MockProductSchemaService::new();
     let initial_schema_for_find = initial_schema.clone();
@@ -63,12 +63,12 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(move |_| {
-            let s = final_schema_for_append.clone();
+            let s = final_schema_for_generation.clone();
             Box::pin(async move {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     s,
                     SchemaLlmEvaluationConfidence::High,
                 ))

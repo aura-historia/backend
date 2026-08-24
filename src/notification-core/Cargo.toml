@@ -12,6 +12,8 @@ search-filter-core = { workspace = true }
 serde = { workspace = true }
 shop-core = { workspace = true }
 shop-partner-core = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
 user-core = { workspace = true }
 
 thiserror = { workspace = true }

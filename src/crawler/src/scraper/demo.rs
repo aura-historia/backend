@@ -128,28 +128,11 @@ impl From<Price> for PriceData {
     }
 }
 
-#[derive(serde::Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ProductStateData {
-    Listed,
-    Available,
-    Reserved,
-    Sold,
-    Removed,
-    Unknown,
-}
-
-impl From<ProductState> for ProductStateData {
-    fn from(value: ProductState) -> Self {
-        match value {
-            ProductState::Listed => Self::Listed,
-            ProductState::Available => Self::Available,
-            ProductState::Reserved => Self::Reserved,
-            ProductState::Sold => Self::Sold,
-            ProductState::Removed => Self::Removed,
-            ProductState::Unknown => Self::Unknown,
-        }
-    }
+fn serialize_product_state<S>(value: &ProductState, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(value.as_str())
 }
 
 #[derive(serde::Serialize)]
@@ -179,7 +162,8 @@ pub struct DemoProduct {
     pub price: Option<PriceData>,
     pub price_estimate_min: Option<PriceData>,
     pub price_estimate_max: Option<PriceData>,
-    pub state: ProductStateData,
+    #[serde(serialize_with = "serialize_product_state")]
+    pub state: ProductState,
     pub url: Url,
     pub images: Vec<ProductImageData>,
     pub auction_start: Option<OffsetDateTime>,
@@ -196,7 +180,7 @@ impl From<NormalizedProduct> for DemoProduct {
             price: p.price.map(Into::into),
             price_estimate_min: p.price_estimate_min.map(Into::into),
             price_estimate_max: p.price_estimate_max.map(Into::into),
-            state: p.state.into(),
+            state: p.state,
             url: p.url,
             images: p.images.into_iter().map(Into::into).collect(),
             auction_start: p.auction_start,
@@ -384,9 +368,9 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     let create_schema_llm = vertex_ai_config
         .create_model(vertex_ai_models.product_schema.clone())
         .expect("failed to initialize Vertex AI model for schema generation");
-    let append_schema_llm = vertex_ai_config
+    let single_schema_llm = vertex_ai_config
         .create_model(vertex_ai_models.product_schema.clone())
-        .expect("failed to initialize Vertex AI model for schema repair");
+        .expect("failed to initialize Vertex AI model for fresh schema generation");
     let state_llm = vertex_ai_config
         .create_model(vertex_ai_models.product_state_mapping.clone())
         .expect("failed to initialize Vertex AI model for state mapping");
@@ -402,12 +386,12 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     // Normalization service.
     let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
-    // Schema service (DB-backed + LLM creation/fix).
+    // Schema service (DB-backed + initial/fresh LLM generation).
     let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(pool));
     let removed_page_schema_repo = Box::new(RemovedPageSchemaRepositoryImpl::new(pool));
     let schema_svc = ProductSchemaServiceImpl::new(
         create_schema_llm,
-        append_schema_llm,
+        single_schema_llm,
         schema_repo,
         Some(Arc::clone(&llm_governor)),
     );

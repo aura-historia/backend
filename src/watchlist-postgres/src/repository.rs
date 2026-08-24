@@ -1,4 +1,4 @@
-use crate::mapping::{WatchlistRepositoryRow, format_state};
+use crate::mapping::WatchlistRepositoryRow;
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
 use product_core::product_id::ProductId;
@@ -65,7 +65,7 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
             .bind(uuid::Uuid::from(entry.user_id()))
             .bind(uuid::Uuid::from(entry.product_id()))
             .bind(entry.notifications())
-            .bind(format_state(entry.state()))
+            .bind(entry.state().as_str())
             .bind(now)
             .fetch_one(self.tx.connection())
             .await
@@ -104,7 +104,7 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
             .bind(uuid::Uuid::from(entry.user_id()))
             .bind(uuid::Uuid::from(entry.product_id()))
             .bind(entry.notifications())
-            .bind(format_state(entry.state()))
+            .bind(entry.state().as_str())
             .bind(now)
             .bind(expected_version)
             .fetch_optional(self.tx.connection())

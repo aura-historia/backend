@@ -1,0 +1,190 @@
+[
+  {
+    "price": {
+      "type": "text",
+      "selector": ".elementor-widget-woocommerce-product-price .price",
+      "cardinality": "first"
+    },
+    "state": {
+      "type": "text",
+      "selector": ".stock",
+      "cardinality": "first"
+    },
+    "title": {
+      "type": "text",
+      "selector": "h1.product_title",
+      "cardinality": "first"
+    },
+    "images": {
+      "type": "image_url",
+      "selector": ".woocommerce-product-gallery__image img",
+      "cardinality": "all"
+    },
+    "description": {
+      "type": "text",
+      "selector": ".elementor-widget-woocommerce-product-content",
+      "cardinality": "first"
+    },
+    "raw_attributes": {
+      "rawShipment": {
+        "type": "text",
+        "selector": ".delivery-time-data",
+        "cardinality": "first"
+      }
+    },
+    "shops_product_id": {
+      "name": "value",
+      "type": "attribute",
+      "selector": "button[name='add-to-cart']",
+      "cardinality": "first"
+    }
+  },
+  {
+    "price": {
+      "type": "text",
+      "selector": ".elementor-widget-woocommerce-product-price .price",
+      "cardinality": "first"
+    },
+    "state": {
+      "type": "text",
+      "selector": "button.single_add_to_cart_button",
+      "cardinality": "first"
+    },
+    "title": {
+      "type": "text",
+      "selector": "h1.product_title",
+      "cardinality": "first"
+    },
+    "images": {
+      "type": "image_url",
+      "selector": "img.wcgs-slider-image-tag",
+      "cardinality": "all"
+    },
+    "description": {
+      "type": "text",
+      "selector": "#tab-description",
+      "cardinality": "first"
+    },
+    "raw_attributes": {
+      "rawTags": {
+        "type": "text",
+        "selector": ".product_meta a[rel='tag']",
+        "cardinality": "all"
+      },
+      "rawShipment": {
+        "type": "text",
+        "selector": ".delivery-time-data",
+        "cardinality": "first"
+      }
+    },
+    "default_currency": "EUR",
+    "shops_product_id": {
+      "type": "text",
+      "selector": ".sku",
+      "cardinality": "first"
+    }
+  },
+  {
+    "price": {
+      "type": "text",
+      "selector": ".elementor-widget-woocommerce-product-price .price ins .amount, .elementor-widget-woocommerce-product-price .price > .amount",
+      "cardinality": "first"
+    },
+    "state": {
+      "type": "text",
+      "selector": ".ast-stock-detail .stock",
+      "cardinality": "first"
+    },
+    "title": {
+      "type": "text",
+      "selector": "h1.product_title",
+      "cardinality": "first"
+    },
+    "images": {
+      "type": "image_url",
+      "selector": ".woocommerce-product-gallery__image img",
+      "cardinality": "all"
+    },
+    "description": {
+      "type": "text",
+      "selector": "#tab-description",
+      "cardinality": "first"
+    },
+    "raw_attributes": {
+      "rawTags": {
+        "type": "text",
+        "selector": "a[rel='tag']",
+        "cardinality": "all"
+      },
+      "rawShipment": {
+        "type": "text",
+        "selector": ".delivery-time-info .delivery-time-data",
+        "cardinality": "first"
+      },
+      "rawCategoryPath": {
+        "type": "text",
+        "selector": "#breadcrumbs",
+        "cardinality": "first"
+      }
+    },
+    "default_currency": "EUR",
+    "shops_product_id": {
+      "name": "value",
+      "type": "attribute",
+      "selector": "button[name='add-to-cart']",
+      "cardinality": "first"
+    }
+  },
+  {
+    "price": {
+      "type": "text",
+      "selector": ".elementor-widget-woocommerce-product-price .price ins .amount, .elementor-widget-woocommerce-product-price .price > .amount",
+      "cardinality": "first"
+    },
+    "state": {
+      "type": "text",
+      "selector": "button.single_add_to_cart_button",
+      "cardinality": "first"
+    },
+    "title": {
+      "type": "text",
+      "selector": "h1.product_title",
+      "cardinality": "first"
+    },
+    "images": {
+      "type": "image_url",
+      "selector": ".woocommerce-product-gallery__image img",
+      "cardinality": "all"
+    },
+    "description": {
+      "type": "text",
+      "selector": ".elementor-widget-woocommerce-product-content p:first-of-type",
+      "cardinality": "first"
+    },
+    "raw_attributes": {
+      "rawShipment": {
+        "type": "text",
+        "selector": ".delivery-time-data",
+        "cardinality": "first"
+      },
+      "rawState": {
+        "type": "text",
+        "selector": "button.single_add_to_cart_button",
+        "cardinality": "first"
+      },
+      "rawProductId": {
+        "name": "value",
+        "type": "attribute",
+        "selector": "button[name='add-to-cart']",
+        "cardinality": "first"
+      }
+    },
+    "default_currency": "EUR",
+    "shops_product_id": {
+      "name": "value",
+      "type": "attribute",
+      "selector": "button[name='add-to-cart']",
+      "cardinality": "first"
+    }
+  }
+]

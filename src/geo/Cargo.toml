@@ -8,6 +8,8 @@ async-trait = { workspace = true }
 isocountry = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
+strum = { workspace = true }
+strum_macros = { workspace = true }
 thiserror = { workspace = true }
 mockall = { workspace = true, optional = true }
 fake = { workspace = true, optional = true }

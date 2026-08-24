@@ -1,9 +1,52 @@
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum_macros::EnumIter)]
 pub enum NotificationKind {
     WatchlistPriceChanged,
     WatchlistStateChanged,
     SearchFilterMatch,
     PartnerApplicationApproved,
     PartnerApplicationRejected,
+}
+
+impl NotificationKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WatchlistPriceChanged => "WATCHLIST_PRICE_CHANGED",
+            Self::WatchlistStateChanged => "WATCHLIST_STATE_CHANGED",
+            Self::SearchFilterMatch => "SEARCH_FILTER_MATCH",
+            Self::PartnerApplicationApproved => "PARTNER_APPLICATION_APPROVED",
+            Self::PartnerApplicationRejected => "PARTNER_APPLICATION_REJECTED",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use strum::IntoEnumIterator;
+
+    #[test]
+    fn should_define_unique_canonical_kind_identifiers() {
+        let kinds = NotificationKind::iter().collect::<Vec<_>>();
+        let identifiers = kinds
+            .iter()
+            .map(|kind| kind.as_str())
+            .collect::<HashSet<_>>();
+
+        assert_eq!(kinds.len(), identifiers.len());
+        assert_eq!(
+            vec![
+                "WATCHLIST_PRICE_CHANGED",
+                "WATCHLIST_STATE_CHANGED",
+                "SEARCH_FILTER_MATCH",
+                "PARTNER_APPLICATION_APPROVED",
+                "PARTNER_APPLICATION_REJECTED",
+            ],
+            kinds
+                .into_iter()
+                .map(NotificationKind::as_str)
+                .collect::<Vec<_>>()
+        );
+    }
 }

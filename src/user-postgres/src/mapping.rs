@@ -157,25 +157,15 @@ pub(crate) fn bind_currency(value: Option<Currency>) -> Option<&'static str> {
 }
 
 pub(crate) fn bind_measurement_unit(value: Option<MeasurementUnit>) -> Option<&'static str> {
-    value.map(|unit| match unit {
-        MeasurementUnit::Metric => "METRIC",
-        MeasurementUnit::Imperial => "IMPERIAL",
-    })
+    value.map(MeasurementUnit::as_str)
 }
 
 pub(crate) fn bind_tier(value: UserTier) -> &'static str {
-    match value {
-        UserTier::Free => "FREE",
-        UserTier::Pro => "PRO",
-        UserTier::Ultimate => "ULTIMATE",
-    }
+    value.as_str()
 }
 
 pub(crate) fn bind_role(value: UserRole) -> &'static str {
-    match value {
-        UserRole::User => "USER",
-        UserRole::Admin => "ADMIN",
-    }
+    value.as_str()
 }
 
 pub(crate) fn bind_country(address: Option<&StructuredAddress>) -> Option<String> {
@@ -283,23 +273,7 @@ pub(crate) fn parse_optional_language(
 }
 
 fn parse_language(value: &str) -> Result<Language, UserRowMappingError> {
-    match value.to_ascii_lowercase().as_str() {
-        "de" => Ok(Language::De),
-        "en" => Ok(Language::En),
-        "fr" => Ok(Language::Fr),
-        "es" => Ok(Language::Es),
-        "it" => Ok(Language::It),
-        "zh" => Ok(Language::Zh),
-        "pt" => Ok(Language::Pt),
-        "pl" => Ok(Language::Pl),
-        "tr" => Ok(Language::Tr),
-        "nl" => Ok(Language::Nl),
-        "cs" => Ok(Language::Cs),
-        "ja" => Ok(Language::Ja),
-        "ru" => Ok(Language::Ru),
-        "ar" => Ok(Language::Ar),
-        _ => Err(UserRowMappingError::InvalidLanguage),
-    }
+    Language::from_code(value).ok_or(UserRowMappingError::InvalidLanguage)
 }
 
 pub(crate) fn parse_optional_currency(
@@ -309,27 +283,7 @@ pub(crate) fn parse_optional_currency(
 }
 
 fn parse_currency(value: &str) -> Result<Currency, UserRowMappingError> {
-    match value.to_ascii_uppercase().as_str() {
-        "EUR" => Ok(Currency::Eur),
-        "GBP" => Ok(Currency::Gbp),
-        "USD" => Ok(Currency::Usd),
-        "AUD" => Ok(Currency::Aud),
-        "CAD" => Ok(Currency::Cad),
-        "NZD" => Ok(Currency::Nzd),
-        "CNY" => Ok(Currency::Cny),
-        "BRL" => Ok(Currency::Brl),
-        "PLN" => Ok(Currency::Pln),
-        "TRY" => Ok(Currency::Try),
-        "JPY" => Ok(Currency::Jpy),
-        "CZK" => Ok(Currency::Czk),
-        "RUB" => Ok(Currency::Rub),
-        "AED" => Ok(Currency::Aed),
-        "SAR" => Ok(Currency::Sar),
-        "HKD" => Ok(Currency::Hkd),
-        "SGD" => Ok(Currency::Sgd),
-        "CHF" => Ok(Currency::Chf),
-        _ => Err(UserRowMappingError::InvalidCurrency),
-    }
+    Currency::from_code(value).ok_or(UserRowMappingError::InvalidCurrency)
 }
 
 fn parse_optional_measurement_unit(
@@ -339,34 +293,22 @@ fn parse_optional_measurement_unit(
 }
 
 fn parse_measurement_unit(value: &str) -> Result<MeasurementUnit, UserRowMappingError> {
-    match value.to_ascii_uppercase().as_str() {
-        "METRIC" => Ok(MeasurementUnit::Metric),
-        "IMPERIAL" => Ok(MeasurementUnit::Imperial),
-        _ => Err(UserRowMappingError::InvalidMeasurementUnit),
-    }
+    MeasurementUnit::from_code(value).ok_or(UserRowMappingError::InvalidMeasurementUnit)
 }
 
 pub(crate) fn parse_tier(value: &str) -> Result<UserTier, UserRowMappingError> {
-    match value.to_ascii_uppercase().as_str() {
-        "FREE" => Ok(UserTier::Free),
-        "PRO" => Ok(UserTier::Pro),
-        "ULTIMATE" => Ok(UserTier::Ultimate),
-        _ => Err(UserRowMappingError::InvalidTier),
-    }
+    UserTier::from_code(value).ok_or(UserRowMappingError::InvalidTier)
 }
 
 fn parse_role(value: &str) -> Result<UserRole, UserRowMappingError> {
-    match value.to_ascii_uppercase().as_str() {
-        "USER" => Ok(UserRole::User),
-        "ADMIN" => Ok(UserRole::Admin),
-        _ => Err(UserRowMappingError::InvalidRole),
-    }
+    UserRole::from_code(value).ok_or(UserRowMappingError::InvalidRole)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use domain_primitives::version::InvalidVersionError;
+    use strum::IntoEnumIterator;
     use user_service::use_cases::queries::find_user_by_stripe_customer_id::UserStripeLookupView;
 
     #[test]
@@ -393,6 +335,64 @@ mod tests {
         assert_eq!("ADMIN", bind_role(UserRole::Admin));
         assert_eq!(Some("GBR".to_owned()), bind_country(Some(&address)));
         assert_eq!(None, bind_country(None));
+    }
+
+    #[test]
+    fn should_parse_all_canonical_enum_identifiers() {
+        for expected in Language::iter() {
+            assert!(matches!(
+                parse_language(expected.as_str()),
+                Ok(value) if value == expected
+            ));
+        }
+        for expected in Currency::iter() {
+            assert!(matches!(
+                parse_currency(expected.as_str()),
+                Ok(value) if value == expected
+            ));
+        }
+        for expected in MeasurementUnit::iter() {
+            assert!(matches!(
+                parse_measurement_unit(expected.as_str()),
+                Ok(value) if value == expected
+            ));
+        }
+        for expected in UserTier::iter() {
+            assert!(matches!(
+                parse_tier(expected.as_str()),
+                Ok(value) if value == expected
+            ));
+        }
+        for expected in UserRole::iter() {
+            assert!(matches!(
+                parse_role(expected.as_str()),
+                Ok(value) if value == expected
+            ));
+        }
+    }
+
+    #[test]
+    fn should_reject_noncanonical_enum_identifiers() {
+        assert!(matches!(
+            parse_language("EN"),
+            Err(UserRowMappingError::InvalidLanguage)
+        ));
+        assert!(matches!(
+            parse_currency("gbp"),
+            Err(UserRowMappingError::InvalidCurrency)
+        ));
+        assert!(matches!(
+            parse_measurement_unit("metric"),
+            Err(UserRowMappingError::InvalidMeasurementUnit)
+        ));
+        assert!(matches!(
+            parse_tier("pro"),
+            Err(UserRowMappingError::InvalidTier)
+        ));
+        assert!(matches!(
+            parse_role("admin"),
+            Err(UserRowMappingError::InvalidRole)
+        ));
     }
 
     #[test]

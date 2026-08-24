@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+fake = { workspace = true, optional = true }
 async-trait = { workspace = true }
 application = { workspace = true }
 domain-primitives = { workspace = true }
@@ -11,12 +12,9 @@ fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
-notification-service = { workspace = true }
 product-core = { workspace = true }
 product-service = { workspace = true }
 serde = { workspace = true }
-# Optional
-fake = { workspace = true, optional = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 tracing = { workspace = true }

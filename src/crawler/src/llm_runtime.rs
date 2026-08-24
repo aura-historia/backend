@@ -1,7 +1,7 @@
 use application::error::static_error;
 use large_language_model::{
     LargeLanguageModel, LargeLanguageModelError, LargeLanguageModelRetryAdvice,
-    LargeLanguageModelRetryKind, StructuredGenerationRequest,
+    LargeLanguageModelRetryKind, StructuredGenerationRequest, StructuredResponseFailureKind,
 };
 use serde::de::DeserializeOwned;
 use std::sync::Arc;
@@ -12,6 +12,7 @@ use tracing::warn;
 
 const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 1;
 const DEFAULT_MIN_REQUEST_INTERVAL: Duration = Duration::from_secs(2);
+const MAX_STRUCTURED_RESPONSE_OUTPUT_TOKENS: u16 = 32_768;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CrawlerLlmRateLimitConfig {
@@ -220,19 +221,51 @@ where
     let max_attempts = max_validation_attempts.max(1);
     let mut request = base_request.clone();
     for attempt in 1..=max_attempts {
-        let wire: Wire = match generate_with_governor(model, governor, request).await {
+        let wire: Wire = match generate_with_governor(model, governor, request.clone()).await {
             Ok(wire) => wire,
-            Err(error) if is_correctable_response_error(&error) && attempt < max_attempts => {
-                let feedback_code = "response_not_valid_json";
-                warn!(
-                    operation = ?base_request.operation,
-                    validation_attempt = attempt,
-                    max_validation_attempts = max_attempts,
-                    feedback_code,
-                    "Retrying invalid structured LLM response"
-                );
-                request = correction_request(&base_request, attempt, feedback_code);
-                continue;
+            Err(error) if attempt < max_attempts => {
+                match error.structured_response_failure_kind() {
+                    Some(StructuredResponseFailureKind::MaxTokens) => {
+                        let previous_limit = request.options.max_output_tokens;
+                        request = max_tokens_retry_request(&request);
+                        warn!(
+                            operation = ?base_request.operation,
+                            validation_attempt = attempt,
+                            max_validation_attempts = max_attempts,
+                            previous_max_output_tokens = previous_limit,
+                            max_output_tokens = request.options.max_output_tokens,
+                            feedback_code = "response_truncated_max_tokens",
+                            "Retrying truncated structured LLM response with a larger output budget"
+                        );
+                        continue;
+                    }
+                    Some(
+                        StructuredResponseFailureKind::InvalidJson
+                        | StructuredResponseFailureKind::TargetDeserialization
+                        | StructuredResponseFailureKind::MissingRequiredField
+                        | StructuredResponseFailureKind::MissingContent,
+                    )
+                    | None
+                        if is_correctable_response_error(&error) =>
+                    {
+                        let feedback_code = error
+                            .response_feedback_code()
+                            .unwrap_or("response_invalid_json");
+                        let correction_feedback = error
+                            .response_correction_feedback()
+                            .unwrap_or_else(|| feedback_code.to_owned());
+                        warn!(
+                            operation = ?base_request.operation,
+                            validation_attempt = attempt,
+                            max_validation_attempts = max_attempts,
+                            feedback_code,
+                            "Retrying correctable structured LLM response"
+                        );
+                        request = correction_request(&base_request, attempt, &correction_feedback);
+                        continue;
+                    }
+                    _ => return Err(ValidatedGenerationError::Model(error)),
+                }
             }
             Err(error) => return Err(ValidatedGenerationError::Model(error)),
         };
@@ -268,9 +301,19 @@ pub fn correction_request(
 ) -> StructuredGenerationRequest {
     let mut request = base.clone();
     request.prompt.push_str(&format!(
-        "\n\nThe previous response failed validation: {feedback_code}. Attempt {attempt} failed. Return a corrected response matching the supplied JSON Schema and all stated rules. Return JSON only."
+        "\n\nThe previous response required correction: {feedback_code}. Attempt {attempt} failed. Return a complete response matching the supplied JSON Schema and all stated rules. Return JSON only."
     ));
     request
+}
+
+fn max_tokens_retry_request(request: &StructuredGenerationRequest) -> StructuredGenerationRequest {
+    let mut retry = request.clone();
+    retry.options.max_output_tokens = request
+        .options
+        .max_output_tokens
+        .saturating_mul(2)
+        .min(MAX_STRUCTURED_RESPONSE_OUTPUT_TOKENS);
+    retry
 }
 
 fn is_correctable_response_error(error: &LargeLanguageModelError) -> bool {
@@ -523,6 +566,27 @@ mod tests {
             &request(),
         );
         assert_eq!(delay, Duration::from_secs(8));
+    }
+
+    #[test]
+    fn should_increase_max_tokens_retry_budget_without_correction_prompt() {
+        let mut request = request();
+        request.options.max_output_tokens = 16_384;
+
+        let first_retry = max_tokens_retry_request(&request);
+        assert_eq!(first_retry.options.max_output_tokens, 32_768);
+        assert_eq!(first_retry.prompt, request.prompt);
+
+        let capped_retry = max_tokens_retry_request(&first_retry);
+        assert_eq!(capped_retry.options.max_output_tokens, 32_768);
+        assert_eq!(capped_retry.prompt, request.prompt);
+    }
+
+    #[test]
+    fn should_keep_normal_correction_prompt_separate_from_max_tokens_retry() {
+        let corrected = correction_request(&request(), 1, "response_missing_required_field");
+        assert!(corrected.prompt.contains("response_missing_required_field"));
+        assert_eq!(corrected.options.max_output_tokens, 32);
     }
 
     #[tokio::test(start_paused = true)]

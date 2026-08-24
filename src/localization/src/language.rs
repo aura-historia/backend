@@ -62,6 +62,12 @@ impl Language {
             })
     }
 
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|language| language.as_str() == value)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Language::De => "de",
@@ -116,6 +122,8 @@ mod tests {
     fn should_keep_iso_codes_and_resolution_fallbacks() {
         assert_eq!(Language::En.as_str(), "en");
         assert_eq!(Language::Zh.as_str(), "zh");
+        assert_eq!(Some(Language::En), Language::from_code("en"));
+        assert_eq!(None, Language::from_code("en-US"));
 
         let resolved = Language::resolve(
             &[Language::Es],

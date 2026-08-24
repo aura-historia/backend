@@ -1,6 +1,6 @@
 use super::*;
 use crate::scraper::css_selector::product_schema::ShopsProductSchema;
-use crate::scraper::css_selector::product_schema_service::GeneratedAppendSchema;
+use crate::scraper::css_selector::product_schema_service::GeneratedSingleSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::MockRemovedPageSchemaRepository;
 use crate::scraper::css_selector::rule::ExtractionError;
@@ -46,7 +46,7 @@ fn normalizer_with_success(url: Url) -> MockProductNormalizationService {
 }
 
 #[tokio::test]
-async fn should_use_yaml_only_when_append_schema_applies() {
+async fn should_use_yaml_only_when_single_schema_applies() {
     let id = shop_id();
     let url = product_url();
 
@@ -59,11 +59,11 @@ async fn should_use_yaml_only_when_append_schema_applies() {
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     minimal_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
@@ -101,7 +101,7 @@ async fn should_use_yaml_only_when_append_schema_applies() {
 }
 
 #[tokio::test]
-async fn should_exhaust_append_repair_when_yaml_append_does_not_apply() {
+async fn should_fail_when_fresh_schema_does_not_apply_after_initial_schema_failure() {
     let id = shop_id();
     let url = product_url();
 
@@ -115,11 +115,11 @@ async fn should_exhaust_append_repair_when_yaml_append_does_not_apply() {
         });
 
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     invalid_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
@@ -156,7 +156,7 @@ async fn should_exhaust_append_repair_when_yaml_append_does_not_apply() {
 }
 
 #[tokio::test]
-async fn should_exhaust_append_repair_after_yaml_fails() {
+async fn should_fail_when_fresh_schema_application_fails() {
     let id = shop_id();
     let url = product_url();
 
@@ -169,11 +169,11 @@ async fn should_exhaust_append_repair_after_yaml_fails() {
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     invalid_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
@@ -211,7 +211,7 @@ async fn should_exhaust_append_repair_after_yaml_fails() {
 }
 
 #[tokio::test]
-async fn should_not_consume_second_budget_call_when_yaml_append_does_not_apply() {
+async fn should_not_consume_second_budget_call_when_fresh_schema_does_not_apply() {
     let id = shop_id();
     let url = product_url();
 
@@ -224,11 +224,11 @@ async fn should_not_consume_second_budget_call_when_yaml_append_does_not_apply()
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     invalid_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
@@ -260,7 +260,7 @@ async fn should_not_consume_second_budget_call_when_yaml_append_does_not_apply()
 }
 
 #[tokio::test]
-async fn should_mark_removed_when_append_classifies_removed() {
+async fn should_mark_removed_when_fresh_generation_classifies_removed() {
     let id = shop_id();
     let url = product_url();
     let removed_html = r#"<main><h1 id="removed-message">Product no longer available</h1></main>"#;
@@ -284,14 +284,14 @@ async fn should_mark_removed_when_append_classifies_removed() {
             let s = existing_invalid_schema(id);
             Box::pin(async move { Ok(Some(s)) })
         });
-    let removed_schema_for_append = removed_schema.clone();
+    let removed_schema_for_generation = removed_schema.clone();
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(move |_| {
-            let schema = removed_schema_for_append.clone();
+            let schema = removed_schema_for_generation.clone();
             Box::pin(async move {
-                Ok(GeneratedAppendSchema::Removed {
+                Ok(GeneratedSingleSchema::Removed {
                     schema,
                     evaluation: schema_evaluation(SchemaLlmEvaluationConfidence::High),
                 })
@@ -345,7 +345,7 @@ async fn should_mark_removed_when_append_classifies_removed() {
 }
 
 #[tokio::test]
-async fn should_mark_other_when_append_classifies_not_product() {
+async fn should_mark_other_when_fresh_generation_classifies_not_product() {
     let id = shop_id();
     let url = product_url();
     let category_html = r#"<main class="category"><h1>Latest antiques</h1></main>"#;
@@ -365,11 +365,11 @@ async fn should_mark_other_when_append_classifies_not_product() {
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(move |_| {
             Box::pin(async move {
-                Ok(GeneratedAppendSchema::NotProduct {
+                Ok(GeneratedSingleSchema::NotProduct {
                     reason: "category page".to_string(),
                     evaluation: schema_evaluation(SchemaLlmEvaluationConfidence::High),
                 })
@@ -404,8 +404,106 @@ async fn should_mark_other_when_append_classifies_not_product() {
     assert!(matches!(err, ScraperError::NotProductPage { .. }));
 }
 
+async fn should_reject_low_confidence_fresh_classification(
+    confidence: SchemaLlmEvaluationConfidence,
+    removed: bool,
+) {
+    let id = shop_id();
+    let url = product_url();
+
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher
+        .expect_fetch()
+        .once()
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
+
+    let mut schema_svc = MockProductSchemaService::new();
+    schema_svc
+        .expect_find_product_schema()
+        .once()
+        .returning(move |_| {
+            let s = existing_invalid_schema(id);
+            Box::pin(async move { Ok(Some(s)) })
+        });
+    schema_svc
+        .expect_generate_single_schema_for_page()
+        .once()
+        .returning(move |_| {
+            let generated = if removed {
+                GeneratedSingleSchema::Removed {
+                    schema: RemovedPageSchema {
+                        selector: CssSelector::from("#removed"),
+                        text: Some("Gone".to_string()),
+                        regex: None,
+                    },
+                    evaluation: schema_evaluation(confidence),
+                }
+            } else {
+                GeneratedSingleSchema::NotProduct {
+                    reason: "category page".to_string(),
+                    evaluation: schema_evaluation(confidence),
+                }
+            };
+            Box::pin(async move { Ok(generated) })
+        });
+    schema_svc.expect_save_product_schemas().never();
+
+    let mut removed_repo = MockRemovedPageSchemaRepository::new();
+    removed_repo
+        .expect_find_removed_page_schema()
+        .once()
+        .returning(|_| Box::pin(async { Ok(None) }));
+    removed_repo.expect_insert_removed_page_schema().never();
+    removed_repo.expect_update_removed_page_schema().never();
+
+    let mut cand_svc = MockScraperCandidateService::new();
+    expect_budget_increment(&mut cand_svc, 1);
+    cand_svc.expect_set_state().never();
+    cand_svc.expect_set_class().never();
+
+    let service = ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher),
+        Box::new(schema_svc),
+        Box::new(MockProductNormalizationService::new()),
+        Arc::new(cand_svc),
+        1,
+        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+    )
+    .with_removed_page_schema_repository(Box::new(removed_repo));
+
+    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
+    assert!(matches!(
+        err,
+        ScraperError::SchemaClassificationRejected { .. }
+    ));
+}
+
 #[tokio::test]
-async fn should_not_change_state_or_class_when_append_classification_does_not_match_html() {
+async fn should_reject_medium_confidence_removed_classification_without_side_effects() {
+    should_reject_low_confidence_fresh_classification(SchemaLlmEvaluationConfidence::Medium, true)
+        .await;
+}
+
+#[tokio::test]
+async fn should_reject_low_confidence_removed_classification_without_side_effects() {
+    should_reject_low_confidence_fresh_classification(SchemaLlmEvaluationConfidence::Low, true)
+        .await;
+}
+
+#[tokio::test]
+async fn should_reject_medium_confidence_not_product_classification_without_side_effects() {
+    should_reject_low_confidence_fresh_classification(SchemaLlmEvaluationConfidence::Medium, false)
+        .await;
+}
+
+#[tokio::test]
+async fn should_reject_low_confidence_not_product_classification_without_side_effects() {
+    should_reject_low_confidence_fresh_classification(SchemaLlmEvaluationConfidence::Low, false)
+        .await;
+}
+
+#[tokio::test]
+async fn should_not_change_state_or_class_when_fresh_classification_does_not_match_html() {
     let id = shop_id();
     let url = product_url();
     let html = r#"<main><h1>Still a weird page</h1></main>"#;
@@ -425,11 +523,11 @@ async fn should_not_change_state_or_class_when_append_classification_does_not_ma
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(GeneratedAppendSchema::Removed {
+                Ok(GeneratedSingleSchema::Removed {
                     schema: RemovedPageSchema {
                         selector: CssSelector::from("#missing"),
                         text: Some("Product no longer available".to_string()),

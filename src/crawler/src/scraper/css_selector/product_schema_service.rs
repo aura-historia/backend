@@ -8,10 +8,10 @@ use large_language_model::{
     GenerationOptions, LargeLanguageModel, LargeLanguageModelError, LlmOperation,
     StructuredGenerationRequest,
 };
-use prompt::{build_append_schema_instruction, build_create_schemas_instruction};
+use prompt::{build_create_schemas_instruction, build_single_schema_instruction};
 use response::{
     ProductSchemaGenerationResponse, ProductSchemaResponseValidationError,
-    append_schema_generation_response_json_schema, product_schema_generation_response_json_schema,
+    product_schema_generation_response_json_schema, single_schema_generation_response_json_schema,
 };
 use schemars::schema_for;
 use shop_core::shop_id::ShopId;
@@ -28,7 +28,7 @@ mod response;
 
 pub use projection::html_to_schema_prompt_dsl;
 pub use response::{
-    GeneratedAppendSchema, GeneratedProductSchemas, SchemaLlmEvaluation,
+    GeneratedProductSchemas, GeneratedSingleSchema, SchemaLlmEvaluation,
     SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision, strip_markdown_json_embedding,
 };
 
@@ -66,13 +66,11 @@ pub trait ProductSchemaService {
         html_pages: &[String],
     ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError>;
 
-    /// Generate a single schema from a single HTML page and append it to the
-    /// cached schema set. Used when a runtime schema-variant match fails to
-    /// dynamically expand the schema set without full regeneration.
-    async fn append_single_schema(
+    /// Generate a fresh single schema from one HTML page.
+    async fn generate_single_schema_for_page(
         &self,
         html: &str,
-    ) -> Result<GeneratedAppendSchema, ProductSchemaServiceError>;
+    ) -> Result<GeneratedSingleSchema, ProductSchemaServiceError>;
 
     async fn find_product_schema(
         &self,
@@ -98,23 +96,23 @@ pub trait ProductSchemaService {
     ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
 }
 
-pub struct ProductSchemaServiceImpl<CreateLlm, AppendLlm> {
+pub struct ProductSchemaServiceImpl<CreateLlm, SingleLlm> {
     create_llm: CreateLlm,
-    append_llm: AppendLlm,
+    single_schema_llm: SingleLlm,
     governor: Option<Arc<CrawlerLlmGovernor>>,
     repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
 }
 
-impl<CreateLlm, AppendLlm> ProductSchemaServiceImpl<CreateLlm, AppendLlm> {
+impl<CreateLlm, SingleLlm> ProductSchemaServiceImpl<CreateLlm, SingleLlm> {
     pub fn new(
         create_llm: CreateLlm,
-        append_llm: AppendLlm,
+        single_schema_llm: SingleLlm,
         repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
         governor: Option<Arc<CrawlerLlmGovernor>>,
     ) -> Self {
         Self {
             create_llm,
-            append_llm,
+            single_schema_llm,
             governor,
             repository,
         }
@@ -136,16 +134,16 @@ fn create_schema_generation_system_instruction() -> String {
     )
 }
 
-fn append_schema_generation_system_instruction() -> String {
+fn single_schema_generation_system_instruction() -> String {
     let schema = serde_json::to_string_pretty(&schema_for!(ProductCssSelectorSchema))
         .unwrap_or_else(|_| "Failed to generate schema".to_string());
-    let response_json_schema = append_schema_generation_response_json_schema();
+    let response_json_schema = single_schema_generation_response_json_schema();
     format!(
-        "You are an e-commerce scraper-assistant for antiques repairing extraction-schemas for one HTML page.
-            Return only JSON matching Append ProductSchemaGenerationResponse.
+        "You are an e-commerce scraper-assistant for antiques generating a fresh extraction schema for one HTML page.
+            Return only JSON matching Single ProductSchemaGenerationResponse.
             The response may classify the page as product, removed, or not_product.
             ProductCssSelectorSchema schema:\n\n {schema}\n\n
-            Append ProductSchemaGenerationResponse schema:\n\n {response_json_schema}",
+            Single ProductSchemaGenerationResponse schema:\n\n {response_json_schema}",
     )
 }
 
@@ -177,11 +175,11 @@ fn validate_create_schema_response(res: &str) -> Result<(), String> {
 }
 
 #[cfg(test)]
-fn validate_append_schema_response(res: &str) -> Result<(), String> {
+fn validate_single_schema_response(res: &str) -> Result<(), String> {
     let stripped = strip_markdown_json_embedding(res);
-    response::parse_append_schema_response(stripped)
+    response::parse_single_schema_response(stripped)
         .map(|_| ())
-        .map_err(|_| "response did not match append schema response".to_string())
+        .map_err(|_| "response did not match single schema response".to_string())
 }
 
 fn create_schema_generation_request(
@@ -197,21 +195,21 @@ fn create_schema_generation_request(
         )?,
         options: GenerationOptions {
             temperature: 0.0,
-            max_output_tokens: 8192,
+            max_output_tokens: 16_384,
             request_timeout: Duration::from_secs(180),
         },
     })
 }
 
-fn append_schema_generation_request(
+fn single_schema_generation_request(
     html: &str,
 ) -> Result<StructuredGenerationRequest, ProductSchemaServiceError> {
     Ok(StructuredGenerationRequest {
-        operation: LlmOperation::CrawlerProductSchemaRepair,
-        system_instruction: append_schema_generation_system_instruction(),
-        prompt: build_append_schema_instruction(html),
+        operation: LlmOperation::CrawlerProductSchemaFreshGeneration,
+        system_instruction: single_schema_generation_system_instruction(),
+        prompt: build_single_schema_instruction(html),
         image_urls: Vec::new(),
-        response_json_schema: response_json_schema(append_schema_generation_response_json_schema())?,
+        response_json_schema: response_json_schema(single_schema_generation_response_json_schema())?,
         options: GenerationOptions {
             temperature: 0.0,
             max_output_tokens: 4096,
@@ -221,10 +219,10 @@ fn append_schema_generation_request(
 }
 
 #[async_trait::async_trait]
-impl<CreateLlm, AppendLlm> ProductSchemaService for ProductSchemaServiceImpl<CreateLlm, AppendLlm>
+impl<CreateLlm, SingleLlm> ProductSchemaService for ProductSchemaServiceImpl<CreateLlm, SingleLlm>
 where
     CreateLlm: LargeLanguageModel,
-    AppendLlm: LargeLanguageModel,
+    SingleLlm: LargeLanguageModel,
 {
     async fn create_product_schema(
         &self,
@@ -268,24 +266,24 @@ where
         Ok(generated)
     }
 
-    #[tracing::instrument(name = "scraper_append_single_schema", skip(self, html))]
-    async fn append_single_schema(
+    #[tracing::instrument(name = "scraper_generate_single_schema_for_page", skip(self, html))]
+    async fn generate_single_schema_for_page(
         &self,
         html: &str,
-    ) -> Result<GeneratedAppendSchema, ProductSchemaServiceError> {
+    ) -> Result<GeneratedSingleSchema, ProductSchemaServiceError> {
         let generated = generate_validated_with_governor::<
             _,
             ProductSchemaGenerationResponse,
-            GeneratedAppendSchema,
+            GeneratedSingleSchema,
             ProductSchemaResponseValidationError,
             _,
             _,
         >(
-            &self.append_llm,
+            &self.single_schema_llm,
             self.governor.as_ref(),
-            append_schema_generation_request(html)?,
+            single_schema_generation_request(html)?,
             3,
-            ProductSchemaGenerationResponse::try_into_append,
+            ProductSchemaGenerationResponse::try_into_single,
             ProductSchemaResponseValidationError::feedback_code,
         )
         .await
@@ -294,7 +292,7 @@ where
         debug!(
             page_kind = ?generated,
             confidence = ?generated.evaluation().confidence,
-            "Generated schema response for append-and-retry"
+            "Generated schema response for fresh-generation"
         );
         Ok(generated)
     }
@@ -383,10 +381,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::prompt::build_append_schema_instruction;
     use super::prompt::build_create_schemas_instruction;
-    use super::response::parse_append_schema_response;
+    use super::prompt::build_single_schema_instruction;
     use super::response::parse_product_schemas_response;
+    use super::response::parse_single_schema_response;
     use super::*;
     use crate::scraper::css_selector::product_schema_repository::MockShopsProductSchemaRepository;
     use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
@@ -505,7 +503,7 @@ mod tests {
             "summary": "Soft 404 page.",
             "risks": [],
         }))
-        .expect("removed append response should serialize")
+        .expect("removed single response should serialize")
     }
 
     fn removed_regex_append_response_json(pattern: &str) -> String {
@@ -520,7 +518,7 @@ mod tests {
             "summary": "Soft 404 page.",
             "risks": [],
         }))
-        .expect("removed regex append response should serialize")
+        .expect("removed regex single response should serialize")
     }
 
     fn not_product_append_response_json() -> String {
@@ -532,7 +530,26 @@ mod tests {
             "summary": "Category page.",
             "risks": [],
         }))
-        .expect("not-product append response should serialize")
+        .expect("not-product single response should serialize")
+    }
+
+    #[test]
+    fn should_use_expanded_output_budget_for_product_schema_generation() {
+        let request = create_schema_generation_request(&["<main>product</main>".to_owned()])
+            .expect("schema generation request should build");
+
+        assert_eq!(request.options.max_output_tokens, 16_384);
+    }
+
+    #[test]
+    fn should_mark_single_schema_generation_as_fresh_generation() {
+        let request = single_schema_generation_request("<main>product</main>")
+            .expect("fresh schema request should build");
+
+        assert_eq!(
+            request.operation,
+            LlmOperation::CrawlerProductSchemaFreshGeneration
+        );
     }
 
     #[test]
@@ -649,7 +666,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             create_llm: MockLlmProvider,
-            append_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
             governor: None,
             repository: Box::new(repository),
         };
@@ -672,7 +689,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             create_llm: MockLlmProvider,
-            append_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
             governor: None,
             repository: Box::new(repository),
         };
@@ -692,7 +709,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             create_llm: MockLlmProvider,
-            append_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
             governor: None,
             repository: Box::new(repository),
         };
@@ -727,7 +744,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             create_llm: MockLlmProvider,
-            append_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
             governor: None,
             repository: Box::new(repository),
         };
@@ -760,7 +777,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             create_llm: MockLlmProvider,
-            append_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
             governor: None,
             repository: Box::new(repository),
         };
@@ -784,7 +801,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             create_llm: MockLlmProvider,
-            append_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
             governor: None,
             repository: Box::new(repository),
         };
@@ -812,7 +829,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             create_llm: MockLlmProvider,
-            append_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
             governor: None,
             repository: Box::new(repository),
         };
@@ -845,7 +862,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             create_llm: MockLlmProvider,
-            append_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
             governor: None,
             repository: Box::new(repository),
         };
@@ -886,7 +903,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             create_llm: MockLlmProviderReturning(css_schema),
-            append_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
             governor: None,
             repository: Box::new(repository),
         };
@@ -904,7 +921,7 @@ mod tests {
         let css_schema = sample_schema_with_raw_attributes();
         let service = ProductSchemaServiceImpl {
             create_llm: MockLlmProviderReturning(css_schema),
-            append_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
             governor: None,
             repository: Box::new(MockShopsProductSchemaRepository::new()),
         };
@@ -993,7 +1010,7 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             create_llm: MockLlmProvider,
-            append_llm: MockLlmProvider,
+            single_schema_llm: MockLlmProvider,
             governor: None,
             repository: Box::new(repository),
         };
@@ -1028,7 +1045,7 @@ mod tests {
     #[test]
     fn should_include_page_classification_in_append_instruction() {
         let instruction =
-            build_append_schema_instruction("<html><body><h1>Missing</h1></body></html>");
+            build_single_schema_instruction("<html><body><h1>Missing</h1></body></html>");
 
         assert!(instruction.contains("page_kind = product"));
         assert!(instruction.contains("page_kind = removed"));
@@ -1148,18 +1165,18 @@ mod tests {
     fn should_parse_product_append_response() {
         let payload = generated_response_json(vec![sample_css_schema()]);
 
-        let parsed = parse_append_schema_response(&payload).unwrap();
+        let parsed = parse_single_schema_response(&payload).unwrap();
 
-        assert!(matches!(parsed, GeneratedAppendSchema::Product { .. }));
+        assert!(matches!(parsed, GeneratedSingleSchema::Product { .. }));
     }
 
     #[test]
     fn should_parse_removed_append_response() {
-        let parsed = parse_append_schema_response(&removed_append_response_json()).unwrap();
+        let parsed = parse_single_schema_response(&removed_append_response_json()).unwrap();
 
         assert_eq!(
             parsed,
-            GeneratedAppendSchema::Removed {
+            GeneratedSingleSchema::Removed {
                 schema: RemovedPageSchema {
                     selector: "#mainCatCol h1".into(),
                     text: Some("Sorry, the page you're looking for couldn't be found".to_string()),
@@ -1178,14 +1195,14 @@ mod tests {
 
     #[test]
     fn should_accept_removed_regex_for_append_validator() {
-        let parsed = parse_append_schema_response(&removed_regex_append_response_json(
+        let parsed = parse_single_schema_response(&removed_regex_append_response_json(
             r"the .+ is not available anymore",
         ))
         .unwrap();
 
         assert_eq!(
             parsed,
-            GeneratedAppendSchema::Removed {
+            GeneratedSingleSchema::Removed {
                 schema: RemovedPageSchema {
                     selector: "#mainCatCol h1".into(),
                     text: None,
@@ -1206,8 +1223,8 @@ mod tests {
     fn should_reject_removed_invalid_regex_for_append_validator() {
         let payload = removed_regex_append_response_json("[unclosed");
 
-        assert!(parse_append_schema_response(&payload).is_err());
-        assert!(validate_append_schema_response(&payload).is_err());
+        assert!(parse_single_schema_response(&payload).is_err());
+        assert!(validate_single_schema_response(&payload).is_err());
     }
 
     #[test]
@@ -1225,8 +1242,8 @@ mod tests {
         }))
         .unwrap();
 
-        assert!(parse_append_schema_response(&payload).is_err());
-        assert!(validate_append_schema_response(&payload).is_err());
+        assert!(parse_single_schema_response(&payload).is_err());
+        assert!(validate_single_schema_response(&payload).is_err());
     }
 
     #[test]
@@ -1242,16 +1259,16 @@ mod tests {
         }))
         .unwrap();
 
-        assert!(parse_append_schema_response(&payload).is_err());
+        assert!(parse_single_schema_response(&payload).is_err());
     }
 
     #[test]
     fn should_parse_not_product_append_response() {
-        let parsed = parse_append_schema_response(&not_product_append_response_json()).unwrap();
+        let parsed = parse_single_schema_response(&not_product_append_response_json()).unwrap();
 
         assert_eq!(
             parsed,
-            GeneratedAppendSchema::NotProduct {
+            GeneratedSingleSchema::NotProduct {
                 reason: "category page".to_string(),
                 evaluation: SchemaLlmEvaluation {
                     decision: SchemaLlmEvaluationDecision::Approve,
@@ -1317,7 +1334,7 @@ mod tests {
                 "text": "Product removed"
             },
             "confidence": "HIGH",
-            "summary": "append-only metadata"
+            "summary": "single-page metadata"
         }))
         .unwrap();
 
@@ -1332,7 +1349,7 @@ mod tests {
             "schemas": [sample_css_schema()],
             "reason": "category page",
             "confidence": "HIGH",
-            "summary": "append-only metadata"
+            "summary": "single-page metadata"
         }))
         .unwrap();
 
@@ -1345,7 +1362,7 @@ mod tests {
     fn should_accept_append_classification_for_append_validator() {
         let payload = not_product_append_response_json();
 
-        let result = validate_append_schema_response(&payload);
+        let result = validate_single_schema_response(&payload);
 
         assert!(result.is_ok());
     }
@@ -1385,7 +1402,7 @@ mod tests {
         }))
         .unwrap();
 
-        assert!(parse_append_schema_response(&payload).is_err());
+        assert!(parse_single_schema_response(&payload).is_err());
     }
 
     #[test]
@@ -1399,8 +1416,8 @@ mod tests {
         }))
         .unwrap();
 
-        let parsed = parse_append_schema_response(&payload).unwrap();
-        assert!(matches!(parsed, GeneratedAppendSchema::NotProduct { .. }));
+        let parsed = parse_single_schema_response(&payload).unwrap();
+        assert!(matches!(parsed, GeneratedSingleSchema::NotProduct { .. }));
     }
 
     #[test]
@@ -1414,7 +1431,7 @@ mod tests {
         }))
         .unwrap();
 
-        assert!(parse_append_schema_response(&payload).is_err());
+        assert!(parse_single_schema_response(&payload).is_err());
     }
 
     #[test]

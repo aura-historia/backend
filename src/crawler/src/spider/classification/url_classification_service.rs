@@ -345,7 +345,7 @@ mod tests {
         assert!(matches!(result, Ok(Some(_))));
         let prompts = prompts.lock().unwrap_or_else(|error| error.into_inner());
         assert_eq!(prompts.len(), 2);
-        assert!(prompts[1].contains("response_not_valid_json"));
+        assert!(prompts[1].contains("response_invalid_json"));
     }
 
     #[tokio::test]

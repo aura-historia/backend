@@ -1,166 +1,203 @@
 use crate::product_image_document::ProductImageDocument;
-use crate::product_lifecycle_document::ProductLifecycleDocument;
-use crate::product_state_document::ProductStateDocument;
-use crate::shop_type_document::ShopTypeDocument;
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
+use geo::core::continent::Continent;
 use indexmap::IndexSet;
 use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
 use product_core::product_id::ProductId;
+use product_core::product_lifecycle::ProductLifecycle;
 use product_core::product_slug_id::ProductSlugId;
+use product_core::product_state::ProductState;
+
 use product_core::shops_product_id::ShopsProductId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use shop_core::seller_slug_id::SellerSlugId;
 use shop_core::shop_id::ShopId;
 use shop_core::shop_slug_id::ShopSlugId;
+use shop_core::shop_type::ShopType;
 use time::OffsetDateTime;
 use url::Url;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum CurrencyDocument {
-    Eur,
-    Gbp,
-    Usd,
-    Aud,
-    Cad,
-    Nzd,
-    Cny,
-    Brl,
-    Pln,
-    Try,
-    Jpy,
-    Czk,
-    Rub,
-    Aed,
-    Sar,
-    Hkd,
-    Sgd,
-    Chf,
+fn serialize_code<T, S>(
+    value: &T,
+    serializer: S,
+    code: fn(T) -> &'static str,
+) -> Result<S::Ok, S::Error>
+where
+    T: Copy,
+    S: serde::Serializer,
+{
+    serializer.serialize_str(code(*value))
 }
 
-impl From<Currency> for CurrencyDocument {
-    fn from(currency: Currency) -> Self {
-        match currency {
-            Currency::Eur => Self::Eur,
-            Currency::Gbp => Self::Gbp,
-            Currency::Usd => Self::Usd,
-            Currency::Aud => Self::Aud,
-            Currency::Cad => Self::Cad,
-            Currency::Nzd => Self::Nzd,
-            Currency::Cny => Self::Cny,
-            Currency::Brl => Self::Brl,
-            Currency::Pln => Self::Pln,
-            Currency::Try => Self::Try,
-            Currency::Jpy => Self::Jpy,
-            Currency::Czk => Self::Czk,
-            Currency::Rub => Self::Rub,
-            Currency::Aed => Self::Aed,
-            Currency::Sar => Self::Sar,
-            Currency::Hkd => Self::Hkd,
-            Currency::Sgd => Self::Sgd,
-            Currency::Chf => Self::Chf,
+fn deserialize_code<'de, T, D>(deserializer: D, parse: fn(&str) -> Option<T>) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    parse(&value).ok_or_else(|| serde::de::Error::custom(format!("unsupported code `{value}`")))
+}
+
+pub(crate) mod currency {
+    use super::*;
+
+    pub(crate) fn serialize<S>(value: &Currency, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_code(value, serializer, Currency::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Currency, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_code(deserializer, Currency::from_code)
+    }
+}
+
+pub(crate) mod language {
+    use super::*;
+    use strum::IntoEnumIterator;
+
+    fn code(value: Language) -> &'static str {
+        match value {
+            Language::De => "DE",
+            Language::En => "EN",
+            Language::Fr => "FR",
+            Language::Es => "ES",
+            Language::It => "IT",
+            Language::Zh => "ZH",
+            Language::Pt => "PT",
+            Language::Pl => "PL",
+            Language::Tr => "TR",
+            Language::Nl => "NL",
+            Language::Cs => "CS",
+            Language::Ja => "JA",
+            Language::Ru => "RU",
+            Language::Ar => "AR",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Language> {
+        Language::iter().find(|language| code(*language) == value)
+    }
+
+    pub(crate) fn serialize<S>(value: &Language, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_code(value, serializer, code)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Language, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_code(deserializer, parse)
+    }
+}
+
+pub(crate) mod shop_type {
+    use super::*;
+
+    pub(crate) fn serialize<S>(value: &ShopType, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_code(value, serializer, ShopType::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ShopType, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_code(deserializer, ShopType::from_code)
+    }
+}
+
+pub(crate) mod product_state {
+    use super::*;
+
+    pub(crate) fn serialize<S>(value: &ProductState, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_code(value, serializer, ProductState::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ProductState, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_code(deserializer, ProductState::from_code)
+    }
+}
+
+pub(crate) mod continent {
+    use super::*;
+
+    pub(crate) mod option {
+        use super::*;
+
+        pub(crate) fn serialize<S>(
+            value: &Option<Continent>,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            match value {
+                Some(value) => serializer.serialize_some(value.as_str()),
+                None => serializer.serialize_none(),
+            }
+        }
+
+        pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Option<Continent>, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            Option::<String>::deserialize(deserializer)?
+                .map(|value| {
+                    Continent::from_code(&value).ok_or_else(|| {
+                        serde::de::Error::custom(format!("unsupported code `{value}`"))
+                    })
+                })
+                .transpose()
         }
     }
 }
 
-impl From<CurrencyDocument> for Currency {
-    fn from(currency: CurrencyDocument) -> Self {
-        match currency {
-            CurrencyDocument::Eur => Self::Eur,
-            CurrencyDocument::Gbp => Self::Gbp,
-            CurrencyDocument::Usd => Self::Usd,
-            CurrencyDocument::Aud => Self::Aud,
-            CurrencyDocument::Cad => Self::Cad,
-            CurrencyDocument::Nzd => Self::Nzd,
-            CurrencyDocument::Cny => Self::Cny,
-            CurrencyDocument::Brl => Self::Brl,
-            CurrencyDocument::Pln => Self::Pln,
-            CurrencyDocument::Try => Self::Try,
-            CurrencyDocument::Jpy => Self::Jpy,
-            CurrencyDocument::Czk => Self::Czk,
-            CurrencyDocument::Rub => Self::Rub,
-            CurrencyDocument::Aed => Self::Aed,
-            CurrencyDocument::Sar => Self::Sar,
-            CurrencyDocument::Hkd => Self::Hkd,
-            CurrencyDocument::Sgd => Self::Sgd,
-            CurrencyDocument::Chf => Self::Chf,
-        }
+pub(crate) mod product_lifecycle {
+    use super::*;
+
+    pub(crate) fn serialize<S>(value: &ProductLifecycle, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_code(value, serializer, ProductLifecycle::as_str)
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum LanguageDocument {
-    De,
-    En,
-    Fr,
-    Es,
-    It,
-    Zh,
-    Pt,
-    Pl,
-    Tr,
-    Nl,
-    Cs,
-    Ja,
-    Ru,
-    Ar,
-}
-
-impl From<Language> for LanguageDocument {
-    fn from(language: Language) -> Self {
-        match language {
-            Language::De => Self::De,
-            Language::En => Self::En,
-            Language::Fr => Self::Fr,
-            Language::Es => Self::Es,
-            Language::It => Self::It,
-            Language::Zh => Self::Zh,
-            Language::Pt => Self::Pt,
-            Language::Pl => Self::Pl,
-            Language::Tr => Self::Tr,
-            Language::Nl => Self::Nl,
-            Language::Cs => Self::Cs,
-            Language::Ja => Self::Ja,
-            Language::Ru => Self::Ru,
-            Language::Ar => Self::Ar,
-        }
-    }
-}
-
-impl From<LanguageDocument> for Language {
-    fn from(language: LanguageDocument) -> Self {
-        match language {
-            LanguageDocument::De => Self::De,
-            LanguageDocument::En => Self::En,
-            LanguageDocument::Fr => Self::Fr,
-            LanguageDocument::Es => Self::Es,
-            LanguageDocument::It => Self::It,
-            LanguageDocument::Zh => Self::Zh,
-            LanguageDocument::Pt => Self::Pt,
-            LanguageDocument::Pl => Self::Pl,
-            LanguageDocument::Tr => Self::Tr,
-            LanguageDocument::Nl => Self::Nl,
-            LanguageDocument::Cs => Self::Cs,
-            LanguageDocument::Ja => Self::Ja,
-            LanguageDocument::Ru => Self::Ru,
-            LanguageDocument::Ar => Self::Ar,
-        }
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ProductLifecycle, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_code(deserializer, ProductLifecycle::from_code)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct TextDocument {
     pub(crate) text: String,
-    pub(crate) language: LanguageDocument,
+    #[serde(with = "language")]
+    pub(crate) language: Language,
 }
 
 impl TextDocument {
-    pub(crate) fn new(text: impl Into<String>, language: LanguageDocument) -> Self {
+    pub(crate) fn new(text: impl Into<String>, language: Language) -> Self {
         Self {
             text: text.into(),
             language,
@@ -172,7 +209,8 @@ impl TextDocument {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SourcePriceDocument {
     pub(crate) amount: u64,
-    pub(crate) currency: CurrencyDocument,
+    #[serde(with = "currency")]
+    pub(crate) currency: Currency,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -241,7 +279,8 @@ pub(crate) struct ProductDocument {
     pub shops_product_id: ShopsProductId,
     pub shop_name: String,
     pub seller_name: String,
-    pub shop_type: ShopTypeDocument,
+    #[serde(with = "shop_type")]
+    pub shop_type: ShopType,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub structured_address_addressline: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -254,8 +293,12 @@ pub(crate) struct ProductDocument {
     pub structured_address_postal_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub structured_address_country: Option<CountryCode>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub structured_address_continent: Option<crate::continent_document::ContinentDocument>,
+    #[serde(
+        with = "continent::option",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub structured_address_continent: Option<Continent>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub geo_address: Option<String>,
     pub title: TextDocument,
@@ -281,8 +324,10 @@ pub(crate) struct ProductDocument {
         default
     )]
     pub(crate) sold_at: Option<OffsetDateTime>,
-    pub state: ProductStateDocument,
-    pub lifecycle: ProductLifecycleDocument,
+    #[serde(with = "product_state")]
+    pub state: ProductState,
+    #[serde(with = "product_lifecycle")]
+    pub lifecycle: ProductLifecycle,
     pub url: Url,
     pub view_url: Url,
     #[serde(skip_serializing_if = "IndexSet::is_empty", default)]
@@ -322,7 +367,7 @@ impl ProductDocument {
     pub(crate) fn source_price(&self) -> Option<(u64, Currency)> {
         self.source_price
             .as_ref()
-            .map(|price| (price.amount, Currency::from(price.currency)))
+            .map(|price| (price.amount, price.currency))
     }
 
     pub(crate) fn sale_price(&self, currency: Currency) -> Option<u64> {
@@ -354,7 +399,7 @@ mod tests {
             shops_product_id: ShopsProductId::from("sku-1"),
             shop_name: "Shop".to_owned(),
             seller_name: "Seller".to_owned(),
-            shop_type: ShopTypeDocument::CommercialDealer,
+            shop_type: ShopType::CommercialDealer,
             structured_address_addressline: None,
             structured_address_addressline_extra: None,
             structured_address_locality: None,
@@ -363,7 +408,7 @@ mod tests {
             structured_address_country: None,
             structured_address_continent: None,
             geo_address: None,
-            title: TextDocument::new("Vase", LanguageDocument::En),
+            title: TextDocument::new("Vase", Language::En),
             title_de: None,
             title_en: Some("Vase".to_owned()),
             title_fr: None,
@@ -371,13 +416,13 @@ mod tests {
             title_it: None,
             source_price: Some(SourcePriceDocument {
                 amount: 100,
-                currency: CurrencyDocument::Eur,
+                currency: Currency::Eur,
             }),
             sale_prices: None,
             sale_fx_rate_id: None,
             sold_at: None,
-            state: ProductStateDocument::Available,
-            lifecycle: ProductLifecycleDocument::Active,
+            state: ProductState::Available,
+            lifecycle: ProductLifecycle::Active,
             url: Url::parse("https://shop.example/products/sku-1")?,
             view_url: Url::parse("https://aura.example/products/vase-abcdef")?,
             images: IndexSet::new(),
@@ -387,6 +432,25 @@ mod tests {
             created: datetime!(2025-01-01 0:00 UTC),
             updated: datetime!(2025-01-02 0:00 UTC),
         })
+    }
+
+    #[test]
+    fn should_preserve_historical_uppercase_language_codec()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let value = serde_json::to_value(TextDocument::new("Vase", Language::En))?;
+
+        assert_eq!(
+            serde_json::json!({
+                "text": "Vase",
+                "language": "EN",
+            }),
+            value
+        );
+
+        let restored = serde_json::from_value::<TextDocument>(value)?;
+        assert_eq!(TextDocument::new("Vase", Language::En), restored);
+
+        Ok(())
     }
 
     #[test]
@@ -412,6 +476,22 @@ mod tests {
                 !field.starts_with("priceEstimate") && field != "priceEur" && field != "priceUsd"
             })
         }));
+        Ok(())
+    }
+
+    #[test]
+    fn should_preserve_canonical_continent_value() -> Result<(), Box<dyn std::error::Error>> {
+        let mut document = document()?;
+        document.structured_address_continent = Some(Continent::Europe);
+
+        let value = serde_json::to_value(&document)?;
+        assert_eq!(
+            Some(&serde_json::json!("EUROPE")),
+            value.get("structuredAddressContinent")
+        );
+
+        let round_tripped = serde_json::from_value::<ProductDocument>(value)?;
+        assert_eq!(document, round_tripped);
         Ok(())
     }
 

@@ -1,13 +1,15 @@
-use crate::shops::types::{ShopPartnerStatusData, ShopTypeData};
-use crate::values::{CurrencyData, LanguageData};
 use application::operation_context::Principal;
 use axum::Json;
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
+use localization::Language;
+use money::Currency;
 use serde::Serialize;
 use serde_email::Email;
+use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop_id::ShopId;
+use shop_core::shop_type::ShopType;
 use shop_service::use_cases::queries::get_shop::ShopDetailsView;
 use shop_service::use_cases::queries::search_shops::ShopSummary;
 use std::collections::HashSet;
@@ -20,18 +22,31 @@ pub(crate) struct ShopData {
     shop_id: ShopId,
     shop_slug_id: shop_core::shop_slug_id::ShopSlugId,
     name: shop_core::shop_name::ShopName,
-    shop_type: ShopTypeData,
+    #[serde(with = "crate::wire::shop_type")]
+    shop_type: ShopType,
     domains: HashSet<shop_core::domain::Domain>,
     #[serde(skip_serializing_if = "Option::is_none")]
     shopify_domain: Option<shop_core::domain::Domain>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    shopify_currency: Option<CurrencyData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    shopify_language: Option<LanguageData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    woocommerce_currency: Option<CurrencyData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    woocommerce_language: Option<LanguageData>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::currency::option"
+    )]
+    shopify_currency: Option<Currency>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::language::option"
+    )]
+    shopify_language: Option<Language>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::currency::option"
+    )]
+    woocommerce_currency: Option<Currency>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::language::option"
+    )]
+    woocommerce_language: Option<Language>,
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -46,7 +61,8 @@ pub(crate) struct ShopData {
     phone: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     email: Option<Email>,
-    partner_status: ShopPartnerStatusData,
+    #[serde(with = "crate::wire::shop_partner_status")]
+    partner_status: ShopPartnerStatus,
     #[serde(with = "time::serde::rfc3339")]
     created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -59,11 +75,13 @@ pub(crate) struct ShopSummaryData {
     shop_id: ShopId,
     shop_slug_id: shop_core::shop_slug_id::ShopSlugId,
     name: shop_core::shop_name::ShopName,
-    shop_type: ShopTypeData,
+    #[serde(with = "crate::wire::shop_type")]
+    shop_type: ShopType,
     domains: Vec<shop_core::domain::Domain>,
     #[serde(skip_serializing_if = "Option::is_none")]
     image: Option<Url>,
-    partner_status: ShopPartnerStatusData,
+    #[serde(with = "crate::wire::shop_partner_status")]
+    partner_status: ShopPartnerStatus,
     #[serde(with = "time::serde::rfc3339")]
     created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -76,10 +94,10 @@ impl From<ShopSummary> for ShopSummaryData {
             shop_id: summary.shop_id,
             shop_slug_id: summary.shop_slug_id,
             name: summary.name,
-            shop_type: summary.shop_type.into(),
+            shop_type: summary.shop_type,
             domains: summary.domains,
             image: summary.image,
-            partner_status: summary.partner_status.into(),
+            partner_status: summary.partner_status,
             created: summary.created,
             updated: summary.updated,
         }
@@ -92,13 +110,13 @@ impl From<ShopDetailsView> for ShopData {
             shop_id: view.shop_id,
             shop_slug_id: view.shop_slug_id,
             name: view.name,
-            shop_type: view.shop_type.into(),
+            shop_type: view.shop_type,
             domains: view.domains,
             shopify_domain: view.shopify_domain,
-            shopify_currency: view.shopify_currency.map(Into::into),
-            shopify_language: view.shopify_language.map(Into::into),
-            woocommerce_currency: view.woocommerce_currency.map(Into::into),
-            woocommerce_language: view.woocommerce_language.map(Into::into),
+            shopify_currency: view.shopify_currency,
+            shopify_language: view.shopify_language,
+            woocommerce_currency: view.woocommerce_currency,
+            woocommerce_language: view.woocommerce_language,
             url: view.url,
             view_url: view.view_url,
             image: view.image,
@@ -106,7 +124,7 @@ impl From<ShopDetailsView> for ShopData {
             geo_address: view.geo_address.map(Into::into),
             phone: view.phone,
             email: view.email,
-            partner_status: view.partner_status.into(),
+            partner_status: view.partner_status,
             created: view.created,
             updated: view.updated,
         }

@@ -88,6 +88,65 @@ async fn should_clear_business_rows_without_removing_pg_ttl_configuration() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_apply_intentional_secondary_index_definitions() {
+    let pool = get_postgres_client().await;
+
+    for (index_name, definition_fragment) in [
+        (
+            "product_watchlist_product_user_idx",
+            "(product_id, user_id)",
+        ),
+        (
+            "search_filter_matches_filter_created_desc_product_idx",
+            "(user_search_filter_id, created DESC, product_id)",
+        ),
+        (
+            "shops_published_name_shop_id_idx",
+            "(name, shop_id) WHERE (lifecycle = 'PUBLISHED'::text)",
+        ),
+        (
+            "shops_published_updated_shop_id_idx",
+            "(updated DESC, shop_id) WHERE (lifecycle = 'PUBLISHED'::text)",
+        ),
+        (
+            "shops_published_created_shop_id_idx",
+            "(created DESC, shop_id) WHERE (lifecycle = 'PUBLISHED'::text)",
+        ),
+        (
+            "product_events_product_time_event_idx",
+            "(product_id, event_time, event_id)",
+        ),
+    ] {
+        let definition: Option<String> = sqlx::query_scalar(
+            "SELECT pg_get_indexdef(indexrelid) FROM pg_stat_user_indexes WHERE indexrelname = $1",
+        )
+        .bind(index_name)
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to inspect index {index_name}: {error:?}"));
+
+        assert!(
+            definition.is_some_and(|definition| definition.contains(definition_fragment)),
+            "missing or unexpected definition for {index_name}"
+        );
+    }
+
+    let removed_indexes: Vec<String> = sqlx::query_scalar(
+        "SELECT indexrelname FROM pg_stat_user_indexes WHERE indexrelname = ANY($1) ORDER BY indexrelname",
+    )
+    .bind(vec![
+        "product_events_product_time_idx",
+        "product_watchlist_product_id_idx",
+        "product_watchlist_user_created_idx",
+    ])
+    .fetch_all(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to inspect removed indexes: {error:?}"));
+
+    assert!(removed_indexes.is_empty());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_support_core_business_relations() {
     let pool = get_postgres_client().await;
     pool.execute(sqlx::raw_sql(

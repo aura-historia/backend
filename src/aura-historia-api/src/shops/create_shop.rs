@@ -1,17 +1,18 @@
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::shops::shop_data::shop_response;
-use crate::shops::types::ShopTypeData;
 use crate::state::ShopsState;
-use crate::values::{CurrencyData, LanguageData};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use geo::data::address_data::StructuredAddressData;
+use localization::Language;
+use money::Currency;
 use serde::Deserialize;
 use serde_email::Email;
 use shop_core::domain::Domain;
 use shop_core::shop_name::ShopName;
+use shop_core::shop_type::ShopType;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_service::use_cases::commands::create_shop::CreateShopCommand;
 use std::collections::HashSet;
@@ -21,20 +22,25 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 struct CreateShopData {
     name: ShopName,
-    shop_type: ShopTypeData,
+    #[serde(with = "crate::wire::shop_type")]
+    shop_type: ShopType,
     domains: HashSet<Domain>,
     #[serde(default)]
     shopify_domain: Option<Domain>,
     #[serde(default)]
-    shopify_currency: Option<CurrencyData>,
+    #[serde(with = "crate::wire::currency::option")]
+    shopify_currency: Option<Currency>,
     #[serde(default)]
-    shopify_language: Option<LanguageData>,
+    #[serde(with = "crate::wire::language::option")]
+    shopify_language: Option<Language>,
     #[serde(default)]
     woocommerce_webhook_secret: Option<WoocommerceWebhookSecret>,
     #[serde(default)]
-    woocommerce_currency: Option<CurrencyData>,
+    #[serde(with = "crate::wire::currency::option")]
+    woocommerce_currency: Option<Currency>,
     #[serde(default)]
-    woocommerce_language: Option<LanguageData>,
+    #[serde(with = "crate::wire::language::option")]
+    woocommerce_language: Option<Language>,
     #[serde(default)]
     url: Option<Url>,
     #[serde(default)]
@@ -62,14 +68,14 @@ pub async fn create_shop(
     };
     let command = CreateShopCommand {
         name: data.name,
-        shop_type: data.shop_type.into(),
+        shop_type: data.shop_type,
         domains: data.domains,
         shopify_domain: data.shopify_domain,
-        shopify_currency: data.shopify_currency.map(Into::into),
-        shopify_language: data.shopify_language.map(Into::into),
+        shopify_currency: data.shopify_currency,
+        shopify_language: data.shopify_language,
         woocommerce_webhook_secret: data.woocommerce_webhook_secret,
-        woocommerce_currency: data.woocommerce_currency.map(Into::into),
-        woocommerce_language: data.woocommerce_language.map(Into::into),
+        woocommerce_currency: data.woocommerce_currency,
+        woocommerce_language: data.woocommerce_language,
         url: data.url,
         image: data.image,
         structured_address: data.structured_address.map(Into::into),

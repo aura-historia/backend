@@ -237,11 +237,11 @@ pub(crate) fn map_snapshots(
 ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
     let mut quotes_by_snapshot = HashMap::<uuid::Uuid, Vec<FxRateQuote>>::new();
     for quote in quotes {
-        let currency = Currency::iter()
-            .find(|currency| currency.as_str() == quote.currency)
-            .ok_or_else(|| FxRateSnapshotRepositoryError::InvalidPersistedSnapshot {
+        let currency = Currency::from_code(&quote.currency).ok_or_else(|| {
+            FxRateSnapshotRepositoryError::InvalidPersistedSnapshot {
                 source: static_error("persisted FX quote currency is unsupported"),
-            })?;
+            }
+        })?;
         let units_per_eur = u64::try_from(quote.units_per_eur).map_err(|_| {
             FxRateSnapshotRepositoryError::InvalidPersistedSnapshot {
                 source: static_error("persisted FX quote is negative"),
@@ -261,7 +261,7 @@ pub(crate) fn map_snapshots(
                     source: box_error(source),
                 }
             })?;
-            let source = FxRateSource::try_from_persisted(&snapshot.source).map_err(|source| {
+            let source = parse_source(&snapshot.source).map_err(|source| {
                 FxRateSnapshotRepositoryError::InvalidPersistedSnapshot {
                     source: box_error(source),
                 }
@@ -284,10 +284,34 @@ pub(crate) fn map_snapshots(
         .collect()
 }
 
+fn parse_source(value: &str) -> Result<FxRateSource, fxrate_core::FxRateSnapshotError> {
+    FxRateSource::iter()
+        .find(|source| source.as_str() == value)
+        .ok_or(fxrate_core::FxRateSnapshotError::InvalidSource)
+}
+
 impl From<FxRateSnapshotInsertSqlxError> for FxRateSnapshotRepositoryError {
     fn from(source: FxRateSnapshotInsertSqlxError) -> Self {
         Self::InsertFailed {
             source: box_error(source),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_parse_each_canonical_persisted_source() {
+        for expected in FxRateSource::iter() {
+            assert_eq!(Ok(expected), parse_source(expected.as_str()));
+        }
+    }
+
+    #[test]
+    fn should_reject_unknown_and_noncanonical_persisted_source() {
+        assert!(parse_source("FXRATESAPI").is_err());
+        assert!(parse_source("unknown").is_err());
     }
 }

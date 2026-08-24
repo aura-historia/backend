@@ -2,66 +2,8 @@ use anyhow::{Context, Result};
 use camino::Utf8Path;
 use determinator::Determinator;
 use guppy::{MetadataCommand, graph::DependencyDirection};
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::process::Command;
-
-/// Integration test crates that run on ubuntu-latest with LocalStack.
-/// These paths are relative to the workspace root.
-const INTEGRATION_TEST_CRATES: &[&str] = &[
-    "src/application",
-    "src/aura-historia-api",
-    "src/aura-historia-worker",
-    "src/aura-historia-cron",
-    "src/credential-core",
-    "src/crawler",
-    "src/domain-primitives",
-    "src/embedding",
-    "src/geo",
-    "src/image-fetcher",
-    "src/large-language-model",
-    "src/localization",
-    "src/money",
-    "src/platform-observability",
-    "src/platform-opensearch",
-    "src/platform-postgres",
-    "src/product-core",
-    "src/product-opensearch",
-    "src/product-postgres",
-    "src/product-service",
-    "src/shop-core",
-    "src/shop-postgres",
-    "src/shop-service",
-    "src/shop-partner-core",
-    "src/shop-partner-postgres",
-    "src/shop-partner-service",
-    "src/user-core",
-    "src/user-postgres",
-    "src/user-service",
-    "src/user-zoho",
-    "src/search-filter-core",
-    "src/search-filter-opensearch",
-    "src/search-filter-postgres",
-    "src/search-filter-service",
-    "src/watchlist-core",
-    "src/watchlist-postgres",
-    "src/watchlist-service",
-    "src/notification-core",
-    "src/notification-service",
-    "src/notification-postgres",
-    "src/notification-email",
-    "src/notification-email-aws",
-    "src/oauth-core",
-    "src/oauth-service",
-    "src/billing-service",
-    "src/billing-stripe",
-    "src/stripe-lambda",
-    "src/shopify-lambda",
-    "src/fxrate-fxratesapi",
-    "src/fxrate-lambda",
-    "src/fxrate-core",
-    "src/fxrate-postgres",
-    "src/fxrate-service",
-];
 
 fn main() -> Result<()> {
     let base_ref = std::env::args()
@@ -90,21 +32,14 @@ fn main() -> Result<()> {
     let result = determinator.compute();
 
     let workspace_root = graph.workspace().root();
-    let affected_dirs: HashSet<String> = result
+    let integration_test: BTreeSet<String> = result
         .affected_set
         .packages(DependencyDirection::Forward)
-        .filter(|p| p.in_workspace())
-        .filter_map(|p| {
-            let rel = p.manifest_path().strip_prefix(workspace_root).ok()?;
-            let dir = rel.parent()?;
-            Some(dir.to_string())
+        .filter(|package| package.in_workspace())
+        .filter_map(|package| {
+            relative_workspace_package_dir(package.manifest_path(), workspace_root)
         })
-        .collect();
-
-    let integration_test: Vec<&str> = INTEGRATION_TEST_CRATES
-        .iter()
-        .copied()
-        .filter(|c| affected_dirs.contains(*c))
+        .filter(|package_dir| should_run_integration_test(package_dir))
         .collect();
 
     let output = serde_json::json!({
@@ -114,6 +49,24 @@ fn main() -> Result<()> {
     println!("{output}");
 
     Ok(())
+}
+
+fn relative_workspace_package_dir(
+    manifest_path: &Utf8Path,
+    workspace_root: &Utf8Path,
+) -> Option<String> {
+    let relative_manifest = manifest_path.strip_prefix(workspace_root).ok()?;
+    let directory = relative_manifest.parent()?;
+
+    Some(if directory.as_str().is_empty() {
+        ".".to_owned()
+    } else {
+        directory.to_string()
+    })
+}
+
+fn should_run_integration_test(package_dir: &str) -> bool {
+    !matches!(package_dir, "." | "src/test-api/src/test-api-macros")
 }
 
 fn get_changed_files(base_ref: &str) -> Result<Vec<String>> {
@@ -135,4 +88,37 @@ fn get_changed_files(base_ref: &str) -> Result<Vec<String>> {
         .collect();
 
     Ok(files)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{relative_workspace_package_dir, should_run_integration_test};
+    use camino::Utf8Path;
+
+    #[test]
+    fn should_exclude_workspace_root_package() {
+        let package_dir = relative_workspace_package_dir(
+            Utf8Path::new("/workspace/Cargo.toml"),
+            Utf8Path::new("/workspace"),
+        )
+        .expect("workspace root package should have a path");
+
+        assert!(!should_run_integration_test(&package_dir));
+    }
+
+    #[test]
+    fn should_exclude_test_api_macros_package() {
+        let package_dir = relative_workspace_package_dir(
+            Utf8Path::new("/workspace/src/test-api/src/test-api-macros/Cargo.toml"),
+            Utf8Path::new("/workspace"),
+        )
+        .expect("nested package should have a path");
+
+        assert!(!should_run_integration_test(&package_dir));
+    }
+
+    #[test]
+    fn should_include_regular_workspace_package() {
+        assert!(should_run_integration_test("src/test-api"));
+    }
 }

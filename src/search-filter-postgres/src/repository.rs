@@ -1,5 +1,5 @@
 use crate::mapping::{
-    FILTER_COLUMNS, FilterRow, ProductSearchJsonMappingError, format_state, product_search_to_json,
+    FILTER_COLUMNS, FilterRow, ProductSearchJsonMappingError, product_search_to_json,
     user_search_filter_uuid,
 };
 use application::error::box_error;
@@ -150,7 +150,7 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
             .bind(uuid::Uuid::from(filter.user_id()))
             .bind(filter.name().as_ref())
             .bind(filter.notifications())
-            .bind(format_state(filter.state()))
+            .bind(filter.state().as_str())
             .bind(search)
             .bind(
                 filter
@@ -191,7 +191,7 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
             .bind(id)
             .bind(filter.name().as_ref())
             .bind(filter.notifications())
-            .bind(format_state(filter.state()))
+            .bind(filter.state().as_str())
             .bind(search)
             .bind(
                 filter

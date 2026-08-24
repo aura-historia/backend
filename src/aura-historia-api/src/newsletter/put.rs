@@ -1,10 +1,11 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::state::NewsletterState;
-use crate::values::{CurrencyData, LanguageData};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use localization::Language;
+use money::Currency;
 use serde::Deserialize;
 use serde_email::Email;
 use user_core::{first_name::FirstName, last_name::LastName};
@@ -19,9 +20,10 @@ struct PutNewsletterSubscriptionDto {
     #[serde(default)]
     last_name: Option<LastName>,
     #[serde(default)]
-    language: Option<LanguageData>,
-    #[serde(default)]
-    currency: Option<CurrencyData>,
+    #[serde(with = "crate::wire::language::option")]
+    language: Option<Language>,
+    #[serde(default, with = "crate::wire::currency::option")]
+    currency: Option<Currency>,
 }
 
 impl From<PutNewsletterSubscriptionDto> for UpsertNewsletterSubscriptionCommand {
@@ -30,8 +32,8 @@ impl From<PutNewsletterSubscriptionDto> for UpsertNewsletterSubscriptionCommand 
             email: dto.email,
             first_name: dto.first_name,
             last_name: dto.last_name,
-            language: dto.language.map(Into::into),
-            currency: dto.currency.map(Into::into),
+            language: dto.language,
+            currency: dto.currency,
         }
     }
 }

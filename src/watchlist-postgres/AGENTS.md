@@ -14,7 +14,7 @@
 - Repository and presentation reads use separate private rows; operational version never enters watchlist views.
 - Notification recipient reads require active interval start at or before persisted Product event time and suppress email when the current email interval started later.
 - Tier reconciliation locks the user first, then affected watchlist rows; it increments version for each changed row.
-- Schema key is `(user_id, product_id)`.
+- Schema key is `(user_id, product_id)`. User watchlist reads order by `created DESC, product_id ASC`; reverse product reads order by `user_id ASC`.
 
 ## Ownership
 

@@ -59,21 +59,8 @@ impl TryFrom<WatchlistViewRow> for WatchlistProductView {
     }
 }
 
-pub(crate) fn format_state(state: WatchlistState) -> &'static str {
-    match state {
-        WatchlistState::Active => "ACTIVE",
-        WatchlistState::InactiveByUser => "INACTIVE_BY_USER",
-        WatchlistState::InactiveByRestrictedPlan => "INACTIVE_BY_RESTRICTED_PLAN",
-    }
-}
-
 fn parse_state(value: &str) -> Option<WatchlistState> {
-    match value {
-        "ACTIVE" => Some(WatchlistState::Active),
-        "INACTIVE_BY_USER" => Some(WatchlistState::InactiveByUser),
-        "INACTIVE_BY_RESTRICTED_PLAN" => Some(WatchlistState::InactiveByRestrictedPlan),
-        _ => None,
-    }
+    WatchlistState::from_code(value)
 }
 
 fn parse_state_repository(value: &str) -> Result<WatchlistState, WatchlistRepositoryError> {
@@ -87,26 +74,27 @@ fn parse_state_read(value: &str) -> Result<WatchlistState, WatchlistReadError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use strum::IntoEnumIterator;
 
     #[test]
-    fn should_format_all_states() {
-        assert_eq!("ACTIVE", format_state(WatchlistState::Active));
-        assert_eq!(
-            "INACTIVE_BY_USER",
-            format_state(WatchlistState::InactiveByUser)
-        );
-        assert_eq!(
-            "INACTIVE_BY_RESTRICTED_PLAN",
-            format_state(WatchlistState::InactiveByRestrictedPlan)
-        );
+    fn should_parse_each_canonical_state() {
+        for expected in WatchlistState::iter() {
+            assert_eq!(Some(expected), parse_state(expected.as_str()));
+        }
     }
 
     #[test]
-    fn should_reject_invalid_state() {
-        assert!(matches!(
-            parse_state_repository("bad"),
-            Err(WatchlistRepositoryError::InvalidPersistedState)
-        ));
+    fn should_reject_unknown_and_noncanonical_states() {
+        for value in ["bad", "active"] {
+            assert!(matches!(
+                parse_state_repository(value),
+                Err(WatchlistRepositoryError::InvalidPersistedState)
+            ));
+            assert!(matches!(
+                parse_state_read(value),
+                Err(WatchlistReadError::InvalidPersistedState)
+            ));
+        }
     }
 
     #[test]

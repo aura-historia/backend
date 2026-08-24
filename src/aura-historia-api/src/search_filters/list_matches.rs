@@ -5,11 +5,12 @@ use crate::products::product_data::{
     PersonalizedProductDetailsData, personalized_product_details_data,
 };
 use crate::state::SearchFiltersState;
-use crate::values::{CurrencyData, LanguageData};
 use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
+use localization::Language;
+use money::Currency;
 
 use crate::pagination_data::JsonCursoredData;
 use application::pagination::{Cursor, CursoredResult};
@@ -25,9 +26,10 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 #[serde(rename_all = "camelCase")]
 struct ListSearchFilterMatchesQuery {
     #[serde(default)]
-    language: LanguageData,
-    #[serde(default)]
-    currency: CurrencyData,
+    #[serde(with = "crate::wire::language")]
+    language: Language,
+    #[serde(default, with = "crate::wire::currency")]
+    currency: Currency,
     #[serde(default)]
     size: Option<SearchFilterMatchPageSize>,
     #[serde(default)]
@@ -72,8 +74,8 @@ pub(super) async fn list_search_filter_matches(
             ListSearchFilterMatchesRequest {
                 user_id,
                 search_filter_id,
-                language: query.language.into(),
-                currency: query.currency.into(),
+                language: query.language,
+                currency: query.currency,
                 cursor: Some(cursor),
                 order: SortOrder::Asc,
             },
@@ -170,8 +172,8 @@ mod tests {
         let default_query: ListSearchFilterMatchesQuery = serde_qs::from_str("")?;
         let requested_query: ListSearchFilterMatchesQuery = serde_qs::from_str("currency=USD")?;
 
-        assert_eq!(CurrencyData::Eur, default_query.currency);
-        assert_eq!(CurrencyData::Usd, requested_query.currency);
+        assert_eq!(Currency::Eur, default_query.currency);
+        assert_eq!(Currency::Usd, requested_query.currency);
         Ok(())
     }
 

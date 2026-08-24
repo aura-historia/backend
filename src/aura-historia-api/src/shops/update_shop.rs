@@ -2,18 +2,19 @@ use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
 use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
 use crate::shops::shop_data::shop_response;
-use crate::shops::types::ShopTypeData;
 use crate::state::ShopsState;
-use crate::values::{CurrencyData, LanguageData};
 use application::patch_field::PatchField;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use geo::data::address_data::StructuredAddressData;
+use localization::Language;
+use money::Currency;
 use serde::Deserialize;
 use serde_email::Email;
 use shop_core::domain::Domain;
 use shop_core::shop_id::ShopId;
+use shop_core::shop_type::ShopType;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_service::use_cases::commands::update_shop::UpdateShopCommand;
 
@@ -24,21 +25,26 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 struct UpdateShopData {
     #[serde(default)]
-    shop_type: PatchValue<ShopTypeData>,
+    #[serde(deserialize_with = "crate::wire::shop_type::patch::deserialize")]
+    shop_type: PatchValue<ShopType>,
     #[serde(default)]
     domains: PatchValue<HashSet<Domain>>,
     #[serde(default)]
     shopify_domain: PatchValue<Domain>,
     #[serde(default)]
-    shopify_currency: PatchValue<CurrencyData>,
+    #[serde(deserialize_with = "crate::wire::currency::patch::deserialize")]
+    shopify_currency: PatchValue<Currency>,
     #[serde(default)]
-    shopify_language: PatchValue<LanguageData>,
+    #[serde(deserialize_with = "crate::wire::language::patch::deserialize")]
+    shopify_language: PatchValue<Language>,
     #[serde(default)]
     woocommerce_webhook_secret: PatchValue<WoocommerceWebhookSecret>,
     #[serde(default)]
-    woocommerce_currency: PatchValue<CurrencyData>,
+    #[serde(deserialize_with = "crate::wire::currency::patch::deserialize")]
+    woocommerce_currency: PatchValue<Currency>,
     #[serde(default)]
-    woocommerce_language: PatchValue<LanguageData>,
+    #[serde(deserialize_with = "crate::wire::language::patch::deserialize")]
+    woocommerce_language: PatchValue<Language>,
     #[serde(default)]
     url: PatchValue<Url>,
     #[serde(default)]
@@ -88,14 +94,14 @@ impl UpdateShopData {
     fn into_command(self, shop_id: ShopId) -> Result<UpdateShopCommand, ApiError> {
         Ok(UpdateShopCommand {
             shop_id,
-            shop_type: non_nullable_patch(self.shop_type.map(Into::into), "shopType")?,
+            shop_type: non_nullable_patch(self.shop_type, "shopType")?,
             domains: non_nullable_patch(self.domains, "domains")?,
             shopify_domain: clearable(self.shopify_domain),
-            shopify_currency: clearable(self.shopify_currency.map(Into::into)),
-            shopify_language: clearable(self.shopify_language.map(Into::into)),
+            shopify_currency: clearable(self.shopify_currency),
+            shopify_language: clearable(self.shopify_language),
             woocommerce_webhook_secret: clearable(self.woocommerce_webhook_secret),
-            woocommerce_currency: clearable(self.woocommerce_currency.map(Into::into)),
-            woocommerce_language: clearable(self.woocommerce_language.map(Into::into)),
+            woocommerce_currency: clearable(self.woocommerce_currency),
+            woocommerce_language: clearable(self.woocommerce_language),
             url: clearable(self.url),
             image: clearable(self.image),
             structured_address: clearable(self.structured_address.map(Into::into)),

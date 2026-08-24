@@ -1,14 +1,7 @@
 use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum SearchFilterStateDocument {
-    #[default]
-    Active,
-    InactiveByUser,
-    InactiveByRestrictedPlan,
-}
+
 use geo::{
     core::distance::{Distance, DistanceUnit, GeoDistanceQuery},
     data::continent_data::ContinentData,
@@ -63,6 +56,189 @@ const PRODUCT_SEARCH_FIELDS: [&str; 24] = [
     "auctionEnd",
 ];
 
+fn serialize_code<T, S>(
+    value: &T,
+    serializer: S,
+    code: fn(T) -> &'static str,
+) -> Result<S::Ok, S::Error>
+where
+    T: Copy,
+    S: serde::Serializer,
+{
+    serializer.serialize_str(code(*value))
+}
+
+fn deserialize_code<'de, T, D>(deserializer: D, parse: fn(&str) -> Option<T>) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    parse(&value).ok_or_else(|| serde::de::Error::custom(format!("unsupported code `{value}`")))
+}
+
+fn serialize_set_code<T, S>(
+    values: &HashSet<T>,
+    serializer: S,
+    code: fn(T) -> &'static str,
+) -> Result<S::Ok, S::Error>
+where
+    T: Copy + Eq + std::hash::Hash,
+    S: serde::Serializer,
+{
+    serializer.collect_seq(values.iter().map(|value| code(*value)))
+}
+
+fn deserialize_set_code<'de, T, D>(
+    deserializer: D,
+    parse: fn(&str) -> Option<T>,
+) -> Result<HashSet<T>, D::Error>
+where
+    T: Eq + std::hash::Hash,
+    D: serde::Deserializer<'de>,
+{
+    Vec::<String>::deserialize(deserializer)?
+        .into_iter()
+        .map(|value| {
+            parse(&value)
+                .ok_or_else(|| serde::de::Error::custom(format!("unsupported code `{value}`")))
+        })
+        .collect()
+}
+
+mod search_filter_state {
+    use super::*;
+
+    pub(crate) fn serialize<S>(value: &SearchFilterState, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_code(value, serializer, SearchFilterState::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<SearchFilterState, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_code(deserializer, SearchFilterState::from_code)
+    }
+}
+
+mod distance_unit {
+    use super::*;
+
+    pub(crate) fn serialize<S>(value: &DistanceUnit, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_code(value, serializer, DistanceUnit::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<DistanceUnit, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_code(deserializer, DistanceUnit::from_code)
+    }
+}
+
+mod language {
+    use super::*;
+
+    pub(crate) fn serialize<S>(value: &Language, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_code(value, serializer, Language::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Language, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_code(deserializer, Language::from_code)
+    }
+}
+
+mod currency {
+    use super::*;
+
+    pub(crate) fn serialize<S>(value: &Currency, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_code(value, serializer, Currency::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Currency, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_code(deserializer, Currency::from_code)
+    }
+}
+
+mod shop_type {
+    use super::*;
+
+    pub(crate) fn serialize<S>(values: &HashSet<ShopType>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_set_code(values, serializer, ShopType::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<HashSet<ShopType>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_set_code(deserializer, ShopType::from_code)
+    }
+}
+
+mod product_state {
+    use super::*;
+
+    pub(crate) fn serialize<S>(
+        values: &HashSet<ProductState>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_set_code(values, serializer, ProductState::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<HashSet<ProductState>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_set_code(deserializer, ProductState::from_code)
+    }
+}
+
+mod product_lifecycle {
+    use super::*;
+
+    pub(crate) fn serialize<S>(
+        values: &HashSet<ProductLifecycle>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_set_code(values, serializer, ProductLifecycle::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<HashSet<ProductLifecycle>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_set_code(deserializer, ProductLifecycle::from_code)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SearchFilterDocument {
@@ -70,7 +246,8 @@ pub(crate) struct SearchFilterDocument {
     pub user_id: UserId,
     pub name: UserSearchFilterName,
     pub notifications: bool,
-    pub state: SearchFilterStateDocument,
+    #[serde(with = "search_filter_state")]
+    pub state: SearchFilterState,
     pub source_version: i64,
     pub search: serde_json::Value,
     pub query: serde_json::Value,
@@ -109,7 +286,7 @@ impl TryFrom<&SearchFilterProjection> for SearchFilterDocument {
             user_id: view.user_id,
             name: view.name.clone(),
             notifications: view.notifications,
-            state: state_to_document(view.state),
+            state: view.state,
             source_version: projection.source_version,
             search: product_search_to_value(&view.search)?,
             query: build_percolator_query(&view.search)?,
@@ -129,7 +306,7 @@ impl TryFrom<SearchFilterDocument> for SearchFilterView {
             user_id: document.user_id,
             name: document.name,
             notifications: document.notifications,
-            state: state_from_document(document.state),
+            state: document.state,
             search: product_search_from_value(document.search)?,
             embedding: document.embedding,
             created: document.created,
@@ -138,37 +315,18 @@ impl TryFrom<SearchFilterDocument> for SearchFilterView {
     }
 }
 
-pub(crate) fn state_to_document(state: SearchFilterState) -> SearchFilterStateDocument {
-    match state {
-        SearchFilterState::Active => SearchFilterStateDocument::Active,
-        SearchFilterState::InactiveByUser => SearchFilterStateDocument::InactiveByUser,
-        SearchFilterState::InactiveByRestrictedPlan => {
-            SearchFilterStateDocument::InactiveByRestrictedPlan
-        }
-    }
-}
-
-fn state_from_document(state: SearchFilterStateDocument) -> SearchFilterState {
-    match state {
-        SearchFilterStateDocument::Active => SearchFilterState::Active,
-        SearchFilterStateDocument::InactiveByUser => SearchFilterState::InactiveByUser,
-        SearchFilterStateDocument::InactiveByRestrictedPlan => {
-            SearchFilterState::InactiveByRestrictedPlan
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 struct DistanceDocument {
     amount: f64,
-    unit: DistanceUnitDocument,
+    #[serde(with = "distance_unit")]
+    unit: DistanceUnit,
 }
 
 impl From<Distance> for DistanceDocument {
     fn from(value: Distance) -> Self {
         Self {
             amount: value.amount,
-            unit: value.unit.into(),
+            unit: value.unit,
         }
     }
 }
@@ -177,7 +335,7 @@ impl From<DistanceDocument> for Distance {
     fn from(value: DistanceDocument) -> Self {
         Self {
             amount: value.amount,
-            unit: value.unit.into(),
+            unit: value.unit,
         }
     }
 }
@@ -209,57 +367,13 @@ impl From<GeoDistanceQueryDocument> for GeoDistanceQuery {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum DistanceUnitDocument {
-    Miles,
-    Yards,
-    Feet,
-    Inches,
-    Kilometers,
-    Meters,
-    Centimeters,
-    Millimeters,
-    NauticalMiles,
-}
-
-impl From<DistanceUnit> for DistanceUnitDocument {
-    fn from(value: DistanceUnit) -> Self {
-        match value {
-            DistanceUnit::Miles => Self::Miles,
-            DistanceUnit::Yards => Self::Yards,
-            DistanceUnit::Feet => Self::Feet,
-            DistanceUnit::Inches => Self::Inches,
-            DistanceUnit::Kilometers => Self::Kilometers,
-            DistanceUnit::Meters => Self::Meters,
-            DistanceUnit::Centimeters => Self::Centimeters,
-            DistanceUnit::Millimeters => Self::Millimeters,
-            DistanceUnit::NauticalMiles => Self::NauticalMiles,
-        }
-    }
-}
-
-impl From<DistanceUnitDocument> for DistanceUnit {
-    fn from(value: DistanceUnitDocument) -> Self {
-        match value {
-            DistanceUnitDocument::Miles => Self::Miles,
-            DistanceUnitDocument::Yards => Self::Yards,
-            DistanceUnitDocument::Feet => Self::Feet,
-            DistanceUnitDocument::Inches => Self::Inches,
-            DistanceUnitDocument::Kilometers => Self::Kilometers,
-            DistanceUnitDocument::Meters => Self::Meters,
-            DistanceUnitDocument::Centimeters => Self::Centimeters,
-            DistanceUnitDocument::Millimeters => Self::Millimeters,
-            DistanceUnitDocument::NauticalMiles => Self::NauticalMiles,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductSearchDocument {
-    language: LanguageDocument,
-    currency: CurrencyDocument,
+    #[serde(with = "language")]
+    language: Language,
+    #[serde(with = "currency")]
+    currency: Currency,
     #[serde(rename = "productQuery")]
     product_query: Vec<TextQuery<1>>,
     #[serde(rename = "enhancedSearchDescription")]
@@ -282,8 +396,8 @@ struct ProductSearchDocument {
     seller_slug_id_query: HashSet<SellerSlugId>,
     #[serde(rename = "excludeSellerSlugId")]
     exclude_seller_slug_id_query: HashSet<SellerSlugId>,
-    #[serde(rename = "shopType")]
-    shop_type_query: HashSet<ShopTypeDocument>,
+    #[serde(rename = "shopType", with = "shop_type")]
+    shop_type_query: HashSet<ShopType>,
     #[serde(rename = "country")]
     country_query: HashSet<CountryCode>,
     #[serde(rename = "continent")]
@@ -292,10 +406,10 @@ struct ProductSearchDocument {
     geo_address_distance_query: Option<GeoDistanceQueryDocument>,
     #[serde(rename = "price")]
     price_query: Option<RangeQuery<u64>>,
-    #[serde(rename = "state")]
-    state_query: HashSet<ProductStateDocument>,
-    #[serde(rename = "lifecycle")]
-    lifecycle_query: HashSet<ProductLifecycleDocument>,
+    #[serde(rename = "state", with = "product_state")]
+    state_query: HashSet<ProductState>,
+    #[serde(rename = "lifecycle", with = "product_lifecycle")]
+    lifecycle_query: HashSet<ProductLifecycle>,
     #[serde(rename = "created")]
     created_query: Option<TimeRangeDocument>,
     #[serde(rename = "updated")]
@@ -304,232 +418,6 @@ struct ProductSearchDocument {
     auction_start_query: Option<TimeRangeDocument>,
     #[serde(rename = "auctionEnd")]
     auction_end_query: Option<TimeRangeDocument>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum LanguageDocument {
-    De,
-    En,
-    Fr,
-    Es,
-    It,
-    Zh,
-    Pt,
-    Pl,
-    Tr,
-    Nl,
-    Cs,
-    Ja,
-    Ru,
-    Ar,
-}
-
-impl From<Language> for LanguageDocument {
-    fn from(value: Language) -> Self {
-        match value {
-            Language::De => Self::De,
-            Language::En => Self::En,
-            Language::Fr => Self::Fr,
-            Language::Es => Self::Es,
-            Language::It => Self::It,
-            Language::Zh => Self::Zh,
-            Language::Pt => Self::Pt,
-            Language::Pl => Self::Pl,
-            Language::Tr => Self::Tr,
-            Language::Nl => Self::Nl,
-            Language::Cs => Self::Cs,
-            Language::Ja => Self::Ja,
-            Language::Ru => Self::Ru,
-            Language::Ar => Self::Ar,
-        }
-    }
-}
-impl From<LanguageDocument> for Language {
-    fn from(value: LanguageDocument) -> Self {
-        match value {
-            LanguageDocument::De => Self::De,
-            LanguageDocument::En => Self::En,
-            LanguageDocument::Fr => Self::Fr,
-            LanguageDocument::Es => Self::Es,
-            LanguageDocument::It => Self::It,
-            LanguageDocument::Zh => Self::Zh,
-            LanguageDocument::Pt => Self::Pt,
-            LanguageDocument::Pl => Self::Pl,
-            LanguageDocument::Tr => Self::Tr,
-            LanguageDocument::Nl => Self::Nl,
-            LanguageDocument::Cs => Self::Cs,
-            LanguageDocument::Ja => Self::Ja,
-            LanguageDocument::Ru => Self::Ru,
-            LanguageDocument::Ar => Self::Ar,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum CurrencyDocument {
-    Eur,
-    Gbp,
-    Usd,
-    Aud,
-    Cad,
-    Nzd,
-    Cny,
-    Brl,
-    Pln,
-    Try,
-    Jpy,
-    Czk,
-    Rub,
-    Aed,
-    Sar,
-    Hkd,
-    Sgd,
-    Chf,
-}
-
-impl From<Currency> for CurrencyDocument {
-    fn from(value: Currency) -> Self {
-        match value {
-            Currency::Eur => Self::Eur,
-            Currency::Gbp => Self::Gbp,
-            Currency::Usd => Self::Usd,
-            Currency::Aud => Self::Aud,
-            Currency::Cad => Self::Cad,
-            Currency::Nzd => Self::Nzd,
-            Currency::Cny => Self::Cny,
-            Currency::Brl => Self::Brl,
-            Currency::Pln => Self::Pln,
-            Currency::Try => Self::Try,
-            Currency::Jpy => Self::Jpy,
-            Currency::Czk => Self::Czk,
-            Currency::Rub => Self::Rub,
-            Currency::Aed => Self::Aed,
-            Currency::Sar => Self::Sar,
-            Currency::Hkd => Self::Hkd,
-            Currency::Sgd => Self::Sgd,
-            Currency::Chf => Self::Chf,
-        }
-    }
-}
-impl From<CurrencyDocument> for Currency {
-    fn from(value: CurrencyDocument) -> Self {
-        match value {
-            CurrencyDocument::Eur => Self::Eur,
-            CurrencyDocument::Gbp => Self::Gbp,
-            CurrencyDocument::Usd => Self::Usd,
-            CurrencyDocument::Aud => Self::Aud,
-            CurrencyDocument::Cad => Self::Cad,
-            CurrencyDocument::Nzd => Self::Nzd,
-            CurrencyDocument::Cny => Self::Cny,
-            CurrencyDocument::Brl => Self::Brl,
-            CurrencyDocument::Pln => Self::Pln,
-            CurrencyDocument::Try => Self::Try,
-            CurrencyDocument::Jpy => Self::Jpy,
-            CurrencyDocument::Czk => Self::Czk,
-            CurrencyDocument::Rub => Self::Rub,
-            CurrencyDocument::Aed => Self::Aed,
-            CurrencyDocument::Sar => Self::Sar,
-            CurrencyDocument::Hkd => Self::Hkd,
-            CurrencyDocument::Sgd => Self::Sgd,
-            CurrencyDocument::Chf => Self::Chf,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductStateDocument {
-    Listed,
-    Available,
-    Reserved,
-    Sold,
-    Removed,
-    Unknown,
-}
-
-impl From<ProductState> for ProductStateDocument {
-    fn from(value: ProductState) -> Self {
-        match value {
-            ProductState::Listed => Self::Listed,
-            ProductState::Available => Self::Available,
-            ProductState::Reserved => Self::Reserved,
-            ProductState::Sold => Self::Sold,
-            ProductState::Removed => Self::Removed,
-            ProductState::Unknown => Self::Unknown,
-        }
-    }
-}
-
-impl From<ProductStateDocument> for ProductState {
-    fn from(value: ProductStateDocument) -> Self {
-        match value {
-            ProductStateDocument::Listed => Self::Listed,
-            ProductStateDocument::Available => Self::Available,
-            ProductStateDocument::Reserved => Self::Reserved,
-            ProductStateDocument::Sold => Self::Sold,
-            ProductStateDocument::Removed => Self::Removed,
-            ProductStateDocument::Unknown => Self::Unknown,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductLifecycleDocument {
-    #[default]
-    Active,
-    Deleted,
-}
-
-impl From<ProductLifecycle> for ProductLifecycleDocument {
-    fn from(value: ProductLifecycle) -> Self {
-        match value {
-            ProductLifecycle::Active => Self::Active,
-            ProductLifecycle::Deleted => Self::Deleted,
-        }
-    }
-}
-
-impl From<ProductLifecycleDocument> for ProductLifecycle {
-    fn from(value: ProductLifecycleDocument) -> Self {
-        match value {
-            ProductLifecycleDocument::Active => Self::Active,
-            ProductLifecycleDocument::Deleted => Self::Deleted,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ShopTypeDocument {
-    AuctionHouse,
-    AuctionPlatform,
-    CommercialDealer,
-    Marketplace,
-}
-
-impl From<ShopType> for ShopTypeDocument {
-    fn from(value: ShopType) -> Self {
-        match value {
-            ShopType::AuctionHouse => Self::AuctionHouse,
-            ShopType::AuctionPlatform => Self::AuctionPlatform,
-            ShopType::CommercialDealer => Self::CommercialDealer,
-            ShopType::Marketplace => Self::Marketplace,
-        }
-    }
-}
-
-impl From<ShopTypeDocument> for ShopType {
-    fn from(value: ShopTypeDocument) -> Self {
-        match value {
-            ShopTypeDocument::AuctionHouse => Self::AuctionHouse,
-            ShopTypeDocument::AuctionPlatform => Self::AuctionPlatform,
-            ShopTypeDocument::CommercialDealer => Self::CommercialDealer,
-            ShopTypeDocument::Marketplace => Self::Marketplace,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -582,8 +470,8 @@ impl TryFrom<&ProductSearch> for ProductSearchDocument {
 
     fn try_from(search: &ProductSearch) -> Result<Self, Self::Error> {
         Ok(Self {
-            language: search.language.into(),
-            currency: search.currency.into(),
+            language: search.language,
+            currency: search.currency,
             product_query: search.product_query.clone(),
             enhanced_search_description: search
                 .enhanced_search_description
@@ -602,12 +490,7 @@ impl TryFrom<&ProductSearch> for ProductSearchDocument {
                 .iter()
                 .cloned()
                 .collect(),
-            shop_type_query: search
-                .shop_type_query
-                .iter()
-                .copied()
-                .map(Into::into)
-                .collect(),
+            shop_type_query: search.shop_type_query.iter().copied().collect(),
             country_query: search.country_query.iter().copied().collect(),
             continent_query: search
                 .continent_query
@@ -617,13 +500,8 @@ impl TryFrom<&ProductSearch> for ProductSearchDocument {
                 .collect(),
             geo_address_distance_query: search.geo_address_distance_query.map(Into::into),
             price_query: search.price_query.map(|range| range.map(u64::from)),
-            state_query: search.state_query.iter().copied().map(Into::into).collect(),
-            lifecycle_query: search
-                .lifecycle_query
-                .iter()
-                .copied()
-                .map(Into::into)
-                .collect(),
+            state_query: search.state_query.iter().copied().collect(),
+            lifecycle_query: search.lifecycle_query.iter().copied().collect(),
             created_query: search.created_query.map(TryInto::try_into).transpose()?,
             updated_query: search.updated_query.map(TryInto::try_into).transpose()?,
             auction_start_query: search
@@ -643,8 +521,8 @@ impl TryFrom<ProductSearchDocument> for ProductSearch {
 
     fn try_from(document: ProductSearchDocument) -> Result<Self, Self::Error> {
         Ok(Self {
-            language: document.language.into(),
-            currency: document.currency.into(),
+            language: document.language,
+            currency: document.currency,
             product_query: document.product_query,
             enhanced_search_description: document
                 .enhanced_search_description
@@ -662,11 +540,7 @@ impl TryFrom<ProductSearchDocument> for ProductSearch {
             exclude_shop_slug_id_query: document.exclude_shop_slug_id_query.into(),
             seller_slug_id_query: document.seller_slug_id_query.into(),
             exclude_seller_slug_id_query: document.exclude_seller_slug_id_query.into(),
-            shop_type_query: document
-                .shop_type_query
-                .into_iter()
-                .map(Into::into)
-                .collect::<AnyOfQuery<_>>(),
+            shop_type_query: document.shop_type_query.into(),
             country_query: document.country_query.into(),
             continent_query: document
                 .continent_query
@@ -677,16 +551,8 @@ impl TryFrom<ProductSearchDocument> for ProductSearch {
             price_query: document
                 .price_query
                 .map(|range| range.map(MonetaryAmount::from)),
-            state_query: document
-                .state_query
-                .into_iter()
-                .map(Into::into)
-                .collect::<AnyOfQuery<_>>(),
-            lifecycle_query: document
-                .lifecycle_query
-                .into_iter()
-                .map(Into::into)
-                .collect::<AnyOfQuery<_>>(),
+            state_query: document.state_query.into(),
+            lifecycle_query: document.lifecycle_query.into(),
             created_query: document.created_query.map(parse_time_range).transpose()?,
             updated_query: document.updated_query.map(parse_time_range).transpose()?,
             auction_start_query: document
@@ -759,25 +625,6 @@ mod tests {
     }
 
     #[test]
-    fn should_encode_legacy_lifecycle_document_in_screaming_snake_case()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let lifecycle = ProductLifecycleDocument::from(
-            product_core::product_lifecycle::ProductLifecycle::Deleted,
-        );
-
-        assert_eq!(
-            serde_json::json!("DELETED"),
-            serde_json::to_value(lifecycle)?
-        );
-        assert_eq!(
-            product_core::product_lifecycle::ProductLifecycle::Deleted,
-            serde_json::from_value::<ProductLifecycleDocument>(serde_json::json!("DELETED"))?
-                .into()
-        );
-        Ok(())
-    }
-
-    #[test]
     fn should_store_authoritative_search_version_and_original_price_range()
     -> Result<(), Box<dyn std::error::Error>> {
         let search = ProductSearch::new(Language::En, Currency::Usd).with_price_query(RangeQuery {
@@ -828,10 +675,40 @@ mod tests {
     #[test]
     fn should_round_trip_search_filter_without_a_price_range()
     -> Result<(), Box<dyn std::error::Error>> {
-        let expected = projection(ProductSearch::new(Language::En, Currency::Usd));
+        let expected = projection(
+            ProductSearch::new(Language::En, Currency::Usd)
+                .with_shop_type_query(
+                    std::collections::HashSet::from([ShopType::CommercialDealer]).into(),
+                )
+                .with_state_query(std::collections::HashSet::from([ProductState::Available]).into())
+                .with_lifecycle_query(
+                    std::collections::HashSet::from([ProductLifecycle::Active]).into(),
+                ),
+        );
         let document = SearchFilterDocument::try_from(&expected)?;
+        let value = serde_json::to_value(&document)?;
 
         assert!(!document.query.to_string().contains("priceByCurrency"));
+        assert_eq!(
+            Some(&serde_json::json!("en")),
+            value.pointer("/search/language")
+        );
+        assert_eq!(
+            Some(&serde_json::json!("USD")),
+            value.pointer("/search/currency")
+        );
+        assert_eq!(
+            Some(&serde_json::json!("COMMERCIAL_DEALER")),
+            value.pointer("/search/shopType/0")
+        );
+        assert_eq!(
+            Some(&serde_json::json!("AVAILABLE")),
+            value.pointer("/search/state/0")
+        );
+        assert_eq!(
+            Some(&serde_json::json!("ACTIVE")),
+            value.pointer("/search/lifecycle/0")
+        );
         assert_eq!(expected.view, SearchFilterView::try_from(document)?);
         Ok(())
     }

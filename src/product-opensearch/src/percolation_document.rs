@@ -1,33 +1,30 @@
-use crate::product_lifecycle_document::ProductLifecycleDocument;
 use crate::{
-    continent_document::ContinentDocument,
     product_document::{
-        CurrencyDocument, LanguageDocument, ProductDocument, SalePricesDocument,
-        SourcePriceDocument, TextDocument,
+        ProductDocument, SalePricesDocument, SourcePriceDocument, TextDocument, continent,
+        product_lifecycle, product_state, shop_type,
     },
     product_image_document::ProductImageDocument,
-    product_state_document::ProductStateDocument,
-    shop_type_document::ShopTypeDocument,
 };
 use domain_primitives::event_id::EventId;
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
+use geo::core::continent::Continent;
 use indexmap::IndexSet;
 use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
 use product_core::{
-    product_id::ProductId, product_slug_id::ProductSlugId, product_state::ProductState,
-    shops_product_id::ShopsProductId,
+    product_id::ProductId, product_lifecycle::ProductLifecycle, product_slug_id::ProductSlugId,
+    product_state::ProductState, shops_product_id::ShopsProductId,
 };
 use product_service::ports::{
-    ProductPercolationInput, ProductPricesByCurrency, ProductSearchFilterMatchShopType,
-    ProductSearchFilterMatchSource,
+    ProductPercolationInput, ProductPricesByCurrency, ProductSearchFilterMatchSource,
 };
 use serde::Serialize;
 use serde_json::Value;
 use shop_core::seller_slug_id::SellerSlugId;
 use shop_core::shop_id::ShopId;
 use shop_core::shop_slug_id::ShopSlugId;
+use shop_core::shop_type::ShopType;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -72,7 +69,8 @@ struct ProductPercolationDocument {
     shops_product_id: ShopsProductId,
     shop_name: String,
     seller_name: String,
-    shop_type: ShopTypeDocument,
+    #[serde(with = "shop_type")]
+    shop_type: ShopType,
     #[serde(skip_serializing_if = "Option::is_none")]
     structured_address_addressline: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -85,8 +83,8 @@ struct ProductPercolationDocument {
     structured_address_postal_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     structured_address_country: Option<CountryCode>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address_continent: Option<ContinentDocument>,
+    #[serde(with = "continent::option", skip_serializing_if = "Option::is_none")]
+    structured_address_continent: Option<Continent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     geo_address: Option<String>,
     title: TextDocument,
@@ -102,8 +100,10 @@ struct ProductPercolationDocument {
     title_it: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     price_by_currency: Option<ProductPercolationPricesDocument>,
-    state: ProductStateDocument,
-    lifecycle: ProductLifecycleDocument,
+    #[serde(with = "product_state")]
+    state: ProductState,
+    #[serde(with = "product_lifecycle")]
+    lifecycle: ProductLifecycle,
     url: Url,
     view_url: Url,
     #[serde(skip_serializing_if = "IndexSet::is_empty")]
@@ -176,7 +176,7 @@ fn percolation_document(input: &ProductPercolationInput) -> ProductPercolationDo
         shops_product_id: product.shops_product_id.clone(),
         shop_name: product.shop_name.to_string(),
         seller_name: product.seller_name.to_string(),
-        shop_type: product.shop_type.into(),
+        shop_type: product.shop_type,
         structured_address_addressline: structured_address
             .and_then(|address| address.addressline.clone()),
         structured_address_addressline_extra: structured_address
@@ -187,15 +187,13 @@ fn percolation_document(input: &ProductPercolationInput) -> ProductPercolationDo
         structured_address_postal_code: structured_address
             .and_then(|address| address.postal_code.clone()),
         structured_address_country: structured_address.and_then(|address| address.country),
-        structured_address_continent: structured_address
-            .and_then(|address| address.continent)
-            .map(ContinentDocument::from),
+        structured_address_continent: structured_address.and_then(|address| address.continent),
         geo_address: product
             .address
             .geo
             .as_ref()
             .map(|geo| format!("{},{}", geo.lat, geo.lon)),
-        title: TextDocument::new(title, LanguageDocument::from(language)),
+        title: TextDocument::new(title, language),
         title_de: translated_title(product, Language::De),
         title_en: translated_title(product, Language::En),
         title_fr: translated_title(product, Language::Fr),
@@ -205,8 +203,8 @@ fn percolation_document(input: &ProductPercolationInput) -> ProductPercolationDo
             .valuation
             .as_ref()
             .map(|valuation| percolation_prices(valuation.prices)),
-        state: ProductStateDocument::from(product.state),
-        lifecycle: ProductLifecycleDocument::from(product.lifecycle),
+        state: product.state,
+        lifecycle: product.lifecycle,
         url: product.url.clone(),
         view_url: product.view_url.clone(),
         images: product
@@ -264,7 +262,7 @@ pub(crate) fn product_document(
         shops_product_id: product.shops_product_id.clone(),
         shop_name: product.shop_name.to_string(),
         seller_name: product.seller_name.to_string(),
-        shop_type: product.shop_type.into(),
+        shop_type: product.shop_type,
         structured_address_addressline: structured_address
             .and_then(|address| address.addressline.clone()),
         structured_address_addressline_extra: structured_address
@@ -275,15 +273,13 @@ pub(crate) fn product_document(
         structured_address_postal_code: structured_address
             .and_then(|address| address.postal_code.clone()),
         structured_address_country: structured_address.and_then(|address| address.country),
-        structured_address_continent: structured_address
-            .and_then(|address| address.continent)
-            .map(ContinentDocument::from),
+        structured_address_continent: structured_address.and_then(|address| address.continent),
         geo_address: product
             .address
             .geo
             .as_ref()
             .map(|geo| format!("{},{}", geo.lat, geo.lon)),
-        title: TextDocument::new(title, LanguageDocument::from(language)),
+        title: TextDocument::new(title, language),
         title_de: translated_title(product, Language::De),
         title_en: translated_title(product, Language::En),
         title_fr: translated_title(product, Language::Fr),
@@ -291,13 +287,13 @@ pub(crate) fn product_document(
         title_it: translated_title(product, Language::It),
         source_price: product.pricing.price.map(|price| SourcePriceDocument {
             amount: price.monetary_amount.into(),
-            currency: CurrencyDocument::from(price.currency),
+            currency: price.currency,
         }),
         sale_prices,
         sale_fx_rate_id,
         sold_at,
-        state: ProductStateDocument::from(product.state),
-        lifecycle: ProductLifecycleDocument::from(product.lifecycle),
+        state: product.state,
+        lifecycle: product.lifecycle,
         url: product.url.clone(),
         view_url: product.view_url.clone(),
         images: product
@@ -383,17 +379,6 @@ fn sale_prices(
     })
 }
 
-impl From<ProductSearchFilterMatchShopType> for ShopTypeDocument {
-    fn from(value: ProductSearchFilterMatchShopType) -> Self {
-        match value {
-            ProductSearchFilterMatchShopType::AuctionHouse => Self::AuctionHouse,
-            ProductSearchFilterMatchShopType::AuctionPlatform => Self::AuctionPlatform,
-            ProductSearchFilterMatchShopType::CommercialDealer => Self::CommercialDealer,
-            ProductSearchFilterMatchShopType::Marketplace => Self::Marketplace,
-        }
-    }
-}
-
 fn selected_title(product: &ProductSearchFilterMatchSource) -> (&str, Language) {
     product
         .product_title
@@ -454,6 +439,7 @@ mod tests {
     use shop_core::shop_id::ShopId;
     use shop_core::shop_name::ShopName;
     use shop_core::shop_slug_id::ShopSlugId;
+    use shop_core::shop_type::ShopType;
     use std::collections::HashMap;
     use strum::IntoEnumIterator;
     use url::Url;
@@ -473,7 +459,7 @@ mod tests {
             shop_id: ShopId::new(),
             shop_slug_id: ShopSlugId::from("shop"),
             shop_name: ShopName::from("Shop"),
-            shop_type: ProductSearchFilterMatchShopType::Marketplace,
+            shop_type: ShopType::Marketplace,
             seller_id: ShopId::new(),
             seller_slug_id: SellerSlugId::from("seller"),
             seller_name: ShopName::from("Seller"),
@@ -552,7 +538,7 @@ mod tests {
         source_currency: Currency,
         source_amount: u64,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        let source_currency = serde_json::to_value(CurrencyDocument::from(source_currency))?;
+        let source_currency = serde_json::json!(source_currency.as_str());
         let active_ranges = price_clause
             .pointer("/bool/should")
             .and_then(Value::as_array)

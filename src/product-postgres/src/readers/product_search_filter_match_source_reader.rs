@@ -29,8 +29,10 @@ use shop_core::seller_slug_id::SellerSlugId;
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;
+use shop_core::shop_type::ShopType;
 use sqlx::PgConnection;
 use std::collections::HashMap;
+
 use time::OffsetDateTime;
 use url::Url;
 
@@ -519,79 +521,27 @@ fn images(value: &serde_json::Value) -> Result<IndexSet<ProductImage>, ()> {
         .map(|image| {
             Ok(ProductImage {
                 url: Url::parse(&image.url).map_err(|_| ())?,
-                prohibited_content: match image.prohibited_content.as_str() {
-                    "UNKNOWN" => ProhibitedContent::Unknown,
-                    "NONE" => ProhibitedContent::None,
-                    "NAZI_GERMANY" => ProhibitedContent::NaziGermany,
-                    _ => return Err(()),
-                },
+                prohibited_content: ProhibitedContent::from_code(&image.prohibited_content)
+                    .ok_or(())?,
             })
         })
         .collect()
 }
 
 fn language(value: &str) -> Result<Language, ()> {
-    match value {
-        "de" => Ok(Language::De),
-        "en" => Ok(Language::En),
-        "fr" => Ok(Language::Fr),
-        "es" => Ok(Language::Es),
-        "it" => Ok(Language::It),
-        "zh" => Ok(Language::Zh),
-        "pt" => Ok(Language::Pt),
-        "pl" => Ok(Language::Pl),
-        "tr" => Ok(Language::Tr),
-        "nl" => Ok(Language::Nl),
-        "cs" => Ok(Language::Cs),
-        "ja" => Ok(Language::Ja),
-        "ru" => Ok(Language::Ru),
-        "ar" => Ok(Language::Ar),
-        _ => Err(()),
-    }
+    Language::from_code(value).ok_or(())
 }
 
 fn currency(value: &str) -> Result<Currency, ()> {
-    match value {
-        "EUR" => Ok(Currency::Eur),
-        "GBP" => Ok(Currency::Gbp),
-        "USD" => Ok(Currency::Usd),
-        "AUD" => Ok(Currency::Aud),
-        "CAD" => Ok(Currency::Cad),
-        "NZD" => Ok(Currency::Nzd),
-        "CNY" => Ok(Currency::Cny),
-        "BRL" => Ok(Currency::Brl),
-        "PLN" => Ok(Currency::Pln),
-        "TRY" => Ok(Currency::Try),
-        "JPY" => Ok(Currency::Jpy),
-        "CZK" => Ok(Currency::Czk),
-        "RUB" => Ok(Currency::Rub),
-        "AED" => Ok(Currency::Aed),
-        "SAR" => Ok(Currency::Sar),
-        "HKD" => Ok(Currency::Hkd),
-        "SGD" => Ok(Currency::Sgd),
-        "CHF" => Ok(Currency::Chf),
-        _ => Err(()),
-    }
+    Currency::from_code(value).ok_or(())
 }
 
 fn product_state(value: &str) -> Result<ProductState, ()> {
-    match value {
-        "LISTED" => Ok(ProductState::Listed),
-        "AVAILABLE" => Ok(ProductState::Available),
-        "RESERVED" => Ok(ProductState::Reserved),
-        "SOLD" => Ok(ProductState::Sold),
-        "REMOVED" => Ok(ProductState::Removed),
-        "UNKNOWN" => Ok(ProductState::Unknown),
-        _ => Err(()),
-    }
+    ProductState::from_code(value).ok_or(())
 }
 
 fn lifecycle(value: &str) -> Result<ProductLifecycle, ()> {
-    match value {
-        "ACTIVE" => Ok(ProductLifecycle::Active),
-        "DELETED" => Ok(ProductLifecycle::Deleted),
-        _ => Err(()),
-    }
+    ProductLifecycle::from_code(value).ok_or(())
 }
 
 fn event_kind(value: &str) -> ProductSearchFilterMatchSourceEventKind {
@@ -603,13 +553,7 @@ fn event_kind(value: &str) -> ProductSearchFilterMatchSourceEventKind {
 }
 
 fn shop_type(value: &str) -> Result<ProductSearchFilterMatchShopType, ()> {
-    match value {
-        "AUCTION_HOUSE" => Ok(ProductSearchFilterMatchShopType::AuctionHouse),
-        "AUCTION_PLATFORM" => Ok(ProductSearchFilterMatchShopType::AuctionPlatform),
-        "COMMERCIAL_DEALER" => Ok(ProductSearchFilterMatchShopType::CommercialDealer),
-        "MARKETPLACE" => Ok(ProductSearchFilterMatchShopType::Marketplace),
-        _ => Err(()),
-    }
+    ShopType::from_code(value).ok_or(())
 }
 
 #[cfg(test)]

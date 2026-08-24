@@ -81,6 +81,15 @@ CREATE TABLE shops (
 
 CREATE INDEX shops_shop_domains_gin_idx ON shops USING gin (shop_domains);
 CREATE INDEX shops_partner_status_updated_idx ON shops (partner_status, updated DESC);
+CREATE INDEX shops_published_name_shop_id_idx
+    ON shops (name ASC, shop_id ASC)
+    WHERE lifecycle = 'PUBLISHED';
+CREATE INDEX shops_published_updated_shop_id_idx
+    ON shops (updated DESC, shop_id ASC)
+    WHERE lifecycle = 'PUBLISHED';
+CREATE INDEX shops_published_created_shop_id_idx
+    ON shops (created DESC, shop_id ASC)
+    WHERE lifecycle = 'PUBLISHED';
 
 CREATE TABLE user_partner_shops (
     user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
@@ -241,7 +250,8 @@ ALTER TABLE product_translations
     REFERENCES product_events(product_id, event_id)
     DEFERRABLE INITIALLY DEFERRED;
 
-CREATE INDEX product_events_product_time_idx ON product_events (product_id, event_time ASC);
+CREATE INDEX product_events_product_time_event_idx
+    ON product_events (product_id, event_time ASC, event_id ASC);
 CREATE INDEX product_translations_source_event_idx
     ON product_translations (product_id, source_event_id);
 CREATE INDEX product_events_type_time_idx ON product_events (event_type, event_time ASC);
@@ -266,9 +276,10 @@ CREATE TABLE product_watchlist (
         CHECK (version >= 1)
 );
 
-CREATE INDEX product_watchlist_user_created_idx ON product_watchlist (user_id, created DESC);
-CREATE INDEX product_watchlist_user_created_product_idx ON product_watchlist (user_id, created DESC, product_id ASC);
-CREATE INDEX product_watchlist_product_id_idx ON product_watchlist (product_id);
+CREATE INDEX product_watchlist_user_created_product_idx
+    ON product_watchlist (user_id, created DESC, product_id ASC);
+CREATE INDEX product_watchlist_product_user_idx
+    ON product_watchlist (product_id, user_id ASC);
 CREATE INDEX product_watchlist_product_active_since_idx
     ON product_watchlist (product_id, active_since, user_id)
     WHERE state = 'ACTIVE';
@@ -346,7 +357,10 @@ CREATE TABLE search_filter_matches (
 
 CREATE INDEX search_filter_matches_user_created_idx ON search_filter_matches (user_id, created DESC);
 CREATE INDEX search_filter_matches_user_filter_created_idx ON search_filter_matches (user_id, user_search_filter_id, created DESC);
-CREATE INDEX search_filter_matches_filter_created_product_idx ON search_filter_matches (user_search_filter_id, created ASC, product_id ASC);
+CREATE INDEX search_filter_matches_filter_created_product_idx
+    ON search_filter_matches (user_search_filter_id, created ASC, product_id ASC);
+CREATE INDEX search_filter_matches_filter_created_desc_product_idx
+    ON search_filter_matches (user_search_filter_id, created DESC, product_id ASC);
 CREATE INDEX search_filter_matches_user_product_created_idx ON search_filter_matches (user_id, product_id, created ASC, user_search_filter_id ASC);
 CREATE INDEX search_filter_matches_user_created_rank_idx ON search_filter_matches (user_id, created ASC, user_search_filter_id ASC, product_id ASC);
 CREATE INDEX search_filter_matches_product_id_idx ON search_filter_matches (product_id);

@@ -1,6 +1,6 @@
-use crate::mapping::bind_role;
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
+
 use user_core::role::UserRole;
 use user_core::user_id::UserId;
 use user_service::ports::{
@@ -58,15 +58,10 @@ impl TryFrom<UserAdminActorRow> for UserAdminActorView {
     type Error = UserAdminReadError;
 
     fn try_from(row: UserAdminActorRow) -> Result<Self, Self::Error> {
-        let role = match row.role.as_str() {
-            value if value == bind_role(UserRole::User) => UserRole::User,
-            value if value == bind_role(UserRole::Admin) => UserRole::Admin,
-            _ => {
-                return Err(UserAdminReadError::InvalidReadModel {
-                    source: box_error(InvalidAdminRole),
-                });
-            }
-        };
+        let role =
+            UserRole::from_code(&row.role).ok_or_else(|| UserAdminReadError::InvalidReadModel {
+                source: box_error(InvalidAdminRole),
+            })?;
 
         Ok(Self {
             user_id: UserId::from(row.user_id),
