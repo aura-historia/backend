@@ -2,7 +2,7 @@
 
 ## Notifications
 
-PostgreSQL is the sole production owner of notifications and external-delivery intent. DynamoDB stores no notification rows, and notification storage has no TTL.
+PostgreSQL is the sole production owner of notifications and external-delivery intent. Notification storage has no TTL.
 
 - `notifications` stores one immutable typed content snapshot per semantic reason. `origin_event_id` is provenance only and is absent for partner-application notifications.
 - Watchlist idempotency is `(user_id, origin_event_id, kind)`. Search-filter idempotency is `(user_id, user_search_filter_id, product_id, origin_event_id)`. Partner-application idempotency is `(user_id, partner_shop_application_id)`.
@@ -19,6 +19,19 @@ PostgreSQL is the sole production owner of notifications and external-delivery i
 - `product_watchlist.active_since` is non-null only for `ACTIVE` rows and marks the beginning of the current active interval.
 - `product_watchlist.notifications_enabled_since` is non-null exactly when `notifications = true` and marks the beginning of the current email-enabled interval.
 - Watchlist notification readers compare both interval starts with immutable `product_events.event_time`; deactivation/reactivation and email disable/re-enable start new intervals. These fields are repository-owned persistence metadata, not REST payload fields.
+
+## Credentials
+
+PostgreSQL is authoritative for User access tokens and canonical OAuth credentials:
+
+- `access_tokens` stores only token short/hash material, never a raw User access token. It has an internal optimistic-concurrency version; `user_id` cascades on User deletion. OAuth origin keeps its client ID as historical data without a foreign key, so deleting a client does not silently revoke issued tokens.
+- `oauth_clients` stores only client-secret short/hash material, never a raw client secret. Client metadata updates use optimistic concurrency.
+- `oauth_authorization_codes` and `oauth_third_party_exchange_codes` are one-time rows consumed atomically with `DELETE ... RETURNING`.
+- A successful authorization-code exchange consumes the authorization code, creates the User access token, and creates the third-party exchange code in one PostgreSQL transaction. Semantic misuse of a found code commits its deletion; a later persistence failure rolls the valid exchange back.
+- Expiry remains service correctness. `pg_ttl_index` performs asynchronous physical cleanup from absolute `expires_at` values with offset `0` for access tokens, authorization codes, and third-party exchange codes. Non-expiring access tokens have `expires_at IS NULL`.
+- Credential tables are operational only. They must not enter Sequin/CDC publications, projections, analytics, or credential-bearing logs. The raw token in a third-party exchange-code row is short-lived escrow needed by that exchange only.
+
+The initial business schema requires a provisioned and preloaded `pg_ttl_index` extension before it runs.
 
 ## Indexed read paths
 

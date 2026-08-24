@@ -1,28 +1,23 @@
 import * as cdk from "aws-cdk-lib";
-import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
-import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as pipes from "aws-cdk-lib/aws-pipes";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 import type { LambdaFunctions } from "./lambdas";
-import type { QueueCatalog, QueueKey } from "./queues";
+import type { QueueCatalog } from "./queues";
 
 export interface EventingProps {
   readonly config: StageConfig;
-  readonly table: dynamodb.Table;
   readonly queues: QueueCatalog;
   readonly functions: LambdaFunctions;
 }
 
 export class Eventing extends Construct {
-  readonly dynamoDbEventBus: events.EventBus;
   readonly stripeEventBus: events.IEventBus;
   readonly shopifyEventBus: events.IEventBus;
 
@@ -30,10 +25,6 @@ export class Eventing extends Construct {
     super(scope, id);
 
     const stageName = props.config.stage;
-
-    this.dynamoDbEventBus = new events.EventBus(this, "DynamoDbEventBus", {
-      eventBusName: `dynamodb-event-bus-${stageName}`,
-    });
 
     this.stripeEventBus = props.config.isEphemeral
       ? new events.EventBus(this, "StripeEventBus", {
@@ -47,8 +38,6 @@ export class Eventing extends Construct {
         })
       : events.EventBus.fromEventBusName(this, "ShopifyEventBus", props.config.shopifyEventBusName);
 
-    createDynamoDbStreamPipe(this, props.table, this.dynamoDbEventBus, stageName);
-    createDynamoDbRules(this, props.table, this.dynamoDbEventBus, props.queues);
     createPartnerEventRules(this, this.stripeEventBus, this.shopifyEventBus, props.functions, props.queues);
     createCloudWatchLogRetentionRule(this, props.functions);
     createSqsEventSources(props.functions, props.queues);
@@ -93,79 +82,6 @@ function createInitialFxRateSnapshot(
 
 function resourceCode(fileName: string): string {
   return fs.readFileSync(path.join(__dirname, "..", "resources", fileName), "utf8");
-}
-
-function createDynamoDbStreamPipe(
-  scope: Construct,
-  table: dynamodb.Table,
-  eventBus: events.EventBus,
-  stageName: string,
-): void {
-  const pipeRole = new iam.Role(scope, "TableOneStreamToEventBusPipeRole", {
-    assumedBy: new iam.ServicePrincipal("pipes.amazonaws.com"),
-  });
-  table.grantStreamRead(pipeRole);
-  eventBus.grantPutEventsTo(pipeRole);
-
-  new pipes.CfnPipe(scope, "TableOneStreamToEventBusPipe", {
-    name: `tableone-stream-to-eventbus-${stageName}`,
-    roleArn: pipeRole.roleArn,
-    source: table.tableStreamArn!,
-    sourceParameters: {
-      dynamoDbStreamParameters: {
-        batchSize: 10,
-        maximumBatchingWindowInSeconds: 1,
-        startingPosition: "LATEST",
-      },
-      filterCriteria: {
-        filters: DYNAMODB_STREAM_FILTER_PATTERNS.map((pattern) => ({ pattern })),
-      },
-    },
-    target: eventBus.eventBusArn,
-    targetParameters: {
-      eventBridgeEventBusParameters: {
-        detailType: "DynamoDBStreamRecord",
-        source: table.tableName,
-      },
-    },
-  });
-}
-
-function createDynamoDbRules(
-  scope: Construct,
-  table: dynamodb.Table,
-  eventBus: events.EventBus,
-  queues: QueueCatalog,
-): void {
-
-
-}
-
-function addDynamoDbRule(
-  scope: Construct,
-  eventBus: events.EventBus,
-  id: string,
-  table: dynamodb.Table,
-  props: {
-    readonly detail: Record<string, unknown>;
-    readonly targets: readonly QueueKey[];
-    readonly queues: QueueCatalog;
-  },
-): void {
-  const rule = new events.Rule(scope, id, {
-    eventBus,
-    eventPattern: {
-      source: [table.tableName],
-      detailType: ["DynamoDBStreamRecord"],
-      detail: props.detail,
-    } as events.EventPattern,
-  });
-
-  for (const targetQueue of props.targets) {
-    const queue = props.queues[targetQueue].queue;
-    rule.addTarget(new targets.SqsQueue(queue));
-    allowEventRuleToSendToQueue(scope, `${id}${targetQueue}QueuePolicy`, rule, queue);
-  }
 }
 
 function createPartnerEventRules(
@@ -242,9 +158,6 @@ function createCloudWatchLogRetentionRule(scope: Construct, functions: LambdaFun
 }
 
 function createSqsEventSources(functions: LambdaFunctions, queues: QueueCatalog): void {
-
-
-
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
 }
 
@@ -263,53 +176,3 @@ function addSqsEventSource(
     }),
   );
 }
-
-const DYNAMODB_STREAM_FILTER_PATTERNS = [
-  JSON.stringify({
-    eventName: ["INSERT"],
-    dynamodb: {
-      NewImage: {
-        pk: { S: [{ prefix: "product#shop_id#" }] },
-        sk: { S: [{ prefix: "product#event#" }] },
-      },
-    },
-  }),
-  JSON.stringify({
-    eventName: ["MODIFY"],
-    dynamodb: {
-      NewImage: {
-        pk: { S: [{ prefix: "user#" }] },
-        sk: { S: ["user#details"] },
-      },
-    },
-  }),
-  JSON.stringify({
-    eventName: ["INSERT", "MODIFY"],
-    dynamodb: {
-      NewImage: {
-        pk: { S: [{ prefix: "shop#shop_id#" }] },
-        sk: { S: ["shop#details"] },
-      },
-    },
-  }),
-
-  JSON.stringify({
-    eventName: ["INSERT", "MODIFY", "REMOVE"],
-    dynamodb: {
-      $or: [
-        {
-          NewImage: {
-            pk: { S: [{ prefix: "user#" }] },
-            sk: { S: [{ prefix: "search_filter#" }] },
-          },
-        },
-        {
-          Keys: {
-            pk: { S: [{ prefix: "user#" }] },
-            sk: { S: [{ prefix: "search_filter#" }] },
-          },
-        },
-      ],
-    },
-  }),
-];

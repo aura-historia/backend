@@ -26,14 +26,21 @@ pub enum OAuthCodeRepositoryError {
 }
 
 #[async_trait::async_trait]
-pub trait ThirdPartyExchangeCodeRepository: Send + Sync {
+pub trait ThirdPartyExchangeCodeRepository: Send {
     async fn insert(
-        &self,
+        &mut self,
         grant: ThirdPartyExchangeCodeGrant,
     ) -> Result<(), OAuthCodeRepositoryError>;
-    async fn find_by_code(
-        &self,
+
+    async fn consume_by_code(
+        &mut self,
         code: &ThirdPartyExchangeCode,
     ) -> Result<Option<ThirdPartyExchangeCodeGrant>, OAuthCodeRepositoryError>;
-    async fn delete(&self, code: &ThirdPartyExchangeCode) -> Result<(), OAuthCodeRepositoryError>;
+}
+
+pub trait ThirdPartyExchangeCodeRepositoryFactory<Tx>: Send + Sync {
+    fn in_transaction<'tx>(
+        &'tx self,
+        tx: &'tx mut Tx,
+    ) -> impl ThirdPartyExchangeCodeRepository + 'tx;
 }

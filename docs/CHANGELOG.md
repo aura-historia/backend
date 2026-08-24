@@ -20,10 +20,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
 
+### Changed
+
+- OAuth client administration now authorizes in the service layer: delegated reads require `access-tokens:read`; writes and authorization requests require `access-tokens:write`, and requested OAuth scopes cannot exceed delegated caller capabilities. OAuth client `client_id_issued_at` now uses persisted creation metadata consistently across create, update, get, and list responses.
+- OAuth redirect URI invariants are validated during domain construction and persisted-state rehydration; only non-empty HTTPS URIs without fragments are accepted.
+
 ### Removed
 
 - **Breaking:** The prior notification REST shape is replaced in `aura-historia-api`. Item paths now use canonical `{notificationId}` rather than `{eventId}`; list responses omit origin-event, actor, external-delivery, and total fields. The former root `PATCH /api/v1/me/notifications` all-notifications behavior is removed.
 
+- Removed the obsolete key-value table, stream bridge, runtime grants, and LocalStack test support. PostgreSQL and OpenSearch are now the only application data stores in the canonical stack.
 - Public Product search no longer accepts `sort=price`. `GET /api/v1/products` rejects it with `400 BAD_SORT_VALUE`; use `score`, `updated`, or `created`.
 - Product detail responses no longer emit `ETag` or `Last-Modified`. Anonymous detail display values can change when their current persisted FX snapshot changes, so they use cache freshness directives without entity validators.
 

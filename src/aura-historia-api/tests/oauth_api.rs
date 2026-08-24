@@ -2,24 +2,30 @@ mod api_support;
 
 use api_support::{json_response, seed_access_token_for, seed_user};
 use test_api::{
-    AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
+    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
 };
 use user_core::access_token::Scope;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const DYNAMODB: DynamoDB = DynamoDB();
+const OPENSEARCH: OpenSearch = OpenSearch();
+
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
 struct OAuthClientCredentials {
     client_id: String,
     client_secret: String,
+    client_id_issued_at: i64,
 }
 
 async fn authenticated_client() -> (reqwest::Client, String) {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::AccessTokensWrite]),
+        std::collections::HashSet::from([
+            Scope::AccessTokensRead,
+            Scope::AccessTokensWrite,
+            Scope::ProductsWrite,
+        ]),
     )
     .await;
     let client = reqwest::Client::builder()
@@ -56,6 +62,9 @@ async fn create_oauth_client(client: &reqwest::Client, token: &str) -> OAuthClie
             .as_str()
             .unwrap_or_else(|| panic!("missing client_secret"))
             .to_owned(),
+        client_id_issued_at: body["client_id_issued_at"]
+            .as_i64()
+            .unwrap_or_else(|| panic!("missing client_id_issued_at")),
     }
 }
 
@@ -104,11 +113,11 @@ async fn authorize_code(
         .unwrap_or_else(|| panic!("missing authorization code"))
 }
 
-async fn exchange_code(
+async fn exchange_code_response(
     client: &reqwest::Client,
     credentials: &OAuthClientCredentials,
     code: &str,
-) -> serde_json::Value {
+) -> (reqwest::StatusCode, serde_json::Value) {
     let response = client
         .post(format!("{}/api/v1/oauth/token", AURA_API.base_url()))
         .form(&[
@@ -125,12 +134,36 @@ async fn exchange_code(
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to exchange OAuth token: {error}"));
-    let (status, body) = json_response(response).await;
+    json_response(response).await
+}
+
+async fn exchange_code(
+    client: &reqwest::Client,
+    credentials: &OAuthClientCredentials,
+    code: &str,
+) -> serde_json::Value {
+    let (status, body) = exchange_code_response(client, credentials, code).await;
     assert_eq!(reqwest::StatusCode::OK, status);
     body
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn exchange_third_party_code_response(
+    client: &reqwest::Client,
+    code: &str,
+) -> (reqwest::StatusCode, serde_json::Value) {
+    let response = client
+        .get(format!(
+            "{}/api/v1/oauth/tokens/by-third-party-code/{}",
+            AURA_API.base_url(),
+            code
+        ))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to exchange third-party code: {error}"));
+    json_response(response).await
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_list_get_update_and_delete_oauth_client() {
     let (client, token) = authenticated_client().await;
     let credentials = create_oauth_client(&client, &token).await;
@@ -144,6 +177,10 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
     let (status, body) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(Some(1), body.as_array().map(Vec::len));
+    assert_eq!(
+        Some(credentials.client_id_issued_at),
+        body[0]["client_id_issued_at"].as_i64()
+    );
 
     let response = client
         .get(format!(
@@ -155,7 +192,12 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to get OAuth client: {error}"));
-    assert_eq!(reqwest::StatusCode::OK, response.status());
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(
+        Some(credentials.client_id_issued_at),
+        body["client_id_issued_at"].as_i64()
+    );
 
     let response = client
         .patch(format!(
@@ -174,6 +216,10 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
         serde_json::json!("Updated OAuth Client"),
         body["client_name"]
     );
+    assert_eq!(
+        Some(credentials.client_id_issued_at),
+        body["client_id_issued_at"].as_i64()
+    );
 
     let response = client
         .delete(format!(
@@ -188,7 +234,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_redirect_authorized_user_with_authorization_code_and_state() {
     let (client, token) = authenticated_client().await;
     let credentials = create_oauth_client(&client, &token).await;
@@ -196,7 +242,7 @@ async fn should_redirect_authorized_user_with_authorization_code_and_state() {
     assert!(!code.is_empty());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_exchange_authorization_code_for_access_token() {
     let (client, token) = authenticated_client().await;
     let credentials = create_oauth_client(&client, &token).await;
@@ -210,7 +256,7 @@ async fn should_exchange_authorization_code_for_access_token() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_exchange_third_party_code_once_for_the_issued_access_token() {
     let (client, token) = authenticated_client().await;
     let credentials = create_oauth_client(&client, &token).await;
@@ -246,7 +292,64 @@ async fn should_exchange_third_party_code_once_for_the_issued_access_token() {
     assert_eq!(reqwest::StatusCode::BAD_REQUEST, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_sequential_authorization_code_replay() {
+    let (client, token) = authenticated_client().await;
+    let credentials = create_oauth_client(&client, &token).await;
+    let code = authorize_code(&client, &token, &credentials).await;
+
+    let first = exchange_code_response(&client, &credentials, &code).await;
+    assert_eq!(reqwest::StatusCode::OK, first.0);
+    let second = exchange_code_response(&client, &credentials, &code).await;
+    assert_eq!(reqwest::StatusCode::BAD_REQUEST, second.0);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_allow_only_one_concurrent_authorization_code_redemption() {
+    let (client, token) = authenticated_client().await;
+    let credentials = create_oauth_client(&client, &token).await;
+    let code = authorize_code(&client, &token, &credentials).await;
+
+    let (first, second) = tokio::join!(
+        exchange_code_response(&client, &credentials, &code),
+        exchange_code_response(&client, &credentials, &code),
+    );
+    let responses = [first, second];
+    assert_eq!(
+        1,
+        responses
+            .iter()
+            .filter(|(status, _)| *status == reqwest::StatusCode::OK)
+            .count()
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_allow_only_one_concurrent_third_party_exchange() {
+    let (client, token) = authenticated_client().await;
+    let credentials = create_oauth_client(&client, &token).await;
+    let code = authorize_code(&client, &token, &credentials).await;
+    let token_body = exchange_code(&client, &credentials, &code).await;
+    let third_party_code = token_body["third_party_exchange_code"]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing third-party exchange code"))
+        .to_owned();
+
+    let (first, second) = tokio::join!(
+        exchange_third_party_code_response(&client, &third_party_code),
+        exchange_third_party_code_response(&client, &third_party_code),
+    );
+    let responses = [first, second];
+    assert_eq!(
+        1,
+        responses
+            .iter()
+            .filter(|(status, _)| *status == reqwest::StatusCode::OK)
+            .count()
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_introspect_and_revoke_oauth_access_token() {
     let (client, token) = authenticated_client().await;
     let credentials = create_oauth_client(&client, &token).await;

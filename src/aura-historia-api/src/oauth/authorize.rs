@@ -19,8 +19,7 @@ pub async fn authorize(
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> Response {
-    let (_context, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await
-    {
+    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return *response,
     };
@@ -28,7 +27,7 @@ pub async fn authorize(
         Ok(value) => value,
         Err(response) => return response,
     };
-    match state.authorize.execute(&user_id, request).await {
+    match state.authorize.execute(&context, request).await {
         Ok(result) => match result.redirect_to.parse() {
             Ok(location) => (
                 StatusCode::FOUND,

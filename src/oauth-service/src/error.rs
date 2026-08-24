@@ -1,7 +1,8 @@
-use crate::ports::{
-    OAuthAccessTokenGatewayError, OAuthClientRepositoryError, OAuthCodeRepositoryError,
-};
+use crate::ports::{OAuthClientReadError, OAuthClientRepositoryError, OAuthCodeRepositoryError};
+use application::error::{BoxError, box_error};
 use application::operation_context::{AuthenticationRequired, OperationAuthorizationError};
+use application::transaction::TransactionError;
+use user_service::ports::{AccessTokenAuthenticationReadError, AccessTokenRepositoryError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum OAuthServiceError {
@@ -11,6 +12,8 @@ pub enum OAuthServiceError {
     Forbidden,
     #[error("OAuth client not found")]
     ClientNotFound,
+    #[error("concurrent OAuth client update")]
+    ConcurrencyConflict,
     #[error("Invalid OAuth client secret")]
     InvalidClientSecret,
     #[error("Redirect URI is not registered for client")]
@@ -34,11 +37,20 @@ pub enum OAuthServiceError {
     #[error("OAuth client metadata is invalid: {0}")]
     InvalidClientMetadata(String),
     #[error("temporary OAuth failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("invalid persisted OAuth state")]
-    InvalidPersistedState,
+    InvalidPersistedState {
+        #[source]
+        source: BoxError,
+    },
     #[error("internal OAuth failure")]
-    Internal,
+    Internal {
+        #[source]
+        source: BoxError,
+    },
 }
 
 impl From<AuthenticationRequired> for OAuthServiceError {
@@ -59,15 +71,32 @@ impl From<OperationAuthorizationError> for OAuthServiceError {
     }
 }
 
+impl From<OAuthClientReadError> for OAuthServiceError {
+    fn from(error: OAuthClientReadError) -> Self {
+        match error {
+            OAuthClientReadError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            OAuthClientReadError::InvalidPersistedState { source } => {
+                Self::InvalidPersistedState { source }
+            }
+            OAuthClientReadError::Internal { source } => Self::Internal { source },
+        }
+    }
+}
+
 impl From<OAuthClientRepositoryError> for OAuthServiceError {
     fn from(error: OAuthClientRepositoryError) -> Self {
         match error {
-            OAuthClientRepositoryError::Conflict { .. }
-            | OAuthClientRepositoryError::Internal { .. } => Self::Internal,
-            OAuthClientRepositoryError::TemporarilyUnavailable { .. } => {
-                Self::TemporarilyUnavailable
+            OAuthClientRepositoryError::ConcurrencyConflict => Self::ConcurrencyConflict,
+            OAuthClientRepositoryError::Conflict { source }
+            | OAuthClientRepositoryError::Internal { source } => Self::Internal { source },
+            OAuthClientRepositoryError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
             }
-            OAuthClientRepositoryError::InvalidPersistedState { .. } => Self::InvalidPersistedState,
+            OAuthClientRepositoryError::InvalidPersistedState { source } => {
+                Self::InvalidPersistedState { source }
+            }
         }
     }
 }
@@ -75,27 +104,93 @@ impl From<OAuthClientRepositoryError> for OAuthServiceError {
 impl From<OAuthCodeRepositoryError> for OAuthServiceError {
     fn from(error: OAuthCodeRepositoryError) -> Self {
         match error {
-            OAuthCodeRepositoryError::Conflict { .. }
-            | OAuthCodeRepositoryError::Internal { .. } => Self::Internal,
-            OAuthCodeRepositoryError::TemporarilyUnavailable { .. } => Self::TemporarilyUnavailable,
-            OAuthCodeRepositoryError::InvalidPersistedState { .. } => Self::InvalidPersistedState,
+            OAuthCodeRepositoryError::Conflict { source }
+            | OAuthCodeRepositoryError::Internal { source } => Self::Internal { source },
+            OAuthCodeRepositoryError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            OAuthCodeRepositoryError::InvalidPersistedState { source } => {
+                Self::InvalidPersistedState { source }
+            }
         }
     }
 }
 
-impl From<OAuthAccessTokenGatewayError> for OAuthServiceError {
-    fn from(error: OAuthAccessTokenGatewayError) -> Self {
+impl From<AccessTokenAuthenticationReadError> for OAuthServiceError {
+    fn from(error: AccessTokenAuthenticationReadError) -> Self {
         match error {
-            OAuthAccessTokenGatewayError::NotFound => Self::AuthorizationCodeNotFound,
-            OAuthAccessTokenGatewayError::Expired => Self::AuthorizationCodeExpired,
-            OAuthAccessTokenGatewayError::Forbidden => Self::Forbidden,
-            OAuthAccessTokenGatewayError::TemporarilyUnavailable { .. } => {
-                Self::TemporarilyUnavailable
+            AccessTokenAuthenticationReadError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
             }
-            OAuthAccessTokenGatewayError::InvalidPersistedState { .. } => {
-                Self::InvalidPersistedState
+            AccessTokenAuthenticationReadError::InvalidReadModel { source } => {
+                Self::InvalidPersistedState { source }
             }
-            OAuthAccessTokenGatewayError::Internal { .. } => Self::Internal,
+            AccessTokenAuthenticationReadError::Internal { source } => Self::Internal { source },
         }
+    }
+}
+
+impl From<AccessTokenRepositoryError> for OAuthServiceError {
+    fn from(error: AccessTokenRepositoryError) -> Self {
+        match error {
+            error @ AccessTokenRepositoryError::ConcurrencyConflict => Self::Internal {
+                source: box_error(error),
+            },
+            AccessTokenRepositoryError::Conflict { source }
+            | AccessTokenRepositoryError::Internal { source } => Self::Internal { source },
+            AccessTokenRepositoryError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            AccessTokenRepositoryError::InvalidPersistedState { source } => {
+                Self::InvalidPersistedState { source }
+            }
+        }
+    }
+}
+
+impl From<TransactionError> for OAuthServiceError {
+    fn from(error: TransactionError) -> Self {
+        Self::TemporarilyUnavailable {
+            source: box_error(error),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use application::error::box_error;
+    use std::error::Error;
+
+    fn assert_source(error: OAuthServiceError) {
+        let source = error.source();
+        assert!(source.is_some(), "service error must retain its source");
+    }
+
+    #[test]
+    fn should_preserve_adapter_sources_through_oauth_service_errors() {
+        assert_source(OAuthServiceError::from(OAuthClientReadError::Internal {
+            source: box_error(std::io::Error::other("client read")),
+        }));
+        assert_source(OAuthServiceError::from(
+            OAuthClientRepositoryError::Internal {
+                source: box_error(std::io::Error::other("client repository")),
+            },
+        ));
+        assert_source(OAuthServiceError::from(
+            OAuthCodeRepositoryError::Internal {
+                source: box_error(std::io::Error::other("code repository")),
+            },
+        ));
+        assert_source(OAuthServiceError::from(
+            AccessTokenAuthenticationReadError::Internal {
+                source: box_error(std::io::Error::other("authentication read")),
+            },
+        ));
+        assert_source(OAuthServiceError::from(
+            AccessTokenRepositoryError::Internal {
+                source: box_error(std::io::Error::other("access token repository")),
+            },
+        ));
     }
 }

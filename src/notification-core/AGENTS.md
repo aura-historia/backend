@@ -15,7 +15,7 @@
 - Watchlist/search-filter product titles are optional.
 - View types may carry created/updated timestamps.
 - `presentation` owns the notification image presentation result and the centralized prohibited-content consent policy. It preserves the snapshot classification while optionally omitting the image URL.
-- No DynamoDB, transport, or runtime glue.
+- No transport or runtime glue.
 
 ## Ownership
 

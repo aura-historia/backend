@@ -1,9 +1,11 @@
 use crate::error::OAuthServiceError;
-use crate::ports::{OAuthAccessTokenGateway, OAuthAccessTokenGatewayError, OAuthClientRepository};
+use crate::ports::OAuthClientRepositoryFactory;
 use crate::use_cases::support::authenticate_client;
 use application::operation_context::OperationContext;
+use application::transaction::{Transaction, UnitOfWork};
 use credential_core::oauth_client_id::OAuthClientId;
-use user_core::access_token::{RawAccessToken, RawOAuthClientSecret};
+use user_core::access_token::{HashedRawAccessToken, RawAccessToken, RawOAuthClientSecret};
+use user_service::ports::{AccessTokenRepository, AccessTokenRepositoryFactory};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RevokeTokenRequest {
@@ -21,34 +23,52 @@ pub trait RevokeTokenUseCase: Send + Sync {
     ) -> Result<(), OAuthServiceError>;
 }
 
-pub struct RevokeTokenHandler<C, G> {
+pub struct RevokeTokenHandler<U, C, R> {
+    unit_of_work: U,
     clients: C,
-    access_tokens: G,
+    access_tokens: R,
 }
-impl<C, G> RevokeTokenHandler<C, G> {
-    pub fn new(clients: C, access_tokens: G) -> Self {
+impl<U, C, R> RevokeTokenHandler<U, C, R> {
+    pub fn new(unit_of_work: U, clients: C, access_tokens: R) -> Self {
         Self {
+            unit_of_work,
             clients,
             access_tokens,
         }
     }
 }
 #[async_trait::async_trait]
-impl<C, G> RevokeTokenUseCase for RevokeTokenHandler<C, G>
+impl<U, C, R> RevokeTokenUseCase for RevokeTokenHandler<U, C, R>
 where
-    C: OAuthClientRepository,
-    G: OAuthAccessTokenGateway,
+    U: UnitOfWork,
+    C: OAuthClientRepositoryFactory<U::Tx>,
+    R: AccessTokenRepositoryFactory<U::Tx>,
 {
     async fn execute(
         &self,
         _context: &OperationContext,
         request: RevokeTokenRequest,
     ) -> Result<(), OAuthServiceError> {
-        let _client =
-            authenticate_client(&self.clients, &request.client_id, &request.client_secret).await?;
-        match self.access_tokens.delete_raw(&request.token).await {
-            Ok(()) | Err(OAuthAccessTokenGatewayError::NotFound) => Ok(()),
-            Err(err) => Err(err.into()),
+        let mut tx = self.unit_of_work.begin().await?;
+        authenticate_client(
+            &mut self.clients.in_transaction(&mut tx),
+            &request.client_id,
+            &request.client_secret,
+        )
+        .await?;
+        let hashed_token = HashedRawAccessToken::from(request.token);
+        let token = self
+            .access_tokens
+            .in_transaction(&mut tx)
+            .find_by_hashed_token(&hashed_token)
+            .await?;
+        if let Some(token) = token {
+            self.access_tokens
+                .in_transaction(&mut tx)
+                .delete_by_id(token.value.user_id(), token.value.id())
+                .await?;
         }
+        tx.commit().await?;
+        Ok(())
     }
 }

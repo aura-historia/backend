@@ -54,8 +54,11 @@ use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
     notification_creation::NotificationCreationCoordinatorFactory,
 };
-use oauth_dynamodb::repository::OAuthDynamoDbStore;
-use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
+use oauth_postgres::{
+    SqlxAuthorizationCodeRepositoryFactory, SqlxOAuthClientAuthenticationReader,
+    SqlxOAuthClientDetailsReader, SqlxOAuthClientListReader, SqlxOAuthClientRepositoryFactory,
+    SqlxThirdPartyExchangeCodeRepositoryFactory,
+};
 use oauth_service::use_cases::{
     AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler, GetOAuthClientHandler,
     IntrospectTokenHandler, ListOAuthClientsHandler, RevokeTokenHandler,
@@ -116,10 +119,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tracing::info;
-use user_dynamodb::DynamoDbAccessTokenStore;
 use user_postgres::{
-    SqlxNewsletterProfileReader, SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory,
-    SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory, SqlxUserTierEntitlementsFactory,
+    SqlxAccessTokenAuthenticationReader, SqlxAccessTokenDetailsReader, SqlxAccessTokenListReader,
+    SqlxAccessTokenRepositoryFactory, SqlxNewsletterProfileReader, SqlxUserAccountReaderFactory,
+    SqlxUserAdminReaderFactory, SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory,
+    SqlxUserTierEntitlementsFactory,
 };
 use user_service::use_cases::AuthenticateAccessTokenHandler;
 use user_service::use_cases::commands::associate_user_stripe_customer_id::AssociateUserStripeCustomerIdHandler;
@@ -144,7 +148,6 @@ use watchlist_service::use_cases::{
 };
 
 pub const API_BIND_ADDR_ENV: &str = "AURA_HISTORIA_API_BIND_ADDR";
-pub const DYNAMODB_TABLE_NAME_ENV: &str = "DYNAMODB_TABLE_NAME";
 pub const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
 pub const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
 pub const COGNITO_ISSUER_ENV: &str = "AURA_HISTORIA_COGNITO_ISSUER";
@@ -581,8 +584,6 @@ async fn ready(
 
 struct RuntimeReadiness {
     postgres: PgPool,
-    dynamodb: aws_sdk_dynamodb::Client,
-    dynamodb_table_name: String,
     opensearch: OpenSearch,
 }
 
@@ -590,12 +591,6 @@ struct RuntimeReadiness {
 impl ReadinessCheck for RuntimeReadiness {
     async fn check(&self) -> Result<(), ()> {
         self.postgres.acquire().await.map_err(|_| ())?;
-        self.dynamodb
-            .describe_table()
-            .table_name(&self.dynamodb_table_name)
-            .send()
-            .await
-            .map_err(|_| ())?;
         self.opensearch.ping().send().await.map_err(|_| ())?;
         Ok(())
     }
@@ -736,17 +731,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxPartnerShopApplicationRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
-    let aws_config = aws_config::defaults(aws_config::BehaviorVersion::v2026_01_12())
-        .load()
-        .await;
-    let dynamodb_client = Box::leak(Box::new(aws_sdk_dynamodb::Client::new(&aws_config)));
-    let table_name =
-        std::env::var(DYNAMODB_TABLE_NAME_ENV).map_err(|_| ApiStateError::MissingEnv {
-            name: DYNAMODB_TABLE_NAME_ENV,
-        })?;
-    let readiness_table_name = table_name.clone();
-    let table_name = Box::leak(table_name.into_boxed_str());
-    let table_name_ref: &str = table_name;
+
     let admin_decide_partner_application = AdminDecidePartnerShopApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnerShopApplicationRepositoryFactory::new(),
@@ -822,10 +807,8 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxFxRateSnapshotRepositoryFactory,
     );
 
-    let access_token_store = DynamoDbAccessTokenStore::new(dynamodb_client, table_name_ref);
-    let oauth_store = OAuthDynamoDbStore::new(dynamodb_client, table_name_ref);
-    let oauth_access_tokens = StoreOAuthAccessTokenGateway::new(access_token_store.clone());
-    let access_token_use_case = AuthenticateAccessTokenHandler::new(access_token_store.clone());
+    let access_token_use_case =
+        AuthenticateAccessTokenHandler::new(SqlxAccessTokenAuthenticationReader::new(pool.clone()));
     let jwks_client = reqwest::Client::builder()
         .connect_timeout(JWKS_CONNECT_TIMEOUT)
         .timeout(JWKS_REQUEST_TIMEOUT)
@@ -901,11 +884,24 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         change_user_role: Arc::new(change_user_role),
         change_user_tier: Arc::new(change_user_tier),
         delete_user: Arc::new(delete_user),
-        create_access_token: Arc::new(CreateAccessTokenHandler::new(access_token_store.clone())),
-        list_access_tokens: Arc::new(ListAccessTokensHandler::new(access_token_store.clone())),
-        get_access_token: Arc::new(GetAccessTokenHandler::new(access_token_store.clone())),
-        update_access_token: Arc::new(UpdateAccessTokenHandler::new(access_token_store.clone())),
-        delete_access_token: Arc::new(DeleteAccessTokenHandler::new(access_token_store)),
+        create_access_token: Arc::new(CreateAccessTokenHandler::new(
+            unit_of_work.clone(),
+            SqlxAccessTokenRepositoryFactory::new(),
+        )),
+        list_access_tokens: Arc::new(ListAccessTokensHandler::new(
+            SqlxAccessTokenListReader::new(pool.clone()),
+        )),
+        get_access_token: Arc::new(GetAccessTokenHandler::new(
+            SqlxAccessTokenDetailsReader::new(pool.clone()),
+        )),
+        update_access_token: Arc::new(UpdateAccessTokenHandler::new(
+            unit_of_work.clone(),
+            SqlxAccessTokenRepositoryFactory::new(),
+        )),
+        delete_access_token: Arc::new(DeleteAccessTokenHandler::new(
+            unit_of_work.clone(),
+            SqlxAccessTokenRepositoryFactory::new(),
+        )),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     let search_filters_state = SearchFiltersState::new(
@@ -955,29 +951,48 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     let oauth_state = OAuthState {
-        create_client: Arc::new(CreateOAuthClientHandler::new(oauth_store.clone())),
-        list_clients: Arc::new(ListOAuthClientsHandler::new(oauth_store.clone())),
-        get_client: Arc::new(GetOAuthClientHandler::new(oauth_store.clone())),
-        update_client: Arc::new(UpdateOAuthClientHandler::new(oauth_store.clone())),
-        delete_client: Arc::new(DeleteOAuthClientHandler::new(oauth_store.clone())),
+        create_client: Arc::new(CreateOAuthClientHandler::new(
+            unit_of_work.clone(),
+            SqlxOAuthClientRepositoryFactory::new(),
+        )),
+        list_clients: Arc::new(ListOAuthClientsHandler::new(
+            SqlxOAuthClientListReader::new(pool.clone()),
+        )),
+        get_client: Arc::new(GetOAuthClientHandler::new(
+            SqlxOAuthClientDetailsReader::new(pool.clone()),
+        )),
+        update_client: Arc::new(UpdateOAuthClientHandler::new(
+            unit_of_work.clone(),
+            SqlxOAuthClientRepositoryFactory::new(),
+        )),
+        delete_client: Arc::new(DeleteOAuthClientHandler::new(
+            unit_of_work.clone(),
+            SqlxOAuthClientRepositoryFactory::new(),
+        )),
         authorize: Arc::new(AuthorizeHandler::new(
-            oauth_store.clone(),
-            oauth_store.clone(),
+            unit_of_work.clone(),
+            SqlxOAuthClientRepositoryFactory::new(),
+            SqlxAuthorizationCodeRepositoryFactory::new(),
         )),
         token_by_authorization_code: Arc::new(TokenByAuthorizationCodeHandler::new(
-            oauth_store.clone(),
-            oauth_store.clone(),
-            oauth_store.clone(),
-            oauth_access_tokens.clone(),
+            unit_of_work.clone(),
+            SqlxOAuthClientRepositoryFactory::new(),
+            SqlxAuthorizationCodeRepositoryFactory::new(),
+            SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
+            SqlxAccessTokenRepositoryFactory::new(),
         )),
-        token_by_third_party_code: Arc::new(TokenByThirdPartyCodeHandler::new(oauth_store.clone())),
+        token_by_third_party_code: Arc::new(TokenByThirdPartyCodeHandler::new(
+            unit_of_work.clone(),
+            SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
+        )),
         revoke: Arc::new(RevokeTokenHandler::new(
-            oauth_store.clone(),
-            oauth_access_tokens.clone(),
+            unit_of_work.clone(),
+            SqlxOAuthClientRepositoryFactory::new(),
+            SqlxAccessTokenRepositoryFactory::new(),
         )),
         introspect: Arc::new(IntrospectTokenHandler::new(
-            oauth_store,
-            oauth_access_tokens,
+            SqlxOAuthClientAuthenticationReader::new(pool.clone()),
+            SqlxAccessTokenAuthenticationReader::new(pool.clone()),
         )),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
@@ -995,8 +1010,6 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
 
     let readiness = Arc::new(RuntimeReadiness {
         postgres: pool,
-        dynamodb: dynamodb_client.clone(),
-        dynamodb_table_name: readiness_table_name,
         opensearch: opensearch_client.clone(),
     });
 

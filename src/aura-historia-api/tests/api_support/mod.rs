@@ -40,8 +40,11 @@ use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
     notification_creation::NotificationCreationCoordinatorFactory,
 };
-use oauth_dynamodb::repository::OAuthDynamoDbStore;
-use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
+use oauth_postgres::{
+    SqlxAuthorizationCodeRepositoryFactory, SqlxOAuthClientAuthenticationReader,
+    SqlxOAuthClientDetailsReader, SqlxOAuthClientListReader, SqlxOAuthClientRepositoryFactory,
+    SqlxThirdPartyExchangeCodeRepositoryFactory,
+};
 use oauth_service::use_cases::{
     AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler, GetOAuthClientHandler,
     IntrospectTokenHandler, ListOAuthClientsHandler, RevokeTokenHandler,
@@ -102,16 +105,16 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use test_api::{get_dynamodb_client, get_opensearch_client, get_postgres_client};
+use test_api::{get_opensearch_client, get_postgres_client};
 use url::Url;
 use user_core::access_token::{
     AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, RawAccessToken,
     Scope,
 };
 use user_core::tier::UserTier;
-use user_dynamodb::DynamoDbAccessTokenStore;
 use user_service::ports::{
-    AccessTokenStore, NewsletterSubscriptionWriteError, NewsletterSubscriptionWriter,
+    AccessTokenRepository, AccessTokenRepositoryFactory, NewsletterSubscriptionWriteError,
+    NewsletterSubscriptionWriter,
 };
 use user_service::use_cases::commands::associate_user_stripe_customer_id::AssociateUserStripeCustomerIdHandler;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
@@ -359,8 +362,9 @@ pub async fn seed_partner_shop(user_id: UserId, shop_id: ShopId) {
 }
 
 pub async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> RawAccessToken {
-    let client = get_dynamodb_client().await;
-    let store = DynamoDbAccessTokenStore::new(client, "table_1");
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let repository_factory = user_postgres::SqlxAccessTokenRepositoryFactory::new();
     let raw = RawAccessToken::new();
     let token = AccessToken::create(NewAccessToken {
         id: AccessTokenId::new(),
@@ -371,8 +375,19 @@ pub async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> R
         origin: AccessTokenOrigin::User,
         expires: None,
     });
-    if let Err(error) = store.insert(token).await {
+    let mut tx = match unit_of_work.begin().await {
+        Ok(tx) => tx,
+        Err(error) => panic!("failed to begin access-token seed transaction: {error}"),
+    };
+    if let Err(error) = repository_factory
+        .in_transaction(&mut tx)
+        .insert(&token)
+        .await
+    {
         panic!("failed to seed access token: {error:?}");
+    }
+    if let Err(error) = tx.commit().await {
+        panic!("failed to commit access-token seed transaction: {error}");
     }
     raw
 }
@@ -540,16 +555,13 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let client = get_dynamodb_client().await;
-    let access_token_store = DynamoDbAccessTokenStore::new(client, "table_1");
-    let access_token_use_case =
-        user_service::use_cases::AuthenticateAccessTokenHandler::new(access_token_store.clone());
+    let access_token_use_case = user_service::use_cases::AuthenticateAccessTokenHandler::new(
+        user_postgres::SqlxAccessTokenAuthenticationReader::new(pool.clone()),
+    );
     let authenticator = Arc::new(ApiAuthService::new(
         RejectJwtAuthenticator,
         AuraAccessTokenAuthenticator::new(access_token_use_case),
     ));
-    let oauth_store = OAuthDynamoDbStore::new(client, "table_1");
-    let oauth_access_tokens = StoreOAuthAccessTokenGateway::new(access_token_store.clone());
     let opensearch_client = get_opensearch_client().await;
 
     let products_state = ProductsState::new(
@@ -695,11 +707,24 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             user_postgres::SqlxUserRepositoryFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
         )),
-        Arc::new(CreateAccessTokenHandler::new(access_token_store.clone())),
-        Arc::new(ListAccessTokensHandler::new(access_token_store.clone())),
-        Arc::new(GetAccessTokenHandler::new(access_token_store.clone())),
-        Arc::new(UpdateAccessTokenHandler::new(access_token_store.clone())),
-        Arc::new(DeleteAccessTokenHandler::new(access_token_store)),
+        Arc::new(CreateAccessTokenHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxAccessTokenRepositoryFactory::new(),
+        )),
+        Arc::new(ListAccessTokensHandler::new(
+            user_postgres::SqlxAccessTokenListReader::new(pool.clone()),
+        )),
+        Arc::new(GetAccessTokenHandler::new(
+            user_postgres::SqlxAccessTokenDetailsReader::new(pool.clone()),
+        )),
+        Arc::new(UpdateAccessTokenHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxAccessTokenRepositoryFactory::new(),
+        )),
+        Arc::new(DeleteAccessTokenHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxAccessTokenRepositoryFactory::new(),
+        )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
@@ -886,29 +911,48 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     );
 
     let oauth_state = OAuthState::new(
-        Arc::new(CreateOAuthClientHandler::new(oauth_store.clone())),
-        Arc::new(ListOAuthClientsHandler::new(oauth_store.clone())),
-        Arc::new(GetOAuthClientHandler::new(oauth_store.clone())),
-        Arc::new(UpdateOAuthClientHandler::new(oauth_store.clone())),
-        Arc::new(DeleteOAuthClientHandler::new(oauth_store.clone())),
+        Arc::new(CreateOAuthClientHandler::new(
+            unit_of_work.clone(),
+            SqlxOAuthClientRepositoryFactory::new(),
+        )),
+        Arc::new(ListOAuthClientsHandler::new(
+            SqlxOAuthClientListReader::new(pool.clone()),
+        )),
+        Arc::new(GetOAuthClientHandler::new(
+            SqlxOAuthClientDetailsReader::new(pool.clone()),
+        )),
+        Arc::new(UpdateOAuthClientHandler::new(
+            unit_of_work.clone(),
+            SqlxOAuthClientRepositoryFactory::new(),
+        )),
+        Arc::new(DeleteOAuthClientHandler::new(
+            unit_of_work.clone(),
+            SqlxOAuthClientRepositoryFactory::new(),
+        )),
         Arc::new(AuthorizeHandler::new(
-            oauth_store.clone(),
-            oauth_store.clone(),
+            unit_of_work.clone(),
+            SqlxOAuthClientRepositoryFactory::new(),
+            SqlxAuthorizationCodeRepositoryFactory::new(),
         )),
         Arc::new(TokenByAuthorizationCodeHandler::new(
-            oauth_store.clone(),
-            oauth_store.clone(),
-            oauth_store.clone(),
-            oauth_access_tokens.clone(),
+            unit_of_work.clone(),
+            SqlxOAuthClientRepositoryFactory::new(),
+            SqlxAuthorizationCodeRepositoryFactory::new(),
+            SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
+            user_postgres::SqlxAccessTokenRepositoryFactory::new(),
         )),
-        Arc::new(TokenByThirdPartyCodeHandler::new(oauth_store.clone())),
+        Arc::new(TokenByThirdPartyCodeHandler::new(
+            unit_of_work.clone(),
+            SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
+        )),
         Arc::new(RevokeTokenHandler::new(
-            oauth_store.clone(),
-            oauth_access_tokens.clone(),
+            unit_of_work.clone(),
+            SqlxOAuthClientRepositoryFactory::new(),
+            user_postgres::SqlxAccessTokenRepositoryFactory::new(),
         )),
         Arc::new(IntrospectTokenHandler::new(
-            oauth_store,
-            oauth_access_tokens,
+            SqlxOAuthClientAuthenticationReader::new(pool.clone()),
+            user_postgres::SqlxAccessTokenAuthenticationReader::new(pool.clone()),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );

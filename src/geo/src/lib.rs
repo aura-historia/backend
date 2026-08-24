@@ -5,8 +5,6 @@ pub use geocoder::{
     Geocoder, GeocodingError, GeocodingErrorSource, GoogleGeocoder, GoogleGeocoderConfig,
 };
 
-pub mod dynamodb;
-
 pub mod opensearch;
 
 #[cfg(feature = "data")]

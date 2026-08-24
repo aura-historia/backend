@@ -8,8 +8,6 @@ async-trait = { workspace = true }
 application = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }
-aws-config = { workspace = true }
-aws-sdk-dynamodb = { workspace = true }
 billing-service = { workspace = true }
 billing-stripe = { workspace = true }
 credential-core = { workspace = true }
@@ -23,7 +21,7 @@ http = { workspace = true }
 httpdate = { workspace = true }
 indexmap = { workspace = true }
 oauth-core = { workspace = true }
-oauth-dynamodb = { workspace = true }
+oauth-postgres = { workspace = true }
 oauth-service = { workspace = true }
 opensearch = { workspace = true }
 platform-observability = { workspace = true }
@@ -61,7 +59,6 @@ tower-http = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 user-core = { workspace = true }
-user-dynamodb = { workspace = true }
 user-postgres = { workspace = true }
 user-service = { workspace = true }
 user-zoho = { workspace = true }
@@ -77,6 +74,6 @@ openssl = { workspace = true, features = ["vendored"] }
 rstest = { workspace = true }
 serial_test = { workspace = true }
 sqlx = { workspace = true }
-test-api = { workspace = true, features = ["aura-historia-api", "dynamodb", "opensearch", "postgres"] }
+test-api = { workspace = true, features = ["aura-historia-api", "opensearch", "postgres"] }
 time = { workspace = true }
 tower = { workspace = true, features = ["util"] }

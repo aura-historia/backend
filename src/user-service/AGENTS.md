@@ -17,9 +17,10 @@
 - Repository writes return persisted user state; handlers must not read after write for responses.
 - Ports are public because adapter crates implement them.
 - `UserTierEntitlements` locks one authoritative user row and reconciles tier-restricted search filters and watchlist entries inside the caller transaction; it avoids a User-service dependency on either resource service.
+- Access-token writes use an `AccessTokenRepositoryFactory` inside a service-owned `UnitOfWork`; details/list use presentation readers, while `AccessTokenAuthenticationReader::find_authentication_by_hashed_token` returns only an authentication model. The repository's same-key lookup is only for transactional aggregate mutation.
 - `AuthenticateAccessTokenUseCase` only validates token existence/expiry and returns token scopes; protected use cases enforce credential capability via `OperationContext`.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.
-- No SQLx, DynamoDB, OpenSearch, or transport dependency.
+- No SQLx, OpenSearch, or transport dependency.
 
 ## Ownership
 

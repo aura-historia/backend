@@ -5,17 +5,18 @@ use api_support::{
 };
 
 use test_api::{
-    AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
+    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
     get_postgres_client,
 };
 use user_core::access_token::Scope;
 use user_core::tier::UserTier;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const DYNAMODB: DynamoDB = DynamoDB();
+const OPENSEARCH: OpenSearch = OpenSearch();
+
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_checkout_and_persist_stripe_customer_for_free_user() {
     let user_id = seed_user("USER").await;
     let token = users_read_token(user_id).await;
@@ -48,7 +49,7 @@ async fn should_create_checkout_and_persist_stripe_customer_for_free_user() {
     assert_eq!(Some(format!("cus_{user_id}")), customer_id);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_checkout_when_customer_already_exists() {
     let user_id = seed_user("USER").await;
     let token = users_read_token(user_id).await;
@@ -79,7 +80,7 @@ async fn should_reject_checkout_when_customer_already_exists() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_portal_for_user_with_stripe_customer() {
     let user_id = seed_user("USER").await;
     let token = users_read_token(user_id).await;
@@ -105,7 +106,7 @@ async fn should_create_portal_for_user_with_stripe_customer() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_portal_without_stripe_customer() {
     let user_id = seed_user("USER").await;
     let token = users_read_token(user_id).await;
@@ -126,7 +127,7 @@ async fn should_reject_portal_without_stripe_customer() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_checkout_when_managing_free_user() {
     let user_id = seed_user("USER").await;
     let token = users_read_token(user_id).await;
@@ -149,7 +150,7 @@ async fn should_create_checkout_when_managing_free_user() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_portal_when_managing_paid_user() {
     let user_id = seed_user_with_tier("USER", UserTier::Pro).await;
     let token = users_read_token(user_id).await;
@@ -176,7 +177,7 @@ async fn should_create_portal_when_managing_paid_user() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_billing_when_delegated_token_lacks_users_read() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(user_id, Default::default()).await;

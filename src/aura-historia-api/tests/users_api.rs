@@ -3,15 +3,16 @@ mod api_support;
 use api_support::{assert_problem, json_response, seed_access_token_for, seed_user};
 
 use test_api::{
-    AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
+    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
 };
 use user_core::access_token::Scope;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const DYNAMODB: DynamoDB = DynamoDB();
+const OPENSEARCH: OpenSearch = OpenSearch();
+
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_current_user_account_when_authenticated() {
     let user_id = seed_user("USER").await;
     let token =
@@ -30,7 +31,7 @@ async fn should_return_current_user_account_when_authenticated() {
     assert_eq!(serde_json::json!("USER"), body["role"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_update_current_user_profile_when_body_is_valid() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -60,7 +61,7 @@ async fn should_update_current_user_profile_when_body_is_valid() {
     assert_eq!(serde_json::json!(true), body["prohibitedContentConsent"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_delete_current_user_when_authenticated() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -79,7 +80,7 @@ async fn should_delete_current_user_when_authenticated() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_user_when_admin_reads_user() {
     let user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -101,7 +102,7 @@ async fn should_return_user_when_admin_reads_user() {
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_search_users_when_actor_is_admin() {
     seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -127,7 +128,7 @@ async fn should_search_users_when_actor_is_admin() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_update_user_tier_when_actor_is_admin() {
     let user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -151,7 +152,7 @@ async fn should_update_user_tier_when_actor_is_admin() {
     assert_eq!(serde_json::json!("PRO"), body["tier"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_delete_user_when_actor_is_admin() {
     let user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -171,7 +172,7 @@ async fn should_delete_user_when_actor_is_admin() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_admin_user_read_when_actor_is_not_admin() {
     let user_id = seed_user("USER").await;
     let token =
@@ -188,7 +189,7 @@ async fn should_reject_admin_user_read_when_actor_is_not_admin() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_admin_user_read_when_user_id_is_invalid() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
@@ -213,7 +214,7 @@ async fn should_reject_admin_user_read_when_user_id_is_invalid() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_access_token_for_current_user() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -243,7 +244,7 @@ async fn should_create_access_token_for_current_user() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_list_access_tokens_for_current_user() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -264,7 +265,7 @@ async fn should_list_access_tokens_for_current_user() {
     assert!(body.as_array().is_some_and(|items| !items.is_empty()));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_access_token_for_current_user() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -290,7 +291,7 @@ async fn should_get_access_token_for_current_user() {
     assert_eq!(serde_json::json!("editable token"), body["name"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_update_access_token_for_current_user() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -317,7 +318,7 @@ async fn should_update_access_token_for_current_user() {
     assert_eq!(serde_json::json!("renamed token"), body["name"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_delete_access_token_for_current_user() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -341,7 +342,7 @@ async fn should_delete_access_token_for_current_user() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_access_token_read_when_id_is_invalid() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -369,7 +370,7 @@ async fn should_reject_access_token_read_when_id_is_invalid() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_require_auth_for_access_tokens() {
     let response = reqwest::Client::new()
         .get(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))

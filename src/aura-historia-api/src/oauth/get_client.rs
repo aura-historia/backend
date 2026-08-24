@@ -16,7 +16,7 @@ pub async fn get_client(
     headers: HeaderMap,
     Path(raw): Path<String>,
 ) -> Response {
-    let (_context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return *response,
     };
@@ -28,7 +28,7 @@ pub async fn get_client(
                 .into_response();
         }
     };
-    match state.get_client.execute(&client_id).await {
+    match state.get_client.execute(&context, &client_id).await {
         Ok(result) => no_store(Json(OAuthClientMetadataData::from(result)).into_response()),
         Err(error) => ApiError::from(error).into_response(),
     }

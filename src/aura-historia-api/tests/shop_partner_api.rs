@@ -5,15 +5,16 @@ use shop_core::shop_id::ShopId;
 use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use std::collections::HashSet;
 use test_api::{
-    AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
+    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
 };
 use user_core::access_token::Scope;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const DYNAMODB: DynamoDB = DynamoDB();
+const OPENSEARCH: OpenSearch = OpenSearch();
+
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_partner_application_for_existing_shop() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -33,7 +34,7 @@ async fn should_create_partner_application_for_existing_shop() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_partner_application_for_new_shop() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -73,7 +74,7 @@ async fn should_create_partner_application_for_new_shop() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_list_own_partner_applications() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -98,7 +99,7 @@ async fn should_list_own_partner_applications() {
     assert_eq!(serde_json::json!(application_id), body[0]["id"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_own_partner_application() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -124,7 +125,7 @@ async fn should_get_own_partner_application() {
     assert_eq!(serde_json::json!(application_id), body["id"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_delete_own_partner_application() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -148,7 +149,7 @@ async fn should_delete_own_partner_application() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_partner_application_read_when_id_is_invalid() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -176,7 +177,7 @@ async fn should_reject_partner_application_read_when_id_is_invalid() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_not_found_when_own_partner_application_is_missing() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -205,7 +206,7 @@ async fn should_return_not_found_when_own_partner_application_is_missing() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_list_partner_applications_when_actor_is_admin() {
     let admin_token = admin_token().await;
     let user_token = user_token().await;
@@ -226,7 +227,7 @@ async fn should_list_partner_applications_when_actor_is_admin() {
     assert_eq!(serde_json::json!(application_id), body[0]["id"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_partner_application_when_actor_is_admin() {
     let admin_token = admin_token().await;
     let user_token = user_token().await;
@@ -248,7 +249,7 @@ async fn should_get_partner_application_when_actor_is_admin() {
     assert_eq!(serde_json::json!(application_id), body["id"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_mark_partner_application_in_review_when_actor_is_admin() {
     let admin_token = admin_token().await;
     let user_token = user_token().await;
@@ -270,7 +271,7 @@ async fn should_mark_partner_application_in_review_when_actor_is_admin() {
     assert_eq!(serde_json::json!(application_id), body["id"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_decide_partner_application_when_actor_is_admin() {
     let admin_token = admin_token().await;
     let user_token = user_token().await;
@@ -306,7 +307,7 @@ async fn should_decide_partner_application_when_actor_is_admin() {
     assert!(body.get("executionState").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_partner_applications_list_when_admin_access_token_lacks_scope() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(admin_id, HashSet::new()).await;
@@ -325,7 +326,7 @@ async fn should_reject_partner_applications_list_when_admin_access_token_lacks_s
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_partner_applications_list_when_actor_is_not_admin() {
     let token = user_token().await;
 
@@ -343,7 +344,7 @@ async fn should_reject_partner_applications_list_when_actor_is_not_admin() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_mark_partner_application_in_review() {
     let admin_token = admin_token().await;
     let user_token = user_token().await;
@@ -366,7 +367,7 @@ async fn should_mark_partner_application_in_review() {
     assert!(body.get("executionState").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_lowercase_partner_application_decision() {
     let admin_token = admin_token().await;
     let user_token = user_token().await;
@@ -403,7 +404,7 @@ async fn should_reject_lowercase_partner_application_decision() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_decision_before_application_is_in_review() {
     let admin_token = admin_token().await;
     let user_token = user_token().await;
@@ -424,7 +425,7 @@ async fn should_reject_decision_before_application_is_in_review() {
     assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_opposite_decision_after_terminal_application_state() {
     let admin_token = admin_token().await;
     let user_token = user_token().await;
@@ -468,7 +469,7 @@ async fn should_reject_opposite_decision_after_terminal_application_state() {
     assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_approve_existing_application_and_grant_partner_shop_membership() {
     let admin_token = admin_token().await;
     let applicant_id = seed_user("USER").await;
@@ -493,7 +494,7 @@ async fn should_approve_existing_application_and_grant_partner_shop_membership()
     assert_eq!(serde_json::json!("PARTNERED"), body[0]["partnerStatus"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_approve_new_application_publish_shop_and_grant_partner_shop_membership() {
     let admin_token = admin_token().await;
     let applicant_id = seed_user("USER").await;
@@ -520,7 +521,7 @@ async fn should_approve_new_application_publish_shop_and_grant_partner_shop_memb
     assert_eq!(serde_json::json!(shop_id), body[0]["shopId"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_new_application_and_keep_draft_shop_non_public() {
     let admin_token = admin_token().await;
     let applicant_token = user_token().await;
@@ -540,7 +541,7 @@ async fn should_reject_new_application_and_keep_draft_shop_non_public() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_existing_application_without_hiding_shop() {
     let admin_token = admin_token().await;
     let applicant_token = user_token().await;
@@ -557,7 +558,7 @@ async fn should_reject_existing_application_without_hiding_shop() {
     assert_eq!(serde_json::json!(shop.id().to_string()), body["shopId"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_withdraw_new_application_and_keep_draft_shop_non_public() {
     let applicant_token = user_token().await;
     let (application_id, shop_id) = create_new_application(&applicant_token).await;
@@ -587,7 +588,7 @@ async fn should_withdraw_new_application_and_keep_draft_shop_non_public() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_withdraw_existing_application_without_hiding_shop() {
     let applicant_token = user_token().await;
     let shop = seed_shop().await;
@@ -609,7 +610,7 @@ async fn should_withdraw_existing_application_without_hiding_shop() {
     assert_eq!(serde_json::json!(shop.id().to_string()), body["shopId"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_replay_matching_terminal_decision_without_changing_result() {
     let admin_token = admin_token().await;
     let applicant_token = user_token().await;
@@ -623,7 +624,7 @@ async fn should_replay_matching_terminal_decision_without_changing_result() {
     assert_eq!(serde_json::json!("REJECTED"), body["businessState"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_allow_only_one_of_concurrent_opposite_decisions() {
     let admin_token = admin_token().await;
     let applicant_token = user_token().await;
@@ -642,7 +643,7 @@ async fn should_allow_only_one_of_concurrent_opposite_decisions() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_require_auth_for_partner_applications() {
     let response = reqwest::Client::new()
         .get(format!(

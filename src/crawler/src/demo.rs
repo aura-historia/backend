@@ -1,5 +1,5 @@
 //! Demo binary — runs the full crawler pipeline (spider + scraper) against a set of hardcoded
-//! antique shops without needing a running shop-service or DynamoDB.
+//! antique shops without needing a running shop-service.
 //!
 //! On startup the demo automatically runs `docker compose up -d` (using the
 //! `docker-compose.yml` inside the `crawler` crate) and waits for Postgres to

@@ -30,10 +30,6 @@ uuid = { workspace = true }
 aws_lambda_events = { workspace = true, optional = true, features = ["apigw"] }
 opensearch = { workspace = true, optional = true, features = ["aws-auth"] }
 aws-sdk-opensearch = { workspace = true, optional = true }
-aws-sdk-dynamodb = { workspace = true, optional = true }
-serde_dynamo = { workspace = true, optional = true, features = [
-    "aws-sdk-dynamodb+1",
-] }
 aws-sdk-sqs = { workspace = true, optional = true }
 aws-sdk-eventbridge = { workspace = true, optional = true }
 aws-sdk-cloudformation = { workspace = true, optional = true }
@@ -51,7 +47,6 @@ aws-sdk-sesv2 = { workspace = true, optional = true }
 test-api = { workspace = true, features = [
     "api-gateway",
     "cloudformation",
-    "dynamodb",
     "opensearch",
     "postgres",
     "ses",
@@ -66,7 +61,6 @@ aura-historia-worker = { workspace = true }
 default = []
 api-gateway = ["aws_lambda_events", "aws_lambda_events/apigw"]
 aura-historia-api = ["dep:axum"]
-dynamodb = ["dep:aws-sdk-dynamodb", "serde_dynamo"]
 opensearch = ["dep:opensearch", "dep:aws-sdk-opensearch"]
 postgres = ["dep:sqlx"]
 sequin = ["dep:base64", "dep:reqwest", "postgres"]
@@ -74,4 +68,4 @@ sqs = ["dep:aws-sdk-sqs"]
 eventbridge = ["dep:aws-sdk-eventbridge"]
 cognito = ["dep:aws-sdk-cognitoidentityprovider"]
 ses = ["dep:aws-sdk-sesv2", "dep:reqwest"]
-cloudformation = ["dep:aws-sdk-cloudformation", "dep:aws-sdk-s3", "dep:zip", "dep:futures", "dep:mrml", "cognito", "dynamodb", "opensearch", "sqs", "ses", "eventbridge"]
+cloudformation = ["dep:aws-sdk-cloudformation", "dep:aws-sdk-s3", "dep:zip", "dep:futures", "dep:mrml", "cognito", "opensearch", "sqs", "ses", "eventbridge"]

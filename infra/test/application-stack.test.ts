@@ -15,7 +15,7 @@ describe("Application stacks", () => {
   test.each(STAGES)("synthesizes the %s stack contract", (stage) => {
     const stacks = createStacks(stage);
 
-    expect(Object.values(Template.fromStack(stacks.data).findResources("AWS::DynamoDB::Table"))).toHaveLength(1);
+
     expect(Object.values(Template.fromStack(stacks.compute).findResources("AWS::Cognito::UserPool"))).toHaveLength(1);
     expect(Object.values(Template.fromStack(stacks.api).findResources("AWS::ApiGatewayV2::Api"))).toHaveLength(1);
     expect(Object.values(Template.fromStack(stacks.api).findResources("AWS::ApiGatewayV2::Route"))).toHaveLength(0);

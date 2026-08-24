@@ -57,8 +57,8 @@ impl TryFrom<CreateOAuthClientData> for CreateOAuthClientCommand {
     }
 }
 
-impl From<oauth_core::client::OAuthClient> for OAuthClientMetadataData {
-    fn from(client: oauth_core::client::OAuthClient) -> Self {
+impl From<oauth_service::ports::OAuthClientView> for OAuthClientMetadataData {
+    fn from(client: oauth_service::ports::OAuthClientView) -> Self {
         Self {
             client_id: client.client_id,
             client_secret: None,

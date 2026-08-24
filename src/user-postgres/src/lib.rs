@@ -1,10 +1,12 @@
+mod access_token_mapping;
 mod mapping;
 mod readers;
 mod repositories;
 
 pub use readers::{
+    SqlxAccessTokenAuthenticationReader, SqlxAccessTokenDetailsReader, SqlxAccessTokenListReader,
     SqlxNewsletterProfileReader, SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory,
     SqlxUserSearchReaderFactory, SqlxUserStripeCustomerReaderFactory,
     SqlxUserTierEntitlementsFactory,
 };
-pub use repositories::SqlxUserRepositoryFactory;
+pub use repositories::{SqlxAccessTokenRepositoryFactory, SqlxUserRepositoryFactory};

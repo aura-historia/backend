@@ -2,15 +2,16 @@ mod api_support;
 
 use api_support::{assert_problem, seed_access_token_for, seed_user};
 use test_api::{
-    AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
+    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
 };
 use user_core::access_token::Scope;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const DYNAMODB: DynamoDB = DynamoDB();
+const OPENSEARCH: OpenSearch = OpenSearch();
+
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_subscribe_to_newsletter_anonymously() {
     let response = reqwest::Client::new()
         .put(format!(
@@ -31,7 +32,7 @@ async fn should_subscribe_to_newsletter_anonymously() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_subscribe_to_newsletter_with_aura_access_token() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -54,7 +55,7 @@ async fn should_subscribe_to_newsletter_with_aura_access_token() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_newsletter_request_body() {
     let response = reqwest::Client::new()
         .put(format!(
@@ -79,7 +80,7 @@ async fn should_reject_invalid_newsletter_request_body() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_supplied_newsletter_bearer_token() {
     let response = reqwest::Client::new()
         .put(format!(

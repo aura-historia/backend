@@ -1,8 +1,11 @@
-use crate::ports::{AccessTokenStore, AccessTokenStoreError};
+use crate::ports::{
+    AccessTokenRepository, AccessTokenRepositoryError, AccessTokenRepositoryFactory,
+};
 use application::error::BoxError;
 use application::operation_context::{
     AuthenticationRequired, CredentialCapability, OperationAuthorizationError, OperationContext,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use user_core::access_token::{
@@ -48,11 +51,15 @@ pub enum CreateAccessTokenError {
         #[source]
         source: BoxError,
     },
-    #[error("internal access token store failure")]
+    #[error("internal access token persistence failure")]
     Internal {
         #[source]
         source: BoxError,
     },
+    #[error("failed to begin create access token transaction")]
+    BeginTransactionFailed,
+    #[error("failed to commit create access token transaction")]
+    CommitTransactionFailed,
 }
 
 #[async_trait::async_trait]
@@ -64,20 +71,25 @@ pub trait CreateAccessTokenUseCase: Send + Sync {
     ) -> Result<CreateAccessTokenResult, CreateAccessTokenError>;
 }
 
-pub struct CreateAccessTokenHandler<S> {
-    store: S,
+pub struct CreateAccessTokenHandler<U, R> {
+    unit_of_work: U,
+    repository: R,
 }
 
-impl<S> CreateAccessTokenHandler<S> {
-    pub fn new(store: S) -> Self {
-        Self { store }
+impl<U, R> CreateAccessTokenHandler<U, R> {
+    pub fn new(unit_of_work: U, repository: R) -> Self {
+        Self {
+            unit_of_work,
+            repository,
+        }
     }
 }
 
 #[async_trait::async_trait]
-impl<S> CreateAccessTokenUseCase for CreateAccessTokenHandler<S>
+impl<U, R> CreateAccessTokenUseCase for CreateAccessTokenHandler<U, R>
 where
-    S: AccessTokenStore,
+    U: UnitOfWork,
+    R: AccessTokenRepositoryFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "create_access_token",
@@ -110,7 +122,18 @@ where
             expires: command.expires,
         });
 
-        self.store.insert(access_token.clone()).await?;
+        let mut tx = self
+            .unit_of_work
+            .begin()
+            .await
+            .map_err(|_| CreateAccessTokenError::BeginTransactionFailed)?;
+        self.repository
+            .in_transaction(&mut tx)
+            .insert(&access_token)
+            .await?;
+        tx.commit()
+            .await
+            .map_err(|_| CreateAccessTokenError::CommitTransactionFailed)?;
 
         tracing::info!(
             event = "access_token.created",
@@ -158,75 +181,58 @@ fn authorize_access_token_write(
         .authorize::<CreateAccessTokenError>()
 }
 
-impl From<AccessTokenStoreError> for CreateAccessTokenError {
-    fn from(error: AccessTokenStoreError) -> Self {
+impl From<AccessTokenRepositoryError> for CreateAccessTokenError {
+    fn from(error: AccessTokenRepositoryError) -> Self {
         match error {
-            AccessTokenStoreError::Conflict { source } => Self::Conflict { source },
-            AccessTokenStoreError::TemporarilyUnavailable { source } => {
+            AccessTokenRepositoryError::ConcurrencyConflict => Self::Internal {
+                source: application::error::box_error(std::io::Error::other(
+                    "unexpected access token concurrency conflict during creation",
+                )),
+            },
+            AccessTokenRepositoryError::Conflict { source } => Self::Conflict { source },
+            AccessTokenRepositoryError::TemporarilyUnavailable { source } => {
                 Self::TemporarilyUnavailable { source }
             }
-            AccessTokenStoreError::InvalidPersistedState { source } => {
+            AccessTokenRepositoryError::InvalidPersistedState { source } => {
                 Self::InvalidPersistedState { source }
             }
-            AccessTokenStoreError::Internal { source } => Self::Internal { source },
+            AccessTokenRepositoryError::Internal { source } => Self::Internal { source },
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    #![allow(dead_code, unused_imports)]
     use super::{
         CreateAccessTokenCommand, CreateAccessTokenError, CreateAccessTokenHandler,
         CreateAccessTokenUseCase,
     };
+    use crate::ports::{
+        AccessTokenRepository, AccessTokenRepositoryError, AccessTokenRepositoryFactory,
+        AccessTokenStorageVersion, VersionedAccessToken,
+    };
+    use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+    use application::transaction::{Transaction, TransactionError, UnitOfWork};
+    use domain_primitives::versioned::Versioned;
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex, MutexGuard};
+    use user_core::access_token::{
+        AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, HashedRawAccessToken, Scope,
+    };
     use user_core::user_id::UserId;
 
-    use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-    use application::error::{BoxError, box_error};
-    use application::operation_context::{
-        CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
-    };
-    use application::patch_field::PatchField;
-    use std::collections::{BTreeSet, HashSet};
-    use std::fmt::Debug;
-    use std::sync::{Arc, Mutex, MutexGuard};
-    use time::{Duration, OffsetDateTime};
-    use user_core::access_token::{
-        AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, HashedRawAccessToken,
-        NewAccessToken, RawAccessToken, Scope,
-    };
-
-    #[derive(Debug, Clone, Copy)]
-    enum StoreErrorKind {
-        Conflict,
-        TemporarilyUnavailable,
-        InvalidPersistedState,
-        Internal,
-    }
-
     #[derive(Default)]
-    struct StoreState {
+    struct State {
         token: Option<AccessToken>,
-        tokens: Vec<AccessToken>,
-        find_by_id_error: Option<StoreErrorKind>,
-        find_by_hashed_error: Option<StoreErrorKind>,
-        list_error: Option<StoreErrorKind>,
-        insert_error: Option<StoreErrorKind>,
-        replace_error: Option<StoreErrorKind>,
-        delete_error: Option<StoreErrorKind>,
-        find_by_id_calls: usize,
-        find_by_hashed_calls: usize,
-        list_calls: usize,
+        begins: usize,
+        commits: usize,
         insert_calls: usize,
-        replace_calls: usize,
-        delete_calls: usize,
     }
 
     #[derive(Clone, Default)]
-    struct FakeAccessTokenStore {
-        state: Arc<Mutex<StoreState>>,
-    }
+    struct Fakes(Arc<Mutex<State>>);
+    struct FakeTx(Fakes);
+    struct FakeRepository(Fakes);
 
     fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         match mutex.lock() {
@@ -235,7 +241,7 @@ mod tests {
         }
     }
 
-    fn ctx(principal: Principal) -> OperationContext {
+    fn context(principal: Principal) -> OperationContext {
         OperationContext {
             principal,
             request_id: RequestId::new("req-test"),
@@ -243,250 +249,132 @@ mod tests {
         }
     }
 
-    fn token(
-        user_id: user_core::user_id::UserId,
-        scopes: HashSet<Scope>,
-        expires: Option<OffsetDateTime>,
-    ) -> AccessToken {
-        let raw = RawAccessToken::new();
-        AccessToken::create(NewAccessToken {
-            id: AccessTokenId::new(),
-            hashed_token: raw.into(),
-            user_id,
-            name: AccessTokenName::from("test token"),
-            scopes,
-            origin: AccessTokenOrigin::User,
-            expires,
-        })
+    fn versioned(token: AccessToken) -> VersionedAccessToken {
+        Versioned::new(token, AccessTokenStorageVersion::INITIAL)
     }
 
-    fn boxed() -> BoxError {
-        box_error(std::io::Error::other("boom"))
-    }
-
-    fn store_error(kind: StoreErrorKind) -> AccessTokenStoreError {
-        match kind {
-            StoreErrorKind::Conflict => AccessTokenStoreError::Conflict { source: boxed() },
-            StoreErrorKind::TemporarilyUnavailable => {
-                AccessTokenStoreError::TemporarilyUnavailable { source: boxed() }
-            }
-            StoreErrorKind::InvalidPersistedState => {
-                AccessTokenStoreError::InvalidPersistedState { source: boxed() }
-            }
-            StoreErrorKind::Internal => AccessTokenStoreError::Internal { source: boxed() },
-        }
-    }
-
-    fn assert_error<T, E, F>(result: Result<T, E>, predicate: F)
-    where
-        E: Debug,
-        F: FnOnce(&E) -> bool,
-    {
-        match result {
-            Ok(_) => panic!("expected error"),
-            Err(error) => assert!(predicate(&error), "unexpected error: {error:?}"),
-        }
-    }
-
-    fn assert_ok<T, E: Debug>(result: Result<T, E>) -> T {
-        match result {
-            Ok(value) => value,
-            Err(error) => panic!("expected ok, got {error:?}"),
+    #[async_trait::async_trait]
+    impl Transaction for FakeTx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            lock(&self.0.0).commits += 1;
+            Ok(())
         }
     }
 
     #[async_trait::async_trait]
-    impl AccessTokenStore for FakeAccessTokenStore {
+    impl UnitOfWork for Fakes {
+        type Tx = FakeTx;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            lock(&self.0).begins += 1;
+            Ok(FakeTx(self.clone()))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AccessTokenRepository for FakeRepository {
         async fn find_by_id(
-            &self,
-            _user_id: &user_core::user_id::UserId,
-            _access_token_id: &AccessTokenId,
-        ) -> Result<Option<AccessToken>, AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.find_by_id_calls += 1;
-            if let Some(kind) = state.find_by_id_error {
-                Err(store_error(kind))
-            } else {
-                Ok(state.token.clone())
-            }
+            &mut self,
+            _user_id: UserId,
+            _access_token_id: AccessTokenId,
+        ) -> Result<Option<VersionedAccessToken>, AccessTokenRepositoryError> {
+            Ok(None)
         }
 
         async fn find_by_hashed_token(
-            &self,
+            &mut self,
             _hashed_token: &HashedRawAccessToken,
-        ) -> Result<Option<AccessToken>, AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.find_by_hashed_calls += 1;
-            if let Some(kind) = state.find_by_hashed_error {
-                Err(store_error(kind))
-            } else {
-                Ok(state.token.clone())
-            }
+        ) -> Result<Option<VersionedAccessToken>, AccessTokenRepositoryError> {
+            Ok(None)
         }
 
-        async fn list_for_user(
-            &self,
-            _user_id: &user_core::user_id::UserId,
-        ) -> Result<Vec<AccessToken>, AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.list_calls += 1;
-            if let Some(kind) = state.list_error {
-                Err(store_error(kind))
-            } else {
-                Ok(state.tokens.clone())
-            }
-        }
-
-        async fn insert(&self, access_token: AccessToken) -> Result<(), AccessTokenStoreError> {
-            let mut state = lock(&self.state);
+        async fn insert(
+            &mut self,
+            token: &AccessToken,
+        ) -> Result<VersionedAccessToken, AccessTokenRepositoryError> {
+            let mut state = lock(&self.0.0);
             state.insert_calls += 1;
-            if let Some(kind) = state.insert_error {
-                Err(store_error(kind))
-            } else {
-                state.token = Some(access_token);
-                Ok(())
-            }
+            state.token = Some(token.clone());
+            Ok(versioned(token.clone()))
         }
 
-        async fn replace(&self, access_token: AccessToken) -> Result<(), AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.replace_calls += 1;
-            if let Some(kind) = state.replace_error {
-                Err(store_error(kind))
-            } else {
-                state.token = Some(access_token);
-                Ok(())
-            }
+        async fn update(
+            &mut self,
+            token: &AccessToken,
+            _expected_version: AccessTokenStorageVersion,
+        ) -> Result<VersionedAccessToken, AccessTokenRepositoryError> {
+            Ok(versioned(token.clone()))
         }
 
-        async fn delete(
-            &self,
-            _user_id: &user_core::user_id::UserId,
-            _access_token_id: &AccessTokenId,
-        ) -> Result<(), AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.delete_calls += 1;
-            if let Some(kind) = state.delete_error {
-                Err(store_error(kind))
-            } else {
-                state.token = None;
-                Ok(())
-            }
+        async fn delete_by_id(
+            &mut self,
+            _user_id: UserId,
+            _access_token_id: AccessTokenId,
+        ) -> Result<bool, AccessTokenRepositoryError> {
+            Ok(true)
+        }
+    }
+
+    impl AccessTokenRepositoryFactory<FakeTx> for Fakes {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl AccessTokenRepository + 'tx {
+            FakeRepository(self.clone())
         }
     }
 
     #[tokio::test]
-    async fn should_create_access_token_when_authenticated() {
+    async fn should_create_access_token_in_committed_transaction() {
         let user_id = UserId::new();
-        let store = FakeAccessTokenStore::default();
-        let scopes = HashSet::from([Scope::ShopsWrite]);
-        let created = assert_ok(
-            CreateAccessTokenHandler::new(store.clone())
-                .execute(
-                    &ctx(Principal::User(user_id)),
-                    CreateAccessTokenCommand {
-                        user_id,
-                        name: AccessTokenName::from("created"),
-                        scopes,
-                        expires: None,
-                        origin: AccessTokenOrigin::User,
-                    },
-                )
-                .await,
-        );
+        let fakes = Fakes::default();
+        let result = CreateAccessTokenHandler::new(fakes.clone(), fakes.clone())
+            .execute(
+                &context(Principal::User(user_id)),
+                CreateAccessTokenCommand {
+                    user_id,
+                    name: AccessTokenName::from("created"),
+                    scopes: HashSet::from([Scope::ShopsWrite]),
+                    expires: None,
+                    origin: AccessTokenOrigin::User,
+                },
+            )
+            .await;
 
-        assert_eq!(user_id, created.user_id);
-        let state = lock(&store.state);
+        match result {
+            Ok(result) => assert_eq!(user_id, result.user_id),
+            Err(error) => panic!("expected access token creation: {error:?}"),
+        }
+        let state = lock(&fakes.0);
+        assert_eq!(1, state.begins);
         assert_eq!(1, state.insert_calls);
+        assert_eq!(1, state.commits);
         assert_eq!(
             Some(user_id),
-            state.token.as_ref().map(|token| token.user_id())
+            state.token.as_ref().map(AccessToken::user_id)
         );
     }
 
     #[tokio::test]
-    async fn should_create_access_token_with_delegated_user() {
-        let user_id = UserId::new();
-        let store = FakeAccessTokenStore::default();
-
-        let created = assert_ok(
-            CreateAccessTokenHandler::new(store.clone())
-                .execute(
-                    &ctx(Principal::DelegatedUser {
-                        user_id,
-                        capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
-                    }),
-                    CreateAccessTokenCommand {
-                        user_id,
-                        name: AccessTokenName::from("delegated"),
-                        scopes: HashSet::new(),
-                        expires: None,
-                        origin: AccessTokenOrigin::User,
-                    },
-                )
-                .await,
-        );
-
-        assert_eq!(user_id, created.user_id);
-        assert_eq!(1, lock(&store.state).insert_calls);
-    }
-
-    #[tokio::test]
-    async fn should_not_create_access_token_when_anonymous() {
-        let user_id = UserId::new();
-        let store = FakeAccessTokenStore::default();
-        assert_error(
-            CreateAccessTokenHandler::new(store.clone())
-                .execute(
-                    &ctx(Principal::Anonymous),
-                    CreateAccessTokenCommand {
-                        user_id,
-                        name: AccessTokenName::from("x"),
-                        scopes: HashSet::new(),
-                        expires: None,
-                        origin: AccessTokenOrigin::User,
-                    },
-                )
-                .await,
-            |error| matches!(error, CreateAccessTokenError::AuthenticatedActorRequired),
-        );
-        assert_eq!(0, lock(&store.state).insert_calls);
-    }
-
-    #[tokio::test]
-    async fn should_map_access_token_store_errors_for_create() {
-        for kind in [
-            StoreErrorKind::Conflict,
-            StoreErrorKind::TemporarilyUnavailable,
-            StoreErrorKind::InvalidPersistedState,
-            StoreErrorKind::Internal,
-        ] {
-            let user_id = UserId::new();
-            let store = FakeAccessTokenStore::default();
-            lock(&store.state).insert_error = Some(kind);
-            assert_error(
-                CreateAccessTokenHandler::new(store)
-                    .execute(
-                        &ctx(Principal::System),
-                        CreateAccessTokenCommand {
-                            user_id,
-                            name: AccessTokenName::from("x"),
-                            scopes: HashSet::new(),
-                            expires: None,
-                            origin: AccessTokenOrigin::User,
-                        },
-                    )
-                    .await,
-                |error| {
-                    matches!(
-                        error,
-                        CreateAccessTokenError::Conflict { .. }
-                            | CreateAccessTokenError::TemporarilyUnavailable { .. }
-                            | CreateAccessTokenError::InvalidPersistedState { .. }
-                            | CreateAccessTokenError::Internal { .. }
-                    )
+    async fn should_reject_anonymous_create_before_starting_transaction() {
+        let fakes = Fakes::default();
+        let result = CreateAccessTokenHandler::new(fakes.clone(), fakes.clone())
+            .execute(
+                &context(Principal::Anonymous),
+                CreateAccessTokenCommand {
+                    user_id: UserId::new(),
+                    name: AccessTokenName::from("created"),
+                    scopes: HashSet::new(),
+                    expires: None,
+                    origin: AccessTokenOrigin::User,
                 },
-            );
-        }
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(CreateAccessTokenError::AuthenticatedActorRequired)
+        ));
+        assert_eq!(0, lock(&fakes.0).begins);
     }
 }

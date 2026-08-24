@@ -52,6 +52,6 @@ Use for CDC and rebuildable read projections.
 ## Tests
 
 - Cover insert/update/delete mapping, duplicate delivery, concurrent delivery, stale changes, partial enqueue then redelivery, queue saturation, projection version checks, replay, and full rebuild.
-- Every production worker route MUST have a black-box acceptance suite in its runtime crate `tests/`. Use real Postgres, real Sequin webhook delivery, the running worker HTTP server, and every real target store it writes (for example DynamoDB or OpenSearch). Do not replace this flow with mocked ports.
+- Every production worker route MUST have a black-box acceptance suite in its runtime crate `tests/`. Use real Postgres, real Sequin webhook delivery, the running worker HTTP server, and every real target store it writes (for example OpenSearch). Do not replace this flow with mocked ports.
 - Worker acceptance cases MUST cover committed happy paths, source rollback, ignored/unrouted changes, redelivery/target idempotency, recipient or projection filtering, and persisted target payload shape. Test retryable queue/backpressure and malformed CDC behavior at the narrowest suitable layer when a real Sequin setup cannot deterministically induce them.
 - Keep MVP crash-after-ack loss window documented or covered by operational test.

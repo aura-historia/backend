@@ -7,12 +7,12 @@
 ## Core Design
 
 - LocalStack and AWS integration test harness.
-- Root modules: `api_gateway`, `aura_historia_api`, `cloudformation`, `cognito`, `dynamodb`, `eventbridge`, `localstack`, `opensearch`, `postgres`, `s3`, `sequin`, `ses`, `signal`, `sqs`.
+- Root modules: `api_gateway`, `aura_historia_api`, `cloudformation`, `cognito`, `eventbridge`, `localstack`, `opensearch`, `postgres`, `s3`, `sequin`, `ses`, `signal`, `sqs`.
 - Child crates: `test-api-macros`.
 - Main neighbors: `application`, `test-api-macros`.
 - Test crate. Favor stable helpers and black-box assertions.
 - `#[aura_integration_test]` tests run serially inside one test process against process-local LocalStack and optional service containers like Postgres.
-- Postgres applies schema-only migrations once per test binary, then truncates data between tests. Use `Postgres::new_per_test` only for migrations that seed test data; optional setup scripts always run before each test.
+- Postgres builds a pinned PostgreSQL 16 pg-ttl image once per test process, preloads `pg_ttl_index`, creates the extension, starts its worker, applies schema-only migrations once per test binary, then truncates application data between tests. Extension-owned metadata survives teardown. Use `Postgres::new_per_test` only for migrations that seed test data; optional setup scripts always run before each test.
 - LocalStack and Postgres use process-id-scoped container names and host ports so separate test binaries/processes can run in parallel.
 - OpenSearch preserves its process-lived LocalStack domain and clears canonical indexes, including `user_search_filters`, between macro lifecycles.
 

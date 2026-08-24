@@ -66,7 +66,7 @@
 - Keep cron orchestration thin. Put real rule in spider, scraper, review, or service modules.
 - Keep retry, cooldown, lock, and budget semantics explicit. Hidden side effect bad.
 - Prefer append-or-upsert flows over destructive rewrite when preserving crawler history matters.
-- Crawler truth live in Postgres. OpenSearch and DynamoDB be neighbors, not crawler truth.
+- Crawler truth live in Postgres. OpenSearch be a read-side neighbor, not crawler truth.
 - Review rail be safety feature, not garnish. Keep audit fields and approval modes meaningful.
 - URL classification should stay mostly deterministic after regex inference. Do not turn every page decision into fresh LLM call.
 - Schema repair should grow cache carefully. Bad generated schema should die fast, not poison shop cache.

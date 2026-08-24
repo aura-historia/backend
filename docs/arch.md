@@ -88,7 +88,6 @@ record-core/
 record-service/
 record-postgres/
 record-opensearch/
-record-dynamodb/
 
 workspace-core/
 workspace-service/
@@ -106,7 +105,6 @@ product-core
 product-service
 product-postgres
 product-opensearch
-product-dynamodb
 ```
 
 ### 3.1 Core crate
@@ -192,13 +190,6 @@ record-opensearch/
     ├── record_document.rs
     ├── record_search_reader.rs
     └── projector.rs
-
-record-dynamodb/
-└── src/
-    ├── lib.rs
-    ├── record_item.rs
-    ├── record_reader.rs
-    └── projector.rs
 ```
 
 Technology-specific names are appropriate for adapter crates because they describe the implementation boundary.
@@ -248,7 +239,7 @@ record-core
 record-service
     ▲
     │
-record-postgres / record-opensearch / record-dynamodb
+record-postgres / record-opensearch
     ▲
     │
 api and runtime
@@ -259,8 +250,7 @@ Allowed dependencies:
 ```text
 record-service       -> record-core
 record-postgres      -> record-service + record-core + platform-postgres as needed
-record-opensearch    -> record-service + record-core identifiers as needed
-record-dynamodb      -> record-service + record-core identifiers as needed
+record-opensearch      -> record-service + record-core identifiers as needed
 api                  -> record-service + public core identifiers/value objects as needed
 runtime              -> service crates + adapter crates + platform crates
 ```
@@ -290,7 +280,7 @@ The workspace has narrow shared owners. They are not a replacement `common` hub:
 - `money` and `localization` own pure currency/amount/price and language/localized values.
 - `platform-postgres`, `platform-opensearch`, and `platform-observability` own concrete SQLx transaction mechanics, generic OpenSearch protocol envelopes, and subscriber setup.
 
-Canonical core, service, adapter, runtime, and transport crates MUST import these owners directly. PostgreSQL adapters own SQLx rows and mappings; OpenSearch adapters own documents, queries, and mappings while `platform-opensearch` owns only proven generic protocol envelopes; DynamoDB adapters own item/update/batch mechanics; provider crates own wire DTOs and provider vocabulary. `large-language-model` owns LLM operation/model/tier vocabulary and invocation metrics, while `platform-observability` owns subscriber setup only. `common` remains only for legacy compatibility and MUST NOT gain new canonical consumers. The canonical runtime leaves use `platform-observability` for logging, `platform-postgres` for typed pool and transaction mechanics, `application` for operation context and transaction contracts, and bounded-context core crates for identifiers. No canonical production crate may retain a normal or development `common` edge; legacy APIs, entities, Lambdas, and explicitly dual test/composition roots may remain. A shared crate MUST stay narrow, technology-neutral where named as such, and free of bounded-context storage or transport representations.
+Canonical core, service, adapter, runtime, and transport crates MUST import these owners directly. PostgreSQL adapters own SQLx rows and mappings; OpenSearch adapters own documents, queries, and mappings while `platform-opensearch` owns only proven generic protocol envelopes; provider crates own wire DTOs and provider vocabulary. `large-language-model` owns LLM operation/model/tier vocabulary and invocation metrics, while `platform-observability` owns subscriber setup only. `common` remains only for legacy compatibility and MUST NOT gain new canonical consumers. The canonical runtime leaves use `platform-observability` for logging, `platform-postgres` for typed pool and transaction mechanics, `application` for operation context and transaction contracts, and bounded-context core crates for identifiers. No canonical production crate may retain a normal or development `common` edge; legacy APIs, entities, Lambdas, and explicitly dual test/composition roots may remain. A shared crate MUST stay narrow, technology-neutral where named as such, and free of bounded-context storage or transport representations.
 
 ## 4. Domain-Driven Design boundaries
 
@@ -426,7 +416,6 @@ Domain code SHOULD be deterministic and testable without mocks, databases, clock
 | PostgreSQL row | `RecordRow` | `record-postgres` | private or `pub(crate)` |
 | Search document | `RecordDocument` | `record-opensearch` | private or `pub(crate)` |
 | Shared search protocol envelope | `SearchResponse<T>` | `platform-opensearch` | `pub` only after multiple production adapters prove the exact generic wire shape |
-| Key-value item | `RecordItem` | `record-dynamodb` | private or `pub(crate)` |
 | REST request DTO | `RenameRecordRequestDto` | `api` | private or `pub(crate)` |
 | REST response DTO | `RecordDetailsResponseDto` | `api` | private or `pub(crate)` |
 
@@ -708,8 +697,7 @@ sqlx
 PgPool
 PgConnection
 OpenSearch clients
-DynamoDB clients
-adapter rows/documents/items
+adapter rows/documents
 concrete adapter factories
 ```
 
@@ -794,7 +782,6 @@ Forbidden:
 ```text
 OpenSearchPort
 PostgresReader
-DynamoPort
 ExternalDatabasePort
 ```
 
@@ -803,7 +790,6 @@ One adapter may implement multiple ports. One port may have multiple implementat
 ```text
 RecordDetailsReader
     <- PostgresRecordDetailsReader
-    <- DynamoRecordDetailsReader
 
 RecordSearchReader
     <- OpenSearchRecordSearchReader
@@ -845,7 +831,7 @@ pub trait RecordRepository: Send {
 
 The repository port is public because a separate adapter crate implements it.
 
-Repository `insert` and `update` methods MUST return the persisted aggregate state, not `()`. When storage-generated metadata such as `created`, `updated`, or version is needed by the use case result, return a storage-neutral persisted model that contains the aggregate plus that metadata. SQL/Dynamo row types MUST still stay private to the adapter.
+Repository `insert` and `update` methods MUST return the persisted aggregate state, not `()`. When storage-generated metadata such as `created`, `updated`, or version is needed by the use case result, return a storage-neutral persisted model that contains the aggregate plus that metadata. SQL row types MUST still stay private to the adapter.
 
 A repository MAY contain additional aggregate-relevant lookup methods when they are needed to reconstruct or enforce the aggregate boundary.
 
@@ -1748,14 +1734,13 @@ PostgreSQL owns business truth for:
 * product watchlists;
 * search filters;
 * search-filter matches;
-* notifications and notification delivery state; a Notification is separate from its one-or-more delivery rows, each uniquely identified by `(notification_id, channel, target_key)`. The application planner selects channels, each channel adapter resolves its target, and generic delivery claim/send/finalize stays outside notification producers. EMAIL is the sole production sender; notification storage has no DynamoDB rows or TTL.
-
-DynamoDB remains the operational owner for:
-
-* access tokens;
+* notifications and notification delivery state; a Notification is separate from its one-or-more delivery rows, each uniquely identified by `(notification_id, channel, target_key)`. The application planner selects channels, each channel adapter resolves its target, and generic delivery claim/send/finalize stays outside notification producers. EMAIL is the sole production sender.
+* User access tokens;
 * OAuth clients;
 * OAuth authorization codes;
 * OAuth third-party exchange codes.
+
+Credential tables are operational PostgreSQL storage, not Sequin sources. Expiry remains service-side correctness; `pg_ttl_index` is asynchronous physical cleanup only.
 
 OpenSearch contains rebuildable search projections only.
 
@@ -2687,10 +2672,9 @@ For `aura-historia-api`, black-box API tests SHOULD use `test-api::AuraHistoriaA
 
 ```rust
 const POSTGRES: test_api::Postgres = test_api::Postgres::new("migrations");
-const DYNAMODB: test_api::DynamoDB = test_api::DynamoDB();
 static AURA_API: test_api::AuraHistoriaApi = test_api::AuraHistoriaApi::new(aura_api_app);
 
-#[test_api::aura_integration_test(services = [POSTGRES, DYNAMODB, &AURA_API])]
+#[test_api::aura_integration_test(services = [POSTGRES, &AURA_API])]
 async fn should_get_shop_by_id_with_aura_access_token() {
     let response = match reqwest::Client::new()
         .get(format!("{}/api/v1/shops/{shop_id}", AURA_API.base_url()))
@@ -2724,7 +2708,7 @@ Use these suffixes consistently:
 | `...Policy` | Domain or application decision abstraction |
 | `...Row` | PostgreSQL row representation |
 | `...Document` | Search document representation |
-| `...Item` | Key-value representation |
+
 | `...Record` | External/graph/source response representation |
 | `...Dto` | Transport representation |
 | `...Event` | Domain event |
@@ -2732,7 +2716,7 @@ Use these suffixes consistently:
 | `-service` | Entity application/use-case crate |
 | `-postgres` | Entity PostgreSQL adapter crate |
 | `-opensearch` | Entity OpenSearch adapter crate |
-| `-dynamodb` | Entity DynamoDB adapter crate |
+
 
 Avoid vague names:
 

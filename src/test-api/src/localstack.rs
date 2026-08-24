@@ -218,7 +218,7 @@ pub async fn spin_up_localstack(
 ///
 /// # Arguments
 ///
-/// * `services` - A list of AWS service identifiers (e.g., `"s3"`, `"dynamodb"`).
+/// * `services` - A list of AWS service identifiers (e.g., `"s3"`, `"sqs"`).
 ///
 /// # Returns
 ///
