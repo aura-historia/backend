@@ -1,13 +1,14 @@
 use shop_core::shop_id::ShopId;
 mod bookkeeping;
 mod budget;
+mod cached_schema_selection;
+mod fresh_schema_generation;
 mod happy_path;
 mod hash_skip;
-mod normalization_fix;
 mod redirect_guard;
 mod removed_page;
+mod richest_schema_selection;
 mod schema_fallback;
-mod schema_retry;
 mod seed_pages;
 
 // ---------------------------------------------------------------------------
@@ -17,7 +18,7 @@ mod seed_pages;
 use crate::scraper::candidate_service::MockScraperCandidateService;
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
 use crate::scraper::css_selector::product_schema_service::{
-    GeneratedAppendSchema, GeneratedProductSchemas, MockProductSchemaService, SchemaLlmEvaluation,
+    GeneratedProductSchemas, GeneratedSingleSchema, MockProductSchemaService, SchemaLlmEvaluation,
     SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision,
 };
 use crate::scraper::css_selector::rule::{
@@ -148,11 +149,11 @@ pub(super) fn schema_evaluation(confidence: SchemaLlmEvaluationConfidence) -> Sc
     }
 }
 
-pub(super) fn generated_append_product(
+pub(super) fn generated_single_product(
     schema: ProductCssSelectorSchema,
     confidence: SchemaLlmEvaluationConfidence,
-) -> GeneratedAppendSchema {
-    GeneratedAppendSchema::Product {
+) -> GeneratedSingleSchema {
+    GeneratedSingleSchema::Product {
         schema: Box::new(schema),
         evaluation: schema_evaluation(confidence),
     }

@@ -230,7 +230,7 @@ async fn main() {
             spider_concurrency: 100,
             spider_site_concurrency_limit: 8,
             scraper_concurrency: 10,
-            spider_classify_threshold: 1000,
+            spider_classify_threshold: 400,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
             ..Default::default()
         };
@@ -302,21 +302,22 @@ async fn main() {
                     return;
                 }
             };
-        let append_schema_llm =
-            match vertex_ai_config.create_model(vertex_ai_models.product_schema.clone()) {
-                Ok(model) => model,
-                Err(error) => {
-                    error!(%error, "Failed to initialize Vertex AI model for schema repair");
-                    return;
-                }
-            };
+        let single_schema_llm = match vertex_ai_config
+            .create_model(vertex_ai_models.product_schema.clone())
+        {
+            Ok(model) => model,
+            Err(error) => {
+                error!(%error, "Failed to initialize Vertex AI model for fresh schema generation");
+                return;
+            }
+        };
 
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
         let schema_svc = ProductSchemaServiceImpl::new(
             create_schema_llm,
-            append_schema_llm,
+            single_schema_llm,
             schema_repo,
             Some(Arc::clone(&llm_governor)),
         );

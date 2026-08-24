@@ -1,0 +1,58 @@
+[
+  {
+    "shops_product_id": {
+      "selector": "article",
+      "type": "attribute",
+      "name": "id"
+    },
+    "title": {
+      "selector": "h1",
+      "type": "text"
+    },
+    "description": {
+      "selector": ".product__description",
+      "type": "text"
+    },
+    "price": {
+      "selector": ".product__details li:not(.product__details__sold):nth-of-type(6)",
+      "type": "text"
+    },
+    "state": {
+      "selector": ".product__details li:nth-of-type(6)",
+      "type": "text"
+    },
+    "images": {
+      "selector": ".product__gallery-img",
+      "type": "attribute",
+      "name": "src",
+      "cardinality": "all"
+    },
+    "default_currency": "GBP"
+  },
+  {
+    "shops_product_id": {
+      "selector": "article",
+      "type": "attribute",
+      "name": "id"
+    },
+    "title": {
+      "selector": "h1",
+      "type": "text"
+    },
+    "description": {
+      "selector": ".product__description",
+      "type": "text"
+    },
+    "state": {
+      "selector": ".product__details li:nth-of-type(6)",
+      "type": "text"
+    },
+    "images": {
+      "selector": ".product__gallery-img",
+      "type": "attribute",
+      "name": "src",
+      "cardinality": "all"
+    },
+    "default_currency": "GBP"
+  }
+]

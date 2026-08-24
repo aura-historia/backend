@@ -3,9 +3,8 @@ use crate::scraper::candidate_service::ProductSnapshot;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::domain::product::{ScrapedProduct, ScraperService};
-use crate::scraper::scraper_service::recovery::normalization_retry::{
-    ExistingSchemaSelection, NormalizationRetryContext,
-};
+use crate::scraper::scraper_service::pipeline::cached_schema_selection::ExistingSchemaSelection;
+use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
 use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
 use crate::scraper::scraper_service::util::hash::{hash_html, hash_main_fragment};
 use crate::scraper::scraper_service::util::html::extract_main_fragment;
@@ -203,7 +202,7 @@ impl ScraperService for ScraperServiceImpl {
             .obtain_schemas(shop_id, url, product_url_pattern, &html)
             .await?;
 
-        // 3. Select a schema only after extraction and normalization succeed.
+        // 3. Select the richest cached schema that normalizes successfully.
         let final_product = match self
             .select_existing_schema_with_normalization(
                 shop_id,
@@ -214,51 +213,20 @@ impl ScraperService for ScraperServiceImpl {
             .await?
         {
             ExistingSchemaSelection::Normalized(product) => *product,
-            ExistingSchemaSelection::NeedsRepair {
-                selected_schema,
-                last_norm_error,
-            } => {
-                self.fix_normalization_with_schema_retry(
-                    NormalizationRetryContext {
-                        shop_id,
-                        domain,
-                        url,
-                        html: &html,
-                        existing_schemas: &shops_product_schema.product_schemas,
-                        selected_schema: *selected_schema,
-                    },
-                    last_norm_error,
-                )
-                .await?
-            }
-            ExistingSchemaSelection::NoSchemaApplied { last_error } => {
+            ExistingSchemaSelection::GenerateNewSchema { reason } => {
                 debug!(
                     domain,
                     schemas = shops_product_schema.product_schemas.len(),
-                    error = ?last_error,
-                    "No cached schema applied; generating new schema candidates"
+                    fresh_schema_generation_reason = reason.as_str(),
+                    "Cached selection exhausted; generating new schema"
                 );
-                let (selected_schema, raw, existing_schemas_for_norm) = self
-                    .append_and_reapply_with_retry(
-                        shop_id,
-                        url,
-                        &html,
-                        &shops_product_schema.product_schemas,
-                    )
-                    .await?;
-
-                debug!(domain, "Normalizing generated schema extraction");
-                self.normalize_with_schema_fix_retry(
-                    NormalizationRetryContext {
-                        shop_id,
-                        domain,
-                        url,
-                        html: &html,
-                        existing_schemas: &existing_schemas_for_norm,
-                        selected_schema,
-                    },
-                    raw,
-                )
+                self.generate_fresh_schema_for_page(FreshSchemaGenerationContext {
+                    shop_id,
+                    domain,
+                    url,
+                    html: &html,
+                    existing_schemas: &shops_product_schema.product_schemas,
+                })
                 .await?
             }
         };

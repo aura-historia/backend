@@ -1,11 +1,11 @@
 //! Scraper parsing pipeline integration tests.
 //!
-//! All test cases are driven by a single fixture file:
+//! All test cases are driven by fixture JSON and shop schema-cache files:
 //!   `tests/fixtures/fixtures.json`
 //!
 //! Each element in the JSON array is one test case and contains:
 //!   - `html`         — path to the HTML fixture (relative to crate root)
-//!   - `schema`       — the `ProductCssSelectorSchema` (CSS rules, inline JSON)
+//!   - `schema` or `schemas_file` — one schema or a shop schema cache
 //!   - `raw_state`    — the raw state string extracted from the HTML
 //!   - `state_record` — the expected normalized state (`AVAILABLE`, `SOLD`, …)
 //!   - `raw`          — expected raw extraction output
@@ -13,7 +13,9 @@
 //!
 //! To add a new shop or a new variant (e.g. sold vs available):
 //!   1. Drop the HTML file in `tests/fixtures/html/<shop>[_variant].html`.
-//!   2. Append an entry to `tests/fixtures/fixtures.json`.
+//!   2. Add all cached schemas to `tests/fixtures/schemas/<shop>.json`.
+//!   3. Append an entry to `tests/fixtures/fixtures.json` with `schemas_file`
+//!      and the expected `schema_index`.
 //!      No Rust code changes needed.
 
 #[path = "scraper_parsing_pipeline/assertions.rs"]
@@ -30,7 +32,7 @@ use scraper_parsing_pipeline_case::load_all_fixtures;
 fn should_extract_product_for_all_fixtures() {
     for fixture in load_all_fixtures() {
         let html = fixture.load_html_source();
-        assert_extraction(&fixture.schema, &html, &fixture.raw);
+        assert_extraction(&fixture.schemas, fixture.schema_index, &html, &fixture.raw);
     }
 }
 
@@ -39,7 +41,7 @@ async fn should_normalize_product_for_all_fixtures() {
     for fixture in load_all_fixtures() {
         let html = fixture.load_html_source();
         assert_normalized(
-            &fixture.schema,
+            &fixture.schemas[fixture.schema_index],
             &html,
             &fixture.raw_state,
             fixture.state_record,

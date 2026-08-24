@@ -60,7 +60,7 @@ pub struct GeneratedProductSchemas {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum GeneratedAppendSchema {
+pub enum GeneratedSingleSchema {
     Product {
         schema: Box<ProductCssSelectorSchema>,
         evaluation: SchemaLlmEvaluation,
@@ -75,19 +75,19 @@ pub enum GeneratedAppendSchema {
     },
 }
 
-impl GeneratedAppendSchema {
+impl GeneratedSingleSchema {
     pub fn evaluation(&self) -> &SchemaLlmEvaluation {
         match self {
-            GeneratedAppendSchema::Product { evaluation, .. }
-            | GeneratedAppendSchema::Removed { evaluation, .. }
-            | GeneratedAppendSchema::NotProduct { evaluation, .. } => evaluation,
+            GeneratedSingleSchema::Product { evaluation, .. }
+            | GeneratedSingleSchema::Removed { evaluation, .. }
+            | GeneratedSingleSchema::NotProduct { evaluation, .. } => evaluation,
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-enum AppendPageKind {
+enum SinglePageKind {
     Product,
     Removed,
     NotProduct,
@@ -103,8 +103,8 @@ pub(super) enum ProductSchemaResponseValidationError {
     InitialReason,
     #[error("initial response contained no product schemas")]
     InitialEmptySchemas,
-    #[error("append product response must contain exactly one schema")]
-    AppendProductSchemaCount,
+    #[error("single product response must contain exactly one schema")]
+    SingleProductSchemaCount,
     #[error("removed response contained product schemas")]
     RemovedContainsProductSchemas,
     #[error("removed response omitted removed-page evidence")]
@@ -122,7 +122,7 @@ impl ProductSchemaResponseValidationError {
             Self::InitialRemovedSchema => "initial_removed_schema",
             Self::InitialReason => "initial_reason_present",
             Self::InitialEmptySchemas => "initial_empty_schemas",
-            Self::AppendProductSchemaCount => "append_product_schema_count",
+            Self::SingleProductSchemaCount => "single_product_schema_count",
             Self::RemovedContainsProductSchemas => "removed_contains_product_schemas",
             Self::RemovedMissingSchema => "removed_missing_schema",
             Self::NotProductContainsProductSchemas => "not_product_contains_product_schemas",
@@ -134,7 +134,7 @@ impl ProductSchemaResponseValidationError {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub(super) struct ProductSchemaGenerationResponse {
     #[serde(default)]
-    page_kind: Option<AppendPageKind>,
+    page_kind: Option<SinglePageKind>,
     #[serde(default)]
     schemas: Vec<ProductCssSelectorSchema>,
     #[serde(default)]
@@ -169,7 +169,7 @@ impl ProductSchemaGenerationResponse {
     ) -> Result<GeneratedProductSchemas, ProductSchemaResponseValidationError> {
         if matches!(
             self.page_kind,
-            Some(AppendPageKind::Removed | AppendPageKind::NotProduct)
+            Some(SinglePageKind::Removed | SinglePageKind::NotProduct)
         ) {
             return Err(ProductSchemaResponseValidationError::InitialPageClassification);
         }
@@ -189,24 +189,24 @@ impl ProductSchemaGenerationResponse {
         })
     }
 
-    pub(super) fn try_into_append(
+    pub(super) fn try_into_single(
         self,
-    ) -> Result<GeneratedAppendSchema, ProductSchemaResponseValidationError> {
+    ) -> Result<GeneratedSingleSchema, ProductSchemaResponseValidationError> {
         let evaluation = self.evaluation();
-        match self.page_kind.unwrap_or(AppendPageKind::Product) {
-            AppendPageKind::Product => {
+        match self.page_kind.unwrap_or(SinglePageKind::Product) {
+            SinglePageKind::Product => {
                 if self.schemas.len() != 1 {
-                    return Err(ProductSchemaResponseValidationError::AppendProductSchemaCount);
+                    return Err(ProductSchemaResponseValidationError::SingleProductSchemaCount);
                 }
                 let Some(schema) = self.schemas.into_iter().next() else {
-                    return Err(ProductSchemaResponseValidationError::AppendProductSchemaCount);
+                    return Err(ProductSchemaResponseValidationError::SingleProductSchemaCount);
                 };
-                Ok(GeneratedAppendSchema::Product {
+                Ok(GeneratedSingleSchema::Product {
                     schema: Box::new(schema),
                     evaluation,
                 })
             }
-            AppendPageKind::Removed => {
+            SinglePageKind::Removed => {
                 if !self.schemas.is_empty() {
                     return Err(
                         ProductSchemaResponseValidationError::RemovedContainsProductSchemas,
@@ -218,15 +218,15 @@ impl ProductSchemaGenerationResponse {
                 if schema.validate_for_llm_response().is_err() {
                     return Err(ProductSchemaResponseValidationError::InvalidRemovedSchema);
                 }
-                Ok(GeneratedAppendSchema::Removed { schema, evaluation })
+                Ok(GeneratedSingleSchema::Removed { schema, evaluation })
             }
-            AppendPageKind::NotProduct => {
+            SinglePageKind::NotProduct => {
                 if !self.schemas.is_empty() {
                     return Err(
                         ProductSchemaResponseValidationError::NotProductContainsProductSchemas,
                     );
                 }
-                Ok(GeneratedAppendSchema::NotProduct {
+                Ok(GeneratedSingleSchema::NotProduct {
                     reason: self.reason.unwrap_or_else(|| "not product page".to_owned()),
                     evaluation,
                 })
@@ -248,17 +248,17 @@ pub(super) fn parse_product_schemas_response(
     response.try_into_initial().map_err(invalid_data)
 }
 
-pub(super) fn append_schema_generation_response_json_schema() -> String {
+pub(super) fn single_schema_generation_response_json_schema() -> String {
     serde_json::to_string_pretty(&schema_for!(ProductSchemaGenerationResponse))
         .unwrap_or_else(|_| "Failed to generate response schema".to_owned())
 }
 
 #[cfg(test)]
-pub(super) fn parse_append_schema_response(
+pub(super) fn parse_single_schema_response(
     raw: &str,
-) -> Result<GeneratedAppendSchema, serde_json::Error> {
+) -> Result<GeneratedSingleSchema, serde_json::Error> {
     let response = serde_json::from_str::<ProductSchemaGenerationResponse>(raw)?;
-    response.try_into_append().map_err(invalid_data)
+    response.try_into_single().map_err(invalid_data)
 }
 
 #[cfg(test)]
@@ -275,4 +275,164 @@ pub fn strip_markdown_json_embedding(s: &str) -> &str {
         .unwrap_or(s)
         .strip_suffix("```")
         .unwrap_or(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scraper::css_selector::rule::ExtractionRule;
+
+    fn required_fields(schema: &serde_json::Value) -> Vec<&str> {
+        schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .collect()
+    }
+
+    #[test]
+    fn should_generate_required_product_schema_fields_for_vertex() {
+        let schema: serde_json::Value =
+            serde_json::from_str(&product_schema_generation_response_json_schema())
+                .unwrap_or_else(|error| panic!("response schema should serialize: {error}"));
+        let defs = schema["$defs"]
+            .as_object()
+            .unwrap_or_else(|| panic!("response schema should contain definitions"));
+        let product = defs
+            .get("ProductCssSelectorSchema")
+            .unwrap_or_else(|| panic!("product schema definition should exist"));
+        let required = required_fields(product);
+
+        for field in ["title", "state", "images"] {
+            assert!(required.contains(&field), "{field} should be required");
+        }
+        for field in [
+            "description",
+            "price",
+            "shops_product_id",
+            "auction_start",
+            "auction_end",
+        ] {
+            assert!(!required.contains(&field), "{field} should be optional");
+        }
+
+        let rule = defs
+            .get("ExtractionRule")
+            .unwrap_or_else(|| panic!("extraction rule definition should exist"));
+        let rule_required = required_fields(rule);
+        assert!(rule_required.contains(&"selector"));
+        assert!(!rule_required.contains(&"additional_selectors"));
+        assert!(!rule_required.contains(&"cardinality"));
+
+        let variants = rule["oneOf"]
+            .as_array()
+            .unwrap_or_else(|| panic!("extraction kind should retain oneOf variants"));
+        assert!(
+            variants
+                .iter()
+                .all(|variant| { required_fields(variant).contains(&"type") })
+        );
+    }
+
+    #[test]
+    fn should_inspect_raw_flattened_extraction_rule_schema() {
+        let schema = serde_json::to_value(schemars::schema_for!(ExtractionRule))
+            .unwrap_or_else(|error| panic!("extraction rule schema should serialize: {error}"));
+        let rule = schema["$defs"].get("ExtractionRule").unwrap_or(&schema);
+
+        assert!(required_fields(rule).contains(&"selector"));
+        let variants = rule["oneOf"]
+            .as_array()
+            .unwrap_or_else(|| panic!("flattened extraction kind should be represented by oneOf"));
+        assert_eq!(variants.len(), 3);
+        assert!(
+            variants
+                .iter()
+                .all(|variant| required_fields(variant).contains(&"type"))
+        );
+        assert!(variants.iter().any(|variant| {
+            let required = required_fields(variant);
+            required.contains(&"type") && required.contains(&"name")
+        }));
+
+        let types = variants
+            .iter()
+            .filter_map(|variant| variant["properties"]["type"]["const"].as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(types, vec!["text", "attribute", "image_url"]);
+    }
+
+    fn complete_rule(selector: &str, extraction_type: &str) -> serde_json::Value {
+        let mut rule = serde_json::json!({
+            "selector": selector,
+            "type": extraction_type,
+        });
+        if extraction_type == "attribute" {
+            rule["name"] = serde_json::Value::String("data-id".to_owned());
+        }
+        rule
+    }
+
+    #[test]
+    fn should_keep_extraction_rule_discriminator_required_during_local_validation() {
+        assert!(
+            serde_json::from_value::<ExtractionRule>(serde_json::json!({
+                "selector": ".gallery img"
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<ExtractionRule>(complete_rule(".gallery img", "image_url"))
+                .is_ok()
+        );
+        assert!(
+            serde_json::from_value::<ExtractionRule>(complete_rule(".description", "text")).is_ok()
+        );
+        assert!(
+            serde_json::from_value::<ExtractionRule>(complete_rule(
+                "[data-product-id]",
+                "attribute"
+            ))
+            .is_ok()
+        );
+        assert!(
+            serde_json::from_value::<ExtractionRule>(serde_json::json!({
+                "selector": "[data-product-id]",
+                "type": "attribute"
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn should_validate_optional_product_rules_when_present() {
+        let mut product = serde_json::json!({
+            "title": complete_rule("h1", "text"),
+            "state": complete_rule(".state", "text"),
+            "images": complete_rule(".gallery img", "image_url"),
+        });
+        assert!(serde_json::from_value::<ProductCssSelectorSchema>(product.clone()).is_ok());
+
+        product["description"] = serde_json::Value::Null;
+        assert!(serde_json::from_value::<ProductCssSelectorSchema>(product.clone()).is_ok());
+
+        product["description"] = serde_json::json!({"selector": ".description"});
+        assert!(serde_json::from_value::<ProductCssSelectorSchema>(product).is_err());
+    }
+
+    #[test]
+    fn should_deserialize_complete_product_schema_generation_response() {
+        let response = serde_json::json!({
+            "schemas": [{
+                "title": complete_rule("h1", "text"),
+                "state": complete_rule(".state", "text"),
+                "images": complete_rule(".gallery img", "image_url"),
+                "description": null
+            }],
+            "confidence": "HIGH",
+            "summary": "Complete product schema"
+        });
+        assert!(serde_json::from_value::<ProductSchemaGenerationResponse>(response).is_ok());
+    }
 }

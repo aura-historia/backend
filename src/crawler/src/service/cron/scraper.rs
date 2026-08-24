@@ -284,7 +284,8 @@ async fn scrape_candidate(
                 let error_kind = scraper_error_kind(&e);
                 match &e {
                     ScraperError::SchemaRegenerationExhausted { .. }
-                    | ScraperError::NormalizationFixExhausted { .. }
+                    | ScraperError::FreshSchemaNormalizationFailed { .. }
+                    | ScraperError::SchemaClassificationRejected { .. }
                     | ScraperError::LlmBudgetExceeded { .. }
                     | ScraperError::PendingSchemaReview { .. } => {
                         let cooldown = std::time::Duration::from_secs(30 * 60);
@@ -304,7 +305,7 @@ async fn scrape_candidate(
                         {
                             warn!(
                                 error = %mark_err,
-                                "Failed to persist schema-regeneration/normalization-fix/LLM-budget cooldown metadata"
+                                "Failed to persist schema/classification cooldown metadata"
                             );
                         }
                     }
@@ -381,11 +382,12 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::HttpError { .. } => "HttpError",
         ScraperError::ProductRemoved { .. } => "ProductRemoved",
         ScraperError::NotProductPage { .. } => "NotProductPage",
+        ScraperError::SchemaClassificationRejected { .. } => "SchemaClassificationRejected",
         ScraperError::NoHost { .. } => "NoHost",
         ScraperError::SchemaServiceError(_) => "SchemaServiceError",
         ScraperError::RemovedPageSchemaDatabaseError(_) => "RemovedPageSchemaDatabaseError",
         ScraperError::SchemaRegenerationExhausted { .. } => "SchemaRegenerationExhausted",
-        ScraperError::NormalizationFixExhausted { .. } => "NormalizationFixExhausted",
+        ScraperError::FreshSchemaNormalizationFailed { .. } => "FreshSchemaNormalizationFailed",
         ScraperError::LlmBudgetExceeded { .. } => "LlmBudgetExceeded",
         ScraperError::NormalizationError(_) => "NormalizationError",
         ScraperError::PendingSchemaReview { .. } => "PendingSchemaReview",
@@ -1476,11 +1478,11 @@ mod tests {
         job.run_scraper_once().await;
     }
 
-    /// `NormalizationFixExhausted` must be handled identically to
+    /// `FreshSchemaNormalizationFailed` must be handled identically to
     /// `SchemaRegenerationExhausted`: write a cooldown via `mark_fetch_failure`
     /// so the URL is held back until the backoff window expires.
     #[tokio::test]
-    async fn should_mark_fetch_failure_for_normalization_fix_exhausted_error() {
+    async fn should_mark_fetch_failure_for_fresh_schema_normalization_failure() {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
@@ -1502,12 +1504,66 @@ mod tests {
             .returning(|_, url, _, _| {
                 let url = url.clone();
                 Box::pin(async move {
-                    Err(ScraperError::NormalizationFixExhausted {
+                    Err(ScraperError::FreshSchemaNormalizationFailed {
                         url,
                         attempts: 3,
                         last_norm_error: Box::new(
                             crate::scraper::normalization::product_normalization_service::NormalizationError::TitleEmpty,
                         ),
+                    })
+                })
+            });
+
+        let job = scraper_job(
+            CrawlerCronConfig::default(),
+            scraper_candidates,
+            scraper_service,
+        );
+
+        job.run_scraper_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_mark_fetch_failure_for_schema_classification_rejection() {
+        let before = time::OffsetDateTime::now_utc();
+        let url = url::Url::parse("https://example.com/product/1").unwrap();
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(get_candidates_once_by_domain({
+                let url = url.clone();
+                move || {
+                    vec![scraper_candidate(
+                        "Test Shop",
+                        ShopType::CommercialDealer,
+                        url.clone(),
+                    )]
+                }
+            }));
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .withf(
+                move |_, received_url, kind, _, status_code, next_retry_at| {
+                    *received_url == url
+                        && kind == "SchemaClassificationRejected"
+                        && status_code.is_none()
+                        && *next_retry_at > before
+                },
+            )
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
+        scraper_candidates.expect_mark_scraper_failure().never();
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .once()
+            .returning(|_, url, _, _| {
+                let url = url.clone();
+                Box::pin(async move {
+                    Err(ScraperError::SchemaClassificationRejected {
+                        url,
+                        details: "removed classification requires HIGH confidence".to_string(),
                     })
                 })
             });

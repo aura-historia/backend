@@ -460,16 +460,16 @@ async fn main() {
         let create_schema_llm = vertex_ai_config
             .create_model(vertex_ai_models.product_schema.clone())
             .expect("failed to initialize Vertex AI model for schema generation");
-        let append_schema_llm = vertex_ai_config
+        let single_schema_llm = vertex_ai_config
             .create_model(vertex_ai_models.product_schema.clone())
-            .expect("failed to initialize Vertex AI model for schema repair");
+            .expect("failed to initialize Vertex AI model for fresh schema generation");
 
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
         let schema_svc = ProductSchemaServiceImpl::new(
             create_schema_llm,
-            append_schema_llm,
+            single_schema_llm,
             schema_repo,
             Some(Arc::clone(&llm_governor)),
         );

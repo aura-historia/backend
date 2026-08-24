@@ -368,9 +368,9 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     let create_schema_llm = vertex_ai_config
         .create_model(vertex_ai_models.product_schema.clone())
         .expect("failed to initialize Vertex AI model for schema generation");
-    let append_schema_llm = vertex_ai_config
+    let single_schema_llm = vertex_ai_config
         .create_model(vertex_ai_models.product_schema.clone())
-        .expect("failed to initialize Vertex AI model for schema repair");
+        .expect("failed to initialize Vertex AI model for fresh schema generation");
     let state_llm = vertex_ai_config
         .create_model(vertex_ai_models.product_state_mapping.clone())
         .expect("failed to initialize Vertex AI model for state mapping");
@@ -386,12 +386,12 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     // Normalization service.
     let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
-    // Schema service (DB-backed + LLM creation/fix).
+    // Schema service (DB-backed + initial/fresh LLM generation).
     let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(pool));
     let removed_page_schema_repo = Box::new(RemovedPageSchemaRepositoryImpl::new(pool));
     let schema_svc = ProductSchemaServiceImpl::new(
         create_schema_llm,
-        append_schema_llm,
+        single_schema_llm,
         schema_repo,
         Some(Arc::clone(&llm_governor)),
     );

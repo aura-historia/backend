@@ -159,11 +159,33 @@ fn compact_probe_text(value: &str) -> String {
 fn significant_words_are_represented(probe: &str, dsl: &str) -> bool {
     let words = probe
         .split(|ch: char| !ch.is_alphanumeric())
+        .flat_map(split_concatenated_word)
         .filter(|word| word.chars().count() > 2)
         .take(8)
         .collect::<Vec<_>>();
 
     !words.is_empty() && words.iter().all(|word| dsl.contains(word))
+}
+
+fn split_concatenated_word(word: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    for ch in word.chars() {
+        if ch.is_uppercase()
+            && current
+                .chars()
+                .last()
+                .is_some_and(|previous| previous.is_lowercase())
+            && !current.is_empty()
+        {
+            parts.push(std::mem::take(&mut current));
+        }
+        current.push(ch);
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    parts
 }
 
 fn assert_fixture_specific_expectations(fixture_path: &str, dsl: &str) {
@@ -206,7 +228,7 @@ fn assert_fixture_specific_expectations(fixture_path: &str, dsl: &str) {
                 assert!(dsl.contains(needle), "{fixture_path} DSL missing {needle}");
             }
         }
-        path if path.contains("antik-und-stil") => {
+        path if path.contains("antik-und-stil_available") => {
             for needle in [
                 "sku",
                 "product_title",
@@ -216,6 +238,32 @@ fn assert_fixture_specific_expectations(fixture_path: &str, dsl: &str) {
                 "Tisch rund antik Marmorplatte",
                 "In den Warenkorb",
                 "Tisch-Marmor1000",
+            ] {
+                assert!(dsl.contains(needle), "{fixture_path} DSL missing {needle}");
+            }
+        }
+        path if path.contains("antik-und-stil_sale") => {
+            for needle in [
+                "product_title",
+                "woocommerce-product-gallery__image",
+                "elementor-widget-woocommerce-product-content",
+                "38426",
+                "Couchtisch Glas Vintage",
+                "In den Warenkorb",
+                "56A8EEE6-078D-496D-8362-FDF3E6170795.webp",
+            ] {
+                assert!(dsl.contains(needle), "{fixture_path} DSL missing {needle}");
+            }
+        }
+        path if path.contains("antik-und-stil_priceless") => {
+            for needle in [
+                "product_title",
+                "woocommerce-product-gallery__image",
+                "elementor-widget-woocommerce-product-content",
+                "38291",
+                "Antiker Jugendstil Kronleuchter",
+                "In den Warenkorb",
+                "Kein-Titel-105-x-105-mm",
             ] {
                 assert!(dsl.contains(needle), "{fixture_path} DSL missing {needle}");
             }

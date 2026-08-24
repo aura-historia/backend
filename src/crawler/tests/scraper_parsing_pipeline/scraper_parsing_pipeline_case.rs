@@ -7,7 +7,8 @@ use serde::Deserialize;
 use crate::expectation_types::{NormalizedExpectation, NormalizedExpectationJson, RawExpectation};
 
 pub struct ScraperParsingPipelineFixture {
-    pub schema: ProductCssSelectorSchema,
+    pub schemas: Vec<ProductCssSelectorSchema>,
+    pub schema_index: usize,
     pub raw_state: String,
     pub state_record: ProductState,
     pub raw: RawExpectation,
@@ -28,7 +29,10 @@ struct FixtureJson {
     html: String,
     raw_state: String,
     state_record: String,
-    schema: ProductCssSelectorSchema,
+    schema: Option<ProductCssSelectorSchema>,
+    schemas_file: Option<String>,
+    #[serde(default)]
+    schema_index: usize,
     raw: RawExpectation,
     normalized: NormalizedExpectationJson,
 }
@@ -36,9 +40,11 @@ struct FixtureJson {
 /// Load all fixture cases from `tests/fixtures/fixtures.json`.
 ///
 /// Adding a new shop or a new case for an existing shop requires only:
-///   1. Drop the HTML file in  `tests/fixtures/html/<shop>[_variant].html`.
-///   2. Append an element to `tests/fixtures/fixtures.json` with the `schema`,
-///      `html` path, `raw_state`, `state_record`, `raw`, and `normalized` fields.
+///   1. Drop the HTML file in `tests/fixtures/html/<shop>[_variant].html`.
+///   2. Add the shop's cached schemas to `tests/fixtures/schemas/<shop>.json`.
+///   3. Append an element to `tests/fixtures/fixtures.json` with
+///      `schemas_file`, `schema_index`, `html`, `raw_state`, `state_record`,
+///      `raw`, and `normalized` fields.
 ///
 /// No Rust code changes are needed.
 pub fn load_all_fixtures() -> Vec<ScraperParsingPipelineFixture> {
@@ -58,8 +64,28 @@ pub fn load_all_fixtures() -> Vec<ScraperParsingPipelineFixture> {
 }
 
 fn fixture_from_json(f: FixtureJson) -> ScraperParsingPipelineFixture {
+    let schemas = match (f.schema, f.schemas_file) {
+        (Some(schema), None) => vec![schema],
+        (None, Some(path)) => {
+            let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
+            let src = std::fs::read_to_string(&full)
+                .unwrap_or_else(|e| panic!("failed reading schemas '{}': {e}", full.display()));
+            serde_json::from_str(&src)
+                .unwrap_or_else(|e| panic!("failed parsing schemas '{}': {e}", full.display()))
+        }
+        (Some(_), Some(_)) => panic!("fixture must set only schema or schemas_file"),
+        (None, None) => panic!("fixture must set schema or schemas_file"),
+    };
+    assert!(
+        f.schema_index < schemas.len(),
+        "schema_index {} is out of range for {} schemas",
+        f.schema_index,
+        schemas.len()
+    );
+
     ScraperParsingPipelineFixture {
-        schema: f.schema,
+        schemas,
+        schema_index: f.schema_index,
         raw_state: f.raw_state,
         state_record: parse_state_record(&f.state_record),
         raw: f.raw,
@@ -84,7 +110,9 @@ fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectatio
     NormalizedExpectation {
         shops_product_id: data.shops_product_id,
         title: data.title,
-        description: data.description,
+        description: data.description.map(|description| {
+            product_core::description::Description::from(description.as_str()).to_string()
+        }),
         price: price_from_parts(data.price, data.price_currency.as_deref()),
         price_estimate_min: price_from_parts(
             data.price_estimate_min,
