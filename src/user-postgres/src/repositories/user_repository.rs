@@ -5,7 +5,7 @@ use crate::mapping::{
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
 use serde_email::Email;
-use sqlx::PgConnection;
+use sqlx::{AssertSqlSafe, PgConnection};
 use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user::User;
 use user_core::user_id::UserId;
@@ -42,7 +42,7 @@ impl UserRepository for SqlxUserRepository<'_> {
         id: UserId,
     ) -> Result<Option<VersionedUser>, UserRepositoryError> {
         let sql = format!("SELECT {} FROM users WHERE user_id = $1", user_columns());
-        let row = sqlx::query_as::<_, UserRow>(&sql)
+        let row = sqlx::query_as::<_, UserRow>(AssertSqlSafe(sql))
             .bind(uuid::Uuid::from(id))
             .fetch_optional(&mut *self.connection)
             .await
@@ -62,7 +62,7 @@ impl UserRepository for SqlxUserRepository<'_> {
         email: &Email,
     ) -> Result<Option<VersionedUser>, UserRepositoryError> {
         let sql = format!("SELECT {} FROM users WHERE email = $1", user_columns());
-        let row = sqlx::query_as::<_, UserRow>(&sql)
+        let row = sqlx::query_as::<_, UserRow>(AssertSqlSafe(sql))
             .bind::<&str>(email.as_ref())
             .fetch_optional(&mut *self.connection)
             .await
@@ -85,7 +85,7 @@ impl UserRepository for SqlxUserRepository<'_> {
             "SELECT {} FROM users WHERE stripe_customer_id = $1",
             user_columns()
         );
-        let row = sqlx::query_as::<_, UserRow>(&sql)
+        let row = sqlx::query_as::<_, UserRow>(AssertSqlSafe(sql))
             .bind(stripe_customer_id.as_ref())
             .fetch_optional(&mut *self.connection)
             .await
@@ -127,7 +127,7 @@ impl UserRepository for SqlxUserRepository<'_> {
             user_columns()
         );
 
-        let row = sqlx::query_as::<_, UserRow>(&sql)
+        let row = sqlx::query_as::<_, UserRow>(AssertSqlSafe(sql))
             .bind(uuid::Uuid::from(user.id()))
             .bind::<&str>(user.email().as_ref())
             .bind(profile.first_name.as_ref().map(AsRef::as_ref))
@@ -187,7 +187,7 @@ impl UserRepository for SqlxUserRepository<'_> {
             user_columns()
         );
 
-        let inserted = sqlx::query_as::<_, UserRow>(&sql)
+        let inserted = sqlx::query_as::<_, UserRow>(AssertSqlSafe(sql))
             .bind(uuid::Uuid::from(user.id()))
             .bind::<&str>(user.email().as_ref())
             .bind(profile.first_name.as_ref().map(AsRef::as_ref))
@@ -269,7 +269,7 @@ impl UserRepository for SqlxUserRepository<'_> {
             user_columns()
         );
 
-        let row = sqlx::query_as::<_, UserRow>(&sql)
+        let row = sqlx::query_as::<_, UserRow>(AssertSqlSafe(sql))
             .bind(uuid::Uuid::from(user.id()))
             .bind::<&str>(user.email().as_ref())
             .bind(profile.first_name.as_ref().map(AsRef::as_ref))

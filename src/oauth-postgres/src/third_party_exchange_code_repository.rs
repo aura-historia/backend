@@ -9,7 +9,7 @@ use oauth_service::ports::{
     ThirdPartyExchangeCodeRepositoryFactory,
 };
 use platform_postgres::SqlxTransaction;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxThirdPartyExchangeCodeRepositoryFactory;
@@ -67,10 +67,12 @@ impl ThirdPartyExchangeCodeRepository for SqlxThirdPartyExchangeCodeRepository<'
         code: &ThirdPartyExchangeCode,
     ) -> Result<Option<ThirdPartyExchangeCodeGrant>, OAuthCodeRepositoryError> {
         let code_uuid = third_party_exchange_code_uuid(code).map_err(invalid_code_state)?;
-        let query = format!(
-            "DELETE FROM oauth_third_party_exchange_codes WHERE third_party_exchange_code = $1 RETURNING {THIRD_PARTY_EXCHANGE_CODE_COLUMNS}"
+        let mut query = QueryBuilder::<Postgres>::new(
+            "DELETE FROM oauth_third_party_exchange_codes WHERE third_party_exchange_code = $1 RETURNING ",
         );
-        let row = sqlx::query_as::<_, ThirdPartyExchangeCodeRow>(&query)
+        query.push(THIRD_PARTY_EXCHANGE_CODE_COLUMNS);
+        let row = query
+            .build_query_as::<ThirdPartyExchangeCodeRow>()
             .bind(code_uuid)
             .fetch_optional(&mut *self.connection)
             .await

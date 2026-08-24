@@ -2,7 +2,7 @@ use crate::mapping::OAUTH_CLIENT_VIEW_COLUMNS;
 use crate::rows::OAuthClientViewRow;
 use application::error::box_error;
 use oauth_service::ports::{OAuthClientListReader, OAuthClientReadError, OAuthClientView};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, QueryBuilder};
 
 #[derive(Clone)]
 pub struct SqlxOAuthClientListReader {
@@ -18,10 +18,12 @@ impl SqlxOAuthClientListReader {
 #[async_trait::async_trait]
 impl OAuthClientListReader for SqlxOAuthClientListReader {
     async fn list(&self) -> Result<Vec<OAuthClientView>, OAuthClientReadError> {
-        let query = format!(
-            "SELECT {OAUTH_CLIENT_VIEW_COLUMNS} FROM oauth_clients ORDER BY created ASC, client_id ASC"
-        );
-        let rows = sqlx::query_as::<_, OAuthClientViewRow>(&query)
+        let mut query = QueryBuilder::<Postgres>::new("SELECT ");
+        query
+            .push(OAUTH_CLIENT_VIEW_COLUMNS)
+            .push(" FROM oauth_clients ORDER BY created ASC, client_id ASC");
+        let rows = query
+            .build_query_as::<OAuthClientViewRow>()
             .fetch_all(&self.pool)
             .await
             .map_err(temporarily_unavailable)?;

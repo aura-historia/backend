@@ -1,6 +1,7 @@
 use crate::mapping::{UserRow, user_columns};
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
+use sqlx::AssertSqlSafe;
 use user_core::user_id::UserId;
 use user_service::ports::{
     UserAccountReadError, UserAccountReader, UserAccountReaderFactory, UserDetailsView,
@@ -45,7 +46,7 @@ pub(crate) async fn find_user_details_by_id(
     user_id: UserId,
 ) -> Result<Option<UserDetailsView>, UserAccountReadError> {
     let sql = format!("SELECT {} FROM users WHERE user_id = $1", user_columns());
-    let row = sqlx::query_as::<_, UserRow>(&sql)
+    let row = sqlx::query_as::<_, UserRow>(AssertSqlSafe(sql))
         .bind(uuid::Uuid::from(user_id))
         .fetch_optional(connection)
         .await

@@ -142,35 +142,25 @@ impl ProductWatchlistDetailsReader for SqlxProductWatchlistDetailsReader<'_> {
             .map_err(|_| ProductWatchlistDetailsReadError::QueryFailed)?;
         let query_limit = i64::try_from(request.cursor.size.saturating_add(1))
             .map_err(|_| ProductWatchlistDetailsReadError::QueryFailed)?;
-        let mut rows = sqlx::query_as::<_, ProductDetailsRow>(&format!(
-            "{SELECT_PRODUCT_WATCHLIST_DETAILS}
-             WHERE watchlist.user_id = $2
-                AND (
-                    $4::timestamptz IS NULL
-                    OR watchlist.created < $4
-                    OR (watchlist.created = $4 AND p.product_id > $5)
-                )
-             ORDER BY watchlist.created DESC, p.product_id ASC
-             LIMIT $3"
-        ))
-        .bind(request.language.as_str())
-        .bind(uuid::Uuid::from(request.user_id))
-        .bind(query_limit)
-        .bind(
-            request
-                .cursor
-                .search_after
-                .map(|cursor| cursor.watchlist_created),
-        )
-        .bind(
-            request
-                .cursor
-                .search_after
-                .map(|cursor| uuid::Uuid::from(cursor.product_id)),
-        )
-        .fetch_all(&mut *self.connection)
-        .await
-        .map_err(|_| ProductWatchlistDetailsReadError::QueryFailed)?;
+        let mut rows = sqlx::query_as::<_, ProductDetailsRow>(SELECT_PRODUCT_WATCHLIST_DETAILS)
+            .bind(request.language.as_str())
+            .bind(uuid::Uuid::from(request.user_id))
+            .bind(query_limit)
+            .bind(
+                request
+                    .cursor
+                    .search_after
+                    .map(|cursor| cursor.watchlist_created),
+            )
+            .bind(
+                request
+                    .cursor
+                    .search_after
+                    .map(|cursor| uuid::Uuid::from(cursor.product_id)),
+            )
+            .fetch_all(&mut *self.connection)
+            .await
+            .map_err(|_| ProductWatchlistDetailsReadError::QueryFailed)?;
 
         let has_more = rows.len() > page_size;
         if has_more {
@@ -372,6 +362,14 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
                 1 AS source_priority
         ) AS candidates
     ) AS selected_text ON TRUE
+    WHERE watchlist.user_id = $2
+        AND (
+            $4::timestamptz IS NULL
+            OR watchlist.created < $4
+            OR (watchlist.created = $4 AND p.product_id > $5)
+        )
+    ORDER BY watchlist.created DESC, p.product_id ASC
+    LIMIT $3
 "#;
 
 impl TryFrom<ProductDetailsRow> for PersonalizedProductDetailsReadModel {

@@ -8,7 +8,7 @@ use oauth_service::ports::{
     OAuthClientStorageVersion, VersionedOAuthClient,
 };
 use platform_postgres::SqlxTransaction;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxOAuthClientRepositoryFactory;
@@ -48,10 +48,12 @@ impl OAuthClientRepository for SqlxOAuthClientRepository<'_> {
         client: &OAuthClient,
     ) -> Result<VersionedOAuthClient, OAuthClientRepositoryError> {
         let client_id = client_id_uuid(&client.client_id()).map_err(invalid_client_state)?;
-        let query = format!(
-            "INSERT INTO oauth_clients (client_id, client_secret_short_token, client_secret_long_token_hash, name, redirect_uris, tos_uri, policy_uri, client_uri, logo_uri, scopes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING {OAUTH_CLIENT_COLUMNS}"
+        let mut query = QueryBuilder::<Postgres>::new(
+            "INSERT INTO oauth_clients (client_id, client_secret_short_token, client_secret_long_token_hash, name, redirect_uris, tos_uri, policy_uri, client_uri, logo_uri, scopes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING ",
         );
-        let row = sqlx::query_as::<_, OAuthClientRow>(&query)
+        query.push(OAUTH_CLIENT_COLUMNS);
+        let row = query
+            .build_query_as::<OAuthClientRow>()
             .bind(client_id)
             .bind(client.hashed_client_secret().short_token())
             .bind(client.hashed_client_secret().long_token_hash())
@@ -82,10 +84,12 @@ impl OAuthClientRepository for SqlxOAuthClientRepository<'_> {
     ) -> Result<VersionedOAuthClient, OAuthClientRepositoryError> {
         let client_id = client_id_uuid(&client.client_id()).map_err(invalid_client_state)?;
         let expected_version = version_to_i64(expected_version)?;
-        let query = format!(
-            "UPDATE oauth_clients SET name = $1, redirect_uris = $2, tos_uri = $3, policy_uri = $4, client_uri = $5, logo_uri = $6, scopes = $7, version = version + 1, updated = now() WHERE client_id = $8 AND version = $9 RETURNING {OAUTH_CLIENT_COLUMNS}"
+        let mut query = QueryBuilder::<Postgres>::new(
+            "UPDATE oauth_clients SET name = $1, redirect_uris = $2, tos_uri = $3, policy_uri = $4, client_uri = $5, logo_uri = $6, scopes = $7, version = version + 1, updated = now() WHERE client_id = $8 AND version = $9 RETURNING ",
         );
-        let row = sqlx::query_as::<_, OAuthClientRow>(&query)
+        query.push(OAUTH_CLIENT_COLUMNS);
+        let row = query
+            .build_query_as::<OAuthClientRow>()
             .bind(client.name().as_ref())
             .bind(
                 client
@@ -129,8 +133,12 @@ async fn find_client(
     client_id: OAuthClientId,
 ) -> Result<Option<VersionedOAuthClient>, OAuthClientRepositoryError> {
     let client_id = client_id_uuid(&client_id).map_err(invalid_client_state)?;
-    let query = format!("SELECT {OAUTH_CLIENT_COLUMNS} FROM oauth_clients WHERE client_id = $1");
-    let row = sqlx::query_as::<_, OAuthClientRow>(&query)
+    let mut query = QueryBuilder::<Postgres>::new("SELECT ");
+    query
+        .push(OAUTH_CLIENT_COLUMNS)
+        .push(" FROM oauth_clients WHERE client_id = $1");
+    let row = query
+        .build_query_as::<OAuthClientRow>()
         .bind(client_id)
         .fetch_optional(connection)
         .await

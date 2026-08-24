@@ -188,7 +188,7 @@ async fn find_cursor_value(
 }
 
 fn push_keyset_predicate(
-    builder: &mut QueryBuilder<'_, Postgres>,
+    builder: &mut QueryBuilder<Postgres>,
     field: SortShopField,
     order: SortOrder,
     shop_id: ShopId,
@@ -208,7 +208,7 @@ fn push_keyset_predicate(
     builder.push("))");
 }
 
-fn push_cursor_value(builder: &mut QueryBuilder<'_, Postgres>, cursor: &ShopSortCursor) {
+fn push_cursor_value(builder: &mut QueryBuilder<Postgres>, cursor: &ShopSortCursor) {
     match cursor {
         ShopSortCursor::Name(value) => builder.push_bind(value.clone()),
         ShopSortCursor::Updated(value) | ShopSortCursor::Created(value) => {
@@ -217,7 +217,7 @@ fn push_cursor_value(builder: &mut QueryBuilder<'_, Postgres>, cursor: &ShopSort
     };
 }
 
-fn push_filters(builder: &mut QueryBuilder<'_, Postgres>, search: &ShopSearch) {
+fn push_filters(builder: &mut QueryBuilder<Postgres>, search: &ShopSearch) {
     if let Some(text) = &search.shop_name_query {
         builder
             .push(" AND name ILIKE ")
@@ -287,7 +287,7 @@ fn push_filters(builder: &mut QueryBuilder<'_, Postgres>, search: &ShopSearch) {
     }
 }
 
-fn push_order_direction(builder: &mut QueryBuilder<'_, Postgres>, order: SortOrder) {
+fn push_order_direction(builder: &mut QueryBuilder<Postgres>, order: SortOrder) {
     match order {
         SortOrder::Asc => builder.push(" ASC"),
         SortOrder::Desc => builder.push(" DESC"),

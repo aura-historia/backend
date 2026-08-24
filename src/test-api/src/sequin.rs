@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use reqwest::StatusCode;
-use sqlx::Executor;
+use sqlx::{AssertSqlSafe, Executor};
 use std::net::{SocketAddr, TcpListener};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -124,15 +124,16 @@ async fn start_worker_webhook_sequin(webhook_url: &str) -> RunningSequin {
 
 async fn ensure_sequin_state_database(database: &str) {
     let pool = get_postgres_client().await;
-    let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)")
-            .bind(database)
-            .fetch_one(&pool)
-            .await
-            .expect("shouldn't fail checking Sequin state database");
+    let exists: bool = sqlx::query_scalar(AssertSqlSafe(
+        "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
+    ))
+    .bind(database)
+    .fetch_one(&pool)
+    .await
+    .expect("shouldn't fail checking Sequin state database");
 
     if !exists {
-        pool.execute(sqlx::raw_sql(&format!("CREATE DATABASE {database}")))
+        pool.execute(AssertSqlSafe(format!("CREATE DATABASE {database}")))
             .await
             .expect("shouldn't fail creating Sequin state database");
     }

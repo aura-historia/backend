@@ -10,6 +10,7 @@ use search_filter_service::ports::{
     PersistedSearchFilter, SearchFilterRepository, SearchFilterRepositoryError,
     SearchFilterRepositoryFactory,
 };
+use sqlx::{Postgres, QueryBuilder};
 
 #[derive(Debug, Clone, Default)]
 pub struct SqlxSearchFilterRepositoryFactory;
@@ -124,9 +125,12 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
     ) -> Result<Option<PersistedSearchFilter>, SearchFilterRepositoryError> {
         let id = user_search_filter_uuid(id)
             .map_err(SearchFilterRepositoryAdapterError::LookupIdentifier)?;
-        let sql =
-            format!("SELECT {FILTER_COLUMNS} FROM search_filters WHERE user_search_filter_id=$1");
-        sqlx::query_as::<_, FilterRow>(&sql)
+        let mut query = QueryBuilder::<Postgres>::new("SELECT ");
+        query
+            .push(FILTER_COLUMNS)
+            .push(" FROM search_filters WHERE user_search_filter_id=$1");
+        query
+            .build_query_as::<FilterRow>()
             .bind(id)
             .fetch_optional(self.tx.connection())
             .await
@@ -142,10 +146,12 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
             .map_err(SearchFilterRepositoryAdapterError::InsertSearchSerialization)?;
         let id = user_search_filter_uuid(filter.id())
             .map_err(SearchFilterRepositoryAdapterError::InsertIdentifier)?;
-        let sql = format!(
-            "INSERT INTO search_filters (user_search_filter_id,user_id,name,notifications,state,search,enhanced_search_description,embedding,language,currency) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING {FILTER_COLUMNS}"
+        let mut query = QueryBuilder::<Postgres>::new(
+            "INSERT INTO search_filters (user_search_filter_id,user_id,name,notifications,state,search,enhanced_search_description,embedding,language,currency) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING ",
         );
-        let row = sqlx::query_as::<_, FilterRow>(&sql)
+        query.push(FILTER_COLUMNS);
+        let row = query
+            .build_query_as::<FilterRow>()
             .bind(id)
             .bind(uuid::Uuid::from(filter.user_id()))
             .bind(filter.name().as_ref())
@@ -184,10 +190,12 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
             .map_err(SearchFilterRepositoryAdapterError::UpdateSearchSerialization)?;
         let id = user_search_filter_uuid(filter.id())
             .map_err(SearchFilterRepositoryAdapterError::UpdateIdentifier)?;
-        let sql = format!(
-            "UPDATE search_filters SET name=$2,notifications=$3,state=$4,search=$5,enhanced_search_description=$6,embedding=$7,language=$8,currency=$9,version=version+1,updated=now() WHERE user_search_filter_id=$1 AND version=$10 RETURNING {FILTER_COLUMNS}"
+        let mut query = QueryBuilder::<Postgres>::new(
+            "UPDATE search_filters SET name=$2,notifications=$3,state=$4,search=$5,enhanced_search_description=$6,embedding=$7,language=$8,currency=$9,version=version+1,updated=now() WHERE user_search_filter_id=$1 AND version=$10 RETURNING ",
         );
-        let row = sqlx::query_as::<_, FilterRow>(&sql)
+        query.push(FILTER_COLUMNS);
+        let row = query
+            .build_query_as::<FilterRow>()
             .bind(id)
             .bind(filter.name().as_ref())
             .bind(filter.notifications())

@@ -4,7 +4,7 @@ use crate::access_token_mapping::{
 };
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
-use sqlx::PgConnection;
+use sqlx::{AssertSqlSafe, PgConnection};
 use user_core::access_token::{AccessToken, AccessTokenId};
 use user_core::user_id::UserId;
 use user_service::ports::{
@@ -47,7 +47,7 @@ impl AccessTokenRepository for SqlxAccessTokenRepository<'_> {
         let sql = format!(
             "SELECT {ACCESS_TOKEN_COLUMNS} FROM access_tokens WHERE user_id = $1 AND access_token_id = $2"
         );
-        let row = sqlx::query_as::<_, AccessTokenRow>(&sql)
+        let row = sqlx::query_as::<_, AccessTokenRow>(AssertSqlSafe(sql))
             .bind(uuid::Uuid::from(user_id))
             .bind(access_token_id)
             .fetch_optional(&mut *self.connection)
@@ -66,7 +66,7 @@ impl AccessTokenRepository for SqlxAccessTokenRepository<'_> {
         let sql = format!(
             "SELECT {ACCESS_TOKEN_COLUMNS} FROM access_tokens WHERE token_short = $1 AND token_hash = $2"
         );
-        let row = sqlx::query_as::<_, AccessTokenRow>(&sql)
+        let row = sqlx::query_as::<_, AccessTokenRow>(AssertSqlSafe(sql))
             .bind(hashed_token.short_token())
             .bind(hashed_token.long_token_hash())
             .fetch_optional(&mut *self.connection)
@@ -89,7 +89,7 @@ impl AccessTokenRepository for SqlxAccessTokenRepository<'_> {
         let sql = format!(
             "INSERT INTO access_tokens (access_token_id, user_id, token_short, token_hash, name, scopes, origin, oauth_client_id, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING {ACCESS_TOKEN_COLUMNS}"
         );
-        let row = sqlx::query_as::<_, AccessTokenRow>(&sql)
+        let row = sqlx::query_as::<_, AccessTokenRow>(AssertSqlSafe(sql))
             .bind(access_token_id)
             .bind(uuid::Uuid::from(access_token.user_id()))
             .bind(access_token.hashed_token().short_token())
@@ -119,7 +119,7 @@ impl AccessTokenRepository for SqlxAccessTokenRepository<'_> {
         let sql = format!(
             "UPDATE access_tokens SET name = $3, scopes = $4, origin = $5, oauth_client_id = $6, expires_at = $7, version = version + 1, updated = now() WHERE user_id = $1 AND access_token_id = $2 AND version = $8 RETURNING {ACCESS_TOKEN_COLUMNS}"
         );
-        let row = sqlx::query_as::<_, AccessTokenRow>(&sql)
+        let row = sqlx::query_as::<_, AccessTokenRow>(AssertSqlSafe(sql))
             .bind(uuid::Uuid::from(access_token.user_id()))
             .bind(access_token_id)
             .bind(access_token.name().as_ref())

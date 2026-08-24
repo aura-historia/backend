@@ -6,7 +6,7 @@ use oauth_service::ports::{
     AuthorizationCodeRepository, AuthorizationCodeRepositoryFactory, OAuthCodeRepositoryError,
 };
 use platform_postgres::SqlxTransaction;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxAuthorizationCodeRepositoryFactory;
@@ -65,10 +65,12 @@ impl AuthorizationCodeRepository for SqlxAuthorizationCodeRepository<'_> {
         code: &OAuthAuthorizationCode,
     ) -> Result<Option<AuthorizationCode>, OAuthCodeRepositoryError> {
         let code_uuid = authorization_code_uuid(code).map_err(invalid_code_state)?;
-        let query = format!(
-            "DELETE FROM oauth_authorization_codes WHERE authorization_code = $1 RETURNING {AUTHORIZATION_CODE_COLUMNS}"
+        let mut query = QueryBuilder::<Postgres>::new(
+            "DELETE FROM oauth_authorization_codes WHERE authorization_code = $1 RETURNING ",
         );
-        let row = sqlx::query_as::<_, AuthorizationCodeRow>(&query)
+        query.push(AUTHORIZATION_CODE_COLUMNS);
+        let row = query
+            .build_query_as::<AuthorizationCodeRow>()
             .bind(code_uuid)
             .fetch_optional(&mut *self.connection)
             .await

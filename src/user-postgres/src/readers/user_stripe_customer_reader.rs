@@ -1,6 +1,7 @@
 use crate::mapping::{UserRow, user_columns};
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
+use sqlx::AssertSqlSafe;
 use user_service::ports::{
     UserStripeCustomerReadError, UserStripeCustomerReader, UserStripeCustomerReaderFactory,
 };
@@ -42,7 +43,7 @@ impl UserStripeCustomerReader for SqlxUserStripeCustomerReader<'_> {
             "SELECT {} FROM users WHERE stripe_customer_id = $1",
             user_columns()
         );
-        let row = sqlx::query_as::<_, UserRow>(&sql)
+        let row = sqlx::query_as::<_, UserRow>(AssertSqlSafe(sql))
             .bind(request.stripe_customer_id.as_ref())
             .fetch_optional(&mut *self.connection)
             .await

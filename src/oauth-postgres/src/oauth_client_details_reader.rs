@@ -3,7 +3,7 @@ use crate::rows::OAuthClientViewRow;
 use application::error::box_error;
 use credential_core::oauth_client_id::OAuthClientId;
 use oauth_service::ports::{OAuthClientDetailsReader, OAuthClientReadError, OAuthClientView};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, QueryBuilder};
 
 #[derive(Clone)]
 pub struct SqlxOAuthClientDetailsReader {
@@ -23,9 +23,12 @@ impl OAuthClientDetailsReader for SqlxOAuthClientDetailsReader {
         client_id: &OAuthClientId,
     ) -> Result<Option<OAuthClientView>, OAuthClientReadError> {
         let client_id = client_id_uuid(client_id).map_err(invalid_persisted_state)?;
-        let query =
-            format!("SELECT {OAUTH_CLIENT_VIEW_COLUMNS} FROM oauth_clients WHERE client_id = $1");
-        let row = sqlx::query_as::<_, OAuthClientViewRow>(&query)
+        let mut query = QueryBuilder::<Postgres>::new("SELECT ");
+        query
+            .push(OAUTH_CLIENT_VIEW_COLUMNS)
+            .push(" FROM oauth_clients WHERE client_id = $1");
+        let row = query
+            .build_query_as::<OAuthClientViewRow>()
             .bind(client_id)
             .fetch_optional(&self.pool)
             .await
