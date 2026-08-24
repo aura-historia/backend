@@ -8319,7 +8319,8 @@ paths:
 
         On success the endpoint redirects (302) to the `redirect_uri` appending `code` and, if
         supplied, `state` as query parameters. The single-use authorization code must be exchanged
-        for an access token via `POST /api/v1/oauth/token` before it expires.
+        for an access token via `POST /api/v1/oauth/token` before it expires. A delegated caller
+        must have `access-tokens:write` and every requested OAuth scope.
       operationId: oauthAuthorize
       tags:
         - OAuth
@@ -9042,7 +9043,8 @@ paths:
         Creates a new OAuth client metadata record.
         The plaintext `client_secret` is returned only in this create response; later reads return
         a masked secret display value.
-        Requires valid Cognito JWT authentication and the `ADMIN` role.
+        Requires an authenticated direct user, or a delegated Aura Historia access token with
+        `access-tokens:write`.
       operationId: postOAuthClient
       tags:
         - OAuth
@@ -9117,14 +9119,14 @@ paths:
                     status: 400
                     title: "Bad Request"
                     error: "OAUTH_INVALID_CLIENT_METADATA"
-                    detail: "OAuth client metadata is invalid: redirect_uris cannot be empty"
+                    detail: "OAuth client metadata is invalid: OAuth client must have at least one redirect URI"
                 insecure_redirect_uri:
                   summary: Redirect URI must use HTTPS
                   value:
                     status: 400
                     title: "Bad Request"
                     error: "OAUTH_INVALID_CLIENT_METADATA"
-                    detail: "OAuth client metadata is invalid: redirect_uri 'http://client.example/callback' must use https"
+                    detail: "OAuth client metadata is invalid: OAuth redirect URI must use HTTPS: http://client.example/callback"
         "401":
           description: Unauthorized — invalid or missing JWT token.
           content:
@@ -9136,7 +9138,7 @@ paths:
                 title: "Unauthorized"
                 error: "UNAUTHORIZED"
         "403":
-          description: Forbidden — the authenticated user is not an admin.
+          description: Forbidden — the authenticated principal cannot administer OAuth clients. Delegated callers need `access-tokens:write`.
           content:
             application/problem+json:
               schema:
@@ -9145,7 +9147,7 @@ paths:
                 status: 403
                 title: "Forbidden"
                 error: "FORBIDDEN"
-                detail: "This action requires the 'ADMIN' role."
+                detail: "OAuth client administration requires access-tokens:write for delegated callers."
         "500":
           description: Internal server error.
           content:
@@ -9161,7 +9163,8 @@ paths:
       description: |
         Lists registered OAuth client metadata records.
         The returned `client_secret` value is masked and does not reveal the plaintext secret.
-        Requires valid Cognito JWT authentication.
+        Requires an authenticated direct user, or a delegated Aura Historia access token with
+        `access-tokens:read`.
       operationId: getOAuthClients
       tags:
         - OAuth
@@ -9211,6 +9214,17 @@ paths:
                 status: 401
                 title: "Unauthorized"
                 error: "UNAUTHORIZED"
+        "403":
+          description: Forbidden — the delegated caller lacks `access-tokens:read`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: "Forbidden"
+                error: "FORBIDDEN"
+                detail: "OAuth client reads require access-tokens:read for delegated callers."
         "500":
           description: Internal server error.
           content:
@@ -9228,7 +9242,8 @@ paths:
       description: |
         Retrieves one OAuth client metadata record.
         The returned `client_secret` value is masked and does not reveal the plaintext secret.
-        Requires valid Cognito JWT authentication.
+        Requires an authenticated direct user, or a delegated Aura Historia access token with
+        `access-tokens:read`.
       operationId: getOAuthClient
       tags:
         - OAuth
@@ -9316,6 +9331,17 @@ paths:
                     title: "Unauthorized"
                     error: "OAUTH_CLIENT_NOT_FOUND"
                     detail: "OAuth client not found."
+        "403":
+          description: Forbidden — the delegated caller lacks `access-tokens:read`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: "Forbidden"
+                error: "FORBIDDEN"
+                detail: "OAuth client reads require access-tokens:read for delegated callers."
         "500":
           description: Internal server error.
           content:
@@ -9332,7 +9358,8 @@ paths:
         Updates one OAuth client metadata record. Omitted properties leave existing values unchanged;
         every explicit `null` is invalid because OAuth metadata is non-nullable. `{}` is a no-op.
         The returned `client_secret` value is masked and does not reveal the plaintext secret.
-        Requires valid Cognito JWT authentication and the `ADMIN` role.
+        Requires an authenticated direct user, or a delegated Aura Historia access token with
+        `access-tokens:write`.
       operationId: patchOAuthClient
       tags:
         - OAuth
@@ -9430,7 +9457,7 @@ paths:
                     status: 400
                     title: "Bad Request"
                     error: "OAUTH_INVALID_CLIENT_METADATA"
-                    detail: "OAuth client metadata is invalid: redirect_uri 'http://client.example/updated' must use https"
+                    detail: "OAuth client metadata is invalid: OAuth redirect URI must use HTTPS: http://client.example/updated"
         "401":
           description: Unauthorized — invalid or missing JWT token, or the OAuth client does not exist.
           content:
@@ -9452,7 +9479,7 @@ paths:
                     error: "OAUTH_CLIENT_NOT_FOUND"
                     detail: "OAuth client not found."
         "403":
-          description: Forbidden — the authenticated user is not an admin.
+          description: Forbidden — the authenticated principal cannot administer OAuth clients. Delegated callers need `access-tokens:write`.
           content:
             application/problem+json:
               schema:
@@ -9461,7 +9488,7 @@ paths:
                 status: 403
                 title: "Forbidden"
                 error: "FORBIDDEN"
-                detail: "This action requires the 'ADMIN' role."
+                detail: "OAuth client administration requires access-tokens:write for delegated callers."
         "500":
           description: Internal server error.
           content:
@@ -9476,7 +9503,8 @@ paths:
       summary: Delete OAuth client metadata
       description: |
         Deletes one OAuth client metadata record.
-        Requires valid Cognito JWT authentication and the `ADMIN` role.
+        Requires an authenticated direct user, or a delegated Aura Historia access token with
+        `access-tokens:write`.
       operationId: deleteOAuthClient
       tags:
         - OAuth
@@ -9542,7 +9570,7 @@ paths:
                     error: "OAUTH_CLIENT_NOT_FOUND"
                     detail: "OAuth client not found."
         "403":
-          description: Forbidden — the authenticated user is not an admin.
+          description: Forbidden — the authenticated principal cannot administer OAuth clients. Delegated callers need `access-tokens:write`.
           content:
             application/problem+json:
               schema:
@@ -9551,7 +9579,7 @@ paths:
                 status: 403
                 title: "Forbidden"
                 error: "FORBIDDEN"
-                detail: "This action requires the 'ADMIN' role."
+                detail: "OAuth client administration requires access-tokens:write for delegated callers."
         "500":
           description: Internal server error.
           content:

@@ -8,7 +8,9 @@ use oauth_core::authorization_code::{
     AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
     OAuthCodeVerifier, RehydratedAuthorizationCodeState,
 };
-use oauth_core::client::{OAuthClient, OAuthClientName, RehydratedOAuthClientState};
+use oauth_core::client::{
+    OAuthClient, OAuthClientName, OAuthRedirectUris, RehydratedOAuthClientState,
+};
 use oauth_core::third_party_exchange_code::{
     RehydratedThirdPartyExchangeCodeGrantState, ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant,
 };
@@ -48,8 +50,11 @@ struct State {
     issued: Option<AccessToken>,
     deleted_raw: usize,
     client_updates: usize,
+    details_reads: usize,
+    list_reads: usize,
     transaction_begins: usize,
     transaction_commits: usize,
+    fail_access_token_insert: bool,
     fail_exchange_insert: bool,
 }
 
@@ -71,6 +76,18 @@ struct TransactionalFakePorts<'tx> {
 impl<'tx> TransactionalFakePorts<'tx> {
     fn state(&mut self) -> &mut State {
         &mut self.transaction.staged
+    }
+}
+
+fn persisted_client(
+    value: OAuthClient,
+    version: OAuthClientStorageVersion,
+) -> PersistedOAuthClient {
+    PersistedOAuthClient {
+        value,
+        version,
+        created: OffsetDateTime::UNIX_EPOCH,
+        updated: OffsetDateTime::UNIX_EPOCH,
     }
 }
 
@@ -142,15 +159,23 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     }
 }
 
-fn ctx() -> OperationContext {
+fn context(principal: Principal) -> OperationContext {
     OperationContext {
-        principal: Principal::DelegatedUser {
-            user_id: UserId::new(),
-            capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
-        },
+        principal,
         request_id: RequestId::new("req"),
         correlation_id: CorrelationId::new("corr"),
     }
+}
+
+fn ctx() -> OperationContext {
+    context(Principal::DelegatedUser {
+        user_id: UserId::new(),
+        capabilities: BTreeSet::from([
+            CredentialCapability::AccessTokensRead,
+            CredentialCapability::AccessTokensWrite,
+            CredentialCapability::ProductsWrite,
+        ]),
+    })
 }
 
 fn url(value: &str) -> url::Url {
@@ -178,7 +203,10 @@ fn client_with_secret(raw: &RawOAuthClientSecret) -> OAuthClient {
         client_id: OAuthClientId::new(),
         hashed_client_secret: HashedRawOAuthClientSecret::from(raw.clone()),
         name: OAuthClientName::from("Test Client"),
-        redirect_uris: HashSet::from([url("https://client.example/callback")]),
+        redirect_uris: OAuthRedirectUris::try_from(HashSet::from([url(
+            "https://client.example/callback",
+        )]))
+        .unwrap_or_else(|error| panic!("test redirect URI must be valid: {error}")),
         tos_uri: url("https://client.example/tos"),
         policy_uri: url("https://client.example/policy"),
         client_uri: url("https://client.example"),
@@ -187,11 +215,53 @@ fn client_with_secret(raw: &RawOAuthClientSecret) -> OAuthClient {
     })
 }
 
+fn authorize_request(client_id: OAuthClientId, scope: HashSet<Scope>) -> AuthorizeRequest {
+    AuthorizeRequest {
+        response_type: OAuthResponseType::Code,
+        client_id,
+        redirect_uri: url("https://client.example/callback"),
+        scope,
+        state: None,
+        code_challenge: OAuthCodeChallenge::from("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"),
+        code_challenge_method: CodeChallengeMethod::S256,
+    }
+}
+
+async fn redeem_authorization_code(
+    ports: FakePorts,
+    code: AuthorizationCode,
+    client_id: OAuthClientId,
+    client_secret: RawOAuthClientSecret,
+    redirect_uri: url::Url,
+    code_verifier: &str,
+) -> (OAuthServiceError, State) {
+    let code_value = code.code();
+    let error = TokenByAuthorizationCodeHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        ports.clone(),
+        ports.clone(),
+        ports.clone(),
+    )
+    .execute(TokenByAuthorizationCodeRequest {
+        grant_type: OAuthGrantType::AuthorizationCode,
+        code: code_value,
+        redirect_uri,
+        client_id,
+        client_secret,
+        code_verifier: OAuthCodeVerifier::from(code_verifier),
+    })
+    .await
+    .unwrap_err();
+    let state = lock(&ports.0).clone();
+    (error, state)
+}
+
 fn client_view(client: OAuthClient) -> OAuthClientView {
     OAuthClientView {
         client_id: client.client_id(),
         name: client.name().clone(),
-        redirect_uris: client.redirect_uris().clone(),
+        redirect_uris: client.redirect_uris().as_set().clone(),
         tos_uri: client.tos_uri().clone(),
         policy_uri: client.policy_uri().clone(),
         client_uri: client.client_uri().clone(),
@@ -224,7 +294,9 @@ impl OAuthClientDetailsReader for FakePorts {
         &self,
         client_id: &OAuthClientId,
     ) -> Result<Option<OAuthClientView>, OAuthClientReadError> {
-        Ok(lock(&self.0)
+        let mut state = lock(&self.0);
+        state.details_reads += 1;
+        Ok(state
             .client
             .clone()
             .filter(|client| client.client_id() == *client_id)
@@ -235,12 +307,9 @@ impl OAuthClientDetailsReader for FakePorts {
 #[async_trait::async_trait]
 impl OAuthClientListReader for FakePorts {
     async fn list(&self) -> Result<Vec<OAuthClientView>, OAuthClientReadError> {
-        Ok(lock(&self.0)
-            .client
-            .clone()
-            .into_iter()
-            .map(client_view)
-            .collect())
+        let mut state = lock(&self.0);
+        state.list_reads += 1;
+        Ok(state.client.clone().into_iter().map(client_view).collect())
     }
 }
 
@@ -255,7 +324,7 @@ impl OAuthClientRepository for TransactionalFakePorts<'_> {
             .client
             .clone()
             .filter(|client| client.client_id() == client_id)
-            .map(|client| Versioned::new(client, OAuthClientStorageVersion::INITIAL)))
+            .map(|client| persisted_client(client, OAuthClientStorageVersion::INITIAL)))
     }
 
     async fn insert(
@@ -263,7 +332,7 @@ impl OAuthClientRepository for TransactionalFakePorts<'_> {
         client: &OAuthClient,
     ) -> Result<VersionedOAuthClient, OAuthClientRepositoryError> {
         self.state().client = Some(client.clone());
-        Ok(Versioned::new(
+        Ok(persisted_client(
             client.clone(),
             OAuthClientStorageVersion::INITIAL,
         ))
@@ -287,7 +356,7 @@ impl OAuthClientRepository for TransactionalFakePorts<'_> {
         *stored = client.clone();
         let updated = stored.clone();
         state.client_updates += 1;
-        Ok(Versioned::new(
+        Ok(persisted_client(
             updated,
             OAuthClientStorageVersion::try_from(2_i64).map_err(|source| {
                 OAuthClientRepositoryError::InvalidPersistedState {
@@ -420,6 +489,13 @@ impl AccessTokenRepository for TransactionalFakePorts<'_> {
         &mut self,
         access_token: &AccessToken,
     ) -> Result<VersionedAccessToken, AccessTokenRepositoryError> {
+        if self.state().fail_access_token_insert {
+            return Err(AccessTokenRepositoryError::Internal {
+                source: application::error::box_error(std::io::Error::other(
+                    "access token insert failed",
+                )),
+            });
+        }
         self.state().issued = Some(access_token.clone());
         Ok(Versioned::new(
             access_token.clone(),
@@ -476,23 +552,28 @@ async fn should_cover_client_crud_use_cases() {
         )
         .await
         .unwrap();
+    let client_id = result.client.client_id;
     assert!(
-        result
-            .raw_client_secret
-            .check(result.client.hashed_client_secret())
+        result.raw_client_secret.check(
+            lock(&ports.0)
+                .client
+                .as_ref()
+                .map(OAuthClient::hashed_client_secret)
+                .unwrap_or_else(|| panic!("created client must be stored")),
+        )
     );
     assert_eq!(
         1,
         ListOAuthClientsHandler::new(ports.clone())
-            .execute()
+            .execute(&ctx())
             .await
             .unwrap()
             .len()
     );
     assert_eq!(
-        result.client.client_id(),
+        client_id,
         GetOAuthClientHandler::new(ports.clone())
-            .execute(&result.client.client_id())
+            .execute(&ctx(), &client_id)
             .await
             .unwrap()
             .client_id
@@ -500,7 +581,7 @@ async fn should_cover_client_crud_use_cases() {
     let updated = UpdateOAuthClientHandler::new(FakeUnitOfWork(ports.clone()), ports.clone())
         .execute(
             &ctx(),
-            &result.client.client_id(),
+            &client_id,
             UpdateOAuthClientCommand {
                 name: Some(OAuthClientName::from("B")),
                 redirect_uris: None,
@@ -513,14 +594,14 @@ async fn should_cover_client_crud_use_cases() {
         )
         .await
         .unwrap();
-    assert_eq!(&OAuthClientName::from("B"), updated.name());
+    assert_eq!(OAuthClientName::from("B"), updated.name);
     DeleteOAuthClientHandler::new(FakeUnitOfWork(ports.clone()), ports.clone())
-        .execute(&ctx(), &result.client.client_id())
+        .execute(&ctx(), &client_id)
         .await
         .unwrap();
     assert!(
         ListOAuthClientsHandler::new(ports.clone())
-            .execute()
+            .execute(&ctx())
             .await
             .unwrap()
             .is_empty()
@@ -529,6 +610,54 @@ async fn should_cover_client_crud_use_cases() {
     assert_eq!(1, state.client_updates);
     assert_eq!(3, state.transaction_begins);
     assert_eq!(3, state.transaction_commits);
+}
+
+#[tokio::test]
+async fn should_authorize_oauth_client_get_and_list_in_the_service() {
+    let ports = FakePorts::default();
+    let client = client_with_secret(&RawOAuthClientSecret::new());
+    let client_id = client.client_id();
+    lock(&ports.0).client = Some(client);
+    let get = GetOAuthClientHandler::new(ports.clone());
+    let list = ListOAuthClientsHandler::new(ports.clone());
+
+    let anonymous = context(Principal::Anonymous);
+    assert!(matches!(
+        get.execute(&anonymous, &client_id).await,
+        Err(OAuthServiceError::AuthenticatedActorRequired)
+    ));
+    assert!(matches!(
+        list.execute(&anonymous).await,
+        Err(OAuthServiceError::AuthenticatedActorRequired)
+    ));
+
+    let delegated_without_read = context(Principal::DelegatedUser {
+        user_id: UserId::new(),
+        capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
+    });
+    assert!(matches!(
+        get.execute(&delegated_without_read, &client_id).await,
+        Err(OAuthServiceError::Forbidden)
+    ));
+    assert!(matches!(
+        list.execute(&delegated_without_read).await,
+        Err(OAuthServiceError::Forbidden)
+    ));
+    assert_eq!(0, lock(&ports.0).details_reads);
+    assert_eq!(0, lock(&ports.0).list_reads);
+
+    let delegated_with_read = context(Principal::DelegatedUser {
+        user_id: UserId::new(),
+        capabilities: BTreeSet::from([CredentialCapability::AccessTokensRead]),
+    });
+    assert!(get.execute(&delegated_with_read, &client_id).await.is_ok());
+    assert!(list.execute(&delegated_with_read).await.is_ok());
+
+    let direct_user = context(Principal::User(UserId::new()));
+    assert!(get.execute(&direct_user, &client_id).await.is_ok());
+    assert!(list.execute(&direct_user).await.is_ok());
+    assert_eq!(2, lock(&ports.0).details_reads);
+    assert_eq!(2, lock(&ports.0).list_reads);
 }
 
 #[tokio::test]
@@ -544,7 +673,7 @@ async fn should_skip_no_op_and_optimistically_update_changed_client_metadata() {
             &client.client_id(),
             UpdateOAuthClientCommand {
                 name: Some(client.name().clone()),
-                redirect_uris: Some(client.redirect_uris().clone()),
+                redirect_uris: Some(client.redirect_uris().as_set().clone()),
                 tos_uri: Some(client.tos_uri().clone()),
                 policy_uri: Some(client.policy_uri().clone()),
                 client_uri: Some(client.client_uri().clone()),
@@ -622,7 +751,7 @@ async fn should_commit_authorization_code_exchange_when_valid() {
         AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone());
     let auth = authorize
         .execute(
-            &UserId::new(),
+            &ctx(),
             AuthorizeRequest {
                 response_type: OAuthResponseType::Code,
                 client_id: client.client_id(),
@@ -714,6 +843,141 @@ async fn should_commit_consumed_authorization_code_when_expired() {
 }
 
 #[tokio::test]
+async fn should_commit_consumed_authorization_code_when_client_mismatches() {
+    let ports = FakePorts::default();
+    let raw_secret = RawOAuthClientSecret::new();
+    let client = client_with_secret(&raw_secret);
+    let code = authorization_code(
+        OAuthClientId::new(),
+        OffsetDateTime::now_utc() + time::Duration::minutes(1),
+    );
+    lock(&ports.0).client = Some(client.clone());
+    lock(&ports.0).code = Some(code.clone());
+
+    let (error, state) = redeem_authorization_code(
+        ports,
+        code,
+        client.client_id(),
+        raw_secret,
+        url("https://client.example/callback"),
+        "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+    )
+    .await;
+
+    assert!(matches!(
+        error,
+        OAuthServiceError::AuthorizationCodeClientMismatch
+    ));
+    assert!(state.code.is_none());
+    assert!(state.issued.is_none());
+    assert!(state.exchange.is_none());
+    assert_eq!(1, state.transaction_commits);
+}
+
+#[tokio::test]
+async fn should_commit_consumed_authorization_code_when_redirect_uri_mismatches() {
+    let ports = FakePorts::default();
+    let raw_secret = RawOAuthClientSecret::new();
+    let client = client_with_secret(&raw_secret);
+    let code = authorization_code(
+        client.client_id(),
+        OffsetDateTime::now_utc() + time::Duration::minutes(1),
+    );
+    lock(&ports.0).client = Some(client.clone());
+    lock(&ports.0).code = Some(code.clone());
+
+    let (error, state) = redeem_authorization_code(
+        ports,
+        code,
+        client.client_id(),
+        raw_secret,
+        url("https://client.example/other-callback"),
+        "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+    )
+    .await;
+
+    assert!(matches!(
+        error,
+        OAuthServiceError::AuthorizationCodeRedirectUriMismatch
+    ));
+    assert!(state.code.is_none());
+    assert!(state.issued.is_none());
+    assert!(state.exchange.is_none());
+    assert_eq!(1, state.transaction_commits);
+}
+
+#[tokio::test]
+async fn should_commit_consumed_authorization_code_when_pkce_verifier_is_invalid() {
+    let ports = FakePorts::default();
+    let raw_secret = RawOAuthClientSecret::new();
+    let client = client_with_secret(&raw_secret);
+    let code = authorization_code(
+        client.client_id(),
+        OffsetDateTime::now_utc() + time::Duration::minutes(1),
+    );
+    lock(&ports.0).client = Some(client.clone());
+    lock(&ports.0).code = Some(code.clone());
+
+    let (error, state) = redeem_authorization_code(
+        ports,
+        code,
+        client.client_id(),
+        raw_secret,
+        url("https://client.example/callback"),
+        "invalid-pkce-verifier",
+    )
+    .await;
+
+    assert!(matches!(error, OAuthServiceError::InvalidCodeVerifier));
+    assert!(state.code.is_none());
+    assert!(state.issued.is_none());
+    assert!(state.exchange.is_none());
+    assert_eq!(1, state.transaction_commits);
+}
+
+#[tokio::test]
+async fn should_roll_back_authorization_code_consumption_when_access_token_insert_fails() {
+    let ports = FakePorts::default();
+    let raw_secret = RawOAuthClientSecret::new();
+    let client = client_with_secret(&raw_secret);
+    let code = authorization_code(
+        client.client_id(),
+        OffsetDateTime::now_utc() + time::Duration::minutes(1),
+    );
+    {
+        let mut state = lock(&ports.0);
+        state.client = Some(client.clone());
+        state.code = Some(code.clone());
+        state.fail_access_token_insert = true;
+    }
+
+    let error = TokenByAuthorizationCodeHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        ports.clone(),
+        ports.clone(),
+        ports.clone(),
+    )
+    .execute(TokenByAuthorizationCodeRequest {
+        grant_type: OAuthGrantType::AuthorizationCode,
+        code: code.code(),
+        redirect_uri: url("https://client.example/callback"),
+        client_id: client.client_id(),
+        client_secret: raw_secret,
+        code_verifier: OAuthCodeVerifier::from("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+    })
+    .await
+    .unwrap_err();
+
+    assert!(matches!(error, OAuthServiceError::Internal { .. }));
+    let state = lock(&ports.0);
+    assert_eq!(Some(code), state.code);
+    assert!(state.issued.is_none());
+    assert!(state.exchange.is_none());
+    assert_eq!(0, state.transaction_commits);
+}
+
+#[tokio::test]
 async fn should_roll_back_authorization_code_consumption_when_exchange_code_insert_fails() {
     let ports = FakePorts::default();
     let raw_secret = RawOAuthClientSecret::new();
@@ -747,7 +1011,7 @@ async fn should_roll_back_authorization_code_consumption_when_exchange_code_inse
     .await
     .unwrap_err();
 
-    assert!(matches!(error, OAuthServiceError::Internal));
+    assert!(matches!(error, OAuthServiceError::Internal { .. }));
     let state = lock(&ports.0);
     assert_eq!(Some(code), state.code);
     assert!(state.issued.is_none());
@@ -764,7 +1028,7 @@ async fn should_reject_authorize_with_invalid_scope() {
     lock(&ports.0).client = Some(client.clone());
     let err = AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
         .execute(
-            &UserId::new(),
+            &context(Principal::User(UserId::new())),
             AuthorizeRequest {
                 response_type: OAuthResponseType::Code,
                 client_id: client.client_id(),
@@ -781,6 +1045,78 @@ async fn should_reject_authorize_with_invalid_scope() {
     let state = lock(&ports.0);
     assert_eq!(1, state.transaction_begins);
     assert_eq!(0, state.transaction_commits);
+}
+
+#[tokio::test]
+async fn should_allow_authorize_for_a_direct_user_principal() {
+    let ports = FakePorts::default();
+    let raw_secret = RawOAuthClientSecret::new();
+    let client = client_with_secret(&raw_secret);
+    lock(&ports.0).client = Some(client.clone());
+
+    let result = AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
+        .execute(
+            &context(Principal::User(UserId::new())),
+            authorize_request(client.client_id(), HashSet::from([Scope::ProductsWrite])),
+        )
+        .await;
+
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn should_reject_authorize_for_anonymous_principal_before_transaction() {
+    let ports = FakePorts::default();
+    let result = AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
+        .execute(
+            &context(Principal::Anonymous),
+            authorize_request(OAuthClientId::new(), HashSet::new()),
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(OAuthServiceError::AuthenticatedActorRequired)
+    ));
+    assert_eq!(0, lock(&ports.0).transaction_begins);
+}
+
+#[tokio::test]
+async fn should_reject_authorize_for_delegated_principal_without_write_capability() {
+    let ports = FakePorts::default();
+    let result = AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
+        .execute(
+            &context(Principal::DelegatedUser {
+                user_id: UserId::new(),
+                capabilities: BTreeSet::from([Scope::ProductsWrite]),
+            }),
+            authorize_request(OAuthClientId::new(), HashSet::new()),
+        )
+        .await;
+
+    assert!(matches!(result, Err(OAuthServiceError::Forbidden)));
+    assert_eq!(0, lock(&ports.0).transaction_begins);
+}
+
+#[tokio::test]
+async fn should_reject_delegated_authorize_scope_outside_caller_capabilities() {
+    let ports = FakePorts::default();
+    let raw_secret = RawOAuthClientSecret::new();
+    let client = client_with_secret(&raw_secret);
+    lock(&ports.0).client = Some(client.clone());
+
+    let result = AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
+        .execute(
+            &context(Principal::DelegatedUser {
+                user_id: UserId::new(),
+                capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
+            }),
+            authorize_request(client.client_id(), HashSet::from([Scope::ProductsWrite])),
+        )
+        .await;
+
+    assert!(matches!(result, Err(OAuthServiceError::Forbidden)));
+    assert_eq!(0, lock(&ports.0).transaction_begins);
 }
 
 #[tokio::test]

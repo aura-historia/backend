@@ -57,7 +57,7 @@ impl AuthorizationCodeRepository for SqlxAuthorizationCodeRepository<'_> {
         .execute(&mut *self.connection)
         .await
         .map(|_| ())
-        .map_err(internal_code_error)
+        .map_err(write_code_error)
     }
 
     async fn consume_by_code(
@@ -72,7 +72,7 @@ impl AuthorizationCodeRepository for SqlxAuthorizationCodeRepository<'_> {
             .bind(code_uuid)
             .fetch_optional(&mut *self.connection)
             .await
-            .map_err(internal_code_error)?;
+            .map_err(temporary_code_error)?;
 
         row.map(TryInto::try_into)
             .transpose()
@@ -80,8 +80,20 @@ impl AuthorizationCodeRepository for SqlxAuthorizationCodeRepository<'_> {
     }
 }
 
-fn internal_code_error(source: sqlx::Error) -> OAuthCodeRepositoryError {
-    OAuthCodeRepositoryError::Internal {
+fn write_code_error(source: sqlx::Error) -> OAuthCodeRepositoryError {
+    if let sqlx::Error::Database(database_error) = &source
+        && database_error.is_unique_violation()
+    {
+        return OAuthCodeRepositoryError::Conflict {
+            source: box_error(source),
+        };
+    }
+
+    temporary_code_error(source)
+}
+
+fn temporary_code_error(source: sqlx::Error) -> OAuthCodeRepositoryError {
+    OAuthCodeRepositoryError::TemporarilyUnavailable {
         source: box_error(source),
     }
 }

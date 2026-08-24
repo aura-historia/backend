@@ -1,11 +1,14 @@
 use crate::error::OAuthServiceError;
 use crate::ports::{OAuthClientDetailsReader, OAuthClientView};
+use crate::use_cases::support::authorize_oauth_client_read;
+use application::operation_context::OperationContext;
 use credential_core::oauth_client_id::OAuthClientId;
 
 #[async_trait::async_trait]
 pub trait GetOAuthClientUseCase: Send + Sync {
     async fn execute(
         &self,
+        context: &OperationContext,
         client_id: &OAuthClientId,
     ) -> Result<OAuthClientView, OAuthServiceError>;
 }
@@ -25,8 +28,10 @@ where
 {
     async fn execute(
         &self,
+        context: &OperationContext,
         client_id: &OAuthClientId,
     ) -> Result<OAuthClientView, OAuthServiceError> {
+        authorize_oauth_client_read(context)?;
         self.reader
             .find(client_id)
             .await?

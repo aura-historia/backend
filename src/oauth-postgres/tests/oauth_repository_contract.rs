@@ -5,7 +5,7 @@ use oauth_core::{
         AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
         RehydratedAuthorizationCodeState,
     },
-    client::{OAuthClient, OAuthClientName, RehydratedOAuthClientState},
+    client::{OAuthClient, OAuthClientName, OAuthRedirectUris, RehydratedOAuthClientState},
     third_party_exchange_code::{
         RehydratedThirdPartyExchangeCodeGrantState, ThirdPartyExchangeCode,
         ThirdPartyExchangeCodeGrant,
@@ -18,7 +18,7 @@ use oauth_postgres::{
 use oauth_service::ports::{
     AuthorizationCodeRepository, AuthorizationCodeRepositoryFactory,
     OAuthClientAuthenticationReader, OAuthClientRepository, OAuthClientRepositoryError,
-    OAuthClientRepositoryFactory, ThirdPartyExchangeCodeRepository,
+    OAuthClientRepositoryFactory, OAuthCodeRepositoryError, ThirdPartyExchangeCodeRepository,
     ThirdPartyExchangeCodeRepositoryFactory,
 };
 use platform_postgres::SqlxUnitOfWork;
@@ -173,6 +173,8 @@ async fn should_persist_oauth_client_secret_hash_and_reject_stale_update() {
         let pool = get_postgres_client().await;
         let client = oauth_client(OAuthClientId::new(), "versioned-client")?;
         let inserted = insert_oauth_client(pool.clone(), &client).await?;
+        assert!(inserted.created > OffsetDateTime::UNIX_EPOCH);
+        assert_eq!(inserted.created, inserted.updated);
 
         let stored_secret = client_secret_columns(&pool, client.client_id()).await?;
         assert_eq!(
@@ -187,6 +189,8 @@ async fn should_persist_oauth_client_secret_hash_and_reject_stale_update() {
         updated_client.change_name(OAuthClientName::from("updated-client"));
         let updated = update_oauth_client(pool.clone(), &updated_client, inserted.version).await?;
         assert_ne!(inserted.version, updated.version);
+        assert_eq!(inserted.created, updated.created);
+        assert!(updated.updated >= inserted.updated);
         assert_eq!(
             &OAuthClientName::from("updated-client"),
             updated.value.name()
@@ -213,6 +217,91 @@ async fn should_persist_oauth_client_secret_hash_and_reject_stale_update() {
     );
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_classify_duplicate_oauth_writes_as_conflicts() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+
+        let client = oauth_client(OAuthClientId::new(), "duplicate-client")?;
+        insert_oauth_client(pool.clone(), &client).await?;
+        let duplicate = insert_oauth_client(pool.clone(), &client).await;
+        assert!(matches!(
+            duplicate,
+            Err(OAuthClientRepositoryError::Conflict { .. })
+        ));
+
+        let user_id = seed_user(&pool).await?;
+        let code = authorization_code(client.client_id(), user_id)?;
+        insert_authorization_code(pool.clone(), code.clone()).await?;
+        let duplicate = insert_authorization_code(pool.clone(), code).await;
+        let duplicate_error = match duplicate {
+            Ok(()) => panic!("duplicate authorization code insert must fail"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            duplicate_error.downcast_ref::<OAuthCodeRepositoryError>(),
+            Some(OAuthCodeRepositoryError::Conflict { .. })
+        ));
+
+        let grant = third_party_exchange_code_grant();
+        insert_third_party_exchange_code(pool.clone(), grant.clone()).await?;
+        let duplicate = insert_third_party_exchange_code(pool, grant).await;
+        let duplicate_error = match duplicate {
+            Ok(()) => panic!("duplicate third-party code insert must fail"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            duplicate_error.downcast_ref::<OAuthCodeRepositoryError>(),
+            Some(OAuthCodeRepositoryError::Conflict { .. })
+        ));
+
+        Ok(())
+    }
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "duplicate OAuth writes must classify as conflicts: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reject_invalid_persisted_redirect_uris() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        for redirect_uri in [
+            "http://client.example/callback",
+            "https://client.example/callback#fragment",
+        ] {
+            let client = oauth_client(OAuthClientId::new(), "corrupt-client")?;
+            insert_oauth_client(pool.clone(), &client).await?;
+            sqlx::query("UPDATE oauth_clients SET redirect_uris = $1 WHERE client_id = $2")
+                .bind(vec![redirect_uri.to_owned()])
+                .bind(Uuid::parse_str(&client.client_id().to_string())?)
+                .execute(&pool)
+                .await?;
+
+            let mut transaction = SqlxUnitOfWork::new(pool.clone()).begin().await?;
+            let loaded = SqlxOAuthClientRepositoryFactory::new()
+                .in_transaction(&mut transaction)
+                .find_by_id(client.client_id())
+                .await;
+            assert!(matches!(
+                loaded,
+                Err(OAuthClientRepositoryError::InvalidPersistedState { .. })
+            ));
+        }
+
+        Ok(())
+    }
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "invalid persisted redirect URIs must be rejected: {result:?}"
+    );
+}
+
 async fn seed_oauth_client(
     pool: &PgPool,
     name: &str,
@@ -234,6 +323,11 @@ async fn seed_user(pool: &PgPool) -> Result<UserId, Box<dyn std::error::Error>> 
 }
 
 fn oauth_client(client_id: OAuthClientId, name: &str) -> Result<OAuthClient, url::ParseError> {
+    let redirect_uri = Url::parse("https://dummy.example.test/oauth/callback")?;
+    let redirect_uris = match OAuthRedirectUris::try_from(HashSet::from([redirect_uri])) {
+        Ok(value) => value,
+        Err(error) => panic!("test redirect URI must be valid: {error}"),
+    };
     Ok(OAuthClient::create(RehydratedOAuthClientState {
         client_id,
         hashed_client_secret: HashedRawOAuthClientSecret::new(
@@ -241,7 +335,7 @@ fn oauth_client(client_id: OAuthClientId, name: &str) -> Result<OAuthClient, url
             DUMMY_CLIENT_SECRET_HASH.to_owned(),
         ),
         name: OAuthClientName::from(name),
-        redirect_uris: HashSet::from([Url::parse("https://dummy.example.test/oauth/callback")?]),
+        redirect_uris,
         tos_uri: Url::parse("https://dummy.example.test/tos")?,
         policy_uri: Url::parse("https://dummy.example.test/policy")?,
         client_uri: Url::parse("https://dummy.example.test")?,

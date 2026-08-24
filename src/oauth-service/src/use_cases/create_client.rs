@@ -1,10 +1,12 @@
 use crate::error::OAuthServiceError;
-use crate::ports::{OAuthClientRepository, OAuthClientRepositoryFactory};
-use crate::use_cases::support::{authorize_oauth_admin, validate_redirect_uris};
+use crate::ports::{OAuthClientRepository, OAuthClientRepositoryFactory, OAuthClientView};
+use crate::use_cases::support::authorize_oauth_admin;
 use application::operation_context::OperationContext;
 use application::transaction::{Transaction, UnitOfWork};
 use credential_core::oauth_client_id::OAuthClientId;
-use oauth_core::client::{OAuthClient, OAuthClientName, RehydratedOAuthClientState};
+use oauth_core::client::{
+    OAuthClient, OAuthClientName, OAuthRedirectUris, RehydratedOAuthClientState,
+};
 use std::collections::HashSet;
 use url::Url;
 use user_core::access_token::{HashedRawOAuthClientSecret, RawOAuthClientSecret, Scope};
@@ -23,7 +25,7 @@ pub struct CreateOAuthClientCommand {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateOAuthClientResult {
     pub raw_client_secret: RawOAuthClientSecret,
-    pub client: OAuthClient,
+    pub client: OAuthClientView,
 }
 
 #[async_trait::async_trait]
@@ -60,15 +62,15 @@ where
         command: CreateOAuthClientCommand,
     ) -> Result<CreateOAuthClientResult, OAuthServiceError> {
         authorize_oauth_admin(context)?;
-        validate_redirect_uris(&command.redirect_uris)
-            .map_err(OAuthServiceError::InvalidClientMetadata)?;
+        let redirect_uris = OAuthRedirectUris::try_from(command.redirect_uris)
+            .map_err(|error| OAuthServiceError::InvalidClientMetadata(error.to_string()))?;
 
         let raw_client_secret = RawOAuthClientSecret::new();
         let client = OAuthClient::create(RehydratedOAuthClientState {
             client_id: OAuthClientId::new(),
             hashed_client_secret: HashedRawOAuthClientSecret::from(raw_client_secret.clone()),
             name: command.name,
-            redirect_uris: command.redirect_uris,
+            redirect_uris,
             tos_uri: command.tos_uri,
             policy_uri: command.policy_uri,
             client_uri: command.client_uri,
@@ -78,12 +80,14 @@ where
 
         let mut tx = self.unit_of_work.begin().await?;
         let persisted = self.clients.in_transaction(&mut tx).insert(&client).await?;
+        let client_id = persisted.value.client_id();
         tx.commit().await?;
 
-        tracing::info!(event = "oauth_client.created", actor_id = %context.principal.label(), client_id = %persisted.value.client_id(), outcome = "success");
+        let client = OAuthClientView::from(persisted);
+        tracing::info!(event = "oauth_client.created", actor_id = %context.principal.label(), client_id = %client_id, outcome = "success");
         Ok(CreateOAuthClientResult {
             raw_client_secret,
-            client: persisted.value,
+            client,
         })
     }
 }

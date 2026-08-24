@@ -7,8 +7,9 @@
 ## Core Design
 
 - One OAuth use-case module per command/query.
-- `ports/` owns transaction-scoped OAuth aggregate repositories, including one-time code repositories that only insert or atomically consume, plus purpose-specific client details/list readers returning `OAuthClientView` and a narrow client-authentication reader that exposes secret hash material only to OAuth service handlers.
+- `ports/` owns transaction-scoped OAuth aggregate repositories, including one-time code repositories that only insert or atomically consume, plus purpose-specific client details/list readers returning `OAuthClientView` and persisted client write metadata, and a narrow client-authentication reader that exposes secret hash material only to OAuth service handlers.
 - OAuth token issue/revoke flows compose public User repository contracts in the same PostgreSQL transaction.
+- OAuth authorization derives identity from `OperationContext`; delegated callers need `access-tokens:write` and may request only scopes present on their credential. Client get/list queries enforce `access-tokens:read` in the service.
 - No HTTP, Lambda, or storage records.
 
 ## Ownership

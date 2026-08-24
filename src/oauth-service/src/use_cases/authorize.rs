@@ -4,6 +4,7 @@ use crate::ports::{
     OAuthClientRepositoryFactory,
 };
 use crate::use_cases::support::{AUTHORIZATION_CODE_TTL, append_query_params};
+use application::operation_context::{CredentialCapability, OperationContext, Principal};
 use application::transaction::{Transaction, UnitOfWork};
 use credential_core::oauth_client_id::OAuthClientId;
 use domain_primitives::string_newtype;
@@ -43,7 +44,7 @@ pub struct AuthorizeResponse {
 pub trait AuthorizeUseCase: Send + Sync {
     async fn execute(
         &self,
-        user_id: &UserId,
+        context: &OperationContext,
         request: AuthorizeRequest,
     ) -> Result<AuthorizeResponse, OAuthServiceError>;
 }
@@ -71,9 +72,10 @@ where
 {
     async fn execute(
         &self,
-        user_id: &UserId,
+        context: &OperationContext,
         request: AuthorizeRequest,
     ) -> Result<AuthorizeResponse, OAuthServiceError> {
+        let user_id = authorized_user_id(context, &request.scope)?;
         let mut tx = self.unit_of_work.begin().await?;
         let client = self
             .clients
@@ -82,7 +84,11 @@ where
             .await?
             .ok_or(OAuthServiceError::ClientNotFound)?
             .value;
-        if !client.redirect_uris().contains(&request.redirect_uri) {
+        if !client
+            .redirect_uris()
+            .as_set()
+            .contains(&request.redirect_uri)
+        {
             return Err(OAuthServiceError::InvalidRedirectUri);
         }
         if !request.scope.is_subset(client.scopes()) {
@@ -92,7 +98,7 @@ where
         let code = AuthorizationCode::create(RehydratedAuthorizationCodeState {
             code: OAuthAuthorizationCode::new(),
             client_id: request.client_id,
-            user_id: *user_id,
+            user_id,
             redirect_uri: request.redirect_uri.clone(),
             scopes: request.scope,
             code_challenge: request.code_challenge,
@@ -112,5 +118,29 @@ where
         };
         tx.commit().await?;
         Ok(response)
+    }
+}
+
+fn authorized_user_id(
+    context: &OperationContext,
+    requested_scopes: &HashSet<Scope>,
+) -> Result<UserId, OAuthServiceError> {
+    match &context.principal {
+        Principal::User(user_id) => Ok(*user_id),
+        Principal::DelegatedUser {
+            user_id,
+            capabilities,
+        } => {
+            if !capabilities.contains(&CredentialCapability::AccessTokensWrite)
+                || requested_scopes
+                    .iter()
+                    .any(|scope| !capabilities.contains(scope))
+            {
+                return Err(OAuthServiceError::Forbidden);
+            }
+            Ok(*user_id)
+        }
+        Principal::Anonymous => Err(OAuthServiceError::AuthenticatedActorRequired),
+        Principal::Service(_) | Principal::System => Err(OAuthServiceError::Forbidden),
     }
 }

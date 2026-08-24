@@ -14,6 +14,8 @@ pub(crate) struct OAuthClientRow {
     pub(crate) logo_uri: String,
     pub(crate) scopes: Vec<String>,
     pub(crate) version: i64,
+    pub(crate) created: OffsetDateTime,
+    pub(crate) updated: OffsetDateTime,
 }
 
 #[derive(Debug, sqlx::FromRow)]

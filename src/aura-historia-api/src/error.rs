@@ -1805,10 +1805,11 @@ impl From<OAuthServiceError> for ApiError {
             OAuthServiceError::InvalidClientMetadata(detail) => {
                 ApiError::bad_request(OAUTH_INVALID_CLIENT_METADATA).with_detail(detail)
             }
-            OAuthServiceError::TemporarilyUnavailable => {
+            OAuthServiceError::TemporarilyUnavailable { .. } => {
                 ApiError::service_unavailable(OAUTH_TEMPORARILY_UNAVAILABLE)
             }
-            OAuthServiceError::InvalidPersistedState | OAuthServiceError::Internal => {
+            OAuthServiceError::InvalidPersistedState { .. }
+            | OAuthServiceError::Internal { .. } => {
                 ApiError::internal_server_error(OAUTH_INTERNAL_ERROR)
             }
         }

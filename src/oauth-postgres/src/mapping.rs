@@ -7,11 +7,14 @@ use oauth_core::authorization_code::{
     AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
     RehydratedAuthorizationCodeState,
 };
-use oauth_core::client::{OAuthClient, OAuthClientName, RehydratedOAuthClientState};
+use oauth_core::client::{
+    InvalidOAuthRedirectUris, OAuthClient, OAuthClientName, OAuthRedirectUris,
+    RehydratedOAuthClientState,
+};
 use oauth_core::third_party_exchange_code::{
     RehydratedThirdPartyExchangeCodeGrantState, ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant,
 };
-use oauth_service::ports::{OAuthClientStorageVersion, VersionedOAuthClient};
+use oauth_service::ports::{OAuthClientStorageVersion, PersistedOAuthClient, VersionedOAuthClient};
 use std::collections::HashSet;
 use user_core::access_token::{HashedRawOAuthClientSecret, RawAccessToken};
 use user_core::user_id::UserId;
@@ -20,7 +23,7 @@ use uuid::Uuid;
 pub(crate) const OAUTH_CLIENT_COLUMNS: &str = "\
     client_id, client_secret_short_token AS secret_short, \
     client_secret_long_token_hash AS secret_hash, name, redirect_uris, tos_uri, policy_uri, \
-    client_uri, logo_uri, scopes, version";
+    client_uri, logo_uri, scopes, version, created, updated";
 pub(crate) const OAUTH_CLIENT_VIEW_COLUMNS: &str = "\
     client_id, name, redirect_uris, tos_uri, policy_uri, client_uri, logo_uri, scopes, created, \
     updated";
@@ -36,6 +39,8 @@ pub(crate) const THIRD_PARTY_EXCHANGE_CODE_COLUMNS: &str = "\
 pub(crate) enum OAuthRowMappingError {
     #[error("persisted OAuth URL is invalid")]
     InvalidUrl(#[source] url::ParseError),
+    #[error("persisted OAuth redirect URI set is invalid")]
+    InvalidRedirectUris(#[source] InvalidOAuthRedirectUris),
     #[error("persisted OAuth scope is invalid: {0}")]
     InvalidScope(String),
     #[error("persisted OAuth code challenge method is invalid: {0}")]
@@ -60,7 +65,7 @@ impl TryFrom<OAuthClientRow> for VersionedOAuthClient {
                 row.secret_hash,
             ),
             name: OAuthClientName::from(row.name),
-            redirect_uris: parse_urls(row.redirect_uris)?,
+            redirect_uris: parse_redirect_uris(row.redirect_uris)?,
             tos_uri: url::Url::parse(&row.tos_uri).map_err(OAuthRowMappingError::InvalidUrl)?,
             policy_uri: url::Url::parse(&row.policy_uri)
                 .map_err(OAuthRowMappingError::InvalidUrl)?,
@@ -70,9 +75,12 @@ impl TryFrom<OAuthClientRow> for VersionedOAuthClient {
             scopes: parse_scopes(row.scopes)?,
         });
 
-        Ok(domain_primitives::versioned::Versioned::new(
-            client, version,
-        ))
+        Ok(PersistedOAuthClient {
+            value: client,
+            version,
+            created: row.created,
+            updated: row.updated,
+        })
     }
 }
 
@@ -83,7 +91,7 @@ impl TryFrom<OAuthClientViewRow> for oauth_service::ports::OAuthClientView {
         Ok(Self {
             client_id: OAuthClientId::from(row.client_id),
             name: OAuthClientName::from(row.name),
-            redirect_uris: parse_urls(row.redirect_uris)?,
+            redirect_uris: parse_redirect_uris(row.redirect_uris)?.into_set(),
             tos_uri: url::Url::parse(&row.tos_uri).map_err(OAuthRowMappingError::InvalidUrl)?,
             policy_uri: url::Url::parse(&row.policy_uri)
                 .map_err(OAuthRowMappingError::InvalidUrl)?,
@@ -161,6 +169,11 @@ fn parse_urls(values: Vec<String>) -> Result<HashSet<url::Url>, OAuthRowMappingE
         .collect()
 }
 
+fn parse_redirect_uris(values: Vec<String>) -> Result<OAuthRedirectUris, OAuthRowMappingError> {
+    OAuthRedirectUris::try_from(parse_urls(values)?)
+        .map_err(OAuthRowMappingError::InvalidRedirectUris)
+}
+
 fn parse_scopes(values: Vec<String>) -> Result<HashSet<Scope>, OAuthRowMappingError> {
     values
         .into_iter()
@@ -205,7 +218,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_rehydrate_versioned_oauth_client_without_operational_metadata() {
+    fn should_rehydrate_versioned_oauth_client_with_operational_metadata() {
         let row = OAuthClientRow {
             client_id: Uuid::nil(),
             secret_short: "short".to_owned(),
@@ -218,6 +231,8 @@ mod tests {
             logo_uri: "https://client.example/logo.png".to_owned(),
             scopes: vec!["products:write".to_owned()],
             version: 1,
+            created: time::OffsetDateTime::UNIX_EPOCH,
+            updated: time::OffsetDateTime::UNIX_EPOCH,
         };
 
         let persisted = match VersionedOAuthClient::try_from(row) {
@@ -227,7 +242,57 @@ mod tests {
 
         assert_eq!(OAuthClientStorageVersion::INITIAL, persisted.version);
         assert_eq!(&OAuthClientName::from("Client"), persisted.value.name());
-        assert_eq!(1, persisted.value.redirect_uris().len());
+        assert_eq!(1, persisted.value.redirect_uris().as_set().len());
+        assert_eq!(time::OffsetDateTime::UNIX_EPOCH, persisted.created);
+        assert_eq!(time::OffsetDateTime::UNIX_EPOCH, persisted.updated);
+    }
+
+    #[test]
+    fn should_reject_http_redirect_uri_in_persisted_oauth_client() {
+        let row = OAuthClientRow {
+            client_id: Uuid::nil(),
+            secret_short: "short".to_owned(),
+            secret_hash: "hash".to_owned(),
+            name: "Client".to_owned(),
+            redirect_uris: vec!["http://client.example/callback".to_owned()],
+            tos_uri: "https://client.example/tos".to_owned(),
+            policy_uri: "https://client.example/policy".to_owned(),
+            client_uri: "https://client.example".to_owned(),
+            logo_uri: "https://client.example/logo.png".to_owned(),
+            scopes: vec!["products:write".to_owned()],
+            version: 1,
+            created: time::OffsetDateTime::UNIX_EPOCH,
+            updated: time::OffsetDateTime::UNIX_EPOCH,
+        };
+
+        assert!(matches!(
+            VersionedOAuthClient::try_from(row),
+            Err(OAuthRowMappingError::InvalidRedirectUris(_))
+        ));
+    }
+
+    #[test]
+    fn should_reject_fragment_redirect_uri_in_persisted_oauth_client() {
+        let row = OAuthClientRow {
+            client_id: Uuid::nil(),
+            secret_short: "short".to_owned(),
+            secret_hash: "hash".to_owned(),
+            name: "Client".to_owned(),
+            redirect_uris: vec!["https://client.example/callback#fragment".to_owned()],
+            tos_uri: "https://client.example/tos".to_owned(),
+            policy_uri: "https://client.example/policy".to_owned(),
+            client_uri: "https://client.example".to_owned(),
+            logo_uri: "https://client.example/logo.png".to_owned(),
+            scopes: vec!["products:write".to_owned()],
+            version: 1,
+            created: time::OffsetDateTime::UNIX_EPOCH,
+            updated: time::OffsetDateTime::UNIX_EPOCH,
+        };
+
+        assert!(matches!(
+            VersionedOAuthClient::try_from(row),
+            Err(OAuthRowMappingError::InvalidRedirectUris(_))
+        ));
     }
 
     #[test]
@@ -244,6 +309,8 @@ mod tests {
             logo_uri: "https://client.example/logo.png".to_owned(),
             scopes: vec!["products:write".to_owned()],
             version: 0,
+            created: time::OffsetDateTime::UNIX_EPOCH,
+            updated: time::OffsetDateTime::UNIX_EPOCH,
         };
 
         assert!(matches!(

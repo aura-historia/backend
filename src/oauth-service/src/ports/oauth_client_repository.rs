@@ -1,11 +1,19 @@
 use application::error::BoxError;
 use credential_core::oauth_client_id::OAuthClientId;
-use domain_primitives::versioned::Versioned;
 use oauth_core::client::OAuthClient;
+use time::OffsetDateTime;
 
 domain_primitives::version_newtype!(OAuthClientStorageVersion);
 
-pub type VersionedOAuthClient = Versioned<OAuthClient, OAuthClientStorageVersion>;
+#[derive(Debug, Clone, PartialEq)]
+pub struct PersistedOAuthClient {
+    pub value: OAuthClient,
+    pub version: OAuthClientStorageVersion,
+    pub created: OffsetDateTime,
+    pub updated: OffsetDateTime,
+}
+
+pub type VersionedOAuthClient = PersistedOAuthClient;
 
 #[derive(Debug, thiserror::Error)]
 pub enum OAuthClientRepositoryError {
@@ -43,13 +51,13 @@ pub trait OAuthClientRepository: Send {
     async fn insert(
         &mut self,
         client: &OAuthClient,
-    ) -> Result<VersionedOAuthClient, OAuthClientRepositoryError>;
+    ) -> Result<PersistedOAuthClient, OAuthClientRepositoryError>;
 
     async fn update(
         &mut self,
         client: &OAuthClient,
         expected_version: OAuthClientStorageVersion,
-    ) -> Result<VersionedOAuthClient, OAuthClientRepositoryError>;
+    ) -> Result<PersistedOAuthClient, OAuthClientRepositoryError>;
 
     async fn delete_by_id(
         &mut self,

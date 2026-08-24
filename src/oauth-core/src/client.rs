@@ -9,12 +9,58 @@ string_newtype!(
     derives(serde::Serialize, serde::Deserialize)
 );
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OAuthRedirectUris(HashSet<Url>);
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidOAuthRedirectUris {
+    #[error("OAuth client must have at least one redirect URI")]
+    Empty,
+    #[error("OAuth redirect URI must use HTTPS: {0}")]
+    NotHttps(Url),
+    #[error("OAuth redirect URI must not contain a fragment: {0}")]
+    Fragment(Url),
+}
+
+impl TryFrom<HashSet<Url>> for OAuthRedirectUris {
+    type Error = InvalidOAuthRedirectUris;
+
+    fn try_from(values: HashSet<Url>) -> Result<Self, Self::Error> {
+        if values.is_empty() {
+            return Err(InvalidOAuthRedirectUris::Empty);
+        }
+        for value in &values {
+            if value.scheme() != "https" {
+                return Err(InvalidOAuthRedirectUris::NotHttps(value.clone()));
+            }
+            if value.fragment().is_some() {
+                return Err(InvalidOAuthRedirectUris::Fragment(value.clone()));
+            }
+        }
+        Ok(Self(values))
+    }
+}
+
+impl OAuthRedirectUris {
+    pub fn as_set(&self) -> &HashSet<Url> {
+        &self.0
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Url> {
+        self.0.iter()
+    }
+
+    pub fn into_set(self) -> HashSet<Url> {
+        self.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct OAuthClient {
     client_id: OAuthClientId,
     hashed_client_secret: HashedRawOAuthClientSecret,
     name: OAuthClientName,
-    redirect_uris: HashSet<Url>,
+    redirect_uris: OAuthRedirectUris,
     tos_uri: Url,
     policy_uri: Url,
     client_uri: Url,
@@ -28,7 +74,7 @@ pub struct RehydratedOAuthClientState {
     pub client_id: OAuthClientId,
     pub hashed_client_secret: HashedRawOAuthClientSecret,
     pub name: OAuthClientName,
-    pub redirect_uris: HashSet<Url>,
+    pub redirect_uris: OAuthRedirectUris,
     pub tos_uri: Url,
     pub policy_uri: Url,
     pub client_uri: Url,
@@ -68,7 +114,7 @@ impl OAuthClient {
         &self.name
     }
 
-    pub fn redirect_uris(&self) -> &HashSet<Url> {
+    pub fn redirect_uris(&self) -> &OAuthRedirectUris {
         &self.redirect_uris
     }
 
@@ -96,7 +142,7 @@ impl OAuthClient {
         replace_if_changed(&mut self.name, name)
     }
 
-    pub fn replace_redirect_uris(&mut self, redirect_uris: HashSet<Url>) -> ChangeOutcome {
+    pub fn replace_redirect_uris(&mut self, redirect_uris: OAuthRedirectUris) -> ChangeOutcome {
         replace_if_changed(&mut self.redirect_uris, redirect_uris)
     }
 
@@ -148,7 +194,10 @@ mod tests {
             client_id: OAuthClientId::new(),
             hashed_client_secret: HashedRawOAuthClientSecret::from(secret),
             name: OAuthClientName::from("Client"),
-            redirect_uris: HashSet::from([url("https://client.example/callback")]),
+            redirect_uris: OAuthRedirectUris::try_from(HashSet::from([url(
+                "https://client.example/callback",
+            )]))
+            .unwrap_or_else(|error| panic!("test redirect URI must be valid: {error}")),
             tos_uri: url("https://client.example/tos"),
             policy_uri: url("https://client.example/policy"),
             client_uri: url("https://client.example"),
@@ -178,7 +227,10 @@ mod tests {
     #[test]
     fn should_replace_client_metadata_through_domain_methods() {
         let mut client = client();
-        let redirect_uris = HashSet::from([url("https://client.example/new-callback")]);
+        let redirect_uris = OAuthRedirectUris::try_from(HashSet::from([url(
+            "https://client.example/new-callback",
+        )]))
+        .unwrap_or_else(|error| panic!("test redirect URI must be valid: {error}"));
         let scopes = HashSet::from([Scope::ShopsRead]);
 
         assert_eq!(
@@ -213,5 +265,39 @@ mod tests {
         assert_eq!(&OAuthClientName::from("Renamed"), client.name());
         assert_eq!(&redirect_uris, client.redirect_uris());
         assert_eq!(&scopes, client.scopes());
+    }
+
+    #[test]
+    fn should_reject_empty_redirect_uris() {
+        assert!(matches!(
+            OAuthRedirectUris::try_from(HashSet::new()),
+            Err(InvalidOAuthRedirectUris::Empty)
+        ));
+    }
+
+    #[test]
+    fn should_reject_http_redirect_uris() {
+        assert!(matches!(
+            OAuthRedirectUris::try_from(HashSet::from([url("http://client.example/callback")])),
+            Err(InvalidOAuthRedirectUris::NotHttps(_))
+        ));
+    }
+
+    #[test]
+    fn should_reject_redirect_uri_fragments() {
+        assert!(matches!(
+            OAuthRedirectUris::try_from(HashSet::from([url(
+                "https://client.example/callback#fragment"
+            )])),
+            Err(InvalidOAuthRedirectUris::Fragment(_))
+        ));
+    }
+
+    #[test]
+    fn should_accept_https_redirect_uris_without_fragments() {
+        let result =
+            OAuthRedirectUris::try_from(HashSet::from([url("https://client.example/callback")]));
+
+        assert!(result.is_ok());
     }
 }

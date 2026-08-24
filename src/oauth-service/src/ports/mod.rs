@@ -18,7 +18,7 @@ pub use oauth_client_list_reader::OAuthClientListReader;
 pub use oauth_client_read_error::OAuthClientReadError;
 pub use oauth_client_repository::{
     OAuthClientRepository, OAuthClientRepositoryError, OAuthClientRepositoryFactory,
-    OAuthClientStorageVersion, VersionedOAuthClient,
+    OAuthClientStorageVersion, PersistedOAuthClient, VersionedOAuthClient,
 };
 pub use oauth_client_view::OAuthClientView;
 pub use third_party_exchange_code_repository::{

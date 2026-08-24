@@ -29,7 +29,7 @@ impl OAuthClientDetailsReader for SqlxOAuthClientDetailsReader {
             .bind(client_id)
             .fetch_optional(&self.pool)
             .await
-            .map_err(internal_error)?;
+            .map_err(temporarily_unavailable)?;
 
         row.map(TryInto::try_into)
             .transpose()
@@ -37,8 +37,8 @@ impl OAuthClientDetailsReader for SqlxOAuthClientDetailsReader {
     }
 }
 
-fn internal_error(source: sqlx::Error) -> OAuthClientReadError {
-    OAuthClientReadError::Internal {
+fn temporarily_unavailable(source: sqlx::Error) -> OAuthClientReadError {
+    OAuthClientReadError::TemporarilyUnavailable {
         source: box_error(source),
     }
 }

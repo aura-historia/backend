@@ -7,6 +7,7 @@ edition = "2024"
 credential-core = { workspace = true }
 domain-primitives = { workspace = true }
 serde = { workspace = true }
+thiserror = { workspace = true }
 time = { workspace = true, features = ["serde"] }
 url = { workspace = true, features = ["serde"] }
 user-core = { workspace = true }

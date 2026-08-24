@@ -4809,6 +4809,7 @@ dependencies = [
  "domain-primitives",
  "fake",
  "serde",
+ "thiserror 2.0.20",
  "time",
  "url",
  "user-core",

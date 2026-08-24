@@ -24,7 +24,7 @@ impl OAuthClientListReader for SqlxOAuthClientListReader {
         let rows = sqlx::query_as::<_, OAuthClientViewRow>(&query)
             .fetch_all(&self.pool)
             .await
-            .map_err(internal_error)?;
+            .map_err(temporarily_unavailable)?;
 
         rows.into_iter()
             .map(|row| row.try_into().map_err(invalid_persisted_state))
@@ -32,8 +32,8 @@ impl OAuthClientListReader for SqlxOAuthClientListReader {
     }
 }
 
-fn internal_error(source: sqlx::Error) -> OAuthClientReadError {
-    OAuthClientReadError::Internal {
+fn temporarily_unavailable(source: sqlx::Error) -> OAuthClientReadError {
+    OAuthClientReadError::TemporarilyUnavailable {
         source: box_error(source),
     }
 }

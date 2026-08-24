@@ -11,11 +11,11 @@ use axum::{
 };
 
 pub async fn list_clients(State(state): State<OAuthState>, headers: HeaderMap) -> Response {
-    let (_context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return *response,
     };
-    match state.list_clients.execute().await {
+    match state.list_clients.execute(&context).await {
         Ok(result) => no_store(
             Json(
                 result
