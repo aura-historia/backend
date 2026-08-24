@@ -200,7 +200,7 @@ jobs:
           test -s "coverage-lcov/${{ strategy.job-index }}.lcov"
 
       - name: Upload coverage for ${{ matrix.crate }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ strategy.job-index }}
           path: coverage-lcov/${{ strategy.job-index }}.lcov
