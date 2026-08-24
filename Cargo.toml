@@ -175,7 +175,7 @@ thiserror = "2.0.18"
 time = "0.3.47"
 tokio = { version = "1.52.3", default-features = false }
 tower = "0.5.2"
-tower-http = { version = "0.6.8", features = ["cors", "limit", "sensitive-headers", "timeout", "trace"] }
+tower-http = { version = "0.7.0", features = ["cors", "limit", "sensitive-headers", "timeout", "trace"] }
 tracing = "0.1.44"
 tracing-cloudwatch = { version = "=0.4.1", features = ["awssdk", "ordered_logs"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
