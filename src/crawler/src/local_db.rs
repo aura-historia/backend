@@ -1,3 +1,4 @@
+use sqlx::AssertSqlSafe;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::path::Path;
@@ -93,20 +94,22 @@ async fn connect_admin_pool_with_retry() -> Result<PgPool, String> {
 }
 
 async fn create_database_if_missing(pool: &PgPool, db_name: &str) -> Result<(), String> {
-    let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)")
-            .bind(db_name)
-            .fetch_one(pool)
-            .await
-            .map_err(|e| format!("failed checking database '{db_name}' existence: {e}"))?;
+    let exists: bool = sqlx::query_scalar(AssertSqlSafe(
+        "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
+    ))
+    .bind(db_name)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("failed checking database '{db_name}' existence: {e}"))?;
 
     if exists {
         return Ok(());
     }
 
+    // PostgreSQL delimited identifiers escape a quote by doubling it.
     let escaped = db_name.replace('"', "\"\"");
-    let create_sql = format!(r#"CREATE DATABASE "{escaped}""#);
-    sqlx::query(&create_sql)
+    let create_sql = AssertSqlSafe(format!(r#"CREATE DATABASE "{escaped}""#));
+    sqlx::query(create_sql)
         .execute(pool)
         .await
         .map_err(|e| format!("failed creating database '{db_name}': {e}"))?;

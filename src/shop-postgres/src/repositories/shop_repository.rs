@@ -11,7 +11,7 @@ use shop_core::shop_slug_id::ShopSlugId;
 use shop_service::ports::{
     ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion, StoredShop,
 };
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxShopRepositoryFactory;
@@ -37,9 +37,13 @@ impl ShopRepositoryFactory<SqlxTransaction> for SqlxShopRepositoryFactory {
 #[async_trait::async_trait]
 impl ShopRepository for SqlxShopRepository<'_> {
     async fn find_by_id(&mut self, id: ShopId) -> Result<Option<StoredShop>, ShopRepositoryError> {
-        let sql = format!("SELECT {} FROM shops WHERE shop_id = $1", shop_columns());
-        let row = sqlx::query_as::<_, ShopRow>(&sql)
-            .bind(uuid::Uuid::from(id))
+        let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
+        builder
+            .push(shop_columns())
+            .push(" FROM shops WHERE shop_id = ")
+            .push_bind(uuid::Uuid::from(id));
+        let row = builder
+            .build_query_as::<ShopRow>()
             .fetch_optional(&mut *self.connection)
             .await
             .map_err(ShopLookupSqlxError)?;
@@ -55,12 +59,13 @@ impl ShopRepository for SqlxShopRepository<'_> {
         &mut self,
         slug_id: &ShopSlugId,
     ) -> Result<Option<StoredShop>, ShopRepositoryError> {
-        let sql = format!(
-            "SELECT {} FROM shops WHERE shop_slug_id = $1",
-            shop_columns()
-        );
-        let row = sqlx::query_as::<_, ShopRow>(&sql)
-            .bind(slug_id.as_ref())
+        let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
+        builder
+            .push(shop_columns())
+            .push(" FROM shops WHERE shop_slug_id = ")
+            .push_bind(slug_id.as_ref());
+        let row = builder
+            .build_query_as::<ShopRow>()
             .fetch_optional(&mut *self.connection)
             .await
             .map_err(ShopLookupSqlxError)?;
@@ -80,7 +85,7 @@ impl ShopRepository for SqlxShopRepository<'_> {
         let woocommerce = shop.woocommerce();
         let presentation = shop.presentation();
 
-        let sql = format!(
+        let mut builder = QueryBuilder::<Postgres>::new(
             r#"
             INSERT INTO shops (
                 shop_id, shop_slug_id, name, shop_type, partner_status, lifecycle, shop_domains,
@@ -99,12 +104,12 @@ impl ShopRepository for SqlxShopRepository<'_> {
                 $16, $17, $18, $19, $20, $21,
                 $22, $23, $24, $25, $26
             )
-            RETURNING {}
-            "#,
-            shop_columns()
+            RETURNING "#,
         );
+        builder.push(shop_columns());
 
-        let row = sqlx::query_as::<_, ShopRow>(&sql)
+        let row = builder
+            .build_query_as::<ShopRow>()
             .bind(uuid::Uuid::from(shop.id()))
             .bind(shop.slug_id().as_ref())
             .bind(shop.name().as_ref())
@@ -152,7 +157,7 @@ impl ShopRepository for SqlxShopRepository<'_> {
         let woocommerce = shop.woocommerce();
         let presentation = shop.presentation();
 
-        let sql = format!(
+        let mut builder = QueryBuilder::<Postgres>::new(
             r#"
             UPDATE shops
             SET
@@ -184,12 +189,12 @@ impl ShopRepository for SqlxShopRepository<'_> {
                 version = version + 1,
                 updated = now()
             WHERE shop_id = $26 AND version = $27
-            RETURNING {}
-            "#,
-            shop_columns()
+            RETURNING "#,
         );
+        builder.push(shop_columns());
 
-        let row = sqlx::query_as::<_, ShopRow>(&sql)
+        let row = builder
+            .build_query_as::<ShopRow>()
             .bind(shop.slug_id().as_ref())
             .bind(shop.name().as_ref())
             .bind(bind_shop_type(shop.shop_type()))

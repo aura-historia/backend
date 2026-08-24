@@ -13,7 +13,7 @@ use notification_service::ports::notification_delivery_repository::{
     NotificationDeliveryRepository, NotificationDeliverySource,
 };
 use notification_service::presentation::NotificationPresentationPreferences;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, QueryBuilder};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -136,7 +136,17 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
         provider_message_id: &str,
         delivered_at: OffsetDateTime,
     ) -> Result<bool, NotificationDeliveryError> {
-        complete(&self.pool, "UPDATE notification_deliveries SET status = 'DELIVERED', lease_token = NULL, lease_expires_at = NULL, provider_message_id = $3, last_error_code = NULL, delivered_at = $4, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $5", notification_delivery_id, lease_token, provider_message_id, Some(delivered_at), delivered_at).await
+        complete(
+            &self.pool,
+            notification_delivery_id,
+            lease_token,
+            DeliveryCompletion::Delivered {
+                provider_message_id,
+                delivered_at,
+            },
+            delivered_at,
+        )
+        .await
     }
 
     async fn mark_retryable_failure(
@@ -146,7 +156,14 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
         error_code: &str,
         completed_at: OffsetDateTime,
     ) -> Result<bool, NotificationDeliveryError> {
-        complete(&self.pool, "UPDATE notification_deliveries SET status = 'PENDING', lease_token = NULL, lease_expires_at = NULL, provider_message_id = NULL, last_error_code = $3, delivered_at = NULL, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $4", notification_delivery_id, lease_token, error_code, None, completed_at).await
+        complete(
+            &self.pool,
+            notification_delivery_id,
+            lease_token,
+            DeliveryCompletion::RetryableFailure { error_code },
+            completed_at,
+        )
+        .await
     }
 
     async fn mark_permanent_failure(
@@ -156,7 +173,14 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
         error_code: &str,
         completed_at: OffsetDateTime,
     ) -> Result<bool, NotificationDeliveryError> {
-        complete(&self.pool, "UPDATE notification_deliveries SET status = 'FAILED', lease_token = NULL, lease_expires_at = NULL, provider_message_id = NULL, last_error_code = $3, delivered_at = NULL, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $4", notification_delivery_id, lease_token, error_code, None, completed_at).await
+        complete(
+            &self.pool,
+            notification_delivery_id,
+            lease_token,
+            DeliveryCompletion::PermanentFailure { error_code },
+            completed_at,
+        )
+        .await
     }
 }
 
@@ -241,24 +265,59 @@ fn invalid_delivery_source(message: &'static str) -> NotificationDeliveryError {
     }
 }
 
+enum DeliveryCompletion<'a> {
+    Delivered {
+        provider_message_id: &'a str,
+        delivered_at: OffsetDateTime,
+    },
+    RetryableFailure {
+        error_code: &'a str,
+    },
+    PermanentFailure {
+        error_code: &'a str,
+    },
+}
+
 async fn complete(
     pool: &PgPool,
-    sql: &str,
     id: NotificationDeliveryId,
     lease_token: Uuid,
-    value: &str,
-    delivered_at: Option<OffsetDateTime>,
+    completion: DeliveryCompletion<'_>,
     completed_at: OffsetDateTime,
 ) -> Result<bool, NotificationDeliveryError> {
-    let mut query = sqlx::query(sql)
-        .bind(Uuid::from(id))
-        .bind(lease_token)
-        .bind(value);
-    if let Some(delivered_at) = delivered_at {
-        query = query.bind(delivered_at);
+    let mut query = QueryBuilder::<Postgres>::new("UPDATE notification_deliveries SET status = ");
+    match completion {
+        DeliveryCompletion::Delivered {
+            provider_message_id,
+            delivered_at,
+        } => {
+            query
+                .push("'DELIVERED', lease_token = NULL, lease_expires_at = NULL, provider_message_id = ")
+                .push_bind(provider_message_id)
+                .push(", last_error_code = NULL, delivered_at = ")
+                .push_bind(delivered_at);
+        }
+        DeliveryCompletion::RetryableFailure { error_code } => {
+            query
+                .push("'PENDING', lease_token = NULL, lease_expires_at = NULL, provider_message_id = NULL, last_error_code = ")
+                .push_bind(error_code)
+                .push(", delivered_at = NULL");
+        }
+        DeliveryCompletion::PermanentFailure { error_code } => {
+            query
+                .push("'FAILED', lease_token = NULL, lease_expires_at = NULL, provider_message_id = NULL, last_error_code = ")
+                .push_bind(error_code)
+                .push(", delivered_at = NULL");
+        }
     }
     let result = query
-        .bind(completed_at)
+        .push(", updated = now() WHERE notification_delivery_id = ")
+        .push_bind(Uuid::from(id))
+        .push(" AND status = 'PROCESSING' AND lease_token = ")
+        .push_bind(lease_token)
+        .push(" AND lease_expires_at > ")
+        .push_bind(completed_at)
+        .build()
         .execute(pool)
         .await
         .map_err(operation_error)?;

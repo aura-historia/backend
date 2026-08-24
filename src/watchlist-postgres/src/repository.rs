@@ -10,8 +10,6 @@ use watchlist_service::ports::{
     WatchlistRepositoryFactory, WatchlistStorageVersion,
 };
 
-const REPOSITORY_COLUMNS: &str = "user_id, product_id, notifications, state, version";
-
 #[derive(Debug, Clone, Default)]
 pub struct SqlxWatchlistRepositoryFactory;
 
@@ -35,17 +33,17 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
         user_id: UserId,
         product_id: ProductId,
     ) -> Result<Option<VersionedWatchlistProduct>, WatchlistRepositoryError> {
-        let sql = format!(
-            "SELECT {REPOSITORY_COLUMNS} FROM product_watchlist WHERE user_id = $1 AND product_id = $2"
-        );
-        let row = sqlx::query_as::<_, WatchlistRepositoryRow>(&sql)
-            .bind(uuid::Uuid::from(user_id))
-            .bind(uuid::Uuid::from(product_id))
-            .fetch_optional(self.tx.connection())
-            .await
-            .map_err(|source| WatchlistRepositoryError::LookupFailed {
-                source: box_error(source),
-            })?;
+        let row = sqlx::query_as::<_, WatchlistRepositoryRow>(
+            "SELECT user_id, product_id, notifications, state, version \
+             FROM product_watchlist WHERE user_id = $1 AND product_id = $2",
+        )
+        .bind(uuid::Uuid::from(user_id))
+        .bind(uuid::Uuid::from(product_id))
+        .fetch_optional(self.tx.connection())
+        .await
+        .map_err(|source| WatchlistRepositoryError::LookupFailed {
+            source: box_error(source),
+        })?;
 
         row.map(VersionedWatchlistProduct::try_from).transpose()
     }
@@ -55,13 +53,12 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
         entry: &WatchlistProduct,
     ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError> {
         let now = OffsetDateTime::now_utc();
-        let sql = format!(
+        let row = sqlx::query_as::<_, WatchlistRepositoryRow>(
             "INSERT INTO product_watchlist \
              (user_id, product_id, notifications, state, active_since, notifications_enabled_since, created, updated) \
              VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'ACTIVE' THEN $5 ELSE NULL END, CASE WHEN $3 THEN $5 ELSE NULL END, $5, $5) \
-             RETURNING {REPOSITORY_COLUMNS}"
-        );
-        let row = sqlx::query_as::<_, WatchlistRepositoryRow>(&sql)
+             RETURNING user_id, product_id, notifications, state, version",
+        )
             .bind(uuid::Uuid::from(entry.user_id()))
             .bind(uuid::Uuid::from(entry.product_id()))
             .bind(entry.notifications())
@@ -81,7 +78,7 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
     ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError> {
         let expected_version = version_to_i64(expected_version)?;
         let now = OffsetDateTime::now_utc();
-        let sql = format!(
+        let row = sqlx::query_as::<_, WatchlistRepositoryRow>(
             "UPDATE product_watchlist SET \
                  notifications = $3, \
                  state = $4, \
@@ -98,21 +95,20 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
                  version = version + 1, \
                  updated = $5 \
              WHERE user_id = $1 AND product_id = $2 AND version = $6 \
-             RETURNING {REPOSITORY_COLUMNS}"
-        );
-        let row = sqlx::query_as::<_, WatchlistRepositoryRow>(&sql)
-            .bind(uuid::Uuid::from(entry.user_id()))
-            .bind(uuid::Uuid::from(entry.product_id()))
-            .bind(entry.notifications())
-            .bind(entry.state().as_str())
-            .bind(now)
-            .bind(expected_version)
-            .fetch_optional(self.tx.connection())
-            .await
-            .map_err(|source| WatchlistRepositoryError::UpdateFailed {
-                source: box_error(source),
-            })?
-            .ok_or(WatchlistRepositoryError::ConcurrencyConflict)?;
+             RETURNING user_id, product_id, notifications, state, version",
+        )
+        .bind(uuid::Uuid::from(entry.user_id()))
+        .bind(uuid::Uuid::from(entry.product_id()))
+        .bind(entry.notifications())
+        .bind(entry.state().as_str())
+        .bind(now)
+        .bind(expected_version)
+        .fetch_optional(self.tx.connection())
+        .await
+        .map_err(|source| WatchlistRepositoryError::UpdateFailed {
+            source: box_error(source),
+        })?
+        .ok_or(WatchlistRepositoryError::ConcurrencyConflict)?;
 
         VersionedWatchlistProduct::try_from(row)
     }

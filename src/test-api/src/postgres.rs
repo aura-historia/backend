@@ -1,7 +1,7 @@
 use crate::IntegrationTestService;
 use async_trait::async_trait;
 use sqlx::postgres::PgConnectOptions;
-use sqlx::{ConnectOptions, Executor, PgConnection, PgPool};
+use sqlx::{AssertSqlSafe, ConnectOptions, Executor, PgConnection, PgPool};
 use std::collections::HashMap;
 use std::net::TcpListener;
 use std::path::Path;
@@ -132,11 +132,11 @@ async fn ensure_container_started() {
 
             let mut connection = open_connection().await;
             connection
-                .execute("CREATE EXTENSION pg_ttl_index")
+                .execute(AssertSqlSafe("CREATE EXTENSION pg_ttl_index"))
                 .await
                 .expect("should create pg_ttl_index extension in test database");
             connection
-                .execute("SELECT ttl_start_worker()")
+                .execute(AssertSqlSafe("SELECT ttl_start_worker()"))
                 .await
                 .expect("should start pg_ttl_index worker in test database");
 
@@ -303,7 +303,7 @@ async fn apply_migrations(migrations_dir: &'static str) {
             )
         });
         connection
-            .execute(sqlx::raw_sql(&sql))
+            .execute(AssertSqlSafe(sql))
             .await
             .unwrap_or_else(|error| {
                 panic!(
@@ -330,7 +330,7 @@ async fn apply_setup_script(setup_script: &'static str) {
     });
     let mut connection = open_connection().await;
     connection
-        .execute(sqlx::raw_sql(&sql))
+        .execute(AssertSqlSafe(sql))
         .await
         .unwrap_or_else(|error| {
             panic!(
@@ -426,7 +426,7 @@ impl IntegrationTestService for Postgres {
 
         // Exclude relations owned by installed extensions. Extension metadata must survive
         // per-test cleanup, and this catalog query avoids coupling to extension table names.
-        let tables: Vec<String> = sqlx::query_scalar::<_, String>(
+        let tables: Vec<String> = sqlx::query_scalar::<_, String>(AssertSqlSafe(
             "SELECT relation.relname \
              FROM pg_class AS relation \
              JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace \
@@ -437,7 +437,7 @@ impl IntegrationTestService for Postgres {
              WHERE namespace.nspname = 'public' \
                AND relation.relkind = 'r' \
                AND extension_dependency.objid IS NULL",
-        )
+        ))
         .fetch_all(&mut conn)
         .await
         .expect("shouldn't fail querying table names for tear-down");
@@ -449,13 +449,15 @@ impl IntegrationTestService for Postgres {
         // Build a single TRUNCATE statement for all tables. CASCADE handles FK constraints.
         let table_list = tables
             .iter()
-            .map(|t| format!("\"{}\"", t))
+            .map(|table| format!("\"{}\"", table.replace('"', "\"\"")))
             .collect::<Vec<_>>()
             .join(", ");
 
-        let truncate_sql = format!("TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE");
+        let truncate_sql = AssertSqlSafe(format!(
+            "TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE"
+        ));
 
-        conn.execute(sqlx::raw_sql(&truncate_sql))
+        conn.execute(truncate_sql)
             .await
             .expect("shouldn't fail truncating tables for tear-down");
 

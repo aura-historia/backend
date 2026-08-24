@@ -5,7 +5,7 @@ use product_service::ports::{
     PersonalizedProductDetailsReadModel, ProductDetailsBatchReadError,
     ProductDetailsBatchReadRequest, ProductDetailsBatchReader,
 };
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, QueryBuilder};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -100,16 +100,17 @@ impl ProductDetailsBatchReader for SqlxProductDetailsBatchReader {
             "AND matched.product_id = p.product_id",
             "AND matched.product_id = p.product_id AND matched.user_search_filter_id = $4",
         );
-        let rows = sqlx::query_as::<_, ProductDetailsRow>(&format!(
-            "{select} WHERE p.product_id = ANY($3)"
-        ))
-        .bind(request.language.as_str())
-        .bind(uuid::Uuid::from(request.user_id))
-        .bind(product_ids)
-        .bind(search_filter_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(ProductDetailsBatchQuerySqlxError)?;
+        let mut query = QueryBuilder::<Postgres>::new(select);
+        query.push(" WHERE p.product_id = ANY($3)");
+        let rows = query
+            .build_query_as::<ProductDetailsRow>()
+            .bind(request.language.as_str())
+            .bind(uuid::Uuid::from(request.user_id))
+            .bind(product_ids)
+            .bind(search_filter_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(ProductDetailsBatchQuerySqlxError)?;
 
         rows.into_iter()
             .map(|row| {

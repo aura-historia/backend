@@ -6,7 +6,7 @@ use search_filter_service::ports::{
     SearchFilterMatchCursor, SearchFilterMatchListItem, SearchFilterMatchListQuery,
     SearchFilterMatchReadError, SearchFilterMatchReader,
 };
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, QueryBuilder};
 
 #[async_trait::async_trait]
 impl SearchFilterMatchReader for SqlxSearchFilterReader {
@@ -79,21 +79,33 @@ async fn match_rows(
     size: u64,
     order: SortOrder,
 ) -> Result<Vec<MatchRow>, SearchFilterMatchReadError> {
-    let sql = match (order, after.is_some()) {
-        (SortOrder::Asc, true) => format!(
-            "SELECT {MATCH_COLUMNS} FROM search_filter_matches WHERE user_search_filter_id=$1 AND (created>$2 OR (created=$2 AND product_id>$3)) ORDER BY created ASC, product_id ASC LIMIT $4"
-        ),
-        (SortOrder::Asc, false) => format!(
-            "SELECT {MATCH_COLUMNS} FROM search_filter_matches WHERE user_search_filter_id=$1 ORDER BY created ASC, product_id ASC LIMIT $2"
-        ),
-        (SortOrder::Desc, true) => format!(
-            "SELECT {MATCH_COLUMNS} FROM search_filter_matches WHERE user_search_filter_id=$1 AND (created<$2 OR (created=$2 AND product_id>$3)) ORDER BY created DESC, product_id ASC LIMIT $4"
-        ),
-        (SortOrder::Desc, false) => format!(
-            "SELECT {MATCH_COLUMNS} FROM search_filter_matches WHERE user_search_filter_id=$1 ORDER BY created DESC, product_id ASC LIMIT $2"
-        ),
-    };
-    let mut query = sqlx::query_as::<_, MatchRow>(&sql).bind(filter_id);
+    let mut query_builder = QueryBuilder::<Postgres>::new("SELECT ");
+    query_builder
+        .push(MATCH_COLUMNS)
+        .push(" FROM search_filter_matches ");
+    match (order, after.is_some()) {
+        (SortOrder::Asc, true) => {
+            query_builder.push(
+                "WHERE user_search_filter_id=$1 AND (created>$2 OR (created=$2 AND product_id>$3)) ORDER BY created ASC, product_id ASC LIMIT $4",
+            );
+        }
+        (SortOrder::Asc, false) => {
+            query_builder.push(
+                "WHERE user_search_filter_id=$1 ORDER BY created ASC, product_id ASC LIMIT $2",
+            );
+        }
+        (SortOrder::Desc, true) => {
+            query_builder.push(
+                "WHERE user_search_filter_id=$1 AND (created<$2 OR (created=$2 AND product_id>$3)) ORDER BY created DESC, product_id ASC LIMIT $4",
+            );
+        }
+        (SortOrder::Desc, false) => {
+            query_builder.push(
+                "WHERE user_search_filter_id=$1 ORDER BY created DESC, product_id ASC LIMIT $2",
+            );
+        }
+    }
+    let mut query = query_builder.build_query_as::<MatchRow>().bind(filter_id);
     if let Some(after) = after {
         query = query
             .bind(after.created)

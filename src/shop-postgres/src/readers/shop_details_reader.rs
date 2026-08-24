@@ -3,7 +3,7 @@ use application::error::box_error;
 use platform_postgres::SqlxTransaction;
 use shop_service::ports::{ShopDetailsReadError, ShopDetailsReader, ShopDetailsReaderFactory};
 use shop_service::use_cases::queries::get_shop::{GetShopRequest, ShopDetailsView};
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxShopDetailsReaderFactory;
@@ -37,32 +37,38 @@ impl ShopDetailsReader for SqlxShopDetailsReader<'_> {
     ) -> Result<Option<ShopDetailsView>, ShopDetailsReadError> {
         let row = match request {
             GetShopRequest::ById(shop_id) => {
-                let sql = format!(
-                    "SELECT {} FROM shops WHERE shop_id = $1 AND lifecycle = 'PUBLISHED'",
-                    shop_columns()
-                );
-                sqlx::query_as::<_, ShopRow>(&sql)
-                    .bind(uuid::Uuid::from(*shop_id))
+                let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
+                builder
+                    .push(shop_columns())
+                    .push(" FROM shops WHERE shop_id = ")
+                    .push_bind(uuid::Uuid::from(*shop_id))
+                    .push(" AND lifecycle = 'PUBLISHED'");
+                builder
+                    .build_query_as::<ShopRow>()
                     .fetch_optional(&mut *self.connection)
                     .await
             }
             GetShopRequest::BySlug(slug_id) => {
-                let sql = format!(
-                    "SELECT {} FROM shops WHERE shop_slug_id = $1 AND lifecycle = 'PUBLISHED'",
-                    shop_columns()
-                );
-                sqlx::query_as::<_, ShopRow>(&sql)
-                    .bind(slug_id.as_ref())
+                let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
+                builder
+                    .push(shop_columns())
+                    .push(" FROM shops WHERE shop_slug_id = ")
+                    .push_bind(slug_id.as_ref())
+                    .push(" AND lifecycle = 'PUBLISHED'");
+                builder
+                    .build_query_as::<ShopRow>()
                     .fetch_optional(&mut *self.connection)
                     .await
             }
             GetShopRequest::ByShopifyDomain(domain) => {
-                let sql = format!(
-                    "SELECT {} FROM shops WHERE shopify_domain = $1 AND lifecycle = 'PUBLISHED'",
-                    shop_columns()
-                );
-                sqlx::query_as::<_, ShopRow>(&sql)
-                    .bind(domain.as_str())
+                let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
+                builder
+                    .push(shop_columns())
+                    .push(" FROM shops WHERE shopify_domain = ")
+                    .push_bind(domain.as_str())
+                    .push(" AND lifecycle = 'PUBLISHED'");
+                builder
+                    .build_query_as::<ShopRow>()
                     .fetch_optional(&mut *self.connection)
                     .await
             }

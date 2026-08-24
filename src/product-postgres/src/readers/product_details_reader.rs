@@ -32,7 +32,7 @@ use search_filter_core::{
 };
 use serde::Deserialize;
 use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 use time::OffsetDateTime;
 use url::Url;
@@ -133,31 +133,35 @@ impl ProductDetailsReader for SqlxProductDetailsReader<'_> {
         let user_id = request.user_id.map(uuid::Uuid::from);
         let row = match &request.lookup {
             ProductLookup::ById(product_id) => {
-                sqlx::query_as::<_, ProductDetailsRow>(&format!(
-                    "{} WHERE p.product_id = $3",
-                    product_details_select(DEFAULT_NOTIFICATION_STATES),
-                ))
-                .bind(requested_language)
-                .bind(user_id)
-                .bind(uuid::Uuid::from(*product_id))
-                .fetch_optional(&mut *self.connection)
-                .await
+                let mut query = QueryBuilder::<Postgres>::new(product_details_select(
+                    DEFAULT_NOTIFICATION_STATES,
+                ));
+                query.push(" WHERE p.product_id = $3");
+                query
+                    .build_query_as::<ProductDetailsRow>()
+                    .bind(requested_language)
+                    .bind(user_id)
+                    .bind(uuid::Uuid::from(*product_id))
+                    .fetch_optional(&mut *self.connection)
+                    .await
             }
 
             ProductLookup::BySlug {
                 shop_slug_id,
                 product_slug_id,
             } => {
-                sqlx::query_as::<_, ProductDetailsRow>(&format!(
-                    "{} WHERE shop.shop_slug_id = $3 AND p.product_slug_id = $4",
-                    product_details_select(DEFAULT_NOTIFICATION_STATES),
-                ))
-                .bind(requested_language)
-                .bind(user_id)
-                .bind(shop_slug_id.as_ref())
-                .bind(product_slug_id.as_ref())
-                .fetch_optional(&mut *self.connection)
-                .await
+                let mut query = QueryBuilder::<Postgres>::new(product_details_select(
+                    DEFAULT_NOTIFICATION_STATES,
+                ));
+                query.push(" WHERE shop.shop_slug_id = $3 AND p.product_slug_id = $4");
+                query
+                    .build_query_as::<ProductDetailsRow>()
+                    .bind(requested_language)
+                    .bind(user_id)
+                    .bind(shop_slug_id.as_ref())
+                    .bind(product_slug_id.as_ref())
+                    .fetch_optional(&mut *self.connection)
+                    .await
             }
         }
         .map_err(|_| ProductDetailsReadError::ProductDetailsQueryFailed)?;

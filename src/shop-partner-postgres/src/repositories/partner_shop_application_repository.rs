@@ -11,7 +11,7 @@ use shop_partner_service::ports::{
     PartnerShopApplicationRepositoryFactory, PartnerShopApplicationStorageVersion,
     VersionedPartnerShopApplication,
 };
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Postgres, QueryBuilder};
 use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -48,13 +48,16 @@ impl PartnerShopApplicationRepository for SqlxPartnerShopApplicationRepository<'
         id: PartnerShopApplicationId,
     ) -> Result<Option<VersionedPartnerShopApplication>, PartnerShopApplicationRepositoryError>
     {
-        let sql = format!(
-            "SELECT {} FROM partner_shop_applications WHERE applicant_user_id = $1 AND partner_shop_application_id = $2::uuid",
-            APPLICATION_COLUMNS
-        );
-        let row = sqlx::query_as::<_, PartnerShopApplicationRow>(&sql)
-            .bind(uuid::Uuid::from(user_id))
-            .bind(id.to_string())
+        let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
+        builder
+            .push(APPLICATION_COLUMNS)
+            .push(" FROM partner_shop_applications WHERE applicant_user_id = ")
+            .push_bind(uuid::Uuid::from(user_id))
+            .push(" AND partner_shop_application_id = ")
+            .push_bind(id.to_string())
+            .push("::uuid");
+        let row = builder
+            .build_query_as::<PartnerShopApplicationRow>()
             .fetch_optional(&mut *self.connection)
             .await
             .map_err(PartnerShopApplicationLookupSqlxError)?;
@@ -72,12 +75,14 @@ impl PartnerShopApplicationRepository for SqlxPartnerShopApplicationRepository<'
         id: PartnerShopApplicationId,
     ) -> Result<Option<VersionedPartnerShopApplication>, PartnerShopApplicationRepositoryError>
     {
-        let sql = format!(
-            "SELECT {} FROM partner_shop_applications WHERE partner_shop_application_id = $1::uuid",
-            APPLICATION_COLUMNS
-        );
-        let row = sqlx::query_as::<_, PartnerShopApplicationRow>(&sql)
-            .bind(id.to_string())
+        let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
+        builder
+            .push(APPLICATION_COLUMNS)
+            .push(" FROM partner_shop_applications WHERE partner_shop_application_id = ")
+            .push_bind(id.to_string())
+            .push("::uuid");
+        let row = builder
+            .build_query_as::<PartnerShopApplicationRow>()
             .fetch_optional(&mut *self.connection)
             .await
             .map_err(PartnerShopApplicationLookupSqlxError)?;
@@ -94,18 +99,18 @@ impl PartnerShopApplicationRepository for SqlxPartnerShopApplicationRepository<'
         &mut self,
         application: &PartnerShopApplication,
     ) -> Result<VersionedPartnerShopApplication, PartnerShopApplicationRepositoryError> {
-        let sql = format!(
+        let mut builder = QueryBuilder::<Postgres>::new(
             r#"
             INSERT INTO partner_shop_applications (
                 partner_shop_application_id, applicant_user_id, business_state,
                 payload_type, shop_id
             ) VALUES ($1::uuid, $2, $3, $4, $5)
-            RETURNING {}
-            "#,
-            APPLICATION_COLUMNS
+            RETURNING "#,
         );
+        builder.push(APPLICATION_COLUMNS);
 
-        let row = sqlx::query_as::<_, PartnerShopApplicationRow>(&sql)
+        let row = builder
+            .build_query_as::<PartnerShopApplicationRow>()
             .bind(application.id().to_string())
             .bind(uuid::Uuid::from(application.applicant_user_id()))
             .bind(bind_business_state(application.business_state()))
@@ -126,7 +131,7 @@ impl PartnerShopApplicationRepository for SqlxPartnerShopApplicationRepository<'
         application: &PartnerShopApplication,
         expected_version: PartnerShopApplicationStorageVersion,
     ) -> Result<VersionedPartnerShopApplication, PartnerShopApplicationRepositoryError> {
-        let sql = format!(
+        let mut builder = QueryBuilder::<Postgres>::new(
             r#"
             UPDATE partner_shop_applications
             SET business_state = $1,
@@ -135,17 +140,17 @@ impl PartnerShopApplicationRepository for SqlxPartnerShopApplicationRepository<'
                 version = version + 1,
                 updated = now()
             WHERE partner_shop_application_id = $4::uuid AND version = $5
-            RETURNING {}
-            "#,
-            APPLICATION_COLUMNS
+            RETURNING "#,
         );
+        builder.push(APPLICATION_COLUMNS);
 
         let expected_version = version_to_i64(expected_version).map_err(|source| {
             PartnerShopApplicationRepositoryError::InvalidPersistedState {
                 source: box_error(source),
             }
         })?;
-        let row = sqlx::query_as::<_, PartnerShopApplicationRow>(&sql)
+        let row = builder
+            .build_query_as::<PartnerShopApplicationRow>()
             .bind(bind_business_state(application.business_state()))
             .bind(bind_payload_type(application.payload()))
             .bind(uuid::Uuid::from(application.shop_id()))

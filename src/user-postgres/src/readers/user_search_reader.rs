@@ -101,7 +101,7 @@ impl UserSearchReader for SqlxUserSearchReader<'_> {
     }
 }
 
-fn push_filters(builder: &mut QueryBuilder<'_, Postgres>, request: &SearchUsersRequest) {
+fn push_filters(builder: &mut QueryBuilder<Postgres>, request: &SearchUsersRequest) {
     let search = &request.search;
 
     if let Some(query) = &search.query {
@@ -183,7 +183,7 @@ fn push_filters(builder: &mut QueryBuilder<'_, Postgres>, request: &SearchUsersR
     }
 }
 
-fn push_sort_fields(builder: &mut QueryBuilder<'_, Postgres>, sort: Sort<SortUserField>) {
+fn push_sort_fields(builder: &mut QueryBuilder<Postgres>, sort: Sort<SortUserField>) {
     let order = match sort.order {
         SortOrder::Asc => "ASC",
         SortOrder::Desc => "DESC",

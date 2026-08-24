@@ -4,7 +4,7 @@ use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
     SearchFilterIndexReadError, SearchFilterIndexReader, SearchFilterProjection,
 };
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, QueryBuilder};
 
 #[derive(Clone)]
 pub struct SqlxSearchFilterIndexReader {
@@ -28,9 +28,12 @@ impl SearchFilterIndexReader for SqlxSearchFilterIndexReader {
                 source: box_error(source),
             }
         })?;
-        let sql =
-            format!("SELECT {FILTER_COLUMNS} FROM search_filters WHERE user_search_filter_id=$1");
-        sqlx::query_as::<_, FilterRow>(&sql)
+        let mut query = QueryBuilder::<Postgres>::new("SELECT ");
+        query
+            .push(FILTER_COLUMNS)
+            .push(" FROM search_filters WHERE user_search_filter_id=$1");
+        query
+            .build_query_as::<FilterRow>()
             .bind(search_filter_id)
             .fetch_optional(&self.pool)
             .await
@@ -56,12 +59,14 @@ impl SearchFilterIndexReader for SqlxSearchFilterIndexReader {
             i64::try_from(limit).map_err(|source| SearchFilterIndexReadError::ReadFailed {
                 source: box_error(source),
             })?;
-        let sql = format!(
-            "SELECT {FILTER_COLUMNS} FROM search_filters \
+        let mut query = QueryBuilder::<Postgres>::new("SELECT ");
+        query.push(FILTER_COLUMNS).push(
+            " FROM search_filters \
              WHERE ($1::uuid IS NULL OR user_search_filter_id > $1) \
-             ORDER BY user_search_filter_id ASC LIMIT $2"
+             ORDER BY user_search_filter_id ASC LIMIT $2",
         );
-        sqlx::query_as::<_, FilterRow>(&sql)
+        query
+            .build_query_as::<FilterRow>()
             .bind(after)
             .bind(limit)
             .fetch_all(&self.pool)

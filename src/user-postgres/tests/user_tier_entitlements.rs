@@ -115,7 +115,7 @@ async fn should_reconcile_legacy_newest_first_quotas() {
     );
     assert_eq!(
         1,
-        count_state(&pool, "search_filters", user_id, "ACTIVE").await
+        count_state(&pool, ResourceTable::SearchFilters, user_id, "ACTIVE").await
     );
     assert_eq!(
         "INACTIVE_BY_RESTRICTED_PLAN",
@@ -127,7 +127,7 @@ async fn should_reconcile_legacy_newest_first_quotas() {
     );
     assert_eq!(
         20,
-        count_state(&pool, "product_watchlist", user_id, "ACTIVE").await
+        count_state(&pool, ResourceTable::ProductWatchlist, user_id, "ACTIVE",).await
     );
     assert_eq!(
         2,
@@ -530,9 +530,26 @@ async fn version_for_watchlist_entry(
     .unwrap_or_else(|error| panic!("failed to read watchlist version: {error:?}"))
 }
 
-async fn count_state(pool: &sqlx::PgPool, table: &str, user_id: UserId, state: &str) -> i64 {
-    let sql = format!("SELECT count(*) FROM {table} WHERE user_id = $1 AND state = $2");
-    sqlx::query_scalar(&sql)
+enum ResourceTable {
+    SearchFilters,
+    ProductWatchlist,
+}
+
+async fn count_state(
+    pool: &sqlx::PgPool,
+    table: ResourceTable,
+    user_id: UserId,
+    state: &str,
+) -> i64 {
+    let sql = match table {
+        ResourceTable::SearchFilters => {
+            "SELECT count(*) FROM search_filters WHERE user_id = $1 AND state = $2"
+        }
+        ResourceTable::ProductWatchlist => {
+            "SELECT count(*) FROM product_watchlist WHERE user_id = $1 AND state = $2"
+        }
+    };
+    sqlx::query_scalar(sql)
         .bind(uuid::Uuid::from(user_id))
         .bind(state)
         .fetch_one(pool)

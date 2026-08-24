@@ -5,7 +5,7 @@ use shop_partner_service::ports::{
     PartnerShopApplicationReader, PartnerShopApplicationReaderFactory,
     PartnerShopApplicationRepositoryError, PartnerShopApplicationView,
 };
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Postgres, QueryBuilder};
 use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -39,39 +39,35 @@ impl PartnerShopApplicationReader for SqlxPartnerShopApplicationReader<'_> {
     async fn list_all(
         &mut self,
     ) -> Result<Vec<PartnerShopApplicationView>, PartnerShopApplicationRepositoryError> {
-        let sql = format!(
-            "SELECT {} FROM partner_shop_applications ORDER BY created DESC",
-            APPLICATION_COLUMNS
-        );
-        fetch_many(self.connection, &sql).await
+        let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
+        builder
+            .push(APPLICATION_COLUMNS)
+            .push(" FROM partner_shop_applications ORDER BY created DESC");
+        let rows = builder
+            .build_query_as::<PartnerShopApplicationRow>()
+            .fetch_all(&mut *self.connection)
+            .await
+            .map_err(PartnerShopApplicationLookupSqlxError)?;
+        map_rows(rows)
     }
 
     async fn list_by_user(
         &mut self,
         user_id: UserId,
     ) -> Result<Vec<PartnerShopApplicationView>, PartnerShopApplicationRepositoryError> {
-        let sql = format!(
-            "SELECT {} FROM partner_shop_applications WHERE applicant_user_id = $1 ORDER BY created DESC",
-            APPLICATION_COLUMNS
-        );
-        let rows = sqlx::query_as::<_, PartnerShopApplicationRow>(&sql)
-            .bind(uuid::Uuid::from(user_id))
+        let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
+        builder
+            .push(APPLICATION_COLUMNS)
+            .push(" FROM partner_shop_applications WHERE applicant_user_id = ")
+            .push_bind(uuid::Uuid::from(user_id))
+            .push(" ORDER BY created DESC");
+        let rows = builder
+            .build_query_as::<PartnerShopApplicationRow>()
             .fetch_all(&mut *self.connection)
             .await
             .map_err(PartnerShopApplicationLookupSqlxError)?;
         map_rows(rows)
     }
-}
-
-async fn fetch_many(
-    connection: &mut PgConnection,
-    sql: &str,
-) -> Result<Vec<PartnerShopApplicationView>, PartnerShopApplicationRepositoryError> {
-    let rows = sqlx::query_as::<_, PartnerShopApplicationRow>(sql)
-        .fetch_all(connection)
-        .await
-        .map_err(PartnerShopApplicationLookupSqlxError)?;
-    map_rows(rows)
 }
 
 fn map_rows(
