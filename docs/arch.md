@@ -391,6 +391,9 @@ Access to operational metadata belongs to dedicated readers and read use cases. 
 
 Domain code SHOULD be deterministic and testable without mocks, databases, clocks, networks, or runtimes. Time, identifiers, randomness, and external decisions MUST be supplied as values or through explicit application ports when needed.
 
+### 4.3 Semantic absence and orthogonal dimensions
+
+A valid absence of a semantic assertion MUST use `Option<T>`, not an `Unknown` enum variant. Uncertainty, unsupported external values, and extraction failure belong to the boundary adapter and MUST NOT be persisted as invented core truth. Orthogonal domain dimensions, such as catalog lifecycle and availability, MUST use separate types. A broad classification derived from a concrete domain value MAY be exposed for reads and queries, but MUST NOT be independently mutable or persisted.
 
 ## 5. Type ownership and visibility
 
