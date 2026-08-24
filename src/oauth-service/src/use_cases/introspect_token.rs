@@ -1,12 +1,15 @@
 use crate::error::OAuthServiceError;
-use crate::ports::{OAuthAccessTokenGateway, OAuthAccessTokenGatewayError, OAuthClientRepository};
-use crate::use_cases::support::authenticate_client;
+use crate::ports::OAuthClientAuthenticationReader;
+use crate::use_cases::support::authenticate_client_reader;
 use crate::use_cases::token_by_authorization_code::OAuthTokenType;
 use credential_core::oauth_client_id::OAuthClientId;
 use std::collections::HashSet;
 use time::OffsetDateTime;
-use user_core::access_token::{AccessTokenOrigin, RawAccessToken, RawOAuthClientSecret, Scope};
+use user_core::access_token::{
+    AccessTokenOrigin, HashedRawAccessToken, RawAccessToken, RawOAuthClientSecret, Scope,
+};
 use user_core::user_id::UserId;
+use user_service::ports::AccessTokenAuthenticationReader;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IntrospectTokenRequest {
@@ -34,12 +37,12 @@ pub trait IntrospectTokenUseCase: Send + Sync {
     ) -> Result<IntrospectTokenResponse, OAuthServiceError>;
 }
 
-pub struct IntrospectTokenHandler<C, G> {
+pub struct IntrospectTokenHandler<C, R> {
     clients: C,
-    access_tokens: G,
+    access_tokens: R,
 }
-impl<C, G> IntrospectTokenHandler<C, G> {
-    pub fn new(clients: C, access_tokens: G) -> Self {
+impl<C, R> IntrospectTokenHandler<C, R> {
+    pub fn new(clients: C, access_tokens: R) -> Self {
         Self {
             clients,
             access_tokens,
@@ -47,37 +50,44 @@ impl<C, G> IntrospectTokenHandler<C, G> {
     }
 }
 #[async_trait::async_trait]
-impl<C, G> IntrospectTokenUseCase for IntrospectTokenHandler<C, G>
+impl<C, R> IntrospectTokenUseCase for IntrospectTokenHandler<C, R>
 where
-    C: OAuthClientRepository,
-    G: OAuthAccessTokenGateway,
+    C: OAuthClientAuthenticationReader,
+    R: AccessTokenAuthenticationReader,
 {
     async fn execute(
         &self,
         request: IntrospectTokenRequest,
     ) -> Result<IntrospectTokenResponse, OAuthServiceError> {
-        let _client =
-            authenticate_client(&self.clients, &request.client_id, &request.client_secret).await?;
-        let token = match self.access_tokens.find_raw(&request.token).await {
-            Ok(token) => token,
-            Err(OAuthAccessTokenGatewayError::NotFound | OAuthAccessTokenGatewayError::Expired) => {
-                return Ok(inactive());
+        authenticate_client_reader(&self.clients, &request.client_id, &request.client_secret)
+            .await?;
+
+        let now = OffsetDateTime::now_utc();
+        let hashed_token = HashedRawAccessToken::from(request.token);
+        let response = match self
+            .access_tokens
+            .find_authentication_by_hashed_token(&hashed_token)
+            .await?
+        {
+            None => inactive(),
+            Some(token) if token.expires.is_some_and(|expires| expires < now) => inactive(),
+            Some(token) => {
+                let client_id = match token.origin {
+                    AccessTokenOrigin::OAuth { client_id } => Some(client_id),
+                    AccessTokenOrigin::User => None,
+                };
+                IntrospectTokenResponse {
+                    active: true,
+                    scopes: Some(token.scopes),
+                    client_id,
+                    subject: Some(token.user_id),
+                    token_type: Some(OAuthTokenType::Bearer),
+                    expires: token.expires,
+                    issued_at: None,
+                }
             }
-            Err(err) => return Err(err.into()),
         };
-        let client_id = match token.origin {
-            AccessTokenOrigin::OAuth { client_id } => Some(client_id),
-            AccessTokenOrigin::User => None,
-        };
-        Ok(IntrospectTokenResponse {
-            active: true,
-            scopes: Some(token.scopes),
-            client_id,
-            subject: Some(token.user_id),
-            token_type: Some(OAuthTokenType::Bearer),
-            expires: token.expires,
-            issued_at: token.issued_at,
-        })
+        Ok(response)
     }
 }
 

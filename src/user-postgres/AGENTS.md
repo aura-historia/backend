@@ -14,7 +14,7 @@
 - `SqlxUserTierEntitlementsFactory` locks `users` with `FOR UPDATE` first, then locks eligible watchlist rows before newest-first quota ranking in the same transaction. Changed watchlist rows increment internal storage versions, so stale ordinary watchlist writes conflict.
 - User repository writes use `RETURNING` and expose only storage-neutral persisted user state; delete returns row-existence only.
 - `insert_if_absent` uses `ON CONFLICT (user_id) DO NOTHING` and returns the existing aggregate for idempotent `CreateUser` replay; email conflicts still fail.
-- Access tokens stay outside this crate until their source-of-truth moves off DynamoDB.
+- PostgreSQL owns access tokens. Repositories rehydrate hashed-token aggregates inside caller transactions; focused pool-backed readers return details/list/authentication models without exposing token hashes. Authentication readers include token identity and origin only for service-side credential flows.
 - User search sort maps `Name` to `first_name`, then `last_name`; no score sort.
 
 ## Ownership

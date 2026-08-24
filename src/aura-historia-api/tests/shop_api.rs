@@ -27,8 +27,7 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use test_api::{
-    AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
-    get_dynamodb_client, get_postgres_client,
+    AuraHistoriaApi, IntegrationTestService, Postgres, aura_integration_test, get_postgres_client,
 };
 use url::Url;
 use user_core::access_token::{
@@ -36,13 +35,11 @@ use user_core::access_token::{
     Scope,
 };
 use user_core::user_id::UserId;
-use user_dynamodb::DynamoDbAccessTokenStore;
-use user_service::ports::AccessTokenStore;
+use user_service::ports::{AccessTokenRepository, AccessTokenRepositoryFactory};
 use user_service::use_cases::AuthenticateAccessTokenHandler;
 use user_service::use_cases::queries::check_user_admin::CheckUserAdminHandler;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const DYNAMODB: DynamoDB = DynamoDB();
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(aura_api_app);
 
 #[derive(Clone, Copy)]
@@ -60,7 +57,7 @@ impl Geocoder for RejectGeocoder {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, &AURA_API])]
 async fn should_get_shop_by_id_with_aura_access_token() {
     let shop = seed_shop().await;
     let token = seed_access_token().await;
@@ -104,7 +101,7 @@ async fn should_get_shop_by_id_with_aura_access_token() {
     assert!(body.get("updatedBy").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, &AURA_API])]
 async fn should_get_shop_by_slug() {
     let shop = seed_shop().await;
 
@@ -126,7 +123,7 @@ async fn should_get_shop_by_slug() {
     assert_eq!(serde_json::json!(shop.id().to_string()), body["shopId"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, &AURA_API])]
 async fn should_search_shops() {
     let shop = seed_shop().await;
 
@@ -151,7 +148,7 @@ async fn should_search_shops() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, &AURA_API])]
 async fn should_create_shop_with_admin_access_token() {
     let user_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
@@ -184,7 +181,7 @@ async fn should_create_shop_with_admin_access_token() {
     assert!(body.get("updatedBy").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, &AURA_API])]
 async fn should_update_partner_shop_with_aura_access_token() {
     let shop = seed_shop().await;
     let user_id = seed_user("USER").await;
@@ -221,7 +218,7 @@ async fn should_update_partner_shop_with_aura_access_token() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, &AURA_API])]
 async fn should_get_partner_shops_with_aura_access_token() {
     let shop = seed_shop().await;
     let user_id = seed_user("USER").await;
@@ -244,7 +241,7 @@ async fn should_get_partner_shops_with_aura_access_token() {
     assert_eq!(serde_json::json!(shop.id().to_string()), body[0]["shopId"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, &AURA_API])]
 async fn should_reject_invalid_and_missing_shop_reads() {
     let client = reqwest::Client::new();
 
@@ -297,7 +294,7 @@ async fn should_reject_invalid_and_missing_shop_reads() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, &AURA_API])]
 async fn should_validate_shop_search_query() {
     let client = reqwest::Client::new();
 
@@ -316,7 +313,7 @@ async fn should_validate_shop_search_query() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, &AURA_API])]
 async fn should_reject_create_shop_when_auth_body_or_policy_invalid() {
     let client = reqwest::Client::new();
     let body = create_shop_body("Rejected API Shop", "rejected-api-shop.example");
@@ -370,7 +367,7 @@ async fn should_reject_create_shop_when_auth_body_or_policy_invalid() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, &AURA_API])]
 async fn should_reject_duplicate_shop_create() {
     let client = reqwest::Client::new();
     let user_id = seed_user("ADMIN").await;
@@ -404,7 +401,7 @@ async fn should_reject_duplicate_shop_create() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, &AURA_API])]
 async fn should_reject_invalid_update_shop_requests() {
     let client = reqwest::Client::new();
     let shop = seed_shop().await;
@@ -508,7 +505,7 @@ async fn should_reject_invalid_update_shop_requests() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, &AURA_API])]
 async fn should_require_auth_and_return_empty_partner_shops() {
     let client = reqwest::Client::new();
 
@@ -614,12 +611,14 @@ async fn seed_shop() -> Shop {
 }
 
 async fn seed_access_token() -> RawAccessToken {
-    seed_access_token_for(UserId::new(), HashSet::from([Scope::ShopsRead])).await
+    let user_id = seed_user("USER").await;
+    seed_access_token_for(user_id, HashSet::from([Scope::ShopsRead])).await
 }
 
 async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> RawAccessToken {
-    let client = get_dynamodb_client().await;
-    let store = DynamoDbAccessTokenStore::new(client, "table_1");
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let repositories = user_postgres::SqlxAccessTokenRepositoryFactory::new();
     let raw = RawAccessToken::new();
     let token = AccessToken::create(NewAccessToken {
         id: AccessTokenId::new(),
@@ -630,8 +629,19 @@ async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> RawAc
         origin: AccessTokenOrigin::User,
         expires: None,
     });
-    if let Err(error) = store.insert(token).await {
-        panic!("failed to seed access token: {error:?}");
+    let mut transaction = match unit_of_work.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => panic!("failed to begin access-token seed transaction: {error}"),
+    };
+    if let Err(error) = repositories
+        .in_transaction(&mut transaction)
+        .insert(&token)
+        .await
+    {
+        panic!("failed to insert access token: {error:?}");
+    }
+    if let Err(error) = transaction.commit().await {
+        panic!("failed to commit access-token seed transaction: {error}");
     }
     raw
 }
@@ -687,7 +697,7 @@ fn aura_api_app() -> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
 
 async fn test_state() -> AppState {
     let pool = get_postgres_client().await;
-    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let get_shop = GetShopHandler::new(
         unit_of_work.clone(),
         shop_postgres::SqlxShopDetailsReaderFactory::new(),
@@ -720,9 +730,9 @@ async fn test_state() -> AppState {
         unit_of_work,
         shop_postgres::SqlxPartnerShopReaderFactory::new(),
     );
-    let client = get_dynamodb_client().await;
-    let store = DynamoDbAccessTokenStore::new(client, "table_1");
-    let access_token = AuthenticateAccessTokenHandler::new(store);
+    let access_token = AuthenticateAccessTokenHandler::new(
+        user_postgres::SqlxAccessTokenAuthenticationReader::new(pool),
+    );
     let authenticator = std::sync::Arc::new(ApiAuthService::new(
         RejectJwtAuthenticator,
         AuraAccessTokenAuthenticator::new(access_token),

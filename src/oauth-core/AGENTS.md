@@ -7,6 +7,7 @@
 ## Core Design
 
 - Hold OAuth client, authorization-code, and third-party exchange-code domain types.
+- OAuth aggregates keep only domain state. PostgreSQL owns timestamps and storage versions; reader views expose timestamps.
 - No persistence, API, Lambda, or service orchestration.
 
 ## Ownership

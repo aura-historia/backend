@@ -1310,7 +1310,9 @@ impl From<CreateAccessTokenError> for ApiError {
             CreateAccessTokenError::Conflict { .. } => {
                 ApiError::conflict(CONFLICT).with_detail("Access token already exists.")
             }
-            CreateAccessTokenError::TemporarilyUnavailable { .. } => {
+            CreateAccessTokenError::TemporarilyUnavailable { .. }
+            | CreateAccessTokenError::BeginTransactionFailed
+            | CreateAccessTokenError::CommitTransactionFailed => {
                 ApiError::service_unavailable(ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Access token store is temporarily unavailable.")
             }
@@ -1394,10 +1396,13 @@ impl From<UpdateAccessTokenError> for ApiError {
             UpdateAccessTokenError::NameRequired => {
                 ApiError::bad_request(BAD_BODY_VALUE).with_detail("Access token name is required.")
             }
-            UpdateAccessTokenError::Conflict { .. } => {
+            UpdateAccessTokenError::Conflict { .. }
+            | UpdateAccessTokenError::ConcurrencyConflict => {
                 ApiError::conflict(CONFLICT).with_detail("Access token conflict.")
             }
-            UpdateAccessTokenError::TemporarilyUnavailable { .. } => {
+            UpdateAccessTokenError::TemporarilyUnavailable { .. }
+            | UpdateAccessTokenError::BeginTransactionFailed
+            | UpdateAccessTokenError::CommitTransactionFailed => {
                 ApiError::service_unavailable(ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Access token store is temporarily unavailable.")
             }
@@ -1423,7 +1428,9 @@ impl From<DeleteAccessTokenError> for ApiError {
             DeleteAccessTokenError::Conflict { .. } => {
                 ApiError::conflict(CONFLICT).with_detail("Access token conflict.")
             }
-            DeleteAccessTokenError::TemporarilyUnavailable { .. } => {
+            DeleteAccessTokenError::TemporarilyUnavailable { .. }
+            | DeleteAccessTokenError::BeginTransactionFailed
+            | DeleteAccessTokenError::CommitTransactionFailed => {
                 ApiError::service_unavailable(ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Access token store is temporarily unavailable.")
             }
@@ -1773,6 +1780,7 @@ impl From<OAuthServiceError> for ApiError {
             }
             OAuthServiceError::Forbidden => ApiError::forbidden(FORBIDDEN),
             OAuthServiceError::ClientNotFound => ApiError::not_found(OAUTH_CLIENT_NOT_FOUND),
+            OAuthServiceError::ConcurrencyConflict => ApiError::conflict(CONFLICT),
             OAuthServiceError::InvalidRedirectUri => {
                 ApiError::bad_request(OAUTH_INVALID_REDIRECT_URI)
             }

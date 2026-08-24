@@ -3,16 +3,17 @@ mod api_support;
 use api_support::{assert_problem, json_response, seed_access_token_for, seed_product, seed_user};
 use product_core::product_id::ProductId;
 use test_api::{
-    AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
+    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
     get_postgres_client,
 };
 use user_core::access_token::{RawAccessToken, Scope};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const DYNAMODB: DynamoDB = DynamoDB();
+const OPENSEARCH: OpenSearch = OpenSearch();
+
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_owned_search_filter() {
     let user_id = seed_user("USER").await;
     let token = search_filters_token(user_id).await;
@@ -50,7 +51,7 @@ async fn should_create_owned_search_filter() {
     assert_eq!(serde_json::json!("desk"), body["search"]["productQuery"][0]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_list_owned_search_filters() {
     let user_id = seed_user("USER").await;
     let token = search_filters_token(user_id).await;
@@ -79,7 +80,7 @@ async fn should_list_owned_search_filters() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_owned_search_filter_with_representation_headers() {
     let user_id = seed_user("USER").await;
     let token = search_filters_token(user_id).await;
@@ -117,7 +118,7 @@ async fn should_get_owned_search_filter_with_representation_headers() {
     assert_eq!(serde_json::json!(filter_id), body["userSearchFilterId"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_update_owned_search_filter_without_replacing_unsupplied_search_fields() {
     let user_id = seed_user("USER").await;
     let token = search_filters_token(user_id).await;
@@ -153,7 +154,7 @@ async fn should_update_owned_search_filter_without_replacing_unsupplied_search_f
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_delete_owned_search_filter() {
     let user_id = seed_user("USER").await;
     let token = search_filters_token(user_id).await;
@@ -173,7 +174,7 @@ async fn should_delete_owned_search_filter() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_list_search_filter_matches() {
     let user_id = seed_user("USER").await;
     let token = search_filters_token(user_id).await;
@@ -214,7 +215,7 @@ async fn should_list_search_filter_matches() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_accept_json_string_search_after_for_search_filter_matches() {
     let user_id = seed_user("USER").await;
     let token = search_filters_token(user_id).await;
@@ -245,7 +246,7 @@ async fn should_accept_json_string_search_after_for_search_filter_matches() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_serialize_concurrent_search_filter_creates_at_free_quota() {
     let user_id = seed_user("USER").await;
     let token = search_filters_token(user_id).await;
@@ -290,7 +291,7 @@ async fn should_serialize_concurrent_search_filter_creates_at_free_quota() {
     assert_eq!(1, active_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_serialize_concurrent_search_filter_reactivations_at_free_quota() {
     let user_id = seed_user("USER").await;
     let token = search_filters_token(user_id).await;
@@ -365,7 +366,7 @@ async fn should_serialize_concurrent_search_filter_reactivations_at_free_quota()
     assert_eq!(1, active_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_update_search_filter_match_feedback() {
     let user_id = seed_user("USER").await;
     let token = search_filters_token(user_id).await;
@@ -400,7 +401,7 @@ async fn should_update_search_filter_match_feedback() {
     assert_eq!(serde_json::json!(true), body["feedback"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_require_authentication_for_search_filter_routes() {
     let response = reqwest::Client::new()
         .get(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
@@ -417,7 +418,7 @@ async fn should_require_authentication_for_search_filter_routes() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_search_filter_routes_without_required_scope() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
@@ -433,7 +434,7 @@ async fn should_reject_search_filter_routes_without_required_scope() {
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_search_filter_identifier() {
     let user_id = seed_user("USER").await;
     let token = search_filters_token(user_id).await;

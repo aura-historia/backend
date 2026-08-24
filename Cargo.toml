@@ -51,7 +51,6 @@ test-api = { workspace = true }
 
 user-core = { workspace = true }
 user-service = { workspace = true }
-user-dynamodb = { workspace = true }
 user-postgres = { workspace = true }
 user-zoho = { workspace = true }
 
@@ -62,7 +61,7 @@ notification-postgres = { workspace = true }
 
 oauth-core = { workspace = true }
 oauth-service = { workspace = true }
-oauth-dynamodb = { workspace = true }
+oauth-postgres = { workspace = true }
 fxrate-lambda = { workspace = true }
 
 [workspace]
@@ -120,7 +119,6 @@ members = [
 
     "src/user-core",
     "src/user-service",
-    "src/user-dynamodb",
     "src/user-postgres",
     "src/user-zoho",
 
@@ -132,7 +130,7 @@ members = [
 
     "src/oauth-core",
     "src/oauth-service",
-    "src/oauth-dynamodb",
+    "src/oauth-postgres",
     "src/fxrate-lambda",
     "src/crawler",
     "src/ci-determinator",
@@ -204,7 +202,7 @@ notification-postgres = { path = "src/notification-postgres" }
 
 oauth-core = { path = "src/oauth-core" }
 oauth-service = { path = "src/oauth-service" }
-oauth-dynamodb = { path = "src/oauth-dynamodb" }
+oauth-postgres = { path = "src/oauth-postgres" }
 futures = { version = "0.3.32", default-features = false }
 hex = "0.4.3"
 http = "1.4.2"
@@ -280,7 +278,6 @@ smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tes
 
 user-core = { path = "src/user-core" }
 user-service = { path = "src/user-service" }
-user-dynamodb = { path = "src/user-dynamodb" }
 user-postgres = { path = "src/user-postgres" }
 user-zoho = { path = "src/user-zoho" }
 

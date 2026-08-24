@@ -8,16 +8,60 @@ uuid_v7_newtype!(ThirdPartyExchangeCode);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ThirdPartyExchangeCodeGrant {
+    code: ThirdPartyExchangeCode,
+    access_token: RawAccessToken,
+    access_token_expires: Option<OffsetDateTime>,
+    scopes: HashSet<Scope>,
+    expires: OffsetDateTime,
+}
+
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct RehydratedThirdPartyExchangeCodeGrantState {
     pub code: ThirdPartyExchangeCode,
     pub access_token: RawAccessToken,
     pub access_token_expires: Option<OffsetDateTime>,
     pub scopes: HashSet<Scope>,
     pub expires: OffsetDateTime,
-    pub created: OffsetDateTime,
 }
 
 impl ThirdPartyExchangeCodeGrant {
-    pub fn is_expired(&self) -> bool {
-        self.expires < OffsetDateTime::now_utc()
+    pub fn create(state: RehydratedThirdPartyExchangeCodeGrantState) -> Self {
+        Self::rehydrate(state)
+    }
+
+    #[doc(hidden)]
+    pub fn rehydrate(state: RehydratedThirdPartyExchangeCodeGrantState) -> Self {
+        Self {
+            code: state.code,
+            access_token: state.access_token,
+            access_token_expires: state.access_token_expires,
+            scopes: state.scopes,
+            expires: state.expires,
+        }
+    }
+
+    pub fn code(&self) -> ThirdPartyExchangeCode {
+        self.code
+    }
+
+    pub fn access_token(&self) -> &RawAccessToken {
+        &self.access_token
+    }
+
+    pub fn access_token_expires(&self) -> Option<OffsetDateTime> {
+        self.access_token_expires
+    }
+
+    pub fn scopes(&self) -> &HashSet<Scope> {
+        &self.scopes
+    }
+
+    pub fn expires(&self) -> OffsetDateTime {
+        self.expires
+    }
+
+    pub fn is_expired_at(&self, now: OffsetDateTime) -> bool {
+        self.expires < now
     }
 }

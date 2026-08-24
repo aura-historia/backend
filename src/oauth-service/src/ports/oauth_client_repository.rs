@@ -1,12 +1,16 @@
 use application::error::BoxError;
 use credential_core::oauth_client_id::OAuthClientId;
+use domain_primitives::versioned::Versioned;
 use oauth_core::client::OAuthClient;
-use std::collections::HashSet;
-use time::OffsetDateTime;
-use user_core::access_token::Scope;
+
+domain_primitives::version_newtype!(OAuthClientStorageVersion);
+
+pub type VersionedOAuthClient = Versioned<OAuthClient, OAuthClientStorageVersion>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum OAuthClientRepositoryError {
+    #[error("concurrent oauth client update")]
+    ConcurrencyConflict,
     #[error("oauth client already exists")]
     Conflict {
         #[source]
@@ -29,34 +33,30 @@ pub enum OAuthClientRepositoryError {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct OAuthClientPatch {
-    pub name: Option<oauth_core::client::OAuthClientName>,
-    pub redirect_uris: Option<HashSet<url::Url>>,
-    pub tos_uri: Option<url::Url>,
-    pub policy_uri: Option<url::Url>,
-    pub client_uri: Option<url::Url>,
-    pub logo_uri: Option<url::Url>,
-    pub scopes: Option<HashSet<Scope>>,
-    pub updated: OffsetDateTime,
-}
-
 #[async_trait::async_trait]
-pub trait OAuthClientRepository: Send + Sync {
-    async fn find_by_client_id(
-        &self,
-        client_id: &OAuthClientId,
-    ) -> Result<Option<OAuthClient>, OAuthClientRepositoryError>;
+pub trait OAuthClientRepository: Send {
+    async fn find_by_id(
+        &mut self,
+        client_id: OAuthClientId,
+    ) -> Result<Option<VersionedOAuthClient>, OAuthClientRepositoryError>;
 
     async fn insert(
-        &self,
-        client: OAuthClient,
-        raw_secret: user_core::access_token::RawOAuthClientSecret,
-    ) -> Result<(), OAuthClientRepositoryError>;
+        &mut self,
+        client: &OAuthClient,
+    ) -> Result<VersionedOAuthClient, OAuthClientRepositoryError>;
+
     async fn update(
-        &self,
-        client_id: &OAuthClientId,
-        patch: OAuthClientPatch,
-    ) -> Result<Option<OAuthClient>, OAuthClientRepositoryError>;
-    async fn delete(&self, client_id: &OAuthClientId) -> Result<(), OAuthClientRepositoryError>;
+        &mut self,
+        client: &OAuthClient,
+        expected_version: OAuthClientStorageVersion,
+    ) -> Result<VersionedOAuthClient, OAuthClientRepositoryError>;
+
+    async fn delete_by_id(
+        &mut self,
+        client_id: OAuthClientId,
+    ) -> Result<bool, OAuthClientRepositoryError>;
+}
+
+pub trait OAuthClientRepositoryFactory<Tx>: Send + Sync {
+    fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl OAuthClientRepository + 'tx;
 }

@@ -2,12 +2,13 @@ mod api_support;
 
 use api_support::{json_response, seed_access_token_for, seed_user};
 use test_api::{
-    AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
+    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
 };
 use user_core::access_token::Scope;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const DYNAMODB: DynamoDB = DynamoDB();
+const OPENSEARCH: OpenSearch = OpenSearch();
+
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
 struct OAuthClientCredentials {
@@ -130,7 +131,7 @@ async fn exchange_code(
     body
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_list_get_update_and_delete_oauth_client() {
     let (client, token) = authenticated_client().await;
     let credentials = create_oauth_client(&client, &token).await;
@@ -188,7 +189,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_redirect_authorized_user_with_authorization_code_and_state() {
     let (client, token) = authenticated_client().await;
     let credentials = create_oauth_client(&client, &token).await;
@@ -196,7 +197,7 @@ async fn should_redirect_authorized_user_with_authorization_code_and_state() {
     assert!(!code.is_empty());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_exchange_authorization_code_for_access_token() {
     let (client, token) = authenticated_client().await;
     let credentials = create_oauth_client(&client, &token).await;
@@ -210,7 +211,7 @@ async fn should_exchange_authorization_code_for_access_token() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_exchange_third_party_code_once_for_the_issued_access_token() {
     let (client, token) = authenticated_client().await;
     let credentials = create_oauth_client(&client, &token).await;
@@ -246,7 +247,7 @@ async fn should_exchange_third_party_code_once_for_the_issued_access_token() {
     assert_eq!(reqwest::StatusCode::BAD_REQUEST, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_introspect_and_revoke_oauth_access_token() {
     let (client, token) = authenticated_client().await;
     let credentials = create_oauth_client(&client, &token).await;

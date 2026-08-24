@@ -1,8 +1,11 @@
 use crate::error::OAuthServiceError;
-use crate::ports::{OAuthClientPatch, OAuthClientRepository};
+use crate::ports::{OAuthClientRepository, OAuthClientRepositoryFactory};
 use crate::use_cases::support::{authorize_oauth_admin, validate_redirect_uris};
 use application::operation_context::OperationContext;
+use application::transaction::{Transaction, UnitOfWork};
 use credential_core::oauth_client_id::OAuthClientId;
+use domain_primitives::change_outcome::ChangeOutcome;
+use domain_primitives::versioned::Versioned;
 use oauth_core::client::{OAuthClient, OAuthClientName};
 use std::collections::HashSet;
 use url::Url;
@@ -19,18 +22,6 @@ pub struct UpdateOAuthClientCommand {
     pub scopes: Option<HashSet<Scope>>,
 }
 
-impl UpdateOAuthClientCommand {
-    pub fn is_empty(&self) -> bool {
-        self.name.is_none()
-            && self.redirect_uris.is_none()
-            && self.tos_uri.is_none()
-            && self.policy_uri.is_none()
-            && self.client_uri.is_none()
-            && self.logo_uri.is_none()
-            && self.scopes.is_none()
-    }
-}
-
 #[async_trait::async_trait]
 pub trait UpdateOAuthClientUseCase: Send + Sync {
     async fn execute(
@@ -41,18 +32,24 @@ pub trait UpdateOAuthClientUseCase: Send + Sync {
     ) -> Result<OAuthClient, OAuthServiceError>;
 }
 
-pub struct UpdateOAuthClientHandler<R> {
-    repository: R,
+pub struct UpdateOAuthClientHandler<U, C> {
+    unit_of_work: U,
+    clients: C,
 }
-impl<R> UpdateOAuthClientHandler<R> {
-    pub fn new(repository: R) -> Self {
-        Self { repository }
+impl<U, C> UpdateOAuthClientHandler<U, C> {
+    pub fn new(unit_of_work: U, clients: C) -> Self {
+        Self {
+            unit_of_work,
+            clients,
+        }
     }
 }
+
 #[async_trait::async_trait]
-impl<R> UpdateOAuthClientUseCase for UpdateOAuthClientHandler<R>
+impl<U, C> UpdateOAuthClientUseCase for UpdateOAuthClientHandler<U, C>
 where
-    R: OAuthClientRepository,
+    U: UnitOfWork,
+    C: OAuthClientRepositoryFactory<U::Tx>,
 {
     async fn execute(
         &self,
@@ -61,31 +58,65 @@ where
         command: UpdateOAuthClientCommand,
     ) -> Result<OAuthClient, OAuthServiceError> {
         authorize_oauth_admin(context)?;
-        if command.is_empty() {
-            return self
-                .repository
-                .find_by_client_id(client_id)
-                .await?
-                .ok_or(OAuthServiceError::ClientNotFound);
-        }
         if let Some(redirect_uris) = &command.redirect_uris {
             validate_redirect_uris(redirect_uris)
                 .map_err(OAuthServiceError::InvalidClientMetadata)?;
         }
-        let patch = OAuthClientPatch {
-            name: command.name,
-            redirect_uris: command.redirect_uris,
-            tos_uri: command.tos_uri,
-            policy_uri: command.policy_uri,
-            client_uri: command.client_uri,
-            logo_uri: command.logo_uri,
-            scopes: command.scopes,
 
-            updated: time::OffsetDateTime::now_utc(),
-        };
-        self.repository
-            .update(client_id, patch)
+        let mut tx = self.unit_of_work.begin().await?;
+        let Versioned {
+            value: mut client,
+            version: loaded_version,
+        } = self
+            .clients
+            .in_transaction(&mut tx)
+            .find_by_id(*client_id)
             .await?
-            .ok_or(OAuthServiceError::ClientNotFound)
+            .ok_or(OAuthServiceError::ClientNotFound)?;
+
+        let outcome = apply_client_metadata_changes(&mut client, command);
+        let changed = outcome.changed();
+        let client = if changed {
+            self.clients
+                .in_transaction(&mut tx)
+                .update(&client, loaded_version)
+                .await?
+                .value
+        } else {
+            client
+        };
+
+        tx.commit().await?;
+        tracing::info!(event = "oauth_client.updated", actor_id = %context.principal.label(), client_id = %client.client_id(), outcome = if changed { "changed" } else { "unchanged" });
+        Ok(client)
     }
+}
+
+fn apply_client_metadata_changes(
+    client: &mut OAuthClient,
+    command: UpdateOAuthClientCommand,
+) -> ChangeOutcome {
+    let mut outcome = ChangeOutcome::Unchanged;
+    if let Some(name) = command.name {
+        outcome = outcome.combine(client.change_name(name));
+    }
+    if let Some(redirect_uris) = command.redirect_uris {
+        outcome = outcome.combine(client.replace_redirect_uris(redirect_uris));
+    }
+    if let Some(tos_uri) = command.tos_uri {
+        outcome = outcome.combine(client.change_tos_uri(tos_uri));
+    }
+    if let Some(policy_uri) = command.policy_uri {
+        outcome = outcome.combine(client.change_policy_uri(policy_uri));
+    }
+    if let Some(client_uri) = command.client_uri {
+        outcome = outcome.combine(client.change_client_uri(client_uri));
+    }
+    if let Some(logo_uri) = command.logo_uri {
+        outcome = outcome.combine(client.change_logo_uri(logo_uri));
+    }
+    if let Some(scopes) = command.scopes {
+        outcome = outcome.combine(client.replace_scopes(scopes));
+    }
+    outcome
 }

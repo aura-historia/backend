@@ -60,6 +60,23 @@ impl TryFrom<CreateOAuthClientData> for CreateOAuthClientCommand {
 impl From<oauth_core::client::OAuthClient> for OAuthClientMetadataData {
     fn from(client: oauth_core::client::OAuthClient) -> Self {
         Self {
+            client_id: client.client_id(),
+            client_secret: None,
+            client_name: client.name().clone().into(),
+            tos_uri: client.tos_uri().clone(),
+            policy_uri: client.policy_uri().clone(),
+            client_uri: client.client_uri().clone(),
+            logo_uri: client.logo_uri().clone(),
+            redirect_uris: client.redirect_uris().clone(),
+            scope: scope_strings(client.scopes().clone()),
+            client_id_issued_at: client.client_id().issued_at_unix_timestamp(),
+        }
+    }
+}
+
+impl From<oauth_service::ports::OAuthClientView> for OAuthClientMetadataData {
+    fn from(client: oauth_service::ports::OAuthClientView) -> Self {
+        Self {
             client_id: client.client_id,
             client_secret: None,
             client_name: client.name.into(),

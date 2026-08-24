@@ -1,4 +1,7 @@
-pub mod access_token_store;
+pub mod access_token_authentication_reader;
+pub mod access_token_details_reader;
+pub mod access_token_list_reader;
+pub mod access_token_repository;
 pub mod newsletter_profile_reader;
 pub mod newsletter_subscription_writer;
 pub mod user_account_reader;
@@ -8,7 +11,18 @@ pub mod user_search_reader;
 pub mod user_stripe_customer_reader;
 pub mod user_tier_entitlements;
 
-pub use access_token_store::{AccessTokenStore, AccessTokenStoreError};
+pub use access_token_authentication_reader::{
+    AccessTokenAuthentication, AccessTokenAuthenticationReadError, AccessTokenAuthenticationReader,
+};
+pub use access_token_details_reader::{
+    AccessTokenDetails, AccessTokenDetailsReadError, AccessTokenDetailsReader,
+};
+pub use access_token_list_reader::{AccessTokenListReadError, AccessTokenListReader};
+pub use access_token_repository::{
+    AccessTokenRepository, AccessTokenRepositoryError, AccessTokenRepositoryFactory,
+    AccessTokenStorageVersion, VersionedAccessToken,
+};
+
 pub use newsletter_profile_reader::{
     NewsletterProfile, NewsletterProfileReadError, NewsletterProfileReader,
 };

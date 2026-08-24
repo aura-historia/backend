@@ -7,20 +7,20 @@ use api_support::{
 use opensearch::IndexParts;
 use serde_json::{Value, json};
 use test_api::{
-    AuraHistoriaApi, DynamoDB, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
+    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
     get_opensearch_client, get_postgres_client, refresh_index,
 };
 use time::{Duration, OffsetDateTime};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const DYNAMODB: DynamoDB = DynamoDB();
+
 const OPENSEARCH: OpenSearch = OpenSearch();
 const PRODUCTS_INDEX: &str = "products";
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 static AURA_API_WITH_FAILED_EMBEDDING: AuraHistoriaApi =
     AuraHistoriaApi::new(aura_api_app_with_failed_search_embedding);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_product_details_by_id() {
     let product_id = seed_product().await;
 
@@ -49,7 +49,7 @@ async fn should_get_product_details_by_id() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_product_details_by_slug() {
     let product_id = seed_product().await;
     let (shop_slug_id, product_slug_id) = product_route_slugs(product_id).await;
@@ -64,7 +64,7 @@ async fn should_get_product_details_by_slug() {
     assert_eq!(json!(product_id.to_string()), body["item"]["productId"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_product_history_by_id() {
     let product_id = seed_product().await;
 
@@ -85,7 +85,7 @@ async fn should_get_product_history_by_id() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_product_history_by_slug() {
     let product_id = seed_product().await;
     let (shop_slug_id, product_slug_id) = product_route_slugs(product_id).await;
@@ -100,7 +100,7 @@ async fn should_get_product_history_by_slug() {
     assert_eq!(json!(product_id.to_string()), body[0]["productId"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_pending_similar_products_by_id() {
     let product_id = seed_product().await;
 
@@ -124,7 +124,7 @@ async fn should_return_pending_similar_products_by_id() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_pending_similar_products_by_slug() {
     let product_id = seed_product().await;
     let (shop_slug_id, product_slug_id) = product_route_slugs(product_id).await;
@@ -147,7 +147,7 @@ async fn should_return_pending_similar_products_by_slug() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_page_product_search_without_duplicates_when_using_cursor() {
     let products = [
         search_document(
@@ -232,7 +232,7 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_snapshot_is_captured()
  {
     let products = [
@@ -302,7 +302,7 @@ async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_s
     assert!(product_ids(&fresh_body).is_empty());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_keep_sold_display_when_fx_snapshot_changes() {
     let captured_at = OffsetDateTime::now_utc() + Duration::days(730);
     let sale_fx_rate_id = capture_fx_snapshot(captured_at, 2_000_000).await;
@@ -350,7 +350,7 @@ async fn should_keep_sold_display_when_fx_snapshot_changes() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_matching_product_search_summary() {
     let target = search_document(
         "Renaissance walnut cabinet",
@@ -396,7 +396,7 @@ async fn should_return_matching_product_search_summary() {
     assert!(body["items"][0].get("userState").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_hybrid_search_products_when_mock_embedding_succeeds() {
     let target = search_document(
         "Ornate candle holder",
@@ -438,7 +438,7 @@ async fn should_hybrid_search_products_when_mock_embedding_succeeds() {
     assert!(body["total"].is_null());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API_WITH_FAILED_EMBEDDING])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API_WITH_FAILED_EMBEDDING])]
 async fn should_fall_back_to_bm25_when_mock_embedding_fails() {
     let target = search_document(
         "Vintage brass lamp",
@@ -462,7 +462,7 @@ async fn should_fall_back_to_bm25_when_mock_embedding_fails() {
     assert_eq!(vec![target.0], product_ids(&body));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_intersect_product_search_filters() {
     let target = search_document_with_shop(
         "Filter cabinet",
@@ -522,7 +522,7 @@ async fn should_intersect_product_search_filters() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_hide_deleted_products_from_default_search() {
     let active = search_document(
         "Lifecycle fixture",
@@ -553,7 +553,7 @@ async fn should_hide_deleted_products_from_default_search() {
     assert_eq!(json!("ACTIVE"), body["items"][0]["item"]["lifecycle"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_deleted_products_when_lifecycle_filter_requests_them() {
     let active = search_document(
         "Deleted fixture",
@@ -584,7 +584,7 @@ async fn should_return_deleted_products_when_lifecycle_filter_requests_them() {
     assert_eq!(json!("DELETED"), body["items"][0]["item"]["lifecycle"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_filter_product_search_by_created_date_range() {
     let january = search_document(
         "Date fixture",
@@ -614,7 +614,7 @@ async fn should_filter_product_search_by_created_date_range() {
     assert_eq!(vec![january.0], product_ids(&body));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_product_id() {
     let (response, _) = get_json("/api/v1/products/not-a-uuid".to_owned()).await;
     let (status, body) = json_response(response).await;
@@ -627,7 +627,7 @@ async fn should_reject_invalid_product_id() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_product_slug() {
     let (response, _) =
         get_json("/api/v1/by-slug/shops/Invalid/products/product-a1b2c3".to_owned()).await;
@@ -641,7 +641,7 @@ async fn should_reject_invalid_product_slug() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_optional_product_authentication() {
     let response = reqwest::Client::new()
         .get(format!(
@@ -663,7 +663,7 @@ async fn should_reject_invalid_optional_product_authentication() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_product_search_sort() {
     let (response, _) =
         get_json("/api/v1/products?language=en&currency=USD&sort=invalid&order=asc".to_owned())

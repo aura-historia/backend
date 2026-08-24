@@ -17,7 +17,7 @@
   - dynamodb: DynamoDB payloads
   - opensearch: OpenSearch payloads
   - service: service glue, orchestration, and cross-crate integration
-- DynamoDB owns only its remaining bounded contexts. PostgreSQL owns migrated business truth, including notifications and delivery state, per `docs/storage.md`. OpenSearch is re-computable read-optimized view for search and discovery.
+- DynamoDB owns only its remaining bounded contexts. PostgreSQL owns migrated business truth, including notifications, User access tokens, and canonical OAuth credentials. OpenSearch is re-computable read-optimized view for search and discovery.
 - Cognito is only Identity-Provider. User-Details and User-Profile are stored in DynamoDB.
 
 ## Ownership
@@ -117,7 +117,7 @@
 
 - `src/oauth-core/AGENTS.md` — canonical OAuth domain crate.
 - `src/oauth-service/AGENTS.md` — canonical OAuth service/use-case crate.
-- `src/oauth-dynamodb/AGENTS.md` — canonical OAuth DynamoDB adapter crate.
+- `src/oauth-postgres/AGENTS.md` — canonical OAuth PostgreSQL adapter crate.
 
 - `src/product-core/AGENTS.md` — canonical Product domain crate.
 - `src/product-service/AGENTS.md` — canonical Product service crate.
@@ -148,6 +148,5 @@
 
 - `src/user-core/AGENTS.md` — canonical User domain crate.
 - `src/user-service/AGENTS.md` — canonical User service crate.
-- `src/user-dynamodb/AGENTS.md` — canonical User DynamoDB adapter crate.
 - `src/user-postgres/AGENTS.md` — canonical User Postgres adapter crate.
 - `src/user-zoho/AGENTS.md` — canonical User Zoho newsletter adapter crate.

@@ -1,12 +1,13 @@
 use crate::error::OAuthServiceError;
-use crate::ports::OAuthClientRepository;
-use crate::use_cases::support::find_client;
+use crate::ports::{OAuthClientDetailsReader, OAuthClientView};
 use credential_core::oauth_client_id::OAuthClientId;
-use oauth_core::client::OAuthClient;
 
 #[async_trait::async_trait]
 pub trait GetOAuthClientUseCase: Send + Sync {
-    async fn execute(&self, client_id: &OAuthClientId) -> Result<OAuthClient, OAuthServiceError>;
+    async fn execute(
+        &self,
+        client_id: &OAuthClientId,
+    ) -> Result<OAuthClientView, OAuthServiceError>;
 }
 
 pub struct GetOAuthClientHandler<R> {
@@ -20,9 +21,15 @@ impl<R> GetOAuthClientHandler<R> {
 #[async_trait::async_trait]
 impl<R> GetOAuthClientUseCase for GetOAuthClientHandler<R>
 where
-    R: OAuthClientRepository,
+    R: OAuthClientDetailsReader,
 {
-    async fn execute(&self, client_id: &OAuthClientId) -> Result<OAuthClient, OAuthServiceError> {
-        find_client(&self.reader, client_id).await
+    async fn execute(
+        &self,
+        client_id: &OAuthClientId,
+    ) -> Result<OAuthClientView, OAuthServiceError> {
+        self.reader
+            .find(client_id)
+            .await?
+            .ok_or(OAuthServiceError::ClientNotFound)
     }
 }

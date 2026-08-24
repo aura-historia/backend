@@ -190,8 +190,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
  "axum",
  "base64 0.23.1",
  "billing-service",
@@ -215,7 +213,7 @@ dependencies = [
  "notification-postgres",
  "notification-service",
  "oauth-core",
- "oauth-dynamodb",
+ "oauth-postgres",
  "oauth-service",
  "opensearch",
  "openssl",
@@ -251,7 +249,6 @@ dependencies = [
  "tracing",
  "url",
  "user-core",
- "user-dynamodb",
  "user-postgres",
  "user-service",
  "user-zoho",
@@ -312,7 +309,7 @@ dependencies = [
  "notification-postgres",
  "notification-service",
  "oauth-core",
- "oauth-dynamodb",
+ "oauth-postgres",
  "oauth-service",
  "platform-observability",
  "platform-opensearch",
@@ -336,7 +333,6 @@ dependencies = [
  "stripe-lambda",
  "test-api",
  "user-core",
- "user-dynamodb",
  "user-postgres",
  "user-service",
  "user-zoho",
@@ -4852,29 +4848,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "oauth-dynamodb"
+name = "oauth-postgres"
 version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "aws-sdk-dynamodb",
  "credential-core",
- "fake",
+ "domain-primitives",
  "oauth-core",
- "oauth-dynamodb",
  "oauth-service",
- "rstest",
- "serde",
- "serde_dynamo",
- "serde_fields",
+ "platform-postgres",
  "serial_test",
+ "sqlx",
  "test-api",
  "thiserror 2.0.20",
  "time",
  "tokio",
- "tracing",
  "url",
  "user-core",
+ "uuid",
 ]
 
 [[package]]
@@ -4891,6 +4883,7 @@ dependencies = [
  "oauth-core",
  "oauth-service",
  "rstest",
+ "serde",
  "sha2 0.11.0",
  "thiserror 2.0.20",
  "time",
@@ -8534,28 +8527,6 @@ dependencies = [
  "thiserror 2.0.20",
  "time",
  "uuid",
-]
-
-[[package]]
-name = "user-dynamodb"
-version = "0.1.0"
-dependencies = [
- "application",
- "async-trait",
- "aws-sdk-dynamodb",
- "credential-core",
- "fake",
- "rstest",
- "serde",
- "serde_dynamo",
- "serde_fields",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "user-core",
- "user-dynamodb",
- "user-service",
 ]
 
 [[package]]

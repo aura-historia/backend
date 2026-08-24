@@ -7,8 +7,8 @@
 ## Core Design
 
 - One OAuth use-case module per command/query.
-- `ports/` has one module per aggregate/read capability: clients, authorization codes, third-party exchange codes, and access-token gateway.
-- `access_token_gateway.rs` adapts the User access-token store for OAuth token issuance, lookup, and revocation.
+- `ports/` owns transaction-scoped OAuth aggregate repositories, including one-time code repositories that only insert or atomically consume, plus purpose-specific client details/list readers returning `OAuthClientView` and a narrow client-authentication reader that exposes secret hash material only to OAuth service handlers.
+- OAuth token issue/revoke flows compose public User repository contracts in the same PostgreSQL transaction.
 - No DynamoDB, HTTP, Lambda, or storage records.
 
 ## Ownership

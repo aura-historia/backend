@@ -15,7 +15,7 @@ See `docs/hetzner_postgres_sequin_migration.md` for the ADR.
 | `aura-historia-worker` router | Rust process | Maps CDC rows to domain jobs and fans them out to queues. |
 | In-memory sub-worker queues | Worker buffers | Bounded execution buffers. Not durable. |
 | OpenSearch | Search projection | Rebuildable product/shop/search-filter projection. |
-| DynamoDB access tokens | AWS DynamoDB | Existing access-token storage and lookup. |
+
 | FxRate Lambda | AWS Lambda | Captures immutable canonical EUR-base FX snapshots in Postgres. |
 | `aura-historia-cron` | Rust process | UTC scheduled triggers for service-owned use cases. |
 | Shopify Lambda | AWS Lambda | Handles Shopify events, writes Postgres directly. |

@@ -1,5 +1,5 @@
 use crate::error::OAuthServiceError;
-use crate::ports::OAuthClientRepository;
+use crate::ports::{OAuthClientAuthenticationReader, OAuthClientRepository};
 use application::operation_context::{CredentialCapability, OperationContext};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -20,24 +20,34 @@ pub(crate) fn authorize_oauth_admin(context: &OperationContext) -> Result<(), OA
         .authorize::<OAuthServiceError>()
 }
 
-pub(crate) async fn find_client<R: OAuthClientRepository>(
-    reader: &R,
-    client_id: &OAuthClientId,
-) -> Result<OAuthClient, OAuthServiceError> {
-    reader
-        .find_by_client_id(client_id)
-        .await?
-        .ok_or(OAuthServiceError::ClientNotFound)
-}
-
 pub(crate) async fn authenticate_client<R: OAuthClientRepository>(
-    reader: &R,
+    repository: &mut R,
     client_id: &OAuthClientId,
     client_secret: &RawOAuthClientSecret,
 ) -> Result<OAuthClient, OAuthServiceError> {
-    let client = find_client(reader, client_id).await?;
-    if client_secret.check(&client.hashed_client_secret) {
+    let client = repository
+        .find_by_id(*client_id)
+        .await?
+        .ok_or(OAuthServiceError::ClientNotFound)?
+        .value;
+    if client_secret.check(client.hashed_client_secret()) {
         Ok(client)
+    } else {
+        Err(OAuthServiceError::InvalidClientSecret)
+    }
+}
+
+pub(crate) async fn authenticate_client_reader<R: OAuthClientAuthenticationReader>(
+    reader: &R,
+    client_id: &OAuthClientId,
+    client_secret: &RawOAuthClientSecret,
+) -> Result<(), OAuthServiceError> {
+    let client = reader
+        .find_by_id(client_id)
+        .await?
+        .ok_or(OAuthServiceError::ClientNotFound)?;
+    if client_secret.check(&client.hashed_client_secret) {
+        Ok(())
     } else {
         Err(OAuthServiceError::InvalidClientSecret)
     }

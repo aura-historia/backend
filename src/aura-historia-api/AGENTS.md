@@ -14,7 +14,7 @@
 - Auth accepts Cognito access JWTs and Aura access tokens through one interface. Cognito needs `AURA_HISTORIA_COGNITO_ISSUER`, `AURA_HISTORIA_COGNITO_JWKS_URL`, and comma-separated `AURA_HISTORIA_COGNITO_APP_CLIENT_IDS`; it fetches JWKS with bounded cache/refresh. Cognito maps to open-world first-party `Principal::User`; Aura access tokens map explicit scopes to closed-world delegated capabilities.
 - Auth extractors only authenticate. Required capability and business policy checks belong in service/use-case code, not controllers.
 - Global axum transport middleware creates UUID request IDs; it accepts only bounded safe `X-Correlation-Id` values (max 128 ASCII alphanumeric, `.`, `_`, `-`) and returns both IDs on every response. It also owns safe request tracing, sensitive-header redaction, CORS including WooCommerce topic/signature headers, a 1 MiB body cap, and a 30-second timeout.
-- `/health` reports process liveness. `/ready` returns `204` only after PostgreSQL pool acquisition, DynamoDB table lookup, and OpenSearch ping succeed; it returns `503` otherwise.
+- `/health` reports process liveness. `/ready` returns `204` only after PostgreSQL pool acquisition and OpenSearch ping succeed; it returns `503` otherwise. pg-ttl worker health is monitored as PostgreSQL platform health, not a request-path readiness dependency.
 - No API Gateway adapter.
 - `shops/` owns shop REST controllers. Public shop list and detail routes return only `PUBLISHED` shops; partner-application approval publishes its linked shop.
 - `users/` owns account, admin user, and access-token REST controllers.

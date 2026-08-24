@@ -1,4 +1,4 @@
-use crate::ports::{AccessTokenStore, AccessTokenStoreError};
+use crate::ports::{AccessTokenAuthenticationReadError, AccessTokenAuthenticationReader};
 use application::error::BoxError;
 use application::operation_context::OperationContext;
 use std::collections::HashSet;
@@ -53,20 +53,20 @@ pub trait AuthenticateAccessTokenUseCase: Send + Sync {
     ) -> Result<AuthenticateAccessTokenResult, AuthenticateAccessTokenError>;
 }
 
-pub struct AuthenticateAccessTokenHandler<S> {
-    store: S,
+pub struct AuthenticateAccessTokenHandler<R> {
+    reader: R,
 }
 
-impl<S> AuthenticateAccessTokenHandler<S> {
-    pub fn new(store: S) -> Self {
-        Self { store }
+impl<R> AuthenticateAccessTokenHandler<R> {
+    pub fn new(reader: R) -> Self {
+        Self { reader }
     }
 }
 
 #[async_trait::async_trait]
-impl<S> AuthenticateAccessTokenUseCase for AuthenticateAccessTokenHandler<S>
+impl<R> AuthenticateAccessTokenUseCase for AuthenticateAccessTokenHandler<R>
 where
-    S: AccessTokenStore,
+    R: AccessTokenAuthenticationReader,
 {
     #[tracing::instrument(
         name = "authenticate_access_token",
@@ -83,88 +83,67 @@ where
         request: AuthenticateAccessTokenRequest,
     ) -> Result<AuthenticateAccessTokenResult, AuthenticateAccessTokenError> {
         let access_token = self
-            .store
-            .find_by_hashed_token(&request.hashed_token)
+            .reader
+            .find_authentication_by_hashed_token(&request.hashed_token)
             .await?
             .ok_or(AuthenticateAccessTokenError::NotFound)?;
 
-        if access_token.is_expired_at(time::OffsetDateTime::now_utc()) {
+        if access_token
+            .expires
+            .is_some_and(|expires| expires < time::OffsetDateTime::now_utc())
+        {
             return Err(AuthenticateAccessTokenError::Expired);
         }
         Ok(AuthenticateAccessTokenResult {
-            user_id: access_token.user_id(),
-            scopes: access_token.scopes().clone(),
+            user_id: access_token.user_id,
+            scopes: access_token.scopes,
         })
     }
 }
 
-impl From<AccessTokenStoreError> for AuthenticateAccessTokenError {
-    fn from(error: AccessTokenStoreError) -> Self {
+impl From<AccessTokenAuthenticationReadError> for AuthenticateAccessTokenError {
+    fn from(error: AccessTokenAuthenticationReadError) -> Self {
         match error {
-            AccessTokenStoreError::Conflict { source } => Self::Conflict { source },
-            AccessTokenStoreError::TemporarilyUnavailable { source } => {
+            AccessTokenAuthenticationReadError::TemporarilyUnavailable { source } => {
                 Self::TemporarilyUnavailable { source }
             }
-            AccessTokenStoreError::InvalidPersistedState { source } => {
+            AccessTokenAuthenticationReadError::InvalidReadModel { source } => {
                 Self::InvalidPersistedState { source }
             }
-            AccessTokenStoreError::Internal { source } => Self::Internal { source },
+            AccessTokenAuthenticationReadError::Internal { source } => Self::Internal { source },
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    #![allow(dead_code, unused_imports)]
     use super::{
         AuthenticateAccessTokenError, AuthenticateAccessTokenHandler,
         AuthenticateAccessTokenRequest, AuthenticateAccessTokenUseCase,
     };
-    use user_core::user_id::UserId;
-
-    use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-    use application::error::{BoxError, box_error};
+    use crate::ports::{
+        AccessTokenAuthentication, AccessTokenAuthenticationReadError,
+        AccessTokenAuthenticationReader,
+    };
+    use application::error::box_error;
     use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
-    use application::patch_field::PatchField;
     use std::collections::HashSet;
-    use std::fmt::Debug;
     use std::sync::{Arc, Mutex, MutexGuard};
     use time::{Duration, OffsetDateTime};
     use user_core::access_token::{
-        AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, HashedRawAccessToken,
-        NewAccessToken, RawAccessToken, Scope,
+        AccessTokenId, AccessTokenOrigin, HashedRawAccessToken, RawAccessToken, Scope,
     };
-
-    #[derive(Debug, Clone, Copy)]
-    enum StoreErrorKind {
-        Conflict,
-        TemporarilyUnavailable,
-        InvalidPersistedState,
-        Internal,
-    }
+    use user_core::user_id::UserId;
 
     #[derive(Default)]
-    struct StoreState {
-        token: Option<AccessToken>,
-        tokens: Vec<AccessToken>,
-        find_by_id_error: Option<StoreErrorKind>,
-        find_by_hashed_error: Option<StoreErrorKind>,
-        list_error: Option<StoreErrorKind>,
-        insert_error: Option<StoreErrorKind>,
-        replace_error: Option<StoreErrorKind>,
-        delete_error: Option<StoreErrorKind>,
-        find_by_id_calls: usize,
-        find_by_hashed_calls: usize,
-        list_calls: usize,
-        insert_calls: usize,
-        replace_calls: usize,
-        delete_calls: usize,
+    struct State {
+        authentication: Option<AccessTokenAuthentication>,
+        unavailable: bool,
+        calls: usize,
     }
 
     #[derive(Clone, Default)]
-    struct FakeAccessTokenStore {
-        state: Arc<Mutex<StoreState>>,
-    }
+    struct FakeAuthenticationReader(Arc<Mutex<State>>);
 
     fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         match mutex.lock() {
@@ -173,239 +152,96 @@ mod tests {
         }
     }
 
-    fn ctx(principal: Principal) -> OperationContext {
+    fn context() -> OperationContext {
         OperationContext {
-            principal,
+            principal: Principal::Anonymous,
             request_id: RequestId::new("req-test"),
             correlation_id: CorrelationId::new("corr-test"),
         }
     }
 
-    fn token(
-        user_id: user_core::user_id::UserId,
-        scopes: HashSet<Scope>,
-        expires: Option<OffsetDateTime>,
-    ) -> AccessToken {
-        let raw = RawAccessToken::new();
-        AccessToken::create(NewAccessToken {
-            id: AccessTokenId::new(),
-            hashed_token: raw.into(),
-            user_id,
-            name: AccessTokenName::from("test token"),
-            scopes,
-            origin: AccessTokenOrigin::User,
-            expires,
-        })
-    }
-
-    fn boxed() -> BoxError {
-        box_error(std::io::Error::other("boom"))
-    }
-
-    fn store_error(kind: StoreErrorKind) -> AccessTokenStoreError {
-        match kind {
-            StoreErrorKind::Conflict => AccessTokenStoreError::Conflict { source: boxed() },
-            StoreErrorKind::TemporarilyUnavailable => {
-                AccessTokenStoreError::TemporarilyUnavailable { source: boxed() }
-            }
-            StoreErrorKind::InvalidPersistedState => {
-                AccessTokenStoreError::InvalidPersistedState { source: boxed() }
-            }
-            StoreErrorKind::Internal => AccessTokenStoreError::Internal { source: boxed() },
-        }
-    }
-
-    fn assert_error<T, E, F>(result: Result<T, E>, predicate: F)
-    where
-        E: Debug,
-        F: FnOnce(&E) -> bool,
-    {
-        match result {
-            Ok(_) => panic!("expected error"),
-            Err(error) => assert!(predicate(&error), "unexpected error: {error:?}"),
-        }
-    }
-
-    fn assert_ok<T, E: Debug>(result: Result<T, E>) -> T {
-        match result {
-            Ok(value) => value,
-            Err(error) => panic!("expected ok, got {error:?}"),
-        }
-    }
-
     #[async_trait::async_trait]
-    impl AccessTokenStore for FakeAccessTokenStore {
-        async fn find_by_id(
-            &self,
-            _user_id: &user_core::user_id::UserId,
-            _access_token_id: &AccessTokenId,
-        ) -> Result<Option<AccessToken>, AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.find_by_id_calls += 1;
-            if let Some(kind) = state.find_by_id_error {
-                Err(store_error(kind))
-            } else {
-                Ok(state.token.clone())
-            }
-        }
-
-        async fn find_by_hashed_token(
+    impl AccessTokenAuthenticationReader for FakeAuthenticationReader {
+        async fn find_authentication_by_hashed_token(
             &self,
             _hashed_token: &HashedRawAccessToken,
-        ) -> Result<Option<AccessToken>, AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.find_by_hashed_calls += 1;
-            if let Some(kind) = state.find_by_hashed_error {
-                Err(store_error(kind))
+        ) -> Result<Option<AccessTokenAuthentication>, AccessTokenAuthenticationReadError> {
+            let mut state = lock(&self.0);
+            state.calls += 1;
+            if state.unavailable {
+                Err(AccessTokenAuthenticationReadError::TemporarilyUnavailable {
+                    source: box_error(std::io::Error::other("unavailable")),
+                })
             } else {
-                Ok(state.token.clone())
-            }
-        }
-
-        async fn list_for_user(
-            &self,
-            _user_id: &user_core::user_id::UserId,
-        ) -> Result<Vec<AccessToken>, AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.list_calls += 1;
-            if let Some(kind) = state.list_error {
-                Err(store_error(kind))
-            } else {
-                Ok(state.tokens.clone())
-            }
-        }
-
-        async fn insert(&self, access_token: AccessToken) -> Result<(), AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.insert_calls += 1;
-            if let Some(kind) = state.insert_error {
-                Err(store_error(kind))
-            } else {
-                state.token = Some(access_token);
-                Ok(())
-            }
-        }
-
-        async fn replace(&self, access_token: AccessToken) -> Result<(), AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.replace_calls += 1;
-            if let Some(kind) = state.replace_error {
-                Err(store_error(kind))
-            } else {
-                state.token = Some(access_token);
-                Ok(())
-            }
-        }
-
-        async fn delete(
-            &self,
-            _user_id: &user_core::user_id::UserId,
-            _access_token_id: &AccessTokenId,
-        ) -> Result<(), AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.delete_calls += 1;
-            if let Some(kind) = state.delete_error {
-                Err(store_error(kind))
-            } else {
-                state.token = None;
-                Ok(())
+                Ok(state.authentication.clone())
             }
         }
     }
 
     #[tokio::test]
-    async fn should_authenticate_access_token_when_valid() {
+    async fn should_authenticate_unexpired_access_token() {
         let user_id = UserId::new();
         let scopes = HashSet::from([Scope::ShopsWrite]);
-        let valid = token(
+        let reader = FakeAuthenticationReader::default();
+        lock(&reader.0).authentication = Some(AccessTokenAuthentication {
+            access_token_id: AccessTokenId::new(),
             user_id,
-            scopes.clone(),
-            Some(OffsetDateTime::now_utc() + Duration::days(1)),
-        );
-        let hashed = valid.hashed_token().clone();
-        let store = FakeAccessTokenStore::default();
-        lock(&store.state).token = Some(valid);
+            scopes: scopes.clone(),
+            origin: AccessTokenOrigin::User,
+            expires: Some(OffsetDateTime::now_utc() + Duration::days(1)),
+        });
 
-        let result = assert_ok(
-            AuthenticateAccessTokenHandler::new(store)
-                .execute(
-                    &ctx(Principal::Anonymous),
-                    AuthenticateAccessTokenRequest {
-                        hashed_token: hashed,
-                    },
-                )
-                .await,
-        );
-
-        assert_eq!(user_id, result.user_id);
-        assert_eq!(scopes, result.scopes);
-    }
-
-    #[tokio::test]
-    async fn should_handle_access_token_auth_failures() {
-        let user_id = UserId::new();
-        let store = FakeAccessTokenStore::default();
-        assert_error(
-            AuthenticateAccessTokenHandler::new(store.clone())
-                .execute(
-                    &ctx(Principal::System),
-                    AuthenticateAccessTokenRequest {
-                        hashed_token: RawAccessToken::new().into(),
-                    },
-                )
-                .await,
-            |error| matches!(error, AuthenticateAccessTokenError::NotFound),
-        );
-
-        let expired = token(
-            user_id,
-            HashSet::from([Scope::ShopsWrite]),
-            Some(OffsetDateTime::now_utc() - Duration::days(1)),
-        );
-        let hashed = expired.hashed_token().clone();
-        lock(&store.state).token = Some(expired);
-        assert_error(
-            AuthenticateAccessTokenHandler::new(store.clone())
-                .execute(
-                    &ctx(Principal::System),
-                    AuthenticateAccessTokenRequest {
-                        hashed_token: hashed,
-                    },
-                )
-                .await,
-            |error| matches!(error, AuthenticateAccessTokenError::Expired),
-        );
-    }
-
-    #[tokio::test]
-    async fn should_map_access_token_store_errors_for_authenticate() {
-        for kind in [
-            StoreErrorKind::Conflict,
-            StoreErrorKind::TemporarilyUnavailable,
-            StoreErrorKind::InvalidPersistedState,
-            StoreErrorKind::Internal,
-        ] {
-            let store = FakeAccessTokenStore::default();
-            lock(&store.state).find_by_hashed_error = Some(kind);
-            assert_error(
-                AuthenticateAccessTokenHandler::new(store)
-                    .execute(
-                        &ctx(Principal::System),
-                        AuthenticateAccessTokenRequest {
-                            hashed_token: RawAccessToken::new().into(),
-                        },
-                    )
-                    .await,
-                |error| {
-                    matches!(
-                        error,
-                        AuthenticateAccessTokenError::Conflict { .. }
-                            | AuthenticateAccessTokenError::TemporarilyUnavailable { .. }
-                            | AuthenticateAccessTokenError::InvalidPersistedState { .. }
-                            | AuthenticateAccessTokenError::Internal { .. }
-                    )
+        let result = AuthenticateAccessTokenHandler::new(reader.clone())
+            .execute(
+                &context(),
+                AuthenticateAccessTokenRequest {
+                    hashed_token: RawAccessToken::new().into(),
                 },
-            );
+            )
+            .await;
+
+        match result {
+            Ok(result) => {
+                assert_eq!(user_id, result.user_id);
+                assert_eq!(scopes, result.scopes);
+            }
+            Err(error) => panic!("expected authentication success: {error:?}"),
         }
+        assert_eq!(1, lock(&reader.0).calls);
+    }
+
+    #[tokio::test]
+    async fn should_reject_expired_and_unavailable_access_token_reads() {
+        let reader = FakeAuthenticationReader::default();
+        lock(&reader.0).authentication = Some(AccessTokenAuthentication {
+            access_token_id: AccessTokenId::new(),
+            user_id: UserId::new(),
+            scopes: HashSet::new(),
+            origin: AccessTokenOrigin::User,
+            expires: Some(OffsetDateTime::now_utc() - Duration::days(1)),
+        });
+        let result = AuthenticateAccessTokenHandler::new(reader.clone())
+            .execute(
+                &context(),
+                AuthenticateAccessTokenRequest {
+                    hashed_token: RawAccessToken::new().into(),
+                },
+            )
+            .await;
+        assert!(matches!(result, Err(AuthenticateAccessTokenError::Expired)));
+
+        lock(&reader.0).unavailable = true;
+        let result = AuthenticateAccessTokenHandler::new(reader)
+            .execute(
+                &context(),
+                AuthenticateAccessTokenRequest {
+                    hashed_token: RawAccessToken::new().into(),
+                },
+            )
+            .await;
+        assert!(matches!(
+            result,
+            Err(AuthenticateAccessTokenError::TemporarilyUnavailable { .. })
+        ));
     }
 }

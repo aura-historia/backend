@@ -6,7 +6,7 @@ use api_support::{
 use serde_json::Value;
 use std::collections::HashSet;
 use test_api::{
-    AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
+    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
     get_postgres_client,
 };
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -15,10 +15,11 @@ use user_core::user_id::UserId;
 use uuid::Uuid;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const DYNAMODB: DynamoDB = DynamoDB();
+const OPENSEARCH: OpenSearch = OpenSearch();
+
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_require_valid_authentication_for_notifications() {
     let client = reqwest::Client::new();
 
@@ -50,7 +51,7 @@ async fn should_require_valid_authentication_for_notifications() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_list_canonical_notifications_without_legacy_fields_and_follow_cursor() {
     let user_id = seed_user("USER").await;
     let token = notification_token(user_id).await;
@@ -151,7 +152,7 @@ async fn should_list_canonical_notifications_without_legacy_fields_and_follow_cu
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_paginate_notifications_without_advertising_terminal_pages() {
     let empty_user_id = seed_user("USER").await;
     let empty_token = notification_token(empty_user_id).await;
@@ -241,7 +242,7 @@ async fn should_paginate_notifications_without_advertising_terminal_pages() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_localized_reason_specific_notification_payloads() {
     let user_id = seed_user("USER").await;
     let token = notification_token(user_id).await;
@@ -359,7 +360,7 @@ async fn should_return_localized_reason_specific_notification_payloads() {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_filter_notification_image_urls_by_current_prohibited_content_consent() {
     let denied_user_id = seed_user_with_consent("USER", false).await;
     let allowed_user_id = seed_user_with_consent("USER", true).await;
@@ -387,7 +388,7 @@ async fn should_filter_notification_image_urls_by_current_prohibited_content_con
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_malformed_notification_id() {
     let user_id = seed_user("USER").await;
     let token = notification_token(user_id).await;
@@ -409,7 +410,7 @@ async fn should_reject_malformed_notification_id() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_empty_notification_batch() {
     let user_id = seed_user("USER").await;
     let token = notification_token(user_id).await;
@@ -431,7 +432,7 @@ async fn should_reject_empty_notification_batch() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_update_one_notification_seen_state() {
     let user_id = seed_user("USER").await;
     let token = notification_token(user_id).await;
@@ -449,7 +450,7 @@ async fn should_update_one_notification_seen_state() {
     assert!(notification_seen(&token, notification_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_update_selected_notification_seen_states() {
     let user_id = seed_user("USER").await;
     let token = notification_token(user_id).await;
@@ -472,7 +473,7 @@ async fn should_update_selected_notification_seen_states() {
     assert!(notification_seen(&token, second_notification_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_update_all_notification_seen_states() {
     let user_id = seed_user("USER").await;
     let token = notification_token(user_id).await;
@@ -492,7 +493,7 @@ async fn should_update_all_notification_seen_states() {
     assert!(notification_seen(&token, second_notification_id).await);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_delete_one_notification() {
     let user_id = seed_user("USER").await;
     let token = notification_token(user_id).await;
@@ -512,7 +513,7 @@ async fn should_delete_one_notification() {
     assert!(notification_ids.contains(&retained_notification_id.to_string()));
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_delete_all_notifications() {
     let user_id = seed_user("USER").await;
     let token = notification_token(user_id).await;
@@ -530,7 +531,7 @@ async fn should_delete_all_notifications() {
     assert!(listed_notification_ids(&token).await.is_empty());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_not_found_for_missing_notification_mutations() {
     let user_id = seed_user("USER").await;
     let token = notification_token(user_id).await;
@@ -567,7 +568,7 @@ async fn should_return_not_found_for_missing_notification_mutations() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_preserve_source_currency_for_opposite_user_preferences() {
     let eur_source_user = seed_user("USER").await;
     set_user_currency(eur_source_user, "USD").await;

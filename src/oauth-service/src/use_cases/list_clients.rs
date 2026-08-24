@@ -1,10 +1,9 @@
 use crate::error::OAuthServiceError;
-use crate::ports::OAuthClientReader;
-use oauth_core::client::OAuthClient;
+use crate::ports::{OAuthClientListReader, OAuthClientView};
 
 #[async_trait::async_trait]
 pub trait ListOAuthClientsUseCase: Send + Sync {
-    async fn execute(&self) -> Result<Vec<OAuthClient>, OAuthServiceError>;
+    async fn execute(&self) -> Result<Vec<OAuthClientView>, OAuthServiceError>;
 }
 
 pub struct ListOAuthClientsHandler<R> {
@@ -18,9 +17,9 @@ impl<R> ListOAuthClientsHandler<R> {
 #[async_trait::async_trait]
 impl<R> ListOAuthClientsUseCase for ListOAuthClientsHandler<R>
 where
-    R: OAuthClientReader,
+    R: OAuthClientListReader,
 {
-    async fn execute(&self) -> Result<Vec<OAuthClient>, OAuthServiceError> {
+    async fn execute(&self) -> Result<Vec<OAuthClientView>, OAuthServiceError> {
         Ok(self.reader.list().await?)
     }
 }

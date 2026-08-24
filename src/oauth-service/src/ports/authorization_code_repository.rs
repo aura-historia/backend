@@ -1,12 +1,16 @@
-use super::third_party_exchange_code_repository::OAuthCodeRepositoryError;
+use super::OAuthCodeRepositoryError;
 use oauth_core::authorization_code::{AuthorizationCode, OAuthAuthorizationCode};
 
 #[async_trait::async_trait]
-pub trait AuthorizationCodeRepository: Send + Sync {
-    async fn insert(&self, code: AuthorizationCode) -> Result<(), OAuthCodeRepositoryError>;
-    async fn find_by_code(
-        &self,
+pub trait AuthorizationCodeRepository: Send {
+    async fn insert(&mut self, code: AuthorizationCode) -> Result<(), OAuthCodeRepositoryError>;
+
+    async fn consume_by_code(
+        &mut self,
         code: &OAuthAuthorizationCode,
     ) -> Result<Option<AuthorizationCode>, OAuthCodeRepositoryError>;
-    async fn delete(&self, code: &OAuthAuthorizationCode) -> Result<(), OAuthCodeRepositoryError>;
+}
+
+pub trait AuthorizationCodeRepositoryFactory<Tx>: Send + Sync {
+    fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl AuthorizationCodeRepository + 'tx;
 }

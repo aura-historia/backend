@@ -1,4 +1,4 @@
-use crate::ports::{AccessTokenStore, AccessTokenStoreError};
+use crate::ports::{AccessTokenListReadError, AccessTokenListReader};
 use crate::use_cases::queries::get_access_token::AccessTokenView;
 use application::error::BoxError;
 use application::operation_context::{
@@ -53,20 +53,20 @@ pub trait ListAccessTokensUseCase: Send + Sync {
     ) -> Result<ListAccessTokensResult, ListAccessTokensError>;
 }
 
-pub struct ListAccessTokensHandler<S> {
-    store: S,
+pub struct ListAccessTokensHandler<R> {
+    reader: R,
 }
 
-impl<S> ListAccessTokensHandler<S> {
-    pub fn new(store: S) -> Self {
-        Self { store }
+impl<R> ListAccessTokensHandler<R> {
+    pub fn new(reader: R) -> Self {
+        Self { reader }
     }
 }
 
 #[async_trait::async_trait]
-impl<S> ListAccessTokensUseCase for ListAccessTokensHandler<S>
+impl<R> ListAccessTokensUseCase for ListAccessTokensHandler<R>
 where
-    S: AccessTokenStore,
+    R: AccessTokenListReader,
 {
     #[tracing::instrument(
         name = "list_access_tokens",
@@ -85,8 +85,8 @@ where
     ) -> Result<ListAccessTokensResult, ListAccessTokensError> {
         authorize_access_token_read(context, request.user_id)?;
         let items = self
-            .store
-            .list_for_user(&request.user_id)
+            .reader
+            .list_for_user(request.user_id)
             .await?
             .into_iter()
             .map(AccessTokenView::from)
@@ -120,73 +120,43 @@ impl From<OperationAuthorizationError> for ListAccessTokensError {
     }
 }
 
-impl From<AccessTokenStoreError> for ListAccessTokensError {
-    fn from(error: AccessTokenStoreError) -> Self {
+impl From<AccessTokenListReadError> for ListAccessTokensError {
+    fn from(error: AccessTokenListReadError) -> Self {
         match error {
-            AccessTokenStoreError::Conflict { source } => Self::Conflict { source },
-            AccessTokenStoreError::TemporarilyUnavailable { source } => {
+            AccessTokenListReadError::TemporarilyUnavailable { source } => {
                 Self::TemporarilyUnavailable { source }
             }
-            AccessTokenStoreError::InvalidPersistedState { source } => {
+            AccessTokenListReadError::InvalidReadModel { source } => {
                 Self::InvalidPersistedState { source }
             }
-            AccessTokenStoreError::Internal { source } => Self::Internal { source },
+            AccessTokenListReadError::Internal { source } => Self::Internal { source },
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    #![allow(dead_code, unused_imports)]
     use super::{
         ListAccessTokensError, ListAccessTokensHandler, ListAccessTokensRequest,
         ListAccessTokensUseCase,
     };
+    use crate::ports::{AccessTokenDetails, AccessTokenListReadError, AccessTokenListReader};
+    use application::error::box_error;
+    use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex, MutexGuard};
+    use user_core::access_token::{AccessTokenId, AccessTokenName, AccessTokenOrigin};
     use user_core::user_id::UserId;
 
-    use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-    use application::error::{BoxError, box_error};
-    use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
-    use application::patch_field::PatchField;
-    use std::collections::HashSet;
-    use std::fmt::Debug;
-    use std::sync::{Arc, Mutex, MutexGuard};
-    use time::{Duration, OffsetDateTime};
-    use user_core::access_token::{
-        AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, HashedRawAccessToken,
-        NewAccessToken, RawAccessToken, Scope,
-    };
-
-    #[derive(Debug, Clone, Copy)]
-    enum StoreErrorKind {
-        Conflict,
-        TemporarilyUnavailable,
-        InvalidPersistedState,
-        Internal,
-    }
-
     #[derive(Default)]
-    struct StoreState {
-        token: Option<AccessToken>,
-        tokens: Vec<AccessToken>,
-        find_by_id_error: Option<StoreErrorKind>,
-        find_by_hashed_error: Option<StoreErrorKind>,
-        list_error: Option<StoreErrorKind>,
-        insert_error: Option<StoreErrorKind>,
-        replace_error: Option<StoreErrorKind>,
-        delete_error: Option<StoreErrorKind>,
-        find_by_id_calls: usize,
-        find_by_hashed_calls: usize,
-        list_calls: usize,
-        insert_calls: usize,
-        replace_calls: usize,
-        delete_calls: usize,
+    struct State {
+        items: Vec<AccessTokenDetails>,
+        unavailable: bool,
+        calls: usize,
     }
 
     #[derive(Clone, Default)]
-    struct FakeAccessTokenStore {
-        state: Arc<Mutex<StoreState>>,
-    }
+    struct FakeListReader(Arc<Mutex<State>>);
 
     fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         match mutex.lock() {
@@ -195,7 +165,7 @@ mod tests {
         }
     }
 
-    fn ctx(principal: Principal) -> OperationContext {
+    fn context(principal: Principal) -> OperationContext {
         OperationContext {
             principal,
             request_id: RequestId::new("req-test"),
@@ -203,184 +173,67 @@ mod tests {
         }
     }
 
-    fn token(
-        user_id: user_core::user_id::UserId,
-        scopes: HashSet<Scope>,
-        expires: Option<OffsetDateTime>,
-    ) -> AccessToken {
-        let raw = RawAccessToken::new();
-        AccessToken::create(NewAccessToken {
-            id: AccessTokenId::new(),
-            hashed_token: raw.into(),
-            user_id,
-            name: AccessTokenName::from("test token"),
-            scopes,
-            origin: AccessTokenOrigin::User,
-            expires,
-        })
-    }
-
-    fn boxed() -> BoxError {
-        box_error(std::io::Error::other("boom"))
-    }
-
-    fn store_error(kind: StoreErrorKind) -> AccessTokenStoreError {
-        match kind {
-            StoreErrorKind::Conflict => AccessTokenStoreError::Conflict { source: boxed() },
-            StoreErrorKind::TemporarilyUnavailable => {
-                AccessTokenStoreError::TemporarilyUnavailable { source: boxed() }
-            }
-            StoreErrorKind::InvalidPersistedState => {
-                AccessTokenStoreError::InvalidPersistedState { source: boxed() }
-            }
-            StoreErrorKind::Internal => AccessTokenStoreError::Internal { source: boxed() },
-        }
-    }
-
-    fn assert_error<T, E, F>(result: Result<T, E>, predicate: F)
-    where
-        E: Debug,
-        F: FnOnce(&E) -> bool,
-    {
-        match result {
-            Ok(_) => panic!("expected error"),
-            Err(error) => assert!(predicate(&error), "unexpected error: {error:?}"),
-        }
-    }
-
-    fn assert_ok<T, E: Debug>(result: Result<T, E>) -> T {
-        match result {
-            Ok(value) => value,
-            Err(error) => panic!("expected ok, got {error:?}"),
-        }
-    }
-
     #[async_trait::async_trait]
-    impl AccessTokenStore for FakeAccessTokenStore {
-        async fn find_by_id(
-            &self,
-            _user_id: &user_core::user_id::UserId,
-            _access_token_id: &AccessTokenId,
-        ) -> Result<Option<AccessToken>, AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.find_by_id_calls += 1;
-            if let Some(kind) = state.find_by_id_error {
-                Err(store_error(kind))
-            } else {
-                Ok(state.token.clone())
-            }
-        }
-
-        async fn find_by_hashed_token(
-            &self,
-            _hashed_token: &HashedRawAccessToken,
-        ) -> Result<Option<AccessToken>, AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.find_by_hashed_calls += 1;
-            if let Some(kind) = state.find_by_hashed_error {
-                Err(store_error(kind))
-            } else {
-                Ok(state.token.clone())
-            }
-        }
-
+    impl AccessTokenListReader for FakeListReader {
         async fn list_for_user(
             &self,
-            _user_id: &user_core::user_id::UserId,
-        ) -> Result<Vec<AccessToken>, AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.list_calls += 1;
-            if let Some(kind) = state.list_error {
-                Err(store_error(kind))
+            _user_id: UserId,
+        ) -> Result<Vec<AccessTokenDetails>, AccessTokenListReadError> {
+            let mut state = lock(&self.0);
+            state.calls += 1;
+            if state.unavailable {
+                Err(AccessTokenListReadError::TemporarilyUnavailable {
+                    source: box_error(std::io::Error::other("unavailable")),
+                })
             } else {
-                Ok(state.tokens.clone())
-            }
-        }
-
-        async fn insert(&self, access_token: AccessToken) -> Result<(), AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.insert_calls += 1;
-            if let Some(kind) = state.insert_error {
-                Err(store_error(kind))
-            } else {
-                state.token = Some(access_token);
-                Ok(())
-            }
-        }
-
-        async fn replace(&self, access_token: AccessToken) -> Result<(), AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.replace_calls += 1;
-            if let Some(kind) = state.replace_error {
-                Err(store_error(kind))
-            } else {
-                state.token = Some(access_token);
-                Ok(())
-            }
-        }
-
-        async fn delete(
-            &self,
-            _user_id: &user_core::user_id::UserId,
-            _access_token_id: &AccessTokenId,
-        ) -> Result<(), AccessTokenStoreError> {
-            let mut state = lock(&self.state);
-            state.delete_calls += 1;
-            if let Some(kind) = state.delete_error {
-                Err(store_error(kind))
-            } else {
-                state.token = None;
-                Ok(())
+                Ok(state.items.clone())
             }
         }
     }
 
     #[tokio::test]
-    async fn should_list_access_tokens_for_user() {
+    async fn should_list_access_tokens_for_owner() {
         let user_id = UserId::new();
-        let store = FakeAccessTokenStore::default();
-        lock(&store.state).tokens = vec![token(user_id, HashSet::new(), None)];
+        let reader = FakeListReader::default();
+        lock(&reader.0).items.push(AccessTokenDetails {
+            user_id,
+            access_token_id: AccessTokenId::new(),
+            name: AccessTokenName::from("test token"),
+            scopes: HashSet::new(),
+            origin: AccessTokenOrigin::User,
+            expires: None,
+        });
 
-        assert_eq!(
-            1,
-            assert_ok(
-                ListAccessTokensHandler::new(store)
-                    .execute(
-                        &ctx(Principal::User(user_id)),
-                        ListAccessTokensRequest { user_id }
-                    )
-                    .await,
+        let result = ListAccessTokensHandler::new(reader.clone())
+            .execute(
+                &context(Principal::User(user_id)),
+                ListAccessTokensRequest { user_id },
             )
-            .items
-            .len(),
-        );
+            .await;
+
+        match result {
+            Ok(result) => assert_eq!(1, result.items.len()),
+            Err(error) => panic!("expected access token list: {error:?}"),
+        }
+        assert_eq!(1, lock(&reader.0).calls);
     }
 
     #[tokio::test]
-    async fn should_map_access_token_store_errors_for_list() {
-        for kind in [
-            StoreErrorKind::Conflict,
-            StoreErrorKind::TemporarilyUnavailable,
-            StoreErrorKind::InvalidPersistedState,
-            StoreErrorKind::Internal,
-        ] {
-            let user_id = UserId::new();
-            let store = FakeAccessTokenStore::default();
-            lock(&store.state).list_error = Some(kind);
-            assert_error(
-                ListAccessTokensHandler::new(store)
-                    .execute(&ctx(Principal::System), ListAccessTokensRequest { user_id })
-                    .await,
-                |error| {
-                    matches!(
-                        error,
-                        ListAccessTokensError::Conflict { .. }
-                            | ListAccessTokensError::TemporarilyUnavailable { .. }
-                            | ListAccessTokensError::InvalidPersistedState { .. }
-                            | ListAccessTokensError::Internal { .. }
-                    )
-                },
-            );
-        }
+    async fn should_map_unavailable_access_token_list() {
+        let user_id = UserId::new();
+        let reader = FakeListReader::default();
+        lock(&reader.0).unavailable = true;
+
+        let result = ListAccessTokensHandler::new(reader)
+            .execute(
+                &context(Principal::System),
+                ListAccessTokensRequest { user_id },
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(ListAccessTokensError::TemporarilyUnavailable { .. })
+        ));
     }
 }

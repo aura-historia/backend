@@ -8,13 +8,13 @@ use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
 use serde_json::json;
 use std::collections::HashSet;
 use test_api::{
-    AuraHistoriaApi, DynamoDB, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
+    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
     get_postgres_client,
 };
 use user_core::access_token::Scope;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const DYNAMODB: DynamoDB = DynamoDB();
+
 const OPENSEARCH: OpenSearch = OpenSearch();
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 const SECRET: &str = "woocommerce-webhook-test-secret";
@@ -25,7 +25,7 @@ fn assert_test_result(result: TestResult) {
     assert!(result.is_ok(), "{result:?}");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_persist_woocommerce_created_webhook_after_signature_validation() {
     let result: TestResult = async {
     let (shop_id, token) = webhook_auth().await?;
@@ -62,7 +62,7 @@ async fn should_persist_woocommerce_created_webhook_after_signature_validation()
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_mark_existing_product_removed_when_woocommerce_deleted_webhook_arrives() {
     let result: TestResult = async {
         let (shop_id, token) = webhook_auth().await?;
@@ -105,7 +105,7 @@ async fn should_mark_existing_product_removed_when_woocommerce_deleted_webhook_a
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_update_existing_product_and_not_append_event_for_redelivery() {
     let result: TestResult = async {
         let (shop_id, token) = webhook_auth().await?;
@@ -156,7 +156,7 @@ async fn should_update_existing_product_and_not_append_event_for_redelivery() {
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_woocommerce_webhook_with_invalid_signature() {
     let result: TestResult = async {
         let (shop_id, token) = webhook_auth().await?;
@@ -183,7 +183,7 @@ async fn should_reject_woocommerce_webhook_with_invalid_signature() {
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_woocommerce_webhook_without_product_write_capability() {
     let result: TestResult = async {
         let shop = seed_shop().await;
@@ -206,7 +206,7 @@ async fn should_reject_woocommerce_webhook_without_product_write_capability() {
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_woocommerce_webhook_from_user_not_linked_to_shop() {
     let result: TestResult = async {
         let shop = seed_shop().await;
@@ -230,7 +230,7 @@ async fn should_reject_woocommerce_webhook_from_user_not_linked_to_shop() {
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_missing_woocommerce_auth_and_required_headers_without_persisting_product() {
     let result: TestResult = async {
         let (shop_id, token) = webhook_auth().await?;
@@ -294,7 +294,7 @@ async fn should_reject_missing_woocommerce_auth_and_required_headers_without_per
     assert_test_result(result);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_woocommerce_request_shape_without_persisting_product() {
     let result: TestResult = async {
         let (shop_id, token) = webhook_auth().await?;

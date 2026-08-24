@@ -17,6 +17,9 @@ const POSTGRES_PASSWORD: &str = "postgres";
 const POSTGRES_DB: &str = "postgres";
 const POSTGRES_CONTAINER_PORT: u16 = 5432;
 const POSTGRES_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-postgres-test";
+const POSTGRES_PG_TTL_IMAGE_TAG: &str = "16-pg-ttl-index-v3.0.0";
+const POSTGRES_PG_TTL_DOCKERFILE: &str = "src/test-api/postgres/Dockerfile";
+const POSTGRES_PG_TTL_CONTEXT: &str = "src/test-api/postgres";
 const HOST_GATEWAY: &str = "host.docker.internal";
 
 type MigrationInitializers = Mutex<HashMap<&'static str, Arc<OnceCell<()>>>>;
@@ -101,6 +104,7 @@ async fn ensure_container_started() {
 
             // Remove any container left over from a previous aborted run of this process id.
             let _ = docker_remove(&name);
+            ensure_pg_ttl_image();
 
             use testcontainers::ImageExt;
             use testcontainers::core::IntoContainerPort;
@@ -111,21 +115,54 @@ async fn ensure_container_started() {
                 .with_user(POSTGRES_USER)
                 .with_password(POSTGRES_PASSWORD)
                 .with_db_name(POSTGRES_DB)
-                .with_tag("16-alpine")
-                .with_cmd(["-c", "fsync=off", "-c", "wal_level=logical"])
+                .with_tag(POSTGRES_PG_TTL_IMAGE_TAG)
+                .with_cmd([
+                    "-c",
+                    "fsync=off",
+                    "-c",
+                    "wal_level=logical",
+                    "-c",
+                    "shared_preload_libraries=pg_ttl_index",
+                ])
                 .with_container_name(name)
                 .with_mapped_port(port, POSTGRES_CONTAINER_PORT.tcp())
                 .start()
                 .await
                 .expect("shouldn't fail starting Postgres test container");
 
-            debug!("Successfully started Postgres test container.");
+            let mut connection = open_connection().await;
+            connection
+                .execute("CREATE EXTENSION pg_ttl_index")
+                .await
+                .expect("should create pg_ttl_index extension in test database");
+            connection
+                .execute("SELECT ttl_start_worker()")
+                .await
+                .expect("should start pg_ttl_index worker in test database");
+
+            debug!("Successfully started Postgres test container with pg_ttl_index.");
 
             // Leak the handle intentionally: the container must stay alive for the whole
             // test-suite. The atexit handler takes care of removing it on process exit.
             std::mem::forget(container);
         })
         .await;
+}
+
+fn ensure_pg_ttl_image() {
+    static IMAGE_BUILT: OnceLock<()> = OnceLock::new();
+    IMAGE_BUILT.get_or_init(|| {
+        let workspace_root = env!("CARGO_WORKSPACE_DIR");
+        let image = format!("postgres:{POSTGRES_PG_TTL_IMAGE_TAG}");
+        let status = Command::new("docker")
+            .current_dir(workspace_root)
+            .args(["build", "--file", POSTGRES_PG_TTL_DOCKERFILE, "--tag"])
+            .arg(image)
+            .arg(POSTGRES_PG_TTL_CONTEXT)
+            .status()
+            .unwrap_or_else(|error| panic!("failed to build pg-ttl test image: {error}"));
+        assert!(status.success(), "failed to build pinned pg-ttl test image");
+    });
 }
 
 fn docker_remove(name: &str) -> std::io::Result<std::process::ExitStatus> {
@@ -191,9 +228,9 @@ pub async fn get_postgres_client() -> PgPool {
 ///   [`Postgres::new`] and [`Postgres::new_schema_once`] apply schema-only migrations once per
 ///   test process; `setup_script` still runs before each test. [`Postgres::new_per_test`]
 ///   replays migrations before each test when they provide seed data.
-/// - **After each test** (`tear_down`): Opens a fresh connection and truncates every user
-///   table in the `public` schema so that each test starts with a clean slate. Table
-///   definitions (DDL) are preserved.
+/// - **After each test** (`tear_down`): Opens a fresh connection and truncates application-owned
+///   tables in the `public` schema so that each test starts with a clean slate. Extension-owned
+///   metadata and table definitions (DDL) are preserved.
 ///
 /// # Connection strategy
 ///
@@ -380,19 +417,26 @@ impl IntegrationTestService for Postgres {
         }
     }
 
-    /// Truncates all user tables in the `public` schema to ensure test isolation.
+    /// Truncates application-owned tables in the `public` schema to ensure test isolation.
     ///
     /// Table definitions (DDL) are intentionally kept intact so that the next test's
     /// `set_up` can rely on `CREATE TABLE IF NOT EXISTS` being a no-op.
     async fn tear_down(&self) {
         let mut conn = open_connection().await;
 
-        // Collect all user table names from the public schema.
+        // Exclude relations owned by installed extensions. Extension metadata must survive
+        // per-test cleanup, and this catalog query avoids coupling to extension table names.
         let tables: Vec<String> = sqlx::query_scalar::<_, String>(
-            "SELECT table_name \
-             FROM information_schema.tables \
-             WHERE table_schema = 'public' \
-               AND table_type = 'BASE TABLE'",
+            "SELECT relation.relname \
+             FROM pg_class AS relation \
+             JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace \
+             LEFT JOIN pg_depend AS extension_dependency \
+               ON extension_dependency.classid = 'pg_class'::regclass \
+              AND extension_dependency.objid = relation.oid \
+              AND extension_dependency.deptype = 'e' \
+             WHERE namespace.nspname = 'public' \
+               AND relation.relkind = 'r' \
+               AND extension_dependency.objid IS NULL",
         )
         .fetch_all(&mut conn)
         .await
@@ -417,7 +461,7 @@ impl IntegrationTestService for Postgres {
 
         debug!(
             tables = ?tables,
-            "Truncated all public tables for test isolation."
+            "Truncated application-owned public tables for test isolation."
         );
     }
 }

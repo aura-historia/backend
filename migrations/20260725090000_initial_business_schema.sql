@@ -546,3 +546,159 @@ CREATE INDEX notification_deliveries_status_created_idx
         created,
         notification_delivery_id
     );
+-- Credential rows require pg_ttl_index to be installed and preloaded by database
+-- provisioning. Do not create the extension here: normal application migration
+-- roles need not have that privilege, and silently omitting cleanup is unsafe.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_extension
+        WHERE extname = 'pg_ttl_index'
+    ) THEN
+        RAISE EXCEPTION
+            'pg_ttl_index must be provisioned before business schema migrations run';
+    END IF;
+END;
+$$;
+
+CREATE TABLE access_tokens (
+    access_token_id uuid PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    token_short text NOT NULL,
+    token_hash text NOT NULL,
+    name text NOT NULL,
+    scopes text[] NOT NULL DEFAULT '{}',
+    origin text NOT NULL,
+    oauth_client_id uuid,
+    expires_at timestamptz,
+    version bigint NOT NULL DEFAULT 1,
+    created timestamptz NOT NULL DEFAULT now(),
+    updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT access_tokens_version_positive CHECK (version >= 1),
+    CONSTRAINT access_tokens_origin_check CHECK (origin IN ('USER', 'OAUTH')),
+    CONSTRAINT access_tokens_oauth_origin_client_check CHECK (
+        (origin = 'USER' AND oauth_client_id IS NULL)
+        OR (origin = 'OAUTH' AND oauth_client_id IS NOT NULL)
+    ),
+    CONSTRAINT access_tokens_scopes_check CHECK (
+        scopes <@ ARRAY[
+            'products:write',
+            'shops:read',
+            'shops:write',
+            'partner-shop-applications:write',
+            'partner-shops:read',
+            'partner-shops:write',
+            'users:read',
+            'users:write',
+            'access-tokens:read',
+            'access-tokens:write',
+            'search-filters:write',
+            'watchlist:read',
+            'watchlist:write'
+        ]::text[]
+    ),
+    CONSTRAINT access_tokens_hash_unique UNIQUE (token_short, token_hash)
+);
+
+CREATE INDEX access_tokens_user_created_idx
+    ON access_tokens (user_id, created ASC, access_token_id ASC);
+
+CREATE TABLE oauth_clients (
+    client_id uuid PRIMARY KEY,
+    client_secret_short_token text NOT NULL,
+    client_secret_long_token_hash text NOT NULL,
+    name text NOT NULL,
+    redirect_uris text[] NOT NULL,
+    tos_uri text NOT NULL,
+    policy_uri text NOT NULL,
+    client_uri text NOT NULL,
+    logo_uri text NOT NULL,
+    scopes text[] NOT NULL DEFAULT '{}',
+    version bigint NOT NULL DEFAULT 1,
+    created timestamptz NOT NULL DEFAULT now(),
+    updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT oauth_clients_version_positive CHECK (version >= 1),
+    CONSTRAINT oauth_clients_redirect_uris_nonempty CHECK (cardinality(redirect_uris) > 0),
+    CONSTRAINT oauth_clients_redirect_uris_no_nulls CHECK (array_position(redirect_uris, NULL) IS NULL),
+    CONSTRAINT oauth_clients_scopes_check CHECK (
+        scopes <@ ARRAY[
+            'products:write',
+            'shops:read',
+            'shops:write',
+            'partner-shop-applications:write',
+            'partner-shops:read',
+            'partner-shops:write',
+            'users:read',
+            'users:write',
+            'access-tokens:read',
+            'access-tokens:write',
+            'search-filters:write',
+            'watchlist:read',
+            'watchlist:write'
+        ]::text[]
+    )
+);
+
+CREATE TABLE oauth_authorization_codes (
+    authorization_code uuid PRIMARY KEY,
+    client_id uuid NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+    user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    redirect_uri text NOT NULL,
+    scopes text[] NOT NULL DEFAULT '{}',
+    code_challenge text NOT NULL,
+    code_challenge_method text NOT NULL,
+    expires_at timestamptz NOT NULL,
+    created timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT oauth_authorization_codes_challenge_method_check
+        CHECK (code_challenge_method IN ('S256')),
+    CONSTRAINT oauth_authorization_codes_scopes_check CHECK (
+        scopes <@ ARRAY[
+            'products:write',
+            'shops:read',
+            'shops:write',
+            'partner-shop-applications:write',
+            'partner-shops:read',
+            'partner-shops:write',
+            'users:read',
+            'users:write',
+            'access-tokens:read',
+            'access-tokens:write',
+            'search-filters:write',
+            'watchlist:read',
+            'watchlist:write'
+        ]::text[]
+    )
+);
+
+CREATE TABLE oauth_third_party_exchange_codes (
+    third_party_exchange_code uuid PRIMARY KEY,
+    access_token text NOT NULL,
+    access_token_expires_at timestamptz,
+    scopes text[] NOT NULL DEFAULT '{}',
+    expires_at timestamptz NOT NULL,
+    created timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT oauth_third_party_exchange_codes_scopes_check CHECK (
+        scopes <@ ARRAY[
+            'products:write',
+            'shops:read',
+            'shops:write',
+            'partner-shop-applications:write',
+            'partner-shops:read',
+            'partner-shops:write',
+            'users:read',
+            'users:write',
+            'access-tokens:read',
+            'access-tokens:write',
+            'search-filters:write',
+            'watchlist:read',
+            'watchlist:write'
+        ]::text[]
+    )
+);
+
+-- Absolute semantic expiry is stored in each table. pg-ttl cleanup is deliberately
+-- asynchronous; service authentication and redemption still validate expiration.
+SELECT ttl_create_index('public.access_tokens', 'expires_at', 0);
+SELECT ttl_create_index('public.oauth_authorization_codes', 'expires_at', 0);
+SELECT ttl_create_index('public.oauth_third_party_exchange_codes', 'expires_at', 0);

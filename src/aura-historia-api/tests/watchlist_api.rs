@@ -6,16 +6,17 @@ use api_support::{
 };
 use product_core::product_id::ProductId;
 use test_api::{
-    AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
+    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
     get_postgres_client,
 };
 use user_core::{access_token::Scope, tier::UserTier};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const DYNAMODB: DynamoDB = DynamoDB();
+const OPENSEARCH: OpenSearch = OpenSearch();
+
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_add_product_to_watchlist_when_authenticated() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -48,7 +49,7 @@ async fn should_add_product_to_watchlist_when_authenticated() {
     assert!(body.get("userState").is_none());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_watchlist_create_when_entry_exists() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -80,7 +81,7 @@ async fn should_reject_watchlist_create_when_entry_exists() {
     assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_list_current_user_watchlist() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -119,7 +120,7 @@ async fn should_list_current_user_watchlist() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_update_watchlist_notifications() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -155,7 +156,7 @@ async fn should_update_watchlist_notifications() {
     assert_eq!(serde_json::json!(false), body["notifications"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_delete_watchlist_entry() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -188,7 +189,7 @@ async fn should_delete_watchlist_entry() {
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_watchlist_update_when_product_id_is_invalid() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -217,7 +218,7 @@ async fn should_reject_watchlist_update_when_product_id_is_invalid() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_not_found_when_updating_missing_watchlist_entry() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -247,7 +248,7 @@ async fn should_return_not_found_when_updating_missing_watchlist_entry() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_watchlist_create_at_free_tier_quota() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -275,7 +276,7 @@ async fn should_reject_watchlist_create_at_free_tier_quota() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_serialize_concurrent_watchlist_creates_at_free_quota() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -328,7 +329,7 @@ async fn should_serialize_concurrent_watchlist_creates_at_free_quota() {
     assert_eq!(20, active_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_allow_ultimate_tier_to_create_beyond_free_quota() {
     let user_id = seed_user_with_tier("USER", UserTier::Ultimate).await;
     let token = seed_access_token_for(
@@ -350,7 +351,7 @@ async fn should_allow_ultimate_tier_to_create_beyond_free_quota() {
     assert_eq!(reqwest::StatusCode::CREATED, response.status());
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_free_tier_watchlist_reactivation_at_quota() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -382,7 +383,7 @@ async fn should_reject_free_tier_watchlist_reactivation_at_quota() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_serialize_concurrent_watchlist_reactivations_at_free_quota() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
@@ -441,7 +442,7 @@ async fn should_serialize_concurrent_watchlist_reactivations_at_free_quota() {
     assert_eq!(20, active_count);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_allow_ultimate_tier_watchlist_reactivation_beyond_free_quota() {
     let user_id = seed_user_with_tier("USER", UserTier::Ultimate).await;
     let token = seed_access_token_for(
@@ -469,7 +470,7 @@ async fn should_allow_ultimate_tier_watchlist_reactivation_beyond_free_quota() {
     assert_eq!(serde_json::json!("ACTIVE"), body["state"]);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_require_auth_for_watchlist() {
     let response = reqwest::Client::new()
         .get(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))

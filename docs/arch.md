@@ -1724,13 +1724,12 @@ PostgreSQL owns business truth for:
 * search filters;
 * search-filter matches;
 * notifications and notification delivery state; a Notification is separate from its one-or-more delivery rows, each uniquely identified by `(notification_id, channel, target_key)`. The application planner selects channels, each channel adapter resolves its target, and generic delivery claim/send/finalize stays outside notification producers. EMAIL is the sole production sender; notification storage has no DynamoDB rows or TTL.
-
-DynamoDB remains the operational owner for:
-
-* access tokens;
+* User access tokens;
 * OAuth clients;
 * OAuth authorization codes;
 * OAuth third-party exchange codes.
+
+Credential tables are operational PostgreSQL storage, not Sequin sources. Expiry remains service-side correctness; `pg_ttl_index` is asynchronous physical cleanup only.
 
 OpenSearch contains rebuildable search projections only.
 
