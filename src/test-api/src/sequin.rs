@@ -114,6 +114,8 @@ async fn start_worker_webhook_sequin(webhook_url: &str) -> RunningSequin {
     let endpoint_url = format!("http://localhost:{sequin_port}");
 
     wait_for_sequin_health(&endpoint_url, &sequin).await;
+    wait_for_worker_webhook_replication(&format!("aura_historia_test_slot_{suffix}"), &sequin)
+        .await;
     debug!(%endpoint_url, "Successfully started process-lived Sequin test container.");
 
     RunningSequin {
@@ -199,10 +201,47 @@ async fn wait_for_sequin_health(endpoint_url: &str, container: &ContainerAsync<G
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
+    panic_with_sequin_logs(
+        container,
+        format!("Sequin health endpoint did not become ready at {health_url}"),
+    )
+    .await;
+}
+
+async fn wait_for_worker_webhook_replication(
+    slot_name: &str,
+    container: &ContainerAsync<GenericImage>,
+) {
+    let pool = get_postgres_client().await;
+
+    for _ in 0..SEQUIN_HEALTH_MAX_ATTEMPTS {
+        let active = sqlx::query_scalar(AssertSqlSafe(
+            "SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name = $1 AND active)",
+        ))
+        .bind(slot_name)
+        .fetch_one(&pool)
+        .await;
+
+        match active {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(error) => debug!(%slot_name, %error, "Sequin replication slot is not ready yet."),
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+
+    panic_with_sequin_logs(
+        container,
+        format!("Sequin replication slot did not become active: {slot_name}"),
+    )
+    .await;
+}
+
+async fn panic_with_sequin_logs(container: &ContainerAsync<GenericImage>, message: String) -> ! {
     let stdout = container.stdout_to_vec().await.unwrap_or_default();
     let stderr = container.stderr_to_vec().await.unwrap_or_default();
     panic!(
-        "Sequin health endpoint did not become ready at {health_url}\nstdout:\n{}\nstderr:\n{}",
+        "{message}\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&stdout),
         String::from_utf8_lossy(&stderr)
     );
