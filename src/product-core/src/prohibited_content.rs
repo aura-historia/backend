@@ -12,6 +12,12 @@ pub enum ProhibitedContent {
 }
 
 impl ProhibitedContent {
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|content| content.as_str() == value)
+    }
+
     pub fn is_safe(&self) -> bool {
         match self {
             ProhibitedContent::Unknown => false,
@@ -69,6 +75,17 @@ mod tests {
             .collect::<HashSet<_>>();
 
         assert_eq!(ProhibitedContent::iter().count(), identifiers.len());
+    }
+
+    #[test]
+    fn should_round_trip_canonical_prohibited_content_identifiers() {
+        for content in ProhibitedContent::iter() {
+            assert_eq!(
+                Some(content),
+                ProhibitedContent::from_code(content.as_str())
+            );
+        }
+        assert_eq!(None, ProhibitedContent::from_code("none"));
     }
 
     #[test]

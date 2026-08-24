@@ -33,7 +33,7 @@ use search_filter_core::{
 use serde::Deserialize;
 use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use sqlx::PgConnection;
-use strum::IntoEnumIterator;
+
 use time::OffsetDateTime;
 use url::Url;
 
@@ -616,8 +616,7 @@ pub(crate) fn images(value: serde_json::Value) -> Result<IndexSet<ProductImage>,
         .map(|image| {
             Ok(ProductImage {
                 url: Url::parse(&image.url).map_err(|_| ())?,
-                prohibited_content: ProhibitedContent::iter()
-                    .find(|content| content.as_str() == image.prohibited_content)
+                prohibited_content: ProhibitedContent::from_code(&image.prohibited_content)
                     .ok_or(())?,
             })
         })
@@ -625,27 +624,19 @@ pub(crate) fn images(value: serde_json::Value) -> Result<IndexSet<ProductImage>,
 }
 
 fn parse_language(value: &str) -> Result<Language, ()> {
-    Language::iter()
-        .find(|language| language.as_str() == value)
-        .ok_or(())
+    Language::from_code(value).ok_or(())
 }
 
 fn parse_currency(value: &str) -> Result<Currency, ()> {
-    Currency::iter()
-        .find(|currency| currency.as_str() == value)
-        .ok_or(())
+    Currency::from_code(value).ok_or(())
 }
 
 fn product_state(value: &str) -> Result<ProductState, ()> {
-    ProductState::iter()
-        .find(|state| state.as_str() == value)
-        .ok_or(())
+    ProductState::from_code(value).ok_or(())
 }
 
 fn lifecycle(value: &str) -> Result<ProductLifecycle, ()> {
-    ProductLifecycle::iter()
-        .find(|lifecycle| lifecycle.as_str() == value)
-        .ok_or(())
+    ProductLifecycle::from_code(value).ok_or(())
 }
 
 #[cfg(test)]

@@ -14,7 +14,7 @@ use search_filter_core::{
 };
 use sqlx::PgPool;
 use std::collections::HashMap;
-use strum::IntoEnumIterator;
+
 use user_core::tier::UserTier as CanonicalUserTier;
 
 #[derive(Debug, Clone)]
@@ -282,8 +282,7 @@ fn product_user_state(
 }
 
 fn user_tier(value: &str) -> Result<UserTier, ProductUserStateRowMappingError> {
-    CanonicalUserTier::iter()
-        .find(|tier| tier.as_str() == value)
+    CanonicalUserTier::from_code(value)
         .map(|tier| match tier {
             CanonicalUserTier::Free => UserTier::Free,
             CanonicalUserTier::Pro | CanonicalUserTier::Ultimate => UserTier::Unlimited,

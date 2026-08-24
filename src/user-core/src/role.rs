@@ -7,6 +7,12 @@ pub enum UserRole {
 }
 
 impl UserRole {
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|role| role.as_str() == value)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::User => "USER",
@@ -38,5 +44,13 @@ mod tests {
             .collect::<std::collections::HashSet<_>>();
 
         assert_eq!(UserRole::iter().count(), identifiers.len());
+    }
+
+    #[test]
+    fn should_round_trip_canonical_user_role_identifiers() {
+        for role in UserRole::iter() {
+            assert_eq!(Some(role), UserRole::from_code(role.as_str()));
+        }
+        assert_eq!(None, UserRole::from_code("admin"));
     }
 }

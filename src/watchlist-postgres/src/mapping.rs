@@ -1,7 +1,6 @@
 use domain_primitives::versioned::Versioned;
 use product_core::product_id::ProductId;
 use sqlx::FromRow;
-use strum::IntoEnumIterator;
 use user_core::user_id::UserId;
 use watchlist_core::WatchlistProduct;
 use watchlist_core::WatchlistState;
@@ -61,7 +60,7 @@ impl TryFrom<WatchlistViewRow> for WatchlistProductView {
 }
 
 fn parse_state(value: &str) -> Option<WatchlistState> {
-    WatchlistState::iter().find(|state| state.as_str() == value)
+    WatchlistState::from_code(value)
 }
 
 fn parse_state_repository(value: &str) -> Result<WatchlistState, WatchlistRepositoryError> {
@@ -75,6 +74,7 @@ fn parse_state_read(value: &str) -> Result<WatchlistState, WatchlistReadError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use strum::IntoEnumIterator;
 
     #[test]
     fn should_parse_each_canonical_state() {

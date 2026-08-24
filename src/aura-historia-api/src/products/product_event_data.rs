@@ -16,25 +16,13 @@ use url::Url;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductEventData {
-    event_type: ProductEventTypeData,
+    #[serde(with = "crate::wire::product_event_type")]
+    event_type: ProductEventType,
     product_id: ProductId,
     event_id: EventId,
     payload: ProductEventPayloadData,
     #[serde(with = "time::serde::rfc3339")]
     timestamp: OffsetDateTime,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductEventTypeData {
-    Created,
-    StateChanged,
-    AddressChanged,
-    PriceChanged,
-    UrlChanged,
-    ImagesChanged,
-    AuctionChanged,
-    Deleted,
 }
 
 #[derive(Debug, Serialize)]
@@ -156,26 +144,11 @@ struct ProductAuctionData {
 impl From<ProductEvent> for ProductEventData {
     fn from(event: ProductEvent) -> Self {
         Self {
-            event_type: event.event_type.into(),
+            event_type: event.event_type,
             product_id: event.product_id,
             event_id: event.event_id,
             payload: event.payload.into(),
             timestamp: event.timestamp,
-        }
-    }
-}
-
-impl From<ProductEventType> for ProductEventTypeData {
-    fn from(value: ProductEventType) -> Self {
-        match value {
-            ProductEventType::Created => Self::Created,
-            ProductEventType::StateChanged => Self::StateChanged,
-            ProductEventType::AddressChanged => Self::AddressChanged,
-            ProductEventType::PriceChanged => Self::PriceChanged,
-            ProductEventType::UrlChanged => Self::UrlChanged,
-            ProductEventType::ImagesChanged => Self::ImagesChanged,
-            ProductEventType::AuctionChanged => Self::AuctionChanged,
-            ProductEventType::Deleted => Self::Deleted,
         }
     }
 }

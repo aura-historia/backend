@@ -1,6 +1,6 @@
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
-use strum::IntoEnumIterator;
+
 use user_core::role::UserRole;
 use user_core::user_id::UserId;
 use user_service::ports::{
@@ -58,9 +58,8 @@ impl TryFrom<UserAdminActorRow> for UserAdminActorView {
     type Error = UserAdminReadError;
 
     fn try_from(row: UserAdminActorRow) -> Result<Self, Self::Error> {
-        let role = UserRole::iter()
-            .find(|role| role.as_str() == row.role)
-            .ok_or_else(|| UserAdminReadError::InvalidReadModel {
+        let role =
+            UserRole::from_code(&row.role).ok_or_else(|| UserAdminReadError::InvalidReadModel {
                 source: box_error(InvalidAdminRole),
             })?;
 

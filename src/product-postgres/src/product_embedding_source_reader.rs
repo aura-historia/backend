@@ -163,25 +163,8 @@ fn first_image_url(
 }
 
 fn parse_language(value: &str) -> Result<Language, ProductEmbeddingSourceReadError> {
-    match value {
-        "de" => Ok(Language::De),
-        "en" => Ok(Language::En),
-        "fr" => Ok(Language::Fr),
-        "es" => Ok(Language::Es),
-        "it" => Ok(Language::It),
-        "zh" => Ok(Language::Zh),
-        "pt" => Ok(Language::Pt),
-        "pl" => Ok(Language::Pl),
-        "tr" => Ok(Language::Tr),
-        "nl" => Ok(Language::Nl),
-        "cs" => Ok(Language::Cs),
-        "ja" => Ok(Language::Ja),
-        "ru" => Ok(Language::Ru),
-        "ar" => Ok(Language::Ar),
-        _ => Err(mapping_error(
-            "persisted product embedding language is invalid",
-        )),
-    }
+    Language::from_code(value)
+        .ok_or_else(|| mapping_error("persisted product embedding language is invalid"))
 }
 
 fn mapping_error(message: &'static str) -> ProductEmbeddingSourceReadError {

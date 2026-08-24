@@ -32,7 +32,7 @@ use shop_core::shop_slug_id::ShopSlugId;
 use shop_core::shop_type::ShopType;
 use sqlx::PgConnection;
 use std::collections::HashMap;
-use strum::IntoEnumIterator;
+
 use time::OffsetDateTime;
 use url::Url;
 
@@ -521,8 +521,7 @@ fn images(value: &serde_json::Value) -> Result<IndexSet<ProductImage>, ()> {
         .map(|image| {
             Ok(ProductImage {
                 url: Url::parse(&image.url).map_err(|_| ())?,
-                prohibited_content: ProhibitedContent::iter()
-                    .find(|content| content.as_str() == image.prohibited_content)
+                prohibited_content: ProhibitedContent::from_code(&image.prohibited_content)
                     .ok_or(())?,
             })
         })
@@ -530,27 +529,19 @@ fn images(value: &serde_json::Value) -> Result<IndexSet<ProductImage>, ()> {
 }
 
 fn language(value: &str) -> Result<Language, ()> {
-    Language::iter()
-        .find(|language| language.as_str() == value)
-        .ok_or(())
+    Language::from_code(value).ok_or(())
 }
 
 fn currency(value: &str) -> Result<Currency, ()> {
-    Currency::iter()
-        .find(|currency| currency.as_str() == value)
-        .ok_or(())
+    Currency::from_code(value).ok_or(())
 }
 
 fn product_state(value: &str) -> Result<ProductState, ()> {
-    ProductState::iter()
-        .find(|state| state.as_str() == value)
-        .ok_or(())
+    ProductState::from_code(value).ok_or(())
 }
 
 fn lifecycle(value: &str) -> Result<ProductLifecycle, ()> {
-    ProductLifecycle::iter()
-        .find(|lifecycle| lifecycle.as_str() == value)
-        .ok_or(())
+    ProductLifecycle::from_code(value).ok_or(())
 }
 
 fn event_kind(value: &str) -> ProductSearchFilterMatchSourceEventKind {
@@ -562,8 +553,7 @@ fn event_kind(value: &str) -> ProductSearchFilterMatchSourceEventKind {
 }
 
 fn shop_type(value: &str) -> Result<ProductSearchFilterMatchShopType, ()> {
-    ShopType::iter()
-        .find(|shop_type| shop_type.as_str() == value)
+    ShopType::from_code(value)
         .map(|shop_type| match shop_type {
             ShopType::AuctionHouse => ProductSearchFilterMatchShopType::AuctionHouse,
             ShopType::AuctionPlatform => ProductSearchFilterMatchShopType::AuctionPlatform,

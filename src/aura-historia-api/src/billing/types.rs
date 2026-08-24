@@ -2,43 +2,13 @@ use billing_service::use_cases::{BillingCycle, BillingPlan, BillingSessionResult
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum BillingPlanData {
-    Pro,
-    Ultimate,
-}
-
-impl From<BillingPlanData> for BillingPlan {
-    fn from(value: BillingPlanData) -> Self {
-        match value {
-            BillingPlanData::Pro => Self::Pro,
-            BillingPlanData::Ultimate => Self::Ultimate,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum BillingCycleData {
-    Monthly,
-    Yearly,
-}
-
-impl From<BillingCycleData> for BillingCycle {
-    fn from(value: BillingCycleData) -> Self {
-        match value {
-            BillingCycleData::Monthly => Self::Monthly,
-            BillingCycleData::Yearly => Self::Yearly,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct BillingSessionRequestData {
-    pub(crate) plan: BillingPlanData,
-    pub(crate) cycle: BillingCycleData,
+    #[serde(with = "crate::wire::billing_plan")]
+    pub(crate) plan: BillingPlan,
+    #[serde(with = "crate::wire::billing_cycle")]
+    pub(crate) cycle: BillingCycle,
 }
 
 #[derive(Debug, Serialize)]

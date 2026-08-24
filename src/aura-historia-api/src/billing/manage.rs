@@ -26,8 +26,8 @@ pub(crate) async fn manage(
         .execute(
             &context,
             CreateBillingManagementSessionCommand {
-                plan: request.plan.into(),
-                cycle: request.cycle.into(),
+                plan: request.plan,
+                cycle: request.cycle,
                 idempotency_key: None,
             },
         )

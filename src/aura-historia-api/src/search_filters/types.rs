@@ -32,15 +32,6 @@ use shop_core::shop_type::ShopType;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum SearchFilterStateData {
-    #[default]
-    Active,
-    InactiveByUser,
-    InactiveByRestrictedPlan,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(super) enum PatchSearchFilterStateData {
@@ -467,7 +458,8 @@ pub(super) struct SearchFilterData {
     user_search_filter_id: UserSearchFilterId,
     name: UserSearchFilterName,
     notifications: bool,
-    state: SearchFilterStateData,
+    #[serde(with = "crate::wire::search_filter_state")]
+    state: SearchFilterState,
     search: ProductSearchData,
     #[serde(
         with = "time::serde::rfc3339::option",
@@ -488,20 +480,10 @@ impl From<SearchFilterView> for SearchFilterData {
             user_search_filter_id: view.search_filter_id,
             name: view.name,
             notifications: view.notifications,
-            state: search_filter_state_data(view.state),
+            state: view.state,
             search: view.search.into(),
             created: Some(view.created),
             updated: Some(view.updated),
-        }
-    }
-}
-
-fn search_filter_state_data(state: SearchFilterState) -> SearchFilterStateData {
-    match state {
-        SearchFilterState::Active => SearchFilterStateData::Active,
-        SearchFilterState::InactiveByUser => SearchFilterStateData::InactiveByUser,
-        SearchFilterState::InactiveByRestrictedPlan => {
-            SearchFilterStateData::InactiveByRestrictedPlan
         }
     }
 }

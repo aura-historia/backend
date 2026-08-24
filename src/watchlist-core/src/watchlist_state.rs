@@ -8,6 +8,12 @@ pub enum WatchlistState {
 }
 
 impl WatchlistState {
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|state| state.as_str() == value)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Active => "ACTIVE",
@@ -46,5 +52,13 @@ mod tests {
             "INACTIVE_BY_RESTRICTED_PLAN",
             WatchlistState::InactiveByRestrictedPlan.as_str()
         );
+    }
+
+    #[test]
+    fn should_round_trip_canonical_watchlist_state_identifiers() {
+        for state in WatchlistState::iter() {
+            assert_eq!(Some(state), WatchlistState::from_code(state.as_str()));
+        }
+        assert_eq!(None, WatchlistState::from_code("active"));
     }
 }

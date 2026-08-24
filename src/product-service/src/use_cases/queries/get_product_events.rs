@@ -52,6 +52,21 @@ pub enum ProductEventType {
     Deleted,
 }
 
+impl ProductEventType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Created => "CREATED",
+            Self::StateChanged => "STATE_CHANGED",
+            Self::AddressChanged => "ADDRESS_CHANGED",
+            Self::PriceChanged => "PRICE_CHANGED",
+            Self::UrlChanged => "URL_CHANGED",
+            Self::ImagesChanged => "IMAGES_CHANGED",
+            Self::AuctionChanged => "AUCTION_CHANGED",
+            Self::Deleted => "DELETED",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum ProductEventPayload {

@@ -7,6 +7,12 @@ pub enum MeasurementUnit {
 }
 
 impl MeasurementUnit {
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|unit| unit.as_str() == value)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Metric => "METRIC",
@@ -33,5 +39,13 @@ mod tests {
             .collect::<std::collections::HashSet<_>>();
 
         assert_eq!(MeasurementUnit::iter().count(), identifiers.len());
+    }
+
+    #[test]
+    fn should_round_trip_canonical_measurement_unit_identifiers() {
+        for unit in MeasurementUnit::iter() {
+            assert_eq!(Some(unit), MeasurementUnit::from_code(unit.as_str()));
+        }
+        assert_eq!(None, MeasurementUnit::from_code("metric"));
     }
 }

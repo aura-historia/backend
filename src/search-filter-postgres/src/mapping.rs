@@ -279,9 +279,7 @@ fn price_match_valuation(
 }
 
 pub(crate) fn state(value: &str) -> Result<SearchFilterState, SearchFilterRowMappingError> {
-    SearchFilterState::iter()
-        .find(|state| state.as_str() == value)
-        .ok_or(SearchFilterRowMappingError::InvalidState)
+    SearchFilterState::from_code(value).ok_or(SearchFilterRowMappingError::InvalidState)
 }
 pub(crate) fn name(v: String) -> Result<UserSearchFilterName, SearchFilterRowMappingError> {
     if v.len() > 255 {

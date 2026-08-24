@@ -26,7 +26,7 @@ use product_service::use_cases::{
 };
 use serde_json::Value;
 use sqlx::PgConnection;
-use strum::IntoEnumIterator;
+
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use url::Url;
 
@@ -462,7 +462,5 @@ fn lifecycle(value: &str) -> Result<ProductLifecycle, ProductEventReadError> {
 }
 
 fn prohibited_content(value: &str) -> Result<ProhibitedContent, ProductEventReadError> {
-    ProhibitedContent::iter()
-        .find(|content| content.as_str() == value)
-        .ok_or(ProductEventReadError::ProductEventReadModelInvalid)
+    ProhibitedContent::from_code(value).ok_or(ProductEventReadError::ProductEventReadModelInvalid)
 }

@@ -142,8 +142,7 @@ fn parse_payload_type(
 fn parse_business_state(
     value: &str,
 ) -> Result<PartnerShopApplicationState, PartnerShopApplicationRowMappingError> {
-    PartnerShopApplicationState::iter()
-        .find(|state| state.as_str() == value)
+    PartnerShopApplicationState::from_code(value)
         .ok_or(PartnerShopApplicationRowMappingError::InvalidBusinessState)
 }
 

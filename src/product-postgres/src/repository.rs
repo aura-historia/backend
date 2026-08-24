@@ -29,7 +29,7 @@ use product_service::ports::product_repository::{
 use serde::{Deserialize, Serialize};
 use shop_core::shop_id::ShopId;
 use sqlx::PgConnection;
-use strum::IntoEnumIterator;
+
 use time::OffsetDateTime;
 use url::Url;
 
@@ -598,32 +598,24 @@ fn parse_language(
     value: &str,
     error: ProductRepositoryError,
 ) -> Result<Language, ProductRepositoryError> {
-    Language::iter()
-        .find(|language| language.as_str() == value)
-        .ok_or(error)
+    Language::from_code(value).ok_or(error)
 }
 
 fn parse_currency(value: &str) -> Result<Currency, ProductRepositoryError> {
-    Currency::iter()
-        .find(|currency| currency.as_str() == value)
-        .ok_or(ProductRepositoryError::InvalidPriceCurrencyPersisted)
+    Currency::from_code(value).ok_or(ProductRepositoryError::InvalidPriceCurrencyPersisted)
 }
 
 fn parse_product_state(value: &str) -> Result<ProductState, ProductRepositoryError> {
-    ProductState::iter()
-        .find(|state| state.as_str() == value)
-        .ok_or(ProductRepositoryError::InvalidProductStatePersisted)
+    ProductState::from_code(value).ok_or(ProductRepositoryError::InvalidProductStatePersisted)
 }
 
 fn parse_product_lifecycle(value: &str) -> Result<ProductLifecycle, ProductRepositoryError> {
-    ProductLifecycle::iter()
-        .find(|lifecycle| lifecycle.as_str() == value)
+    ProductLifecycle::from_code(value)
         .ok_or(ProductRepositoryError::InvalidProductLifecyclePersisted)
 }
 
 fn parse_prohibited_content(value: &str) -> Result<ProhibitedContent, ProductRepositoryError> {
-    ProhibitedContent::iter()
-        .find(|content| content.as_str() == value)
+    ProhibitedContent::from_code(value)
         .ok_or(ProductRepositoryError::InvalidProductImageProhibitedContentPersisted)
 }
 
@@ -692,6 +684,7 @@ mod tests {
     use super::*;
     use domain_primitives::event_id::EventId;
     use serde_json::json;
+    use strum::IntoEnumIterator;
 
     #[test]
     fn should_preserve_key_lookup_sqlx_source() {

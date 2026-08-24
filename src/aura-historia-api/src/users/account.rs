@@ -79,9 +79,9 @@ fn into_command(
         email: non_nullable_patch(data.email, "email")?,
         first_name: clearable(data.first_name),
         last_name: clearable(data.last_name),
-        language: clearable(data.language.map(Into::into)),
-        currency: clearable(data.currency.map(Into::into)),
-        measurement_unit: clearable(data.measurement_unit.map(Into::into)),
+        language: clearable(data.language),
+        currency: clearable(data.currency),
+        measurement_unit: clearable(data.measurement_unit),
         prohibited_content_consent: non_nullable_patch(
             data.prohibited_content_consent,
             "prohibitedContentConsent",

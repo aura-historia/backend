@@ -140,7 +140,8 @@ struct SearchFilterNotificationPayloadData {
 #[serde(rename_all = "camelCase")]
 struct PartnerApplicationNotificationPayloadData {
     partner_shop_application_id: Uuid,
-    decision: PartnerApplicationDecisionData,
+    #[serde(with = "crate::wire::partner_application_decision")]
+    decision: PartnerApplicationDecision,
     shop_name: String,
     image: Option<Url>,
 }
@@ -236,7 +237,7 @@ impl
                 decision,
             } => Self::PartnerApplication(PartnerApplicationNotificationPayloadData {
                 partner_shop_application_id: Uuid::from(partner_shop_application_id),
-                decision: decision.into(),
+                decision,
                 shop_name: snapshot.shop_name.to_string(),
                 image: snapshot.image,
             }),
@@ -308,22 +309,6 @@ impl From<LocalizedNotificationWatchlistChange> for WatchlistNotificationChangeD
                 old_state,
                 new_state,
             },
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum PartnerApplicationDecisionData {
-    Approved,
-    Rejected,
-}
-
-impl From<PartnerApplicationDecision> for PartnerApplicationDecisionData {
-    fn from(value: PartnerApplicationDecision) -> Self {
-        match value {
-            PartnerApplicationDecision::Approved => Self::Approved,
-            PartnerApplicationDecision::Rejected => Self::Rejected,
         }
     }
 }
