@@ -1194,38 +1194,38 @@ impl GenerateContentResponse {
         let text_length = text.len();
 
         if finish_reason == Some("MAX_TOKENS") {
-            log_response_parse_failure(
+            log_response_parse_failure(ResponseParseFailure {
                 operation,
                 model,
                 finish_reason,
                 candidate_count,
                 part_count,
                 text_length,
-                "truncated_max_tokens",
-                None,
-                "max_tokens",
-                None,
-                None,
-            );
+                parse_stage: "truncated_max_tokens",
+                json_path: None,
+                error_kind: "max_tokens",
+                missing_field: None,
+                json_error: None,
+            });
             return Err(invalid_response_error(
                 StructuredResponseError::TruncatedMaxTokens,
             ));
         }
 
         if text.trim().is_empty() {
-            log_response_parse_failure(
+            log_response_parse_failure(ResponseParseFailure {
                 operation,
                 model,
                 finish_reason,
                 candidate_count,
                 part_count,
                 text_length,
-                "missing_content",
-                None,
-                "missing_content",
-                None,
-                None,
-            );
+                parse_stage: "missing_content",
+                json_path: None,
+                error_kind: "missing_content",
+                missing_field: None,
+                json_error: None,
+            });
             return Err(invalid_response_error(
                 StructuredResponseError::MissingContent,
             ));
@@ -1235,19 +1235,19 @@ impl GenerateContentResponse {
         let value = match serde_json::from_str::<serde_json::Value>(text) {
             Ok(value) => value,
             Err(error) => {
-                log_response_parse_failure(
+                log_response_parse_failure(ResponseParseFailure {
                     operation,
                     model,
                     finish_reason,
                     candidate_count,
                     part_count,
                     text_length,
-                    "json_syntax",
-                    None,
-                    serde_json_error_kind(&error),
-                    None,
-                    Some(&error),
-                );
+                    parse_stage: "json_syntax",
+                    json_path: None,
+                    error_kind: serde_json_error_kind(&error),
+                    missing_field: None,
+                    json_error: Some(&error),
+                });
                 return Err(invalid_response_error(
                     StructuredResponseError::JsonSyntax { source: error },
                 ));
@@ -1264,19 +1264,19 @@ impl GenerateContentResponse {
                 } else {
                     target_deserialization_error_kind(error.inner())
                 };
-                log_response_parse_failure(
+                log_response_parse_failure(ResponseParseFailure {
                     operation,
                     model,
                     finish_reason,
                     candidate_count,
                     part_count,
                     text_length,
-                    "target_deserialization",
-                    Some(&json_path),
+                    parse_stage: "target_deserialization",
+                    json_path: Some(&json_path),
                     error_kind,
-                    missing_field.as_deref(),
-                    None,
-                );
+                    missing_field: missing_field.as_deref(),
+                    json_error: None,
+                });
                 Err(invalid_response_error(
                     StructuredResponseError::TargetDeserialization {
                         json_path,
@@ -1308,32 +1308,34 @@ fn strip_json_fence(text: &str) -> &str {
     text.strip_suffix("```").map_or(text, str::trim)
 }
 
-fn log_response_parse_failure(
+struct ResponseParseFailure<'a> {
     operation: LlmOperation,
-    model: &str,
-    finish_reason: Option<&str>,
+    model: &'a str,
+    finish_reason: Option<&'a str>,
     candidate_count: usize,
     part_count: usize,
     text_length: usize,
     parse_stage: &'static str,
-    json_path: Option<&str>,
+    json_path: Option<&'a str>,
     error_kind: &'static str,
-    missing_field: Option<&str>,
-    json_error: Option<&serde_json::Error>,
-) {
+    missing_field: Option<&'a str>,
+    json_error: Option<&'a serde_json::Error>,
+}
+
+fn log_response_parse_failure(failure: ResponseParseFailure<'_>) {
     tracing::warn!(
-        operation = %operation,
-        model,
-        finish_reason = finish_reason.unwrap_or("UNSPECIFIED"),
-        candidate_count,
-        part_count,
-        text_length,
-        parse_stage,
-        json_path,
-        error_kind,
-        missing_field,
-        json_line = json_error.map(serde_json::Error::line),
-        json_column = json_error.map(serde_json::Error::column),
+        operation = %failure.operation,
+        model = failure.model,
+        finish_reason = failure.finish_reason.unwrap_or("UNSPECIFIED"),
+        candidate_count = failure.candidate_count,
+        part_count = failure.part_count,
+        text_length = failure.text_length,
+        parse_stage = failure.parse_stage,
+        json_path = failure.json_path,
+        error_kind = failure.error_kind,
+        missing_field = failure.missing_field,
+        json_line = failure.json_error.map(serde_json::Error::line),
+        json_column = failure.json_error.map(serde_json::Error::column),
         "Vertex AI response could not be parsed as structured output"
     );
 }

@@ -138,9 +138,7 @@ pub fn log_llm_invocation(
         model,
         latency,
         metrics,
-        "COMPLETED",
-        None,
-        "Completed LLM invocation.",
+        LlmInvocationOutcome::Completed,
     );
 }
 
@@ -158,10 +156,39 @@ pub fn log_llm_invocation_failure(
         model,
         latency,
         metrics,
-        "STRUCTURED_RESPONSE_FAILURE",
-        Some(failure_kind),
-        "LLM invocation returned a structured response failure.",
+        LlmInvocationOutcome::StructuredResponseFailure { failure_kind },
     );
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LlmInvocationOutcome {
+    Completed,
+    StructuredResponseFailure { failure_kind: &'static str },
+}
+
+impl LlmInvocationOutcome {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "COMPLETED",
+            Self::StructuredResponseFailure { .. } => "STRUCTURED_RESPONSE_FAILURE",
+        }
+    }
+
+    const fn failure_kind(self) -> Option<&'static str> {
+        match self {
+            Self::Completed => None,
+            Self::StructuredResponseFailure { failure_kind } => Some(failure_kind),
+        }
+    }
+
+    const fn message(self) -> &'static str {
+        match self {
+            Self::Completed => "Completed LLM invocation.",
+            Self::StructuredResponseFailure { .. } => {
+                "LLM invocation returned a structured response failure."
+            }
+        }
+    }
 }
 
 fn log_llm_invocation_event(
@@ -170,17 +197,17 @@ fn log_llm_invocation_event(
     model: LlmModel,
     latency: Duration,
     metrics: LlmInvocationMetrics,
-    outcome: &'static str,
-    failure_kind: Option<&'static str>,
-    message: &'static str,
+    outcome: LlmInvocationOutcome,
 ) {
     let latency_millis = u64::try_from(latency.as_millis()).unwrap_or(u64::MAX);
+    let failure_kind = outcome.failure_kind();
+    let message = outcome.message();
     tracing::info!(
         eventType = "LLM_INVOCATION",
         llmOperation = %operation,
         llmProvider = %provider,
         llmModel = %model,
-        llmOutcome = outcome,
+        llmOutcome = outcome.as_str(),
         llmFailureKind = failure_kind,
         llmServiceTier = metrics.service_tier.map(|tier| tier.as_str()),
         latencyMs = latency_millis,
