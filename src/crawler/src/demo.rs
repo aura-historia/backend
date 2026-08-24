@@ -230,7 +230,7 @@ async fn main() {
             spider_concurrency: 100,
             spider_site_concurrency_limit: 8,
             scraper_concurrency: 10,
-            spider_classify_threshold: 1000,
+            spider_classify_threshold: 400,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
             ..Default::default()
         };

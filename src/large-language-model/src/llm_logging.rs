@@ -66,6 +66,7 @@ impl std::fmt::Display for LlmProvider {
 pub enum LlmModel {
     Gemini25FlashLite,
     Gemini31FlashLite,
+    Gemini31ProPreview,
     GeminiEmbedding2Preview0325,
     GeminiEmbedding2,
     Configured,
@@ -76,6 +77,7 @@ impl LlmModel {
         match self {
             Self::Gemini25FlashLite => "gemini-2.5-flash-lite",
             Self::Gemini31FlashLite => "gemini-3.1-flash-lite",
+            Self::Gemini31ProPreview => "gemini-3.1-pro-preview",
             Self::GeminiEmbedding2Preview0325 => "gemini-embedding-2-preview-03-25",
             Self::GeminiEmbedding2 => "gemini-embedding-2",
             Self::Configured => "CONFIGURED",
@@ -130,12 +132,56 @@ pub fn log_llm_invocation(
     latency: Duration,
     metrics: LlmInvocationMetrics,
 ) {
+    log_llm_invocation_event(
+        operation,
+        provider,
+        model,
+        latency,
+        metrics,
+        "COMPLETED",
+        None,
+        "Completed LLM invocation.",
+    );
+}
+
+pub fn log_llm_invocation_failure(
+    operation: LlmOperation,
+    provider: LlmProvider,
+    model: LlmModel,
+    latency: Duration,
+    metrics: LlmInvocationMetrics,
+    failure_kind: &'static str,
+) {
+    log_llm_invocation_event(
+        operation,
+        provider,
+        model,
+        latency,
+        metrics,
+        "STRUCTURED_RESPONSE_FAILURE",
+        Some(failure_kind),
+        "LLM invocation returned a structured response failure.",
+    );
+}
+
+fn log_llm_invocation_event(
+    operation: LlmOperation,
+    provider: LlmProvider,
+    model: LlmModel,
+    latency: Duration,
+    metrics: LlmInvocationMetrics,
+    outcome: &'static str,
+    failure_kind: Option<&'static str>,
+    message: &'static str,
+) {
     let latency_millis = u64::try_from(latency.as_millis()).unwrap_or(u64::MAX);
     tracing::info!(
         eventType = "LLM_INVOCATION",
         llmOperation = %operation,
         llmProvider = %provider,
         llmModel = %model,
+        llmOutcome = outcome,
+        llmFailureKind = failure_kind,
         llmServiceTier = metrics.service_tier.map(|tier| tier.as_str()),
         latencyMs = latency_millis,
         batchSize = metrics.batch_size,
@@ -146,7 +192,7 @@ pub fn log_llm_invocation(
         reasoningTokens = metrics.reasoning_tokens,
         outputDimensions = metrics.output_dimensions,
         cacheHit = metrics.cache_hit,
-        "Completed LLM invocation."
+        "{}", message
     );
 }
 
@@ -173,5 +219,21 @@ mod tests {
     #[test]
     fn should_preserve_service_tier_wire_name() {
         assert_eq!(GeminiServiceTier::Flex.as_str(), "FLEX");
+    }
+
+    #[test]
+    fn should_log_configured_model_name() {
+        assert_eq!(
+            LlmModel::Gemini31ProPreview.as_str(),
+            "gemini-3.1-pro-preview"
+        );
+    }
+
+    #[test]
+    fn should_preserve_structured_failure_wire_name() {
+        assert_eq!(
+            crate::StructuredResponseFailureKind::MaxTokens.as_str(),
+            "max_tokens"
+        );
     }
 }

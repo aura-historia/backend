@@ -276,3 +276,163 @@ pub fn strip_markdown_json_embedding(s: &str) -> &str {
         .strip_suffix("```")
         .unwrap_or(s)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scraper::css_selector::rule::ExtractionRule;
+
+    fn required_fields(schema: &serde_json::Value) -> Vec<&str> {
+        schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .collect()
+    }
+
+    #[test]
+    fn should_generate_required_product_schema_fields_for_vertex() {
+        let schema: serde_json::Value =
+            serde_json::from_str(&product_schema_generation_response_json_schema())
+                .unwrap_or_else(|error| panic!("response schema should serialize: {error}"));
+        let defs = schema["$defs"]
+            .as_object()
+            .unwrap_or_else(|| panic!("response schema should contain definitions"));
+        let product = defs
+            .get("ProductCssSelectorSchema")
+            .unwrap_or_else(|| panic!("product schema definition should exist"));
+        let required = required_fields(product);
+
+        for field in ["title", "state", "images"] {
+            assert!(required.contains(&field), "{field} should be required");
+        }
+        for field in [
+            "description",
+            "price",
+            "shops_product_id",
+            "auction_start",
+            "auction_end",
+        ] {
+            assert!(!required.contains(&field), "{field} should be optional");
+        }
+
+        let rule = defs
+            .get("ExtractionRule")
+            .unwrap_or_else(|| panic!("extraction rule definition should exist"));
+        let rule_required = required_fields(rule);
+        assert!(rule_required.contains(&"selector"));
+        assert!(!rule_required.contains(&"additional_selectors"));
+        assert!(!rule_required.contains(&"cardinality"));
+
+        let variants = rule["oneOf"]
+            .as_array()
+            .unwrap_or_else(|| panic!("extraction kind should retain oneOf variants"));
+        assert!(
+            variants
+                .iter()
+                .all(|variant| { required_fields(variant).contains(&"type") })
+        );
+    }
+
+    #[test]
+    fn should_inspect_raw_flattened_extraction_rule_schema() {
+        let schema = serde_json::to_value(schemars::schema_for!(ExtractionRule))
+            .unwrap_or_else(|error| panic!("extraction rule schema should serialize: {error}"));
+        let rule = schema["$defs"].get("ExtractionRule").unwrap_or(&schema);
+
+        assert!(required_fields(rule).contains(&"selector"));
+        let variants = rule["oneOf"]
+            .as_array()
+            .unwrap_or_else(|| panic!("flattened extraction kind should be represented by oneOf"));
+        assert_eq!(variants.len(), 3);
+        assert!(
+            variants
+                .iter()
+                .all(|variant| required_fields(variant).contains(&"type"))
+        );
+        assert!(variants.iter().any(|variant| {
+            let required = required_fields(variant);
+            required.contains(&"type") && required.contains(&"name")
+        }));
+
+        let types = variants
+            .iter()
+            .filter_map(|variant| variant["properties"]["type"]["const"].as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(types, vec!["text", "attribute", "image_url"]);
+    }
+
+    fn complete_rule(selector: &str, extraction_type: &str) -> serde_json::Value {
+        let mut rule = serde_json::json!({
+            "selector": selector,
+            "type": extraction_type,
+        });
+        if extraction_type == "attribute" {
+            rule["name"] = serde_json::Value::String("data-id".to_owned());
+        }
+        rule
+    }
+
+    #[test]
+    fn should_keep_extraction_rule_discriminator_required_during_local_validation() {
+        assert!(
+            serde_json::from_value::<ExtractionRule>(serde_json::json!({
+                "selector": ".gallery img"
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<ExtractionRule>(complete_rule(".gallery img", "image_url"))
+                .is_ok()
+        );
+        assert!(
+            serde_json::from_value::<ExtractionRule>(complete_rule(".description", "text")).is_ok()
+        );
+        assert!(
+            serde_json::from_value::<ExtractionRule>(complete_rule(
+                "[data-product-id]",
+                "attribute"
+            ))
+            .is_ok()
+        );
+        assert!(
+            serde_json::from_value::<ExtractionRule>(serde_json::json!({
+                "selector": "[data-product-id]",
+                "type": "attribute"
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn should_validate_optional_product_rules_when_present() {
+        let mut product = serde_json::json!({
+            "title": complete_rule("h1", "text"),
+            "state": complete_rule(".state", "text"),
+            "images": complete_rule(".gallery img", "image_url"),
+        });
+        assert!(serde_json::from_value::<ProductCssSelectorSchema>(product.clone()).is_ok());
+
+        product["description"] = serde_json::Value::Null;
+        assert!(serde_json::from_value::<ProductCssSelectorSchema>(product.clone()).is_ok());
+
+        product["description"] = serde_json::json!({"selector": ".description"});
+        assert!(serde_json::from_value::<ProductCssSelectorSchema>(product).is_err());
+    }
+
+    #[test]
+    fn should_deserialize_complete_product_schema_generation_response() {
+        let response = serde_json::json!({
+            "schemas": [{
+                "title": complete_rule("h1", "text"),
+                "state": complete_rule(".state", "text"),
+                "images": complete_rule(".gallery img", "image_url"),
+                "description": null
+            }],
+            "confidence": "HIGH",
+            "summary": "Complete product schema"
+        });
+        assert!(serde_json::from_value::<ProductSchemaGenerationResponse>(response).is_ok());
+    }
+}

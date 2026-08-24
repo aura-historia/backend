@@ -5,7 +5,7 @@ use google_cloud_auth::credentials::AccessTokenCredentials;
 use image_fetcher::{FetchedImage, ImageFetcher};
 pub use llm_logging::{
     GeminiServiceTier, LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider,
-    log_llm_invocation,
+    log_llm_invocation, log_llm_invocation_failure,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
@@ -106,6 +106,33 @@ pub struct LargeLanguageModelRetryAdvice {
     pub retry_after: Option<Duration>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StructuredResponseFailureKind {
+    InvalidJson,
+    TargetDeserialization,
+    MissingRequiredField,
+    MaxTokens,
+    MissingContent,
+}
+
+impl StructuredResponseFailureKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidJson => "invalid_json",
+            Self::TargetDeserialization => "target_deserialization",
+            Self::MissingRequiredField => "missing_required_field",
+            Self::MaxTokens => "max_tokens",
+            Self::MissingContent => "missing_content",
+        }
+    }
+}
+
+impl std::fmt::Display for StructuredResponseFailureKind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum LargeLanguageModelError {
     #[error("large language model request configuration is invalid")]
@@ -142,6 +169,38 @@ pub enum LargeLanguageModelError {
 }
 
 impl LargeLanguageModelError {
+    /// Return the safe structured-response failure category, when this error
+    /// came from provider response parsing.
+    pub fn structured_response_failure_kind(&self) -> Option<StructuredResponseFailureKind> {
+        match self {
+            Self::InvalidResponse { source } => source
+                .downcast_ref::<StructuredResponseError>()
+                .map(StructuredResponseError::failure_kind),
+            _ => None,
+        }
+    }
+
+    /// Return the bounded feedback code for a provider response that could not be
+    /// converted into the requested structured output.
+    pub fn response_feedback_code(&self) -> Option<&'static str> {
+        match self {
+            Self::InvalidResponse { source } => source
+                .downcast_ref::<StructuredResponseError>()
+                .map(StructuredResponseError::feedback_code),
+            _ => None,
+        }
+    }
+
+    /// Return bounded, schema-only correction context for a retry prompt.
+    pub fn response_correction_feedback(&self) -> Option<String> {
+        match self {
+            Self::InvalidResponse { source } => source
+                .downcast_ref::<StructuredResponseError>()
+                .map(StructuredResponseError::correction_feedback),
+            _ => None,
+        }
+    }
+
     pub fn retry_advice(&self) -> Option<LargeLanguageModelRetryAdvice> {
         match self {
             Self::Retryable { advice, .. } => Some(*advice),
@@ -161,6 +220,74 @@ impl LargeLanguageModelError {
             },
             Self::Permanent { .. } => "permanent",
             Self::InvalidResponse { .. } => "invalid_response",
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum StructuredResponseError {
+    #[error("response JSON syntax is invalid")]
+    JsonSyntax {
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error(
+        "response does not deserialize into the requested schema at {json_path} ({error_kind})"
+    )]
+    TargetDeserialization {
+        json_path: String,
+        error_kind: &'static str,
+        missing_field: Option<String>,
+        #[source]
+        source: serde_path_to_error::Error<serde_json::Error>,
+    },
+    #[error("response was truncated because generation reached MAX_TOKENS")]
+    TruncatedMaxTokens,
+    #[error("response contains no usable content")]
+    MissingContent,
+}
+
+impl StructuredResponseError {
+    const fn failure_kind(&self) -> StructuredResponseFailureKind {
+        match self {
+            Self::JsonSyntax { .. } => StructuredResponseFailureKind::InvalidJson,
+            Self::TargetDeserialization { missing_field, .. } if missing_field.is_some() => {
+                StructuredResponseFailureKind::MissingRequiredField
+            }
+            Self::TargetDeserialization { .. } => {
+                StructuredResponseFailureKind::TargetDeserialization
+            }
+            Self::TruncatedMaxTokens => StructuredResponseFailureKind::MaxTokens,
+            Self::MissingContent => StructuredResponseFailureKind::MissingContent,
+        }
+    }
+
+    const fn feedback_code(&self) -> &'static str {
+        match self {
+            Self::JsonSyntax { .. } => "response_invalid_json",
+            Self::TargetDeserialization { missing_field, .. } if missing_field.is_some() => {
+                "response_missing_required_field"
+            }
+            Self::TargetDeserialization { .. } => "response_schema_deserialization_failed",
+            Self::TruncatedMaxTokens => "response_truncated_max_tokens",
+            Self::MissingContent => "response_missing_content",
+        }
+    }
+
+    fn correction_feedback(&self) -> String {
+        match self {
+            Self::TargetDeserialization {
+                json_path,
+                missing_field: Some(missing_field),
+                ..
+            } => format!(
+                "{} at {json_path}; missing_field={missing_field}",
+                self.feedback_code()
+            ),
+            Self::TargetDeserialization { json_path, .. } => {
+                format!("{} at {json_path}", self.feedback_code())
+            }
+            _ => self.feedback_code().to_owned(),
         }
     }
 }
@@ -291,14 +418,32 @@ impl VertexAiGemini {
             .json::<GenerateContentResponse>()
             .await
             .map_err(invalid_response_error)?;
-        log_llm_invocation(
-            operation,
-            LlmProvider::Google,
-            log_model(self.config.model()),
-            started_at.elapsed(),
-            response.usage_metrics(),
-        );
-        response.into_output()
+        let usage_metrics = response.usage_metrics();
+        match response.into_output(operation, self.config.model()) {
+            Ok(output) => {
+                log_llm_invocation(
+                    operation,
+                    LlmProvider::Google,
+                    log_model(self.config.model()),
+                    started_at.elapsed(),
+                    usage_metrics,
+                );
+                Ok(output)
+            }
+            Err(error) => {
+                if let Some(failure_kind) = error.structured_response_failure_kind() {
+                    log_llm_invocation_failure(
+                        operation,
+                        LlmProvider::Google,
+                        log_model(self.config.model()),
+                        started_at.elapsed(),
+                        usage_metrics,
+                        failure_kind.as_str(),
+                    );
+                }
+                Err(error)
+            }
+        }
     }
 }
 
@@ -368,6 +513,7 @@ fn build_generate_content_url(config: &VertexAiConfig) -> String {
 fn log_model(model: &str) -> LlmModel {
     match model {
         "gemini-3.1-flash-lite" => LlmModel::Gemini31FlashLite,
+        "gemini-3.1-pro-preview" => LlmModel::Gemini31ProPreview,
         _ => LlmModel::Configured,
     }
 }
@@ -448,13 +594,14 @@ enum VertexResponseJsonSchemaError {
 fn normalize_vertex_response_json_schema(
     schema: serde_json::Value,
 ) -> Result<serde_json::Value, VertexResponseJsonSchemaError> {
-    normalize_schema_node(schema, "#", true)
+    normalize_schema_node(schema, "#", true, false)
 }
 
 fn normalize_schema_node(
     mut node: serde_json::Value,
     pointer: &str,
     is_root: bool,
+    in_composition_branch: bool,
 ) -> Result<serde_json::Value, VertexResponseJsonSchemaError> {
     let Some(object) = node.as_object_mut() else {
         return Ok(node);
@@ -486,6 +633,22 @@ fn normalize_schema_node(
         "contentMediaType",
     ] {
         object.remove(keyword);
+    }
+
+    // Close standalone typed DTOs, but keep composition branches open. A
+    // flattened tagged union puts shared fields (for example `selector`) on
+    // the parent object and discriminator fields on `oneOf` branches. Closing
+    // either branch would incorrectly reject the other fields.
+    if !in_composition_branch
+        && object.contains_key("properties")
+        && !object.contains_key("additionalProperties")
+        && !object.contains_key("oneOf")
+        && !object.contains_key("anyOf")
+    {
+        object.insert(
+            "additionalProperties".to_owned(),
+            serde_json::Value::Bool(false),
+        );
     }
 
     let has_ref = object.contains_key("$ref");
@@ -580,7 +743,10 @@ fn normalize_schema_node(
                             keyword: key.clone(),
                         }
                     })?;
-                    map.insert(name, normalize_schema_node(child, &name_pointer, false)?);
+                    map.insert(
+                        name,
+                        normalize_schema_node(child, &name_pointer, false, false)?,
+                    );
                 }
             }
             "items" | "additionalProperties" => {
@@ -588,7 +754,10 @@ fn normalize_schema_node(
                     continue;
                 };
                 if child.is_object() {
-                    object.insert(key, normalize_schema_node(child, &child_pointer, false)?);
+                    object.insert(
+                        key,
+                        normalize_schema_node(child, &child_pointer, false, in_composition_branch)?,
+                    );
                 } else {
                     object.insert(key, child);
                 }
@@ -605,14 +774,187 @@ fn normalize_schema_node(
                 };
                 for (index, child) in values.iter_mut().enumerate() {
                     let child_pointer = format!("{child_pointer}/{index}");
-                    let normalized = normalize_schema_node(child.take(), &child_pointer, false)?;
+                    let normalized =
+                        normalize_schema_node(child.take(), &child_pointer, false, true)?;
                     *child = normalized;
                 }
             }
             _ => {}
         }
     }
+
+    hoist_one_of_object_properties(object, pointer);
     Ok(node)
+}
+
+/// Vertex's structured-output generator can follow the parent object of a
+/// flattened tagged union more reliably than `required` fields nested only in
+/// `oneOf` branches. Hoist branch properties and the required-field
+/// intersection to the parent while retaining the original branches for
+/// conditional validation (for example, `attribute` requiring `name`).
+fn hoist_one_of_object_properties(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    pointer: &str,
+) {
+    let Some(branches) = object
+        .get("oneOf")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+    else {
+        return;
+    };
+    if object
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .is_none()
+    {
+        return;
+    }
+
+    let branch_objects = branches
+        .iter()
+        .filter_map(serde_json::Value::as_object)
+        .collect::<Vec<_>>();
+    if branch_objects.len() != branches.len() || branch_objects.is_empty() {
+        return;
+    }
+    let branch_properties = branch_objects
+        .iter()
+        .map(|branch| {
+            branch
+                .get("properties")
+                .and_then(serde_json::Value::as_object)
+        })
+        .collect::<Option<Vec<_>>>();
+    let Some(branch_properties) = branch_properties else {
+        return;
+    };
+    let branch_required = branch_objects
+        .iter()
+        .map(|branch| {
+            branch
+                .get("required")
+                .and_then(serde_json::Value::as_array)
+                .map(|required| {
+                    required
+                        .iter()
+                        .filter_map(serde_json::Value::as_str)
+                        .collect::<Vec<_>>()
+                })
+        })
+        .collect::<Option<Vec<_>>>();
+    let Some(branch_required) = branch_required else {
+        return;
+    };
+
+    let mut names = Vec::new();
+    for properties in &branch_properties {
+        for name in properties.keys() {
+            if !names.iter().any(|known| known == name) {
+                names.push(name.clone());
+            }
+        }
+    }
+
+    let mut hoisted_properties = Vec::new();
+    for name in names {
+        let already_present = object
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|properties| properties.contains_key(&name));
+        if already_present {
+            continue;
+        }
+        let schemas = branch_properties
+            .iter()
+            .filter_map(|properties| properties.get(&name))
+            .collect::<Vec<_>>();
+        if let Some(schema) = merge_hoisted_property_schemas(&schemas) {
+            hoisted_properties.push((name, schema));
+        }
+    }
+
+    if let Some(parent_properties) = object
+        .get_mut("properties")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for (name, schema) in hoisted_properties {
+            parent_properties.insert(name, schema);
+        }
+    }
+
+    let Some(parent_required) = object
+        .get_mut("required")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for name in &branch_required[0] {
+        if branch_required
+            .iter()
+            .all(|required| required.iter().any(|field| field == name))
+            && !parent_required
+                .iter()
+                .any(|field| field.as_str() == Some(name))
+        {
+            parent_required.push(serde_json::Value::String((*name).to_owned()));
+        }
+    }
+
+    let has_discriminator = object
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|properties| properties.contains_key("type"));
+    let discriminator_is_required = object
+        .get("required")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|required| required.iter().any(|field| field.as_str() == Some("type")));
+    if has_discriminator && discriminator_is_required {
+        object.insert(
+            "additionalProperties".to_owned(),
+            serde_json::Value::Bool(false),
+        );
+    } else {
+        tracing::debug!(
+            schema_pointer = pointer,
+            "Could not hoist tagged-union discriminator"
+        );
+    }
+}
+
+fn merge_hoisted_property_schemas(schemas: &[&serde_json::Value]) -> Option<serde_json::Value> {
+    let first = schemas.first()?.as_object()?;
+    if schemas
+        .iter()
+        .all(|schema| schema.as_object() == Some(first))
+    {
+        return Some(serde_json::Value::Object(first.clone()));
+    }
+
+    let enums = schemas
+        .iter()
+        .map(|schema| schema.as_object()?.get("enum")?.as_array())
+        .collect::<Option<Vec<_>>>()?;
+    let mut merged = first.clone();
+    merged.remove("enum");
+    for schema in schemas {
+        let mut comparable = schema.as_object()?.clone();
+        comparable.remove("enum");
+        if comparable != merged {
+            return None;
+        }
+    }
+
+    let mut values = Vec::new();
+    for values_for_schema in enums {
+        for value in values_for_schema {
+            if !values.iter().any(|known| known == value) {
+                values.push(value.clone());
+            }
+        }
+    }
+    merged.insert("enum".to_owned(), serde_json::Value::Array(values));
+    Some(serde_json::Value::Object(merged))
 }
 
 fn escape_json_pointer(value: &str) -> String {
@@ -723,14 +1065,20 @@ impl ProviderContent {
     fn text(text: impl Into<String>) -> Self {
         Self {
             role: Some("user".to_owned()),
-            parts: vec![ProviderPart::Text { text: text.into() }],
+            parts: vec![ProviderPart::Text {
+                text: text.into(),
+                thought: None,
+            }],
         }
     }
 
     fn system_text(text: impl Into<String>) -> Self {
         Self {
             role: None,
-            parts: vec![ProviderPart::Text { text: text.into() }],
+            parts: vec![ProviderPart::Text {
+                text: text.into(),
+                thought: None,
+            }],
         }
     }
 
@@ -752,6 +1100,8 @@ impl ProviderContent {
 enum ProviderPart {
     Text {
         text: String,
+        #[serde(default, skip_serializing)]
+        thought: Option<bool>,
     },
     InlineData {
         #[serde(rename = "inlineData")]
@@ -762,8 +1112,9 @@ enum ProviderPart {
 impl ProviderPart {
     fn into_text(self) -> Option<String> {
         match self {
-            Self::Text { text } => Some(text),
+            Self::Text { text, thought } if thought != Some(true) => Some(text),
             Self::InlineData { .. } => None,
+            Self::Text { .. } => None,
         }
     }
 }
@@ -785,6 +1136,7 @@ struct GenerationConfig {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GenerateContentResponse {
     #[serde(default)]
     candidates: Vec<ProviderCandidate>,
@@ -815,25 +1167,206 @@ impl GenerateContentResponse {
         }
     }
 
-    fn into_output<Output>(self) -> Result<Output, LargeLanguageModelError>
+    fn into_output<Output>(
+        self,
+        operation: LlmOperation,
+        model: &str,
+    ) -> Result<Output, LargeLanguageModelError>
     where
         Output: DeserializeOwned,
     {
-        let text = self
-            .candidates
-            .into_iter()
-            .find_map(|candidate| candidate.content)
-            .and_then(|content| content.parts.into_iter().find_map(ProviderPart::into_text))
-            .ok_or_else(|| {
-                invalid_response_error(std::io::Error::other("Vertex AI response has no content"))
-            })?;
-        serde_json::from_str(&text).map_err(invalid_response_error)
+        let candidate_count = self.candidates.len();
+        let candidate = self.candidates.into_iter().next();
+        let (finish_reason, content) = candidate
+            .map(|candidate| (candidate.finish_reason, candidate.content))
+            .unwrap_or((None, None));
+        let finish_reason = finish_reason.as_deref();
+        let part_count = content.as_ref().map_or(0, |content| content.parts.len());
+        let text = content
+            .map(|content| {
+                content
+                    .parts
+                    .into_iter()
+                    .filter_map(ProviderPart::into_text)
+                    .collect::<String>()
+            })
+            .unwrap_or_default();
+        let text_length = text.len();
+
+        if finish_reason == Some("MAX_TOKENS") {
+            log_response_parse_failure(
+                operation,
+                model,
+                finish_reason,
+                candidate_count,
+                part_count,
+                text_length,
+                "truncated_max_tokens",
+                None,
+                "max_tokens",
+                None,
+                None,
+            );
+            return Err(invalid_response_error(
+                StructuredResponseError::TruncatedMaxTokens,
+            ));
+        }
+
+        if text.trim().is_empty() {
+            log_response_parse_failure(
+                operation,
+                model,
+                finish_reason,
+                candidate_count,
+                part_count,
+                text_length,
+                "missing_content",
+                None,
+                "missing_content",
+                None,
+                None,
+            );
+            return Err(invalid_response_error(
+                StructuredResponseError::MissingContent,
+            ));
+        }
+
+        let text = strip_json_fence(&text);
+        let value = match serde_json::from_str::<serde_json::Value>(text) {
+            Ok(value) => value,
+            Err(error) => {
+                log_response_parse_failure(
+                    operation,
+                    model,
+                    finish_reason,
+                    candidate_count,
+                    part_count,
+                    text_length,
+                    "json_syntax",
+                    None,
+                    serde_json_error_kind(&error),
+                    None,
+                    Some(&error),
+                );
+                return Err(invalid_response_error(
+                    StructuredResponseError::JsonSyntax { source: error },
+                ));
+            }
+        };
+
+        match serde_path_to_error::deserialize::<_, Output>(value) {
+            Ok(output) => Ok(output),
+            Err(error) => {
+                let json_path = error.path().to_string();
+                let missing_field = missing_field_name(error.inner());
+                let error_kind = if missing_field.is_some() {
+                    "missing_field"
+                } else {
+                    target_deserialization_error_kind(error.inner())
+                };
+                log_response_parse_failure(
+                    operation,
+                    model,
+                    finish_reason,
+                    candidate_count,
+                    part_count,
+                    text_length,
+                    "target_deserialization",
+                    Some(&json_path),
+                    error_kind,
+                    missing_field.as_deref(),
+                    None,
+                );
+                Err(invalid_response_error(
+                    StructuredResponseError::TargetDeserialization {
+                        json_path,
+                        error_kind,
+                        missing_field,
+                        source: error,
+                    },
+                ))
+            }
+        }
     }
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ProviderCandidate {
     content: Option<ProviderContent>,
+    finish_reason: Option<String>,
+}
+
+fn strip_json_fence(text: &str) -> &str {
+    let text = text.trim();
+    let Some(text) = text
+        .strip_prefix("```json")
+        .or_else(|| text.strip_prefix("```"))
+    else {
+        return text;
+    };
+    text.strip_suffix("```").map_or(text, str::trim)
+}
+
+fn log_response_parse_failure(
+    operation: LlmOperation,
+    model: &str,
+    finish_reason: Option<&str>,
+    candidate_count: usize,
+    part_count: usize,
+    text_length: usize,
+    parse_stage: &'static str,
+    json_path: Option<&str>,
+    error_kind: &'static str,
+    missing_field: Option<&str>,
+    json_error: Option<&serde_json::Error>,
+) {
+    tracing::warn!(
+        operation = %operation,
+        model,
+        finish_reason = finish_reason.unwrap_or("UNSPECIFIED"),
+        candidate_count,
+        part_count,
+        text_length,
+        parse_stage,
+        json_path,
+        error_kind,
+        missing_field,
+        json_line = json_error.map(serde_json::Error::line),
+        json_column = json_error.map(serde_json::Error::column),
+        "Vertex AI response could not be parsed as structured output"
+    );
+}
+
+fn missing_field_name(error: &serde_json::Error) -> Option<String> {
+    let message = error.to_string();
+    let field = message.strip_prefix("missing field `")?;
+    let end = field.find('`')?;
+    Some(field[..end].to_owned())
+}
+
+fn serde_json_error_kind(error: &serde_json::Error) -> &'static str {
+    match error.classify() {
+        serde_json::error::Category::Io => "io",
+        serde_json::error::Category::Syntax => "syntax",
+        serde_json::error::Category::Data => "data",
+        serde_json::error::Category::Eof => "eof",
+    }
+}
+
+fn target_deserialization_error_kind(error: &serde_json::Error) -> &'static str {
+    let message = error.to_string();
+    if message.starts_with("invalid type") {
+        "invalid_type"
+    } else if message.starts_with("missing field") {
+        "missing_field"
+    } else if message.starts_with("unknown field") {
+        "unknown_field"
+    } else if message.starts_with("unknown variant") {
+        "unknown_variant"
+    } else {
+        "deserialization"
+    }
 }
 
 #[cfg(test)]
@@ -851,6 +1384,10 @@ mod tests {
         assert_eq!(
             build_generate_content_url(&config),
             "https://aiplatform.googleapis.com/v1/projects/project/locations/global/publishers/google/models/configured-model:generateContent"
+        );
+        assert_eq!(
+            log_model("gemini-3.1-pro-preview"),
+            LlmModel::Gemini31ProPreview
         );
     }
 
@@ -911,6 +1448,24 @@ mod tests {
     #[derive(Debug, Deserialize, PartialEq, Eq)]
     struct CallerDefinedOutput {
         matched: bool,
+    }
+
+    #[allow(dead_code)]
+    #[derive(Debug, Deserialize)]
+    struct NestedOutput {
+        schemas: Vec<NestedSchema>,
+    }
+
+    #[allow(dead_code)]
+    #[derive(Debug, Deserialize)]
+    struct NestedSchema {
+        price: NestedPrice,
+    }
+
+    #[allow(dead_code)]
+    #[derive(Debug, Deserialize)]
+    struct NestedPrice {
+        selector: String,
     }
 
     struct OrderedTestLargeLanguageModel;
@@ -1147,13 +1702,142 @@ mod tests {
             serde_json::to_value(schemars::schema_for!(NestedFlattenedResponse))
                 .unwrap_or_else(|error| panic!("nested schema should serialize: {error}"));
 
-        assert!(
-            ProviderGenerateContentRequest::try_new(
-                request_with_response_json_schema(response_json_schema),
-                Vec::new(),
-            )
-            .is_ok()
+        let provider = ProviderGenerateContentRequest::try_new(
+            request_with_response_json_schema(response_json_schema),
+            Vec::new(),
+        )
+        .unwrap_or_else(|error| panic!("nested schema should normalize: {error}"));
+        let body = serde_json::to_value(provider.body)
+            .unwrap_or_else(|error| panic!("provider body should serialize: {error}"));
+        let rule = &body["generationConfig"]["responseJsonSchema"]["$defs"]["NestedExtractionRule"];
+        assert_eq!(
+            rule["properties"]["type"]["enum"],
+            serde_json::json!(["text", "attribute", "image_url"])
         );
+        assert!(
+            rule["required"]
+                .as_array()
+                .is_some_and(|required| required.iter().any(|value| value == "type"))
+        );
+        assert_eq!(rule["additionalProperties"], serde_json::Value::Bool(false));
+    }
+
+    fn representative_product_schema_response_json_schema() -> serde_json::Value {
+        serde_json::json!({
+            "$defs": {
+                "ExtractionRule": {
+                    "type": "object",
+                    "oneOf": [
+                        {"type": "object", "properties": {"type": {"const": "text"}}, "required": ["type"]},
+                        {"type": "object", "properties": {"type": {"const": "attribute"}, "name": {"type": "string"}}, "required": ["type", "name"]},
+                        {"type": "object", "properties": {"type": {"const": "image_url"}}, "required": ["type"]}
+                    ],
+                    "properties": {
+                        "selector": {"type": "string"},
+                        "additional_selectors": {"type": "array", "items": {"type": "string"}},
+                        "cardinality": {"$ref": "#/$defs/ExtractionCardinality"}
+                    },
+                    "required": ["selector"]
+                },
+                "ExtractionCardinality": {
+                    "type": "string",
+                    "enum": ["first", "all"]
+                },
+                "ProductCssSelectorSchema": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"$ref": "#/$defs/ExtractionRule"},
+                        "state": {"$ref": "#/$defs/ExtractionRule"},
+                        "images": {"$ref": "#/$defs/ExtractionRule"},
+                        "description": {"anyOf": [{"$ref": "#/$defs/ExtractionRule"}, {"type": "null"}]},
+                        "price": {"anyOf": [{"$ref": "#/$defs/ExtractionRule"}, {"type": "null"}]},
+                        "shops_product_id": {"anyOf": [{"$ref": "#/$defs/ExtractionRule"}, {"type": "null"}]},
+                        "auction_start": {"anyOf": [{"$ref": "#/$defs/ExtractionRule"}, {"type": "null"}]},
+                        "auction_end": {"anyOf": [{"$ref": "#/$defs/ExtractionRule"}, {"type": "null"}]},
+                        "raw_attributes": {"type": "object", "additionalProperties": {"$ref": "#/$defs/ExtractionRule"}}
+                    },
+                    "required": ["title", "state", "images"]
+                }
+            },
+            "type": "object",
+            "properties": {
+                "schemas": {"type": "array", "items": {"$ref": "#/$defs/ProductCssSelectorSchema"}},
+                "confidence": {"type": "string"},
+                "summary": {"type": "string"}
+            },
+            "required": ["schemas", "confidence", "summary"]
+        })
+    }
+
+    #[test]
+    fn should_preserve_product_schema_required_fields_when_normalizing_for_vertex() {
+        let normalized = normalize_vertex_response_json_schema(
+            representative_product_schema_response_json_schema(),
+        )
+        .unwrap_or_else(|error| panic!("schema should normalize: {error}"));
+
+        let product = &normalized["$defs"]["ProductCssSelectorSchema"];
+        let required = product["required"]
+            .as_array()
+            .unwrap_or_else(|| panic!("product schema should have required fields"));
+        for field in ["title", "state", "images"] {
+            assert!(required.iter().any(|value| value == field));
+        }
+        for optional in [
+            "description",
+            "price",
+            "shops_product_id",
+            "auction_start",
+            "auction_end",
+        ] {
+            assert!(!required.iter().any(|value| value == optional));
+        }
+        assert_eq!(
+            product["additionalProperties"],
+            serde_json::Value::Bool(false)
+        );
+
+        let rule = &normalized["$defs"]["ExtractionRule"];
+        assert!(
+            rule["required"]
+                .as_array()
+                .is_some_and(|required| { required.iter().any(|value| value == "selector") })
+        );
+        assert!(
+            rule["required"]
+                .as_array()
+                .is_some_and(|required| { required.iter().any(|value| value == "type") })
+        );
+        assert_eq!(
+            rule["properties"]["type"]["enum"],
+            serde_json::json!(["text", "attribute", "image_url"])
+        );
+        assert!(rule["properties"].get("name").is_some());
+        assert_eq!(rule["additionalProperties"], serde_json::Value::Bool(false));
+        let variants = rule["oneOf"]
+            .as_array()
+            .unwrap_or_else(|| panic!("flattened extraction variants should be preserved"));
+        assert_eq!(variants.len(), 3);
+        assert!(variants.iter().all(|variant| {
+            variant["required"]
+                .as_array()
+                .is_some_and(|required| required.iter().any(|value| value == "type"))
+                && variant.get("additionalProperties").is_none()
+        }));
+        assert!(variants.iter().any(|variant| {
+            variant["required"].as_array().is_some_and(|required| {
+                required.iter().any(|value| value == "type")
+                    && required.iter().any(|value| value == "name")
+            })
+        }));
+        let types = variants
+            .iter()
+            .filter_map(|variant| variant["properties"]["type"]["enum"][0].as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(types, vec!["text", "attribute", "image_url"]);
+
+        let raw_attributes = &product["properties"]["raw_attributes"];
+        assert!(raw_attributes["additionalProperties"].is_object());
     }
 
     #[test]
@@ -1217,19 +1901,354 @@ mod tests {
         assert!(parse_retry_after(&date).is_some_and(|delay| delay <= Duration::from_secs(2)));
     }
 
-    #[test]
-    fn should_deserialize_caller_defined_output_type() -> Result<(), LargeLanguageModelError> {
-        let response = GenerateContentResponse {
+    fn response_with_parts(
+        parts: Vec<ProviderPart>,
+        finish_reason: Option<&str>,
+    ) -> GenerateContentResponse {
+        GenerateContentResponse {
             candidates: vec![ProviderCandidate {
-                content: Some(ProviderContent::text(r#"{"matched":true}"#)),
+                content: Some(ProviderContent {
+                    role: Some("model".to_owned()),
+                    parts,
+                }),
+                finish_reason: finish_reason.map(str::to_owned),
             }],
             usage_metadata: ProviderUsageMetadata::default(),
-        };
+        }
+    }
+
+    fn json_part(text: &str) -> ProviderPart {
+        ProviderPart::Text {
+            text: text.to_owned(),
+            thought: None,
+        }
+    }
+
+    fn thought_part(text: &str) -> ProviderPart {
+        ProviderPart::Text {
+            text: text.to_owned(),
+            thought: Some(true),
+        }
+    }
+
+    #[test]
+    fn should_deserialize_caller_defined_output_type() -> Result<(), LargeLanguageModelError> {
+        let response = response_with_parts(vec![json_part(r#"{"matched":true}"#)], Some("STOP"));
 
         assert_eq!(
-            response.into_output::<CallerDefinedOutput>()?,
+            response.into_output::<CallerDefinedOutput>(
+                LlmOperation::CrawlerProductSchemaGeneration,
+                "test-model"
+            )?,
             CallerDefinedOutput { matched: true }
         );
         Ok(())
+    }
+
+    #[test]
+    fn should_deserialize_vertex_usage_metadata_with_all_token_fields() {
+        let response: GenerateContentResponse = serde_json::from_value(serde_json::json!({
+            "candidates": [],
+            "usageMetadata": {
+                "promptTokenCount": 11,
+                "candidatesTokenCount": 7,
+                "totalTokenCount": 18,
+                "cachedContentTokenCount": 3,
+                "thoughtsTokenCount": 5
+            }
+        }))
+        .unwrap_or_else(|error| panic!("response should deserialize: {error}"));
+
+        let metrics = response.usage_metrics();
+        assert_eq!(metrics.prompt_tokens, Some(11));
+        assert_eq!(metrics.completion_tokens, Some(7));
+        assert_eq!(metrics.total_tokens, Some(18));
+        assert_eq!(metrics.cached_prompt_tokens, Some(3));
+        assert_eq!(metrics.reasoning_tokens, Some(5));
+    }
+
+    #[test]
+    fn should_concatenate_multipart_json_response_text() -> Result<(), LargeLanguageModelError> {
+        let response = response_with_parts(
+            vec![
+                json_part(r#"{"matched":"#),
+                ProviderPart::InlineData {
+                    inline_data: ProviderInlineData {
+                        mime_type: "image/png".to_owned(),
+                        data: "ignored".to_owned(),
+                    },
+                },
+                json_part("true}"),
+            ],
+            Some("STOP"),
+        );
+
+        assert_eq!(
+            response.into_output::<CallerDefinedOutput>(
+                LlmOperation::CrawlerProductSchemaGeneration,
+                "test-model"
+            )?,
+            CallerDefinedOutput { matched: true }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_ignore_thought_text_before_json() -> Result<(), LargeLanguageModelError> {
+        let response: GenerateContentResponse = serde_json::from_value(serde_json::json!({
+            "candidates": [{
+                "finishReason": "STOP",
+                "content": {
+                    "role": "model",
+                    "parts": [
+                        {"text": "internal reasoning", "thought": true},
+                        {"text": "{\"matched\":true}"}
+                    ]
+                }
+            }]
+        }))
+        .unwrap_or_else(|error| panic!("response should deserialize: {error}"));
+
+        assert_eq!(
+            response.into_output::<CallerDefinedOutput>(
+                LlmOperation::CrawlerProductSchemaGeneration,
+                "test-model"
+            )?,
+            CallerDefinedOutput { matched: true }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_ignore_thought_text_and_concatenate_json_parts() -> Result<(), LargeLanguageModelError>
+    {
+        let response = response_with_parts(
+            vec![
+                thought_part("internal reasoning"),
+                json_part(r#"{"matched":"#),
+                json_part("true}"),
+            ],
+            Some("STOP"),
+        );
+
+        assert_eq!(
+            response.into_output::<CallerDefinedOutput>(
+                LlmOperation::CrawlerProductSchemaGeneration,
+                "test-model"
+            )?,
+            CallerDefinedOutput { matched: true }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_parse_json_markdown_fences() -> Result<(), LargeLanguageModelError> {
+        for fenced in [
+            "```json\n{\"matched\":true}\n```",
+            "```\n{\"matched\":true}\n```",
+        ] {
+            let response = response_with_parts(vec![json_part(fenced)], Some("STOP"));
+            assert_eq!(
+                response.into_output::<CallerDefinedOutput>(
+                    LlmOperation::CrawlerProductSchemaGeneration,
+                    "test-model"
+                )?,
+                CallerDefinedOutput { matched: true }
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_deserialize_stop_finish_reason_and_parse_output()
+    -> Result<(), LargeLanguageModelError> {
+        let response: GenerateContentResponse = serde_json::from_value(serde_json::json!({
+            "candidates": [{
+                "finishReason": "STOP",
+                "content": {
+                    "role": "model",
+                    "parts": [{"text": "{\"matched\":true}"}]
+                }
+            }]
+        }))
+        .unwrap_or_else(|error| panic!("response should deserialize: {error}"));
+
+        assert_eq!(
+            response.into_output::<CallerDefinedOutput>(
+                LlmOperation::CrawlerProductSchemaGeneration,
+                "test-model"
+            )?,
+            CallerDefinedOutput { matched: true }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_max_tokens_before_parsing_truncated_json() {
+        let response: GenerateContentResponse = serde_json::from_value(serde_json::json!({
+            "candidates": [{
+                "finishReason": "MAX_TOKENS",
+                "content": {
+                    "role": "model",
+                    "parts": [{"text": "{\"matched\":"}]
+                }
+            }],
+            "usageMetadata": {
+                "promptTokenCount": 101,
+                "candidatesTokenCount": 8192,
+                "totalTokenCount": 8293,
+                "thoughtsTokenCount": 64
+            }
+        }))
+        .unwrap_or_else(|error| panic!("response should deserialize: {error}"));
+
+        let metrics = response.usage_metrics();
+        assert_eq!(metrics.prompt_tokens, Some(101));
+        assert_eq!(metrics.completion_tokens, Some(8192));
+        assert_eq!(metrics.total_tokens, Some(8293));
+        assert_eq!(metrics.reasoning_tokens, Some(64));
+
+        let error = response
+            .into_output::<CallerDefinedOutput>(
+                LlmOperation::CrawlerProductSchemaGeneration,
+                "test-model",
+            )
+            .expect_err("MAX_TOKENS should reject the response");
+        assert_eq!(
+            error.response_feedback_code(),
+            Some("response_truncated_max_tokens")
+        );
+        assert_eq!(
+            error.structured_response_failure_kind(),
+            Some(StructuredResponseFailureKind::MaxTokens)
+        );
+        assert!(matches!(
+            error,
+            LargeLanguageModelError::InvalidResponse { .. }
+        ));
+    }
+
+    #[test]
+    fn should_classify_missing_content_separately() {
+        let response = response_with_parts(vec![thought_part("internal reasoning")], Some("STOP"));
+        let error = response
+            .into_output::<CallerDefinedOutput>(
+                LlmOperation::CrawlerProductSchemaGeneration,
+                "test-model",
+            )
+            .expect_err("thought-only response should have no usable content");
+
+        assert_eq!(
+            error.response_feedback_code(),
+            Some("response_missing_content")
+        );
+    }
+
+    #[test]
+    fn should_distinguish_json_syntax_from_target_deserialization_failures() {
+        let invalid_json = response_with_parts(vec![json_part("{\"matched\":")], Some("STOP"));
+        let syntax_error = invalid_json
+            .into_output::<CallerDefinedOutput>(
+                LlmOperation::CrawlerProductSchemaGeneration,
+                "test-model",
+            )
+            .expect_err("invalid JSON should fail at syntax parsing");
+        assert_eq!(
+            syntax_error.response_feedback_code(),
+            Some("response_invalid_json")
+        );
+        assert!(format!("{syntax_error:?}").contains("JsonSyntax"));
+
+        let wrong_type = response_with_parts(vec![json_part(r#"{"matched":"yes"}"#)], Some("STOP"));
+        let target_error = wrong_type
+            .into_output::<CallerDefinedOutput>(
+                LlmOperation::CrawlerProductSchemaGeneration,
+                "test-model",
+            )
+            .expect_err("wrong field type should fail target deserialization");
+        assert_eq!(
+            target_error.response_feedback_code(),
+            Some("response_schema_deserialization_failed")
+        );
+        let target_debug = format!("{target_error:?}");
+        assert!(target_debug.contains("TargetDeserialization"));
+        assert!(target_debug.contains("matched"));
+    }
+
+    #[test]
+    fn should_report_missing_required_field_as_target_deserialization() {
+        let response = response_with_parts(vec![json_part(r#"{"other":true}"#)], Some("STOP"));
+        let error = response
+            .into_output::<CallerDefinedOutput>(
+                LlmOperation::CrawlerProductSchemaGeneration,
+                "test-model",
+            )
+            .expect_err("missing required field should fail target deserialization");
+
+        assert_eq!(
+            error.response_feedback_code(),
+            Some("response_missing_required_field")
+        );
+        assert!(format!("{error:?}").contains("missing_field"));
+        assert_eq!(
+            error.response_correction_feedback().as_deref(),
+            Some("response_missing_required_field at .; missing_field=matched")
+        );
+    }
+
+    #[test]
+    fn should_report_nested_target_deserialization_path() {
+        let response = response_with_parts(
+            vec![json_part(r#"{"schemas":[{"price":{"selector":7}}]}"#)],
+            Some("STOP"),
+        );
+        let error = response
+            .into_output::<NestedOutput>(LlmOperation::CrawlerProductSchemaGeneration, "test-model")
+            .expect_err("nested wrong field type should fail target deserialization");
+
+        let debug = format!("{error:?}");
+        assert_eq!(
+            error.response_feedback_code(),
+            Some("response_schema_deserialization_failed")
+        );
+        assert!(debug.contains("schemas[0].price.selector"));
+        assert!(debug.contains("invalid_type"));
+    }
+
+    #[test]
+    fn should_report_nested_missing_field_name_without_model_content() {
+        let response = response_with_parts(
+            vec![json_part(r#"{"schemas":[{"price":{}}]}"#)],
+            Some("STOP"),
+        );
+        let error = response
+            .into_output::<NestedOutput>(LlmOperation::CrawlerProductSchemaGeneration, "test-model")
+            .expect_err("nested missing field should fail target deserialization");
+
+        assert_eq!(
+            error.response_feedback_code(),
+            Some("response_missing_required_field")
+        );
+        assert_eq!(
+            error.response_correction_feedback().as_deref(),
+            Some("response_missing_required_field at schemas[0].price; missing_field=selector")
+        );
+    }
+
+    #[test]
+    fn should_keep_malformed_response_diagnostics_free_of_model_content() {
+        let marker = "do-not-log-this-model-content";
+        let response = response_with_parts(
+            vec![json_part(&format!("{{\"matched\":{marker}"))],
+            Some("STOP"),
+        );
+
+        let error = response
+            .into_output::<CallerDefinedOutput>(
+                LlmOperation::CrawlerProductSchemaGeneration,
+                "test-model",
+            )
+            .expect_err("malformed JSON should fail");
+        assert!(!format!("{error:?}").contains(marker));
     }
 }

@@ -195,7 +195,7 @@ fn create_schema_generation_request(
         )?,
         options: GenerationOptions {
             temperature: 0.0,
-            max_output_tokens: 8192,
+            max_output_tokens: 16_384,
             request_timeout: Duration::from_secs(180),
         },
     })
@@ -531,6 +531,14 @@ mod tests {
             "risks": [],
         }))
         .expect("not-product single response should serialize")
+    }
+
+    #[test]
+    fn should_use_expanded_output_budget_for_product_schema_generation() {
+        let request = create_schema_generation_request(&["<main>product</main>".to_owned()])
+            .expect("schema generation request should build");
+
+        assert_eq!(request.options.max_output_tokens, 16_384);
     }
 
     #[test]
