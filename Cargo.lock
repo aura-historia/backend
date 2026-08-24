@@ -680,7 +680,7 @@ dependencies = [
  "http 0.2.12",
  "http 1.5.0",
  "http-body 1.1.0",
- "lru 0.16.4",
+ "lru",
  "percent-encoding",
  "regex-lite",
  "sha2 0.11.0",
@@ -2496,7 +2496,7 @@ dependencies = [
  "async-trait",
  "google-cloud-auth",
  "image-fetcher",
- "lru 0.16.4",
+ "lru",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -3351,9 +3351,9 @@ checksum = "c9356095b4b41197bba32173600e1582792cda618f65d12f68e2e77d273413c5"
 
 [[package]]
 name = "html-to-markdown-rs"
-version = "3.10.6"
+version = "3.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0736be7417aaf65e02124703aa8db88ad42ceff95df99783d0d48bbed4da3a8"
+checksum = "6331a4c21bc99309e5863092660c08505c426eb1158e0472013487ecff85412b"
 dependencies = [
  "ahash",
  "astral-tl",
@@ -3361,7 +3361,6 @@ dependencies = [
  "bitflags 2.13.1",
  "html-escape",
  "html5ever 0.39.0",
- "lru 0.18.1",
  "memchr",
  "once_cell",
  "phf 0.14.0",
@@ -4315,15 +4314,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f66e8d5d03f609abc3a39e6f08e4164ebf1447a732906d39eb9b99b7919ef39"
 dependencies = [
  "hashbrown 0.16.1",
-]
-
-[[package]]
-name = "lru"
-version = "0.18.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b6180140927ee907000b0aa540091f6ea512ead4447c92b8fc35bc72788a5a6"
-dependencies = [
- "hashbrown 0.17.1",
 ]
 
 [[package]]
