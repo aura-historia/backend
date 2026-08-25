@@ -1,25 +1,25 @@
-pub mod event_store;
+pub mod product_listing_event_store;
 
-pub mod partner_product_authorizer;
-pub mod product_embedding_source_reader;
-pub mod product_embedding_writer;
-pub mod product_translation_source_reader;
-pub mod product_translation_writer;
+pub mod partner_product_listing_authorizer;
+pub mod product_listing_embedding_source_reader;
+pub mod product_listing_embedding_writer;
+pub mod product_listing_repository;
+pub mod product_listing_translation_source_reader;
+pub mod product_listing_translation_writer;
 pub mod readers;
-pub mod repository;
 mod url;
 
-pub use event_store::SqlxProductEventStoreFactory;
-pub use partner_product_authorizer::SqlxPartnerProductAuthorizerFactory;
-pub use product_embedding_source_reader::SqlxProductEmbeddingSourceReader;
-pub use product_embedding_writer::SqlxProductEmbeddingWriterFactory;
-pub use product_translation_source_reader::SqlxProductTranslationSourceReader;
-pub use product_translation_writer::SqlxProductTranslationWriterFactory;
+pub use partner_product_listing_authorizer::SqlxPartnerProductListingAuthorizerFactory;
+pub use product_listing_embedding_source_reader::SqlxProductListingEmbeddingSourceReader;
+pub use product_listing_embedding_writer::SqlxProductListingEmbeddingWriterFactory;
+pub use product_listing_event_store::SqlxProductListingEventStoreFactory;
+pub use product_listing_repository::SqlxProductListingRepositoryFactory;
+pub use product_listing_translation_source_reader::SqlxProductListingTranslationSourceReader;
+pub use product_listing_translation_writer::SqlxProductListingTranslationWriterFactory;
 pub use readers::{
-    SqlxProductCurrentRevisionGuardFactory, SqlxProductDetailsBatchReader,
-    SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
-    SqlxProductEventReaderFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
-    SqlxProductUserStateReader, SqlxProductWatchlistDetailsReaderFactory,
-    SqlxProductWatchlistNotificationSourceReaderFactory,
+    SqlxProductListingCurrentRevisionGuardFactory, SqlxProductListingDetailsBatchReader,
+    SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
+    SqlxProductListingEventReaderFactory, SqlxProductListingSearchFilterMatchSourceReaderFactory,
+    SqlxProductListingUserStateReader, SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxProductListingWatchlistNotificationSourceReaderFactory,
 };
-pub use repository::SqlxProductRepositoryFactory;

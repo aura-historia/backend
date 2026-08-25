@@ -671,7 +671,7 @@ async fn seed_unsafe_image_notification(user_id: UserId) {
             "type": "WATCHLIST",
             "snapshot": {
                 "shop_id": Uuid::new_v4(),
-                "shops_product_id": "unsafe-product",
+                "shop_listing_id": "unsafe-product",
                 "shop_slug_id": "unsafe-shop",
                 "product_slug_id": "unsafe-product-abcdef",
                 "shop_name": "Unsafe Shop",
@@ -768,7 +768,7 @@ async fn seed_price_notification(
             "type": "WATCHLIST",
             "snapshot": {
                 "shop_id": Uuid::new_v4(),
-                "shops_product_id": "source-currency-product",
+                "shop_listing_id": "source-currency-product",
                 "shop_slug_id": "source-currency-shop",
                 "product_slug_id": "source-currency-product-a1b2c3",
                 "shop_name": "Source Currency Shop",
@@ -792,7 +792,7 @@ async fn seed_notification_payloads(user_id: UserId) {
     let product_snapshot = |title: serde_json::Value, image: serde_json::Value| {
         serde_json::json!({
             "shop_id": Uuid::new_v4(),
-            "shops_product_id": "shop-product-123",
+            "shop_listing_id": "shop-product-123",
             "shop_slug_id": "test-shop",
             "product_slug_id": "test-product-a1b2c3",
             "shop_name": "Snapshot Shop",

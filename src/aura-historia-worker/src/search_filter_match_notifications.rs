@@ -5,7 +5,7 @@ use crate::{
 };
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::use_cases::{
     GenerateSearchFilterMatchNotificationCommand, GenerateSearchFilterMatchNotificationResult,
@@ -100,10 +100,10 @@ async fn execute_job(
         GenerateSearchFilterMatchNotificationResult::SuppressedForStaleMatch => {
             "suppressed_for_stale_match"
         }
-        GenerateSearchFilterMatchNotificationResult::SuppressedForMissingProduct => {
+        GenerateSearchFilterMatchNotificationResult::SuppressedForMissingProductListing => {
             "suppressed_for_missing_product"
         }
-        GenerateSearchFilterMatchNotificationResult::SuppressedForStaleProductEvent => {
+        GenerateSearchFilterMatchNotificationResult::SuppressedForStaleProductListingEvent => {
             "suppressed_for_stale_product_event"
         }
     };
@@ -153,8 +153,8 @@ fn command_from_job(
                 source: box_error(source),
             },
         )?;
-    let product_id = ProductId::try_from(change.product_id.as_str()).map_err(|source| {
-        SearchFilterMatchNotificationWorkerError::InvalidProductId {
+    let product_id = ProductListingId::try_from(change.product_id.as_str()).map_err(|source| {
+        SearchFilterMatchNotificationWorkerError::InvalidProductListingId {
             source: box_error(source),
         }
     })?;
@@ -187,7 +187,7 @@ enum SearchFilterMatchNotificationWorkerError {
         source: BoxError,
     },
     #[error("search filter match notification job has an invalid product id")]
-    InvalidProductId {
+    InvalidProductListingId {
         #[source]
         source: BoxError,
     },

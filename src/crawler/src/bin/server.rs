@@ -57,16 +57,16 @@ use crawler::review::repository::CrawlerReviewRepository;
 use crawler::review::server::{ReviewServer, ReviewServerConfig};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
-use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
+use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
-use crawler::scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
+use crawler::scraper::normalization::product_normalization_service::ProductListingNormalizationServiceImpl;
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{
     DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
-use crawler::service::product_push::ProductPushServiceImpl;
+use crawler::service::product_push::ProductListingPushServiceImpl;
 use crawler::service::shop_registration::{
     RegisteredShop, ShopRegistrationRepositoryImpl, ShopRegistrationService,
     ShopRegistrationSource, ShopSyncError,
@@ -83,9 +83,10 @@ use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
-    SqlxPartnerProductAuthorizerFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventStoreFactory,
+    SqlxProductListingRepositoryFactory,
 };
-use product_listing_service::use_cases::UpsertProductHandler;
+use product_listing_service::use_cases::UpsertProductListingHandler;
 use shop_core::{partner_status::ShopPartnerStatus, shop_id::ShopId};
 use shop_postgres::SqlxShopSearchReaderFactory;
 use shop_service::{
@@ -455,7 +456,8 @@ async fn main() {
             Some(Arc::clone(&llm_governor)),
         );
 
-        let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
+        let normalization_svc =
+            ProductListingNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
         let create_schema_llm = vertex_ai_config
             .create_model(vertex_ai_models.product_schema.clone())
@@ -467,7 +469,7 @@ async fn main() {
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
-        let schema_svc = ProductSchemaServiceImpl::new(
+        let schema_svc = ProductListingSchemaServiceImpl::new(
             create_schema_llm,
             single_schema_llm,
             schema_repo,
@@ -547,14 +549,14 @@ async fn main() {
         let shop_registration = ShopRegistrationService::new(shop_source, shop_repo);
 
         // 6. Wire product push through authoritative Postgres.
-        let upsert_product = UpsertProductHandler::new_with_fx_rates(
+        let upsert_product = UpsertProductListingHandler::new_with_fx_rates(
             business_unit_of_work,
-            SqlxProductRepositoryFactory::new(),
-            SqlxProductEventStoreFactory::new(),
-            SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventStoreFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
         );
-        let product_push = Box::new(ProductPushServiceImpl::new(
+        let product_push = Box::new(ProductListingPushServiceImpl::new(
             Arc::new(upsert_product),
             config.effective_push_max_concurrency(),
         ));

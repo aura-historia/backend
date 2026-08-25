@@ -8,8 +8,8 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use product_listing_core::product_id::ProductId;
-use watchlist_service::use_cases::UpdateWatchlistProductCommand;
+use product_listing_core::product_listing_id::ProductListingId;
+use watchlist_service::use_cases::UpdateWatchlistProductListingCommand;
 
 pub async fn patch_watchlist(
     State(state): State<WatchlistState>,
@@ -21,7 +21,7 @@ pub async fn patch_watchlist(
         Ok(v) => v,
         Err(r) => return *r,
     };
-    let product_id = match ProductId::try_from(raw_product_id.as_str()) {
+    let product_id = match ProductListingId::try_from(raw_product_id.as_str()) {
         Ok(v) => v,
         Err(_) => {
             return ApiError::bad_request(INVALID_UUID)
@@ -46,7 +46,7 @@ pub async fn patch_watchlist(
         .update_watchlist_product
         .execute(
             &ctx,
-            UpdateWatchlistProductCommand {
+            UpdateWatchlistProductListingCommand {
                 user_id,
                 product_id,
                 notifications,

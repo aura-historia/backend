@@ -14,7 +14,7 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -35,7 +35,7 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
         });
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()
@@ -64,8 +64,8 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
         .unwrap();
 
     assert_eq!(
-        result.product.shops_product_id,
-        ShopsProductId::from("SKU-42")
+        result.product.shop_listing_id,
+        ShopListingId::from("SKU-42")
     );
     assert_eq!(result.product.state, ProductState::Available);
     assert_eq!(result.product.url, url);
@@ -84,7 +84,7 @@ async fn should_return_normalized_product_with_all_fields_when_normalization_pro
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -106,7 +106,7 @@ async fn should_return_normalized_product_with_all_fields_when_normalization_pro
 
     let norm = normalized_product(url.clone());
     let norm_clone = norm.clone();
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc.expect_normalize().returning(move |_, _, _| {
         let n = norm_clone.clone();
         Box::pin(async move { Ok(normalization_success(n, 0)) })
@@ -159,7 +159,7 @@ async fn should_filter_invalid_thumbnail_images_before_normalization() {
     });
 
     let schema = shops_product_schema(id);
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -169,7 +169,7 @@ async fn should_filter_invalid_thumbnail_images_before_normalization() {
         });
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()

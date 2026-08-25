@@ -2,7 +2,7 @@ use super::config::CrawlerCronConfig;
 use super::metrics::PerfCounter;
 use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::scraper_service::ScraperService;
-use crate::service::product_push::ProductPushService;
+use crate::service::product_push::ProductListingPushService;
 use crate::service::shop_registration::ShopRegistrationService;
 use crate::spider::advisory_lock::LocalLockManager;
 use crate::spider::candidate_service::SpiderCandidateService;
@@ -21,7 +21,7 @@ pub struct CrawlerCronJob {
     pub(super) scraper_candidates: Arc<dyn ScraperCandidateService>,
     pub(super) scraper_service: Arc<dyn ScraperService>,
     pub(super) shop_registration: Arc<ShopRegistrationService>,
-    pub(super) product_push: Arc<dyn ProductPushService>,
+    pub(super) product_push: Arc<dyn ProductListingPushService>,
     pub(super) spider_perf: Arc<PerfCounter>,
     pub(super) scraper_perf: Arc<PerfCounter>,
 }
@@ -36,7 +36,7 @@ impl CrawlerCronJob {
         scraper_candidates: Box<dyn ScraperCandidateService>,
         scraper_service: Box<dyn ScraperService>,
         shop_registration: ShopRegistrationService,
-        product_push: Box<dyn ProductPushService>,
+        product_push: Box<dyn ProductListingPushService>,
     ) -> Self {
         Self {
             config,

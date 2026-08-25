@@ -94,8 +94,8 @@ async fn should_mark_product_removed_when_product_url_redirects_to_homepage() {
         Box::pin(async move { Ok(fetch_result_for(sample_html(), final_url)) })
     });
 
-    let schema_svc = MockProductSchemaService::new();
-    let norm_svc = MockProductNormalizationService::new();
+    let schema_svc = MockProductListingSchemaService::new();
+    let norm_svc = MockProductListingNormalizationService::new();
 
     let mut cand_svc = MockScraperCandidateService::new();
     let url_for_set_state = url.clone();
@@ -120,7 +120,7 @@ async fn should_mark_product_removed_when_product_url_redirects_to_homepage() {
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();
 
-    assert!(matches!(err, ScraperError::ProductRemoved { .. }));
+    assert!(matches!(err, ScraperError::ProductListingRemoved { .. }));
 }
 
 #[tokio::test]
@@ -140,8 +140,8 @@ async fn should_mark_product_removed_when_redirected_url_does_not_match_product_
         Box::pin(async move { Ok(fetch_result_for(sample_html(), final_url)) })
     });
 
-    let schema_svc = MockProductSchemaService::new();
-    let norm_svc = MockProductNormalizationService::new();
+    let schema_svc = MockProductListingSchemaService::new();
+    let norm_svc = MockProductListingNormalizationService::new();
 
     let mut cand_svc = MockScraperCandidateService::new();
     let url_for_set_state = url.clone();
@@ -169,5 +169,5 @@ async fn should_mark_product_removed_when_redirected_url_does_not_match_product_
         .await
         .unwrap_err();
 
-    assert!(matches!(err, ScraperError::ProductRemoved { .. }));
+    assert!(matches!(err, ScraperError::ProductListingRemoved { .. }));
 }

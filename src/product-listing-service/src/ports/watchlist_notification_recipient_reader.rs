@@ -1,5 +1,5 @@
 use application::error::BoxError;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
 
@@ -22,7 +22,7 @@ pub enum WatchlistNotificationRecipientReadError {
 pub trait WatchlistNotificationRecipientReader: Send {
     async fn find_eligible_for_product_at(
         &mut self,
-        product_id: ProductId,
+        product_id: ProductListingId,
         event_time: OffsetDateTime,
     ) -> Result<Vec<WatchlistNotificationRecipient>, WatchlistNotificationRecipientReadError>;
 }

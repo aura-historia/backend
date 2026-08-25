@@ -4,17 +4,17 @@ use money::{Currency, MonetaryAmount, Price};
 use notification_core::{
     notification::{
         Notification, NotificationContent, NotificationWatchlistChange, PartnerApplicationDecision,
-        PartnerApplicationNotificationSnapshot, ProductNotificationSnapshot,
+        PartnerApplicationNotificationSnapshot, ProductListingNotificationSnapshot,
         RehydratedNotificationState,
     },
     notification_id::NotificationId,
     notification_kind::NotificationKind,
 };
 use product_listing_core::{
-    product_id::ProductId, product_slug_id::ProductSlugId, product_state::ProductState,
-    shops_product_id::ShopsProductId,
+    product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
+    product_state::ProductState, shop_listing_id::ShopListingId,
 };
-use product_listing_core::{product_image::ProductImage, title::Title};
+use product_listing_core::{product_listing_image::ProductListingImage, title::Title};
 use search_filter_core::{
     user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
 };
@@ -71,11 +71,11 @@ pub(crate) enum NotificationMappingError {
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum NotificationPayloadV1 {
     Watchlist {
-        snapshot: ProductNotificationSnapshotV1,
+        snapshot: ProductListingNotificationSnapshotV1,
         change: NotificationWatchlistChangeV1,
     },
     SearchFilter {
-        snapshot: ProductNotificationSnapshotV1,
+        snapshot: ProductListingNotificationSnapshotV1,
         user_search_filter_name: UserSearchFilterName,
     },
     PartnerApplication {
@@ -121,14 +121,14 @@ struct PersistedPrice {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProductNotificationSnapshotV1 {
+struct ProductListingNotificationSnapshotV1 {
     shop_id: ShopId,
-    shops_product_id: ShopsProductId,
+    shop_listing_id: ShopListingId,
     shop_slug_id: ShopSlugId,
-    product_slug_id: ProductSlugId,
+    product_slug_id: ProductListingSlugId,
     shop_name: ShopName,
     title: Option<Vec<LocalizedTitleV1>>,
-    image: Option<ProductImage>,
+    image: Option<ProductListingImage>,
     url: Url,
     view_url: Url,
 }
@@ -153,11 +153,11 @@ struct PartnerApplicationNotificationSnapshotV1 {
     image: Option<Url>,
 }
 
-impl From<&ProductNotificationSnapshot> for ProductNotificationSnapshotV1 {
-    fn from(snapshot: &ProductNotificationSnapshot) -> Self {
+impl From<&ProductListingNotificationSnapshot> for ProductListingNotificationSnapshotV1 {
+    fn from(snapshot: &ProductListingNotificationSnapshot) -> Self {
         Self {
             shop_id: snapshot.shop_id,
-            shops_product_id: snapshot.shops_product_id.clone(),
+            shop_listing_id: snapshot.shop_listing_id.clone(),
             shop_slug_id: snapshot.shop_slug_id.clone(),
             product_slug_id: snapshot.product_slug_id.clone(),
             shop_name: snapshot.shop_name.clone(),
@@ -177,10 +177,10 @@ impl From<&ProductNotificationSnapshot> for ProductNotificationSnapshotV1 {
     }
 }
 
-impl TryFrom<ProductNotificationSnapshotV1> for ProductNotificationSnapshot {
+impl TryFrom<ProductListingNotificationSnapshotV1> for ProductListingNotificationSnapshot {
     type Error = NotificationMappingError;
 
-    fn try_from(snapshot: ProductNotificationSnapshotV1) -> Result<Self, Self::Error> {
+    fn try_from(snapshot: ProductListingNotificationSnapshotV1) -> Result<Self, Self::Error> {
         let title = snapshot
             .title
             .map(|titles| {
@@ -201,7 +201,7 @@ impl TryFrom<ProductNotificationSnapshotV1> for ProductNotificationSnapshot {
             .transpose()?;
         Ok(Self {
             shop_id: snapshot.shop_id,
-            shops_product_id: snapshot.shops_product_id,
+            shop_listing_id: snapshot.shop_listing_id,
             shop_slug_id: snapshot.shop_slug_id,
             product_slug_id: snapshot.product_slug_id,
             shop_name: snapshot.shop_name,
@@ -389,7 +389,7 @@ impl TryFrom<NotificationRow> for Notification {
                 }
                 NotificationContent::Watchlist {
                     origin_event_id: EventId::from(origin_event_id),
-                    product_id: ProductId::from(product_id),
+                    product_id: ProductListingId::from(product_id),
                     snapshot: snapshot.try_into()?,
                     change,
                 }
@@ -406,7 +406,7 @@ impl TryFrom<NotificationRow> for Notification {
                 None,
             ) => NotificationContent::SearchFilter {
                 origin_event_id: EventId::from(origin_event_id),
-                product_id: ProductId::from(product_id),
+                product_id: ProductListingId::from(product_id),
                 user_search_filter_id: UserSearchFilterId::from(user_search_filter_id),
                 snapshot: snapshot.try_into()?,
                 user_search_filter_name,

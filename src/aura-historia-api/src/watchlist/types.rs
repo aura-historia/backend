@@ -1,11 +1,11 @@
 use crate::patch_value::PatchValue;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
-use watchlist_core::WatchlistProduct;
+use watchlist_core::WatchlistProductListing;
 use watchlist_core::watchlist_state::WatchlistState;
-use watchlist_service::ports::WatchlistProductView;
+use watchlist_service::ports::WatchlistProductListingView;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -18,7 +18,7 @@ pub(crate) enum PatchWatchlistStateData {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WatchlistEntryData {
     pub(crate) user_id: UserId,
-    pub(crate) product_id: ProductId,
+    pub(crate) product_id: ProductListingId,
     pub(crate) notifications: bool,
     #[serde(with = "crate::wire::watchlist_state")]
     pub(crate) state: WatchlistState,
@@ -33,8 +33,8 @@ pub(crate) struct WatchlistEntryData {
     )]
     pub(crate) updated: Option<OffsetDateTime>,
 }
-impl From<WatchlistProduct> for WatchlistEntryData {
-    fn from(e: WatchlistProduct) -> Self {
+impl From<WatchlistProductListing> for WatchlistEntryData {
+    fn from(e: WatchlistProductListing) -> Self {
         Self {
             user_id: e.user_id(),
             product_id: e.product_id(),
@@ -45,8 +45,8 @@ impl From<WatchlistProduct> for WatchlistEntryData {
         }
     }
 }
-impl From<WatchlistProductView> for WatchlistEntryData {
-    fn from(v: WatchlistProductView) -> Self {
+impl From<WatchlistProductListingView> for WatchlistEntryData {
+    fn from(v: WatchlistProductListingView) -> Self {
         Self {
             user_id: v.user_id,
             product_id: v.product_id,
@@ -68,7 +68,7 @@ pub(crate) fn watchlist_state(state: PatchWatchlistStateData) -> WatchlistState 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PostWatchlistData {
-    pub(crate) product_id: ProductId,
+    pub(crate) product_id: ProductListingId,
     pub(crate) notifications: Option<bool>,
 }
 #[derive(Debug, Deserialize)]

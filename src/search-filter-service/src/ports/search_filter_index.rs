@@ -1,7 +1,7 @@
 use crate::ports::{SearchFilterProjection, SearchFilterView};
 use application::error::BoxError;
 use application::pagination::{Cursor, CursoredResult};
-use product_listing_service::ports::ProductPercolationInput;
+use product_listing_service::ports::ProductListingPercolationInput;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,7 +66,7 @@ pub trait SearchFilterIndex: Send + Sync {
     ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError>;
     async fn percolate(
         &self,
-        input: &ProductPercolationInput,
+        input: &ProductListingPercolationInput,
     ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError>;
     async fn query(
         &self,

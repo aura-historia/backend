@@ -346,7 +346,7 @@ mod tests {
     use notification_core::notification_id::NotificationId;
     use notification_core::{
         notification::{
-            NotificationContent, NotificationWatchlistChange, ProductNotificationSnapshot,
+            NotificationContent, NotificationWatchlistChange, ProductListingNotificationSnapshot,
         },
         notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
         notification_delivery_id::NotificationDeliveryId,
@@ -356,8 +356,8 @@ mod tests {
         presentation::NotificationPresentationPreferences,
     };
     use product_listing_core::{
-        product_id::ProductId, product_slug_id::ProductSlugId, product_state::ProductState,
-        shops_product_id::ShopsProductId,
+        product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
+        product_state::ProductState, shop_listing_id::ShopListingId,
     };
     use rstest::rstest;
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
@@ -596,12 +596,12 @@ mod tests {
             target_key: NotificationDeliveryTargetKey::primary(),
             content: NotificationContent::Watchlist {
                 origin_event_id: EventId::new(),
-                product_id: ProductId::new(),
-                snapshot: ProductNotificationSnapshot {
+                product_id: ProductListingId::new(),
+                snapshot: ProductListingNotificationSnapshot {
                     shop_id: ShopId::new(),
-                    shops_product_id: ShopsProductId::from("shop-product"),
+                    shop_listing_id: ShopListingId::from("shop-product"),
                     shop_slug_id: ShopSlugId::from("shop"),
-                    product_slug_id: ProductSlugId::from("product"),
+                    product_slug_id: ProductListingSlugId::from("product"),
                     shop_name: ShopName::from("Test Shop"),
                     title: None,
                     image: prohibited_content

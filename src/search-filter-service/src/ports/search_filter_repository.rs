@@ -1,7 +1,7 @@
 use application::error::BoxError;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
-use search_filter_core::{SearchFilter, SearchFilterProductMatch};
+use search_filter_core::{SearchFilter, SearchFilterProductListingMatch};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -14,7 +14,7 @@ pub struct PersistedSearchFilter {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PersistedSearchFilterMatch {
-    pub product_match: SearchFilterProductMatch,
+    pub product_match: SearchFilterProductListingMatch,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -91,15 +91,15 @@ pub trait SearchFilterMatchRepository: Send {
     async fn find_by_filter_and_product(
         &mut self,
         filter_id: UserSearchFilterId,
-        product_id: ProductId,
+        product_id: ProductListingId,
     ) -> Result<Option<PersistedSearchFilterMatch>, SearchFilterMatchRepositoryError>;
     async fn insert(
         &mut self,
-        product_match: &SearchFilterProductMatch,
+        product_match: &SearchFilterProductListingMatch,
     ) -> Result<PersistedSearchFilterMatch, SearchFilterMatchRepositoryError>;
     async fn update(
         &mut self,
-        product_match: &SearchFilterProductMatch,
+        product_match: &SearchFilterProductListingMatch,
     ) -> Result<PersistedSearchFilterMatch, SearchFilterMatchRepositoryError>;
 }
 

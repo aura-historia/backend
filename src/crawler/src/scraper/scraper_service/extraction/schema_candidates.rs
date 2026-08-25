@@ -50,7 +50,7 @@ fn any_populated(values: &[String]) -> bool {
 pub(crate) fn score_raw_product(raw: &RawExtractedProduct) -> ExtractionCompletenessScore {
     // Mandatory `String` fields: populated when the trimmed value is non-empty.
     let scalar_strings: [&str; 3] = [
-        raw.shops_product_id.as_str(),
+        raw.shop_listing_id.as_str(),
         raw.title.as_str(),
         raw.state.as_str(),
     ];
@@ -99,7 +99,7 @@ pub(crate) fn score_prepared_product(
     raw: &RawExtractedProduct,
     prepared: &PreparedProduct,
 ) -> ExtractionCompletenessScore {
-    let extracted_id = usize::from(!raw.shops_product_id.trim().is_empty());
+    let extracted_id = usize::from(!raw.shop_listing_id.trim().is_empty());
     let state = usize::from(!prepared.raw_state.trim().is_empty());
     let description = usize::from(prepared.description.is_some());
     let optional = usize::from(prepared.price.is_some())
@@ -273,7 +273,7 @@ mod tests {
 
     fn raw_product() -> RawExtractedProduct {
         RawExtractedProduct {
-            shops_product_id: String::new(),
+            shop_listing_id: String::new(),
             title: String::new(),
             description: vec![],
             price: None,
@@ -296,7 +296,7 @@ mod tests {
     #[test]
     fn should_count_each_populated_scalar_field_once() {
         let mut raw = raw_product();
-        raw.shops_product_id = "SKU-1".to_string();
+        raw.shop_listing_id = "SKU-1".to_string();
         raw.title = "Chair".to_string();
         raw.state = "In Stock".to_string();
         assert_eq!(score_raw_product(&raw).as_usize(), 3);
@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn should_not_count_blank_or_whitespace_only_strings() {
         let mut raw = raw_product();
-        raw.shops_product_id = "   ".to_string();
+        raw.shop_listing_id = "   ".to_string();
         raw.title = "\n\t".to_string();
         assert_eq!(score_raw_product(&raw).as_usize(), 0);
     }
@@ -395,7 +395,7 @@ mod tests {
             .unwrap();
         assert_eq!(score_prepared_product(&raw, &prepared).as_usize(), 2);
 
-        raw.shops_product_id = "SKU-1".to_string();
+        raw.shop_listing_id = "SKU-1".to_string();
         let prepared =
             crate::scraper::normalization::product_normalization_service::prepare_product(
                 raw.clone(),
@@ -416,7 +416,7 @@ mod tests {
         rich.state = "Available".to_string();
 
         let schema = ProductCssSelectorSchema {
-            shops_product_id: None,
+            shop_listing_id: None,
             title: crate::scraper::css_selector::rule::ExtractionRule {
                 selector: crate::scraper::css_selector::rule::CssSelector::from("h1"),
                 additional_selectors: vec![],
@@ -472,7 +472,7 @@ mod tests {
     #[test]
     fn should_break_score_ties_by_original_schema_index() {
         let schema = ProductCssSelectorSchema {
-            shops_product_id: None,
+            shop_listing_id: None,
             title: crate::scraper::css_selector::rule::ExtractionRule {
                 selector: crate::scraper::css_selector::rule::CssSelector::from("h1"),
                 additional_selectors: vec![],

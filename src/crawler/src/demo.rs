@@ -33,7 +33,7 @@
 //! | `LOG_LEVEL`      | Global log level                     | `info`                                           |
 //! | `CRAWLER_LOG_LEVEL` | Crawler-internal log level        | `info`                                           |
 //!
-//! Scraped products are written to `scraped_products.json` instead of calling the Product upsert use case.
+//! Scraped products are written to `scraped_products.json` instead of calling the ProductListing upsert use case.
 
 use shop_core::shop_id::ShopId;
 use std::collections::HashSet;
@@ -49,16 +49,16 @@ use crawler::review::repository::CrawlerReviewRepository;
 use crawler::review::server::{ReviewServer, ReviewServerConfig};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
-use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
+use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
-use crawler::scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
+use crawler::scraper::normalization::product_normalization_service::ProductListingNormalizationServiceImpl;
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{
     DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
-use crawler::service::product_push::FileProductPushService;
+use crawler::service::product_push::FileProductListingPushService;
 use crawler::service::shop_registration::{
     RegisteredShop, ShopRegistrationRepositoryImpl, ShopRegistrationService,
     ShopRegistrationSource, ShopSyncError,
@@ -292,7 +292,8 @@ async fn main() {
             state_mapping_repo,
             Some(Arc::clone(&llm_governor)),
         );
-        let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
+        let normalization_svc =
+            ProductListingNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
         let create_schema_llm =
             match vertex_ai_config.create_model(vertex_ai_models.product_schema.clone()) {
@@ -315,7 +316,7 @@ async fn main() {
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
-        let schema_svc = ProductSchemaServiceImpl::new(
+        let schema_svc = ProductListingSchemaServiceImpl::new(
             create_schema_llm,
             single_schema_llm,
             schema_repo,
@@ -391,7 +392,7 @@ async fn main() {
         });
         let shop_repo = Box::new(ShopRegistrationRepositoryImpl::new(pool.clone()));
         let shop_registration = ShopRegistrationService::new(shop_source, shop_repo);
-        let product_push = Box::new(FileProductPushService::new("scraped_products.json"));
+        let product_push = Box::new(FileProductListingPushService::new("scraped_products.json"));
 
         let cron_job = CrawlerCronJob::new(
             config,

@@ -5,7 +5,7 @@ use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_wit
 use application::error::box_error;
 use domain_primitives::event_id::EventId;
 use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -17,11 +17,12 @@ use notification_service::{
     notification_creation::NotificationCreationCoordinatorFactory,
 };
 use product_listing_postgres::{
-    SqlxProductCurrentRevisionGuardFactory, SqlxProductWatchlistNotificationSourceReaderFactory,
+    SqlxProductListingCurrentRevisionGuardFactory,
+    SqlxProductListingWatchlistNotificationSourceReaderFactory,
 };
 use product_listing_service::ports::{
-    ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
-    ProductCurrentRevisionGuardFactory,
+    ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError,
+    ProductListingCurrentRevisionGuard, ProductListingCurrentRevisionGuardFactory,
 };
 use product_listing_service::use_cases::{
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
@@ -276,7 +277,7 @@ async fn hold_product_revision_lock_until_watchlist_notification_commit()
     let release_guard = Arc::new(Barrier::new(2));
     let handler = Arc::new(GenerateWatchlistNotificationsHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
-        SqlxProductWatchlistNotificationSourceReaderFactory::new(),
+        SqlxProductListingWatchlistNotificationSourceReaderFactory::new(),
         SqlxWatchlistNotificationRecipientReaderFactory,
         BlockingRevisionGuardFactory {
             guard_reached: Arc::clone(&guard_reached),
@@ -324,7 +325,7 @@ async fn hold_product_revision_lock_until_watchlist_notification_commit()
         tokio::time::timeout(Duration::from_millis(100), &mut update)
             .await
             .is_err(),
-        "Product revision update completed before notification commit"
+        "ProductListing revision update completed before notification commit"
     );
 
     release_guard.wait().await;
@@ -465,11 +466,11 @@ struct BlockingRevisionGuard<'tx> {
     release_guard: Arc<Barrier>,
 }
 
-impl ProductCurrentRevisionGuardFactory<SqlxTransaction> for BlockingRevisionGuardFactory {
+impl ProductListingCurrentRevisionGuardFactory<SqlxTransaction> for BlockingRevisionGuardFactory {
     fn in_transaction<'tx>(
         &'tx self,
         tx: &'tx mut SqlxTransaction,
-    ) -> impl ProductCurrentRevisionGuard + 'tx {
+    ) -> impl ProductListingCurrentRevisionGuard + 'tx {
         BlockingRevisionGuard {
             connection: tx.connection(),
             guard_reached: Arc::clone(&self.guard_reached),
@@ -479,26 +480,28 @@ impl ProductCurrentRevisionGuardFactory<SqlxTransaction> for BlockingRevisionGua
 }
 
 #[async_trait::async_trait]
-impl ProductCurrentRevisionGuard for BlockingRevisionGuard<'_> {
+impl ProductListingCurrentRevisionGuard for BlockingRevisionGuard<'_> {
     async fn lock_and_check(
         &mut self,
-        product_id: ProductId,
+        product_id: ProductListingId,
         expected_event_id: EventId,
-    ) -> Result<ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError> {
+    ) -> Result<ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError> {
         let current_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
             "SELECT event_id FROM products WHERE product_id = $1 FOR SHARE",
         )
         .bind(uuid::Uuid::from(product_id))
         .fetch_optional(&mut *self.connection)
         .await
-        .map_err(|source| ProductCurrentRevisionCheckError::CheckFailed {
-            source: box_error(source),
-        })?;
+        .map_err(
+            |source| ProductListingCurrentRevisionCheckError::CheckFailed {
+                source: box_error(source),
+            },
+        )?;
         let result = match current_event_id {
             Some(current_event_id) if EventId::from(current_event_id) == expected_event_id => {
-                ProductCurrentRevisionCheck::Current
+                ProductListingCurrentRevisionCheck::Current
             }
-            Some(_) | None => ProductCurrentRevisionCheck::Stale,
+            Some(_) | None => ProductListingCurrentRevisionCheck::Stale,
         };
         self.guard_reached.wait().await;
         self.release_guard.wait().await;
@@ -519,9 +522,9 @@ impl WatchlistWorker {
         let handler: Arc<dyn GenerateWatchlistNotificationsUseCase> =
             Arc::new(GenerateWatchlistNotificationsHandler::new(
                 SqlxUnitOfWork::new(pool.clone()),
-                SqlxProductWatchlistNotificationSourceReaderFactory::new(),
+                SqlxProductListingWatchlistNotificationSourceReaderFactory::new(),
                 SqlxWatchlistNotificationRecipientReaderFactory,
-                SqlxProductCurrentRevisionGuardFactory::new(),
+                SqlxProductListingCurrentRevisionGuardFactory::new(),
                 NotificationCreationCoordinatorFactory::new(
                     SqlxNotificationRepositoryFactory::new(),
                     InitialExternalDeliveryPlanReaderFactory,
@@ -582,8 +585,8 @@ async fn seed_user(pool: &sqlx::PgPool, label: &str) -> Result<UserId, sqlx::Err
 async fn seed_product(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     event_id: EventId,
-) -> Result<ProductId, sqlx::Error> {
-    let product_id = ProductId::new();
+) -> Result<ProductListingId, sqlx::Error> {
+    let product_id = ProductListingId::new();
     let product_uuid = uuid::Uuid::from(product_id);
     let shop_id = uuid::Uuid::new_v4();
     let product_slug_suffix = product_uuid.simple().to_string()[..6].to_owned();
@@ -593,7 +596,7 @@ async fn seed_product(
         .bind("Worker watchlist shop")
         .execute(&mut **transaction)
         .await?;
-    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Worker watchlist product', 'en', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Worker watchlist product', 'en', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-watchlist-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))
@@ -608,7 +611,7 @@ async fn seed_product(
 async fn seed_watchlist(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     user_id: UserId,
-    product_id: ProductId,
+    product_id: ProductListingId,
     notifications: bool,
     state: &str,
 ) -> Result<(), sqlx::Error> {
@@ -625,7 +628,7 @@ async fn seed_watchlist(
 async fn insert_product_event(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     event_id: EventId,
-    product_id: ProductId,
+    product_id: ProductListingId,
     event_type: &str,
     payload: serde_json::Value,
 ) -> Result<(), sqlx::Error> {
@@ -643,7 +646,7 @@ async fn insert_product_event(
 async fn insert_product_event_at(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     event_id: EventId,
-    product_id: ProductId,
+    product_id: ProductListingId,
     event_type: &str,
     payload: serde_json::Value,
     event_time: OffsetDateTime,
@@ -662,7 +665,7 @@ async fn insert_product_event_at(
 async fn seed_watchlist_at(
     pool: &sqlx::PgPool,
     user_id: UserId,
-    product_id: ProductId,
+    product_id: ProductListingId,
     notifications: bool,
     state: &str,
     active_since: OffsetDateTime,

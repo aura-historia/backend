@@ -14,9 +14,10 @@ use notification_service::use_cases::commands::update_notifications_seen::Update
 use notification_service::use_cases::queries::list_notifications::ListNotificationsError;
 use oauth_service::error::OAuthServiceError;
 use product_listing_service::use_cases::{
-    CreateProductError, DeleteProductError, GetProductError, GetProductEventsError,
-    GetSimilarProductsError, IngestWoocommerceProductError, SearchProductsError,
-    UpdateProductError, UpsertProductError,
+    CreateProductListingError, DeleteProductListingError, GetProductListingError,
+    GetProductListingEventsError, GetSimilarProductListingsError,
+    IngestWoocommerceProductListingError, SearchProductListingsError, UpdateProductListingError,
+    UpsertProductListingError,
 };
 use search_filter_service::use_cases::{
     CreateSearchFilterError, DeleteOwnedSearchFilterError, GetOwnedSearchFilterError,
@@ -53,7 +54,8 @@ use user_service::use_cases::queries::get_own_user::GetOwnUserError;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensError;
 use user_service::use_cases::queries::search_users::SearchUsersError;
 use watchlist_service::use_cases::{
-    ListWatchlistError, UnwatchProductError, UpdateWatchlistProductError, WatchProductError,
+    ListWatchlistError, UnwatchProductListingError, UpdateWatchlistProductListingError,
+    WatchProductListingError,
 };
 
 #[derive(Debug, Serialize)]
@@ -643,17 +645,17 @@ impl From<ListSearchFilterMatchesError> for ApiError {
                 ApiError::not_found(SEARCH_FILTER_NOT_FOUND)
                     .with_detail("Search filter was not found.")
             }
-            ListSearchFilterMatchesError::ProductDetailsInvalid { .. }
-            | ListSearchFilterMatchesError::MatchedProductMissing { .. }
+            ListSearchFilterMatchesError::ProductListingDetailsInvalid { .. }
+            | ListSearchFilterMatchesError::MatchedProductListingMissing { .. }
             | ListSearchFilterMatchesError::PricingFxSnapshotInvalid { .. }
             | ListSearchFilterMatchesError::SaleFxSnapshotMismatch { .. }
-            | ListSearchFilterMatchesError::ProductPriceConversionFailed { .. }
-            | ListSearchFilterMatchesError::HiddenProductRedactionFailed { .. } => {
+            | ListSearchFilterMatchesError::ProductListingPriceConversionFailed { .. }
+            | ListSearchFilterMatchesError::HiddenProductListingRedactionFailed { .. } => {
                 ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
                     .with_detail("Search filter match product data is invalid.")
             }
             ListSearchFilterMatchesError::SearchFilterMatchReadFailed { .. }
-            | ListSearchFilterMatchesError::ProductDetailsReadFailed { .. }
+            | ListSearchFilterMatchesError::ProductListingDetailsReadFailed { .. }
             | ListSearchFilterMatchesError::CurrentPricingFxSnapshotMissing
             | ListSearchFilterMatchesError::SalePricingFxSnapshotMissing { .. }
             | ListSearchFilterMatchesError::PricingFxSnapshotUnavailable { .. }
@@ -702,195 +704,201 @@ impl From<UpdateSearchFilterMatchFeedbackError> for ApiError {
     }
 }
 
-impl From<CreateProductError> for ApiError {
-    fn from(error: CreateProductError) -> Self {
+impl From<CreateProductListingError> for ApiError {
+    fn from(error: CreateProductListingError) -> Self {
         match error {
-            CreateProductError::AuthenticatedActorRequired => {
+            CreateProductListingError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
                     .with_detail("Bearer token is required.")
             }
-            CreateProductError::Forbidden => {
+            CreateProductListingError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            CreateProductError::ShopNotFound => {
+            CreateProductListingError::ShopNotFound => {
                 ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
             }
-            CreateProductError::ShopProductAlreadyExists
-            | CreateProductError::ProductSlugAlreadyExists
-            | CreateProductError::ProductCurrentEventIdConflict
-            | CreateProductError::ProductEventAlreadyExists => {
-                ApiError::conflict(CONFLICT).with_detail("Product conflicts with current state.")
+            CreateProductListingError::ShopListingAlreadyExists
+            | CreateProductListingError::ProductListingSlugAlreadyExists
+            | CreateProductListingError::ProductListingCurrentEventIdConflict
+            | CreateProductListingError::ProductListingEventAlreadyExists => {
+                ApiError::conflict(CONFLICT).with_detail("ProductListing conflicts with current state.")
             }
-            CreateProductError::InvalidProductState => {
-                ApiError::bad_request(BAD_BODY_VALUE).with_detail("Product create is invalid.")
+            CreateProductListingError::InvalidProductState => {
+                ApiError::bad_request(BAD_BODY_VALUE).with_detail("ProductListing create is invalid.")
             }
-            CreateProductError::SaleFxSnapshotMissing
-            | CreateProductError::SaleFxSnapshotUnavailable { .. }
-            | CreateProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
-            | CreateProductError::ProductLookupByIdFailed
-            | CreateProductError::ProductLookupByKeyFailed { .. }
-            | CreateProductError::ProductInsertFailed
-            | CreateProductError::ProductUpdateFailed
-            | CreateProductError::ProductEventAppendFailed
-            | CreateProductError::CurrentProductEventLookupFailed
-            | CreateProductError::BeginTransactionFailed
-            | CreateProductError::CommitTransactionFailed => {
+            CreateProductListingError::SaleFxSnapshotMissing
+            | CreateProductListingError::SaleFxSnapshotUnavailable { .. }
+            | CreateProductListingError::PartnerProductListingAuthorizationTemporarilyUnavailable { .. }
+            | CreateProductListingError::ProductListingLookupByIdFailed
+            | CreateProductListingError::ProductListingLookupByKeyFailed { .. }
+            | CreateProductListingError::ProductListingInsertFailed
+            | CreateProductListingError::ProductListingUpdateFailed
+            | CreateProductListingError::ProductListingEventAppendFailed
+            | CreateProductListingError::CurrentProductListingEventLookupFailed
+            | CreateProductListingError::BeginTransactionFailed
+            | CreateProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Product create is temporarily unavailable.")
+                    .with_detail("ProductListing create is temporarily unavailable.")
             }
-            CreateProductError::SaleFxSnapshotInvalid { .. } => {
+            CreateProductListingError::SaleFxSnapshotInvalid { .. } => {
                 ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
-                    .with_detail("Product sale FX snapshot is invalid.")
+                    .with_detail("ProductListing sale FX snapshot is invalid.")
             }
             _ => ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
-                .with_detail("Product create failed internally."),
+                .with_detail("ProductListing create failed internally."),
         }
     }
 }
 
-impl From<UpdateProductError> for ApiError {
-    fn from(error: UpdateProductError) -> Self {
+impl From<UpdateProductListingError> for ApiError {
+    fn from(error: UpdateProductListingError) -> Self {
         match error {
-            UpdateProductError::AuthenticatedActorRequired => {
+            UpdateProductListingError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
                     .with_detail("Bearer token is required.")
             }
-            UpdateProductError::Forbidden => {
+            UpdateProductListingError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            UpdateProductError::ShopNotFound => {
+            UpdateProductListingError::ShopNotFound => {
                 ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
             }
-            UpdateProductError::ProductNotFound => {
-                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
+            UpdateProductListingError::ProductListingNotFound => {
+                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("ProductListing was not found.")
             }
-            UpdateProductError::ProductCurrentEventIdConflict
-            | UpdateProductError::SoldProductReopenRequiresExplicitOperation
-            | UpdateProductError::ShopProductAlreadyExists
-            | UpdateProductError::ProductSlugAlreadyExists
-            | UpdateProductError::ProductEventAlreadyExists => {
-                ApiError::conflict(CONFLICT).with_detail("Product conflicts with current state.")
+            UpdateProductListingError::ProductListingCurrentEventIdConflict
+            | UpdateProductListingError::SoldProductReopenRequiresExplicitOperation
+            | UpdateProductListingError::ShopListingAlreadyExists
+            | UpdateProductListingError::ProductListingSlugAlreadyExists
+            | UpdateProductListingError::ProductListingEventAlreadyExists => {
+                ApiError::conflict(CONFLICT).with_detail("ProductListing conflicts with current state.")
             }
-            UpdateProductError::StateRequired | UpdateProductError::UrlRequired => {
-                ApiError::bad_request(BAD_BODY_VALUE).with_detail("Product update is invalid.")
+            UpdateProductListingError::StateRequired | UpdateProductListingError::UrlRequired => {
+                ApiError::bad_request(BAD_BODY_VALUE).with_detail("ProductListing update is invalid.")
             }
-            UpdateProductError::SaleFxSnapshotMissing
-            | UpdateProductError::SaleFxSnapshotUnavailable { .. }
-            | UpdateProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
-            | UpdateProductError::ProductLookupByIdFailed
-            | UpdateProductError::ProductLookupByKeyFailed { .. }
-            | UpdateProductError::ProductInsertFailed
-            | UpdateProductError::ProductUpdateFailed
-            | UpdateProductError::ProductEventAppendFailed
-            | UpdateProductError::CurrentProductEventLookupFailed
-            | UpdateProductError::BeginTransactionFailed
-            | UpdateProductError::CommitTransactionFailed => {
+            UpdateProductListingError::SaleFxSnapshotMissing
+            | UpdateProductListingError::SaleFxSnapshotUnavailable { .. }
+            | UpdateProductListingError::PartnerProductListingAuthorizationTemporarilyUnavailable { .. }
+            | UpdateProductListingError::ProductListingLookupByIdFailed
+            | UpdateProductListingError::ProductListingLookupByKeyFailed { .. }
+            | UpdateProductListingError::ProductListingInsertFailed
+            | UpdateProductListingError::ProductListingUpdateFailed
+            | UpdateProductListingError::ProductListingEventAppendFailed
+            | UpdateProductListingError::CurrentProductListingEventLookupFailed
+            | UpdateProductListingError::BeginTransactionFailed
+            | UpdateProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Product update is temporarily unavailable.")
+                    .with_detail("ProductListing update is temporarily unavailable.")
             }
-            UpdateProductError::SaleFxSnapshotInvalid { .. } => {
+            UpdateProductListingError::SaleFxSnapshotInvalid { .. } => {
                 ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
-                    .with_detail("Product sale FX snapshot is invalid.")
+                    .with_detail("ProductListing sale FX snapshot is invalid.")
             }
             _ => ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
-                .with_detail("Product update failed internally."),
+                .with_detail("ProductListing update failed internally."),
         }
     }
 }
 
-impl From<DeleteProductError> for ApiError {
-    fn from(error: DeleteProductError) -> Self {
+impl From<DeleteProductListingError> for ApiError {
+    fn from(error: DeleteProductListingError) -> Self {
         match error {
-            DeleteProductError::AuthenticatedActorRequired => {
+            DeleteProductListingError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
                     .with_detail("Bearer token is required.")
             }
-            DeleteProductError::Forbidden => {
+            DeleteProductListingError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            DeleteProductError::ShopNotFound => {
+            DeleteProductListingError::ShopNotFound => {
                 ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
             }
-            DeleteProductError::ProductNotFound => {
-                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
+            DeleteProductListingError::ProductListingNotFound => {
+                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("ProductListing was not found.")
             }
-            DeleteProductError::ProductCurrentEventIdConflict
-            | DeleteProductError::ShopProductAlreadyExists
-            | DeleteProductError::ProductSlugAlreadyExists
-            | DeleteProductError::ProductEventAlreadyExists => {
-                ApiError::conflict(CONFLICT).with_detail("Product conflicts with current state.")
+            DeleteProductListingError::ProductListingCurrentEventIdConflict
+            | DeleteProductListingError::ShopListingAlreadyExists
+            | DeleteProductListingError::ProductListingSlugAlreadyExists
+            | DeleteProductListingError::ProductListingEventAlreadyExists => {
+                ApiError::conflict(CONFLICT).with_detail("ProductListing conflicts with current state.")
             }
-            DeleteProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
-            | DeleteProductError::ProductLookupByIdFailed
-            | DeleteProductError::ProductLookupByKeyFailed { .. }
-            | DeleteProductError::ProductInsertFailed
-            | DeleteProductError::ProductUpdateFailed
-            | DeleteProductError::ProductEventAppendFailed
-            | DeleteProductError::CurrentProductEventLookupFailed
-            | DeleteProductError::BeginTransactionFailed
-            | DeleteProductError::CommitTransactionFailed => {
+            DeleteProductListingError::PartnerProductListingAuthorizationTemporarilyUnavailable { .. }
+            | DeleteProductListingError::ProductListingLookupByIdFailed
+            | DeleteProductListingError::ProductListingLookupByKeyFailed { .. }
+            | DeleteProductListingError::ProductListingInsertFailed
+            | DeleteProductListingError::ProductListingUpdateFailed
+            | DeleteProductListingError::ProductListingEventAppendFailed
+            | DeleteProductListingError::CurrentProductListingEventLookupFailed
+            | DeleteProductListingError::BeginTransactionFailed
+            | DeleteProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Product delete is temporarily unavailable.")
+                    .with_detail("ProductListing delete is temporarily unavailable.")
             }
             _ => ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
-                .with_detail("Product delete failed internally."),
+                .with_detail("ProductListing delete failed internally."),
         }
     }
 }
 
-impl From<IngestWoocommerceProductError> for ApiError {
-    fn from(error: IngestWoocommerceProductError) -> Self {
+impl From<IngestWoocommerceProductListingError> for ApiError {
+    fn from(error: IngestWoocommerceProductListingError) -> Self {
         match error {
-            IngestWoocommerceProductError::MissingTitle
-            | IngestWoocommerceProductError::MissingUrl
-            | IngestWoocommerceProductError::InvalidPrice => ApiError::bad_request(BAD_BODY_VALUE)
-                .with_detail("WooCommerce product payload is invalid."),
-            IngestWoocommerceProductError::MissingShopCurrency
-            | IngestWoocommerceProductError::MissingShopLanguage => {
+            IngestWoocommerceProductListingError::MissingTitle
+            | IngestWoocommerceProductListingError::MissingUrl
+            | IngestWoocommerceProductListingError::InvalidPrice => {
+                ApiError::bad_request(BAD_BODY_VALUE)
+                    .with_detail("WooCommerce product payload is invalid.")
+            }
+            IngestWoocommerceProductListingError::MissingShopCurrency
+            | IngestWoocommerceProductListingError::MissingShopLanguage => {
                 ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
                     .with_detail("WooCommerce shop configuration is incomplete.")
             }
-            IngestWoocommerceProductError::AuthenticatedActorRequired => {
+            IngestWoocommerceProductListingError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
                     .with_detail("Bearer token is required.")
             }
-            IngestWoocommerceProductError::ActorMayNotIngestForShop
-            | IngestWoocommerceProductError::ShopNotPartnered => {
+            IngestWoocommerceProductListingError::ActorMayNotIngestForShop
+            | IngestWoocommerceProductListingError::ShopNotPartnered => {
                 ApiError::forbidden(PARTNER_SHOP_NOT_PARTNERED)
                     .with_detail("Actor is not a partner of this shop.")
             }
-            IngestWoocommerceProductError::ShopNotFound => {
+            IngestWoocommerceProductListingError::ShopNotFound => {
                 ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
             }
-            IngestWoocommerceProductError::WebhookSecretNotConfigured => {
+            IngestWoocommerceProductListingError::WebhookSecretNotConfigured => {
                 ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
                     .with_detail("WooCommerce webhook secret is not configured.")
             }
-            IngestWoocommerceProductError::InvalidSignature => {
+            IngestWoocommerceProductListingError::InvalidSignature => {
                 ApiError::unauthorized(BAD_HEADER_VALUE)
                     .with_header_field("x-wc-webhook-signature")
                     .with_detail("WooCommerce signature is invalid.")
             }
-            IngestWoocommerceProductError::PartnerMembershipTemporarilyUnavailable { .. }
-            | IngestWoocommerceProductError::WebhookShopTemporarilyUnavailable { .. } => {
+            IngestWoocommerceProductListingError::PartnerMembershipTemporarilyUnavailable {
+                ..
+            }
+            | IngestWoocommerceProductListingError::WebhookShopTemporarilyUnavailable { .. } => {
                 ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
                     .with_detail("WooCommerce webhook validation is temporarily unavailable.")
             }
-            IngestWoocommerceProductError::InvalidPartnerMembershipReadModel { .. }
-            | IngestWoocommerceProductError::InvalidWebhookShopReadModel { .. } => {
+            IngestWoocommerceProductListingError::InvalidPartnerMembershipReadModel { .. }
+            | IngestWoocommerceProductListingError::InvalidWebhookShopReadModel { .. } => {
                 ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
                     .with_detail("WooCommerce webhook validation failed internally.")
             }
-            IngestWoocommerceProductError::ProductUpsertFailed { source } => ApiError::from(source),
-            IngestWoocommerceProductError::ProductRemovalFailed { source } => {
+            IngestWoocommerceProductListingError::ProductListingUpsertFailed { source } => {
                 ApiError::from(source)
             }
-            IngestWoocommerceProductError::BeginTransactionFailed
-            | IngestWoocommerceProductError::CommitTransactionFailed => {
+            IngestWoocommerceProductListingError::ProductListingRemovalFailed { source } => {
+                ApiError::from(source)
+            }
+            IngestWoocommerceProductListingError::BeginTransactionFailed
+            | IngestWoocommerceProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("WooCommerce product ingestion is temporarily unavailable.")
             }
@@ -898,114 +906,114 @@ impl From<IngestWoocommerceProductError> for ApiError {
     }
 }
 
-impl From<UpsertProductError> for ApiError {
-    fn from(error: UpsertProductError) -> Self {
+impl From<UpsertProductListingError> for ApiError {
+    fn from(error: UpsertProductListingError) -> Self {
         match error {
-            UpsertProductError::AuthenticatedActorRequired => {
+            UpsertProductListingError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
                     .with_detail("Bearer token is required.")
             }
-            UpsertProductError::Forbidden => {
+            UpsertProductListingError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            UpsertProductError::ShopNotFound => {
+            UpsertProductListingError::ShopNotFound => {
                 ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
             }
-            UpsertProductError::ProductCurrentEventIdConflict
-            | UpsertProductError::SoldProductReopenRequiresExplicitOperation
-            | UpsertProductError::ProductKeyAlreadyExists
-            | UpsertProductError::ProductSlugAlreadyExists => {
-                ApiError::conflict(CONFLICT).with_detail("Product conflicts with current state.")
+            UpsertProductListingError::ProductListingCurrentEventIdConflict
+            | UpsertProductListingError::SoldProductReopenRequiresExplicitOperation
+            | UpsertProductListingError::ProductListingKeyAlreadyExists
+            | UpsertProductListingError::ProductListingSlugAlreadyExists => {
+                ApiError::conflict(CONFLICT).with_detail("ProductListing conflicts with current state.")
             }
-            UpsertProductError::InvalidProductState => {
-                ApiError::bad_request(BAD_BODY_VALUE).with_detail("Product upsert is invalid.")
+            UpsertProductListingError::InvalidProductState => {
+                ApiError::bad_request(BAD_BODY_VALUE).with_detail("ProductListing upsert is invalid.")
             }
-            UpsertProductError::SaleFxSnapshotMissing
-            | UpsertProductError::SaleFxSnapshotUnavailable { .. }
-            | UpsertProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
-            | UpsertProductError::ProductPersistenceTemporarilyUnavailable { .. }
-            | UpsertProductError::ProductEventStoreTemporarilyUnavailable { .. }
-            | UpsertProductError::BeginTransactionFailed
-            | UpsertProductError::CommitTransactionFailed => {
+            UpsertProductListingError::SaleFxSnapshotMissing
+            | UpsertProductListingError::SaleFxSnapshotUnavailable { .. }
+            | UpsertProductListingError::PartnerProductListingAuthorizationTemporarilyUnavailable { .. }
+            | UpsertProductListingError::ProductListingPersistenceTemporarilyUnavailable { .. }
+            | UpsertProductListingError::ProductListingEventStoreTemporarilyUnavailable { .. }
+            | UpsertProductListingError::BeginTransactionFailed
+            | UpsertProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Product upsert is temporarily unavailable.")
+                    .with_detail("ProductListing upsert is temporarily unavailable.")
             }
-            UpsertProductError::SaleFxSnapshotInvalid { .. }
-            | UpsertProductError::PartnerProductAuthorizationInternal { .. }
-            | UpsertProductError::InvalidPersistedProductState { .. } => {
+            UpsertProductListingError::SaleFxSnapshotInvalid { .. }
+            | UpsertProductListingError::PartnerProductListingAuthorizationInternal { .. }
+            | UpsertProductListingError::InvalidPersistedProductState { .. } => {
                 ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
-                    .with_detail("Product upsert failed internally.")
+                    .with_detail("ProductListing upsert failed internally.")
             }
         }
     }
 }
 
-impl From<GetProductError> for ApiError {
-    fn from(error: GetProductError) -> Self {
+impl From<GetProductListingError> for ApiError {
+    fn from(error: GetProductListingError) -> Self {
         match error {
-            GetProductError::NotFound => {
-                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
+            GetProductListingError::NotFound => {
+                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("ProductListing was not found.")
             }
-            GetProductError::ProductDetailsQueryFailed
-            | GetProductError::PricingFxSnapshotMissing
-            | GetProductError::PricingFxSnapshotUnavailable { .. }
-            | GetProductError::BeginTransactionFailed
-            | GetProductError::CommitTransactionFailed => {
+            GetProductListingError::ProductListingDetailsQueryFailed
+            | GetProductListingError::PricingFxSnapshotMissing
+            | GetProductListingError::PricingFxSnapshotUnavailable { .. }
+            | GetProductListingError::BeginTransactionFailed
+            | GetProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Product details are temporarily unavailable.")
+                    .with_detail("ProductListing details are temporarily unavailable.")
             }
-            GetProductError::ProductDetailsReadModelInvalid
-            | GetProductError::PricingFxSnapshotInvalid { .. }
-            | GetProductError::SaleFxSnapshotMismatch { .. }
-            | GetProductError::ProductPriceConversionFailed { .. } => {
+            GetProductListingError::ProductListingDetailsReadModelInvalid
+            | GetProductListingError::PricingFxSnapshotInvalid { .. }
+            | GetProductListingError::SaleFxSnapshotMismatch { .. }
+            | GetProductListingError::ProductListingPriceConversionFailed { .. } => {
                 ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
-                    .with_detail("Product details failed internally.")
+                    .with_detail("ProductListing details failed internally.")
             }
         }
     }
 }
 
-impl From<GetProductEventsError> for ApiError {
-    fn from(error: GetProductEventsError) -> Self {
+impl From<GetProductListingEventsError> for ApiError {
+    fn from(error: GetProductListingEventsError) -> Self {
         match error {
-            GetProductEventsError::NotFound => {
-                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
+            GetProductListingEventsError::NotFound => {
+                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("ProductListing was not found.")
             }
-            GetProductEventsError::ProductEventQueryFailed
-            | GetProductEventsError::BeginTransactionFailed
-            | GetProductEventsError::CommitTransactionFailed => {
+            GetProductListingEventsError::ProductListingEventQueryFailed
+            | GetProductListingEventsError::BeginTransactionFailed
+            | GetProductListingEventsError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Product history is temporarily unavailable.")
+                    .with_detail("ProductListing history is temporarily unavailable.")
             }
-            GetProductEventsError::ProductEventReadModelInvalid => {
+            GetProductListingEventsError::ProductListingEventReadModelInvalid => {
                 ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
-                    .with_detail("Product history contains invalid event data.")
+                    .with_detail("ProductListing history contains invalid event data.")
             }
         }
     }
 }
 
-impl From<GetSimilarProductsError> for ApiError {
-    fn from(error: GetSimilarProductsError) -> Self {
+impl From<GetSimilarProductListingsError> for ApiError {
+    fn from(error: GetSimilarProductListingsError) -> Self {
         match error {
-            GetSimilarProductsError::NotFound => {
-                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
+            GetSimilarProductListingsError::NotFound => {
+                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("ProductListing was not found.")
             }
-            GetSimilarProductsError::ProductEmbeddingQueryFailed { .. }
-            | GetSimilarProductsError::SimilaritySearchUnavailable
-            | GetSimilarProductsError::BeginTransactionFailed
-            | GetSimilarProductsError::CommitTransactionFailed
-            | GetSimilarProductsError::PricingFxSnapshotMissing
-            | GetSimilarProductsError::PricingFxSnapshotUnavailable { .. }
-            | GetSimilarProductsError::ProductUserStateQueryFailed { .. } => {
+            GetSimilarProductListingsError::ProductListingEmbeddingQueryFailed { .. }
+            | GetSimilarProductListingsError::SimilaritySearchUnavailable
+            | GetSimilarProductListingsError::BeginTransactionFailed
+            | GetSimilarProductListingsError::CommitTransactionFailed
+            | GetSimilarProductListingsError::PricingFxSnapshotMissing
+            | GetSimilarProductListingsError::PricingFxSnapshotUnavailable { .. }
+            | GetSimilarProductListingsError::ProductListingUserStateQueryFailed { .. } => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Similar products are temporarily unavailable.")
             }
-            GetSimilarProductsError::PricingFxSnapshotInvalid { .. }
-            | GetSimilarProductsError::ProductUserStateReadModelInvalid { .. }
-            | GetSimilarProductsError::ProductUserStateMissing
-            | GetSimilarProductsError::HiddenProductSummaryInvalid { .. } => {
+            GetSimilarProductListingsError::PricingFxSnapshotInvalid { .. }
+            | GetSimilarProductListingsError::ProductListingUserStateReadModelInvalid { .. }
+            | GetSimilarProductListingsError::ProductListingUserStateMissing
+            | GetSimilarProductListingsError::HiddenProductListingSummaryInvalid { .. } => {
                 ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
                     .with_detail("Similar product personalization failed internally.")
             }
@@ -1013,25 +1021,25 @@ impl From<GetSimilarProductsError> for ApiError {
     }
 }
 
-impl From<SearchProductsError> for ApiError {
-    fn from(error: SearchProductsError) -> Self {
+impl From<SearchProductListingsError> for ApiError {
+    fn from(error: SearchProductListingsError) -> Self {
         match error {
-            SearchProductsError::ProductSearchQueryFailed
-            | SearchProductsError::FxRateSnapshotMissing
-            | SearchProductsError::BeginFxRateSnapshotTransactionFailed { .. }
-            | SearchProductsError::FxRateSnapshotReadFailed { .. }
-            | SearchProductsError::CommitFxRateSnapshotTransactionFailed { .. }
-            | SearchProductsError::ProductUserStateQueryFailed { .. } => {
+            SearchProductListingsError::ProductListingSearchQueryFailed
+            | SearchProductListingsError::FxRateSnapshotMissing
+            | SearchProductListingsError::BeginFxRateSnapshotTransactionFailed { .. }
+            | SearchProductListingsError::FxRateSnapshotReadFailed { .. }
+            | SearchProductListingsError::CommitFxRateSnapshotTransactionFailed { .. }
+            | SearchProductListingsError::ProductListingUserStateQueryFailed { .. } => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Product search is temporarily unavailable.")
+                    .with_detail("ProductListing search is temporarily unavailable.")
             }
-            SearchProductsError::ProductSearchReadModelInvalid
-            | SearchProductsError::FxRateSnapshotInvalid { .. }
-            | SearchProductsError::ProductUserStateReadModelInvalid { .. }
-            | SearchProductsError::ProductUserStateMissing
-            | SearchProductsError::HiddenProductSummaryInvalid { .. } => {
+            SearchProductListingsError::ProductListingSearchReadModelInvalid
+            | SearchProductListingsError::FxRateSnapshotInvalid { .. }
+            | SearchProductListingsError::ProductListingUserStateReadModelInvalid { .. }
+            | SearchProductListingsError::ProductListingUserStateMissing
+            | SearchProductListingsError::HiddenProductListingSummaryInvalid { .. } => {
                 ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
-                    .with_detail("Product search failed internally.")
+                    .with_detail("ProductListing search failed internally.")
             }
         }
     }
@@ -1466,113 +1474,113 @@ impl From<ListWatchlistError> for ApiError {
             ListWatchlistError::InvalidPersistedState
             | ListWatchlistError::PricingFxSnapshotInvalid { .. }
             | ListWatchlistError::SaleFxSnapshotMismatch { .. }
-            | ListWatchlistError::ProductPriceConversionFailed { .. } => {
+            | ListWatchlistError::ProductListingPriceConversionFailed { .. } => {
                 ApiError::internal_server_error(WATCHLIST_INTERNAL_ERROR)
                     .with_detail("Watchlist failed internally.")
             }
         }
     }
 }
-impl From<WatchProductError> for ApiError {
-    fn from(error: WatchProductError) -> Self {
+impl From<WatchProductListingError> for ApiError {
+    fn from(error: WatchProductListingError) -> Self {
         match error {
-            WatchProductError::AuthenticatedActorRequired => {
+            WatchProductListingError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
                     .with_detail("Bearer token is required.")
             }
-            WatchProductError::Forbidden => {
+            WatchProductListingError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            WatchProductError::AlreadyExists => {
+            WatchProductListingError::AlreadyExists => {
                 ApiError::conflict(CONFLICT).with_detail("Watchlist entry already exists.")
             }
-            WatchProductError::UserNotFound => {
+            WatchProductListingError::UserNotFound => {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
-            WatchProductError::WatchlistQuotaExceeded {
+            WatchProductListingError::WatchlistQuotaExceeded {
                 active_count,
                 quota,
             } => ApiError::unprocessable_content(WATCHLIST_QUOTA_EXCEEDED).with_detail(format!(
                 "Exceeded the maximum amount of watchlist entries. There are already {active_count}/{quota} active watchlist entries occupied."
             )),
-            WatchProductError::TemporarilyUnavailable { .. }
-            | WatchProductError::UserTierEntitlementsLockFailed { .. }
-            | WatchProductError::WatchlistQuotaReadFailed { .. }
-            | WatchProductError::BeginTransactionFailed
-            | WatchProductError::CommitTransactionFailed => {
+            WatchProductListingError::TemporarilyUnavailable { .. }
+            | WatchProductListingError::UserTierEntitlementsLockFailed { .. }
+            | WatchProductListingError::WatchlistQuotaReadFailed { .. }
+            | WatchProductListingError::BeginTransactionFailed
+            | WatchProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Watchlist is temporarily unavailable.")
             }
-            WatchProductError::InvalidPersistedState => {
+            WatchProductListingError::InvalidPersistedState => {
                 ApiError::internal_server_error(WATCHLIST_INTERNAL_ERROR)
                     .with_detail("Watchlist failed internally.")
             }
         }
     }
 }
-impl From<UpdateWatchlistProductError> for ApiError {
-    fn from(error: UpdateWatchlistProductError) -> Self {
+impl From<UpdateWatchlistProductListingError> for ApiError {
+    fn from(error: UpdateWatchlistProductListingError) -> Self {
         match error {
-            UpdateWatchlistProductError::AuthenticatedActorRequired => {
+            UpdateWatchlistProductListingError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
                     .with_detail("Bearer token is required.")
             }
-            UpdateWatchlistProductError::Forbidden => {
+            UpdateWatchlistProductListingError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            UpdateWatchlistProductError::NotFound => ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
+            UpdateWatchlistProductListingError::NotFound => ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
                 .with_detail("Watchlist entry was not found."),
-            UpdateWatchlistProductError::ConcurrencyConflict => {
+            UpdateWatchlistProductListingError::ConcurrencyConflict => {
                 ApiError::conflict(CONFLICT).with_detail("Watchlist entry was changed concurrently.")
             }
-            UpdateWatchlistProductError::UserNotFound => {
+            UpdateWatchlistProductListingError::UserNotFound => {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
-            UpdateWatchlistProductError::WatchlistQuotaExceeded {
+            UpdateWatchlistProductListingError::WatchlistQuotaExceeded {
                 active_count,
                 quota,
             } => ApiError::unprocessable_content(WATCHLIST_QUOTA_EXCEEDED).with_detail(format!(
                 "Exceeded the maximum amount of watchlist entries. There are already {active_count}/{quota} active watchlist entries occupied."
             )),
-            UpdateWatchlistProductError::TemporarilyUnavailable { .. }
-            | UpdateWatchlistProductError::UserTierEntitlementsLockFailed { .. }
-            | UpdateWatchlistProductError::WatchlistQuotaReadFailed { .. }
-            | UpdateWatchlistProductError::BeginTransactionFailed
-            | UpdateWatchlistProductError::CommitTransactionFailed => {
+            UpdateWatchlistProductListingError::TemporarilyUnavailable { .. }
+            | UpdateWatchlistProductListingError::UserTierEntitlementsLockFailed { .. }
+            | UpdateWatchlistProductListingError::WatchlistQuotaReadFailed { .. }
+            | UpdateWatchlistProductListingError::BeginTransactionFailed
+            | UpdateWatchlistProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Watchlist is temporarily unavailable.")
             }
-            UpdateWatchlistProductError::InvalidPersistedState => {
+            UpdateWatchlistProductListingError::InvalidPersistedState => {
                 ApiError::internal_server_error(WATCHLIST_INTERNAL_ERROR)
                     .with_detail("Watchlist failed internally.")
             }
         }
     }
 }
-impl From<UnwatchProductError> for ApiError {
-    fn from(error: UnwatchProductError) -> Self {
+impl From<UnwatchProductListingError> for ApiError {
+    fn from(error: UnwatchProductListingError) -> Self {
         match error {
-            UnwatchProductError::AuthenticatedActorRequired => {
+            UnwatchProductListingError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
                     .with_detail("Bearer token is required.")
             }
-            UnwatchProductError::Forbidden => {
+            UnwatchProductListingError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            UnwatchProductError::NotFound => ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
+            UnwatchProductListingError::NotFound => ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
                 .with_detail("Watchlist entry was not found."),
-            UnwatchProductError::ConcurrencyConflict => ApiError::conflict(CONFLICT)
+            UnwatchProductListingError::ConcurrencyConflict => ApiError::conflict(CONFLICT)
                 .with_detail("Watchlist entry was changed concurrently."),
-            UnwatchProductError::TemporarilyUnavailable { .. }
-            | UnwatchProductError::BeginTransactionFailed
-            | UnwatchProductError::CommitTransactionFailed => {
+            UnwatchProductListingError::TemporarilyUnavailable { .. }
+            | UnwatchProductListingError::BeginTransactionFailed
+            | UnwatchProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Watchlist is temporarily unavailable.")
             }
-            UnwatchProductError::InvalidPersistedState => {
+            UnwatchProductListingError::InvalidPersistedState => {
                 ApiError::internal_server_error(WATCHLIST_INTERNAL_ERROR)
                     .with_detail("Watchlist failed internally.")
             }
@@ -2117,7 +2125,7 @@ mod tests {
     async fn should_map_update_watchlist_concurrency_conflict_to_conflict()
     -> Result<(), Box<dyn std::error::Error>> {
         let response =
-            ApiError::from(UpdateWatchlistProductError::ConcurrencyConflict).into_response();
+            ApiError::from(UpdateWatchlistProductListingError::ConcurrencyConflict).into_response();
 
         assert_eq!(StatusCode::CONFLICT, response.status());
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
@@ -2129,7 +2137,8 @@ mod tests {
     #[tokio::test]
     async fn should_map_unwatch_product_concurrency_conflict_to_conflict()
     -> Result<(), Box<dyn std::error::Error>> {
-        let response = ApiError::from(UnwatchProductError::ConcurrencyConflict).into_response();
+        let response =
+            ApiError::from(UnwatchProductListingError::ConcurrencyConflict).into_response();
 
         assert_eq!(StatusCode::CONFLICT, response.status());
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;

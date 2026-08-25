@@ -156,8 +156,8 @@ fn evaluate_schema_fields(
     html: &str,
 ) -> Vec<SelectorFieldEvaluation> {
     let mut fields = Vec::new();
-    if let Some(rule) = &schema.shops_product_id {
-        fields.push(evaluate_rule("shops_product_id", rule, html));
+    if let Some(rule) = &schema.shop_listing_id {
+        fields.push(evaluate_rule("shop_listing_id", rule, html));
     }
     fields.push(evaluate_rule("title", &schema.title, html));
     if let Some(rule) = &schema.description {
@@ -255,7 +255,7 @@ mod tests {
 
     fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
-            shops_product_id: Some(text_rule("#product-id")),
+            shop_listing_id: Some(text_rule("#product-id")),
             title: text_rule(title_selector),
             description: None,
             price: None,

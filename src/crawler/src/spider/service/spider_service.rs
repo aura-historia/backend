@@ -9,7 +9,7 @@ use crate::spider::discovery::website_spider::{
     CrawlDiagnostics, CrawlFailureKind, CrawledPage, Spider, SpiderDiscoveryError,
 };
 use crate::spider::service::crawl_run_state::CrawlRunState;
-use crate::spider::service::product_pattern::ProductPattern;
+use crate::spider::service::product_pattern::ProductListingPattern;
 use crate::spider::utils::url::CrawledUrl;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
@@ -133,7 +133,7 @@ impl SpiderServiceImpl {
         shop_id: &ShopId,
         domain_id: &uuid::Uuid,
         pages: &[CrawledPage],
-        pattern: &ProductPattern,
+        pattern: &ProductListingPattern,
     ) -> Result<usize, SpiderServiceError> {
         if pages.is_empty() {
             return Ok(0);
@@ -166,7 +166,7 @@ impl SpiderServiceImpl {
         buffer: &mut Vec<CrawledPage>,
         shop_id: &ShopId,
         domain_id: &uuid::Uuid,
-        pattern: &ProductPattern,
+        pattern: &ProductListingPattern,
     ) -> Result<usize, SpiderServiceError> {
         let count = buffer
             .iter()
@@ -209,8 +209,8 @@ impl SpiderServiceImpl {
             .await
             .map(|pattern| {
                 pattern
-                    .map(ProductPattern::from)
-                    .unwrap_or(ProductPattern::Unknown)
+                    .map(ProductListingPattern::from)
+                    .unwrap_or(ProductListingPattern::Unknown)
             })?;
 
         if state.pattern.is_unknown() {
@@ -459,7 +459,7 @@ impl SpiderService for SpiderServiceImpl {
     }
 }
 
-fn classify_url(url: &str, product_pattern: &ProductPattern) -> UrlClass {
+fn classify_url(url: &str, product_pattern: &ProductListingPattern) -> UrlClass {
     let crawled = match Url::parse(url) {
         Ok(parsed) => CrawledUrl::new(parsed),
         Err(_) => return UrlClass::Other,
@@ -475,16 +475,16 @@ mod tests {
 
     #[test]
     fn should_classify_product_when_pattern_matches_for_type() {
-        let pattern = ProductPattern::Known(Regex::new(r"/product/").unwrap());
+        let pattern = ProductListingPattern::Known(Regex::new(r"/product/").unwrap());
 
         let class = classify_url("https://example.com/product/42", &pattern);
 
-        assert_eq!(class, UrlClass::Product);
+        assert_eq!(class, UrlClass::ProductListing);
     }
 
     #[test]
     fn should_classify_imprint_when_url_contains_legal_keywords_for_type() {
-        let pattern = ProductPattern::Unknown;
+        let pattern = ProductListingPattern::Unknown;
 
         let class = classify_url("https://example.com/impressum", &pattern);
 
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn should_classify_category_when_url_contains_category_keywords_for_type() {
-        let pattern = ProductPattern::Unknown;
+        let pattern = ProductListingPattern::Unknown;
 
         let class = classify_url("https://example.com/collections/modern", &pattern);
 
@@ -502,7 +502,7 @@ mod tests {
 
     #[test]
     fn should_classify_other_when_url_does_not_match_any_rule_for_type() {
-        let pattern = ProductPattern::Unknown;
+        let pattern = ProductListingPattern::Unknown;
 
         let class = classify_url("https://example.com/random-page", &pattern);
 

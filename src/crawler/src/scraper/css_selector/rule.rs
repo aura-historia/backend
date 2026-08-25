@@ -621,7 +621,7 @@ mod tests {
 
     #[test]
     fn should_extract_data_attribute_when_element_has_custom_attribute() {
-        let doc = html(r#"<div data-price="42.50">Product</div>"#);
+        let doc = html(r#"<div data-price="42.50">ProductListing</div>"#);
         let r = rule("div", attr_kind("data-price"), ExtractionCardinality::First);
         assert_eq!(r.apply(&doc).unwrap(), vec!["42.50"]);
     }
@@ -963,9 +963,9 @@ mod tests {
 
     #[test]
     fn should_extract_text_when_using_id_selector() {
-        let doc = html(r#"<span id="product-title">My Product</span>"#);
+        let doc = html(r#"<span id="product-title">My ProductListing</span>"#);
         let r = rule("#product-title", text_kind(), ExtractionCardinality::First);
-        assert_eq!(r.apply(&doc).unwrap(), vec!["My Product"]);
+        assert_eq!(r.apply(&doc).unwrap(), vec!["My ProductListing"]);
     }
 
     #[test]
@@ -1059,7 +1059,7 @@ mod tests {
         assert_eq!(result[0], "Only");
     }
 
-    // ─── Product image URLs: realistic multi-selector scenario ─────────
+    // ─── ProductListing image URLs: realistic multi-selector scenario ─────────
 
     #[test]
     fn should_collect_all_image_urls_from_multiple_selectors_for_product_images() {
@@ -1202,7 +1202,7 @@ mod tests {
         let doc = Html::parse_document(
             r#"
             <html><body>
-                <a class="product" href="/product/foo">Product detail</a>
+                <a class="product" href="/product/foo">ProductListing detail</a>
             </body></html>
             "#,
         );
@@ -1272,7 +1272,7 @@ mod tests {
         let doc = Html::parse_document(
             r#"
             <html><body>
-                <a class="product" href="/products/foo">Product detail</a>
+                <a class="product" href="/products/foo">ProductListing detail</a>
             </body></html>
             "#,
         );
@@ -1484,7 +1484,7 @@ mod tests {
             <html>
             <head><title>Test</title></head>
             <body>
-                <h1 class="main-title">Product Name</h1>
+                <h1 class="main-title">ProductListing Name</h1>
                 <div class="price">$99.99</div>
                 <div class="images">
                     <img src="img1.jpg" alt="Front"/>
@@ -1496,7 +1496,7 @@ mod tests {
         );
 
         let title_rule = rule(".main-title", text_kind(), ExtractionCardinality::First);
-        assert_eq!(title_rule.apply(&doc).unwrap(), vec!["Product Name"]);
+        assert_eq!(title_rule.apply(&doc).unwrap(), vec!["ProductListing Name"]);
 
         let price_rule = rule(".price", text_kind(), ExtractionCardinality::First);
         assert_eq!(price_rule.apply(&doc).unwrap(), vec!["$99.99"]);

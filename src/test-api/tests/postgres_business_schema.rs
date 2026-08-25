@@ -258,7 +258,7 @@ async fn should_support_core_business_relations() {
             '10000000-0000-0000-0000-000000000001',
             'Vases',
             'ACTIVE',
-            '{"product_query": ["vase"]}',
+            '{"product_listing_query": ["vase"]}',
             'en',
             'EUR'
         );

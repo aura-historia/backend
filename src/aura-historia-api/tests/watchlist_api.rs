@@ -4,7 +4,7 @@ use api_support::{
     assert_problem, json_response, seed_access_token_for, seed_active_watchlist_entries,
     seed_inactive_watchlist_entry, seed_product, seed_user, seed_user_with_tier,
 };
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use test_api::{
     AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
     get_postgres_client,
@@ -231,7 +231,7 @@ async fn should_return_not_found_when_updating_missing_watchlist_entry() {
         .patch(format!(
             "{}/api/v1/me/watchlist/{}",
             AURA_API.base_url(),
-            ProductId::new()
+            ProductListingId::new()
         ))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({"notifications": true}))

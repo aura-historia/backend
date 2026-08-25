@@ -2,11 +2,11 @@
 
 ## Purpose
 
-- Own Product title translation LLM adapter.
+- Own Product Listing title translation LLM adapter.
 
 ## Core Design
 
-- Implements Product service `ProductTitleTranslator` with a neutral LLM client and direct `application` error contracts.
+- Implements Product Listing service `ProductListingTitleTranslator` with a neutral LLM client and direct `application` error contracts.
 - Owns prompt, response schema, and provider-error mapping.
 - No queue, CDC, runtime config, SQLx, or transport code.
 

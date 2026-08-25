@@ -16,9 +16,10 @@ use oauth_service::use_cases::{
     TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
 };
 use product_listing_service::use_cases::{
-    CreateProductUseCase, DeleteProductUseCase, GetProductEventsUseCase, GetProductUseCase,
-    GetSimilarProductsUseCase, IngestWoocommerceProductUseCase, SearchProductsUseCase,
-    UpdateProductUseCase, UpsertProductUseCase,
+    CreateProductListingUseCase, DeleteProductListingUseCase, GetProductListingEventsUseCase,
+    GetProductListingUseCase, GetSimilarProductListingsUseCase,
+    IngestWoocommerceProductListingUseCase, SearchProductListingsUseCase,
+    UpdateProductListingUseCase, UpsertProductListingUseCase,
 };
 use search_filter_service::use_cases::{
     CreateSearchFilterUseCase, DeleteOwnedSearchFilterUseCase, GetOwnedSearchFilterUseCase,
@@ -51,7 +52,8 @@ use user_service::use_cases::queries::get_own_user::GetOwnUserUseCase;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensUseCase;
 use user_service::use_cases::queries::search_users::SearchUsersUseCase;
 use watchlist_service::use_cases::{
-    ListWatchlistUseCase, UnwatchProductUseCase, UpdateWatchlistProductUseCase, WatchProductUseCase,
+    ListWatchlistUseCase, UnwatchProductListingUseCase, UpdateWatchlistProductListingUseCase,
+    WatchProductListingUseCase,
 };
 
 #[async_trait]
@@ -210,13 +212,13 @@ impl NotificationsState {
 
 #[derive(Clone)]
 pub struct WebhooksState {
-    pub(crate) ingest: Arc<dyn IngestWoocommerceProductUseCase>,
+    pub(crate) ingest: Arc<dyn IngestWoocommerceProductListingUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
 impl WebhooksState {
     pub fn new(
-        ingest: Arc<dyn IngestWoocommerceProductUseCase>,
+        ingest: Arc<dyn IngestWoocommerceProductListingUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
@@ -383,18 +385,18 @@ impl ShopsState {
 
 #[derive(Clone)]
 pub struct ProductsState {
-    pub(crate) get_product: Arc<dyn GetProductUseCase>,
-    pub(crate) get_product_events: Option<Arc<dyn GetProductEventsUseCase>>,
-    pub(crate) get_similar_products: Arc<dyn GetSimilarProductsUseCase>,
-    pub(crate) search_products: Arc<dyn SearchProductsUseCase>,
+    pub(crate) get_product: Arc<dyn GetProductListingUseCase>,
+    pub(crate) get_product_events: Option<Arc<dyn GetProductListingEventsUseCase>>,
+    pub(crate) get_similar_products: Arc<dyn GetSimilarProductListingsUseCase>,
+    pub(crate) search_products: Arc<dyn SearchProductListingsUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
 impl ProductsState {
     pub fn new(
-        get_product: Arc<dyn GetProductUseCase>,
-        get_similar_products: Arc<dyn GetSimilarProductsUseCase>,
-        search_products: Arc<dyn SearchProductsUseCase>,
+        get_product: Arc<dyn GetProductListingUseCase>,
+        get_similar_products: Arc<dyn GetSimilarProductListingsUseCase>,
+        search_products: Arc<dyn SearchProductListingsUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
@@ -408,7 +410,7 @@ impl ProductsState {
 
     pub fn with_product_events(
         mut self,
-        get_product_events: Arc<dyn GetProductEventsUseCase>,
+        get_product_events: Arc<dyn GetProductListingEventsUseCase>,
     ) -> Self {
         self.get_product_events = Some(get_product_events);
         self
@@ -417,19 +419,19 @@ impl ProductsState {
 
 #[derive(Clone)]
 pub struct PartnerProductsState {
-    pub(crate) create: Arc<dyn CreateProductUseCase>,
-    pub(crate) update: Arc<dyn UpdateProductUseCase>,
-    pub(crate) upsert: Arc<dyn UpsertProductUseCase>,
-    pub(crate) delete: Arc<dyn DeleteProductUseCase>,
+    pub(crate) create: Arc<dyn CreateProductListingUseCase>,
+    pub(crate) update: Arc<dyn UpdateProductListingUseCase>,
+    pub(crate) upsert: Arc<dyn UpsertProductListingUseCase>,
+    pub(crate) delete: Arc<dyn DeleteProductListingUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
 impl PartnerProductsState {
     pub fn new(
-        create: Arc<dyn CreateProductUseCase>,
-        update: Arc<dyn UpdateProductUseCase>,
-        upsert: Arc<dyn UpsertProductUseCase>,
-        delete: Arc<dyn DeleteProductUseCase>,
+        create: Arc<dyn CreateProductListingUseCase>,
+        update: Arc<dyn UpdateProductListingUseCase>,
+        upsert: Arc<dyn UpsertProductListingUseCase>,
+        delete: Arc<dyn DeleteProductListingUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
@@ -497,18 +499,18 @@ impl UsersState {
 #[derive(Clone)]
 pub struct WatchlistState {
     pub(crate) list_watchlist: Arc<dyn ListWatchlistUseCase>,
-    pub(crate) watch_product: Arc<dyn WatchProductUseCase>,
-    pub(crate) update_watchlist_product: Arc<dyn UpdateWatchlistProductUseCase>,
-    pub(crate) unwatch_product: Arc<dyn UnwatchProductUseCase>,
+    pub(crate) watch_product: Arc<dyn WatchProductListingUseCase>,
+    pub(crate) update_watchlist_product: Arc<dyn UpdateWatchlistProductListingUseCase>,
+    pub(crate) unwatch_product: Arc<dyn UnwatchProductListingUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
 impl WatchlistState {
     pub fn new(
         list_watchlist: Arc<dyn ListWatchlistUseCase>,
-        watch_product: Arc<dyn WatchProductUseCase>,
-        update_watchlist_product: Arc<dyn UpdateWatchlistProductUseCase>,
-        unwatch_product: Arc<dyn UnwatchProductUseCase>,
+        watch_product: Arc<dyn WatchProductListingUseCase>,
+        update_watchlist_product: Arc<dyn UpdateWatchlistProductListingUseCase>,
+        unwatch_product: Arc<dyn UnwatchProductListingUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {

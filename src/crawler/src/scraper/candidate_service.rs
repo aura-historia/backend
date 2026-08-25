@@ -3,7 +3,7 @@
 //! A scraper candidate is a URL stored in `shop_urls` that is due for scraping by recency and
 //! retry/state rules. Hash comparison is performed in-memory by the scraper after fetching HTML.
 //! Each candidate carries the shop metadata (`shop_id`, `shop_name`, `shop_type`) needed to build
-//! an [`UpsertProductCommand`] without an additional lookup, as well as snapshots of the last
+//! an [`UpsertProductListingCommand`] without an additional lookup, as well as snapshots of the last
 //! successfully scraped field values used for change detection.
 
 use async_trait::async_trait;
@@ -65,7 +65,7 @@ pub struct ShopLlmUsage {
 /// Snapshot of a [`NormalizedProduct`] serialized to the same TEXT representation used in the
 /// database so that it can be compared directly with the `last_scraped_*` columns.
 #[derive(Debug)]
-pub struct ProductSnapshot {
+pub struct ProductListingSnapshot {
     pub price: Option<String>,
     pub price_estimate_min: Option<String>,
     pub price_estimate_max: Option<String>,
@@ -76,7 +76,7 @@ pub struct ProductSnapshot {
     pub state: String,
 }
 
-impl ProductSnapshot {
+impl ProductListingSnapshot {
     /// Build a snapshot from a normalised product.  The representations produced here must match
     /// exactly what [`ScraperCandidateServiceImpl::mark_as_scraped`] persists.
     pub fn from_normalized(product: &NormalizedProduct) -> Self {
@@ -121,7 +121,7 @@ impl ProductSnapshot {
     }
 }
 
-impl ProductSnapshot {
+impl ProductListingSnapshot {
     /// Reconstruct a snapshot from the persisted `last_scraped_*` columns in a
     /// [`ScraperCandidate`].  Used when the HTML hash matches and the field
     /// snapshot must be re-persisted unchanged (so that `last_scraped` is
@@ -154,7 +154,7 @@ pub fn has_product_changed(candidate: &ScraperCandidate, product: &NormalizedPro
         return true;
     }
 
-    let snap = ProductSnapshot::from_normalized(product);
+    let snap = ProductListingSnapshot::from_normalized(product);
 
     snap.price != candidate.last_scraped_price
         || snap.price_estimate_min != candidate.last_scraped_price_estimate_min
@@ -196,7 +196,7 @@ pub trait ScraperCandidateService: Send + Sync {
         shop_id: &ShopId,
         url: &Url,
         hash: &str,
-        snapshot: &ProductSnapshot,
+        snapshot: &ProductListingSnapshot,
     ) -> Result<(), sqlx::Error>;
     /// Touch `last_scraped` and reset failure counters without updating snapshot
     /// fields.  Called when the HTML hash matches the previous scrape — the
@@ -467,7 +467,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         shop_id: &ShopId,
         url: &Url,
         hash: &str,
-        snapshot: &ProductSnapshot,
+        snapshot: &ProductListingSnapshot,
     ) -> Result<(), sqlx::Error> {
         let shop_id_uuid: uuid::Uuid = (*shop_id).into();
         let url_str = url.to_string();
@@ -750,7 +750,7 @@ mod tests {
     use super::*;
     use localization::{Language, Localized};
     use product_listing_core::title::Title;
-    use product_listing_core::{product_state::ProductState, shops_product_id::ShopsProductId};
+    use product_listing_core::{product_state::ProductState, shop_listing_id::ShopListingId};
     use shop_core::shop_id::ShopId;
     use url::Url;
 
@@ -760,7 +760,7 @@ mod tests {
 
     fn minimal_product() -> NormalizedProduct {
         NormalizedProduct {
-            shops_product_id: ShopsProductId::from("SKU-1"),
+            shop_listing_id: ShopListingId::from("SKU-1"),
             title: Localized::new(Language::En, Title::from("Test")),
             description: None,
             price: None,
@@ -806,7 +806,7 @@ mod tests {
     #[test]
     fn not_changed_when_all_fields_match() {
         let product = minimal_product();
-        let snap = ProductSnapshot::from_normalized(&product);
+        let snap = ProductListingSnapshot::from_normalized(&product);
         let candidate = ScraperCandidate {
             shop_id: ShopId::new(),
             shop_name: "Test".to_string(),
@@ -829,7 +829,7 @@ mod tests {
     #[test]
     fn changed_when_state_differs() {
         let product = minimal_product();
-        let snap = ProductSnapshot::from_normalized(&product);
+        let snap = ProductListingSnapshot::from_normalized(&product);
         let candidate = ScraperCandidate {
             last_scraped_state: Some("SOLD".to_string()),
             last_scraped_hash: Some("somehash".to_string()),
@@ -852,32 +852,32 @@ mod tests {
     #[test]
     fn images_hash_for_empty_list_is_sha256_of_empty_string() {
         let product = minimal_product();
-        let snap = ProductSnapshot::from_normalized(&product);
+        let snap = ProductListingSnapshot::from_normalized(&product);
         let expected = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"; // SHA256("")
         assert_eq!(snap.images_hash, expected);
     }
 
     #[test]
     fn images_hash_is_order_independent() {
-        use product_listing_core::product_image::ProductImage;
+        use product_listing_core::product_listing_image::ProductListingImage;
         use product_listing_core::prohibited_content::ProhibitedContent;
 
         let images_a = vec![
-            ProductImage {
+            ProductListingImage {
                 url: Url::parse("https://example.com/a.jpg").unwrap(),
                 prohibited_content: ProhibitedContent::Unknown,
             },
-            ProductImage {
+            ProductListingImage {
                 url: Url::parse("https://example.com/b.jpg").unwrap(),
                 prohibited_content: ProhibitedContent::Unknown,
             },
         ];
         let images_b = vec![
-            ProductImage {
+            ProductListingImage {
                 url: Url::parse("https://example.com/b.jpg").unwrap(),
                 prohibited_content: ProhibitedContent::Unknown,
             },
-            ProductImage {
+            ProductListingImage {
                 url: Url::parse("https://example.com/a.jpg").unwrap(),
                 prohibited_content: ProhibitedContent::Unknown,
             },
@@ -888,8 +888,8 @@ mod tests {
         let mut p2 = minimal_product();
         p2.images = images_b;
 
-        let h1 = ProductSnapshot::from_normalized(&p1).images_hash;
-        let h2 = ProductSnapshot::from_normalized(&p2).images_hash;
+        let h1 = ProductListingSnapshot::from_normalized(&p1).images_hash;
+        let h2 = ProductListingSnapshot::from_normalized(&p2).images_hash;
 
         assert_eq!(h1, h2, "images_hash must be invariant to input order");
         assert_eq!(

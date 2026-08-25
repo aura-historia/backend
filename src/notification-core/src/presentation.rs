@@ -1,4 +1,6 @@
-use product_listing_core::{product_image::ProductImage, prohibited_content::ProhibitedContent};
+use product_listing_core::{
+    product_listing_image::ProductListingImage, prohibited_content::ProhibitedContent,
+};
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -8,7 +10,7 @@ pub struct NotificationImagePresentation {
 }
 
 pub fn present_image(
-    image: Option<ProductImage>,
+    image: Option<ProductListingImage>,
     prohibited_content_consent: bool,
 ) -> Option<NotificationImagePresentation> {
     image.map(|image| NotificationImagePresentation {
@@ -32,7 +34,7 @@ mod tests {
         #[case] consent: bool,
         #[case] includes_url: bool,
     ) -> Result<(), url::ParseError> {
-        let image = ProductImage {
+        let image = ProductListingImage {
             url: Url::parse("https://shop.example/image.jpg")?,
             prohibited_content,
         };

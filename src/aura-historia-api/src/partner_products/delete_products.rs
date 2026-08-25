@@ -1,4 +1,6 @@
-use super::types::{DeleteProductData, PartnerProductFailureData, parse_partner_product_batch};
+use super::types::{
+    DeleteProductListingData, PartnerProductFailureData, parse_partner_product_batch,
+};
 use crate::auth::protected_context;
 use crate::error::{ApiError, INVALID_UUID};
 use crate::state::PartnerProductsState;
@@ -22,7 +24,7 @@ pub async fn delete_products(
         Ok(value) => value,
         Err(response) => return *response,
     };
-    let products: Vec<DeleteProductData> = match parse_partner_product_batch(&body) {
+    let products: Vec<DeleteProductListingData> = match parse_partner_product_batch(&body) {
         Ok(products) => products,
         Err(error) => return error.into_response(),
     };
@@ -31,7 +33,7 @@ pub async fn delete_products(
     let mut first_error = None;
     let mut successes = 0;
     for product in products {
-        let shops_product_id = product.shops_product_id.clone();
+        let shop_listing_id = product.shop_listing_id.clone();
         match state
             .delete
             .execute_by_key(&context, product.into_product_key(shop_id))
@@ -44,7 +46,7 @@ pub async fn delete_products(
                 first_error.get_or_insert(error);
                 failures.push(PartnerProductFailureData::new(
                     shop_id,
-                    shops_product_id,
+                    shop_listing_id,
                     error_code,
                 ));
             }
@@ -79,13 +81,14 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, header};
     use domain_primitives::event_id::EventId;
-    use product_listing_core::product_id::{ProductId, ProductKey};
+    use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 
     use product_listing_service::use_cases::{
-        CreateProductCommand, CreateProductError, CreateProductResult, CreateProductUseCase,
-        DeleteProductError, DeleteProductResult, DeleteProductUseCase, UpdateProductCommand,
-        UpdateProductError, UpdateProductResult, UpdateProductUseCase, UpsertProductCommand,
-        UpsertProductError, UpsertProductResult, UpsertProductUseCase,
+        CreateProductListingCommand, CreateProductListingError, CreateProductListingResult,
+        CreateProductListingUseCase, DeleteProductListingError, DeleteProductListingResult,
+        DeleteProductListingUseCase, UpdateProductListingCommand, UpdateProductListingError,
+        UpdateProductListingResult, UpdateProductListingUseCase, UpsertProductListingCommand,
+        UpsertProductListingError, UpsertProductListingResult, UpsertProductListingUseCase,
     };
     use serde_json::{Value, json};
     use std::collections::BTreeSet;
@@ -93,10 +96,10 @@ mod tests {
     use tower::ServiceExt;
     use user_core::user_id::UserId;
 
-    mockall::mock! { CreateUseCase {} #[async_trait::async_trait] impl CreateProductUseCase for CreateUseCase { async fn execute(&self, context: &OperationContext, command: CreateProductCommand) -> Result<CreateProductResult, CreateProductError>; } }
-    mockall::mock! { UpdateUseCase {} #[async_trait::async_trait] impl UpdateProductUseCase for UpdateUseCase { async fn execute(&self, context: &OperationContext, product_id: ProductId, command: UpdateProductCommand) -> Result<UpdateProductResult, UpdateProductError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductKey, command: UpdateProductCommand) -> Result<UpdateProductResult, UpdateProductError>; } }
-    mockall::mock! { UpsertUseCase {} #[async_trait::async_trait] impl UpsertProductUseCase for UpsertUseCase { async fn execute(&self, context: &OperationContext, command: UpsertProductCommand) -> Result<UpsertProductResult, UpsertProductError>; } }
-    mockall::mock! { DeleteUseCase {} #[async_trait::async_trait] impl DeleteProductUseCase for DeleteUseCase { async fn execute(&self, context: &OperationContext, product_id: ProductId) -> Result<DeleteProductResult, DeleteProductError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductKey) -> Result<DeleteProductResult, DeleteProductError>; } }
+    mockall::mock! { CreateUseCase {} #[async_trait::async_trait] impl CreateProductListingUseCase for CreateUseCase { async fn execute(&self, context: &OperationContext, command: CreateProductListingCommand) -> Result<CreateProductListingResult, CreateProductListingError>; } }
+    mockall::mock! { UpdateUseCase {} #[async_trait::async_trait] impl UpdateProductListingUseCase for UpdateUseCase { async fn execute(&self, context: &OperationContext, product_id: ProductListingId, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>; } }
+    mockall::mock! { UpsertUseCase {} #[async_trait::async_trait] impl UpsertProductListingUseCase for UpsertUseCase { async fn execute(&self, context: &OperationContext, command: UpsertProductListingCommand) -> Result<UpsertProductListingResult, UpsertProductListingError>; } }
+    mockall::mock! { DeleteUseCase {} #[async_trait::async_trait] impl DeleteProductListingUseCase for DeleteUseCase { async fn execute(&self, context: &OperationContext, product_id: ProductListingId) -> Result<DeleteProductListingResult, DeleteProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey) -> Result<DeleteProductListingResult, DeleteProductListingError>; } }
     mockall::mock! { Authenticator {} #[async_trait::async_trait] impl TokenAuthenticator for Authenticator { async fn authenticate(&self, bearer_token: &str, metadata: &RequestMetadata) -> Result<TransportPrincipal, AuthError>; } }
 
     #[tokio::test]
@@ -110,8 +113,8 @@ mod tests {
             .times(2)
             .withf(move |_, key| {
                 key.shop_id == expected_shop_id
-                    && (key.shops_product_id.as_ref() == "first"
-                        || key.shops_product_id.as_ref() == "second")
+                    && (key.shop_listing_id.as_ref() == "first"
+                        || key.shop_listing_id.as_ref() == "second")
             })
             .returning(|_, _| Ok(deleted()));
         let app = app(delete);
@@ -135,8 +138,8 @@ mod tests {
         let shop_id = ShopId::new();
         let mut delete = MockDeleteUseCase::new();
         delete.expect_execute_by_key().times(2).returning(|_, key| {
-            if key.shops_product_id.as_ref() == "missing" {
-                Err(DeleteProductError::ProductNotFound)
+            if key.shop_listing_id.as_ref() == "missing" {
+                Err(DeleteProductListingError::ProductListingNotFound)
             } else {
                 Ok(deleted())
             }
@@ -170,7 +173,7 @@ mod tests {
         delete
             .expect_execute_by_key()
             .times(1)
-            .returning(|_, _| Err(DeleteProductError::ProductNotFound));
+            .returning(|_, _| Err(DeleteProductListingError::ProductListingNotFound));
         let app = app(delete);
         let shop_id = ShopId::new();
 
@@ -223,9 +226,9 @@ mod tests {
         authenticator
     }
 
-    fn deleted() -> DeleteProductResult {
-        DeleteProductResult {
-            product_id: ProductId::new(),
+    fn deleted() -> DeleteProductListingResult {
+        DeleteProductListingResult {
+            product_id: ProductListingId::new(),
             event_id: EventId::new(),
         }
     }

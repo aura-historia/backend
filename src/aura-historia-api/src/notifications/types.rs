@@ -1,5 +1,5 @@
 use crate::error::{ApiError, BAD_BODY_VALUE};
-use crate::products::product_data::ProductImageData;
+use crate::products::product_data::ProductListingImageData;
 use crate::values::{LocalizedTextData, PriceData};
 use axum::response::{IntoResponse, Response};
 use localization::{Language, Localized};
@@ -7,7 +7,7 @@ use money::Price;
 use notification_core::{
     notification::{
         LocalizedNotificationContent, LocalizedNotificationWatchlistChange,
-        LocalizedProductNotificationSnapshot, PartnerApplicationDecision,
+        LocalizedProductListingNotificationSnapshot, PartnerApplicationDecision,
     },
     notification_id::NotificationId,
     notification_kind::NotificationKind,
@@ -91,12 +91,12 @@ impl Serialize for NotificationContentData {
 struct WatchlistNotificationPayloadData {
     product_id: Uuid,
     shop_id: Uuid,
-    shops_product_id: String,
+    shop_listing_id: String,
     shop_slug_id: String,
     product_slug_id: String,
     shop_name: String,
     title: Option<LocalizedTextData>,
-    image: Option<ProductImageData>,
+    image: Option<ProductListingImageData>,
     url: Url,
     view_url: Url,
     change: WatchlistNotificationChangeData,
@@ -128,12 +128,12 @@ struct SearchFilterNotificationPayloadData {
     user_search_filter_id: Uuid,
     user_search_filter_name: String,
     shop_id: Uuid,
-    shops_product_id: String,
+    shop_listing_id: String,
     shop_slug_id: String,
     product_slug_id: String,
     shop_name: String,
     title: Option<LocalizedTextData>,
-    image: Option<ProductImageData>,
+    image: Option<ProductListingImageData>,
     url: Url,
     view_url: Url,
 }
@@ -170,7 +170,7 @@ impl
                 Self::Watchlist(WatchlistNotificationPayloadData {
                     product_id: Uuid::from(product_id),
                     shop_id: snapshot.shop_id,
-                    shops_product_id: snapshot.shops_product_id,
+                    shop_listing_id: snapshot.shop_listing_id,
                     shop_slug_id: snapshot.shop_slug_id,
                     product_slug_id: snapshot.product_slug_id,
                     shop_name: snapshot.shop_name,
@@ -193,7 +193,7 @@ impl
                     user_search_filter_id: Uuid::from(user_search_filter_id),
                     user_search_filter_name: user_search_filter_name.to_string(),
                     shop_id: snapshot.shop_id,
-                    shops_product_id: snapshot.shops_product_id,
+                    shop_listing_id: snapshot.shop_listing_id,
                     shop_slug_id: snapshot.shop_slug_id,
                     product_slug_id: snapshot.product_slug_id,
                     shop_name: snapshot.shop_name,
@@ -218,12 +218,12 @@ impl
 }
 
 fn notification_product_snapshot(
-    snapshot: LocalizedProductNotificationSnapshot,
+    snapshot: LocalizedProductListingNotificationSnapshot,
     presentation_preferences: NotificationPresentationPreferences,
-) -> NotificationProductSnapshotData {
-    NotificationProductSnapshotData {
+) -> NotificationProductListingSnapshotData {
+    NotificationProductListingSnapshotData {
         shop_id: Uuid::from(snapshot.shop_id),
-        shops_product_id: snapshot.shops_product_id.to_string(),
+        shop_listing_id: snapshot.shop_listing_id.to_string(),
         shop_slug_id: snapshot.shop_slug_id.to_string(),
         product_slug_id: snapshot.product_slug_id.to_string(),
         shop_name: snapshot.shop_name.to_string(),
@@ -232,7 +232,7 @@ fn notification_product_snapshot(
             snapshot.image,
             presentation_preferences.prohibited_content_consent,
         )
-        .map(ProductImageData::from_presented),
+        .map(ProductListingImageData::from_presented),
         url: snapshot.url,
         view_url: snapshot.view_url,
     }
@@ -252,14 +252,14 @@ fn price_data(value: Price) -> PriceData {
     }
 }
 
-struct NotificationProductSnapshotData {
+struct NotificationProductListingSnapshotData {
     shop_id: Uuid,
-    shops_product_id: String,
+    shop_listing_id: String,
     shop_slug_id: String,
     product_slug_id: String,
     shop_name: String,
     title: Option<LocalizedTextData>,
-    image: Option<ProductImageData>,
+    image: Option<ProductListingImageData>,
     url: Url,
     view_url: Url,
 }

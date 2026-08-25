@@ -8,11 +8,13 @@ use embedding::{
     EmbeddingVector,
 };
 use platform_postgres::SqlxUnitOfWork;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_postgres::{
-    SqlxProductEmbeddingSourceReader, SqlxProductEmbeddingWriterFactory,
+    SqlxProductListingEmbeddingSourceReader, SqlxProductListingEmbeddingWriterFactory,
 };
-use product_listing_service::use_cases::{EmbedProductEventHandler, EmbedProductEventUseCase};
+use product_listing_service::use_cases::{
+    EmbedProductListingEventHandler, EmbedProductListingEventUseCase,
+};
 use std::{sync::Arc, time::Duration};
 use test_api::{
     IntegrationTestService, Postgres, Sequin, aura_integration_test, get_postgres_client,
@@ -157,16 +159,17 @@ struct EmbeddingWorker {
 impl EmbeddingWorker {
     async fn start() -> Self {
         let pool = get_postgres_client().await;
-        let handler: Arc<dyn EmbedProductEventUseCase> = Arc::new(EmbedProductEventHandler::new(
-            SqlxProductEmbeddingSourceReader::new(pool.clone()),
-            FixedEmbeddingGenerator,
-            SqlxUnitOfWork::new(pool.clone()),
-            SqlxProductEmbeddingWriterFactory::new(),
-        ));
+        let handler: Arc<dyn EmbedProductListingEventUseCase> =
+            Arc::new(EmbedProductListingEventHandler::new(
+                SqlxProductListingEmbeddingSourceReader::new(pool.clone()),
+                FixedEmbeddingGenerator,
+                SqlxUnitOfWork::new(pool.clone()),
+                SqlxProductListingEmbeddingWriterFactory::new(),
+            ));
         let (runtime, mut receivers) = WorkerRuntime::with_all_queues(QueueConfig::new(16))
             .unwrap_or_else(|error| panic!("valid worker queue configuration: {error}"));
         let receiver = receivers
-            .take(WorkerQueue::ProductEmbed)
+            .take(WorkerQueue::ProductListingEmbed)
             .unwrap_or_else(|| panic!("product embedding queue is registered"));
         let consumer = tokio::spawn(consume_product_embedding_queue(receiver, handler));
         let listener = tokio::net::TcpListener::bind(get_sequin_worker_webhook_bind_addr())
@@ -187,7 +190,7 @@ impl EmbeddingWorker {
 
     async fn redeliver(
         &self,
-        product_id: ProductId,
+        product_id: ProductListingId,
         event_id: EventId,
         event_type: &str,
         event_group: &str,
@@ -222,14 +225,14 @@ async fn insert_product_with_event(
     pool: &sqlx::PgPool,
     event_type: &str,
     event_group: &str,
-) -> Result<(ProductId, EventId), sqlx::Error> {
-    let product_id = ProductId::new();
+) -> Result<(ProductListingId, EventId), sqlx::Error> {
+    let product_id = ProductListingId::new();
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, 'Embedding worker shop', 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
         .bind(shop_id).bind(format!("embedding-worker-shop-{shop_id}")).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, description_text, description_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Antiker Eichenstuhl', 'de', 'Bemalter Stuhl', 'de', 'LISTED', 'ACTIVE', 'https://example.test/product', '[{\"url\": \"https://example.test/image.jpg\", \"prohibited_content\": \"NONE\"}]')")
+    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Antiker Eichenstuhl', 'de', 'Bemalter Stuhl', 'de', 'LISTED', 'ACTIVE', 'https://example.test/product', '[{\"url\": \"https://example.test/image.jpg\", \"prohibited_content\": \"NONE\"}]')")
         .bind(uuid::Uuid::from(product_id)).bind(format!("embedding-worker-product-{product_id}")).bind(uuid::Uuid::from(event_id)).bind(shop_id).bind(product_id.to_string()).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
         .bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_id)).bind(event_type).bind(event_group).execute(&mut *tx).await?;
@@ -239,14 +242,14 @@ async fn insert_product_with_event(
 
 async fn insert_product_with_event_then_rollback(
     pool: &sqlx::PgPool,
-) -> Result<ProductId, sqlx::Error> {
-    let product_id = ProductId::new();
+) -> Result<ProductListingId, sqlx::Error> {
+    let product_id = ProductListingId::new();
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, 'Rollback embedding shop', 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
         .bind(shop_id).bind(format!("rollback-embedding-shop-{shop_id}")).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Antiker Eichenstuhl', 'de', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Antiker Eichenstuhl', 'de', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_id)).bind(format!("rollback-embedding-product-{product_id}")).bind(uuid::Uuid::from(event_id)).bind(shop_id).bind(product_id.to_string()).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'DOMAIN_CREATED', 'DOMAIN', '{}', now())")
         .bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_id)).execute(&mut *tx).await?;
@@ -256,7 +259,7 @@ async fn insert_product_with_event_then_rollback(
 
 async fn advance_product_revision(
     pool: &sqlx::PgPool,
-    product_id: ProductId,
+    product_id: ProductListingId,
 ) -> Result<(), sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
@@ -272,7 +275,7 @@ async fn advance_product_revision(
 
 async fn wait_for_embedding(
     pool: &sqlx::PgPool,
-    product_id: ProductId,
+    product_id: ProductListingId,
 ) -> Result<(Vec<f32>, uuid::Uuid), Box<dyn std::error::Error>> {
     for _ in 0..POLL_ATTEMPTS {
         let row: (Option<Vec<f32>>, uuid::Uuid) =
@@ -290,7 +293,7 @@ async fn wait_for_embedding(
 
 async fn assert_no_embedding(
     pool: &sqlx::PgPool,
-    product_id: ProductId,
+    product_id: ProductListingId,
     duration: Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let deadline = tokio::time::Instant::now() + duration;
@@ -312,7 +315,7 @@ async fn assert_no_embedding(
 
 async fn assert_embedding_event_count_for_duration(
     pool: &sqlx::PgPool,
-    product_id: ProductId,
+    product_id: ProductListingId,
     expected_count: i64,
     duration: Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {

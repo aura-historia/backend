@@ -1,6 +1,6 @@
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::ports::{
     WatchlistNotificationRecipient, WatchlistNotificationRecipientReadError,
     WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,
@@ -41,7 +41,7 @@ impl WatchlistNotificationRecipientReaderFactory<SqlxTransaction>
 impl WatchlistNotificationRecipientReader for SqlxWatchlistNotificationRecipientReader<'_> {
     async fn find_eligible_for_product_at(
         &mut self,
-        product_id: ProductId,
+        product_id: ProductListingId,
         event_time: OffsetDateTime,
     ) -> Result<Vec<WatchlistNotificationRecipient>, WatchlistNotificationRecipientReadError> {
         let rows = sqlx::query_as::<_, (uuid::Uuid, bool)>(

@@ -1,5 +1,5 @@
 use application::error::BoxError;
-use search_filter_core::SearchFilterProductMatch;
+use search_filter_core::SearchFilterProductListingMatch;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchFilterMatchPersistOutcome {
@@ -31,12 +31,12 @@ pub enum SearchFilterMatchWriteError {
 pub trait SearchFilterMatchWriter: Send {
     async fn insert_if_absent(
         &mut self,
-        product_match: &SearchFilterProductMatch,
+        product_match: &SearchFilterProductListingMatch,
     ) -> Result<SearchFilterMatchPersistOutcome, SearchFilterMatchWriteError>;
 
     async fn insert_all_if_absent(
         &mut self,
-        product_matches: &[SearchFilterProductMatch],
+        product_matches: &[SearchFilterProductListingMatch],
     ) -> Result<SearchFilterMatchBatchPersistResult, SearchFilterMatchWriteError> {
         let mut result = SearchFilterMatchBatchPersistResult::default();
         for product_match in product_matches {

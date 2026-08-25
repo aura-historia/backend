@@ -2,7 +2,7 @@ use super::util::{no_store, parse_json_query, parse_search_filter_id};
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE, SEARCH_FILTER_INTERNAL_ERROR};
 use crate::products::product_data::{
-    PersonalizedProductDetailsData, personalized_product_details_data,
+    PersonalizedProductListingDetailsData, personalized_product_details_data,
 };
 use crate::state::SearchFiltersState;
 use axum::Json;
@@ -15,7 +15,7 @@ use money::Currency;
 use crate::pagination_data::JsonCursoredData;
 use application::pagination::{Cursor, CursoredResult};
 use domain_primitives::sort::SortOrder;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_service::ports::SearchFilterMatchCursor;
 use search_filter_service::use_cases::ListSearchFilterMatchesRequest;
 use serde::Deserialize;
@@ -93,20 +93,22 @@ pub(super) async fn list_search_filter_matches(
                 Err(error) => return error.into_response(),
             };
             no_store(
-                Json(JsonCursoredData::<PersonalizedProductDetailsData>::from(
-                    CursoredResult {
-                        items: result
-                            .items
-                            .into_iter()
-                            .map(personalized_product_details_data)
-                            .collect(),
-                        cursor: Cursor {
-                            size: result.cursor.size,
-                            search_after,
+                Json(
+                    JsonCursoredData::<PersonalizedProductListingDetailsData>::from(
+                        CursoredResult {
+                            items: result
+                                .items
+                                .into_iter()
+                                .map(personalized_product_details_data)
+                                .collect(),
+                            cursor: Cursor {
+                                size: result.cursor.size,
+                                search_after,
+                            },
+                            total: result.total,
                         },
-                        total: result.total,
-                    },
-                ))
+                    ),
+                )
                 .into_response(),
             )
         }
@@ -140,7 +142,7 @@ fn parse_matches_cursor(raw: &str) -> Result<SearchFilterMatchCursor, ApiError> 
             .with_query_field("searchAfter")
             .with_detail(error.to_string())
     })?;
-    let product_id = ProductId::try_from(product_id).map_err(|_| {
+    let product_id = ProductListingId::try_from(product_id).map_err(|_| {
         ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
             .with_query_field("searchAfter")
             .with_detail("searchAfter must contain a product UUID.")
@@ -179,7 +181,7 @@ mod tests {
 
     #[test]
     fn should_parse_tie_safe_match_cursor() -> Result<(), Box<dyn std::error::Error>> {
-        let product_id = ProductId::new();
+        let product_id = ProductListingId::new();
         let raw_cursor = serde_json::to_string(&json!(["2026-08-05T12:30:00Z", product_id]))?;
         let cursor = parse_matches_cursor(&raw_cursor)?;
 

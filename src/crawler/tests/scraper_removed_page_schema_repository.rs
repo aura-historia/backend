@@ -25,7 +25,7 @@ fn make_shops_removed_page_schema(shop_id: ShopId) -> ShopsRemovedPageSchema {
     let now = OffsetDateTime::now_utc();
     ShopsRemovedPageSchema {
         shop_id,
-        removed_page_schemas: vec![removed_schema("#main h1", "Product removed")],
+        removed_page_schemas: vec![removed_schema("#main h1", "ProductListing removed")],
         created: now,
         updated: now,
     }
@@ -61,7 +61,7 @@ async fn should_insert_and_find_removed_schema_for_shop() {
     assert_eq!(found.shop_id, shop_id);
     assert_eq!(
         found.removed_page_schemas,
-        vec![removed_schema("#main h1", "Product removed")]
+        vec![removed_schema("#main h1", "ProductListing removed")]
     );
 }
 
@@ -103,7 +103,7 @@ async fn should_update_removed_schema_for_only_target_shop() {
     assert_eq!(found_a.removed_page_schemas, updated);
     assert_eq!(
         found_b.removed_page_schemas,
-        vec![removed_schema("#main h1", "Product removed")]
+        vec![removed_schema("#main h1", "ProductListing removed")]
     );
 }
 

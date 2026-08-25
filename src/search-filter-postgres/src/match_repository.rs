@@ -1,7 +1,7 @@
 use crate::mapping::{MATCH_COLUMNS, MatchRow, user_search_filter_uuid};
 use platform_postgres::SqlxTransaction;
-use product_listing_core::product_id::ProductId;
-use search_filter_core::SearchFilterProductMatch;
+use product_listing_core::product_listing_id::ProductListingId;
+use search_filter_core::SearchFilterProductListingMatch;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
     PersistedSearchFilterMatch, SearchFilterMatchRepository, SearchFilterMatchRepositoryError,
@@ -28,7 +28,7 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
     async fn find_by_filter_and_product(
         &mut self,
         filter_id: UserSearchFilterId,
-        product_id: ProductId,
+        product_id: ProductListingId,
     ) -> Result<Option<PersistedSearchFilterMatch>, SearchFilterMatchRepositoryError> {
         let filter_id = user_search_filter_uuid(filter_id)
             .map_err(|_| SearchFilterMatchRepositoryError::LookupFailed)?;
@@ -49,7 +49,7 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
     }
     async fn insert(
         &mut self,
-        v: &SearchFilterProductMatch,
+        v: &SearchFilterProductListingMatch,
     ) -> Result<PersistedSearchFilterMatch, SearchFilterMatchRepositoryError> {
         let id = user_search_filter_uuid(v.user_search_filter_id)
             .map_err(|_| SearchFilterMatchRepositoryError::InsertFailed)?;
@@ -82,7 +82,7 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
     }
     async fn update(
         &mut self,
-        v: &SearchFilterProductMatch,
+        v: &SearchFilterProductListingMatch,
     ) -> Result<PersistedSearchFilterMatch, SearchFilterMatchRepositoryError> {
         let id = user_search_filter_uuid(v.user_search_filter_id)
             .map_err(|_| SearchFilterMatchRepositoryError::UpdateFailed)?;

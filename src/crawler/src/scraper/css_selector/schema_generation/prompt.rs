@@ -230,7 +230,7 @@ pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String 
 
     if prompt_pages.is_empty() {
         return String::from(
-            "Generate robust Extraction-Schemas for the given HTML product pages. Return ONLY ProductSchemaGenerationResponse JSON with schemas plus confidence LOW, MEDIUM, or HIGH.",
+            "Generate robust Extraction-Schemas for the given HTML product pages. Return ONLY ProductListingSchemaGenerationResponse JSON with schemas plus confidence LOW, MEDIUM, or HIGH.",
         );
     }
 
@@ -268,7 +268,7 @@ pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String 
          Examples: if template A has price and template B has no price element, generate two schemas and put the priced schema first. If an auction template has estimate fields and a buy-now template has fixed price, generate separate schemas ordered by rule count. If a sold-item template lacks buy price but has sold state, split schemas when selectors differ.\n\
          Prefer high-precision selectors that represent semantic fields rather than layout wrappers.\n\
          {raw_attributes_instruction}\n\
-         Return ONLY ProductSchemaGenerationResponse JSON with fields schemas, confidence, summary, and risks. The schemas field contains one ProductCssSelectorSchema for one product template or multiple schemas ordered as described above.\n\
+         Return ONLY ProductListingSchemaGenerationResponse JSON with fields schemas, confidence, summary, and risks. The schemas field contains one ProductCssSelectorSchema for one product template or multiple schemas ordered as described above.\n\
          {confidence_instruction}\n\
          {sample_description}\n\
          Here are the page {sample_label} samples:{samples}",
@@ -293,7 +293,7 @@ pub(super) fn build_single_schema_instruction(html: &str) -> String {
            For product, generate one new schema for this specific layout and make the selectors resilient.\n\
           {selector_grounding_instruction}\n\
           {raw_attributes_instruction}\n\
-          Return ONLY ProductSchemaGenerationResponse JSON.\n\
+          Return ONLY ProductListingSchemaGenerationResponse JSON.\n\
           {confidence_instruction}\n\
           {sample_description}\n\
           Here is the page {sample_label}:\n\

@@ -3,9 +3,9 @@ use domain_primitives::event_id::EventId;
 use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use fxrate_core::FxRateId;
-use product_listing_core::product::ProductPriceValuationBasis;
-use product_listing_core::product_id::ProductId;
 use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::product_listing::ProductListingPriceValuationBasis;
+use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_state::ProductState;
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -20,10 +20,10 @@ use geo::{
 use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
-use product_listing_core::product_search::{
-    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductSearch,
+use product_listing_core::product_listing_search::{
+    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductListingSearch,
 };
-use search_filter_core::{SearchFilter, SearchFilterProductMatch};
+use search_filter_core::{SearchFilter, SearchFilterProductListingMatch};
 use search_filter_service::ports::{
     PersistedSearchFilter, PersistedSearchFilterMatch, SearchFilterIndexReadError,
     SearchFilterMatchView, SearchFilterProjection, SearchFilterReadError,
@@ -63,7 +63,7 @@ impl fmt::Display for SearchFilterRowMappingError {
 impl Error for SearchFilterRowMappingError {}
 
 #[derive(Debug)]
-pub(crate) enum ProductSearchJsonMappingError {
+pub(crate) enum ProductListingSearchJsonMappingError {
     Serialize(serde_json::Error),
     Deserialize(serde_json::Error),
     FormatTimestamp(time::error::Format),
@@ -71,7 +71,7 @@ pub(crate) enum ProductSearchJsonMappingError {
     EnhancedSearchDescription(EnhancedSearchDescriptionError),
 }
 
-impl fmt::Display for ProductSearchJsonMappingError {
+impl fmt::Display for ProductListingSearchJsonMappingError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Serialize(_) => {
@@ -93,7 +93,7 @@ impl fmt::Display for ProductSearchJsonMappingError {
     }
 }
 
-impl Error for ProductSearchJsonMappingError {
+impl Error for ProductListingSearchJsonMappingError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Serialize(source) | Self::Deserialize(source) => Some(source),
@@ -221,11 +221,11 @@ impl TryFrom<MatchRow> for PersistedSearchFilterMatch {
     type Error = SearchFilterRowMappingError;
     fn try_from(row: MatchRow) -> Result<Self, Self::Error> {
         Ok(Self {
-            product_match: SearchFilterProductMatch {
+            product_match: SearchFilterProductListingMatch {
                 user_id: UserId::from(row.user_id),
                 user_search_filter_id: UserSearchFilterId::from(row.user_search_filter_id),
                 user_search_filter_name: row.user_search_filter_name.map(name).transpose()?,
-                product_id: ProductId::from(row.product_id),
+                product_id: ProductListingId::from(row.product_id),
                 origin_event_id: EventId::from(row.origin_event_id),
                 price_match_valuation: price_match_valuation(
                     row.price_valuation_basis.as_deref(),
@@ -247,7 +247,7 @@ impl TryFrom<MatchRow> for SearchFilterMatchView {
             user_id: UserId::from(row.user_id),
             search_filter_id: UserSearchFilterId::from(row.user_search_filter_id),
             search_filter_name: row.user_search_filter_name.map(name).transpose()?,
-            product_id: ProductId::from(row.product_id),
+            product_id: ProductListingId::from(row.product_id),
             origin_event_id: EventId::from(row.origin_event_id),
             enhanced_match_reason: row.enhanced_match_reason.map(Into::into),
             feedback: row.feedback,
@@ -266,7 +266,7 @@ fn price_match_valuation(
 ) -> Result<Option<search_filter_core::PriceMatchValuation>, SearchFilterRowMappingError> {
     match (basis, fx_rate_id) {
         (None, None) => Ok(None),
-        (Some(basis), Some(fx_rate_id)) => ProductPriceValuationBasis::iter()
+        (Some(basis), Some(fx_rate_id)) => ProductListingPriceValuationBasis::iter()
             .find(|candidate| candidate.as_str() == basis)
             .map(|basis| search_filter_core::PriceMatchValuation {
                 basis,
@@ -508,14 +508,14 @@ impl From<GeoDistanceQueryJson> for GeoDistanceQuery {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProductSearchJson {
+struct ProductListingSearchJson {
     #[serde(with = "language")]
     language: Language,
     #[serde(with = "currency")]
     currency: Currency,
-    product_query: Vec<domain_primitives::query::text_query::TextQuery<1>>,
+    product_listing_query: Vec<domain_primitives::query::text_query::TextQuery<1>>,
     enhanced_search_description: Option<String>,
-    exclude_product_id_query: HashSet<ProductId>,
+    exclude_product_listing_id_query: HashSet<ProductListingId>,
     shop_name_query: HashSet<ShopName>,
     exclude_shop_name_query: HashSet<ShopName>,
     seller_name_query: HashSet<ShopName>,
@@ -547,52 +547,56 @@ struct TimeRangeJson {
     max: Option<String>,
 }
 impl TryFrom<RangeQuery<OffsetDateTime>> for TimeRangeJson {
-    type Error = ProductSearchJsonMappingError;
+    type Error = ProductListingSearchJsonMappingError;
     fn try_from(v: RangeQuery<OffsetDateTime>) -> Result<Self, Self::Error> {
         Ok(Self {
             min: v
                 .min
                 .map(|v| v.format(&Rfc3339))
                 .transpose()
-                .map_err(ProductSearchJsonMappingError::FormatTimestamp)?,
+                .map_err(ProductListingSearchJsonMappingError::FormatTimestamp)?,
             max: v
                 .max
                 .map(|v| v.format(&Rfc3339))
                 .transpose()
-                .map_err(ProductSearchJsonMappingError::FormatTimestamp)?,
+                .map_err(ProductListingSearchJsonMappingError::FormatTimestamp)?,
         })
     }
 }
 impl TryFrom<TimeRangeJson> for RangeQuery<OffsetDateTime> {
-    type Error = ProductSearchJsonMappingError;
+    type Error = ProductListingSearchJsonMappingError;
     fn try_from(v: TimeRangeJson) -> Result<Self, Self::Error> {
         Ok(Self {
             min: v
                 .min
                 .map(|v| OffsetDateTime::parse(&v, &Rfc3339))
                 .transpose()
-                .map_err(ProductSearchJsonMappingError::ParseTimestamp)?,
+                .map_err(ProductListingSearchJsonMappingError::ParseTimestamp)?,
             max: v
                 .max
                 .map(|v| OffsetDateTime::parse(&v, &Rfc3339))
                 .transpose()
-                .map_err(ProductSearchJsonMappingError::ParseTimestamp)?,
+                .map_err(ProductListingSearchJsonMappingError::ParseTimestamp)?,
         })
     }
 }
-impl TryFrom<&ProductSearch> for ProductSearchJson {
-    type Error = ProductSearchJsonMappingError;
+impl TryFrom<&ProductListingSearch> for ProductListingSearchJson {
+    type Error = ProductListingSearchJsonMappingError;
 
-    fn try_from(v: &ProductSearch) -> Result<Self, Self::Error> {
+    fn try_from(v: &ProductListingSearch) -> Result<Self, Self::Error> {
         Ok(Self {
             language: v.language,
             currency: v.currency,
-            product_query: v.product_query.clone(),
+            product_listing_query: v.product_listing_query.clone(),
             enhanced_search_description: v
                 .enhanced_search_description
                 .as_ref()
                 .map(ToString::to_string),
-            exclude_product_id_query: v.exclude_product_id_query.iter().copied().collect(),
+            exclude_product_listing_id_query: v
+                .exclude_product_listing_id_query
+                .iter()
+                .copied()
+                .collect(),
             shop_name_query: v.shop_name_query.iter().cloned().collect(),
             exclude_shop_name_query: v.exclude_shop_name_query.iter().cloned().collect(),
             seller_name_query: v.seller_name_query.iter().cloned().collect(),
@@ -623,19 +627,19 @@ impl TryFrom<&ProductSearch> for ProductSearchJson {
 }
 pub(crate) fn product_search_from_json(
     v: serde_json::Value,
-) -> Result<ProductSearch, ProductSearchJsonMappingError> {
-    let j: ProductSearchJson =
-        serde_json::from_value(v).map_err(ProductSearchJsonMappingError::Deserialize)?;
-    Ok(ProductSearch {
+) -> Result<ProductListingSearch, ProductListingSearchJsonMappingError> {
+    let j: ProductListingSearchJson =
+        serde_json::from_value(v).map_err(ProductListingSearchJsonMappingError::Deserialize)?;
+    Ok(ProductListingSearch {
         language: j.language,
         currency: j.currency,
-        product_query: j.product_query,
+        product_listing_query: j.product_listing_query,
         enhanced_search_description: j
             .enhanced_search_description
             .map(EnhancedSearchDescription::try_from)
             .transpose()
-            .map_err(ProductSearchJsonMappingError::EnhancedSearchDescription)?,
-        exclude_product_id_query: j.exclude_product_id_query.into(),
+            .map_err(ProductListingSearchJsonMappingError::EnhancedSearchDescription)?,
+        exclude_product_listing_id_query: j.exclude_product_listing_id_query.into(),
         shop_name_query: j.shop_name_query.into(),
         exclude_shop_name_query: j.exclude_shop_name_query.into(),
         seller_name_query: j.seller_name_query.into(),
@@ -662,10 +666,10 @@ pub(crate) fn product_search_from_json(
     })
 }
 pub(crate) fn product_search_to_json(
-    v: &ProductSearch,
-) -> Result<serde_json::Value, ProductSearchJsonMappingError> {
-    serde_json::to_value(ProductSearchJson::try_from(v)?)
-        .map_err(ProductSearchJsonMappingError::Serialize)
+    v: &ProductListingSearch,
+) -> Result<serde_json::Value, ProductListingSearchJsonMappingError> {
+    serde_json::to_value(ProductListingSearchJson::try_from(v)?)
+        .map_err(ProductListingSearchJsonMappingError::Serialize)
 }
 
 #[cfg(test)]
@@ -677,7 +681,7 @@ mod tests {
     #[test]
     fn should_round_trip_geo_distance_query_with_legacy_json_shape()
     -> Result<(), Box<dyn std::error::Error>> {
-        let search = ProductSearch::new(Language::De, Currency::Usd)
+        let search = ProductListingSearch::new(Language::De, Currency::Usd)
             .with_geo_address_distance_query(GeoDistanceQuery {
                 lat: 52.52,
                 lon: 13.405,
@@ -699,12 +703,11 @@ mod tests {
 
     #[test]
     fn should_round_trip_full_product_search_json() {
-        let search = ProductSearch::new(Language::De, Currency::Usd).with_product_query(
-            match "vase".try_into() {
+        let search = ProductListingSearch::new(Language::De, Currency::Usd)
+            .with_product_listing_query(match "vase".try_into() {
                 Ok(v) => v,
                 Err(e) => panic!("bad test value: {e}"),
-            },
-        );
+            });
         let json = match product_search_to_json(&search) {
             Ok(v) => v,
             Err(_) => panic!("serialize"),
@@ -719,7 +722,7 @@ mod tests {
     #[test]
     fn should_preserve_legacy_product_search_leaf_codes() -> Result<(), Box<dyn Error>> {
         let mut persisted =
-            product_search_to_json(&ProductSearch::new(Language::En, Currency::Eur))?;
+            product_search_to_json(&ProductListingSearch::new(Language::En, Currency::Eur))?;
         persisted["shop_type_query"] = serde_json::json!(["COMMERCIAL_DEALER"]);
         persisted["state_query"] = serde_json::json!(["AVAILABLE"]);
         persisted["lifecycle_query"] = serde_json::json!(["ACTIVE"]);
@@ -768,10 +771,11 @@ mod tests {
     }
     #[test]
     fn should_serialize_every_product_search_field() {
-        let json = match product_search_to_json(&ProductSearch::new(Language::En, Currency::Eur)) {
-            Ok(value) => value,
-            Err(_) => panic!("failed to serialize product search"),
-        };
+        let json =
+            match product_search_to_json(&ProductListingSearch::new(Language::En, Currency::Eur)) {
+                Ok(value) => value,
+                Err(_) => panic!("failed to serialize product search"),
+            };
         let object = match json.as_object() {
             Some(value) => value,
             None => panic!("product search JSON must be an object"),
@@ -793,7 +797,7 @@ mod tests {
         assert!(std::error::Error::source(&error).is_some());
         assert!(matches!(
             error,
-            ProductSearchJsonMappingError::Deserialize(_)
+            ProductListingSearchJsonMappingError::Deserialize(_)
         ));
     }
 
@@ -808,7 +812,7 @@ mod tests {
     fn should_parse_each_canonical_price_match_valuation_basis() {
         let fx_rate_id = uuid::Uuid::nil();
 
-        for expected in ProductPriceValuationBasis::iter() {
+        for expected in ProductListingPriceValuationBasis::iter() {
             let valuation = price_match_valuation(Some(expected.as_str()), Some(fx_rate_id));
 
             assert!(matches!(
@@ -842,11 +846,11 @@ mod tests {
 
     #[test]
     fn should_preserve_invalid_filter_row_mapping_source() {
-        let search = match product_search_to_json(&ProductSearch::new(Language::En, Currency::Eur))
-        {
-            Ok(search) => search,
-            Err(error) => panic!("failed to create product search JSON: {error}"),
-        };
+        let search =
+            match product_search_to_json(&ProductListingSearch::new(Language::En, Currency::Eur)) {
+                Ok(search) => search,
+                Err(error) => panic!("failed to create product search JSON: {error}"),
+            };
         let error = match (FilterRow {
             user_search_filter_id: uuid::Uuid::nil(),
             user_id: uuid::Uuid::nil(),
@@ -877,7 +881,7 @@ mod tests {
     #[test]
     fn should_reject_unknown_product_search_field() {
         let mut json =
-            match product_search_to_json(&ProductSearch::new(Language::En, Currency::Eur)) {
+            match product_search_to_json(&ProductListingSearch::new(Language::En, Currency::Eur)) {
                 Ok(value) => value,
                 Err(_) => panic!("failed to serialize product search"),
             };

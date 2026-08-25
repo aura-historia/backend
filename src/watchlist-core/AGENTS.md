@@ -3,13 +3,13 @@
 ## Purpose
 
 - Own `watchlist-core` crate.
-- Own canonical Product Watchlist domain types.
+- Own canonical ProductListing Watchlist domain types.
 
 ## Core Design
 
 - Domain-only crate.
 - Owns `WatchlistState`; its lifecycle is separate from Search Filter state.
-- `WatchlistProduct` uses canonical `user_id` and `product_id` as identity.
+- `WatchlistProductListing` uses canonical `user_id` and `ProductListingId` as identity.
 - Aggregate has no persistence timestamps.
 - No legacy, service, adapter, transport, or runtime dependency.
 

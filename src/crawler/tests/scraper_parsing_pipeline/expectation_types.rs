@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawExpectation {
-    pub shops_product_id: String,
+    pub shop_listing_id: String,
     pub title: String,
     pub description: Vec<String>,
     pub price: Option<String>,
@@ -19,7 +19,7 @@ pub struct RawExpectation {
 
 #[derive(Debug, Clone)]
 pub struct NormalizedExpectation {
-    pub shops_product_id: String,
+    pub shop_listing_id: String,
     pub title: String,
     pub description: Option<String>,
     pub price: Option<Price>,
@@ -35,7 +35,7 @@ pub struct NormalizedExpectation {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct NormalizedExpectationJson {
-    pub shops_product_id: String,
+    pub shop_listing_id: String,
     pub title: String,
     pub description: Option<String>,
     pub price: Option<u64>,

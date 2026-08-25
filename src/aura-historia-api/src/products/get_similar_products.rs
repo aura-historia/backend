@@ -8,15 +8,17 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use localization::Language;
 use money::Currency;
-use product_listing_core::product_id::ProductId;
-use product_listing_core::product_slug_id::ProductSlugId;
-use product_listing_service::ports::ProductEmbeddingLookup;
-use product_listing_service::use_cases::{GetSimilarProductsRequest, GetSimilarProductsResult};
+use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
+use product_listing_service::ports::ProductListingEmbeddingLookup;
+use product_listing_service::use_cases::{
+    GetSimilarProductListingsRequest, GetSimilarProductListingsResult,
+};
 use serde::Deserialize;
 use shop_core::shop_slug_id::ShopSlugId;
 
 #[derive(Debug, Deserialize)]
-struct SimilarProductsQuery {
+struct SimilarProductListingsQuery {
     #[serde(default)]
     #[serde(with = "crate::wire::language")]
     language: Language,
@@ -33,7 +35,7 @@ pub async fn get_similar_products_by_id(
     Path(raw_product_id): Path<String>,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
-    let product_id = match ProductId::try_from(raw_product_id.as_str()) {
+    let product_id = match ProductListingId::try_from(raw_product_id.as_str()) {
         Ok(value) => value,
         Err(_) => {
             return ApiError::bad_request(INVALID_UUID)
@@ -49,7 +51,7 @@ pub async fn get_similar_products_by_id(
     similar_response(
         state,
         headers,
-        ProductEmbeddingLookup::ById(product_id),
+        ProductListingEmbeddingLookup::ById(product_id),
         query,
     )
     .await
@@ -70,7 +72,7 @@ pub async fn get_similar_products_by_slug(
                 .into_response();
         }
     };
-    let product_slug_id = match ProductSlugId::raw(&raw_product_slug_id) {
+    let product_slug_id = match ProductListingSlugId::raw(&raw_product_slug_id) {
         Ok(value) => value,
         Err(_) => {
             return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
@@ -86,7 +88,7 @@ pub async fn get_similar_products_by_slug(
     similar_response(
         state,
         headers,
-        ProductEmbeddingLookup::BySlug {
+        ProductListingEmbeddingLookup::BySlug {
             shop_slug_id,
             product_slug_id,
         },
@@ -95,7 +97,7 @@ pub async fn get_similar_products_by_slug(
     .await
 }
 
-fn parse_query(raw_query: Option<&str>) -> Result<SimilarProductsQuery, ApiError> {
+fn parse_query(raw_query: Option<&str>) -> Result<SimilarProductListingsQuery, ApiError> {
     serde_qs::from_str(raw_query.unwrap_or_default()).map_err(|error| {
         ApiError::bad_request(crate::error::BAD_QUERY_PARAMETER_VALUE)
             .with_detail(error.to_string())
@@ -105,8 +107,8 @@ fn parse_query(raw_query: Option<&str>) -> Result<SimilarProductsQuery, ApiError
 async fn similar_response(
     state: ProductsState,
     headers: HeaderMap,
-    lookup: ProductEmbeddingLookup,
-    query: SimilarProductsQuery,
+    lookup: ProductListingEmbeddingLookup,
+    query: SimilarProductListingsQuery,
 ) -> Response {
     let metadata = request_metadata(&headers);
     let principal = match OptionalAuthExtractor::new(state.authenticator.as_ref())
@@ -121,7 +123,7 @@ async fn similar_response(
         .get_similar_products
         .execute(
             &context,
-            GetSimilarProductsRequest {
+            GetSimilarProductListingsRequest {
                 lookup: lookup.clone(),
                 language: query.language,
                 currency: query.currency,
@@ -129,14 +131,16 @@ async fn similar_response(
         )
         .await
     {
-        Ok(GetSimilarProductsResult::Ready(products)) => ready_response(products, &principal),
-        Ok(GetSimilarProductsResult::EmbeddingPending) => pending_response(lookup),
+        Ok(GetSimilarProductListingsResult::Ready(products)) => {
+            ready_response(products, &principal)
+        }
+        Ok(GetSimilarProductListingsResult::EmbeddingPending) => pending_response(lookup),
         Err(error) => ApiError::from(error).into_response(),
     }
 }
 
 fn ready_response(
-    products: Vec<product_listing_service::use_cases::PersonalizedProductSummary>,
+    products: Vec<product_listing_service::use_cases::PersonalizedProductListingSummary>,
     principal: &crate::auth::TransportPrincipal,
 ) -> Response {
     let mut response = Json(
@@ -157,12 +161,12 @@ fn ready_response(
     response
 }
 
-fn pending_response(lookup: ProductEmbeddingLookup) -> Response {
+fn pending_response(lookup: ProductListingEmbeddingLookup) -> Response {
     let location_path = match lookup {
-        ProductEmbeddingLookup::ById(product_id) => {
+        ProductListingEmbeddingLookup::ById(product_id) => {
             format!("/api/v1/products/{product_id}/similar")
         }
-        ProductEmbeddingLookup::BySlug {
+        ProductListingEmbeddingLookup::BySlug {
             shop_slug_id,
             product_slug_id,
         } => format!("/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar"),
@@ -200,18 +204,19 @@ mod tests {
     use money::Currency;
     use money::{MonetaryAmount, Price};
     use product_listing_core::product_lifecycle::ProductLifecycle;
-    use product_listing_core::product_slug_id::ProductSlugId;
+    use product_listing_core::product_listing_slug_id::ProductListingSlugId;
     use product_listing_core::product_state::ProductState;
-    use product_listing_core::shops_product_id::ShopsProductId;
+    use product_listing_core::shop_listing_id::ShopListingId;
     use product_listing_core::title::Title;
     use product_listing_service::use_cases::{
-        GetProductError, GetProductRequest, GetProductUseCase, GetSimilarProductsError,
-        GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,
-        PersonalizedProductDetailsView, PersonalizedProductSummary, ProductSummary,
-        ProductSummaryPriceValuation, SearchProductsError, SearchProductsRequest,
-        SearchProductsResult, SearchProductsUseCase,
+        GetProductListingError, GetProductListingRequest, GetProductListingUseCase,
+        GetSimilarProductListingsError, GetSimilarProductListingsRequest,
+        GetSimilarProductListingsResult, GetSimilarProductListingsUseCase,
+        PersonalizedProductListingDetailsView, PersonalizedProductListingSummary,
+        ProductListingSummary, ProductListingSummaryPriceValuation, SearchProductListingsError,
+        SearchProductListingsRequest, SearchProductListingsResult, SearchProductListingsUseCase,
     };
-    use product_listing_service::user_state::ProductUserState;
+    use product_listing_service::user_state::ProductListingUserState;
     use shop_core::shop_id::ShopId;
     use shop_core::shop_name::ShopName;
     use shop_core::shop_slug_id::ShopSlugId;
@@ -223,62 +228,64 @@ mod tests {
     use user_core::user_id::UserId;
 
     #[derive(Clone)]
-    enum FakeSimilarProductsResult {
-        Ready(Vec<PersonalizedProductSummary>),
+    enum FakeSimilarProductListingsResult {
+        Ready(Vec<PersonalizedProductListingSummary>),
         Pending,
         NotFound,
         Unavailable,
     }
 
-    struct FakeSimilarProductsUseCase {
-        result: FakeSimilarProductsResult,
+    struct FakeSimilarProductListingsUseCase {
+        result: FakeSimilarProductListingsResult,
     }
 
     #[async_trait::async_trait]
-    impl GetSimilarProductsUseCase for FakeSimilarProductsUseCase {
+    impl GetSimilarProductListingsUseCase for FakeSimilarProductListingsUseCase {
         async fn execute(
             &self,
             _context: &OperationContext,
-            _request: GetSimilarProductsRequest,
-        ) -> Result<GetSimilarProductsResult, GetSimilarProductsError> {
+            _request: GetSimilarProductListingsRequest,
+        ) -> Result<GetSimilarProductListingsResult, GetSimilarProductListingsError> {
             match &self.result {
-                FakeSimilarProductsResult::Ready(products) => {
-                    Ok(GetSimilarProductsResult::Ready(products.clone()))
+                FakeSimilarProductListingsResult::Ready(products) => {
+                    Ok(GetSimilarProductListingsResult::Ready(products.clone()))
                 }
-                FakeSimilarProductsResult::Pending => {
-                    Ok(GetSimilarProductsResult::EmbeddingPending)
+                FakeSimilarProductListingsResult::Pending => {
+                    Ok(GetSimilarProductListingsResult::EmbeddingPending)
                 }
-                FakeSimilarProductsResult::NotFound => Err(GetSimilarProductsError::NotFound),
-                FakeSimilarProductsResult::Unavailable => {
-                    Err(GetSimilarProductsError::SimilaritySearchUnavailable)
+                FakeSimilarProductListingsResult::NotFound => {
+                    Err(GetSimilarProductListingsError::NotFound)
+                }
+                FakeSimilarProductListingsResult::Unavailable => {
+                    Err(GetSimilarProductListingsError::SimilaritySearchUnavailable)
                 }
             }
         }
     }
 
-    struct UnusedGetProductUseCase;
+    struct UnusedGetProductListingUseCase;
 
     #[async_trait::async_trait]
-    impl GetProductUseCase for UnusedGetProductUseCase {
+    impl GetProductListingUseCase for UnusedGetProductListingUseCase {
         async fn execute(
             &self,
             _context: &OperationContext,
-            _request: GetProductRequest,
-        ) -> Result<PersonalizedProductDetailsView, GetProductError> {
-            Err(GetProductError::NotFound)
+            _request: GetProductListingRequest,
+        ) -> Result<PersonalizedProductListingDetailsView, GetProductListingError> {
+            Err(GetProductListingError::NotFound)
         }
     }
 
-    struct UnusedSearchProductsUseCase;
+    struct UnusedSearchProductListingsUseCase;
 
     #[async_trait::async_trait]
-    impl SearchProductsUseCase for UnusedSearchProductsUseCase {
+    impl SearchProductListingsUseCase for UnusedSearchProductListingsUseCase {
         async fn execute(
             &self,
             _context: &OperationContext,
-            _request: SearchProductsRequest,
-        ) -> Result<SearchProductsResult, SearchProductsError> {
-            Ok(SearchProductsResult::default())
+            _request: SearchProductListingsRequest,
+        ) -> Result<SearchProductListingsResult, SearchProductListingsError> {
+            Ok(SearchProductListingsResult::default())
         }
     }
 
@@ -322,7 +329,7 @@ mod tests {
         let product = product_summary()?;
         let product_id = product.item.product_id;
         let app = app(
-            FakeSimilarProductsResult::Ready(vec![product]),
+            FakeSimilarProductListingsResult::Ready(vec![product]),
             TransportPrincipal::Anonymous,
         );
 
@@ -347,11 +354,11 @@ mod tests {
     #[tokio::test]
     async fn should_not_cache_ready_similar_products_for_authenticated_request()
     -> Result<(), Box<dyn std::error::Error>> {
-        let product_id = ProductId::new();
+        let product_id = ProductListingId::new();
         let mut product = product_summary()?;
-        product.user_state = Some(ProductUserState::default());
+        product.user_state = Some(ProductListingUserState::default());
         let app = app(
-            FakeSimilarProductsResult::Ready(vec![product]),
+            FakeSimilarProductListingsResult::Ready(vec![product]),
             TransportPrincipal::User {
                 user_id: UserId::new(),
                 auth_method: AuthMethod::CognitoJwt,
@@ -379,9 +386,9 @@ mod tests {
     #[tokio::test]
     async fn should_return_pending_response_with_id_location_and_cache_header()
     -> Result<(), Box<dyn std::error::Error>> {
-        let product_id = ProductId::new();
+        let product_id = ProductListingId::new();
         let app = app(
-            FakeSimilarProductsResult::Pending,
+            FakeSimilarProductListingsResult::Pending,
             TransportPrincipal::Anonymous,
         );
 
@@ -410,7 +417,7 @@ mod tests {
         let shop_slug_id = "antique-depot";
         let product_slug_id = "cabinet-a1b2c3";
         let app = app(
-            FakeSimilarProductsResult::Pending,
+            FakeSimilarProductListingsResult::Pending,
             TransportPrincipal::Anonymous,
         );
 
@@ -439,14 +446,17 @@ mod tests {
     async fn should_map_similar_product_not_found_error() -> Result<(), Box<dyn std::error::Error>>
     {
         let app = app(
-            FakeSimilarProductsResult::NotFound,
+            FakeSimilarProductListingsResult::NotFound,
             TransportPrincipal::Anonymous,
         );
 
         let response = app
             .oneshot(
-                Request::get(format!("/api/v1/products/{}/similar", ProductId::new()))
-                    .body(Body::empty())?,
+                Request::get(format!(
+                    "/api/v1/products/{}/similar",
+                    ProductListingId::new()
+                ))
+                .body(Body::empty())?,
             )
             .await?;
 
@@ -459,14 +469,17 @@ mod tests {
     async fn should_map_similarity_service_unavailable_error()
     -> Result<(), Box<dyn std::error::Error>> {
         let app = app(
-            FakeSimilarProductsResult::Unavailable,
+            FakeSimilarProductListingsResult::Unavailable,
             TransportPrincipal::Anonymous,
         );
 
         let response = app
             .oneshot(
-                Request::get(format!("/api/v1/products/{}/similar", ProductId::new()))
-                    .body(Body::empty())?,
+                Request::get(format!(
+                    "/api/v1/products/{}/similar",
+                    ProductListingId::new()
+                ))
+                .body(Body::empty())?,
             )
             .await?;
 
@@ -478,11 +491,11 @@ mod tests {
         Ok(())
     }
 
-    fn app(result: FakeSimilarProductsResult, principal: TransportPrincipal) -> Router {
+    fn app(result: FakeSimilarProductListingsResult, principal: TransportPrincipal) -> Router {
         let state = ProductsState::new(
-            Arc::new(UnusedGetProductUseCase),
-            Arc::new(FakeSimilarProductsUseCase { result }),
-            Arc::new(UnusedSearchProductsUseCase),
+            Arc::new(UnusedGetProductListingUseCase),
+            Arc::new(FakeSimilarProductListingsUseCase { result }),
+            Arc::new(UnusedSearchProductListingsUseCase),
             Arc::new(FakeAuthenticator { principal }),
         );
         Router::new()
@@ -504,15 +517,15 @@ mod tests {
         Ok(serde_json::from_slice(&bytes)?)
     }
 
-    fn product_summary() -> Result<PersonalizedProductSummary, url::ParseError> {
+    fn product_summary() -> Result<PersonalizedProductListingSummary, url::ParseError> {
         Ok(Personalized {
-            item: ProductSummary {
-                product_id: ProductId::new(),
-                product_slug_id: ProductSlugId::from("cabinet-abcdef"),
+            item: ProductListingSummary {
+                product_id: ProductListingId::new(),
+                product_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
                 event_id: EventId::new(),
                 shop_id: ShopId::new(),
                 seller_id: ShopId::new(),
-                shops_product_id: ShopsProductId::new(),
+                shop_listing_id: ShopListingId::new(),
                 shop_name: ShopName::from("Shop"),
                 shop_slug_id: ShopSlugId::from("shop"),
                 title: Some(Localized {
@@ -520,7 +533,7 @@ mod tests {
                     payload: Title::from("Cabinet"),
                 }),
                 display_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
-                price_valuation: ProductSummaryPriceValuation::Current {
+                price_valuation: ProductListingSummaryPriceValuation::Current {
                     fx_rate_id: fxrate_core::FxRateId::new(),
                     captured_at: OffsetDateTime::UNIX_EPOCH,
                 },

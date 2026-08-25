@@ -469,19 +469,19 @@ async fn partner_auth(scopes: HashSet<Scope>) -> Result<PartnerAuth, Infallible>
     })
 }
 
-async fn create_product(auth: &PartnerAuth, shops_product_id: &str) -> TestResult {
-    create_products(auth, &[shops_product_id]).await
+async fn create_product(auth: &PartnerAuth, shop_listing_id: &str) -> TestResult {
+    create_products(auth, &[shop_listing_id]).await
 }
 
-async fn create_products(auth: &PartnerAuth, shops_product_ids: &[&str]) -> TestResult {
+async fn create_products(auth: &PartnerAuth, shop_listing_ids: &[&str]) -> TestResult {
     let response = send_json(
         reqwest::Method::POST,
         products_path(&auth.shop_id),
         Some(&auth.token),
         &Value::Array(
-            shops_product_ids
+            shop_listing_ids
                 .iter()
-                .map(|shops_product_id| product(shops_product_id))
+                .map(|shop_listing_id| product(shop_listing_id))
                 .collect(),
         ),
     )
@@ -523,32 +523,32 @@ fn products_path(shop_id: &str) -> String {
     format!("/api/v1/shops/{shop_id}/products")
 }
 
-fn product(shops_product_id: &str) -> Value {
+fn product(shop_listing_id: &str) -> Value {
     json!({
-        "shopsProductId": shops_product_id,
+        "shopsProductId": shop_listing_id,
         "title": { "text": "Synchronous Cabinet", "language": "en" },
         "description": { "text": "Created in the request transaction.", "language": "en" },
         "state": "LISTED",
-        "url": format!("https://partner.example/products/{shops_product_id}"),
+        "url": format!("https://partner.example/products/{shop_listing_id}"),
         "images": []
     })
 }
 
-fn patch_product(shops_product_id: &str, state: &str) -> Value {
+fn patch_product(shop_listing_id: &str, state: &str) -> Value {
     json!({
-        "shopsProductId": shops_product_id,
+        "shopsProductId": shop_listing_id,
         "state": state
     })
 }
 
-fn delete_product(shops_product_id: &str) -> Value {
-    json!({ "shopsProductId": shops_product_id })
+fn delete_product(shop_listing_id: &str) -> Value {
+    json!({ "shopsProductId": shop_listing_id })
 }
 
-fn failure(shop_id: &str, shops_product_id: &str, error: &str) -> Value {
+fn failure(shop_id: &str, shop_listing_id: &str, error: &str) -> Value {
     json!({
         "shopId": shop_id,
-        "shopsProductId": shops_product_id,
+        "shopsProductId": shop_listing_id,
         "error": error
     })
 }

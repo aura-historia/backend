@@ -27,7 +27,7 @@ async fn should_deliver_product_event_change_to_worker_queues() {
     let pool = get_postgres_client().await;
     insert_product_event_under_test(&pool).await;
 
-    let product_job = recv_or_fail(&mut receivers, WorkerQueue::ProductOpenSearch).await;
+    let product_job = recv_or_fail(&mut receivers, WorkerQueue::ProductListingOpenSearch).await;
     let percolator_job = recv_or_fail(&mut receivers, WorkerQueue::SearchFilterPercolator).await;
 
     let _send_result = shutdown_tx.send(());

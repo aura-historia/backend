@@ -118,14 +118,14 @@
 - `src/oauth-service/AGENTS.md` — canonical OAuth service/use-case crate.
 - `src/oauth-postgres/AGENTS.md` — canonical OAuth PostgreSQL adapter crate.
 
-- `src/product-listing-core/AGENTS.md` — canonical Product domain crate.
-- `src/product-listing-service/AGENTS.md` — canonical Product service crate.
-- `src/product-listing-translation-llm/AGENTS.md` — Product title LLM adapter crate.
-- `src/product-listing-postgres/AGENTS.md` — canonical Product Postgres adapter crate.
+- `src/product-listing-core/AGENTS.md` — canonical ProductListing domain crate.
+- `src/product-listing-service/AGENTS.md` — canonical ProductListing service crate.
+- `src/product-listing-translation-llm/AGENTS.md` — ProductListing title LLM adapter crate.
+- `src/product-listing-postgres/AGENTS.md` — canonical ProductListing Postgres adapter crate.
 - `src/platform-observability/AGENTS.md` — typed tracing subscriber setup.
 - `src/platform-opensearch/AGENTS.md` — shared OpenSearch protocol envelopes.
 - `src/platform-postgres/AGENTS.md` — shared SQLx transaction and pool mechanics.
-- `src/product-listing-opensearch/AGENTS.md` — canonical Product OpenSearch adapter crate.
+- `src/product-listing-opensearch/AGENTS.md` — canonical ProductListing OpenSearch adapter crate.
 - `src/watchlist-core/AGENTS.md` — canonical Watchlist domain crate.
 - `src/watchlist-service/AGENTS.md` — canonical Watchlist service crate.
 - `src/watchlist-postgres/AGENTS.md` — canonical Watchlist Postgres adapter crate.

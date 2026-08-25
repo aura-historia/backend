@@ -15,7 +15,7 @@ use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use user_core::user_id::UserId;
 
 use embedding::{EmbeddingError, EmbeddingGenerator};
-use product_listing_core::product_search::ProductSearch;
+use product_listing_core::product_listing_search::ProductListingSearch;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use search_filter_core::{NewSearchFilter, SearchFilter};
 use user_service::ports::{
@@ -27,7 +27,7 @@ pub struct CreateSearchFilterCommand {
     pub user_id: UserId,
     pub name: UserSearchFilterName,
     pub notifications: bool,
-    pub search: ProductSearch,
+    pub search: ProductListingSearch,
 }
 
 #[derive(Debug, Clone, PartialEq)]

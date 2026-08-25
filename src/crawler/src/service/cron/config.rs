@@ -23,11 +23,11 @@ pub struct CrawlerCronConfig {
     pub push_queue_capacity: usize,
     /// Maximum age of the oldest item in a partial product-push batch.
     pub push_max_batch_age: Duration,
-    /// Maximum number of unique Product upsert transactions executed in parallel
+    /// Maximum number of unique ProductListing upsert transactions executed in parallel
     /// by one product-push batch.
     pub push_max_concurrency: usize,
     /// Maximum connections in the authoritative business Postgres pool used by
-    /// canonical Shop reads and Product writes.
+    /// canonical Shop reads and ProductListing writes.
     pub business_db_max_connections: u32,
     pub spider_concurrency: usize,
     /// Per-site in-flight crawl limit for spider::Website.

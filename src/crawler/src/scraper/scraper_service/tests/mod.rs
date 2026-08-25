@@ -18,8 +18,8 @@ mod seed_pages;
 use crate::scraper::candidate_service::MockScraperCandidateService;
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
 use crate::scraper::css_selector::product_schema_service::{
-    GeneratedProductSchemas, GeneratedSingleSchema, MockProductSchemaService, SchemaLlmEvaluation,
-    SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision,
+    GeneratedProductSchemas, GeneratedSingleSchema, MockProductListingSchemaService,
+    SchemaLlmEvaluation, SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision,
 };
 use crate::scraper::css_selector::rule::{
     CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
@@ -27,7 +27,7 @@ use crate::scraper::css_selector::rule::{
 use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::normalization::product_normalization_service::{
-    MockProductNormalizationService, NormalizationFailure, NormalizationSuccess,
+    MockProductListingNormalizationService, NormalizationFailure, NormalizationSuccess,
 };
 use crate::scraper::scraper_service::ScraperService;
 use crate::scraper::scraper_service::service::{
@@ -37,7 +37,7 @@ use crate::spider::classification::url_metadata::UrlState;
 use localization::Language;
 use localization::Localized;
 use product_listing_core::product_state::ProductState;
-use product_listing_core::shops_product_id::ShopsProductId;
+use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_core::title::Title;
 use std::sync::Arc;
 use time::OffsetDateTime;
@@ -89,7 +89,7 @@ pub(super) fn minimal_schema() -> ProductCssSelectorSchema {
     };
 
     ProductCssSelectorSchema {
-        shops_product_id: Some(text_rule("#product-id")),
+        shop_listing_id: Some(text_rule("#product-id")),
         title: text_rule("h1"),
         description: None,
         price: None,
@@ -153,7 +153,7 @@ pub(super) fn generated_single_product(
     schema: ProductCssSelectorSchema,
     confidence: SchemaLlmEvaluationConfidence,
 ) -> GeneratedSingleSchema {
-    GeneratedSingleSchema::Product {
+    GeneratedSingleSchema::ProductListing {
         schema: Box::new(schema),
         evaluation: schema_evaluation(confidence),
     }
@@ -162,7 +162,7 @@ pub(super) fn generated_single_product(
 pub(super) fn normalized_product(url: Url) -> NormalizedProduct {
     let title: Title = "Biedermeier Chair".into();
     NormalizedProduct {
-        shops_product_id: ShopsProductId::from("SKU-42"),
+        shop_listing_id: ShopListingId::from("SKU-42"),
         title: Localized::new(Language::De, title),
         description: None,
         price: None,

@@ -1,7 +1,7 @@
 use application::error::box_error;
 use domain_primitives::event_id::EventId;
 use platform_postgres::SqlxTransaction;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
     SearchFilterMatchNotificationSource, SearchFilterMatchNotificationSourceReadError,
@@ -50,7 +50,7 @@ impl SearchFilterMatchNotificationSourceReader
         &mut self,
         user_id: UserId,
         search_filter_id: UserSearchFilterId,
-        product_id: ProductId,
+        product_id: ProductListingId,
         origin_event_id: EventId,
     ) -> Result<
         Option<SearchFilterMatchNotificationSource>,
@@ -101,7 +101,7 @@ impl SearchFilterMatchNotificationSourceReader
                         source: box_error(source),
                     }
                 })?,
-                product_id: ProductId::from(row.product_id),
+                product_id: ProductListingId::from(row.product_id),
                 origin_event_id: row.origin_event_id.into(),
                 matched_at: row.created,
                 external_delivery_requested: row.external_delivery_requested,

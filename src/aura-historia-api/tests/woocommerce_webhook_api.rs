@@ -47,7 +47,7 @@ async fn should_persist_woocommerce_created_webhook_after_signature_validation()
 
     let pool = get_postgres_client().await;
     let row = sqlx::query_as::<_, (String, i64, String, String)>(
-        "SELECT title_text, price_amount, state, shops_product_id FROM products WHERE shop_id = $1 AND shops_product_id = $2",
+        "SELECT title_text, price_amount, state, shop_listing_id FROM products WHERE shop_id = $1 AND shop_listing_id = $2",
     )
     .bind(uuid::Uuid::parse_str(&shop_id)?)
     .bind("17")
@@ -92,7 +92,7 @@ async fn should_mark_existing_product_removed_when_woocommerce_deleted_webhook_a
 
         let pool = get_postgres_client().await;
         let state: (String,) = sqlx::query_as(
-            "SELECT state FROM products WHERE shop_id = $1 AND shops_product_id = $2",
+            "SELECT state FROM products WHERE shop_id = $1 AND shop_listing_id = $2",
         )
         .bind(uuid::Uuid::parse_str(&shop_id)?)
         .bind("18")
@@ -123,7 +123,7 @@ async fn should_update_existing_product_and_not_append_event_for_redelivery() {
 
         let pool = get_postgres_client().await;
         let event_count_after_update: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM product_events WHERE product_id = (SELECT product_id FROM products WHERE shop_id = $1 AND shops_product_id = $2)",
+            "SELECT COUNT(*) FROM product_events WHERE product_id = (SELECT product_id FROM products WHERE shop_id = $1 AND shop_listing_id = $2)",
         )
         .bind(uuid::Uuid::parse_str(&shop_id)?)
         .bind("20")
@@ -135,7 +135,7 @@ async fn should_update_existing_product_and_not_append_event_for_redelivery() {
         );
 
         let product: (uuid::Uuid, i64, String) = sqlx::query_as(
-            "SELECT product_id, price_amount, state FROM products WHERE shop_id = $1 AND shops_product_id = $2",
+            "SELECT product_id, price_amount, state FROM products WHERE shop_id = $1 AND shop_listing_id = $2",
         )
         .bind(uuid::Uuid::parse_str(&shop_id)?)
         .bind("20")

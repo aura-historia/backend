@@ -3,7 +3,7 @@ use crawler::scraper::css_selector::product_schema::{
     ProductCssSelectorSchema, RawExtractedProduct,
 };
 use crawler::scraper::normalization::product_normalization_service::{
-    ProductNormalizationService, ProductNormalizationServiceImpl,
+    ProductListingNormalizationService, ProductListingNormalizationServiceImpl,
 };
 use crawler::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
 use crawler::scraper::normalization::state_mapping_service::{
@@ -76,8 +76,8 @@ pub fn assert_extraction(
         .unwrap_or_else(|e| panic!("schema apply failed: {e}"));
 
     assert_eq!(
-        result.shops_product_id, expected.shops_product_id,
-        "shops_product_id"
+        result.shop_listing_id, expected.shop_listing_id,
+        "shop_listing_id"
     );
     assert_eq!(result.title, expected.title, "title");
     assert_eq!(result.description, expected.description, "description");
@@ -131,8 +131,9 @@ pub async fn assert_normalized(
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };
-    let norm_svc =
-        ProductNormalizationServiceImpl::new(Box::new(FixedStateMappingService(mapping_record)));
+    let norm_svc = ProductListingNormalizationServiceImpl::new(Box::new(FixedStateMappingService(
+        mapping_record,
+    )));
 
     let product_url = Url::parse(url).expect("test URL must be valid");
     let default_currency = schema.default_currency.map(Currency::from);
@@ -143,9 +144,9 @@ pub async fn assert_normalized(
         .product;
 
     assert_eq!(
-        result.shops_product_id.to_string(),
-        expected.shops_product_id,
-        "shops_product_id"
+        result.shop_listing_id.to_string(),
+        expected.shop_listing_id,
+        "shop_listing_id"
     );
     assert_eq!(result.title.payload.as_ref(), expected.title, "title");
     assert_eq!(

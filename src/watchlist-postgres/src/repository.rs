@@ -1,12 +1,12 @@
 use crate::mapping::WatchlistRepositoryRow;
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
-use watchlist_core::WatchlistProduct;
+use watchlist_core::WatchlistProductListing;
 use watchlist_service::ports::{
-    VersionedWatchlistProduct, WatchlistRepository, WatchlistRepositoryError,
+    VersionedWatchlistProductListing, WatchlistRepository, WatchlistRepositoryError,
     WatchlistRepositoryFactory, WatchlistStorageVersion,
 };
 
@@ -31,8 +31,8 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
     async fn find_by_user_and_product(
         &mut self,
         user_id: UserId,
-        product_id: ProductId,
-    ) -> Result<Option<VersionedWatchlistProduct>, WatchlistRepositoryError> {
+        product_id: ProductListingId,
+    ) -> Result<Option<VersionedWatchlistProductListing>, WatchlistRepositoryError> {
         let row = sqlx::query_as::<_, WatchlistRepositoryRow>(
             "SELECT user_id, product_id, notifications, state, version \
              FROM product_watchlist WHERE user_id = $1 AND product_id = $2",
@@ -45,13 +45,14 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
             source: box_error(source),
         })?;
 
-        row.map(VersionedWatchlistProduct::try_from).transpose()
+        row.map(VersionedWatchlistProductListing::try_from)
+            .transpose()
     }
 
     async fn insert(
         &mut self,
-        entry: &WatchlistProduct,
-    ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError> {
+        entry: &WatchlistProductListing,
+    ) -> Result<VersionedWatchlistProductListing, WatchlistRepositoryError> {
         let now = OffsetDateTime::now_utc();
         let row = sqlx::query_as::<_, WatchlistRepositoryRow>(
             "INSERT INTO product_watchlist \
@@ -68,14 +69,14 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
             .await
             .map_err(map_insert_error)?;
 
-        VersionedWatchlistProduct::try_from(row)
+        VersionedWatchlistProductListing::try_from(row)
     }
 
     async fn update(
         &mut self,
-        entry: &WatchlistProduct,
+        entry: &WatchlistProductListing,
         expected_version: WatchlistStorageVersion,
-    ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError> {
+    ) -> Result<VersionedWatchlistProductListing, WatchlistRepositoryError> {
         let expected_version = version_to_i64(expected_version)?;
         let now = OffsetDateTime::now_utc();
         let row = sqlx::query_as::<_, WatchlistRepositoryRow>(
@@ -110,13 +111,13 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
         })?
         .ok_or(WatchlistRepositoryError::ConcurrencyConflict)?;
 
-        VersionedWatchlistProduct::try_from(row)
+        VersionedWatchlistProductListing::try_from(row)
     }
 
     async fn delete(
         &mut self,
         user_id: UserId,
-        product_id: ProductId,
+        product_id: ProductListingId,
         expected_version: WatchlistStorageVersion,
     ) -> Result<(), WatchlistRepositoryError> {
         let expected_version = version_to_i64(expected_version)?;

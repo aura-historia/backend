@@ -12,9 +12,12 @@ use localization::Language;
 use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
-    SqlxPartnerProductAuthorizerFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventStoreFactory,
+    SqlxProductListingRepositoryFactory,
 };
-use product_listing_service::use_cases::{IngestShopifyProductHandler, UpsertProductHandler};
+use product_listing_service::use_cases::{
+    IngestShopifyProductListingHandler, UpsertProductListingHandler,
+};
 use shop_core::domain::Domain;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation, ShopifyIntegration};
@@ -150,7 +153,7 @@ async fn should_ignore_shopify_event_for_missing_shop() {
     .await;
 
     assert!(response.batch_item_failures.is_empty());
-    assert_eq!(0, product_count_for_shops_product_id(105).await);
+    assert_eq!(0, product_count_for_shop_listing_id(105).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -158,7 +161,7 @@ async fn should_retry_malformed_sqs_body_without_persisting_product() {
     let response = invoke_event(sqs_event("malformed-sqs", Some("not-json".to_owned()))).await;
 
     assert_eq!(vec!["malformed-sqs"], failure_ids(response));
-    assert_eq!(0, product_count_for_shops_product_id(106).await);
+    assert_eq!(0, product_count_for_shop_listing_id(106).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -174,7 +177,7 @@ async fn should_retry_malformed_eventbridge_detail_without_persisting_product() 
     .await;
 
     assert_eq!(vec!["malformed-detail"], failure_ids(response));
-    assert_eq!(0, product_count_for_shops_product_id(107).await);
+    assert_eq!(0, product_count_for_shop_listing_id(107).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -187,7 +190,7 @@ async fn should_acknowledge_unsupported_topic_without_persisting_product() {
     .await;
 
     assert!(response.batch_item_failures.is_empty());
-    assert_eq!(0, product_count_for_shops_product_id(108).await);
+    assert_eq!(0, product_count_for_shop_listing_id(108).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -200,7 +203,7 @@ async fn should_acknowledge_invalid_shop_domain_without_persisting_product() {
     .await;
 
     assert!(response.batch_item_failures.is_empty());
-    assert_eq!(0, product_count_for_shops_product_id(109).await);
+    assert_eq!(0, product_count_for_shop_listing_id(109).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -350,13 +353,13 @@ async fn invoke(
 ) -> aws_lambda_events::sqs::SqsBatchResponse {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
-    let ingestion = IngestShopifyProductHandler::new(
+    let ingestion = IngestShopifyProductListingHandler::new(
         GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
-        UpsertProductHandler::new_with_fx_rates(
+        UpsertProductListingHandler::new_with_fx_rates(
             unit_of_work,
-            SqlxProductRepositoryFactory::new(),
-            SqlxProductEventStoreFactory::new(),
-            SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventStoreFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
         ),
     );
@@ -370,13 +373,13 @@ async fn invoke(
 async fn invoke_event(event: LambdaEvent<SqsEvent>) -> aws_lambda_events::sqs::SqsBatchResponse {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
-    let ingestion = IngestShopifyProductHandler::new(
+    let ingestion = IngestShopifyProductListingHandler::new(
         GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
-        UpsertProductHandler::new_with_fx_rates(
+        UpsertProductListingHandler::new_with_fx_rates(
             unit_of_work,
-            SqlxProductRepositoryFactory::new(),
-            SqlxProductEventStoreFactory::new(),
-            SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventStoreFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
         ),
     );
@@ -385,7 +388,9 @@ async fn invoke_event(event: LambdaEvent<SqsEvent>) -> aws_lambda_events::sqs::S
 
 async fn invoke_with_ingestion(
     event: LambdaEvent<SqsEvent>,
-    ingestion: &(dyn product_listing_service::use_cases::IngestShopifyProductUseCase + Send + Sync),
+    ingestion: &(
+         dyn product_listing_service::use_cases::IngestShopifyProductListingUseCase + Send + Sync
+     ),
 ) -> aws_lambda_events::sqs::SqsBatchResponse {
     match handler(event, ingestion).await {
         Ok(response) => response,
@@ -502,23 +507,23 @@ fn sqs_event(message_id: &str, body: Option<String>) -> LambdaEvent<SqsEvent> {
     LambdaEvent::new(event, Context::default())
 }
 
-struct ProductRow {
+struct ProductListingRow {
     product_id: uuid::Uuid,
     state: String,
     price_amount: i64,
     price_currency: String,
 }
 
-async fn product_row(shop_id: ShopId, product_id: u64) -> ProductRow {
+async fn product_row(shop_id: ShopId, product_id: u64) -> ProductListingRow {
     match sqlx::query_as::<_, (uuid::Uuid, String, i64, String)>(
-        "SELECT product_id, state, price_amount, price_currency FROM products WHERE shop_id = $1 AND shops_product_id = $2",
+        "SELECT product_id, state, price_amount, price_currency FROM products WHERE shop_id = $1 AND shop_listing_id = $2",
     )
     .bind(uuid::Uuid::from(shop_id))
     .bind(product_id.to_string())
     .fetch_one(&get_postgres_client().await)
     .await
     {
-        Ok((product_id, state, price_amount, price_currency)) => ProductRow {
+        Ok((product_id, state, price_amount, price_currency)) => ProductListingRow {
             product_id,
             state,
             price_amount,
@@ -563,8 +568,8 @@ async fn product_count(shop_id: ShopId) -> i64 {
     }
 }
 
-async fn product_count_for_shops_product_id(product_id: u64) -> i64 {
-    match sqlx::query_scalar("SELECT COUNT(*) FROM products WHERE shops_product_id = $1")
+async fn product_count_for_shop_listing_id(product_id: u64) -> i64 {
+    match sqlx::query_scalar("SELECT COUNT(*) FROM products WHERE shop_listing_id = $1")
         .bind(product_id.to_string())
         .fetch_one(&get_postgres_client().await)
         .await

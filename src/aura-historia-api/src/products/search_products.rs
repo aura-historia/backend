@@ -1,7 +1,7 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_ORDER_VALUE, BAD_QUERY_PARAMETER_VALUE, BAD_SORT_VALUE};
 use crate::products::product_data::{
-    PersonalizedProductSummaryData, personalized_product_summary_data,
+    PersonalizedProductListingSummaryData, personalized_product_summary_data,
 };
 use crate::state::ProductsState;
 use crate::values::GeoDistanceQueryData;
@@ -20,12 +20,16 @@ use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
 use money::MonetaryAmount;
-use product_listing_core::product_id::ProductId;
 use product_listing_core::product_lifecycle::ProductLifecycle;
-use product_listing_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::product_listing_search::{
+    EnhancedSearchDescription, ProductListingSearch,
+};
 use product_listing_core::product_state::ProductState;
-use product_listing_core::sort_product_field::SortProductField;
-use product_listing_service::use_cases::{ProductSearchCursor, SearchProductsRequest};
+use product_listing_core::sort_product_listing_field::SortProductListingField;
+use product_listing_service::use_cases::{
+    ProductListingSearchCursor, SearchProductListingsRequest,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use shop_core::seller_slug_id::SellerSlugId;
@@ -37,18 +41,18 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ProductSearchData {
+struct ProductListingSearchData {
     #[serde(default)]
     #[serde(with = "crate::wire::language")]
     language: Language,
     #[serde(default, with = "crate::wire::currency")]
     currency: Currency,
-    #[serde(default)]
-    product_query: Vec<TextQuery<1>>,
+    #[serde(default, rename = "productQuery")]
+    product_listing_query: Vec<TextQuery<1>>,
     #[serde(default)]
     enhanced_search_description: Option<String>,
     #[serde(default)]
-    exclude_product_id: HashSet<ProductId>,
+    exclude_product_id: HashSet<ProductListingId>,
     #[serde(default)]
     shop_name: HashSet<ShopName>,
     #[serde(default)]
@@ -105,13 +109,13 @@ struct ProductSearchData {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum SortProductFieldData {
+enum SortProductListingFieldData {
     Score,
     Updated,
     Created,
 }
 
-impl TryFrom<&str> for SortProductFieldData {
+impl TryFrom<&str> for SortProductListingFieldData {
     type Error = String;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
@@ -124,29 +128,29 @@ impl TryFrom<&str> for SortProductFieldData {
     }
 }
 
-impl From<SortProductFieldData> for SortProductField {
-    fn from(value: SortProductFieldData) -> Self {
+impl From<SortProductListingFieldData> for SortProductListingField {
+    fn from(value: SortProductListingFieldData) -> Self {
         match value {
-            SortProductFieldData::Score => Self::Score,
-            SortProductFieldData::Updated => Self::Updated,
-            SortProductFieldData::Created => Self::Created,
+            SortProductListingFieldData::Score => Self::Score,
+            SortProductListingFieldData::Updated => Self::Updated,
+            SortProductListingFieldData::Created => Self::Created,
         }
     }
 }
 
-impl TryFrom<ProductSearchData> for ProductSearch {
-    type Error = product_listing_core::product_search::EnhancedSearchDescriptionError;
+impl TryFrom<ProductListingSearchData> for ProductListingSearch {
+    type Error = product_listing_core::product_listing_search::EnhancedSearchDescriptionError;
 
-    fn try_from(data: ProductSearchData) -> Result<Self, Self::Error> {
+    fn try_from(data: ProductListingSearchData) -> Result<Self, Self::Error> {
         Ok(Self {
             language: data.language,
             currency: data.currency,
-            product_query: data.product_query,
+            product_listing_query: data.product_listing_query,
             enhanced_search_description: data
                 .enhanced_search_description
                 .map(EnhancedSearchDescription::try_from)
                 .transpose()?,
-            exclude_product_id_query: data.exclude_product_id.into(),
+            exclude_product_listing_id_query: data.exclude_product_id.into(),
             shop_name_query: data.shop_name.into(),
             exclude_shop_name_query: data.exclude_shop_name.into(),
             seller_name_query: data.seller_name.into(),
@@ -172,25 +176,25 @@ impl TryFrom<ProductSearchData> for ProductSearch {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct CursoredProductsData {
-    items: Vec<PersonalizedProductSummaryData>,
+struct CursoredProductListingsData {
+    items: Vec<PersonalizedProductListingSummaryData>,
     size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    search_after: Option<ProductSearchCursorData>,
+    search_after: Option<ProductListingSearchCursorData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     total: Option<u64>,
 }
 
-/// HTTP encoding of the Product-owned opaque continuation cursor.
+/// HTTP encoding of the ProductListing-owned opaque continuation cursor.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ProductSearchCursorData {
+struct ProductListingSearchCursorData {
     fx_rate_id: uuid::Uuid,
     search_after: Value,
 }
 
-impl From<ProductSearchCursor> for ProductSearchCursorData {
-    fn from(cursor: ProductSearchCursor) -> Self {
+impl From<ProductListingSearchCursor> for ProductListingSearchCursorData {
+    fn from(cursor: ProductListingSearchCursor) -> Self {
         Self {
             fx_rate_id: cursor.fx_rate_id.into(),
             search_after: cursor.search_after,
@@ -198,8 +202,8 @@ impl From<ProductSearchCursor> for ProductSearchCursorData {
     }
 }
 
-impl From<ProductSearchCursorData> for ProductSearchCursor {
-    fn from(cursor: ProductSearchCursorData) -> Self {
+impl From<ProductListingSearchCursorData> for ProductListingSearchCursor {
+    fn from(cursor: ProductListingSearchCursorData) -> Self {
         Self {
             fx_rate_id: FxRateId::from(cursor.fx_rate_id),
             search_after: cursor.search_after,
@@ -227,7 +231,7 @@ async fn handle_search(
     state: ProductsState,
     headers: HeaderMap,
     raw_query: Option<&str>,
-    data: ProductSearchData,
+    data: ProductListingSearchData,
 ) -> Response {
     let metadata = request_metadata(&headers);
     let principal = match OptionalAuthExtractor::new(state.authenticator.as_ref())
@@ -246,7 +250,7 @@ async fn handle_search(
         Err(error) => return error.into_response(),
     };
 
-    let search = match ProductSearch::try_from(data) {
+    let search = match ProductListingSearch::try_from(data) {
         Ok(search) => search,
         Err(error) => {
             return ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
@@ -259,7 +263,7 @@ async fn handle_search(
         .search_products
         .execute(
             &context,
-            SearchProductsRequest {
+            SearchProductListingsRequest {
                 search,
                 sort,
                 cursor,
@@ -268,7 +272,7 @@ async fn handle_search(
         .await
     {
         Ok(result) => {
-            let mut response = Json(CursoredProductsData {
+            let mut response = Json(CursoredProductListingsData {
                 items: result
                     .items
                     .into_iter()
@@ -295,13 +299,13 @@ async fn handle_search(
     }
 }
 
-fn parse_sort(raw_query: Option<&str>) -> Result<Option<Sort<SortProductField>>, ApiError> {
+fn parse_sort(raw_query: Option<&str>) -> Result<Option<Sort<SortProductListingField>>, ApiError> {
     match (
         query_value(raw_query, "sort"),
         query_value(raw_query, "order"),
     ) {
         (Some(sort), Some(order)) => {
-            let sort = SortProductFieldData::try_from(sort.as_str()).map_err(|detail| {
+            let sort = SortProductListingFieldData::try_from(sort.as_str()).map_err(|detail| {
                 ApiError::bad_request(BAD_SORT_VALUE)
                     .with_query_field("sort")
                     .with_detail(detail)
@@ -320,7 +324,9 @@ fn parse_sort(raw_query: Option<&str>) -> Result<Option<Sort<SortProductField>>,
     }
 }
 
-fn parse_cursor(raw_query: Option<&str>) -> Result<Option<Cursor<ProductSearchCursor>>, ApiError> {
+fn parse_cursor(
+    raw_query: Option<&str>,
+) -> Result<Option<Cursor<ProductListingSearchCursor>>, ApiError> {
     let size = query_value(raw_query, "size")
         .map(|value| value.parse::<u64>())
         .transpose()
@@ -337,13 +343,13 @@ fn parse_cursor(raw_query: Option<&str>) -> Result<Option<Cursor<ProductSearchCu
         _ => {
             return Err(ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
                 .with_query_field("searchAfter")
-                .with_detail("Product search cursor must be supplied once."));
+                .with_detail("ProductListing search cursor must be supplied once."));
         }
     };
 
     if size.is_some() || search_after.is_some() {
         Ok(Some(Cursor {
-            size: size.unwrap_or_else(|| Cursor::<ProductSearchCursor>::default().size),
+            size: size.unwrap_or_else(|| Cursor::<ProductListingSearchCursor>::default().size),
             search_after,
         }))
     } else {
@@ -351,8 +357,8 @@ fn parse_cursor(raw_query: Option<&str>) -> Result<Option<Cursor<ProductSearchCu
     }
 }
 
-fn parse_search_after(value: &str) -> Result<ProductSearchCursor, ApiError> {
-    serde_json::from_str::<ProductSearchCursorData>(value)
+fn parse_search_after(value: &str) -> Result<ProductListingSearchCursor, ApiError> {
+    serde_json::from_str::<ProductListingSearchCursorData>(value)
         .map(Into::into)
         .map_err(|error| {
             ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
@@ -389,59 +395,61 @@ mod tests {
     use localization::Language;
     use money::Currency;
     use product_listing_service::use_cases::{
-        GetProductError, GetProductRequest, GetProductUseCase, GetSimilarProductsError,
-        GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,
-        SearchProductsError, SearchProductsResult, SearchProductsUseCase,
+        GetProductListingError, GetProductListingRequest, GetProductListingUseCase,
+        GetSimilarProductListingsError, GetSimilarProductListingsRequest,
+        GetSimilarProductListingsResult, GetSimilarProductListingsUseCase,
+        SearchProductListingsError, SearchProductListingsResult, SearchProductListingsUseCase,
     };
     use serde_json::Value;
     use std::sync::{Arc, Mutex, MutexGuard};
     use tower::ServiceExt;
 
-    type SearchProductsCalls = Arc<Mutex<Vec<(OperationContext, SearchProductsRequest)>>>;
+    type SearchProductListingsCalls =
+        Arc<Mutex<Vec<(OperationContext, SearchProductListingsRequest)>>>;
 
-    struct UnusedGetProductUseCase;
+    struct UnusedGetProductListingUseCase;
 
     #[async_trait::async_trait]
-    impl GetProductUseCase for UnusedGetProductUseCase {
+    impl GetProductListingUseCase for UnusedGetProductListingUseCase {
         async fn execute(
             &self,
             _context: &OperationContext,
-            _request: GetProductRequest,
+            _request: GetProductListingRequest,
         ) -> Result<
-            product_listing_service::use_cases::PersonalizedProductDetailsView,
-            GetProductError,
+            product_listing_service::use_cases::PersonalizedProductListingDetailsView,
+            GetProductListingError,
         > {
-            Err(GetProductError::NotFound)
+            Err(GetProductListingError::NotFound)
         }
     }
 
-    struct UnusedSimilarProductsUseCase;
+    struct UnusedSimilarProductListingsUseCase;
 
     #[async_trait::async_trait]
-    impl GetSimilarProductsUseCase for UnusedSimilarProductsUseCase {
+    impl GetSimilarProductListingsUseCase for UnusedSimilarProductListingsUseCase {
         async fn execute(
             &self,
             _context: &OperationContext,
-            _request: GetSimilarProductsRequest,
-        ) -> Result<GetSimilarProductsResult, GetSimilarProductsError> {
-            Err(GetSimilarProductsError::SimilaritySearchUnavailable)
+            _request: GetSimilarProductListingsRequest,
+        ) -> Result<GetSimilarProductListingsResult, GetSimilarProductListingsError> {
+            Err(GetSimilarProductListingsError::SimilaritySearchUnavailable)
         }
     }
 
     #[derive(Clone)]
-    struct FakeSearchProductsUseCase {
-        calls: SearchProductsCalls,
+    struct FakeSearchProductListingsUseCase {
+        calls: SearchProductListingsCalls,
     }
 
     #[async_trait::async_trait]
-    impl SearchProductsUseCase for FakeSearchProductsUseCase {
+    impl SearchProductListingsUseCase for FakeSearchProductListingsUseCase {
         async fn execute(
             &self,
             context: &OperationContext,
-            request: SearchProductsRequest,
-        ) -> Result<SearchProductsResult, SearchProductsError> {
+            request: SearchProductListingsRequest,
+        ) -> Result<SearchProductListingsResult, SearchProductListingsError> {
             lock(&self.calls).push((context.clone(), request));
-            Ok(SearchProductsResult::default())
+            Ok(SearchProductListingsResult::default())
         }
     }
 
@@ -482,18 +490,18 @@ mod tests {
         let request = &calls[0].1;
         assert_eq!(Language::De, request.search.language);
         assert_eq!(Currency::Usd, request.search.currency);
-        assert_eq!("cabinet", request.search.product_query[0].as_ref());
+        assert_eq!("cabinet", request.search.product_listing_query[0].as_ref());
         assert!(matches!(
             request.sort,
             Some(Sort {
-                sort: SortProductField::Updated,
+                sort: SortProductListingField::Updated,
                 order: SortOrder::Desc,
             })
         ));
         assert_eq!(
             Some(Cursor {
                 size: 100,
-                search_after: Some(ProductSearchCursor {
+                search_after: Some(ProductListingSearchCursor {
                     fx_rate_id: FxRateId::from(uuid::uuid!("10000000-0000-0000-0000-000000000001")),
                     search_after: Value::Array(vec![Value::String("next".to_owned())]),
                 }),
@@ -516,12 +524,12 @@ mod tests {
         Ok(())
     }
 
-    fn app() -> (Router, SearchProductsCalls) {
+    fn app() -> (Router, SearchProductListingsCalls) {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let state = ProductsState::new(
-            Arc::new(UnusedGetProductUseCase),
-            Arc::new(UnusedSimilarProductsUseCase),
-            Arc::new(FakeSearchProductsUseCase {
+            Arc::new(UnusedGetProductListingUseCase),
+            Arc::new(UnusedSimilarProductListingsUseCase),
+            Arc::new(FakeSearchProductListingsUseCase {
                 calls: Arc::clone(&calls),
             }),
             Arc::new(AnonymousAuthenticator),

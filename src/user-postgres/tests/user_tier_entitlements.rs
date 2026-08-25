@@ -1,6 +1,6 @@
 use application::transaction::{Transaction, UnitOfWork};
 use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use user_core::tier::UserTier;
@@ -127,7 +127,13 @@ async fn should_reconcile_legacy_newest_first_quotas() {
     );
     assert_eq!(
         20,
-        count_state(&pool, ResourceTable::ProductWatchlist, user_id, "ACTIVE",).await
+        count_state(
+            &pool,
+            ResourceTable::ProductListingWatchlist,
+            user_id,
+            "ACTIVE",
+        )
+        .await
     );
     assert_eq!(
         2,
@@ -147,7 +153,7 @@ async fn should_keep_user_deactivation_when_tier_reconciliation_runs_afterward()
     let watchlist = SqlxWatchlistRepositoryFactory;
     let user_id = seed_user(&pool, "tier-reconciliation-user-wins@example.com", "FREE").await;
     let product_ids = seed_watchlist_entries(&pool, user_id, 21, OffsetDateTime::now_utc()).await;
-    let product_id = ProductId::from(product_ids[0]);
+    let product_id = ProductListingId::from(product_ids[0]);
 
     let mut user_tx = begin(&unit).await;
     let loaded = watchlist
@@ -196,7 +202,7 @@ async fn should_reject_stale_user_update_after_tier_reconciliation_wins() {
     let watchlist = SqlxWatchlistRepositoryFactory;
     let user_id = seed_user(&pool, "tier-reconciliation-wins@example.com", "FREE").await;
     let product_ids = seed_watchlist_entries(&pool, user_id, 21, OffsetDateTime::now_utc()).await;
-    let product_id = ProductId::from(product_ids[0]);
+    let product_id = ProductListingId::from(product_ids[0]);
 
     let mut user_tx = begin(&unit).await;
     let loaded = watchlist
@@ -256,7 +262,7 @@ async fn should_keep_legacy_free_tier_product_exclusions_and_lifecycle_filters_a
     .bind(filter_id)
     .bind(uuid::Uuid::from(user_id))
     .bind(serde_json::json!({
-        "exclude_product_id_query": [uuid::Uuid::new_v4()],
+        "exclude_product_listing_id_query": [uuid::Uuid::new_v4()],
         "lifecycle_query": ["Deleted"],
     }))
     .execute(&pool)
@@ -447,7 +453,7 @@ async fn seed_watchlist_entries(
         .await
         .unwrap_or_else(|error| panic!("failed to seed product event: {error:?}"));
         sqlx::query(
-            "INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, state, lifecycle, url) VALUES ($1, $2, $3, $4, $4, $5, 'LISTED', 'ACTIVE', 'https://example.com/product')",
+            "INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shop_listing_id, state, lifecycle, url) VALUES ($1, $2, $3, $4, $4, $5, 'LISTED', 'ACTIVE', 'https://example.com/product')",
         )
         .bind(product_id)
         .bind(format!("tier-entitlements-product-{product_id}"))
@@ -532,7 +538,7 @@ async fn version_for_watchlist_entry(
 
 enum ResourceTable {
     SearchFilters,
-    ProductWatchlist,
+    ProductListingWatchlist,
 }
 
 async fn count_state(
@@ -545,7 +551,7 @@ async fn count_state(
         ResourceTable::SearchFilters => {
             "SELECT count(*) FROM search_filters WHERE user_id = $1 AND state = $2"
         }
-        ResourceTable::ProductWatchlist => {
+        ResourceTable::ProductListingWatchlist => {
             "SELECT count(*) FROM product_watchlist WHERE user_id = $1 AND state = $2"
         }
     };

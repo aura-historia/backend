@@ -1753,7 +1753,7 @@ mod tests {
                         "images": {"$ref": "#/$defs/ExtractionRule"},
                         "description": {"anyOf": [{"$ref": "#/$defs/ExtractionRule"}, {"type": "null"}]},
                         "price": {"anyOf": [{"$ref": "#/$defs/ExtractionRule"}, {"type": "null"}]},
-                        "shops_product_id": {"anyOf": [{"$ref": "#/$defs/ExtractionRule"}, {"type": "null"}]},
+                        "shop_listing_id": {"anyOf": [{"$ref": "#/$defs/ExtractionRule"}, {"type": "null"}]},
                         "auction_start": {"anyOf": [{"$ref": "#/$defs/ExtractionRule"}, {"type": "null"}]},
                         "auction_end": {"anyOf": [{"$ref": "#/$defs/ExtractionRule"}, {"type": "null"}]},
                         "raw_attributes": {"type": "object", "additionalProperties": {"$ref": "#/$defs/ExtractionRule"}}
@@ -1788,7 +1788,7 @@ mod tests {
         for optional in [
             "description",
             "price",
-            "shops_product_id",
+            "shop_listing_id",
             "auction_start",
             "auction_end",
         ] {

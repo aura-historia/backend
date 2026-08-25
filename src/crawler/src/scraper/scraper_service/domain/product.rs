@@ -1,4 +1,4 @@
-use crate::scraper::candidate_service::ProductSnapshot;
+use crate::scraper::candidate_service::ProductListingSnapshot;
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use shop_core::shop_id::ShopId;
@@ -15,7 +15,7 @@ pub struct ScrapedProduct {
     pub hash: String,
     /// Snapshot of the normalized product's tracked fields, serialized to the
     /// same TEXT representation used in the database.
-    pub snapshot: ProductSnapshot,
+    pub snapshot: ProductListingSnapshot,
 }
 
 // ---------------------------------------------------------------------------

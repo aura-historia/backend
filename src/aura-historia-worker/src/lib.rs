@@ -61,9 +61,9 @@ pub enum WorkerScope {
     SearchFilterPercolator,
     SearchFilterMatchNotification,
     WatchlistNotification,
-    ProductTranslation,
-    ProductEmbedding,
-    ProductOpenSearch,
+    ProductListingTranslation,
+    ProductListingEmbedding,
+    ProductListingOpenSearch,
     NotificationDelivery,
 }
 
@@ -90,9 +90,9 @@ impl WorkerScope {
             "search-filter-percolator" => Ok(Self::SearchFilterPercolator),
             "search-filter-match-notification" => Ok(Self::SearchFilterMatchNotification),
             "watchlist-notification" => Ok(Self::WatchlistNotification),
-            "product-translation" => Ok(Self::ProductTranslation),
-            "product-embedding" => Ok(Self::ProductEmbedding),
-            "product-listing-opensearch" => Ok(Self::ProductOpenSearch),
+            "product-translation" => Ok(Self::ProductListingTranslation),
+            "product-embedding" => Ok(Self::ProductListingEmbedding),
+            "product-listing-opensearch" => Ok(Self::ProductListingOpenSearch),
             "notification-delivery" => Ok(Self::NotificationDelivery),
             _ => Err(WorkerStartupConfigError::InvalidScope { value }),
         }
@@ -104,9 +104,9 @@ impl WorkerScope {
             Self::SearchFilterPercolator => WorkerQueue::SearchFilterPercolator,
             Self::SearchFilterMatchNotification => WorkerQueue::SearchFilterMatchNotification,
             Self::WatchlistNotification => WorkerQueue::WatchlistNotification,
-            Self::ProductTranslation => WorkerQueue::ProductTranslate,
-            Self::ProductEmbedding => WorkerQueue::ProductEmbed,
-            Self::ProductOpenSearch => WorkerQueue::ProductOpenSearch,
+            Self::ProductListingTranslation => WorkerQueue::ProductListingTranslate,
+            Self::ProductListingEmbedding => WorkerQueue::ProductListingEmbed,
+            Self::ProductListingOpenSearch => WorkerQueue::ProductListingOpenSearch,
             Self::NotificationDelivery => WorkerQueue::NotificationDelivery,
         }
     }
@@ -253,7 +253,7 @@ impl WorkerStartupConfig {
         let worker = WorkerConfig::from_getter(&mut get)?;
         let postgres = postgres_config(&mut get)?;
         let (opensearch, vertex_ai, notification_delivery) = match scope {
-            WorkerScope::SearchFilterProjection | WorkerScope::ProductOpenSearch => (
+            WorkerScope::SearchFilterProjection | WorkerScope::ProductListingOpenSearch => (
                 Some(opensearch_config(&mut get, stage.as_deref())?),
                 None,
                 None,
@@ -267,7 +267,7 @@ impl WorkerStartupConfig {
                 }),
                 None,
             ),
-            WorkerScope::ProductTranslation => (
+            WorkerScope::ProductListingTranslation => (
                 None,
                 Some(WorkerVertexAiConfig {
                     project_id: required_env(&mut get, VERTEX_AI_PROJECT_ID_ENV)?,
@@ -276,7 +276,7 @@ impl WorkerStartupConfig {
                 }),
                 None,
             ),
-            WorkerScope::ProductEmbedding => (
+            WorkerScope::ProductListingEmbedding => (
                 None,
                 Some(WorkerVertexAiConfig {
                     project_id: required_env(&mut get, VERTEX_AI_PROJECT_ID_ENV)?,
@@ -608,9 +608,9 @@ impl WorkerRuntime {
     ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
         let (sender, receiver) = in_memory_queue(config)?;
         let registry =
-            WorkerQueueRegistry::new().with_queue(WorkerQueue::ProductOpenSearch, sender);
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::ProductListingOpenSearch, sender);
         let mut receivers = WorkerQueueReceivers::new();
-        receivers.insert(WorkerQueue::ProductOpenSearch, receiver);
+        receivers.insert(WorkerQueue::ProductListingOpenSearch, receiver);
         Ok((
             Self::new(CdcFanout::product_listing_opensearch(registry)),
             receivers,
@@ -621,9 +621,10 @@ impl WorkerRuntime {
         config: QueueConfig,
     ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
         let (sender, receiver) = in_memory_queue(config)?;
-        let registry = WorkerQueueRegistry::new().with_queue(WorkerQueue::ProductEmbed, sender);
+        let registry =
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::ProductListingEmbed, sender);
         let mut receivers = WorkerQueueReceivers::new();
-        receivers.insert(WorkerQueue::ProductEmbed, receiver);
+        receivers.insert(WorkerQueue::ProductListingEmbed, receiver);
         Ok((Self::new(CdcFanout::product_embedding(registry)), receivers))
     }
 
@@ -631,9 +632,10 @@ impl WorkerRuntime {
         config: QueueConfig,
     ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
         let (sender, receiver) = in_memory_queue(config)?;
-        let registry = WorkerQueueRegistry::new().with_queue(WorkerQueue::ProductTranslate, sender);
+        let registry =
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::ProductListingTranslate, sender);
         let mut receivers = WorkerQueueReceivers::new();
-        receivers.insert(WorkerQueue::ProductTranslate, receiver);
+        receivers.insert(WorkerQueue::ProductListingTranslate, receiver);
         Ok((
             Self::new(CdcFanout::product_translation(registry)),
             receivers,
@@ -697,11 +699,13 @@ impl WorkerRuntimeComposition {
             WorkerScope::WatchlistNotification => {
                 WorkerRuntime::with_watchlist_notification_queue(config)?
             }
-            WorkerScope::ProductTranslation => {
+            WorkerScope::ProductListingTranslation => {
                 WorkerRuntime::with_product_translation_queue(config)?
             }
-            WorkerScope::ProductEmbedding => WorkerRuntime::with_product_embedding_queue(config)?,
-            WorkerScope::ProductOpenSearch => {
+            WorkerScope::ProductListingEmbedding => {
+                WorkerRuntime::with_product_embedding_queue(config)?
+            }
+            WorkerScope::ProductListingOpenSearch => {
                 WorkerRuntime::with_product_listing_opensearch_queue(config)?
             }
             WorkerScope::NotificationDelivery => {
@@ -948,7 +952,7 @@ mod tests {
         match scope {
             WorkerScope::SearchFilterProjection
             | WorkerScope::SearchFilterPercolator
-            | WorkerScope::ProductOpenSearch => {
+            | WorkerScope::ProductListingOpenSearch => {
                 values.insert(
                     OPENSEARCH_ENDPOINT_URL_ENV,
                     "http://opensearch:9200".to_owned(),
@@ -969,18 +973,18 @@ mod tests {
                 );
                 values.insert(COMMIT_SHA_ENV, "test-commit".to_owned());
             }
-            WorkerScope::ProductTranslation => {}
-            WorkerScope::ProductEmbedding => {}
+            WorkerScope::ProductListingTranslation => {}
+            WorkerScope::ProductListingEmbedding => {}
         }
         if matches!(
             scope,
             WorkerScope::SearchFilterPercolator
-                | WorkerScope::ProductTranslation
-                | WorkerScope::ProductEmbedding
+                | WorkerScope::ProductListingTranslation
+                | WorkerScope::ProductListingEmbedding
         ) {
             values.insert(VERTEX_AI_PROJECT_ID_ENV, "aura-historia-dev".to_owned());
             values.insert(VERTEX_AI_LOCATION_ENV, "europe-west3".to_owned());
-            if !matches!(scope, WorkerScope::ProductEmbedding) {
+            if !matches!(scope, WorkerScope::ProductListingEmbedding) {
                 values.insert(VERTEX_AI_MODEL_ENV, "gemini-3.1-flash-lite".to_owned());
             }
         }
@@ -1085,14 +1089,14 @@ mod tests {
         WorkerQueue::WatchlistNotification
     )]
     #[case(
-        WorkerScope::ProductTranslation,
+        WorkerScope::ProductListingTranslation,
         "product-translation",
-        WorkerQueue::ProductTranslate
+        WorkerQueue::ProductListingTranslate
     )]
     #[case(
-        WorkerScope::ProductEmbedding,
+        WorkerScope::ProductListingEmbedding,
         "product-embedding",
-        WorkerQueue::ProductEmbed
+        WorkerQueue::ProductListingEmbed
     )]
     #[case(
         WorkerScope::NotificationDelivery,
@@ -1122,8 +1126,8 @@ mod tests {
             matches!(
                 scope,
                 WorkerScope::SearchFilterPercolator
-                    | WorkerScope::ProductTranslation
-                    | WorkerScope::ProductEmbedding
+                    | WorkerScope::ProductListingTranslation
+                    | WorkerScope::ProductListingEmbedding
             ),
             config.vertex_ai().is_some()
         );
@@ -1171,13 +1175,13 @@ mod tests {
         r#"{"changes":[{"table":"product_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_PRICE_CHANGED","event_group":"DOMAIN"}}]}"#
     )]
     #[case(
-        WorkerScope::ProductTranslation,
-        WorkerQueue::ProductTranslate,
+        WorkerScope::ProductListingTranslation,
+        WorkerQueue::ProductListingTranslate,
         r#"{"changes":[{"table":"product_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","event_type":"ENRICHMENT_EMBEDDED","event_group":"ENRICHMENT"}}]}"#
     )]
     #[case(
-        WorkerScope::ProductEmbedding,
-        WorkerQueue::ProductEmbed,
+        WorkerScope::ProductListingEmbedding,
+        WorkerQueue::ProductListingEmbed,
         r#"{"changes":[{"table":"product_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","event_type":"DOMAIN_CREATED","event_group":"DOMAIN"}}]}"#
     )]
     #[case(
@@ -1278,9 +1282,9 @@ mod tests {
         let (embed_sender, mut embed_receiver) = in_memory_queue::<DomainJob>(QueueConfig::new(8))?;
         let runtime = WorkerRuntime::new(CdcFanout::new(
             WorkerQueueRegistry::new()
-                .with_queue(WorkerQueue::ProductOpenSearch, product_sender)
+                .with_queue(WorkerQueue::ProductListingOpenSearch, product_sender)
                 .with_queue(WorkerQueue::SearchFilterPercolator, percolator_sender)
-                .with_queue(WorkerQueue::ProductEmbed, embed_sender),
+                .with_queue(WorkerQueue::ProductListingEmbed, embed_sender),
         ));
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;

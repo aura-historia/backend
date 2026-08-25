@@ -7,12 +7,12 @@ use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use localization::Language;
 use money::Currency;
-use product_listing_core::product_id::ProductId;
-use product_listing_service::use_cases::{GetProductRequest, ProductLookup};
+use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_service::use_cases::{GetProductListingRequest, ProductListingLookup};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
-struct ProductDetailsQuery {
+struct ProductListingDetailsQuery {
     #[serde(default)]
     #[serde(with = "crate::wire::language")]
     language: Language,
@@ -26,7 +26,7 @@ pub async fn get_product_by_id(
     Path(raw_product_id): Path<String>,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
-    let query: ProductDetailsQuery =
+    let query: ProductListingDetailsQuery =
         match serde_qs::from_str(raw_query.as_deref().unwrap_or_default()) {
             Ok(query) => query,
             Err(error) => {
@@ -43,7 +43,7 @@ pub async fn get_product_by_id(
         Ok(principal) => principal,
         Err(error) => return ApiError::from(error).into_response(),
     };
-    let product_id = match ProductId::try_from(raw_product_id.as_str()) {
+    let product_id = match ProductListingId::try_from(raw_product_id.as_str()) {
         Ok(product_id) => product_id,
         Err(_) => {
             return ApiError::bad_request(INVALID_UUID)
@@ -58,8 +58,8 @@ pub async fn get_product_by_id(
         .get_product
         .execute(
             &context,
-            GetProductRequest {
-                lookup: ProductLookup::ById(product_id),
+            GetProductListingRequest {
+                lookup: ProductListingLookup::ById(product_id),
                 language: query.language,
                 currency: query.currency,
             },
@@ -88,22 +88,26 @@ mod tests {
     use money::Currency;
     use money::{MonetaryAmount, Price};
     use notification_core::notification_id::NotificationId;
-    use product_listing_core::product::{ProductAddress, ProductAuction, ProductPricing};
     use product_listing_core::product_lifecycle::ProductLifecycle;
-    use product_listing_core::product_slug_id::ProductSlugId;
+    use product_listing_core::product_listing::{
+        ProductListingAddress, ProductListingAuction, ProductListingPricing,
+    };
+    use product_listing_core::product_listing_slug_id::ProductListingSlugId;
     use product_listing_core::product_state::ProductState;
-    use product_listing_core::shops_product_id::ShopsProductId;
+    use product_listing_core::shop_listing_id::ShopListingId;
     use product_listing_core::title::Title;
     use product_listing_service::use_cases::{
-        DisplayProductPricing, GetProductError, GetProductUseCase, GetSimilarProductsError,
-        GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,
-        PersonalizedProductDetailsView, ProductDetailsView, ProductPricingPresentation,
-        ProductPricingValuation, SearchProductsError, SearchProductsRequest, SearchProductsResult,
-        SearchProductsUseCase,
+        DisplayProductListingPricing, GetProductListingError, GetProductListingUseCase,
+        GetSimilarProductListingsError, GetSimilarProductListingsRequest,
+        GetSimilarProductListingsResult, GetSimilarProductListingsUseCase,
+        PersonalizedProductListingDetailsView, ProductListingDetailsView,
+        ProductListingPricingPresentation, ProductListingPricingValuation,
+        SearchProductListingsError, SearchProductListingsRequest, SearchProductListingsResult,
+        SearchProductListingsUseCase,
     };
     use product_listing_service::user_state::{
-        NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
-        WatchlistUserState,
+        NotificationUserState, ProductListingUserState, ProhibitedContentUserState,
+        SearchFilterUserState, WatchlistUserState,
     };
     use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
     use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -118,49 +122,49 @@ mod tests {
     use url::Url;
     use user_core::user_id::UserId;
 
-    type GetProductCalls = Arc<Mutex<Vec<(OperationContext, GetProductRequest)>>>;
+    type GetProductListingCalls = Arc<Mutex<Vec<(OperationContext, GetProductListingRequest)>>>;
 
     #[derive(Clone)]
-    struct FakeGetProductUseCase {
-        result: PersonalizedProductDetailsView,
-        calls: GetProductCalls,
+    struct FakeGetProductListingUseCase {
+        result: PersonalizedProductListingDetailsView,
+        calls: GetProductListingCalls,
     }
 
     #[async_trait::async_trait]
-    impl GetProductUseCase for FakeGetProductUseCase {
+    impl GetProductListingUseCase for FakeGetProductListingUseCase {
         async fn execute(
             &self,
             context: &OperationContext,
-            request: GetProductRequest,
-        ) -> Result<PersonalizedProductDetailsView, GetProductError> {
+            request: GetProductListingRequest,
+        ) -> Result<PersonalizedProductListingDetailsView, GetProductListingError> {
             lock(&self.calls).push((context.clone(), request));
             Ok(self.result.clone())
         }
     }
 
-    struct UnusedSimilarProductsUseCase;
+    struct UnusedSimilarProductListingsUseCase;
 
     #[async_trait::async_trait]
-    impl GetSimilarProductsUseCase for UnusedSimilarProductsUseCase {
+    impl GetSimilarProductListingsUseCase for UnusedSimilarProductListingsUseCase {
         async fn execute(
             &self,
             _context: &OperationContext,
-            _request: GetSimilarProductsRequest,
-        ) -> Result<GetSimilarProductsResult, GetSimilarProductsError> {
-            Err(GetSimilarProductsError::SimilaritySearchUnavailable)
+            _request: GetSimilarProductListingsRequest,
+        ) -> Result<GetSimilarProductListingsResult, GetSimilarProductListingsError> {
+            Err(GetSimilarProductListingsError::SimilaritySearchUnavailable)
         }
     }
 
-    struct UnusedSearchProductsUseCase;
+    struct UnusedSearchProductListingsUseCase;
 
     #[async_trait::async_trait]
-    impl SearchProductsUseCase for UnusedSearchProductsUseCase {
+    impl SearchProductListingsUseCase for UnusedSearchProductListingsUseCase {
         async fn execute(
             &self,
             _context: &OperationContext,
-            _request: SearchProductsRequest,
-        ) -> Result<SearchProductsResult, SearchProductsError> {
-            Ok(SearchProductsResult::default())
+            _request: SearchProductListingsRequest,
+        ) -> Result<SearchProductListingsResult, SearchProductListingsError> {
+            Ok(SearchProductListingsResult::default())
         }
     }
 
@@ -230,8 +234,8 @@ mod tests {
         assert!(body.get("userState").is_none());
         assert!(matches!(
             lock(&calls)[0].1,
-            GetProductRequest {
-                lookup: ProductLookup::ById(actual),
+            GetProductListingRequest {
+                lookup: ProductListingLookup::ById(actual),
                 language: Language::En,
                 currency: Currency::Eur,
             } if actual == product_id
@@ -258,8 +262,8 @@ mod tests {
         assert_eq!(StatusCode::OK, response.status());
         assert!(matches!(
             lock(&calls)[0].1,
-            GetProductRequest {
-                lookup: ProductLookup::ById(actual),
+            GetProductListingRequest {
+                lookup: ProductListingLookup::ById(actual),
                 language: Language::De,
                 currency: Currency::Usd,
             } if actual == product_id
@@ -270,7 +274,7 @@ mod tests {
     #[tokio::test]
     async fn should_reject_invalid_language_before_calling_use_case()
     -> Result<(), Box<dyn std::error::Error>> {
-        let product_id = ProductId::new();
+        let product_id = ProductListingId::new();
         let (app, calls) = app(product_details_view()?, false, None);
 
         let response = app
@@ -311,7 +315,7 @@ mod tests {
         let search_filter_id = UserSearchFilterId::new();
         let mut view = product_details_view()?;
         let product_id = view.item.product_id;
-        view.user_state = Some(ProductUserState {
+        view.user_state = Some(ProductListingUserState {
             watchlist: WatchlistUserState {
                 watching: true,
                 notifications: false,
@@ -391,18 +395,18 @@ mod tests {
     }
 
     fn app(
-        view: PersonalizedProductDetailsView,
+        view: PersonalizedProductListingDetailsView,
         reject_token: bool,
         user_id: Option<UserId>,
-    ) -> (Router, GetProductCalls) {
+    ) -> (Router, GetProductListingCalls) {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let state = ProductsState::new(
-            Arc::new(FakeGetProductUseCase {
+            Arc::new(FakeGetProductListingUseCase {
                 result: view,
                 calls: Arc::clone(&calls),
             }),
-            Arc::new(UnusedSimilarProductsUseCase),
-            Arc::new(UnusedSearchProductsUseCase),
+            Arc::new(UnusedSimilarProductListingsUseCase),
+            Arc::new(UnusedSearchProductListingsUseCase),
             Arc::new(FakeAuthenticator {
                 reject: reject_token,
                 user_id,
@@ -424,20 +428,20 @@ mod tests {
         Ok(serde_json::from_slice(&bytes)?)
     }
 
-    fn product_details_view() -> Result<PersonalizedProductDetailsView, url::ParseError> {
+    fn product_details_view() -> Result<PersonalizedProductListingDetailsView, url::ParseError> {
         Ok(Personalized {
-            item: ProductDetailsView {
-                product_id: ProductId::new(),
-                product_slug_id: ProductSlugId::from("cabinet-abcdef"),
+            item: ProductListingDetailsView {
+                product_id: ProductListingId::new(),
+                product_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
                 event_id: EventId::new(),
                 shop_id: ShopId::new(),
                 seller_id: ShopId::new(),
-                shops_product_id: ShopsProductId::new(),
+                shop_listing_id: ShopListingId::new(),
                 shop_name: ShopName::from("Shop"),
                 seller_name: ShopName::from("Seller"),
                 shop_slug_id: ShopSlugId::from("shop"),
                 seller_slug_id: ShopSlugId::from("seller"),
-                address: ProductAddress::default(),
+                address: ProductListingAddress::default(),
                 product_title: None,
                 product_description: None,
                 title: Some(Localized {
@@ -445,17 +449,17 @@ mod tests {
                     payload: Title::from("Cabinet"),
                 }),
                 description: None,
-                pricing: ProductPricingPresentation {
-                    source: ProductPricing {
+                pricing: ProductListingPricingPresentation {
+                    source: ProductListingPricing {
                         price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                         ..Default::default()
                     },
-                    display: DisplayProductPricing {
+                    display: DisplayProductListingPricing {
                         price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                         price_estimate_min: None,
                         price_estimate_max: None,
                     },
-                    valuation: ProductPricingValuation::Current {
+                    valuation: ProductListingPricingValuation::Current {
                         fx_rate_id: FxRateId::new(),
                         captured_at: OffsetDateTime::UNIX_EPOCH,
                     },
@@ -465,7 +469,7 @@ mod tests {
                 url: Url::parse("https://shop.example/products/1")?,
                 view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
                 images: Default::default(),
-                auction: ProductAuction::default(),
+                auction: ProductListingAuction::default(),
                 created: OffsetDateTime::UNIX_EPOCH,
                 updated: OffsetDateTime::UNIX_EPOCH,
             },

@@ -4,13 +4,16 @@ use fxrate_core::FxRateId;
 use localization::Language;
 use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
-use product_listing_core::product_id::ProductId;
-use product_listing_core::{product::ProductPriceValuationBasis, product_search::ProductSearch};
+use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::{
+    product_listing::ProductListingPriceValuationBasis,
+    product_listing_search::ProductListingSearch,
+};
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use search_filter_core::{
-    NewSearchFilter, PriceMatchValuation, SearchFilter, SearchFilterProductMatch,
+    NewSearchFilter, PriceMatchValuation, SearchFilter, SearchFilterProductListingMatch,
 };
 use search_filter_postgres::{
     SqlxSearchFilterIndexReader, SqlxSearchFilterMatchRepositoryFactory,
@@ -186,14 +189,14 @@ async fn should_insert_find_and_update_search_filter_match() {
     let product_id = seed_product(&pool, "search-filter-match-product").await;
     let event_id = seed_product_event(&pool, product_id).await;
     let fx_rate_id = seed_fx_rate(&pool).await;
-    let mut product_match = SearchFilterProductMatch {
+    let mut product_match = SearchFilterProductListingMatch {
         user_id,
         user_search_filter_id: filter.id(),
         user_search_filter_name: Some(filter.name().clone()),
         product_id,
         origin_event_id: event_id,
         price_match_valuation: Some(PriceMatchValuation {
-            basis: ProductPriceValuationBasis::Event,
+            basis: ProductListingPriceValuationBasis::Event,
             fx_rate_id,
         }),
         enhanced_match_reason: None,
@@ -236,7 +239,7 @@ fn sample_filter(user_id: UserId, name: &str) -> SearchFilter {
         name: UserSearchFilterName::from(name),
         notifications: true,
         state: SearchFilterState::Active,
-        search: ProductSearch::new(Language::En, Currency::Eur),
+        search: ProductListingSearch::new(Language::En, Currency::Eur),
         embedding: None,
     })
 }
@@ -266,8 +269,8 @@ async fn seed_user(pool: &sqlx::PgPool, email: &str) -> UserId {
     id
 }
 
-async fn seed_product(pool: &sqlx::PgPool, slug: &str) -> ProductId {
-    let product_id = ProductId::new();
+async fn seed_product(pool: &sqlx::PgPool, slug: &str) -> ProductListingId {
+    let product_id = ProductListingId::new();
     let shop_id = uuid::Uuid::new_v4();
     let event_id = uuid::Uuid::new_v4();
     let mut tx = pool
@@ -299,7 +302,7 @@ async fn seed_fx_rate(pool: &sqlx::PgPool) -> FxRateId {
     fx_rate_id
 }
 
-async fn seed_product_event(pool: &sqlx::PgPool, product_id: ProductId) -> EventId {
+async fn seed_product_event(pool: &sqlx::PgPool, product_id: ProductListingId) -> EventId {
     let event_id = EventId::new();
     sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'Updated', 'DOMAIN', '{}', now())")
         .bind(uuid::Uuid::from(event_id))

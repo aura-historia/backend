@@ -1,5 +1,5 @@
 use crate::network::policy::NetworkErrorKind;
-use crate::scraper::candidate_service::ProductSnapshot;
+use crate::scraper::candidate_service::ProductListingSnapshot;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::domain::product::{ScrapedProduct, ScraperService};
@@ -149,7 +149,7 @@ impl ScraperService for ScraperServiceImpl {
                 details,
             }) => {
                 self.mark_product_removed_best_effort(shop_id, url).await;
-                return Err(ScraperError::ProductRemoved {
+                return Err(ScraperError::ProductListingRemoved {
                     url: url.clone(),
                     details,
                 });
@@ -164,7 +164,7 @@ impl ScraperService for ScraperServiceImpl {
         };
         if is_redirect_to_non_product_page(url, &fetched.final_url, product_url_pattern) {
             self.mark_product_removed_best_effort(shop_id, url).await;
-            return Err(ScraperError::ProductRemoved {
+            return Err(ScraperError::ProductListingRemoved {
                 url: url.clone(),
                 details: format!(
                     "product URL redirected to non-product page: original={url}, final={}",
@@ -176,7 +176,7 @@ impl ScraperService for ScraperServiceImpl {
 
         if self.is_removed_page(shop_id, &html).await? {
             self.mark_product_removed_best_effort(shop_id, url).await;
-            return Err(ScraperError::ProductRemoved {
+            return Err(ScraperError::ProductListingRemoved {
                 url: url.clone(),
                 details: "soft-404 removed page matched configured removed-page schema".to_string(),
             });
@@ -239,11 +239,11 @@ impl ScraperService for ScraperServiceImpl {
         // (cron pipeline) must call it only after the push to the product
         // backend has been confirmed, so that a failed push is retried on
         // the next cycle.
-        let snapshot = ProductSnapshot::from_normalized(&final_product);
+        let snapshot = ProductListingSnapshot::from_normalized(&final_product);
 
         debug!(
             domain,
-            shops_product_id = %final_product.shops_product_id,
+            shop_listing_id = %final_product.shop_listing_id,
             "Scraping complete"
         );
         Ok(Some(ScrapedProduct {

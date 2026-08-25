@@ -9,7 +9,7 @@ use localization::Language;
 use money::Currency;
 
 use money::MonetaryAmount;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_state::ProductState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
@@ -21,12 +21,12 @@ use user_core::user_id::UserId;
 use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
-use product_listing_core::product_search::{
-    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductSearch,
+use product_listing_core::product_listing_search::{
+    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductListingSearch,
 };
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_service::ports::{SearchFilterMatchView, SearchFilterView};
-use search_filter_service::use_cases::ProductSearchPatch;
+use search_filter_service::use_cases::ProductListingSearchPatch;
 use serde::{Deserialize, Serialize};
 use shop_core::shop_type::ShopType;
 use std::collections::HashSet;
@@ -45,7 +45,7 @@ pub(super) struct CreateSearchFilterData {
     pub(super) name: UserSearchFilterName,
     #[serde(default = "default_notifications")]
     pub(super) notifications: bool,
-    pub(super) search: ProductSearchData,
+    pub(super) search: ProductListingSearchData,
 }
 
 fn default_notifications() -> bool {
@@ -56,7 +56,7 @@ type UpdateSearchFilterFields = (
     PatchField<UserSearchFilterName>,
     PatchField<bool>,
     PatchField<SearchFilterState>,
-    ProductSearchPatch,
+    ProductListingSearchPatch,
 );
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -69,14 +69,14 @@ pub(super) struct UpdateSearchFilterData {
     #[serde(default)]
     pub(super) state: PatchValue<PatchSearchFilterStateData>,
     #[serde(default)]
-    pub(super) search: PatchValue<ProductSearchPatchData>,
+    pub(super) search: PatchValue<ProductListingSearchPatchData>,
 }
 
 impl UpdateSearchFilterData {
     pub(super) fn into_fields(self) -> Result<UpdateSearchFilterFields, crate::error::ApiError> {
         let search = match non_nullable_option(self.search, "search")? {
             Some(search) => search.try_into_patch()?,
-            None => ProductSearchPatch::default(),
+            None => ProductListingSearchPatch::default(),
         };
 
         Ok((
@@ -89,14 +89,14 @@ impl UpdateSearchFilterData {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub(super) enum ProductSearchDataMappingError {
+pub(super) enum ProductListingSearchDataMappingError {
     #[error(transparent)]
     EnhancedSearchDescription(#[from] EnhancedSearchDescriptionError),
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct ProductSearchPatchData {
+pub(super) struct ProductListingSearchPatchData {
     #[serde(default)]
     #[serde(deserialize_with = "crate::wire::language::patch::deserialize")]
     language: PatchValue<Language>,
@@ -104,7 +104,7 @@ pub(super) struct ProductSearchPatchData {
     #[serde(deserialize_with = "crate::wire::currency::patch::deserialize")]
     currency: PatchValue<Currency>,
     #[serde(rename = "productQuery", default)]
-    product_query: PatchValue<Vec<TextQuery<1>>>,
+    product_listing_query: PatchValue<Vec<TextQuery<1>>>,
     #[serde(rename = "enhancedSearchDescription", default)]
     enhanced_search_description: PatchValue<String>,
     #[serde(rename = "shopName", default)]
@@ -163,12 +163,15 @@ pub(super) struct ProductSearchPatchData {
     auction_end_query: PatchValue<RangeQuery<OffsetDateTime>>,
 }
 
-impl ProductSearchPatchData {
-    fn try_into_patch(self) -> Result<ProductSearchPatch, crate::error::ApiError> {
-        Ok(ProductSearchPatch {
+impl ProductListingSearchPatchData {
+    fn try_into_patch(self) -> Result<ProductListingSearchPatch, crate::error::ApiError> {
+        Ok(ProductListingSearchPatch {
             language: non_nullable_patch(self.language, "search.language")?,
             currency: non_nullable_patch(self.currency, "search.currency")?,
-            product_query: non_nullable_patch(self.product_query, "search.productQuery")?,
+            product_listing_query: non_nullable_patch(
+                self.product_listing_query,
+                "search.productQuery",
+            )?,
             enhanced_search_description: match self.enhanced_search_description {
                 PatchValue::Omitted => PatchField::Unchanged,
                 PatchValue::Null => PatchField::Clear,
@@ -255,7 +258,7 @@ impl UpdateSearchFilterMatchFeedbackData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct ProductSearchData {
+pub(super) struct ProductListingSearchData {
     #[serde(default)]
     #[serde(with = "crate::wire::language")]
     language: Language,
@@ -266,7 +269,7 @@ pub(super) struct ProductSearchData {
         skip_serializing_if = "Vec::is_empty",
         default
     )]
-    product_query: Vec<TextQuery<1>>,
+    product_listing_query: Vec<TextQuery<1>>,
     #[serde(
         rename = "enhancedSearchDescription",
         skip_serializing_if = "Option::is_none",
@@ -278,7 +281,7 @@ pub(super) struct ProductSearchData {
         skip_serializing_if = "HashSet::is_empty",
         default
     )]
-    exclude_product_id_query: HashSet<ProductId>,
+    exclude_product_listing_id_query: HashSet<ProductListingId>,
     #[serde(
         rename = "shopName",
         skip_serializing_if = "HashSet::is_empty",
@@ -383,19 +386,19 @@ pub(super) struct ProductSearchData {
     auction_end_query: Option<RangeQuery<OffsetDateTime>>,
 }
 
-impl TryFrom<ProductSearchData> for ProductSearch {
-    type Error = ProductSearchDataMappingError;
+impl TryFrom<ProductListingSearchData> for ProductListingSearch {
+    type Error = ProductListingSearchDataMappingError;
 
-    fn try_from(data: ProductSearchData) -> Result<Self, Self::Error> {
+    fn try_from(data: ProductListingSearchData) -> Result<Self, Self::Error> {
         Ok(Self {
             language: data.language,
             currency: data.currency,
-            product_query: data.product_query,
+            product_listing_query: data.product_listing_query,
             enhanced_search_description: data
                 .enhanced_search_description
                 .map(EnhancedSearchDescription::try_from)
                 .transpose()?,
-            exclude_product_id_query: data.exclude_product_id_query.into(),
+            exclude_product_listing_id_query: data.exclude_product_listing_id_query.into(),
             shop_name_query: data.shop_name_query.into(),
             exclude_shop_name_query: data.exclude_shop_name_query.into(),
             seller_name_query: data.seller_name_query.into(),
@@ -421,14 +424,14 @@ impl TryFrom<ProductSearchData> for ProductSearch {
     }
 }
 
-impl From<ProductSearch> for ProductSearchData {
-    fn from(search: ProductSearch) -> Self {
+impl From<ProductListingSearch> for ProductListingSearchData {
+    fn from(search: ProductListingSearch) -> Self {
         Self {
             language: search.language,
             currency: search.currency,
-            product_query: search.product_query,
+            product_listing_query: search.product_listing_query,
             enhanced_search_description: search.enhanced_search_description.map(Into::into),
-            exclude_product_id_query: search.exclude_product_id_query.into(),
+            exclude_product_listing_id_query: search.exclude_product_listing_id_query.into(),
             shop_name_query: search.shop_name_query.into(),
             exclude_shop_name_query: search.exclude_shop_name_query.into(),
             seller_name_query: search.seller_name_query.into(),
@@ -460,7 +463,7 @@ pub(super) struct SearchFilterData {
     notifications: bool,
     #[serde(with = "crate::wire::search_filter_state")]
     state: SearchFilterState,
-    search: ProductSearchData,
+    search: ProductListingSearchData,
     #[serde(
         with = "time::serde::rfc3339::option",
         skip_serializing_if = "Option::is_none"
@@ -502,7 +505,7 @@ pub(super) struct SearchFilterMatchData {
     user_search_filter_id: UserSearchFilterId,
     #[serde(skip_serializing_if = "Option::is_none")]
     user_search_filter_name: Option<UserSearchFilterName>,
-    product_id: ProductId,
+    product_id: ProductListingId,
     origin_event_id: EventId,
     #[serde(skip_serializing_if = "Option::is_none")]
     enhanced_match_reason: Option<String>,
@@ -566,7 +569,7 @@ mod tests {
             patch.enhanced_search_description,
             PatchField::Unchanged
         ));
-        let values = match patch.product_query {
+        let values = match patch.product_listing_query {
             PatchField::Set(values) => values,
             PatchField::Unchanged | PatchField::Clear => {
                 return Err(std::io::Error::other("product query was not set").into());

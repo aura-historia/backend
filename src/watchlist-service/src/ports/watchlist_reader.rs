@@ -1,12 +1,12 @@
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
 use watchlist_core::watchlist_state::WatchlistState;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct WatchlistProductView {
+pub struct WatchlistProductListingView {
     pub user_id: UserId,
-    pub product_id: ProductId,
+    pub product_id: ProductListingId,
     pub notifications: bool,
     pub state: WatchlistState,
     pub created: OffsetDateTime,
@@ -26,10 +26,10 @@ pub trait WatchlistReader: Send {
     async fn find_for_user(
         &mut self,
         user_id: UserId,
-    ) -> Result<Vec<WatchlistProductView>, WatchlistReadError>;
+    ) -> Result<Vec<WatchlistProductListingView>, WatchlistReadError>;
     async fn find_user_ids_for_product(
         &mut self,
-        product_id: ProductId,
+        product_id: ProductListingId,
     ) -> Result<Vec<UserId>, WatchlistReadError>;
 }
 

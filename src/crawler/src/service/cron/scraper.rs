@@ -1,10 +1,12 @@
 use super::job::CrawlerCronJob;
 use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for};
 use crate::scraper::candidate_service::{
-    ProductSnapshot, ScraperCandidate, ScraperCandidateService,
+    ProductListingSnapshot, ScraperCandidate, ScraperCandidateService,
 };
 use crate::scraper::scraper_service::{ScraperError, ScraperService};
-use crate::service::product_push::{ProductPushItem, ProductPushService, normalize_to_upsert};
+use crate::service::product_push::{
+    ProductListingPushItem, ProductListingPushService, normalize_to_upsert,
+};
 use crate::spider::advisory_lock::{LocalLockManager, ShopLock, UrlLock};
 use shop_core::shop_id::ShopId;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -20,29 +22,29 @@ struct ScrapeDomainContext {
     scraper: Arc<dyn ScraperService>,
     scraper_candidates: Arc<dyn ScraperCandidateService>,
     lock_manager: Arc<LocalLockManager>,
-    command_tx: mpsc::Sender<QueuedProductPush>,
+    command_tx: mpsc::Sender<QueuedProductListingPush>,
     budget_exhausted_shops: Arc<Mutex<HashSet<ShopId>>>,
     schema_pending_shops: Arc<Mutex<HashSet<ShopId>>>,
 }
 
-/// Metadata carried alongside a [`UpsertProductCommand`] so the push-collector
+/// Metadata carried alongside a [`UpsertProductListingCommand`] so the push-collector
 /// can call [`ScraperCandidateService::mark_as_scraped`] only after the push
 /// has been confirmed.
 struct CandidateMeta {
     shop_id: shop_core::shop_id::ShopId,
     url: url::Url,
     hash: String,
-    snapshot: ProductSnapshot,
+    snapshot: ProductListingSnapshot,
 }
 
-struct QueuedProductPush {
-    item: ProductPushItem,
+struct QueuedProductListingPush {
+    item: ProductListingPushItem,
     meta: CandidateMeta,
     enqueued_at: tokio::time::Instant,
 }
 
 struct ScrapeCandidateOutcome {
-    command: Option<(ProductPushItem, CandidateMeta)>,
+    command: Option<(ProductListingPushItem, CandidateMeta)>,
     errored: bool,
     skipped: bool,
 }
@@ -70,9 +72,9 @@ struct ScheduledScrapeDomainOutcome {
     fields(batch_size = batch.len())
 )]
 async fn flush_batch(
-    push_service: &Arc<dyn ProductPushService>,
+    push_service: &Arc<dyn ProductListingPushService>,
     scraper_candidates: &Arc<dyn ScraperCandidateService>,
-    batch: Vec<QueuedProductPush>,
+    batch: Vec<QueuedProductListingPush>,
     queue_depth: usize,
 ) {
     let batch_size = batch.len();
@@ -95,7 +97,8 @@ async fn flush_batch(
     if actual != expected {
         warn!(
             expected,
-            actual, "Product push returned an incomplete result; unmatched URLs will be retried"
+            actual,
+            "ProductListing push returned an incomplete result; unmatched URLs will be retried"
         );
     }
 
@@ -140,11 +143,11 @@ async fn flush_batch(
 
 #[allow(clippy::result_large_err)]
 async fn enqueue_product_push(
-    command_tx: &mpsc::Sender<QueuedProductPush>,
-    pair: (ProductPushItem, CandidateMeta),
-) -> Result<Duration, mpsc::error::SendError<QueuedProductPush>> {
+    command_tx: &mpsc::Sender<QueuedProductListingPush>,
+    pair: (ProductListingPushItem, CandidateMeta),
+) -> Result<Duration, mpsc::error::SendError<QueuedProductListingPush>> {
     let (item, meta) = pair;
-    let queued = QueuedProductPush {
+    let queued = QueuedProductListingPush {
         item,
         meta,
         enqueued_at: tokio::time::Instant::now(),
@@ -232,7 +235,7 @@ async fn scrape_candidate(
             ScrapeCandidateOutcome {
                 command: normalize_to_upsert(scraped.product, &candidate).map(|command| {
                     (
-                        ProductPushItem {
+                        ProductListingPushItem {
                             command,
                             raw_attributes,
                         },
@@ -349,13 +352,13 @@ async fn scrape_candidate(
                 if pending.insert(candidate.shop_id) {
                     info!(
                         shop_id = %candidate.shop_id,
-                        "Product schema review pending for shop; skipping remaining URLs in batch"
+                        "ProductListing schema review pending for shop; skipping remaining URLs in batch"
                     );
                 }
                 warn!(error = %e, "Scraper run failed");
             } else if matches!(
                 &e,
-                ScraperError::ProductRemoved { .. } | ScraperError::NotProductPage { .. }
+                ScraperError::ProductListingRemoved { .. } | ScraperError::NotProductPage { .. }
             ) {
                 debug!(error = %e, "Scraper run failed");
             } else {
@@ -380,7 +383,7 @@ async fn scrape_candidate(
 fn scraper_error_kind(e: &ScraperError) -> &'static str {
     match e {
         ScraperError::HttpError { .. } => "HttpError",
-        ScraperError::ProductRemoved { .. } => "ProductRemoved",
+        ScraperError::ProductListingRemoved { .. } => "ProductListingRemoved",
         ScraperError::NotProductPage { .. } => "NotProductPage",
         ScraperError::SchemaClassificationRejected { .. } => "SchemaClassificationRejected",
         ScraperError::NoHost { .. } => "NoHost",
@@ -423,7 +426,7 @@ async fn scrape_domain_candidates(
                         warn!(
                             event = "crawler.product_push.enqueue_wait",
                             queue_wait_ms = queue_wait.as_millis(),
-                            "Product push queue applied backpressure"
+                            "ProductListing push queue applied backpressure"
                         );
                     }
                 }
@@ -443,15 +446,15 @@ async fn scrape_domain_candidates(
 }
 
 async fn run_push_collector(
-    mut command_rx: mpsc::Receiver<QueuedProductPush>,
-    push_service: Arc<dyn ProductPushService>,
+    mut command_rx: mpsc::Receiver<QueuedProductListingPush>,
+    push_service: Arc<dyn ProductListingPushService>,
     scraper_candidates: Arc<dyn ScraperCandidateService>,
     push_batch_size: usize,
     push_max_batch_age: Duration,
 ) {
     let push_batch_size = push_batch_size.max(1);
     let push_max_batch_age = push_max_batch_age.max(Duration::from_millis(1));
-    let mut pending = Vec::<QueuedProductPush>::with_capacity(push_batch_size);
+    let mut pending = Vec::<QueuedProductListingPush>::with_capacity(push_batch_size);
 
     loop {
         if pending.is_empty() {
@@ -540,7 +543,7 @@ impl CrawlerCronJob {
         let mut pending_domains: VecDeque<(String, Vec<ScraperCandidate>)> = VecDeque::new();
         let mut join_set: JoinSet<ScheduledScrapeDomainOutcome> = JoinSet::new();
         let (command_tx, command_rx) =
-            mpsc::channel::<QueuedProductPush>(self.config.effective_push_queue_capacity());
+            mpsc::channel::<QueuedProductListingPush>(self.config.effective_push_queue_capacity());
 
         let budget_exhausted_shops = Arc::new(Mutex::new(HashSet::new()));
         let schema_pending_shops = Arc::new(Mutex::new(HashSet::new()));
@@ -729,12 +732,14 @@ mod tests {
     use crate::scraper::scraper_service::MockScraperService;
     use crate::service::cron::config::CrawlerCronConfig;
     use crate::service::cron::test_support::{noop_shop_registration, scraper_candidate};
-    use crate::service::product_push::MockProductPushService;
+    use crate::service::product_push::MockProductListingPushService;
     use crate::spider::advisory_lock::LocalLockManager;
     use crate::spider::candidate_service::MockSpiderCandidateService;
     use crate::spider::service::MockSpiderService;
-    use product_listing_core::{product::ProductAddress, shops_product_id::ShopsProductId};
-    use product_listing_service::use_cases::commands::upsert_product::UpsertProductCommand;
+    use product_listing_core::{
+        product_listing::ProductListingAddress, shop_listing_id::ShopListingId,
+    };
+    use product_listing_service::use_cases::commands::upsert_product_listing::UpsertProductListingCommand;
     use shop_core::{shop_id::ShopId, shop_type::ShopType};
     use std::future::Future;
     use std::pin::Pin;
@@ -753,19 +758,19 @@ mod tests {
         (spider_candidates, MockSpiderService::new())
     }
 
-    fn no_push_service() -> Box<MockProductPushService> {
-        let mut push_service = MockProductPushService::new();
+    fn no_push_service() -> Box<MockProductListingPushService> {
+        let mut push_service = MockProductListingPushService::new();
         push_service.expect_push().times(0);
         Box::new(push_service)
     }
 
-    fn item(shop_id: ShopId, product_id: &str) -> ProductPushItem {
-        ProductPushItem {
-            command: UpsertProductCommand {
+    fn item(shop_id: ShopId, product_id: &str) -> ProductListingPushItem {
+        ProductListingPushItem {
+            command: UpsertProductListingCommand {
                 shop_id,
                 seller_id: shop_id,
-                shops_product_id: ShopsProductId::from(product_id),
-                address: ProductAddress::default(),
+                shop_listing_id: ShopListingId::from(product_id),
+                address: ProductListingAddress::default(),
                 title: None,
                 description: None,
                 price: None,
@@ -786,7 +791,7 @@ mod tests {
             shop_id,
             url: url::Url::parse(url).unwrap(),
             hash: hash.to_owned(),
-            snapshot: ProductSnapshot {
+            snapshot: ProductListingSnapshot {
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
@@ -804,7 +809,7 @@ mod tests {
         let first_shop_id = ShopId::new();
         let second_shop_id = ShopId::new();
         let first_url = url::Url::parse("https://first.example/product").unwrap();
-        let mut push_service = MockProductPushService::new();
+        let mut push_service = MockProductListingPushService::new();
         push_service.expect_push().once().returning(|products| {
             assert_eq!(products.len(), 2);
             Box::pin(async { vec![true, false] })
@@ -819,19 +824,19 @@ mod tests {
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
-        let push_service: Arc<dyn ProductPushService> = Arc::new(push_service);
+        let push_service: Arc<dyn ProductListingPushService> = Arc::new(push_service);
         let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
 
         flush_batch(
             &push_service,
             &scraper_candidates,
             vec![
-                QueuedProductPush {
+                QueuedProductListingPush {
                     item: item(first_shop_id, "same-product-id"),
                     meta: meta(first_shop_id, "https://first.example/product", "first"),
                     enqueued_at: tokio::time::Instant::now(),
                 },
-                QueuedProductPush {
+                QueuedProductListingPush {
                     item: item(second_shop_id, "same-product-id"),
                     meta: meta(second_shop_id, "https://second.example/product", "second"),
                     enqueued_at: tokio::time::Instant::now(),
@@ -847,7 +852,7 @@ mod tests {
         let first_shop_id = ShopId::new();
         let second_shop_id = ShopId::new();
         let first_url = url::Url::parse("https://first.example/product").unwrap();
-        let mut push_service = MockProductPushService::new();
+        let mut push_service = MockProductListingPushService::new();
         push_service.expect_push().once().returning(|products| {
             assert_eq!(products.len(), 2);
             Box::pin(async { vec![true] })
@@ -862,19 +867,19 @@ mod tests {
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
-        let push_service: Arc<dyn ProductPushService> = Arc::new(push_service);
+        let push_service: Arc<dyn ProductListingPushService> = Arc::new(push_service);
         let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
 
         flush_batch(
             &push_service,
             &scraper_candidates,
             vec![
-                QueuedProductPush {
+                QueuedProductListingPush {
                     item: item(first_shop_id, "first"),
                     meta: meta(first_shop_id, "https://first.example/product", "first"),
                     enqueued_at: tokio::time::Instant::now(),
                 },
-                QueuedProductPush {
+                QueuedProductListingPush {
                     item: item(second_shop_id, "second"),
                     meta: meta(second_shop_id, "https://second.example/product", "second"),
                     enqueued_at: tokio::time::Instant::now(),
@@ -887,7 +892,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_apply_backpressure_when_product_push_queue_is_full() {
-        let (command_tx, mut command_rx) = mpsc::channel::<QueuedProductPush>(1);
+        let (command_tx, mut command_rx) = mpsc::channel::<QueuedProductListingPush>(1);
         let shop_id = ShopId::new();
 
         enqueue_product_push(
@@ -933,7 +938,7 @@ mod tests {
         let push_calls = Arc::new(AtomicUsize::new(0));
         let push_calls_for_mock = Arc::clone(&push_calls);
 
-        let mut push_service = MockProductPushService::new();
+        let mut push_service = MockProductListingPushService::new();
         push_service
             .expect_push()
             .once()
@@ -985,7 +990,7 @@ mod tests {
         let push_calls = Arc::new(AtomicUsize::new(0));
         let push_calls_for_mock = Arc::clone(&push_calls);
 
-        let mut push_service = MockProductPushService::new();
+        let mut push_service = MockProductListingPushService::new();
         push_service
             .expect_push()
             .once()

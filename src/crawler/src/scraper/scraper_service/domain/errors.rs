@@ -1,6 +1,6 @@
 use crate::network::policy::NetworkErrorKind;
 use crate::scraper::css_selector::product_schema::ApplySchemaError;
-use crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError;
+use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
 use crate::scraper::normalization::error::NormalizationError;
 use shop_core::shop_id::ShopId;
 use url::Url;
@@ -14,8 +14,8 @@ pub enum ScraperError {
         details: String,
     },
 
-    #[error("Product URL removed while fetching '{url}': {details}")]
-    ProductRemoved { url: Url, details: String },
+    #[error("ProductListing URL removed while fetching '{url}': {details}")]
+    ProductListingRemoved { url: Url, details: String },
 
     #[error("URL is not a product page while scraping '{url}': {details}")]
     NotProductPage { url: Url, details: String },
@@ -27,7 +27,7 @@ pub enum ScraperError {
     NoHost { url: Url },
 
     #[error("Schema service error: {0}")]
-    SchemaServiceError(#[from] ProductSchemaServiceError),
+    SchemaServiceError(#[from] ProductListingSchemaServiceError),
 
     #[error("Removed-page schema database error: {0}")]
     RemovedPageSchemaDatabaseError(#[source] sqlx::Error),

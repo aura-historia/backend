@@ -5,9 +5,10 @@ use crate::{
 };
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_service::use_cases::{
-    MatchProductEventCommand, MatchProductEventOutcome, MatchProductEventUseCase,
+    MatchProductListingEventCommand, MatchProductListingEventOutcome,
+    MatchProductListingEventUseCase,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -15,7 +16,7 @@ use tracing::{error, info};
 
 pub async fn consume_search_filter_percolator_queue(
     mut receiver: InMemoryQueueReceiver<DomainJob>,
-    use_case: Arc<dyn MatchProductEventUseCase>,
+    use_case: Arc<dyn MatchProductListingEventUseCase>,
 ) {
     let dead_letters = InMemoryDeadLetterQueue::new();
 
@@ -60,9 +61,9 @@ pub async fn consume_search_filter_percolator_queue(
 }
 
 async fn execute_job(
-    use_case: Arc<dyn MatchProductEventUseCase>,
+    use_case: Arc<dyn MatchProductListingEventUseCase>,
     job: DomainJob,
-    outcome: Arc<Mutex<Option<MatchProductEventOutcome>>>,
+    outcome: Arc<Mutex<Option<MatchProductListingEventOutcome>>>,
 ) -> Result<(), BoxError> {
     let command = command_from_job(job).map_err(box_error)?;
     let result = use_case.execute(command).await.map_err(box_error)?;
@@ -72,8 +73,8 @@ async fn execute_job(
 
 fn command_from_job(
     job: DomainJob,
-) -> Result<MatchProductEventCommand, SearchFilterPercolatorWorkerError> {
-    let DomainJobPayload::ProductEvent(event) = job.payload else {
+) -> Result<MatchProductListingEventCommand, SearchFilterPercolatorWorkerError> {
+    let DomainJobPayload::ProductListingEvent(event) = job.payload else {
         return Err(SearchFilterPercolatorWorkerError::UnexpectedJobPayload);
     };
     let origin_event_id = EventId::try_from(event.event_id.as_str()).map_err(|source| {
@@ -81,13 +82,13 @@ fn command_from_job(
             source: box_error(source),
         }
     })?;
-    let product_id = ProductId::try_from(event.product_id.as_str()).map_err(|source| {
-        SearchFilterPercolatorWorkerError::InvalidProductId {
+    let product_id = ProductListingId::try_from(event.product_id.as_str()).map_err(|source| {
+        SearchFilterPercolatorWorkerError::InvalidProductListingId {
             source: box_error(source),
         }
     })?;
 
-    Ok(MatchProductEventCommand {
+    Ok(MatchProductListingEventCommand {
         origin_event_id,
         product_id,
     })
@@ -103,7 +104,7 @@ enum SearchFilterPercolatorWorkerError {
         source: BoxError,
     },
     #[error("search filter percolator job has an invalid product id")]
-    InvalidProductId {
+    InvalidProductListingId {
         #[source]
         source: BoxError,
     },

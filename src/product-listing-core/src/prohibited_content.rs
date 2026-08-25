@@ -38,13 +38,13 @@ impl ProhibitedContent {
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ProhibitedContentReason {
-    ProductText,
+    ProductListingText,
 }
 
 impl ProhibitedContentReason {
     pub fn as_str(&self) -> &'static str {
         match self {
-            ProhibitedContentReason::ProductText => "PRODUCT_TEXT",
+            ProhibitedContentReason::ProductListingText => "PRODUCT_TEXT",
         }
     }
 }
@@ -92,7 +92,7 @@ mod tests {
     fn should_report_reason_string() {
         assert_eq!(
             "PRODUCT_TEXT",
-            ProhibitedContentReason::ProductText.as_str()
+            ProhibitedContentReason::ProductListingText.as_str()
         );
     }
 }

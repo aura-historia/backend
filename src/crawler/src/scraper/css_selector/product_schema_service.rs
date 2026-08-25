@@ -10,7 +10,7 @@ use large_language_model::{
 };
 use prompt::{build_create_schemas_instruction, build_single_schema_instruction};
 use response::{
-    ProductSchemaGenerationResponse, ProductSchemaResponseValidationError,
+    ProductListingSchemaGenerationResponse, ProductListingSchemaResponseValidationError,
     product_schema_generation_response_json_schema, single_schema_generation_response_json_schema,
 };
 use schemars::schema_for;
@@ -33,7 +33,7 @@ pub use response::{
 };
 
 #[derive(Debug, thiserror::Error)]
-pub enum ProductSchemaServiceError {
+pub enum ProductListingSchemaServiceError {
     #[error("large language model error: {0}")]
     LargeLanguageModelError(#[from] LargeLanguageModelError),
 
@@ -55,55 +55,55 @@ pub enum ProductSchemaServiceError {
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait ProductSchemaService {
+pub trait ProductListingSchemaService {
     async fn create_product_schema(
         &self,
         html_pages: &[String],
-    ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError>;
+    ) -> Result<ProductCssSelectorSchema, ProductListingSchemaServiceError>;
 
     async fn create_product_schemas(
         &self,
         html_pages: &[String],
-    ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError>;
+    ) -> Result<GeneratedProductSchemas, ProductListingSchemaServiceError>;
 
     /// Generate a fresh single schema from one HTML page.
     async fn generate_single_schema_for_page(
         &self,
         html: &str,
-    ) -> Result<GeneratedSingleSchema, ProductSchemaServiceError>;
+    ) -> Result<GeneratedSingleSchema, ProductListingSchemaServiceError>;
 
     async fn find_product_schema(
         &self,
         shop_id: &ShopId,
-    ) -> Result<Option<ShopsProductSchema>, ProductSchemaServiceError>;
+    ) -> Result<Option<ShopsProductSchema>, ProductListingSchemaServiceError>;
 
     async fn save_product_schema(
         &self,
         shop_id: &ShopId,
         product_schema: ProductCssSelectorSchema,
-    ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
+    ) -> Result<ShopsProductSchema, ProductListingSchemaServiceError>;
 
     async fn save_product_schemas(
         &self,
         shop_id: &ShopId,
         product_schemas: Vec<ProductCssSelectorSchema>,
-    ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
+    ) -> Result<ShopsProductSchema, ProductListingSchemaServiceError>;
 
     async fn get_product_schema(
         &self,
         shop_id: &ShopId,
         html_pages: &[String],
-    ) -> Result<ShopsProductSchema, ProductSchemaServiceError>;
+    ) -> Result<ShopsProductSchema, ProductListingSchemaServiceError>;
 }
 
-pub struct ProductSchemaServiceImpl<CreateLlm, SingleLlm> {
+pub struct ProductListingSchemaServiceImpl<CreateLlm, SingleLlm> {
     create_llm: CreateLlm,
     single_schema_llm: SingleLlm,
     governor: Option<Arc<CrawlerLlmGovernor>>,
     repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
 }
 
-impl<CreateLlm, SingleLlm> ProductSchemaServiceImpl<CreateLlm, SingleLlm> {
+impl<CreateLlm, SingleLlm> ProductListingSchemaServiceImpl<CreateLlm, SingleLlm> {
     pub fn new(
         create_llm: CreateLlm,
         single_schema_llm: SingleLlm,
@@ -125,12 +125,12 @@ fn create_schema_generation_system_instruction() -> String {
     let response_json_schema = product_schema_generation_response_json_schema();
     format!(
         "You are an e-commerce scraper-assistant for antiques creating extraction-schemas for HTML given product-pages.
-            Return only JSON matching ProductSchemaGenerationResponse.
+            Return only JSON matching ProductListingSchemaGenerationResponse.
             The response must include schemas plus confidence LOW, MEDIUM, or HIGH.
             HIGH means the selectors are product-specific, deterministic, and safe to auto-approve when local validation passes.
             MEDIUM means the schema is plausible but needs human review. LOW means uncertain or weak selectors and needs human review.
             ProductCssSelectorSchema schema:\n\n {schema}\n\n
-            ProductSchemaGenerationResponse schema:\n\n {response_json_schema}",
+            ProductListingSchemaGenerationResponse schema:\n\n {response_json_schema}",
     )
 }
 
@@ -140,26 +140,29 @@ fn single_schema_generation_system_instruction() -> String {
     let response_json_schema = single_schema_generation_response_json_schema();
     format!(
         "You are an e-commerce scraper-assistant for antiques generating a fresh extraction schema for one HTML page.
-            Return only JSON matching Single ProductSchemaGenerationResponse.
+            Return only JSON matching Single ProductListingSchemaGenerationResponse.
             The response may classify the page as product, removed, or not_product.
             ProductCssSelectorSchema schema:\n\n {schema}\n\n
-            Single ProductSchemaGenerationResponse schema:\n\n {response_json_schema}",
+            Single ProductListingSchemaGenerationResponse schema:\n\n {response_json_schema}",
     )
 }
 
-fn response_json_schema(schema: String) -> Result<serde_json::Value, ProductSchemaServiceError> {
-    serde_json::from_str(&schema).map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)
+fn response_json_schema(
+    schema: String,
+) -> Result<serde_json::Value, ProductListingSchemaServiceError> {
+    serde_json::from_str(&schema)
+        .map_err(ProductListingSchemaServiceError::JsonParsingTargetSchemaError)
 }
 
 fn map_product_schema_generation_error(
-    error: ValidatedGenerationError<ProductSchemaResponseValidationError>,
-) -> ProductSchemaServiceError {
+    error: ValidatedGenerationError<ProductListingSchemaResponseValidationError>,
+) -> ProductListingSchemaServiceError {
     match error {
         ValidatedGenerationError::Model(error) => {
-            ProductSchemaServiceError::LargeLanguageModelError(error)
+            ProductListingSchemaServiceError::LargeLanguageModelError(error)
         }
         ValidatedGenerationError::Validation(error) => {
-            ProductSchemaServiceError::StructuredResponseValidation {
+            ProductListingSchemaServiceError::StructuredResponseValidation {
                 source: box_error(error),
             }
         }
@@ -184,7 +187,7 @@ fn validate_single_schema_response(res: &str) -> Result<(), String> {
 
 fn create_schema_generation_request(
     html_pages: &[String],
-) -> Result<StructuredGenerationRequest, ProductSchemaServiceError> {
+) -> Result<StructuredGenerationRequest, ProductListingSchemaServiceError> {
     Ok(StructuredGenerationRequest {
         operation: LlmOperation::CrawlerProductSchemaGeneration,
         system_instruction: create_schema_generation_system_instruction(),
@@ -203,7 +206,7 @@ fn create_schema_generation_request(
 
 fn single_schema_generation_request(
     html: &str,
-) -> Result<StructuredGenerationRequest, ProductSchemaServiceError> {
+) -> Result<StructuredGenerationRequest, ProductListingSchemaServiceError> {
     Ok(StructuredGenerationRequest {
         operation: LlmOperation::CrawlerProductSchemaFreshGeneration,
         system_instruction: single_schema_generation_system_instruction(),
@@ -219,7 +222,8 @@ fn single_schema_generation_request(
 }
 
 #[async_trait::async_trait]
-impl<CreateLlm, SingleLlm> ProductSchemaService for ProductSchemaServiceImpl<CreateLlm, SingleLlm>
+impl<CreateLlm, SingleLlm> ProductListingSchemaService
+    for ProductListingSchemaServiceImpl<CreateLlm, SingleLlm>
 where
     CreateLlm: LargeLanguageModel,
     SingleLlm: LargeLanguageModel,
@@ -227,10 +231,12 @@ where
     async fn create_product_schema(
         &self,
         html_pages: &[String],
-    ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError> {
+    ) -> Result<ProductCssSelectorSchema, ProductListingSchemaServiceError> {
         let generated = self.create_product_schemas(html_pages).await?;
         generated.schemas.first().cloned().ok_or_else(|| {
-            ProductSchemaServiceError::NoTextResponse("LLM produced zero schemas".to_string())
+            ProductListingSchemaServiceError::NoTextResponse(
+                "LLM produced zero schemas".to_string(),
+            )
         })
     }
 
@@ -238,12 +244,12 @@ where
     async fn create_product_schemas(
         &self,
         html_pages: &[String],
-    ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError> {
+    ) -> Result<GeneratedProductSchemas, ProductListingSchemaServiceError> {
         let generated = generate_validated_with_governor::<
             _,
-            ProductSchemaGenerationResponse,
+            ProductListingSchemaGenerationResponse,
             GeneratedProductSchemas,
-            ProductSchemaResponseValidationError,
+            ProductListingSchemaResponseValidationError,
             _,
             _,
         >(
@@ -251,8 +257,8 @@ where
             self.governor.as_ref(),
             create_schema_generation_request(html_pages)?,
             3,
-            ProductSchemaGenerationResponse::try_into_initial,
-            ProductSchemaResponseValidationError::feedback_code,
+            ProductListingSchemaGenerationResponse::try_into_initial,
+            ProductListingSchemaResponseValidationError::feedback_code,
         )
         .await
         .map_err(map_product_schema_generation_error)?;
@@ -270,12 +276,12 @@ where
     async fn generate_single_schema_for_page(
         &self,
         html: &str,
-    ) -> Result<GeneratedSingleSchema, ProductSchemaServiceError> {
+    ) -> Result<GeneratedSingleSchema, ProductListingSchemaServiceError> {
         let generated = generate_validated_with_governor::<
             _,
-            ProductSchemaGenerationResponse,
+            ProductListingSchemaGenerationResponse,
             GeneratedSingleSchema,
-            ProductSchemaResponseValidationError,
+            ProductListingSchemaResponseValidationError,
             _,
             _,
         >(
@@ -283,8 +289,8 @@ where
             self.governor.as_ref(),
             single_schema_generation_request(html)?,
             3,
-            ProductSchemaGenerationResponse::try_into_single,
-            ProductSchemaResponseValidationError::feedback_code,
+            ProductListingSchemaGenerationResponse::try_into_single,
+            ProductListingSchemaResponseValidationError::feedback_code,
         )
         .await
         .map_err(map_product_schema_generation_error)?;
@@ -300,18 +306,18 @@ where
     async fn find_product_schema(
         &self,
         shop_id: &ShopId,
-    ) -> Result<Option<ShopsProductSchema>, ProductSchemaServiceError> {
+    ) -> Result<Option<ShopsProductSchema>, ProductListingSchemaServiceError> {
         self.repository
             .find_product_schema(shop_id)
             .await
-            .map_err(ProductSchemaServiceError::DatabaseError)
+            .map_err(ProductListingSchemaServiceError::DatabaseError)
     }
 
     async fn save_product_schema(
         &self,
         shop_id: &ShopId,
         product_schema: ProductCssSelectorSchema,
-    ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
+    ) -> Result<ShopsProductSchema, ProductListingSchemaServiceError> {
         self.save_product_schemas(shop_id, vec![product_schema])
             .await
     }
@@ -325,9 +331,9 @@ where
         &self,
         shop_id: &ShopId,
         product_schemas: Vec<ProductCssSelectorSchema>,
-    ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
+    ) -> Result<ShopsProductSchema, ProductListingSchemaServiceError> {
         if product_schemas.is_empty() {
-            return Err(ProductSchemaServiceError::NoTextResponse(
+            return Err(ProductListingSchemaServiceError::NoTextResponse(
                 "LLM produced zero schemas".to_string(),
             ));
         }
@@ -340,7 +346,7 @@ where
                 self.repository
                     .update_product_schema(shop_id, &product_schemas)
                     .await
-                    .map_err(ProductSchemaServiceError::DatabaseError)
+                    .map_err(ProductListingSchemaServiceError::DatabaseError)
             }
             None => {
                 debug!("Inserting new product schema");
@@ -354,7 +360,7 @@ where
                 self.repository
                     .insert_product_schema(shop_id, &schema)
                     .await
-                    .map_err(ProductSchemaServiceError::DatabaseError)
+                    .map_err(ProductListingSchemaServiceError::DatabaseError)
             }
         }
     }
@@ -367,7 +373,7 @@ where
         &self,
         shop_id: &ShopId,
         html_pages: &[String],
-    ) -> Result<ShopsProductSchema, ProductSchemaServiceError> {
+    ) -> Result<ShopsProductSchema, ProductListingSchemaServiceError> {
         if let Some(existing) = self.find_product_schema(shop_id).await? {
             debug!("Found existing product schema");
             return Ok(existing);
@@ -397,7 +403,7 @@ mod tests {
 
     fn sample_css_schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
-            shops_product_id: Some(ExtractionRule {
+            shop_listing_id: Some(ExtractionRule {
                 selector: "span.product-id".into(),
                 additional_selectors: vec![],
                 extract: ExtractionKind::Text,
@@ -557,7 +563,7 @@ mod tests {
         let html = r#"
             <main>
               <a class="full-image" href="/photos/51996"><img src="/thumbs/51996"></a>
-              <a href="/products/foo">Product</a>
+              <a href="/products/foo">ProductListing</a>
             </main>
         "#;
 
@@ -573,7 +579,7 @@ mod tests {
             <script type="application/ld+json">
             {
               "@context": "https://schema.org",
-              "@type": "Product",
+              "@type": "ProductListing",
               "sku": "SKU-42",
               "name": "Biedermeier Chair",
               "image": ["https://cdn.example.com/image/abc123"],
@@ -620,7 +626,7 @@ mod tests {
     #[test]
     fn should_project_additional_ecommerce_data_attributes() {
         let html = r#"
-            <div itemscope itemtype="https://schema.org/Product"
+            <div itemscope itemtype="https://schema.org/ProductListing"
                  data-id="42"
                  data-variant-id="v1"
                  data-product="payload"
@@ -635,7 +641,7 @@ mod tests {
 
         for needle in [
             "itemscope:",
-            "itemtype: https://schema.org/Product",
+            "itemtype: https://schema.org/ProductListing",
             "data-id: '42'",
             "data-variant-id: v1",
             "data-product: payload",
@@ -664,7 +670,7 @@ mod tests {
             .withf(move |id| *id == shop_id)
             .return_once(move |_| Box::pin(async move { Ok(Some(expected_clone)) }));
 
-        let service = ProductSchemaServiceImpl {
+        let service = ProductListingSchemaServiceImpl {
             create_llm: MockLlmProvider,
             single_schema_llm: MockLlmProvider,
             governor: None,
@@ -687,7 +693,7 @@ mod tests {
             .expect_find_product_schema()
             .return_once(|_| Box::pin(async { Ok(None) }));
 
-        let service = ProductSchemaServiceImpl {
+        let service = ProductListingSchemaServiceImpl {
             create_llm: MockLlmProvider,
             single_schema_llm: MockLlmProvider,
             governor: None,
@@ -707,7 +713,7 @@ mod tests {
             .expect_find_product_schema()
             .return_once(|_| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
 
-        let service = ProductSchemaServiceImpl {
+        let service = ProductListingSchemaServiceImpl {
             create_llm: MockLlmProvider,
             single_schema_llm: MockLlmProvider,
             governor: None,
@@ -718,7 +724,7 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            ProductSchemaServiceError::DatabaseError(_)
+            ProductListingSchemaServiceError::DatabaseError(_)
         ));
     }
 
@@ -742,7 +748,7 @@ mod tests {
             .withf(move |id, _| *id == shop_id)
             .return_once(move |_, _| Box::pin(async move { Ok(expected_clone) }));
 
-        let service = ProductSchemaServiceImpl {
+        let service = ProductListingSchemaServiceImpl {
             create_llm: MockLlmProvider,
             single_schema_llm: MockLlmProvider,
             governor: None,
@@ -775,7 +781,7 @@ mod tests {
             .withf(move |id, _| *id == shop_id)
             .return_once(move |_, _| Box::pin(async move { Ok(updated_clone) }));
 
-        let service = ProductSchemaServiceImpl {
+        let service = ProductListingSchemaServiceImpl {
             create_llm: MockLlmProvider,
             single_schema_llm: MockLlmProvider,
             governor: None,
@@ -799,7 +805,7 @@ mod tests {
             .expect_find_product_schema()
             .return_once(|_| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
 
-        let service = ProductSchemaServiceImpl {
+        let service = ProductListingSchemaServiceImpl {
             create_llm: MockLlmProvider,
             single_schema_llm: MockLlmProvider,
             governor: None,
@@ -810,7 +816,7 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            ProductSchemaServiceError::DatabaseError(_)
+            ProductListingSchemaServiceError::DatabaseError(_)
         ));
     }
 
@@ -827,7 +833,7 @@ mod tests {
             .expect_insert_product_schema()
             .return_once(|_, _| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
 
-        let service = ProductSchemaServiceImpl {
+        let service = ProductListingSchemaServiceImpl {
             create_llm: MockLlmProvider,
             single_schema_llm: MockLlmProvider,
             governor: None,
@@ -838,7 +844,7 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            ProductSchemaServiceError::DatabaseError(_)
+            ProductListingSchemaServiceError::DatabaseError(_)
         ));
     }
 
@@ -860,7 +866,7 @@ mod tests {
         repository.expect_insert_product_schema().never();
         repository.expect_update_product_schema().never();
 
-        let service = ProductSchemaServiceImpl {
+        let service = ProductListingSchemaServiceImpl {
             create_llm: MockLlmProvider,
             single_schema_llm: MockLlmProvider,
             governor: None,
@@ -901,7 +907,7 @@ mod tests {
             .expect_insert_product_schema()
             .return_once(move |_, _| Box::pin(async move { Ok(saved_clone) }));
 
-        let service = ProductSchemaServiceImpl {
+        let service = ProductListingSchemaServiceImpl {
             create_llm: MockLlmProviderReturning(css_schema),
             single_schema_llm: MockLlmProvider,
             governor: None,
@@ -919,7 +925,7 @@ mod tests {
     #[tokio::test]
     async fn should_preserve_raw_attribute_schema_from_mocked_llm_response() {
         let css_schema = sample_schema_with_raw_attributes();
-        let service = ProductSchemaServiceImpl {
+        let service = ProductListingSchemaServiceImpl {
             create_llm: MockLlmProviderReturning(css_schema),
             single_schema_llm: MockLlmProvider,
             governor: None,
@@ -1008,7 +1014,7 @@ mod tests {
             .expect_find_product_schema()
             .return_once(|_| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
 
-        let service = ProductSchemaServiceImpl {
+        let service = ProductListingSchemaServiceImpl {
             create_llm: MockLlmProvider,
             single_schema_llm: MockLlmProvider,
             governor: None,
@@ -1020,7 +1026,7 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            ProductSchemaServiceError::DatabaseError(_)
+            ProductListingSchemaServiceError::DatabaseError(_)
         ));
     }
 
@@ -1066,7 +1072,7 @@ mod tests {
               </head>
               <body>
                 <nav><a href="/noise">Noise</a></nav>
-                <input id="ProductId" name="ProductId" type="hidden" value="SKU-42">
+                <input id="ProductListingId" name="ProductListingId" type="hidden" value="SKU-42">
                 <section class="product">
                   <h1 class="title">Example "Vase"</h1>
                   <a class="full-image" href="/large-link.jpg" rel="gallery">
@@ -1084,7 +1090,7 @@ mod tests {
         assert!(dsl.contains("property: og:title"));
         assert!(dsl.contains("content: 'Example: Vase'"));
         assert!(dsl.contains("tag: input"));
-        assert!(dsl.contains("id: ProductId"));
+        assert!(dsl.contains("id: ProductListingId"));
         assert!(dsl.contains("value: SKU-42"));
         assert!(dsl.contains("tag: h1"));
         assert!(dsl.contains("class: title"));
@@ -1167,7 +1173,10 @@ mod tests {
 
         let parsed = parse_single_schema_response(&payload).unwrap();
 
-        assert!(matches!(parsed, GeneratedSingleSchema::Product { .. }));
+        assert!(matches!(
+            parsed,
+            GeneratedSingleSchema::ProductListing { .. }
+        ));
     }
 
     #[test]
@@ -1234,7 +1243,7 @@ mod tests {
             "schemas": [],
             "removed_schema": {
                 "selector": "#mainCatCol h1",
-                "text": "Product removed",
+                "text": "ProductListing removed",
                 "regex": "product removed"
             },
             "confidence": "HIGH",
@@ -1313,7 +1322,7 @@ mod tests {
             "schemas": [sample_css_schema()],
             "removed_schema": {
                 "selector": "#main h1",
-                "text": "Product removed"
+                "text": "ProductListing removed"
             },
             "confidence": "HIGH",
             "summary": "wrong page kind"
@@ -1331,7 +1340,7 @@ mod tests {
             "schemas": [sample_css_schema()],
             "removed_schema": {
                 "selector": "#main h1",
-                "text": "Product removed"
+                "text": "ProductListing removed"
             },
             "confidence": "HIGH",
             "summary": "single-page metadata"
@@ -1494,7 +1503,7 @@ mod tests {
             responses: Mutex::new(VecDeque::from([invalid, valid])),
             requests: Arc::clone(&requests),
         };
-        let service = ProductSchemaServiceImpl::new(
+        let service = ProductListingSchemaServiceImpl::new(
             llm,
             MockLlmProvider,
             Box::new(MockShopsProductSchemaRepository::new()),

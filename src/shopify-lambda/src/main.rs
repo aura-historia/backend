@@ -5,9 +5,12 @@ use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_observability::{LogLevel, LoggingConfig, init};
 use platform_postgres::{PostgresPoolConfig, SqlxUnitOfWork};
 use product_listing_postgres::{
-    SqlxPartnerProductAuthorizerFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventStoreFactory,
+    SqlxProductListingRepositoryFactory,
 };
-use product_listing_service::use_cases::{IngestShopifyProductHandler, UpsertProductHandler};
+use product_listing_service::use_cases::{
+    IngestShopifyProductListingHandler, UpsertProductListingHandler,
+};
 use shop_postgres::SqlxShopDetailsReaderFactory;
 use shop_service::use_cases::GetShopHandler;
 use shopify_lambda::handler;
@@ -19,13 +22,13 @@ async fn main() -> Result<(), Error> {
 
     let pool = postgres_config_from_env()?.connect().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool);
-    let ingestion = IngestShopifyProductHandler::new(
+    let ingestion = IngestShopifyProductListingHandler::new(
         GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
-        UpsertProductHandler::new_with_fx_rates(
+        UpsertProductListingHandler::new_with_fx_rates(
             unit_of_work,
-            SqlxProductRepositoryFactory::new(),
-            SqlxProductEventStoreFactory::new(),
-            SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventStoreFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
         ),
     );

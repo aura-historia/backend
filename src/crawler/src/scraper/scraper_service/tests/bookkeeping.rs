@@ -14,7 +14,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -36,7 +36,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
 
     let mut expected = normalized_product(url.clone());
     expected.state = ProductState::Sold;
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()

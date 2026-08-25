@@ -7,11 +7,11 @@ use indexmap::IndexSet;
 use localization::{Language, Localized};
 use money::Price;
 use product_listing_core::{
-    description::Description, product::ProductAddress, product_id::ProductKey,
-    product_state::ProductState, title::Title,
+    description::Description, product_listing::ProductListingAddress,
+    product_listing_id::ProductListingKey, product_state::ProductState, title::Title,
 };
-use product_listing_service::use_cases::commands::upsert_product::{
-    UpsertProductCommand, UpsertProductUseCase,
+use product_listing_service::use_cases::commands::upsert_product_listing::{
+    UpsertProductListingCommand, UpsertProductListingUseCase,
 };
 
 use std::{
@@ -29,28 +29,28 @@ use crate::scraper::normalization::product::NormalizedProduct;
 /// successfully persisted URL as scraped, even when product IDs are repeated in a batch.
 #[async_trait]
 #[mockall::automock]
-pub trait ProductPushService: Send + Sync {
-    async fn push(&self, products: Vec<ProductPushItem>) -> Vec<bool>;
+pub trait ProductListingPushService: Send + Sync {
+    async fn push(&self, products: Vec<ProductListingPushItem>) -> Vec<bool>;
 }
 
 #[derive(Debug, Clone)]
-pub struct ProductPushItem {
-    pub command: UpsertProductCommand,
+pub struct ProductListingPushItem {
+    pub command: UpsertProductListingCommand,
     pub raw_attributes: BTreeMap<String, Vec<String>>,
 }
 
-/// Pushes each command through the canonical Product upsert use case.
-pub struct ProductPushServiceImpl {
-    upsert_product: Arc<dyn UpsertProductUseCase>,
+/// Pushes each command through the canonical ProductListing upsert use case.
+pub struct ProductListingPushServiceImpl {
+    upsert_product: Arc<dyn UpsertProductListingUseCase>,
     max_concurrent_upserts: usize,
 }
 
-impl ProductPushServiceImpl {
+impl ProductListingPushServiceImpl {
     /// Maximum concurrent canonical product transactions.
     /// Must remain below authoritative business database capacity.
     /// Startup configuration validation enforces this boundary.
     pub fn new(
-        upsert_product: Arc<dyn UpsertProductUseCase>,
+        upsert_product: Arc<dyn UpsertProductListingUseCase>,
         max_concurrent_upserts: usize,
     ) -> Self {
         Self {
@@ -61,31 +61,31 @@ impl ProductPushServiceImpl {
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
-enum DuplicateProductCommandError {
-    #[error("duplicate commands have different Product keys")]
-    ProductKeyMismatch,
+enum DuplicateProductListingCommandError {
+    #[error("duplicate commands have different ProductListing keys")]
+    ProductListingKeyMismatch,
     #[error("duplicate commands have different seller IDs")]
     SellerMismatch,
 }
 
-struct CoalescedProductPush {
-    command: UpsertProductCommand,
+struct CoalescedProductListingPush {
+    command: UpsertProductListingCommand,
     input_indices: Vec<usize>,
     valid: bool,
 }
 
 fn merge_upsert_command(
-    current: &mut UpsertProductCommand,
-    newer: UpsertProductCommand,
-) -> Result<(), DuplicateProductCommandError> {
-    if current.shop_id != newer.shop_id || current.shops_product_id != newer.shops_product_id {
-        return Err(DuplicateProductCommandError::ProductKeyMismatch);
+    current: &mut UpsertProductListingCommand,
+    newer: UpsertProductListingCommand,
+) -> Result<(), DuplicateProductListingCommandError> {
+    if current.shop_id != newer.shop_id || current.shop_listing_id != newer.shop_listing_id {
+        return Err(DuplicateProductListingCommandError::ProductListingKeyMismatch);
     }
     if current.seller_id != newer.seller_id {
-        return Err(DuplicateProductCommandError::SellerMismatch);
+        return Err(DuplicateProductListingCommandError::SellerMismatch);
     }
 
-    let UpsertProductCommand {
+    let UpsertProductListingCommand {
         address,
         title,
         description,
@@ -138,20 +138,20 @@ fn merge_upsert_command(
 }
 
 #[async_trait]
-impl ProductPushService for ProductPushServiceImpl {
+impl ProductListingPushService for ProductListingPushServiceImpl {
     #[tracing::instrument(
         name = "product_push_batch",
         skip(self, products),
         fields(total = products.len())
     )]
-    async fn push(&self, products: Vec<ProductPushItem>) -> Vec<bool> {
+    async fn push(&self, products: Vec<ProductListingPushItem>) -> Vec<bool> {
         let mut results = vec![false; products.len()];
-        let mut group_by_key = HashMap::<ProductKey, usize>::new();
-        let mut groups = Vec::<CoalescedProductPush>::new();
+        let mut group_by_key = HashMap::<ProductListingKey, usize>::new();
+        let mut groups = Vec::<CoalescedProductListingPush>::new();
 
         for (input_index, product) in products.into_iter().enumerate() {
             let command = product.command;
-            let key = ProductKey::new(command.shop_id, command.shops_product_id.clone());
+            let key = ProductListingKey::new(command.shop_id, command.shop_listing_id.clone());
             if let Some(&group_index) = group_by_key.get(&key) {
                 let group = &mut groups[group_index];
                 group.input_indices.push(input_index);
@@ -161,14 +161,14 @@ impl ProductPushService for ProductPushServiceImpl {
                     group.valid = false;
                     warn!(
                         shop_id = %group.command.shop_id,
-                        shops_product_id = %group.command.shops_product_id,
+                        shop_listing_id = %group.command.shop_listing_id,
                         error_kind = %duplicate_product_command_error_kind(&error),
-                        "Rejecting conflicting duplicate Product commands"
+                        "Rejecting conflicting duplicate ProductListing commands"
                     );
                 }
             } else {
                 group_by_key.insert(key, groups.len());
-                groups.push(CoalescedProductPush {
+                groups.push(CoalescedProductListingPush {
                     command,
                     input_indices: vec![input_index],
                     valid: true,
@@ -182,7 +182,7 @@ impl ProductPushService for ProductPushServiceImpl {
             let upsert_product = Arc::clone(&upsert_product);
 
             async move {
-                let CoalescedProductPush {
+                let CoalescedProductListingPush {
                     command,
                     input_indices,
                     ..
@@ -190,7 +190,7 @@ impl ProductPushService for ProductPushServiceImpl {
 
                 let context = crawler_operation_context(&command);
                 let shop_id = command.shop_id;
-                let shops_product_id = command.shops_product_id.clone();
+                let shop_listing_id = command.shop_listing_id.clone();
 
                 let succeeded = match upsert_product.execute(&context, command).await {
                     Ok(_) => true,
@@ -198,10 +198,10 @@ impl ProductPushService for ProductPushServiceImpl {
                         warn!(
                             error = %error,
                             shop_id = %shop_id,
-                            shops_product_id = %shops_product_id,
+                            shop_listing_id = %shop_listing_id,
                             request_id = %context.request_id,
                             correlation_id = %context.correlation_id,
-                            "Product upsert failed; it will be retried on the next scrape cycle"
+                            "ProductListing upsert failed; it will be retried on the next scrape cycle"
                         );
                         false
                     }
@@ -224,15 +224,17 @@ impl ProductPushService for ProductPushServiceImpl {
     }
 }
 
-fn duplicate_product_command_error_kind(error: &DuplicateProductCommandError) -> &'static str {
+fn duplicate_product_command_error_kind(
+    error: &DuplicateProductListingCommandError,
+) -> &'static str {
     match error {
-        DuplicateProductCommandError::ProductKeyMismatch => "product_key_mismatch",
-        DuplicateProductCommandError::SellerMismatch => "seller_mismatch",
+        DuplicateProductListingCommandError::ProductListingKeyMismatch => "product_key_mismatch",
+        DuplicateProductListingCommandError::SellerMismatch => "seller_mismatch",
     }
 }
 
-fn crawler_operation_context(command: &UpsertProductCommand) -> OperationContext {
-    let product_key = format!("crawler:{}:{}", command.shop_id, command.shops_product_id);
+fn crawler_operation_context(command: &UpsertProductListingCommand) -> OperationContext {
+    let product_key = format!("crawler:{}:{}", command.shop_id, command.shop_listing_id);
 
     OperationContext {
         principal: Principal::Service("crawler".to_owned()),
@@ -242,11 +244,11 @@ fn crawler_operation_context(command: &UpsertProductCommand) -> OperationContext
 }
 
 /// Writes upsert commands as primitive JSON snapshots to a configured output file.
-pub struct FileProductPushService {
+pub struct FileProductListingPushService {
     output_path: std::path::PathBuf,
 }
 
-impl FileProductPushService {
+impl FileProductListingPushService {
     pub fn new(output_path: impl Into<std::path::PathBuf>) -> Self {
         Self {
             output_path: output_path.into(),
@@ -258,8 +260,8 @@ impl FileProductPushService {
 struct UpsertCommandSnapshot {
     shop_id: String,
     seller_id: String,
-    shops_product_id: String,
-    address: ProductAddressSnapshot,
+    shop_listing_id: String,
+    address: ProductListingAddressSnapshot,
     title: Option<LocalizedTextSnapshot>,
     description: Option<LocalizedTextSnapshot>,
     price: Option<PriceSnapshot>,
@@ -267,7 +269,7 @@ struct UpsertCommandSnapshot {
     price_estimate_max: Option<PriceSnapshot>,
     state: Option<String>,
     url: Option<String>,
-    images: Vec<ProductImageSnapshot>,
+    images: Vec<ProductListingImageSnapshot>,
     auction_start: Option<String>,
     auction_end: Option<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
@@ -275,7 +277,7 @@ struct UpsertCommandSnapshot {
 }
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
-struct ProductAddressSnapshot {
+struct ProductListingAddressSnapshot {
     structured: Option<String>,
     geo: Option<String>,
 }
@@ -293,19 +295,19 @@ struct PriceSnapshot {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct ProductImageSnapshot {
+struct ProductListingImageSnapshot {
     url: String,
     prohibited_content: String,
 }
 
-impl From<&ProductPushItem> for UpsertCommandSnapshot {
-    fn from(product: &ProductPushItem) -> Self {
+impl From<&ProductListingPushItem> for UpsertCommandSnapshot {
+    fn from(product: &ProductListingPushItem) -> Self {
         let command = &product.command;
         Self {
             shop_id: command.shop_id.to_string(),
             seller_id: command.seller_id.to_string(),
-            shops_product_id: command.shops_product_id.to_string(),
-            address: ProductAddressSnapshot::default(),
+            shop_listing_id: command.shop_listing_id.to_string(),
+            address: ProductListingAddressSnapshot::default(),
             title: command.title.as_ref().map(snapshot_localized_title),
             description: command
                 .description
@@ -319,7 +321,7 @@ impl From<&ProductPushItem> for UpsertCommandSnapshot {
             images: command
                 .images
                 .iter()
-                .map(|image| ProductImageSnapshot {
+                .map(|image| ProductListingImageSnapshot {
                     url: image.url.to_string(),
                     prohibited_content: image.prohibited_content.as_str().to_owned(),
                 })
@@ -355,13 +357,13 @@ fn snapshot_price(value: Price) -> PriceSnapshot {
 }
 
 #[async_trait]
-impl ProductPushService for FileProductPushService {
+impl ProductListingPushService for FileProductListingPushService {
     #[tracing::instrument(
         name = "file_product_push_batch",
         skip(self, products),
         fields(total = products.len())
     )]
-    async fn push(&self, products: Vec<ProductPushItem>) -> Vec<bool> {
+    async fn push(&self, products: Vec<ProductListingPushItem>) -> Vec<bool> {
         if products.is_empty() {
             return Vec::new();
         }
@@ -423,16 +425,16 @@ impl ProductPushService for FileProductPushService {
     }
 }
 
-/// Maps normalized crawler output into the canonical Product upsert command.
+/// Maps normalized crawler output into the canonical ProductListing upsert command.
 pub fn normalize_to_upsert(
     product: NormalizedProduct,
     candidate: &ScraperCandidate,
-) -> Option<UpsertProductCommand> {
-    Some(UpsertProductCommand {
+) -> Option<UpsertProductListingCommand> {
+    Some(UpsertProductListingCommand {
         shop_id: candidate.shop_id,
         seller_id: candidate.shop_id,
-        shops_product_id: product.shops_product_id,
-        address: ProductAddress::default(),
+        shop_listing_id: product.shop_listing_id,
+        address: ProductListingAddress::default(),
         title: Some(product.title),
         description: product.description,
         price: product.price,
@@ -460,10 +462,12 @@ fn product_state_name(value: ProductState) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use product_listing_core::{product_id::ProductId, shops_product_id::ShopsProductId};
+    use product_listing_core::{
+        product_listing_id::ProductListingId, shop_listing_id::ShopListingId,
+    };
     use product_listing_service::use_cases::commands::{
-        update_product::UpdateProductResult,
-        upsert_product::{UpsertProductError, UpsertProductResult},
+        update_product_listing::UpdateProductListingResult,
+        upsert_product_listing::{UpsertProductListingError, UpsertProductListingResult},
     };
     use shop_core::{shop_id::ShopId, shop_type::ShopType};
     use std::sync::{
@@ -474,19 +478,19 @@ mod tests {
     use url::Url;
 
     #[derive(Default)]
-    struct FakeUpsertProductUseCase {
-        commands: Arc<Mutex<Vec<UpsertProductCommand>>>,
+    struct FakeUpsertProductListingUseCase {
+        commands: Arc<Mutex<Vec<UpsertProductListingCommand>>>,
         contexts: Arc<Mutex<Vec<OperationContext>>>,
         fail: bool,
     }
 
     #[async_trait]
-    impl UpsertProductUseCase for FakeUpsertProductUseCase {
+    impl UpsertProductListingUseCase for FakeUpsertProductListingUseCase {
         async fn execute(
             &self,
             context: &OperationContext,
-            command: UpsertProductCommand,
-        ) -> Result<UpsertProductResult, UpsertProductError> {
+            command: UpsertProductListingCommand,
+        ) -> Result<UpsertProductListingResult, UpsertProductListingError> {
             match self.commands.lock() {
                 Ok(mut commands) => commands.push(command),
                 Err(error) => error.into_inner().push(command),
@@ -497,22 +501,24 @@ mod tests {
             }
 
             if self.fail {
-                return Err(UpsertProductError::ShopNotFound);
+                return Err(UpsertProductListingError::ShopNotFound);
             }
 
-            Ok(UpsertProductResult::Updated(UpdateProductResult {
-                product_id: ProductId::new(),
-                event_id: None,
-            }))
+            Ok(UpsertProductListingResult::Updated(
+                UpdateProductListingResult {
+                    product_id: ProductListingId::new(),
+                    event_id: None,
+                },
+            ))
         }
     }
 
-    fn command() -> Result<UpsertProductCommand, url::ParseError> {
-        Ok(UpsertProductCommand {
+    fn command() -> Result<UpsertProductListingCommand, url::ParseError> {
+        Ok(UpsertProductListingCommand {
             shop_id: ShopId::new(),
             seller_id: ShopId::new(),
-            shops_product_id: ShopsProductId::from("prod-1"),
-            address: ProductAddress::default(),
+            shop_listing_id: ShopListingId::from("prod-1"),
+            address: ProductListingAddress::default(),
             title: Some(Localized::new(Language::De, Title::from("Ein Schrank"))),
             description: None,
             price: None,
@@ -526,16 +532,16 @@ mod tests {
         })
     }
 
-    fn push_item() -> Result<ProductPushItem, url::ParseError> {
-        Ok(ProductPushItem {
+    fn push_item() -> Result<ProductListingPushItem, url::ParseError> {
+        Ok(ProductListingPushItem {
             command: command()?,
             raw_attributes: BTreeMap::new(),
         })
     }
 
-    fn push_item_with_id(id: &str) -> Result<ProductPushItem, url::ParseError> {
+    fn push_item_with_id(id: &str) -> Result<ProductListingPushItem, url::ParseError> {
         let mut item = push_item()?;
-        item.command.shops_product_id = ShopsProductId::from(id);
+        item.command.shop_listing_id = ShopListingId::from(id);
         Ok(item)
     }
 
@@ -545,48 +551,52 @@ mod tests {
     }
 
     #[async_trait]
-    impl UpsertProductUseCase for ConcurrencyTrackingUpsert {
+    impl UpsertProductListingUseCase for ConcurrencyTrackingUpsert {
         async fn execute(
             &self,
             _: &OperationContext,
-            _: UpsertProductCommand,
-        ) -> Result<UpsertProductResult, UpsertProductError> {
+            _: UpsertProductListingCommand,
+        ) -> Result<UpsertProductListingResult, UpsertProductListingError> {
             let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
             self.max_active.fetch_max(active, Ordering::SeqCst);
 
             sleep(Duration::from_millis(25)).await;
 
             self.active.fetch_sub(1, Ordering::SeqCst);
-            Ok(UpsertProductResult::Updated(UpdateProductResult {
-                product_id: ProductId::new(),
-                event_id: None,
-            }))
+            Ok(UpsertProductListingResult::Updated(
+                UpdateProductListingResult {
+                    product_id: ProductListingId::new(),
+                    event_id: None,
+                },
+            ))
         }
     }
 
     struct DelayedSelectiveUpsert;
 
     #[async_trait]
-    impl UpsertProductUseCase for DelayedSelectiveUpsert {
+    impl UpsertProductListingUseCase for DelayedSelectiveUpsert {
         async fn execute(
             &self,
             _: &OperationContext,
-            command: UpsertProductCommand,
-        ) -> Result<UpsertProductResult, UpsertProductError> {
-            match command.shops_product_id.to_string().as_str() {
+            command: UpsertProductListingCommand,
+        ) -> Result<UpsertProductListingResult, UpsertProductListingError> {
+            match command.shop_listing_id.to_string().as_str() {
                 "slow-ok" => sleep(Duration::from_millis(40)).await,
                 "fast-fail" => {
                     sleep(Duration::from_millis(1)).await;
-                    return Err(UpsertProductError::ShopNotFound);
+                    return Err(UpsertProductListingError::ShopNotFound);
                 }
                 "medium-ok" => sleep(Duration::from_millis(15)).await,
                 other => panic!("unexpected product id: {other}"),
             }
 
-            Ok(UpsertProductResult::Updated(UpdateProductResult {
-                product_id: ProductId::new(),
-                event_id: None,
-            }))
+            Ok(UpsertProductListingResult::Updated(
+                UpdateProductListingResult {
+                    product_id: ProductListingId::new(),
+                    event_id: None,
+                },
+            ))
         }
     }
 
@@ -598,7 +608,7 @@ mod tests {
             active: Arc::clone(&active),
             max_active: Arc::clone(&max_active),
         });
-        let service = ProductPushServiceImpl::new(use_case, 2);
+        let service = ProductListingPushServiceImpl::new(use_case, 2);
 
         let products = (0..8)
             .map(|index| push_item_with_id(&format!("prod-{index}")))
@@ -616,7 +626,7 @@ mod tests {
     #[tokio::test]
     async fn should_restore_result_order_after_out_of_order_product_upserts()
     -> Result<(), url::ParseError> {
-        let service = ProductPushServiceImpl::new(Arc::new(DelayedSelectiveUpsert), 3);
+        let service = ProductListingPushServiceImpl::new(Arc::new(DelayedSelectiveUpsert), 3);
         let products = vec![
             push_item_with_id("slow-ok")?,
             push_item_with_id("fast-fail")?,
@@ -632,10 +642,10 @@ mod tests {
     #[tokio::test]
     async fn should_return_ordered_success_results_with_deterministic_crawler_context()
     -> Result<(), url::ParseError> {
-        let use_case = Arc::new(FakeUpsertProductUseCase::default());
+        let use_case = Arc::new(FakeUpsertProductListingUseCase::default());
         let commands = Arc::clone(&use_case.commands);
         let contexts = Arc::clone(&use_case.contexts);
-        let service = ProductPushServiceImpl::new(use_case, 1);
+        let service = ProductListingPushServiceImpl::new(use_case, 1);
         let succeeded = service.push(vec![push_item()?, push_item()?]).await;
 
         assert_eq!(succeeded, vec![true, true]);
@@ -650,7 +660,7 @@ mod tests {
         assert_eq!(executed_commands.len(), 2);
         assert_eq!(executed_contexts.len(), 2);
         for (context, command) in executed_contexts.iter().zip(executed_commands) {
-            let product_key = format!("crawler:{}:{}", command.shop_id, command.shops_product_id);
+            let product_key = format!("crawler:{}:{}", command.shop_id, command.shop_listing_id);
             assert_eq!(context.principal, Principal::Service("crawler".to_owned()));
             assert_eq!(context.request_id.as_str(), product_key);
             assert_eq!(context.correlation_id.as_str(), product_key);
@@ -661,9 +671,9 @@ mod tests {
     #[tokio::test]
     async fn should_coalesce_duplicate_product_keys_and_fan_out_success()
     -> Result<(), url::ParseError> {
-        let use_case = Arc::new(FakeUpsertProductUseCase::default());
+        let use_case = Arc::new(FakeUpsertProductListingUseCase::default());
         let commands = Arc::clone(&use_case.commands);
-        let service = ProductPushServiceImpl::new(use_case, 1);
+        let service = ProductListingPushServiceImpl::new(use_case, 1);
         let item = push_item()?;
 
         assert_eq!(
@@ -681,9 +691,9 @@ mod tests {
     #[tokio::test]
     async fn should_merge_later_optional_values_without_erasing_with_none()
     -> Result<(), url::ParseError> {
-        let use_case = Arc::new(FakeUpsertProductUseCase::default());
+        let use_case = Arc::new(FakeUpsertProductListingUseCase::default());
         let commands = Arc::clone(&use_case.commands);
-        let service = ProductPushServiceImpl::new(use_case, 1);
+        let service = ProductListingPushServiceImpl::new(use_case, 1);
         let mut first = push_item()?;
         first.command.description = Some(Localized::new(
             Language::De,
@@ -712,18 +722,17 @@ mod tests {
     #[tokio::test]
     async fn should_replace_images_with_newest_snapshot_including_empty_set()
     -> Result<(), url::ParseError> {
-        let use_case = Arc::new(FakeUpsertProductUseCase::default());
+        let use_case = Arc::new(FakeUpsertProductListingUseCase::default());
         let commands = Arc::clone(&use_case.commands);
-        let service = ProductPushServiceImpl::new(use_case, 1);
+        let service = ProductListingPushServiceImpl::new(use_case, 1);
         let mut first = push_item()?;
-        first
-            .command
-            .images
-            .insert(product_listing_core::product_image::ProductImage {
+        first.command.images.insert(
+            product_listing_core::product_listing_image::ProductListingImage {
                 url: Url::parse("https://example.com/image.jpg")?,
                 prohibited_content:
                     product_listing_core::prohibited_content::ProhibitedContent::None,
-            });
+            },
+        );
         let mut second = first.clone();
         second.command.images.clear();
 
@@ -739,12 +748,12 @@ mod tests {
     #[tokio::test]
     async fn should_fan_out_group_failure_and_reject_seller_mismatch() -> Result<(), url::ParseError>
     {
-        let use_case = Arc::new(FakeUpsertProductUseCase {
+        let use_case = Arc::new(FakeUpsertProductListingUseCase {
             fail: true,
             ..Default::default()
         });
         let commands = Arc::clone(&use_case.commands);
-        let service = ProductPushServiceImpl::new(use_case, 1);
+        let service = ProductListingPushServiceImpl::new(use_case, 1);
         let first = push_item()?;
         let second = first.clone();
 
@@ -754,9 +763,9 @@ mod tests {
             1
         );
 
-        let use_case = Arc::new(FakeUpsertProductUseCase::default());
+        let use_case = Arc::new(FakeUpsertProductListingUseCase::default());
         let commands = Arc::clone(&use_case.commands);
-        let service = ProductPushServiceImpl::new(use_case, 1);
+        let service = ProductListingPushServiceImpl::new(use_case, 1);
         let first = push_item()?;
         let mut second = first.clone();
         second.command.seller_id = ShopId::new();
@@ -779,7 +788,7 @@ mod tests {
         mismatched.seller_id = ShopId::new();
         assert_eq!(
             merge_upsert_command(&mut current, mismatched),
-            Err(DuplicateProductCommandError::SellerMismatch)
+            Err(DuplicateProductListingCommandError::SellerMismatch)
         );
         Ok(())
     }
@@ -803,7 +812,7 @@ mod tests {
             last_scraped_state: None,
         };
         let product = NormalizedProduct {
-            shops_product_id: ShopsProductId::from("prod-1"),
+            shop_listing_id: ShopListingId::from("prod-1"),
             title: Localized::new(Language::De, Title::from("Ein Schrank")),
             description: None,
             price: None,
@@ -830,18 +839,18 @@ mod tests {
         );
         assert_eq!(
             command.as_ref().map(|command| command.address.clone()),
-            Some(ProductAddress::default())
+            Some(ProductListingAddress::default())
         );
         Ok(())
     }
 
     #[tokio::test]
     async fn should_omit_failed_commands_from_successful_batch() -> Result<(), url::ParseError> {
-        let use_case = Arc::new(FakeUpsertProductUseCase {
+        let use_case = Arc::new(FakeUpsertProductListingUseCase {
             fail: true,
             ..Default::default()
         });
-        let service = ProductPushServiceImpl::new(use_case, 1);
+        let service = ProductListingPushServiceImpl::new(use_case, 1);
 
         assert_eq!(service.push(vec![push_item()?]).await, vec![false]);
         Ok(())
@@ -850,7 +859,7 @@ mod tests {
     #[tokio::test]
     async fn should_write_primitive_canonical_snapshot() -> Result<(), url::ParseError> {
         let path = std::env::temp_dir().join(format!("product_push_{}.json", uuid::Uuid::new_v4()));
-        let service = FileProductPushService::new(path.clone());
+        let service = FileProductListingPushService::new(path.clone());
 
         let succeeded = service.push(vec![push_item()?]).await;
         assert_eq!(succeeded, vec![true]);

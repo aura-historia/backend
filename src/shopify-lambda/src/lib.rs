@@ -11,7 +11,8 @@ use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use lambda_runtime::LambdaEvent;
 use product_listing_service::use_cases::{
-    IngestShopifyProductError, IngestShopifyProductResult, IngestShopifyProductUseCase,
+    IngestShopifyProductListingError, IngestShopifyProductListingResult,
+    IngestShopifyProductListingUseCase,
 };
 use serde_json::Value;
 use shop_core::domain::Domain;
@@ -39,7 +40,7 @@ enum MessageOutcome {
 async fn process_event(
     event: EventBridgeEvent<Value>,
     context: &OperationContext,
-    ingestion: &(dyn IngestShopifyProductUseCase + Send + Sync),
+    ingestion: &(dyn IngestShopifyProductListingUseCase + Send + Sync),
 ) -> MessageOutcome {
     let span = tracing::Span::current();
     if let Some(event_id) = event.id.as_deref() {
@@ -80,8 +81,8 @@ async fn process_event(
     };
 
     match ingestion.execute(context, command).await {
-        Ok(IngestShopifyProductResult::Ignored) => MessageOutcome::Acknowledged,
-        Ok(IngestShopifyProductResult::Upserted(_)) => MessageOutcome::Acknowledged,
+        Ok(IngestShopifyProductListingResult::Ignored) => MessageOutcome::Acknowledged,
+        Ok(IngestShopifyProductListingResult::Upserted(_)) => MessageOutcome::Acknowledged,
         Err(error) if should_retry(&error) => {
             warn!(%error, "Shopify product ingestion failed; retrying SQS message");
             MessageOutcome::Retry
@@ -93,20 +94,20 @@ async fn process_event(
     }
 }
 
-fn should_retry(error: &IngestShopifyProductError) -> bool {
+fn should_retry(error: &IngestShopifyProductListingError) -> bool {
     !matches!(
         error,
-        IngestShopifyProductError::MissingTitle
-            | IngestShopifyProductError::MissingHandle
-            | IngestShopifyProductError::InvalidPrice
-            | IngestShopifyProductError::InvalidProductUrl
+        IngestShopifyProductListingError::MissingTitle
+            | IngestShopifyProductListingError::MissingHandle
+            | IngestShopifyProductListingError::InvalidPrice
+            | IngestShopifyProductListingError::InvalidProductListingUrl
     )
 }
 
 #[tracing::instrument(skip(event, ingestion), fields(request_id = %event.context.request_id))]
 pub async fn handler(
     event: LambdaEvent<SqsEvent>,
-    ingestion: &(dyn IngestShopifyProductUseCase + Send + Sync),
+    ingestion: &(dyn IngestShopifyProductListingUseCase + Send + Sync),
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let context = operation_context(&event);
     let count = event.payload.records.len();
@@ -166,7 +167,8 @@ mod tests {
     use aws_lambda_events::sqs::SqsMessage;
     use lambda_runtime::Context;
     use product_listing_service::use_cases::{
-        IngestShopifyProductCommand, IngestShopifyProductError, IngestShopifyProductResult,
+        IngestShopifyProductListingCommand, IngestShopifyProductListingError,
+        IngestShopifyProductListingResult,
     };
     use std::sync::{Arc, Mutex};
 
@@ -211,12 +213,18 @@ mod tests {
 
     #[test]
     fn should_not_retry_permanently_invalid_shopify_payload() {
-        assert!(!should_retry(&IngestShopifyProductError::InvalidPrice));
-        assert!(!should_retry(&IngestShopifyProductError::MissingTitle));
-        assert!(should_retry(
-            &IngestShopifyProductError::MissingShopCurrency
+        assert!(!should_retry(
+            &IngestShopifyProductListingError::InvalidPrice
         ));
-        assert!(should_retry(&IngestShopifyProductError::ShopLookupInternal));
+        assert!(!should_retry(
+            &IngestShopifyProductListingError::MissingTitle
+        ));
+        assert!(should_retry(
+            &IngestShopifyProductListingError::MissingShopCurrency
+        ));
+        assert!(should_retry(
+            &IngestShopifyProductListingError::ShopLookupInternal
+        ));
     }
 
     #[tokio::test]
@@ -308,16 +316,16 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl IngestShopifyProductUseCase for FakeIngestion {
+    impl IngestShopifyProductListingUseCase for FakeIngestion {
         async fn execute(
             &self,
             _context: &OperationContext,
-            _command: IngestShopifyProductCommand,
-        ) -> Result<IngestShopifyProductResult, IngestShopifyProductError> {
+            _command: IngestShopifyProductListingCommand,
+        ) -> Result<IngestShopifyProductListingResult, IngestShopifyProductListingError> {
             *self.calls.lock().unwrap_or_else(|error| error.into_inner()) += 1;
             match self.result {
-                FakeResult::Success => Ok(IngestShopifyProductResult::Ignored),
-                FakeResult::Failure => Err(IngestShopifyProductError::ShopLookupInternal),
+                FakeResult::Success => Ok(IngestShopifyProductListingResult::Ignored),
+                FakeResult::Failure => Err(IngestShopifyProductListingError::ShopLookupInternal),
             }
         }
     }

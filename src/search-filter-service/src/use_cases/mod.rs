@@ -1,5 +1,5 @@
 use embedding::{EmbeddingError, EmbeddingText};
-use product_listing_core::product_search::ProductSearch;
+use product_listing_core::product_listing_search::ProductListingSearch;
 
 mod create_search_filter;
 mod delete_owned_search_filter;
@@ -7,7 +7,7 @@ mod generate_search_filter_match_notification;
 mod get_owned_search_filter;
 mod list_owned_search_filters;
 mod list_search_filter_matches;
-mod match_product_event;
+mod match_product_listing_event;
 mod project_search_filter_change;
 mod run_periodic_search_filter_matching;
 mod update_owned_search_filter;
@@ -19,17 +19,17 @@ pub use generate_search_filter_match_notification::*;
 pub use get_owned_search_filter::*;
 pub use list_owned_search_filters::*;
 pub use list_search_filter_matches::*;
-pub use match_product_event::*;
+pub use match_product_listing_event::*;
 pub use project_search_filter_change::*;
 pub use run_periodic_search_filter_matching::*;
 pub use update_owned_search_filter::*;
 pub use update_search_filter_match_feedback::*;
 
 pub(crate) fn embedding_query(
-    search: &ProductSearch,
+    search: &ProductListingSearch,
 ) -> Result<Option<EmbeddingText>, EmbeddingError> {
     let mut parts = search
-        .product_query
+        .product_listing_query
         .iter()
         .map(AsRef::as_ref)
         .filter(|value: &&str| !value.trim().is_empty())
@@ -50,12 +50,12 @@ mod tests {
     use super::embedding_query;
     use localization::Language;
     use money::Currency;
-    use product_listing_core::product_search::ProductSearch;
+    use product_listing_core::product_listing_search::ProductListingSearch;
 
     #[test]
     fn should_build_search_embedding_query() -> Result<(), Box<dyn std::error::Error>> {
-        let search = ProductSearch::new(Language::En, Currency::Eur)
-            .with_product_query("vintage brass lamp".try_into()?);
+        let search = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_product_listing_query("vintage brass lamp".try_into()?);
 
         let query = embedding_query(&search)?;
 
@@ -69,7 +69,7 @@ mod tests {
     #[test]
     fn should_not_build_search_embedding_query_without_search_terms()
     -> Result<(), Box<dyn std::error::Error>> {
-        let search = ProductSearch::new(Language::En, Currency::Eur);
+        let search = ProductListingSearch::new(Language::En, Currency::Eur);
 
         assert_eq!(None, embedding_query(&search)?);
         Ok(())

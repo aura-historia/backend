@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UrlClass {
-    Product,
+    ProductListing,
     Category,
     Imprint,
     Info,
@@ -15,7 +15,7 @@ pub enum UrlClass {
 impl std::fmt::Display for UrlClass {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UrlClass::Product => write!(f, "product"),
+            UrlClass::ProductListing => write!(f, "product"),
             UrlClass::Category => write!(f, "category"),
             UrlClass::Imprint => write!(f, "imprint"),
             UrlClass::Info => write!(f, "info"),
@@ -28,7 +28,7 @@ impl std::str::FromStr for UrlClass {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "product" => Ok(UrlClass::Product),
+            "product" => Ok(UrlClass::ProductListing),
             "category" => Ok(UrlClass::Category),
             "imprint" => Ok(UrlClass::Imprint),
             "info" => Ok(UrlClass::Info),
@@ -41,7 +41,7 @@ impl std::str::FromStr for UrlClass {
 impl UrlClass {
     pub fn as_str(self) -> &'static str {
         match self {
-            UrlClass::Product => "product",
+            UrlClass::ProductListing => "product",
             UrlClass::Category => "category",
             UrlClass::Imprint => "imprint",
             UrlClass::Info => "info",
@@ -51,7 +51,7 @@ impl UrlClass {
 
     pub fn from_db(value: &str) -> Self {
         match value {
-            "product" => UrlClass::Product,
+            "product" => UrlClass::ProductListing,
             "category" => UrlClass::Category,
             "imprint" => UrlClass::Imprint,
             "info" => UrlClass::Info,

@@ -1,5 +1,5 @@
 use crawler::scraper::candidate_service::{
-    ProductSnapshot, ScraperCandidateService, ScraperCandidateServiceImpl,
+    ProductListingSnapshot, ScraperCandidateService, ScraperCandidateServiceImpl,
 };
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
 use crawler::spider::classification::url_metadata::{UrlClass, UrlState};
@@ -11,8 +11,8 @@ use test_api::*;
 
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
-fn minimal_snapshot(url: &str) -> ProductSnapshot {
-    ProductSnapshot {
+fn minimal_snapshot(url: &str) -> ProductListingSnapshot {
+    ProductListingSnapshot {
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
@@ -425,7 +425,7 @@ async fn insert_product_url(
     let shop_id = shop_core::shop_id::ShopId::from(shop_id_uuid);
     let parsed = url::Url::parse(url).unwrap();
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
-    repo.upsert_link(&shop_id, &domain_id, &parsed, &UrlClass::Product)
+    repo.upsert_link(&shop_id, &domain_id, &parsed, &UrlClass::ProductListing)
         .await
         .unwrap();
 }
@@ -591,10 +591,10 @@ async fn scraper_should_persist_url_class_other_and_exclude_candidate_when_set_c
     let other_url = url::Url::parse("https://scraper-set-class.example.com/p/other").unwrap();
     let shop_id = shop_core::shop_id::ShopId::from(shop_id_uuid);
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
-    repo.upsert_link(&shop_id, &domain_id, &target_url, &UrlClass::Product)
+    repo.upsert_link(&shop_id, &domain_id, &target_url, &UrlClass::ProductListing)
         .await
         .unwrap();
-    repo.upsert_link(&shop_id, &domain_id, &other_url, &UrlClass::Product)
+    repo.upsert_link(&shop_id, &domain_id, &other_url, &UrlClass::ProductListing)
         .await
         .unwrap();
 
@@ -620,7 +620,7 @@ async fn scraper_should_persist_url_class_other_and_exclude_candidate_when_set_c
     let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
 
     assert_eq!(target_class, UrlClass::Other.to_string());
-    assert_eq!(other_class, UrlClass::Product.to_string());
+    assert_eq!(other_class, UrlClass::ProductListing.to_string());
     assert!(!candidates.iter().any(|c| c.url == target_url));
     assert!(candidates.iter().any(|c| c.url == other_url));
 }
@@ -670,12 +670,17 @@ async fn scraper_should_not_return_candidate_when_state_is_excluded() {
     let url_sold = url::Url::parse("https://scraper-state.example.com/p/sold").unwrap();
     let url_removed = url::Url::parse("https://scraper-state.example.com/p/removed").unwrap();
 
-    repo.upsert_link(&shop_id, &domain_id, &url_sold, &UrlClass::Product)
+    repo.upsert_link(&shop_id, &domain_id, &url_sold, &UrlClass::ProductListing)
         .await
         .unwrap();
-    repo.upsert_link(&shop_id, &domain_id, &url_removed, &UrlClass::Product)
-        .await
-        .unwrap();
+    repo.upsert_link(
+        &shop_id,
+        &domain_id,
+        &url_removed,
+        &UrlClass::ProductListing,
+    )
+    .await
+    .unwrap();
 
     repo.set_state(&shop_id, &url_sold, &UrlState::Sold)
         .await
@@ -735,7 +740,7 @@ async fn scraper_should_return_candidate_for_all_included_states() {
 
     for (state, url_str) in &states {
         let url = url::Url::parse(url_str).unwrap();
-        repo.upsert_link(&shop_id, &domain_id, &url, &UrlClass::Product)
+        repo.upsert_link(&shop_id, &domain_id, &url, &UrlClass::ProductListing)
             .await
             .unwrap();
         repo.set_state(&shop_id, &url, state).await.unwrap();
@@ -1178,7 +1183,7 @@ async fn scraper_seed_urls_should_only_include_same_shop_product_urls_in_eligibl
         &seed_shop_id,
         &seed_domain_id,
         &current_url,
-        &UrlClass::Product,
+        &UrlClass::ProductListing,
     )
     .await
     .unwrap();
@@ -1188,7 +1193,7 @@ async fn scraper_seed_urls_should_only_include_same_shop_product_urls_in_eligibl
         &seed_shop_id,
         &seed_domain_id,
         &eligible_url,
-        &UrlClass::Product,
+        &UrlClass::ProductListing,
     )
     .await
     .unwrap();
@@ -1201,7 +1206,7 @@ async fn scraper_seed_urls_should_only_include_same_shop_product_urls_in_eligibl
         &seed_shop_id,
         &seed_domain_id,
         &sold_url,
-        &UrlClass::Product,
+        &UrlClass::ProductListing,
     )
     .await
     .unwrap();
@@ -1229,7 +1234,7 @@ async fn scraper_seed_urls_should_only_include_same_shop_product_urls_in_eligibl
         &other_shop_id,
         &other_domain_id,
         &other_shop_url,
-        &UrlClass::Product,
+        &UrlClass::ProductListing,
     )
     .await
     .unwrap();

@@ -7,13 +7,13 @@ use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use localization::Language;
 use money::Currency;
-use product_listing_core::product_slug_id::ProductSlugId;
-use product_listing_service::use_cases::{GetProductRequest, ProductLookup};
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
+use product_listing_service::use_cases::{GetProductListingRequest, ProductListingLookup};
 use serde::Deserialize;
 use shop_core::shop_slug_id::ShopSlugId;
 
 #[derive(Debug, Deserialize)]
-struct ProductDetailsQuery {
+struct ProductListingDetailsQuery {
     #[serde(default)]
     #[serde(with = "crate::wire::language")]
     language: Language,
@@ -27,7 +27,7 @@ pub async fn get_product_by_slug(
     Path((raw_shop_slug_id, raw_product_slug_id)): Path<(String, String)>,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
-    let query: ProductDetailsQuery =
+    let query: ProductListingDetailsQuery =
         match serde_qs::from_str(raw_query.as_deref().unwrap_or_default()) {
             Ok(query) => query,
             Err(error) => {
@@ -54,7 +54,7 @@ pub async fn get_product_by_slug(
                 .into_response();
         }
     };
-    let product_slug_id = match ProductSlugId::raw(&raw_product_slug_id) {
+    let product_slug_id = match ProductListingSlugId::raw(&raw_product_slug_id) {
         Ok(product_slug_id) => product_slug_id,
         Err(_) => {
             return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
@@ -69,8 +69,8 @@ pub async fn get_product_by_slug(
         .get_product
         .execute(
             &context,
-            GetProductRequest {
-                lookup: ProductLookup::BySlug {
+            GetProductListingRequest {
+                lookup: ProductListingLookup::BySlug {
                     shop_slug_id,
                     product_slug_id,
                 },
@@ -95,57 +95,58 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use localization::Language;
     use product_listing_service::use_cases::{
-        GetProductError, GetProductUseCase, GetSimilarProductsError, GetSimilarProductsRequest,
-        GetSimilarProductsResult, GetSimilarProductsUseCase, SearchProductsError,
-        SearchProductsRequest, SearchProductsResult, SearchProductsUseCase,
+        GetProductListingError, GetProductListingUseCase, GetSimilarProductListingsError,
+        GetSimilarProductListingsRequest, GetSimilarProductListingsResult,
+        GetSimilarProductListingsUseCase, SearchProductListingsError, SearchProductListingsRequest,
+        SearchProductListingsResult, SearchProductListingsUseCase,
     };
     use std::sync::{Arc, Mutex, MutexGuard};
     use tower::ServiceExt;
 
-    type GetProductCalls = Arc<Mutex<Vec<GetProductRequest>>>;
+    type GetProductListingCalls = Arc<Mutex<Vec<GetProductListingRequest>>>;
 
-    struct FakeGetProductUseCase {
-        calls: GetProductCalls,
+    struct FakeGetProductListingUseCase {
+        calls: GetProductListingCalls,
     }
 
     #[async_trait::async_trait]
-    impl GetProductUseCase for FakeGetProductUseCase {
+    impl GetProductListingUseCase for FakeGetProductListingUseCase {
         async fn execute(
             &self,
             _context: &OperationContext,
-            request: GetProductRequest,
+            request: GetProductListingRequest,
         ) -> Result<
-            product_listing_service::use_cases::PersonalizedProductDetailsView,
-            GetProductError,
+            product_listing_service::use_cases::PersonalizedProductListingDetailsView,
+            GetProductListingError,
         > {
             lock(&self.calls).push(request);
-            Err(GetProductError::NotFound)
+            Err(GetProductListingError::NotFound)
         }
     }
 
-    struct UnusedSimilarProductsUseCase;
+    struct UnusedSimilarProductListingsUseCase;
 
     #[async_trait::async_trait]
-    impl GetSimilarProductsUseCase for UnusedSimilarProductsUseCase {
+    impl GetSimilarProductListingsUseCase for UnusedSimilarProductListingsUseCase {
         async fn execute(
             &self,
             _context: &OperationContext,
-            _request: GetSimilarProductsRequest,
-        ) -> Result<GetSimilarProductsResult, GetSimilarProductsError> {
-            Err(GetSimilarProductsError::SimilaritySearchUnavailable)
+            _request: GetSimilarProductListingsRequest,
+        ) -> Result<GetSimilarProductListingsResult, GetSimilarProductListingsError> {
+            Err(GetSimilarProductListingsError::SimilaritySearchUnavailable)
         }
     }
 
-    struct UnusedSearchProductsUseCase;
+    struct UnusedSearchProductListingsUseCase;
 
     #[async_trait::async_trait]
-    impl SearchProductsUseCase for UnusedSearchProductsUseCase {
+    impl SearchProductListingsUseCase for UnusedSearchProductListingsUseCase {
         async fn execute(
             &self,
             _context: &OperationContext,
-            _request: SearchProductsRequest,
-        ) -> Result<SearchProductsResult, SearchProductsError> {
-            Ok(SearchProductsResult::default())
+            _request: SearchProductListingsRequest,
+        ) -> Result<SearchProductListingsResult, SearchProductListingsError> {
+            Ok(SearchProductListingsResult::default())
         }
     }
 
@@ -181,8 +182,8 @@ mod tests {
         assert_eq!(StatusCode::NOT_FOUND, response.status());
         assert!(matches!(
             lock(&calls).as_slice(),
-            [GetProductRequest {
-                lookup: ProductLookup::BySlug {
+            [GetProductListingRequest {
+                lookup: ProductListingLookup::BySlug {
                     shop_slug_id,
                     product_slug_id,
                 },
@@ -209,8 +210,8 @@ mod tests {
         assert_eq!(StatusCode::NOT_FOUND, response.status());
         assert!(matches!(
             lock(&calls).as_slice(),
-            [GetProductRequest {
-                lookup: ProductLookup::BySlug { .. },
+            [GetProductListingRequest {
+                lookup: ProductListingLookup::BySlug { .. },
                 language: Language::De,
                 currency: money::Currency::Usd,
             }]
@@ -252,14 +253,14 @@ mod tests {
         Ok(())
     }
 
-    fn app() -> (Router, GetProductCalls) {
+    fn app() -> (Router, GetProductListingCalls) {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let state = ProductsState::new(
-            Arc::new(FakeGetProductUseCase {
+            Arc::new(FakeGetProductListingUseCase {
                 calls: Arc::clone(&calls),
             }),
-            Arc::new(UnusedSimilarProductsUseCase),
-            Arc::new(UnusedSearchProductsUseCase),
+            Arc::new(UnusedSimilarProductListingsUseCase),
+            Arc::new(UnusedSearchProductListingsUseCase),
             Arc::new(AnonymousAuthenticator),
         );
         (

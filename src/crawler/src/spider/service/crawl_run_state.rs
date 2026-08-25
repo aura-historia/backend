@@ -1,12 +1,12 @@
 use regex::Regex;
 
 use crate::spider::discovery::website_spider::CrawledPage;
-use crate::spider::service::product_pattern::ProductPattern;
+use crate::spider::service::product_pattern::ProductListingPattern;
 
 pub struct CrawlRunState {
     pub total_crawled: usize,
     pub products_found: usize,
-    pub pattern: ProductPattern,
+    pub pattern: ProductListingPattern,
     pub classification_done: bool,
     pub pattern_loaded_from_store: bool,
     pub page_buffer: Vec<CrawledPage>,
@@ -16,8 +16,8 @@ pub struct CrawlRunState {
 impl CrawlRunState {
     pub fn new(pattern: Option<Regex>) -> Self {
         let pattern = pattern
-            .map(ProductPattern::from)
-            .unwrap_or(ProductPattern::Unknown);
+            .map(ProductListingPattern::from)
+            .unwrap_or(ProductListingPattern::Unknown);
         let classification_done = pattern.is_known();
         let pattern_loaded_from_store = pattern.is_known();
 

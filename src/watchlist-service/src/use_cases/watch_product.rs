@@ -8,28 +8,28 @@ use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use application::transaction::{Transaction, UnitOfWork};
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use user_core::user_id::UserId;
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
 use watchlist_core::watchlist_state::WatchlistState;
-use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
+use watchlist_core::{NewWatchlistProductListing, WatchlistProductListing};
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct WatchProductCommand {
+pub struct WatchProductListingCommand {
     pub user_id: UserId,
-    pub product_id: ProductId,
+    pub product_id: ProductListingId,
     pub notifications: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct WatchProductResult {
-    pub entry: WatchlistProduct,
+pub struct WatchProductListingResult {
+    pub entry: WatchlistProductListing,
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum WatchProductError {
+pub enum WatchProductListingError {
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -64,22 +64,22 @@ pub enum WatchProductError {
 }
 
 #[async_trait::async_trait]
-pub trait WatchProductUseCase: Send + Sync {
+pub trait WatchProductListingUseCase: Send + Sync {
     async fn execute(
         &self,
         context: &OperationContext,
-        command: WatchProductCommand,
-    ) -> Result<WatchProductResult, WatchProductError>;
+        command: WatchProductListingCommand,
+    ) -> Result<WatchProductListingResult, WatchProductListingError>;
 }
 
-pub struct WatchProductHandler<U, R, Q, A> {
+pub struct WatchProductListingHandler<U, R, Q, A> {
     unit_of_work: U,
     watchlist: R,
     quotas: Q,
     tier_entitlements: A,
 }
 
-impl<U, R, Q, A> WatchProductHandler<U, R, Q, A> {
+impl<U, R, Q, A> WatchProductListingHandler<U, R, Q, A> {
     pub fn new(unit_of_work: U, watchlist: R, quotas: Q, tier_entitlements: A) -> Self {
         Self {
             unit_of_work,
@@ -91,7 +91,7 @@ impl<U, R, Q, A> WatchProductHandler<U, R, Q, A> {
 }
 
 #[async_trait::async_trait]
-impl<U, R, Q, A> WatchProductUseCase for WatchProductHandler<U, R, Q, A>
+impl<U, R, Q, A> WatchProductListingUseCase for WatchProductListingHandler<U, R, Q, A>
 where
     U: UnitOfWork,
     R: WatchlistRepositoryFactory<U::Tx>,
@@ -102,22 +102,22 @@ where
     async fn execute(
         &self,
         context: &OperationContext,
-        command: WatchProductCommand,
-    ) -> Result<WatchProductResult, WatchProductError> {
+        command: WatchProductListingCommand,
+    ) -> Result<WatchProductListingResult, WatchProductListingError> {
         authorize_watch(context, command.user_id)?;
 
         let mut tx = self
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| WatchProductError::BeginTransactionFailed)?;
+            .map_err(|_| WatchProductListingError::BeginTransactionFailed)?;
         let tier = self
             .tier_entitlements
             .in_transaction(&mut tx)
             .lock_user_tier(command.user_id)
             .await
             .map_err(tier_entitlements_error)?
-            .ok_or(WatchProductError::UserNotFound)?;
+            .ok_or(WatchProductListingError::UserNotFound)?;
         if self
             .watchlist
             .in_transaction(&mut tx)
@@ -125,7 +125,7 @@ where
             .await?
             .is_some()
         {
-            return Err(WatchProductError::AlreadyExists);
+            return Err(WatchProductListingError::AlreadyExists);
         }
         if let Some(quota) = active_watchlist_quota(tier) {
             let active_count = self
@@ -135,14 +135,14 @@ where
                 .await
                 .map_err(watchlist_quota_read_error)?;
             if active_count >= quota {
-                return Err(WatchProductError::WatchlistQuotaExceeded {
+                return Err(WatchProductListingError::WatchlistQuotaExceeded {
                     active_count,
                     quota,
                 });
             }
         }
 
-        let entry = WatchlistProduct::create(NewWatchlistProduct {
+        let entry = WatchlistProductListing::create(NewWatchlistProductListing {
             user_id: command.user_id,
             product_id: command.product_id,
             notifications: command.notifications,
@@ -156,7 +156,7 @@ where
             .into_value();
         tx.commit()
             .await
-            .map_err(|_| WatchProductError::CommitTransactionFailed)?;
+            .map_err(|_| WatchProductListingError::CommitTransactionFailed)?;
         tracing::info!(
             event = "watchlist_product.watched",
             actor_type = context.principal.kind(),
@@ -165,20 +165,23 @@ where
             product_id = %command.product_id,
             outcome = "success",
         );
-        Ok(WatchProductResult { entry })
+        Ok(WatchProductListingResult { entry })
     }
 }
 
-fn authorize_watch(context: &OperationContext, user_id: UserId) -> Result<(), WatchProductError> {
+fn authorize_watch(
+    context: &OperationContext,
+    user_id: UserId,
+) -> Result<(), WatchProductListingError> {
     context
         .require()
         .credential_capability(CredentialCapability::WatchlistWrite)
         .user(&user_id)
         .service_or_system()
-        .authorize::<WatchProductError>()
+        .authorize::<WatchProductListingError>()
 }
 
-impl From<OperationAuthorizationError> for WatchProductError {
+impl From<OperationAuthorizationError> for WatchProductListingError {
     fn from(error: OperationAuthorizationError) -> Self {
         match error {
             OperationAuthorizationError::AuthenticationRequired(_) => {
@@ -190,22 +193,22 @@ impl From<OperationAuthorizationError> for WatchProductError {
     }
 }
 
-fn tier_entitlements_error(error: UserTierEntitlementsError) -> WatchProductError {
+fn tier_entitlements_error(error: UserTierEntitlementsError) -> WatchProductListingError {
     match error {
         UserTierEntitlementsError::LockFailed { source }
         | UserTierEntitlementsError::ReconciliationFailed { source } => {
-            WatchProductError::UserTierEntitlementsLockFailed { source }
+            WatchProductListingError::UserTierEntitlementsLockFailed { source }
         }
     }
 }
 
-fn watchlist_quota_read_error(error: WatchlistQuotaReadError) -> WatchProductError {
-    WatchProductError::WatchlistQuotaReadFailed {
+fn watchlist_quota_read_error(error: WatchlistQuotaReadError) -> WatchProductListingError {
+    WatchProductListingError::WatchlistQuotaReadFailed {
         source: box_error(error),
     }
 }
 
-impl From<WatchlistRepositoryError> for WatchProductError {
+impl From<WatchlistRepositoryError> for WatchProductListingError {
     fn from(value: WatchlistRepositoryError) -> Self {
         match value {
             WatchlistRepositoryError::AlreadyExists => Self::AlreadyExists,
@@ -232,7 +235,7 @@ mod tests {
     use application::error::static_error;
 
     use crate::ports::{
-        VersionedWatchlistProduct, WatchlistProductView, WatchlistQuotaReadError,
+        VersionedWatchlistProductListing, WatchlistProductListingView, WatchlistQuotaReadError,
         WatchlistQuotaReader, WatchlistQuotaReaderFactory, WatchlistReadError, WatchlistReader,
         WatchlistReaderFactory, WatchlistRepository, WatchlistRepositoryError,
         WatchlistRepositoryFactory, WatchlistStorageVersion,
@@ -249,7 +252,7 @@ mod tests {
         UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
     };
     use watchlist_core::watchlist_state::WatchlistState;
-    use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
+    use watchlist_core::{NewWatchlistProductListing, WatchlistProductListing};
 
     #[derive(Clone, Default)]
     struct TestUnitOfWork {
@@ -279,7 +282,7 @@ mod tests {
 
     #[derive(Clone, Default)]
     struct SharedState {
-        entries: Arc<Mutex<Vec<VersionedWatchlistProduct>>>,
+        entries: Arc<Mutex<Vec<VersionedWatchlistProductListing>>>,
         committed: Arc<Mutex<bool>>,
         updated: Arc<Mutex<usize>>,
         deleted: Arc<Mutex<usize>>,
@@ -290,15 +293,15 @@ mod tests {
     }
 
     impl SharedState {
-        fn with_entry(entry: WatchlistProduct) -> Self {
+        fn with_entry(entry: WatchlistProductListing) -> Self {
             let state = Self::default();
             state.push(entry);
             state
         }
 
-        fn push(&self, entry: WatchlistProduct) {
+        fn push(&self, entry: WatchlistProductListing) {
             if let Ok(mut entries) = self.entries.lock() {
-                entries.push(VersionedWatchlistProduct::new(
+                entries.push(VersionedWatchlistProductListing::new(
                     entry,
                     WatchlistStorageVersion::INITIAL,
                 ));
@@ -423,8 +426,8 @@ mod tests {
         async fn find_by_user_and_product(
             &mut self,
             user_id: UserId,
-            product_id: ProductId,
-        ) -> Result<Option<VersionedWatchlistProduct>, WatchlistRepositoryError> {
+            product_id: ProductListingId,
+        ) -> Result<Option<VersionedWatchlistProductListing>, WatchlistRepositoryError> {
             self.state
                 .entries
                 .lock()
@@ -444,8 +447,8 @@ mod tests {
 
         async fn insert(
             &mut self,
-            entry: &WatchlistProduct,
-        ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError> {
+            entry: &WatchlistProductListing,
+        ) -> Result<VersionedWatchlistProductListing, WatchlistRepositoryError> {
             let mut entries =
                 self.state
                     .entries
@@ -459,17 +462,19 @@ mod tests {
             }) {
                 return Err(WatchlistRepositoryError::AlreadyExists);
             }
-            let persisted =
-                VersionedWatchlistProduct::new(entry.clone(), WatchlistStorageVersion::INITIAL);
+            let persisted = VersionedWatchlistProductListing::new(
+                entry.clone(),
+                WatchlistStorageVersion::INITIAL,
+            );
             entries.push(persisted.clone());
             Ok(persisted)
         }
 
         async fn update(
             &mut self,
-            entry: &WatchlistProduct,
+            entry: &WatchlistProductListing,
             expected_version: WatchlistStorageVersion,
-        ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError> {
+        ) -> Result<VersionedWatchlistProductListing, WatchlistRepositoryError> {
             let mut entries =
                 self.state
                     .entries
@@ -488,7 +493,8 @@ mod tests {
             if existing.version != expected_version {
                 return Err(WatchlistRepositoryError::ConcurrencyConflict);
             }
-            let persisted = VersionedWatchlistProduct::new(entry.clone(), expected_version.next());
+            let persisted =
+                VersionedWatchlistProductListing::new(entry.clone(), expected_version.next());
             *existing = persisted.clone();
             self.state
                 .updated
@@ -503,7 +509,7 @@ mod tests {
         async fn delete(
             &mut self,
             user_id: UserId,
-            product_id: ProductId,
+            product_id: ProductListingId,
             expected_version: WatchlistStorageVersion,
         ) -> Result<(), WatchlistRepositoryError> {
             let mut entries =
@@ -537,7 +543,7 @@ mod tests {
         async fn find_for_user(
             &mut self,
             user_id: UserId,
-        ) -> Result<Vec<WatchlistProductView>, WatchlistReadError> {
+        ) -> Result<Vec<WatchlistProductListingView>, WatchlistReadError> {
             self.state
                 .entries
                 .lock()
@@ -546,7 +552,7 @@ mod tests {
                     entries
                         .iter()
                         .filter(|entry| entry.value.user_id() == user_id)
-                        .map(|entry| WatchlistProductView {
+                        .map(|entry| WatchlistProductListingView {
                             user_id: entry.value.user_id(),
                             product_id: entry.value.product_id(),
                             notifications: entry.value.notifications(),
@@ -560,7 +566,7 @@ mod tests {
 
         async fn find_user_ids_for_product(
             &mut self,
-            product_id: ProductId,
+            product_id: ProductListingId,
         ) -> Result<Vec<UserId>, WatchlistReadError> {
             self.state
                 .entries
@@ -598,8 +604,12 @@ mod tests {
         }
     }
 
-    fn entry(user_id: UserId, product_id: ProductId, notifications: bool) -> WatchlistProduct {
-        WatchlistProduct::create(NewWatchlistProduct {
+    fn entry(
+        user_id: UserId,
+        product_id: ProductListingId,
+        notifications: bool,
+    ) -> WatchlistProductListing {
+        WatchlistProductListing::create(NewWatchlistProductListing {
             user_id,
             product_id,
             notifications,
@@ -610,10 +620,10 @@ mod tests {
     #[tokio::test]
     async fn should_watch_product_when_entry_missing() -> Result<(), String> {
         let user_id = UserId::new();
-        let product_id = ProductId::new();
+        let product_id = ProductListingId::new();
         let state = SharedState::default();
 
-        let result = WatchProductHandler::new(
+        let result = WatchProductListingHandler::new(
             TestUnitOfWork {
                 state: state.clone(),
                 ..Default::default()
@@ -630,7 +640,7 @@ mod tests {
         )
         .execute(
             &context_for_user(user_id),
-            WatchProductCommand {
+            WatchProductListingCommand {
                 user_id,
                 product_id,
                 notifications: true,
@@ -649,10 +659,10 @@ mod tests {
     #[tokio::test]
     async fn should_return_already_exists_when_entry_exists() {
         let user_id = UserId::new();
-        let product_id = ProductId::new();
+        let product_id = ProductListingId::new();
         let state = SharedState::with_entry(entry(user_id, product_id, true));
 
-        let result = WatchProductHandler::new(
+        let result = WatchProductListingHandler::new(
             TestUnitOfWork {
                 state: state.clone(),
                 ..Default::default()
@@ -667,7 +677,7 @@ mod tests {
         )
         .execute(
             &context_for_user(user_id),
-            WatchProductCommand {
+            WatchProductListingCommand {
                 user_id,
                 product_id,
                 notifications: true,
@@ -675,7 +685,10 @@ mod tests {
         )
         .await;
 
-        assert!(matches!(result, Err(WatchProductError::AlreadyExists)));
+        assert!(matches!(
+            result,
+            Err(WatchProductListingError::AlreadyExists)
+        ));
     }
 
     #[tokio::test]
@@ -683,10 +696,10 @@ mod tests {
         let user_id = UserId::new();
         let state = SharedState::default();
         for _ in 0..100 {
-            state.push(entry(user_id, ProductId::new(), true));
+            state.push(entry(user_id, ProductListingId::new(), true));
         }
 
-        let result = WatchProductHandler::new(
+        let result = WatchProductListingHandler::new(
             TestUnitOfWork {
                 state: state.clone(),
                 ..Default::default()
@@ -703,9 +716,9 @@ mod tests {
         )
         .execute(
             &context_for_user(user_id),
-            WatchProductCommand {
+            WatchProductListingCommand {
                 user_id,
-                product_id: ProductId::new(),
+                product_id: ProductListingId::new(),
                 notifications: true,
             },
         )
@@ -713,7 +726,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(WatchProductError::WatchlistQuotaExceeded {
+            Err(WatchProductListingError::WatchlistQuotaExceeded {
                 active_count: 100,
                 quota: 100,
             })
@@ -726,7 +739,7 @@ mod tests {
         let user_id = UserId::new();
         let state = SharedState::default();
 
-        let result = WatchProductHandler::new(
+        let result = WatchProductListingHandler::new(
             TestUnitOfWork {
                 state: state.clone(),
                 ..Default::default()
@@ -741,14 +754,14 @@ mod tests {
         )
         .execute(
             &delegated_context(user_id, BTreeSet::new()),
-            WatchProductCommand {
+            WatchProductListingCommand {
                 user_id,
-                product_id: ProductId::new(),
+                product_id: ProductListingId::new(),
                 notifications: true,
             },
         )
         .await;
 
-        assert!(matches!(result, Err(WatchProductError::Forbidden)));
+        assert!(matches!(result, Err(WatchProductListingError::Forbidden)));
     }
 }

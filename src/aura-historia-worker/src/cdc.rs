@@ -56,13 +56,13 @@ pub enum CdcOperation {
 
 impl WorkerQueue {
     pub const ALL: [Self; 11] = [
-        Self::ProductOpenSearch,
-        Self::ProductDeleteCleanup,
+        Self::ProductListingOpenSearch,
+        Self::ProductListingDeleteCleanup,
         Self::WatchlistNotification,
         Self::SearchFilterPercolator,
         Self::SearchFilterMatchNotification,
-        Self::ProductEmbed,
-        Self::ProductTranslate,
+        Self::ProductListingEmbed,
+        Self::ProductListingTranslate,
         Self::ShopOpenSearch,
         Self::SearchFilterOpenSearch,
         Self::UserTierEnforcement,
@@ -119,13 +119,13 @@ pub struct DomainJob {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WorkerQueue {
-    ProductOpenSearch,
-    ProductDeleteCleanup,
+    ProductListingOpenSearch,
+    ProductListingDeleteCleanup,
     WatchlistNotification,
     SearchFilterPercolator,
     SearchFilterMatchNotification,
-    ProductEmbed,
-    ProductTranslate,
+    ProductListingEmbed,
+    ProductListingTranslate,
     ShopOpenSearch,
     SearchFilterOpenSearch,
     UserTierEnforcement,
@@ -160,8 +160,8 @@ impl OrderingKey {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainJobPayload {
-    ProductEvent(ProductEventJob),
-    ProductDelete(ProductDeleteJob),
+    ProductListingEvent(ProductListingEventJob),
+    ProductListingDelete(ProductListingDeleteJob),
     ShopChanged(ShopChangedJob),
     SearchFilterChanged(SearchFilterChangedJob),
     SearchFilterMatchCreated(SearchFilterMatchCreatedJob),
@@ -170,7 +170,7 @@ pub enum DomainJobPayload {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProductEventJob {
+pub struct ProductListingEventJob {
     pub event_id: String,
     pub product_id: String,
     pub event_type: String,
@@ -178,7 +178,7 @@ pub struct ProductEventJob {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProductDeleteJob {
+pub struct ProductListingDeleteJob {
     pub event_id: String,
     pub product_id: String,
 }
@@ -310,9 +310,9 @@ enum CdcFanoutScope {
     SearchFilterMatchNotification,
     SearchFilterProjection,
     WatchlistNotification,
-    ProductTranslation,
-    ProductEmbedding,
-    ProductOpenSearch,
+    ProductListingTranslation,
+    ProductListingEmbedding,
+    ProductListingOpenSearch,
     NotificationDelivery,
 }
 
@@ -355,21 +355,21 @@ impl CdcFanout {
     pub fn product_translation(registry: WorkerQueueRegistry) -> Self {
         Self {
             registry,
-            scope: CdcFanoutScope::ProductTranslation,
+            scope: CdcFanoutScope::ProductListingTranslation,
         }
     }
 
     pub fn product_embedding(registry: WorkerQueueRegistry) -> Self {
         Self {
             registry,
-            scope: CdcFanoutScope::ProductEmbedding,
+            scope: CdcFanoutScope::ProductListingEmbedding,
         }
     }
 
     pub fn product_listing_opensearch(registry: WorkerQueueRegistry) -> Self {
         Self {
             registry,
-            scope: CdcFanoutScope::ProductOpenSearch,
+            scope: CdcFanoutScope::ProductListingOpenSearch,
         }
     }
 
@@ -408,7 +408,7 @@ impl CdcFanout {
             CdcFanoutScope::WatchlistNotification => {
                 if matches!(
                     CdcTable::from(change.table.as_str()),
-                    CdcTable::ProductEvents
+                    CdcTable::ProductListingEvents
                 ) && change.operation == CdcOperation::Insert
                 {
                     let jobs = product_event_jobs(change)?;
@@ -425,7 +425,7 @@ impl CdcFanout {
             CdcFanoutScope::SearchFilterPercolator => {
                 if matches!(
                     CdcTable::from(change.table.as_str()),
-                    CdcTable::ProductEvents
+                    CdcTable::ProductListingEvents
                 ) && change.operation == CdcOperation::Insert
                 {
                     let jobs = product_event_jobs(change)?;
@@ -464,16 +464,16 @@ impl CdcFanout {
                     ))
                 }
             }
-            CdcFanoutScope::ProductOpenSearch => {
+            CdcFanoutScope::ProductListingOpenSearch => {
                 if matches!(
                     CdcTable::from(change.table.as_str()),
-                    CdcTable::ProductEvents
+                    CdcTable::ProductListingEvents
                 ) && change.operation == CdcOperation::Insert
                 {
                     let jobs = product_event_jobs(change)?;
                     Ok(jobs
                         .into_iter()
-                        .filter(|job| job.target_queue == WorkerQueue::ProductOpenSearch)
+                        .filter(|job| job.target_queue == WorkerQueue::ProductListingOpenSearch)
                         .collect())
                 } else {
                     Err(CdcRouteError::UnsupportedTableForWorker(
@@ -481,16 +481,16 @@ impl CdcFanout {
                     ))
                 }
             }
-            CdcFanoutScope::ProductEmbedding => {
+            CdcFanoutScope::ProductListingEmbedding => {
                 if matches!(
                     CdcTable::from(change.table.as_str()),
-                    CdcTable::ProductEvents
+                    CdcTable::ProductListingEvents
                 ) && change.operation == CdcOperation::Insert
                 {
                     let jobs = product_event_jobs(change)?;
                     Ok(jobs
                         .into_iter()
-                        .filter(|job| job.target_queue == WorkerQueue::ProductEmbed)
+                        .filter(|job| job.target_queue == WorkerQueue::ProductListingEmbed)
                         .collect())
                 } else {
                     Err(CdcRouteError::UnsupportedTableForWorker(
@@ -498,16 +498,16 @@ impl CdcFanout {
                     ))
                 }
             }
-            CdcFanoutScope::ProductTranslation => {
+            CdcFanoutScope::ProductListingTranslation => {
                 if matches!(
                     CdcTable::from(change.table.as_str()),
-                    CdcTable::ProductEvents
+                    CdcTable::ProductListingEvents
                 ) && change.operation == CdcOperation::Insert
                 {
                     let jobs = product_event_jobs(change)?;
                     Ok(jobs
                         .into_iter()
-                        .filter(|job| job.target_queue == WorkerQueue::ProductTranslate)
+                        .filter(|job| job.target_queue == WorkerQueue::ProductListingTranslate)
                         .collect())
                 } else {
                     Err(CdcRouteError::UnsupportedTableForWorker(
@@ -628,8 +628,8 @@ struct SequinWebhookMetadata {
 pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
     let table = CdcTable::from(change.table.as_str());
     match (table, change.operation) {
-        (CdcTable::ProductEvents, CdcOperation::Insert) => product_event_jobs(change),
-        (CdcTable::ProductEvents, _) => Ok(Vec::new()),
+        (CdcTable::ProductListingEvents, CdcOperation::Insert) => product_event_jobs(change),
+        (CdcTable::ProductListingEvents, _) => Ok(Vec::new()),
         (CdcTable::Shops, operation) => shop_changed_job(change, operation),
         (CdcTable::SearchFilters, operation) => search_filter_changed_job(change, operation),
         (CdcTable::SearchFilterMatches, CdcOperation::Insert) => {
@@ -648,7 +648,7 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
         }
         (
             CdcTable::Products
-            | CdcTable::ProductWatchlist
+            | CdcTable::ProductListingWatchlist
             | CdcTable::UserPartnerShops
             | CdcTable::PartnerShopApplications,
             _,
@@ -658,13 +658,13 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CdcTable {
-    ProductEvents,
+    ProductListingEvents,
     Products,
     Shops,
     SearchFilters,
     SearchFilterMatches,
     Users,
-    ProductWatchlist,
+    ProductListingWatchlist,
     UserPartnerShops,
     PartnerShopApplications,
     NotificationDeliveries,
@@ -674,13 +674,13 @@ enum CdcTable {
 impl From<&str> for CdcTable {
     fn from(value: &str) -> Self {
         match value {
-            "product_events" => Self::ProductEvents,
+            "product_events" => Self::ProductListingEvents,
             "products" => Self::Products,
             "shops" => Self::Shops,
             "search_filters" => Self::SearchFilters,
             "search_filter_matches" => Self::SearchFilterMatches,
             "users" => Self::Users,
-            "product_watchlist" => Self::ProductWatchlist,
+            "product_watchlist" => Self::ProductListingWatchlist,
             "user_partner_shops" => Self::UserPartnerShops,
             "partner_shop_applications" => Self::PartnerShopApplications,
             "notification_deliveries" => Self::NotificationDeliveries,
@@ -695,7 +695,7 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
     let product_id = required_string(row, "product_id")?;
     let event_type = required_string(row, "event_type")?;
     let event_group = required_string(row, "event_group")?;
-    let base_job = ProductEventJob {
+    let base_job = ProductListingEventJob {
         event_id: event_id.clone(),
         product_id: product_id.clone(),
         event_type: event_type.clone(),
@@ -705,10 +705,10 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
     let ordering_key = OrderingKey::new(format!("product:{product_id}"));
 
     let mut jobs = vec![domain_job(
-        WorkerQueue::ProductOpenSearch,
+        WorkerQueue::ProductListingOpenSearch,
         idempotency_key.clone(),
         ordering_key.clone(),
-        DomainJobPayload::ProductEvent(base_job.clone()),
+        DomainJobPayload::ProductListingEvent(base_job.clone()),
     )];
 
     if matches!(event_group.as_str(), "DOMAIN" | "ENRICHMENT") {
@@ -716,7 +716,7 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
             WorkerQueue::SearchFilterPercolator,
             idempotency_key.clone(),
             ordering_key.clone(),
-            DomainJobPayload::ProductEvent(base_job.clone()),
+            DomainJobPayload::ProductListingEvent(base_job.clone()),
         ));
     }
 
@@ -728,34 +728,34 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
             WorkerQueue::WatchlistNotification,
             idempotency_key.clone(),
             ordering_key.clone(),
-            DomainJobPayload::ProductEvent(base_job.clone()),
+            DomainJobPayload::ProductListingEvent(base_job.clone()),
         ));
     }
 
     if event_type == "DOMAIN_CREATED" {
         jobs.push(domain_job(
-            WorkerQueue::ProductEmbed,
+            WorkerQueue::ProductListingEmbed,
             idempotency_key.clone(),
             ordering_key.clone(),
-            DomainJobPayload::ProductEvent(base_job.clone()),
+            DomainJobPayload::ProductListingEvent(base_job.clone()),
         ));
     }
 
     if event_type == "ENRICHMENT_EMBEDDED" {
         jobs.push(domain_job(
-            WorkerQueue::ProductTranslate,
+            WorkerQueue::ProductListingTranslate,
             idempotency_key.clone(),
             ordering_key.clone(),
-            DomainJobPayload::ProductEvent(base_job.clone()),
+            DomainJobPayload::ProductListingEvent(base_job.clone()),
         ));
     }
 
     if event_type == "LIFECYCLE_DELETED" {
         jobs.push(domain_job(
-            WorkerQueue::ProductDeleteCleanup,
+            WorkerQueue::ProductListingDeleteCleanup,
             idempotency_key,
             ordering_key,
-            DomainJobPayload::ProductDelete(ProductDeleteJob {
+            DomainJobPayload::ProductListingDelete(ProductListingDeleteJob {
                 event_id,
                 product_id,
             }),
@@ -989,7 +989,7 @@ mod tests {
         assert_eq!(3, jobs.len());
         assert!(
             jobs.iter()
-                .any(|job| job.target_queue == WorkerQueue::ProductOpenSearch)
+                .any(|job| job.target_queue == WorkerQueue::ProductListingOpenSearch)
         );
         assert!(
             jobs.iter()
@@ -997,7 +997,7 @@ mod tests {
         );
         assert!(
             jobs.iter()
-                .any(|job| job.target_queue == WorkerQueue::ProductEmbed)
+                .any(|job| job.target_queue == WorkerQueue::ProductListingEmbed)
         );
         assert!(jobs.iter().all(|job| job.idempotency_key.as_str()
             == "product-event:40000000-0000-0000-0000-000000000001"));
@@ -1027,7 +1027,7 @@ mod tests {
 
         assert!(
             jobs.iter()
-                .any(|job| job.target_queue == WorkerQueue::ProductDeleteCleanup)
+                .any(|job| job.target_queue == WorkerQueue::ProductListingDeleteCleanup)
         );
         Ok(())
     }
@@ -1351,9 +1351,9 @@ mod tests {
         let (percolator_sender, mut percolator_receiver) = in_memory_queue(QueueConfig::new(8))?;
         let (embed_sender, mut embed_receiver) = in_memory_queue(QueueConfig::new(8))?;
         let registry = WorkerQueueRegistry::new()
-            .with_queue(WorkerQueue::ProductOpenSearch, product_sender)
+            .with_queue(WorkerQueue::ProductListingOpenSearch, product_sender)
             .with_queue(WorkerQueue::SearchFilterPercolator, percolator_sender)
-            .with_queue(WorkerQueue::ProductEmbed, embed_sender);
+            .with_queue(WorkerQueue::ProductListingEmbed, embed_sender);
         let fanout = CdcFanout::new(registry);
         let batch = CdcBatch {
             delivery_id: Some("delivery-1".to_owned()),
@@ -1457,7 +1457,7 @@ mod tests {
         assert!(matches!(
             result,
             Err(CdcIngestError::Fanout(CdcFanoutError::MissingQueue(
-                WorkerQueue::ProductOpenSearch
+                WorkerQueue::ProductListingOpenSearch
             )))
         ));
     }

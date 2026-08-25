@@ -1,67 +1,75 @@
 pub mod commands;
 pub mod queries;
 
-pub use commands::create_product::{
-    CreateProductCommand, CreateProductError, CreateProductHandler, CreateProductResult,
-    CreateProductUseCase,
+pub use commands::create_product_listing::{
+    CreateProductListingCommand, CreateProductListingError, CreateProductListingHandler,
+    CreateProductListingResult, CreateProductListingUseCase,
 };
-pub use commands::delete_product::{
-    DeleteProductError, DeleteProductHandler, DeleteProductResult, DeleteProductUseCase,
+pub use commands::delete_product_listing::{
+    DeleteProductListingError, DeleteProductListingHandler, DeleteProductListingResult,
+    DeleteProductListingUseCase,
 };
-pub use commands::embed_product_event::{
-    EmbedProductCommand, EmbedProductEventError, EmbedProductEventHandler,
-    EmbedProductEventOutcome, EmbedProductEventResult, EmbedProductEventUseCase,
+pub use commands::embed_product_listing_event::{
+    EmbedProductListingCommand, EmbedProductListingEventError, EmbedProductListingEventHandler,
+    EmbedProductListingEventOutcome, EmbedProductListingEventResult,
+    EmbedProductListingEventUseCase,
 };
 pub use commands::generate_watchlist_notifications::{
     GenerateWatchlistNotificationsCommand, GenerateWatchlistNotificationsError,
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsResult,
     GenerateWatchlistNotificationsUseCase,
 };
-pub use commands::ingest_shopify_product::{
-    IngestShopifyProductCommand, IngestShopifyProductError, IngestShopifyProductHandler,
-    IngestShopifyProductResult, IngestShopifyProductUseCase,
+pub use commands::ingest_shopify_product_listing::{
+    IngestShopifyProductListingCommand, IngestShopifyProductListingError,
+    IngestShopifyProductListingHandler, IngestShopifyProductListingResult,
+    IngestShopifyProductListingUseCase,
 };
-pub use commands::ingest_woocommerce_product::{
-    IngestWoocommerceProductCommand, IngestWoocommerceProductError,
-    IngestWoocommerceProductHandler, IngestWoocommerceProductResult,
-    IngestWoocommerceProductUseCase, WoocommerceProductEventKind,
+pub use commands::ingest_woocommerce_product_listing::{
+    IngestWoocommerceProductListingCommand, IngestWoocommerceProductListingError,
+    IngestWoocommerceProductListingHandler, IngestWoocommerceProductListingResult,
+    IngestWoocommerceProductListingUseCase, WoocommerceProductEventKind,
 };
-pub use commands::project_product::{
-    ProjectProductCommand, ProjectProductError, ProjectProductHandler, ProjectProductOutcome,
-    ProjectProductResult, ProjectProductUseCase,
+pub use commands::project_product_listing::{
+    ProjectProductListingCommand, ProjectProductListingError, ProjectProductListingHandler,
+    ProjectProductListingOutcome, ProjectProductListingResult, ProjectProductListingUseCase,
 };
-pub use commands::translate_product_event::{
-    TranslateProductCommand, TranslateProductEventError, TranslateProductEventHandler,
-    TranslateProductEventOutcome, TranslateProductEventResult, TranslateProductEventUseCase,
+pub use commands::translate_product_listing_event::{
+    TranslateProductListingCommand, TranslateProductListingEventError,
+    TranslateProductListingEventHandler, TranslateProductListingEventOutcome,
+    TranslateProductListingEventResult, TranslateProductListingEventUseCase,
 };
-pub use commands::update_product::{
-    UpdateProductCommand, UpdateProductError, UpdateProductHandler, UpdateProductResult,
-    UpdateProductUseCase,
+pub use commands::update_product_listing::{
+    UpdateProductListingCommand, UpdateProductListingError, UpdateProductListingHandler,
+    UpdateProductListingResult, UpdateProductListingUseCase,
 };
-pub use commands::upsert_product::{
-    UpsertProductCommand, UpsertProductError, UpsertProductHandler, UpsertProductResult,
-    UpsertProductUseCase,
+pub use commands::upsert_product_listing::{
+    UpsertProductListingCommand, UpsertProductListingError, UpsertProductListingHandler,
+    UpsertProductListingResult, UpsertProductListingUseCase,
 };
-pub use queries::get_product::{
-    DisplayProductPricing, GetProductError, GetProductHandler, GetProductRequest,
-    GetProductUseCase, PersonalizedProductDetailsView, ProductDetailsView, ProductLookup,
-    ProductPricingPresentation, ProductPricingPresentationError, ProductPricingValuation,
+pub use queries::get_product_listing::{
+    DisplayProductListingPricing, GetProductListingError, GetProductListingHandler,
+    GetProductListingRequest, GetProductListingUseCase, PersonalizedProductListingDetailsView,
+    ProductListingDetailsView, ProductListingLookup, ProductListingPricingPresentation,
+    ProductListingPricingPresentationError, ProductListingPricingValuation,
     present_product_details, present_product_pricing, redact_hidden_product,
 };
-pub use queries::get_product_events::{
-    GetProductEventsError, GetProductEventsHandler, GetProductEventsRequest,
-    GetProductEventsUseCase, ProductAddressChangedEventPayload, ProductAuctionChangedEventPayload,
-    ProductCreatedEventPayload, ProductDeletedEventPayload, ProductEvent, ProductEventLookup,
-    ProductEventPayload, ProductEventType, ProductImagesChangedEventPayload,
-    ProductPriceChangedEventPayload, ProductStateChangedEventPayload,
-    ProductUrlChangedEventPayload,
+pub use queries::get_product_listing_events::{
+    GetProductListingEventsError, GetProductListingEventsHandler, GetProductListingEventsRequest,
+    GetProductListingEventsUseCase, ProductListingAddressChangedEventPayload,
+    ProductListingAuctionChangedEventPayload, ProductListingCreatedEventPayload,
+    ProductListingDeletedEventPayload, ProductListingEvent, ProductListingEventLookup,
+    ProductListingEventPayload, ProductListingEventType, ProductListingImagesChangedEventPayload,
+    ProductListingPriceChangedEventPayload, ProductListingStateChangedEventPayload,
+    ProductListingUrlChangedEventPayload,
 };
-pub use queries::get_similar_products::{
-    GetSimilarProductsError, GetSimilarProductsHandler, GetSimilarProductsRequest,
-    GetSimilarProductsResult, GetSimilarProductsUseCase,
+pub use queries::get_similar_product_listings::{
+    GetSimilarProductListingsError, GetSimilarProductListingsHandler,
+    GetSimilarProductListingsRequest, GetSimilarProductListingsResult,
+    GetSimilarProductListingsUseCase,
 };
-pub use queries::search_products::{
-    PersonalizedProductSummary, ProductSearchCursor, ProductSearchReadResult, ProductSummary,
-    ProductSummaryPriceValuation, SearchProductsError, SearchProductsHandler,
-    SearchProductsRequest, SearchProductsResult, SearchProductsUseCase,
+pub use queries::search_product_listings::{
+    PersonalizedProductListingSummary, ProductListingSearchCursor, ProductListingSearchReadResult,
+    ProductListingSummary, ProductListingSummaryPriceValuation, SearchProductListingsError,
+    SearchProductListingsHandler, SearchProductListingsRequest, SearchProductListingsResult,
+    SearchProductListingsUseCase,
 };

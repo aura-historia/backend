@@ -6,17 +6,19 @@ use large_language_model::{
 };
 use localization::Language;
 use product_listing_core::title::Title;
-use product_listing_service::ports::{ProductTitleTranslationError, ProductTitleTranslator};
+use product_listing_service::ports::{
+    ProductListingTitleTranslationError, ProductListingTitleTranslator,
+};
 use serde::Deserialize;
 use std::{collections::BTreeMap, time::Duration};
 
 const TRANSLATION_SYSTEM_INSTRUCTION: &str = "Translate antique product titles faithfully. Preserve proper nouns, periods, dimensions, and material names.";
 
-pub struct LargeLanguageModelProductTitleTranslator<L> {
+pub struct LargeLanguageModelProductListingTitleTranslator<L> {
     large_language_model: L,
 }
 
-impl<L> LargeLanguageModelProductTitleTranslator<L> {
+impl<L> LargeLanguageModelProductListingTitleTranslator<L> {
     pub fn new(large_language_model: L) -> Self {
         Self {
             large_language_model,
@@ -30,7 +32,7 @@ struct TranslationResponse {
 }
 
 #[async_trait::async_trait]
-impl<L> ProductTitleTranslator for LargeLanguageModelProductTitleTranslator<L>
+impl<L> ProductListingTitleTranslator for LargeLanguageModelProductListingTitleTranslator<L>
 where
     L: LargeLanguageModel,
 {
@@ -39,7 +41,7 @@ where
         title: &Title,
         source_language: Language,
         target_languages: &[Language],
-    ) -> Result<IndexMap<Language, Title>, ProductTitleTranslationError> {
+    ) -> Result<IndexMap<Language, Title>, ProductListingTitleTranslationError> {
         let response: TranslationResponse = self
             .large_language_model
             .generate(translation_request(
@@ -52,7 +54,7 @@ where
         let mut translated = IndexMap::new();
         for language in target_languages {
             let Some(value) = response.titles.get(language.as_str()) else {
-                return Err(ProductTitleTranslationError::InvalidResponse {
+                return Err(ProductListingTitleTranslationError::InvalidResponse {
                     source: static_error(
                         "product title translation response omitted a target language",
                     ),
@@ -60,7 +62,7 @@ where
             };
             let title = Title::from(value.as_str());
             if title.as_ref().is_empty() {
-                return Err(ProductTitleTranslationError::InvalidResponse {
+                return Err(ProductListingTitleTranslationError::InvalidResponse {
                     source: static_error(
                         "product title translation response contains an empty title",
                     ),
@@ -113,19 +115,19 @@ fn translation_request(
     }
 }
 
-fn map_translation_error(error: LargeLanguageModelError) -> ProductTitleTranslationError {
+fn map_translation_error(error: LargeLanguageModelError) -> ProductListingTitleTranslationError {
     match error {
         LargeLanguageModelError::Timeout { .. }
         | LargeLanguageModelError::Retryable { .. }
         | LargeLanguageModelError::Authentication { .. } => {
-            ProductTitleTranslationError::TemporarilyUnavailable {
+            ProductListingTitleTranslationError::TemporarilyUnavailable {
                 source: box_error(error),
             }
         }
         LargeLanguageModelError::InvalidRequest { .. }
         | LargeLanguageModelError::Permanent { .. }
         | LargeLanguageModelError::InvalidResponse { .. } => {
-            ProductTitleTranslationError::InvalidResponse {
+            ProductListingTitleTranslationError::InvalidResponse {
                 source: box_error(error),
             }
         }

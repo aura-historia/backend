@@ -5,9 +5,9 @@ use crate::{
 };
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::use_cases::{
-    ProjectProductCommand, ProjectProductOutcome, ProjectProductUseCase,
+    ProjectProductListingCommand, ProjectProductListingOutcome, ProjectProductListingUseCase,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -15,7 +15,7 @@ use tracing::{error, info};
 
 pub async fn consume_product_listing_opensearch_queue(
     mut receiver: InMemoryQueueReceiver<DomainJob>,
-    use_case: Arc<dyn ProjectProductUseCase>,
+    use_case: Arc<dyn ProjectProductListingUseCase>,
 ) {
     let dead_letters = InMemoryDeadLetterQueue::new();
     while let Some(job) = receiver.recv().await {
@@ -32,22 +32,22 @@ pub async fn consume_product_listing_opensearch_queue(
         .await;
         match (result, outcome.lock().await.take()) {
             (Ok(()), Some(outcome)) => {
-                info!(job_type = "product_listing_opensearch", %idempotency_key, %ordering_key, ?outcome, "Product OpenSearch projection job completed")
+                info!(job_type = "product_listing_opensearch", %idempotency_key, %ordering_key, ?outcome, "ProductListing OpenSearch projection job completed")
             }
             (Ok(()), None) => {
-                error!(job_type = "product_listing_opensearch", %idempotency_key, %ordering_key, outcome = "missing", "Product OpenSearch projection job completed without an outcome")
+                error!(job_type = "product_listing_opensearch", %idempotency_key, %ordering_key, outcome = "missing", "ProductListing OpenSearch projection job completed without an outcome")
             }
             (Err(error), _) => {
-                error!(job_type = "product_listing_opensearch", %idempotency_key, %ordering_key, error = %error, outcome = "dead_lettered_in_memory", "Product OpenSearch projection job failed")
+                error!(job_type = "product_listing_opensearch", %idempotency_key, %ordering_key, error = %error, outcome = "dead_lettered_in_memory", "ProductListing OpenSearch projection job failed")
             }
         }
     }
 }
 
 async fn execute_job(
-    use_case: Arc<dyn ProjectProductUseCase>,
+    use_case: Arc<dyn ProjectProductListingUseCase>,
     job: DomainJob,
-    outcome: Arc<Mutex<Option<ProjectProductOutcome>>>,
+    outcome: Arc<Mutex<Option<ProjectProductListingOutcome>>>,
 ) -> Result<(), BoxError> {
     let command = command_from_job(job).map_err(box_error)?;
     let result = use_case.execute(command).await.map_err(box_error)?;
@@ -55,18 +55,20 @@ async fn execute_job(
     Ok(())
 }
 
-fn command_from_job(job: DomainJob) -> Result<ProjectProductCommand, ProductOpenSearchWorkerError> {
-    let DomainJobPayload::ProductEvent(event) = job.payload else {
-        return Err(ProductOpenSearchWorkerError::UnexpectedJobPayload);
+fn command_from_job(
+    job: DomainJob,
+) -> Result<ProjectProductListingCommand, ProductListingOpenSearchWorkerError> {
+    let DomainJobPayload::ProductListingEvent(event) = job.payload else {
+        return Err(ProductListingOpenSearchWorkerError::UnexpectedJobPayload);
     };
-    Ok(ProjectProductCommand {
+    Ok(ProjectProductListingCommand {
         event_id: EventId::try_from(event.event_id.as_str()).map_err(|source| {
-            ProductOpenSearchWorkerError::InvalidEventId {
+            ProductListingOpenSearchWorkerError::InvalidEventId {
                 source: box_error(source),
             }
         })?,
-        product_id: ProductId::try_from(event.product_id.as_str()).map_err(|source| {
-            ProductOpenSearchWorkerError::InvalidProductId {
+        product_id: ProductListingId::try_from(event.product_id.as_str()).map_err(|source| {
+            ProductListingOpenSearchWorkerError::InvalidProductListingId {
                 source: box_error(source),
             }
         })?,
@@ -74,16 +76,16 @@ fn command_from_job(job: DomainJob) -> Result<ProjectProductCommand, ProductOpen
 }
 
 #[derive(Debug, thiserror::Error)]
-enum ProductOpenSearchWorkerError {
-    #[error("Product OpenSearch queue received an unexpected job payload")]
+enum ProductListingOpenSearchWorkerError {
+    #[error("ProductListing OpenSearch queue received an unexpected job payload")]
     UnexpectedJobPayload,
-    #[error("Product OpenSearch job has an invalid event ID")]
+    #[error("ProductListing OpenSearch job has an invalid event ID")]
     InvalidEventId {
         #[source]
         source: BoxError,
     },
-    #[error("Product OpenSearch job has an invalid Product ID")]
-    InvalidProductId {
+    #[error("ProductListing OpenSearch job has an invalid ProductListing ID")]
+    InvalidProductListingId {
         #[source]
         source: BoxError,
     },

@@ -13,12 +13,13 @@ use money::Currency;
 use user_core::user_id::UserId;
 
 use product_listing_service::ports::{
-    ProductWatchlistDetailsCursor, ProductWatchlistDetailsReadError, ProductWatchlistDetailsReader,
-    ProductWatchlistDetailsReaderFactory, ProductWatchlistDetailsRequest,
+    ProductListingWatchlistDetailsCursor, ProductListingWatchlistDetailsReadError,
+    ProductListingWatchlistDetailsReader, ProductListingWatchlistDetailsReaderFactory,
+    ProductListingWatchlistDetailsRequest,
 };
 use product_listing_service::use_cases::{
-    PersonalizedProductDetailsView, ProductPricingPresentationError, present_product_details,
-    redact_hidden_product,
+    PersonalizedProductListingDetailsView, ProductListingPricingPresentationError,
+    present_product_details, redact_hidden_product,
 };
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
@@ -28,11 +29,11 @@ pub struct ListWatchlistRequest {
     pub user_id: UserId,
     pub language: Language,
     pub currency: Currency,
-    pub cursor: Cursor<ProductWatchlistDetailsCursor>,
+    pub cursor: Cursor<ProductListingWatchlistDetailsCursor>,
 }
 
 pub type ListWatchlistResult =
-    CursoredResult<PersonalizedProductDetailsView, ProductWatchlistDetailsCursor>;
+    CursoredResult<PersonalizedProductListingDetailsView, ProductListingWatchlistDetailsCursor>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ListWatchlistError {
@@ -64,7 +65,7 @@ pub enum ListWatchlistError {
         actual: FxRateId,
     },
     #[error("watchlist product price conversion failed")]
-    ProductPriceConversionFailed {
+    ProductListingPriceConversionFailed {
         #[source]
         source: FxRateSnapshotError,
     },
@@ -104,7 +105,7 @@ impl<U, D, F> ListWatchlistHandler<U, D, F> {
 impl<U, D, F> ListWatchlistUseCase for ListWatchlistHandler<U, D, F>
 where
     U: UnitOfWork,
-    D: ProductWatchlistDetailsReaderFactory<U::Tx>,
+    D: ProductListingWatchlistDetailsReaderFactory<U::Tx>,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
 {
     #[tracing::instrument(name = "list_watchlist", skip_all, fields(user_id = %request.user_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
@@ -128,7 +129,7 @@ where
         let factual_page = self
             .details_reader
             .in_transaction(&mut tx)
-            .find_for_user(&ProductWatchlistDetailsRequest {
+            .find_for_user(&ProductListingWatchlistDetailsRequest {
                 user_id: request.user_id,
                 language: request.language,
                 cursor,
@@ -183,7 +184,7 @@ struct PricingSnapshots {
 async fn pricing_snapshots<Tx, F>(
     fx_rates: &F,
     tx: &mut Tx,
-    factual_details: &[product_listing_service::ports::PersonalizedProductDetailsReadModel],
+    factual_details: &[product_listing_service::ports::PersonalizedProductListingDetailsReadModel],
     valuation_at: OffsetDateTime,
 ) -> Result<PricingSnapshots, ListWatchlistError>
 where
@@ -229,10 +230,10 @@ where
 }
 
 fn present_with_pricing_snapshot(
-    factual_details: product_listing_service::ports::PersonalizedProductDetailsReadModel,
+    factual_details: product_listing_service::ports::PersonalizedProductListingDetailsReadModel,
     pricing_snapshots: &PricingSnapshots,
     currency: Currency,
-) -> Result<PersonalizedProductDetailsView, ListWatchlistError> {
+) -> Result<PersonalizedProductListingDetailsView, ListWatchlistError> {
     let snapshot = match factual_details.item.sale_valuation {
         Some(valuation) => pricing_snapshots.sale.get(&valuation.fx_rate_id).ok_or(
             ListWatchlistError::SalePricingFxSnapshotMissing {
@@ -272,11 +273,13 @@ impl From<OperationAuthorizationError> for ListWatchlistError {
     }
 }
 
-impl From<ProductWatchlistDetailsReadError> for ListWatchlistError {
-    fn from(error: ProductWatchlistDetailsReadError) -> Self {
+impl From<ProductListingWatchlistDetailsReadError> for ListWatchlistError {
+    fn from(error: ProductListingWatchlistDetailsReadError) -> Self {
         match error {
-            ProductWatchlistDetailsReadError::QueryFailed => Self::TemporarilyUnavailable,
-            ProductWatchlistDetailsReadError::InvalidReadModel => Self::InvalidPersistedState,
+            ProductListingWatchlistDetailsReadError::QueryFailed => Self::TemporarilyUnavailable,
+            ProductListingWatchlistDetailsReadError::InvalidReadModel => {
+                Self::InvalidPersistedState
+            }
         }
     }
 }
@@ -298,14 +301,14 @@ impl From<FxRateSnapshotRepositoryError> for ListWatchlistError {
     }
 }
 
-impl From<ProductPricingPresentationError> for ListWatchlistError {
-    fn from(error: ProductPricingPresentationError) -> Self {
+impl From<ProductListingPricingPresentationError> for ListWatchlistError {
+    fn from(error: ProductListingPricingPresentationError) -> Self {
         match error {
-            ProductPricingPresentationError::SaleFxSnapshotMismatch { expected, actual } => {
+            ProductListingPricingPresentationError::SaleFxSnapshotMismatch { expected, actual } => {
                 Self::SaleFxSnapshotMismatch { expected, actual }
             }
-            ProductPricingPresentationError::PriceConversionFailed { source } => {
-                Self::ProductPriceConversionFailed { source }
+            ProductListingPricingPresentationError::PriceConversionFailed { source } => {
+                Self::ProductListingPriceConversionFailed { source }
             }
         }
     }
@@ -324,25 +327,25 @@ mod tests {
     };
     use localization::Localized;
     use money::{MonetaryAmount, Price};
-    use product_listing_core::product_id::ProductId;
     use product_listing_core::product_lifecycle::ProductLifecycle;
-    use product_listing_core::product_slug_id::ProductSlugId;
+    use product_listing_core::product_listing_id::ProductListingId;
+    use product_listing_core::product_listing_slug_id::ProductListingSlugId;
     use product_listing_core::product_state::ProductState;
-    use product_listing_core::shops_product_id::ShopsProductId;
+    use product_listing_core::shop_listing_id::ShopListingId;
     use shop_core::shop_id::ShopId;
     use shop_core::shop_name::ShopName;
     use shop_core::shop_slug_id::ShopSlugId;
 
     use product_listing_core::description::Description;
-    use product_listing_core::product::{
-        ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
+    use product_listing_core::product_listing::{
+        ProductListingAddress, ProductListingAuction, ProductListingPricing, ProductSaleValuation,
     };
     use product_listing_core::title::Title;
     use product_listing_service::ports::{
-        PersonalizedProductDetailsReadModel, ProductDetailsReadModel,
+        PersonalizedProductListingDetailsReadModel, ProductListingDetailsReadModel,
     };
-    use product_listing_service::use_cases::ProductPricingValuation;
-    use product_listing_service::user_state::{NotificationUserState, ProductUserState};
+    use product_listing_service::use_cases::ProductListingPricingValuation;
+    use product_listing_service::user_state::{NotificationUserState, ProductListingUserState};
 
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
@@ -355,8 +358,11 @@ mod tests {
         commit_fails: bool,
         details_result: Option<
             Result<
-                CursoredResult<PersonalizedProductDetailsReadModel, ProductWatchlistDetailsCursor>,
-                ProductWatchlistDetailsReadError,
+                CursoredResult<
+                    PersonalizedProductListingDetailsReadModel,
+                    ProductListingWatchlistDetailsCursor,
+                >,
+                ProductListingWatchlistDetailsReadError,
             >,
         >,
         latest_snapshot_result:
@@ -365,7 +371,7 @@ mod tests {
 
         begin_count: usize,
         commit_count: usize,
-        details_requests: Vec<ProductWatchlistDetailsRequest>,
+        details_requests: Vec<ProductListingWatchlistDetailsRequest>,
         latest_snapshot_requests: usize,
         sale_snapshot_requests: Vec<Vec<FxRateId>>,
     }
@@ -422,11 +428,11 @@ mod tests {
         }
     }
 
-    impl ProductWatchlistDetailsReaderFactory<FakeTransaction> for FakeDetailsReaderFactory {
+    impl ProductListingWatchlistDetailsReaderFactory<FakeTransaction> for FakeDetailsReaderFactory {
         fn in_transaction<'tx>(
             &'tx self,
             _tx: &'tx mut FakeTransaction,
-        ) -> impl ProductWatchlistDetailsReader + 'tx {
+        ) -> impl ProductListingWatchlistDetailsReader + 'tx {
             FakeDetailsReader(Arc::clone(&self.0))
         }
     }
@@ -441,13 +447,16 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl ProductWatchlistDetailsReader for FakeDetailsReader {
+    impl ProductListingWatchlistDetailsReader for FakeDetailsReader {
         async fn find_for_user(
             &mut self,
-            request: &ProductWatchlistDetailsRequest,
+            request: &ProductListingWatchlistDetailsRequest,
         ) -> Result<
-            CursoredResult<PersonalizedProductDetailsReadModel, ProductWatchlistDetailsCursor>,
-            ProductWatchlistDetailsReadError,
+            CursoredResult<
+                PersonalizedProductListingDetailsReadModel,
+                ProductListingWatchlistDetailsCursor,
+            >,
+            ProductListingWatchlistDetailsReadError,
         > {
             let mut state = lock(&self.0);
             state.details_requests.push(request.clone());
@@ -576,33 +585,33 @@ mod tests {
     }
 
     fn details(
-        product_id: ProductId,
-    ) -> Result<PersonalizedProductDetailsReadModel, url::ParseError> {
+        product_id: ProductListingId,
+    ) -> Result<PersonalizedProductListingDetailsReadModel, url::ParseError> {
         let url = Url::parse("https://example.test/product")?;
         Ok(Personalized {
-            item: ProductDetailsReadModel {
+            item: ProductListingDetailsReadModel {
                 product_id,
-                product_slug_id: ProductSlugId::from("product"),
+                product_slug_id: ProductListingSlugId::from("product"),
                 event_id: EventId::new(),
                 shop_id: ShopId::new(),
                 seller_id: ShopId::new(),
-                shops_product_id: ShopsProductId::from("product"),
+                shop_listing_id: ShopListingId::from("product"),
                 shop_name: ShopName::from("Shop"),
                 seller_name: ShopName::from("Seller"),
                 shop_slug_id: ShopSlugId::from("shop"),
                 seller_slug_id: ShopSlugId::from("seller"),
-                address: ProductAddress::default(),
-                product_title: Some(Localized::new(Language::En, Title::from("Product"))),
+                address: ProductListingAddress::default(),
+                product_title: Some(Localized::new(Language::En, Title::from("ProductListing"))),
                 product_description: Some(Localized::new(
                     Language::En,
                     Description::from("Description"),
                 )),
-                title: Some(Localized::new(Language::En, Title::from("Product"))),
+                title: Some(Localized::new(Language::En, Title::from("ProductListing"))),
                 description: Some(Localized::new(
                     Language::En,
                     Description::from("Description"),
                 )),
-                pricing: ProductPricing {
+                pricing: ProductListingPricing {
                     price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                     price_estimate_min: None,
                     price_estimate_max: None,
@@ -613,17 +622,20 @@ mod tests {
                 url: url.clone(),
                 view_url: url,
                 images: Default::default(),
-                auction: ProductAuction::default(),
+                auction: ProductListingAuction::default(),
                 created: OffsetDateTime::UNIX_EPOCH,
                 updated: OffsetDateTime::UNIX_EPOCH,
             },
-            user_state: Some(ProductUserState::default()),
+            user_state: Some(ProductListingUserState::default()),
         })
     }
 
     fn page(
-        items: Vec<PersonalizedProductDetailsReadModel>,
-    ) -> CursoredResult<PersonalizedProductDetailsReadModel, ProductWatchlistDetailsCursor> {
+        items: Vec<PersonalizedProductListingDetailsReadModel>,
+    ) -> CursoredResult<
+        PersonalizedProductListingDetailsReadModel,
+        ProductListingWatchlistDetailsCursor,
+    > {
         CursoredResult {
             items,
             cursor: Cursor::default(),
@@ -635,8 +647,8 @@ mod tests {
     async fn should_use_one_current_snapshot_for_all_current_products()
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
-        let first_product_id = ProductId::new();
-        let second_product_id = ProductId::new();
+        let first_product_id = ProductListingId::new();
+        let second_product_id = ProductListingId::new();
         let current_snapshot = snapshot(FxRateId::new())?;
         let state = state();
         lock(&state).details_result = Some(Ok(page(vec![
@@ -659,7 +671,7 @@ mod tests {
         );
         assert!(result.items.iter().all(|item| matches!(
             item.item.pricing.valuation,
-            ProductPricingValuation::Current { fx_rate_id, .. } if fx_rate_id == current_snapshot.id()
+            ProductListingPricingValuation::Current { fx_rate_id, .. } if fx_rate_id == current_snapshot.id()
         )));
         let state = lock(&state);
         assert_eq!(1, state.latest_snapshot_requests);
@@ -671,13 +683,13 @@ mod tests {
     async fn should_retain_canonical_notification_user_state()
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
-        let expected_user_state = ProductUserState {
+        let expected_user_state = ProductListingUserState {
             notification: NotificationUserState {
                 unseen_notification_ids: vec![Default::default()],
             },
             ..Default::default()
         };
-        let mut product = details(ProductId::new())?;
+        let mut product = details(ProductListingId::new())?;
         product.user_state = Some(expected_user_state.clone());
         let state = state();
         lock(&state).details_result = Some(Ok(page(vec![product])));
@@ -700,12 +712,12 @@ mod tests {
         let user_id = UserId::new();
         let first_snapshot = snapshot(FxRateId::new())?;
         let second_snapshot = snapshot(FxRateId::new())?;
-        let mut first = details(ProductId::new())?;
+        let mut first = details(ProductListingId::new())?;
         first.item.sale_valuation = Some(ProductSaleValuation {
             fx_rate_id: first_snapshot.id(),
             sold_at: OffsetDateTime::UNIX_EPOCH,
         });
-        let mut second = details(ProductId::new())?;
+        let mut second = details(ProductListingId::new())?;
         second.item.sale_valuation = Some(ProductSaleValuation {
             fx_rate_id: second_snapshot.id(),
             sold_at: OffsetDateTime::UNIX_EPOCH,
@@ -721,11 +733,11 @@ mod tests {
 
         assert!(matches!(
             result.items[0].item.pricing.valuation,
-            ProductPricingValuation::Sale { fx_rate_id, .. } if fx_rate_id == first_snapshot.id()
+            ProductListingPricingValuation::Sale { fx_rate_id, .. } if fx_rate_id == first_snapshot.id()
         ));
         assert!(matches!(
             result.items[1].item.pricing.valuation,
-            ProductPricingValuation::Sale { fx_rate_id, .. } if fx_rate_id == second_snapshot.id()
+            ProductListingPricingValuation::Sale { fx_rate_id, .. } if fx_rate_id == second_snapshot.id()
         ));
         let state = lock(&state);
         assert_eq!(0, state.latest_snapshot_requests);
@@ -743,8 +755,8 @@ mod tests {
         let user_id = UserId::new();
         let current_snapshot = snapshot(FxRateId::new())?;
         let sale_snapshot = snapshot(FxRateId::new())?;
-        let current = details(ProductId::new())?;
-        let mut sale = details(ProductId::new())?;
+        let current = details(ProductListingId::new())?;
+        let mut sale = details(ProductListingId::new())?;
         sale.item.sale_valuation = Some(ProductSaleValuation {
             fx_rate_id: sale_snapshot.id(),
             sold_at: OffsetDateTime::UNIX_EPOCH,
@@ -769,7 +781,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
         let missing_snapshot_id = FxRateId::new();
-        let mut sale = details(ProductId::new())?;
+        let mut sale = details(ProductListingId::new())?;
         sale.item.sale_valuation = Some(ProductSaleValuation {
             fx_rate_id: missing_snapshot_id,
             sold_at: OffsetDateTime::UNIX_EPOCH,
@@ -796,7 +808,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
         let state = state();
-        lock(&state).details_result = Some(Ok(page(vec![details(ProductId::new())?])));
+        lock(&state).details_result = Some(Ok(page(vec![details(ProductListingId::new())?])));
         lock(&state).latest_snapshot_result = Some(Ok(None));
 
         let result = handler(&state)
@@ -817,7 +829,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
         let state = state();
-        lock(&state).details_result = Some(Ok(page(vec![details(ProductId::new())?])));
+        lock(&state).details_result = Some(Ok(page(vec![details(ProductListingId::new())?])));
         lock(&state).latest_snapshot_result = Some(Err(
             FxRateSnapshotRepositoryError::InvalidPersistedSnapshot {
                 source: box_error(std::io::Error::other("invalid FX snapshot")),
@@ -857,7 +869,8 @@ mod tests {
     async fn should_not_commit_when_details_read_fails() {
         let user_id = UserId::new();
         let state = state();
-        lock(&state).details_result = Some(Err(ProductWatchlistDetailsReadError::QueryFailed));
+        lock(&state).details_result =
+            Some(Err(ProductListingWatchlistDetailsReadError::QueryFailed));
 
         let result = handler(&state)
             .execute(&context(user_id), request(user_id))
@@ -877,7 +890,7 @@ mod tests {
         let user_id = UserId::new();
         let state = state();
         lock(&state).commit_fails = true;
-        lock(&state).details_result = Some(Ok(page(vec![details(ProductId::new())?])));
+        lock(&state).details_result = Some(Ok(page(vec![details(ProductListingId::new())?])));
         lock(&state).latest_snapshot_result = Some(Ok(Some(snapshot(FxRateId::new())?)));
 
         let result = handler(&state)
@@ -895,7 +908,7 @@ mod tests {
     async fn should_reject_missing_canonical_user_state() -> Result<(), Box<dyn std::error::Error>>
     {
         let user_id = UserId::new();
-        let mut product = details(ProductId::new())?;
+        let mut product = details(ProductListingId::new())?;
         product.user_state = None;
         let state = state();
         lock(&state).details_result = Some(Ok(page(vec![product])));

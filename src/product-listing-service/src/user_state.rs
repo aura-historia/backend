@@ -5,7 +5,7 @@ use search_filter_core::{
 };
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ProductUserState {
+pub struct ProductListingUserState {
     pub watchlist: WatchlistUserState,
     pub prohibited_content: ProhibitedContentUserState,
     pub notification: NotificationUserState,
@@ -50,7 +50,7 @@ mod tests {
 
     #[test]
     fn should_default_product_user_state_notification_seen_to_true() {
-        let state = ProductUserState::default();
+        let state = ProductListingUserState::default();
         assert!(state.notification.unseen_notification_ids.is_empty());
     }
 
@@ -66,7 +66,7 @@ mod tests {
 
     #[test]
     fn should_default_product_user_state_search_filter_to_not_matched() {
-        let state = ProductUserState::default();
+        let state = ProductListingUserState::default();
         assert!(!state.search_filter.matched);
         assert!(!state.search_filter.hidden);
         assert!(state.search_filter.user_search_filter_id.is_none());

@@ -14,8 +14,8 @@
 //! 2. Connects to local Postgres and applies pending migrations.
 //! 3. Wires up all real service implementations:
 //!    - [`ProductStateMappingServiceImpl`]
-//!    - [`ProductNormalizationServiceImpl`]
-//!    - [`ProductSchemaServiceImpl`]
+//!    - [`ProductListingNormalizationServiceImpl`]
+//!    - [`ProductListingSchemaServiceImpl`]
 //!    - [`ScraperServiceImpl`] (backed by a real [`reqwest::Client`])
 //! 4. Iterates over the placeholder targets below and writes results to JSON.
 //!
@@ -54,10 +54,10 @@ use crawler::local_db::{DEMO_SCRAPER_DB_NAME, bootstrap_local_database, demo_scr
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
-use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
+use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
 use crawler::scraper::normalization::product::NormalizedProduct;
-use crawler::scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
+use crawler::scraper::normalization::product_normalization_service::ProductListingNormalizationServiceImpl;
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{
@@ -67,7 +67,8 @@ use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
 use localization::{Language, Localized};
 use money::Price;
 use product_listing_core::{
-    product_image::ProductImage, product_state::ProductState, shops_product_id::ShopsProductId,
+    product_listing_image::ProductListingImage, product_state::ProductState,
+    shop_listing_id::ShopListingId,
 };
 
 use sqlx::PgPool;
@@ -137,14 +138,14 @@ where
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProductImageData {
+pub struct ProductListingImageData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<Url>,
     pub prohibited_content: &'static str,
 }
 
-impl From<ProductImage> for ProductImageData {
-    fn from(value: ProductImage) -> Self {
+impl From<ProductListingImage> for ProductListingImageData {
+    fn from(value: ProductListingImage) -> Self {
         let url = value.prohibited_content.is_safe().then_some(value.url);
 
         Self {
@@ -156,7 +157,7 @@ impl From<ProductImage> for ProductImageData {
 
 #[derive(serde::Serialize)]
 pub struct DemoProduct {
-    pub shops_product_id: ShopsProductId,
+    pub shop_listing_id: ShopListingId,
     pub title: LocalizedTextData,
     pub description: Option<LocalizedTextData>,
     pub price: Option<PriceData>,
@@ -165,7 +166,7 @@ pub struct DemoProduct {
     #[serde(serialize_with = "serialize_product_state")]
     pub state: ProductState,
     pub url: Url,
-    pub images: Vec<ProductImageData>,
+    pub images: Vec<ProductListingImageData>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
     pub raw_attributes: BTreeMap<String, Vec<String>>,
@@ -174,7 +175,7 @@ pub struct DemoProduct {
 impl From<NormalizedProduct> for DemoProduct {
     fn from(p: NormalizedProduct) -> Self {
         Self {
-            shops_product_id: p.shops_product_id,
+            shop_listing_id: p.shop_listing_id,
             title: p.title.into(),
             description: p.description.map(Into::into),
             price: p.price.map(Into::into),
@@ -264,7 +265,7 @@ async fn main() {
                 Ok(Some(scraped)) => {
                     info!(
                         title = %scraped.product.title.payload,
-                        shopsProductId = %scraped.product.shops_product_id,
+                        shopsProductId = %scraped.product.shop_listing_id,
                         "Scrape succeeded"
                     );
                     products.push(scraped.product.into());
@@ -384,12 +385,13 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     );
 
     // Normalization service.
-    let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
+    let normalization_svc =
+        ProductListingNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
     // Schema service (DB-backed + initial/fresh LLM generation).
     let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(pool));
     let removed_page_schema_repo = Box::new(RemovedPageSchemaRepositoryImpl::new(pool));
-    let schema_svc = ProductSchemaServiceImpl::new(
+    let schema_svc = ProductListingSchemaServiceImpl::new(
         create_schema_llm,
         single_schema_llm,
         schema_repo,

@@ -1,7 +1,7 @@
 use crate::mapping::user_search_filter_uuid;
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
-use search_filter_core::SearchFilterProductMatch;
+use search_filter_core::SearchFilterProductListingMatch;
 use search_filter_service::ports::{
     SearchFilterMatchBatchPersistResult, SearchFilterMatchPersistOutcome,
     SearchFilterMatchWriteError, SearchFilterMatchWriter, SearchFilterMatchWriterFactory,
@@ -27,7 +27,7 @@ impl SearchFilterMatchWriterFactory<SqlxTransaction> for SqlxSearchFilterMatchWr
 impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
     async fn insert_if_absent(
         &mut self,
-        product_match: &SearchFilterProductMatch,
+        product_match: &SearchFilterProductListingMatch,
     ) -> Result<SearchFilterMatchPersistOutcome, SearchFilterMatchWriteError> {
         let filter_id =
             user_search_filter_uuid(product_match.user_search_filter_id).map_err(|source| {
@@ -93,7 +93,7 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
 
     async fn insert_all_if_absent(
         &mut self,
-        product_matches: &[SearchFilterProductMatch],
+        product_matches: &[SearchFilterProductListingMatch],
     ) -> Result<SearchFilterMatchBatchPersistResult, SearchFilterMatchWriteError> {
         if product_matches.is_empty() {
             return Ok(SearchFilterMatchBatchPersistResult::default());

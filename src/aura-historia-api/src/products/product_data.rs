@@ -10,21 +10,22 @@ use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use notification_core::{
     notification_id::NotificationId, presentation::NotificationImagePresentation,
 };
-use product_listing_core::product::ProductPricing;
-use product_listing_core::product_id::ProductId;
 use product_listing_core::product_lifecycle::ProductLifecycle;
-use product_listing_core::product_slug_id::ProductSlugId;
+use product_listing_core::product_listing::ProductListingPricing;
+use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_core::product_state::ProductState;
 use product_listing_core::prohibited_content::ProhibitedContent;
-use product_listing_core::shops_product_id::ShopsProductId;
+use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_service::use_cases::{
-    DisplayProductPricing, PersonalizedProductDetailsView, PersonalizedProductSummary,
-    ProductDetailsView, ProductPricingPresentation, ProductPricingValuation, ProductSummary,
-    ProductSummaryPriceValuation,
+    DisplayProductListingPricing, PersonalizedProductListingDetailsView,
+    PersonalizedProductListingSummary, ProductListingDetailsView,
+    ProductListingPricingPresentation, ProductListingPricingValuation, ProductListingSummary,
+    ProductListingSummaryPriceValuation,
 };
 use product_listing_service::user_state::{
-    NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
-    WatchlistUserState,
+    NotificationUserState, ProductListingUserState, ProhibitedContentUserState,
+    SearchFilterUserState, WatchlistUserState,
 };
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
@@ -44,13 +45,13 @@ use url::Url;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProductDetailsData {
-    product_id: ProductId,
-    product_slug_id: ProductSlugId,
+pub(crate) struct ProductListingDetailsData {
+    product_id: ProductListingId,
+    product_slug_id: ProductListingSlugId,
     event_id: EventId,
     shop_id: ShopId,
     seller_id: ShopId,
-    shops_product_id: ShopsProductId,
+    shop_listing_id: ShopListingId,
     shop_name: String,
     seller_name: String,
     shop_slug_id: ShopSlugId,
@@ -67,15 +68,15 @@ pub(crate) struct ProductDetailsData {
     title: Option<LocalizedTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<LocalizedTextData>,
-    pricing: ProductPricingPresentationData,
+    pricing: ProductListingPricingPresentationData,
     #[serde(with = "crate::wire::product_state")]
     state: ProductState,
     #[serde(with = "crate::wire::product_lifecycle")]
     lifecycle: ProductLifecycle,
     url: Url,
     view_url: Url,
-    images: Vec<ProductImageData>,
-    auction: ProductAuctionData,
+    images: Vec<ProductListingImageData>,
+    auction: ProductListingAuctionData,
     #[serde(with = "time::serde::rfc3339")]
     created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -84,7 +85,7 @@ pub(crate) struct ProductDetailsData {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProductUserStateData {
+pub(crate) struct ProductListingUserStateData {
     watchlist: WatchlistUserStateData,
     prohibited_content: ProhibitedContentUserStateData,
     notification: NotificationUserStateData,
@@ -127,42 +128,42 @@ struct SearchFilterUserStateData {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProductSummaryData {
-    product_id: ProductId,
-    product_slug_id: ProductSlugId,
+pub(crate) struct ProductListingSummaryData {
+    product_id: ProductListingId,
+    product_slug_id: ProductListingSlugId,
     event_id: EventId,
     shop_id: ShopId,
     seller_id: ShopId,
-    shops_product_id: ShopsProductId,
+    shop_listing_id: ShopListingId,
     shop_name: String,
     shop_slug_id: ShopSlugId,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<LocalizedTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     display_price: Option<PriceData>,
-    price_valuation: ProductSummaryPriceValuationData,
+    price_valuation: ProductListingSummaryPriceValuationData,
     #[serde(with = "crate::wire::product_state")]
     state: ProductState,
     #[serde(with = "crate::wire::product_lifecycle")]
     lifecycle: ProductLifecycle,
     url: Url,
     view_url: Url,
-    images: Vec<ProductImageData>,
+    images: Vec<ProductListingImageData>,
     #[serde(with = "time::serde::rfc3339")]
     updated: OffsetDateTime,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ProductPricingPresentationData {
-    source: ProductPricingData,
-    display: ProductPricingData,
-    valuation: ProductPricingValuationData,
+struct ProductListingPricingPresentationData {
+    source: ProductListingPricingData,
+    display: ProductListingPricingData,
+    valuation: ProductListingPricingValuationData,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ProductPricingData {
+struct ProductListingPricingData {
     #[serde(skip_serializing_if = "Option::is_none")]
     price: Option<PriceData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -173,7 +174,7 @@ struct ProductPricingData {
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductPricingValuationData {
+enum ProductListingPricingValuationData {
     Current {
         #[serde(rename = "fxRateId")]
         fx_rate_id: FxRateId,
@@ -192,7 +193,7 @@ enum ProductPricingValuationData {
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductSummaryPriceValuationData {
+enum ProductListingSummaryPriceValuationData {
     Current {
         #[serde(rename = "fxRateId")]
         fx_rate_id: FxRateId,
@@ -209,7 +210,7 @@ enum ProductSummaryPriceValuationData {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProductImageData {
+pub(crate) struct ProductListingImageData {
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<Url>,
     #[serde(with = "crate::wire::prohibited_content")]
@@ -218,22 +219,22 @@ pub(crate) struct ProductImageData {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ProductAuctionData {
+struct ProductListingAuctionData {
     #[serde(with = "time::serde::rfc3339::option")]
     start: Option<OffsetDateTime>,
     #[serde(with = "time::serde::rfc3339::option")]
     end: Option<OffsetDateTime>,
 }
 
-impl ProductDetailsData {
-    fn from_view(view: ProductDetailsView, prohibited_content_consent: bool) -> Self {
+impl ProductListingDetailsData {
+    fn from_view(view: ProductListingDetailsView, prohibited_content_consent: bool) -> Self {
         Self {
             product_id: view.product_id,
             product_slug_id: view.product_slug_id,
             event_id: view.event_id,
             shop_id: view.shop_id,
             seller_id: view.seller_id,
-            shops_product_id: view.shops_product_id,
+            shop_listing_id: view.shop_listing_id,
             shop_name: view.shop_name.into(),
             seller_name: view.seller_name.into(),
             shop_slug_id: view.shop_slug_id,
@@ -252,9 +253,11 @@ impl ProductDetailsData {
             images: view
                 .images
                 .into_iter()
-                .map(|image| ProductImageData::from_with_consent(image, prohibited_content_consent))
+                .map(|image| {
+                    ProductListingImageData::from_with_consent(image, prohibited_content_consent)
+                })
                 .collect(),
-            auction: ProductAuctionData {
+            auction: ProductListingAuctionData {
                 start: view.auction.start,
                 end: view.auction.end,
             },
@@ -264,14 +267,14 @@ impl ProductDetailsData {
     }
 }
 
-impl From<ProductDetailsView> for ProductDetailsData {
-    fn from(view: ProductDetailsView) -> Self {
+impl From<ProductListingDetailsView> for ProductListingDetailsData {
+    fn from(view: ProductListingDetailsView) -> Self {
         Self::from_view(view, false)
     }
 }
 
-impl From<ProductPricingPresentation> for ProductPricingPresentationData {
-    fn from(pricing: ProductPricingPresentation) -> Self {
+impl From<ProductListingPricingPresentation> for ProductListingPricingPresentationData {
+    fn from(pricing: ProductListingPricingPresentation) -> Self {
         Self {
             source: pricing.source.into(),
             display: pricing.display.into(),
@@ -280,8 +283,8 @@ impl From<ProductPricingPresentation> for ProductPricingPresentationData {
     }
 }
 
-impl From<ProductPricing> for ProductPricingData {
-    fn from(pricing: ProductPricing) -> Self {
+impl From<ProductListingPricing> for ProductListingPricingData {
+    fn from(pricing: ProductListingPricing) -> Self {
         Self {
             price: pricing.price.map(Into::into),
             price_estimate_min: pricing.price_estimate_min.map(Into::into),
@@ -290,8 +293,8 @@ impl From<ProductPricing> for ProductPricingData {
     }
 }
 
-impl From<DisplayProductPricing> for ProductPricingData {
-    fn from(pricing: DisplayProductPricing) -> Self {
+impl From<DisplayProductListingPricing> for ProductListingPricingData {
+    fn from(pricing: DisplayProductListingPricing) -> Self {
         Self {
             price: pricing.price.map(Into::into),
             price_estimate_min: pricing.price_estimate_min.map(Into::into),
@@ -300,17 +303,17 @@ impl From<DisplayProductPricing> for ProductPricingData {
     }
 }
 
-impl From<ProductSummaryPriceValuation> for ProductSummaryPriceValuationData {
-    fn from(valuation: ProductSummaryPriceValuation) -> Self {
+impl From<ProductListingSummaryPriceValuation> for ProductListingSummaryPriceValuationData {
+    fn from(valuation: ProductListingSummaryPriceValuation) -> Self {
         match valuation {
-            ProductSummaryPriceValuation::Current {
+            ProductListingSummaryPriceValuation::Current {
                 fx_rate_id,
                 captured_at,
             } => Self::Current {
                 fx_rate_id,
                 captured_at,
             },
-            ProductSummaryPriceValuation::Sale {
+            ProductListingSummaryPriceValuation::Sale {
                 fx_rate_id,
                 sold_at,
             } => Self::Sale {
@@ -321,17 +324,17 @@ impl From<ProductSummaryPriceValuation> for ProductSummaryPriceValuationData {
     }
 }
 
-impl From<ProductPricingValuation> for ProductPricingValuationData {
-    fn from(valuation: ProductPricingValuation) -> Self {
+impl From<ProductListingPricingValuation> for ProductListingPricingValuationData {
+    fn from(valuation: ProductListingPricingValuation) -> Self {
         match valuation {
-            ProductPricingValuation::Current {
+            ProductListingPricingValuation::Current {
                 fx_rate_id,
                 captured_at,
             } => Self::Current {
                 fx_rate_id,
                 captured_at,
             },
-            ProductPricingValuation::Sale {
+            ProductListingPricingValuation::Sale {
                 fx_rate_id,
                 captured_at,
                 sold_at,
@@ -344,8 +347,8 @@ impl From<ProductPricingValuation> for ProductPricingValuationData {
     }
 }
 
-impl From<ProductUserState> for ProductUserStateData {
-    fn from(state: ProductUserState) -> Self {
+impl From<ProductListingUserState> for ProductListingUserStateData {
+    fn from(state: ProductListingUserState) -> Self {
         Self {
             watchlist: state.watchlist.into(),
             prohibited_content: state.prohibited_content.into(),
@@ -393,15 +396,15 @@ impl From<SearchFilterUserState> for SearchFilterUserStateData {
     }
 }
 
-impl ProductSummaryData {
-    fn from_view(summary: ProductSummary, prohibited_content_consent: bool) -> Self {
+impl ProductListingSummaryData {
+    fn from_view(summary: ProductListingSummary, prohibited_content_consent: bool) -> Self {
         Self {
             product_id: summary.product_id,
             product_slug_id: summary.product_slug_id,
             event_id: summary.event_id,
             shop_id: summary.shop_id,
             seller_id: summary.seller_id,
-            shops_product_id: summary.shops_product_id,
+            shop_listing_id: summary.shop_listing_id,
             shop_name: summary.shop_name.into(),
             shop_slug_id: summary.shop_slug_id,
             title: summary.title.map(Into::into),
@@ -414,20 +417,22 @@ impl ProductSummaryData {
             images: summary
                 .images
                 .into_iter()
-                .map(|image| ProductImageData::from_with_consent(image, prohibited_content_consent))
+                .map(|image| {
+                    ProductListingImageData::from_with_consent(image, prohibited_content_consent)
+                })
                 .collect(),
             updated: summary.updated,
         }
     }
 }
 
-impl From<ProductSummary> for ProductSummaryData {
-    fn from(summary: ProductSummary) -> Self {
+impl From<ProductListingSummary> for ProductListingSummaryData {
+    fn from(summary: ProductListingSummary) -> Self {
         Self::from_view(summary, false)
     }
 }
 
-impl ProductImageData {
+impl ProductListingImageData {
     pub(crate) fn from_presented(image: NotificationImagePresentation) -> Self {
         Self {
             url: image.url,
@@ -436,7 +441,7 @@ impl ProductImageData {
     }
 
     pub(crate) fn from_with_consent(
-        image: product_listing_core::product_image::ProductImage,
+        image: product_listing_core::product_listing_image::ProductListingImage,
         prohibited_content_consent: bool,
     ) -> Self {
         Self {
@@ -447,45 +452,47 @@ impl ProductImageData {
     }
 }
 
-impl From<product_listing_core::product_image::ProductImage> for ProductImageData {
-    fn from(image: product_listing_core::product_image::ProductImage) -> Self {
+impl From<product_listing_core::product_listing_image::ProductListingImage>
+    for ProductListingImageData
+{
+    fn from(image: product_listing_core::product_listing_image::ProductListingImage) -> Self {
         Self::from_with_consent(image, false)
     }
 }
 
-pub(crate) type PersonalizedProductDetailsData =
-    PersonalizedData<ProductDetailsData, ProductUserStateData>;
-pub(crate) type PersonalizedProductSummaryData =
-    PersonalizedData<ProductSummaryData, ProductUserStateData>;
+pub(crate) type PersonalizedProductListingDetailsData =
+    PersonalizedData<ProductListingDetailsData, ProductListingUserStateData>;
+pub(crate) type PersonalizedProductListingSummaryData =
+    PersonalizedData<ProductListingSummaryData, ProductListingUserStateData>;
 
 pub(crate) fn personalized_product_details_data(
-    personalized: PersonalizedProductDetailsView,
-) -> PersonalizedProductDetailsData {
+    personalized: PersonalizedProductListingDetailsView,
+) -> PersonalizedProductListingDetailsData {
     let prohibited_content_consent = personalized
         .user_state
         .as_ref()
         .is_some_and(|state| state.prohibited_content.consent);
     PersonalizedData {
-        item: ProductDetailsData::from_view(personalized.item, prohibited_content_consent),
+        item: ProductListingDetailsData::from_view(personalized.item, prohibited_content_consent),
         user_state: personalized.user_state.map(Into::into),
     }
 }
 
 pub(crate) fn personalized_product_summary_data(
-    personalized: PersonalizedProductSummary,
-) -> PersonalizedProductSummaryData {
+    personalized: PersonalizedProductListingSummary,
+) -> PersonalizedProductListingSummaryData {
     let prohibited_content_consent = personalized
         .user_state
         .as_ref()
         .is_some_and(|state| state.prohibited_content.consent);
     PersonalizedData {
-        item: ProductSummaryData::from_view(personalized.item, prohibited_content_consent),
+        item: ProductListingSummaryData::from_view(personalized.item, prohibited_content_consent),
         user_state: personalized.user_state.map(Into::into),
     }
 }
 
 pub(crate) fn product_response(
-    view: PersonalizedProductDetailsView,
+    view: PersonalizedProductListingDetailsView,
     principal: &Principal,
 ) -> Response {
     let state = view.item.state;
@@ -519,13 +526,13 @@ pub(crate) fn product_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use product_listing_core::product_image::ProductImage;
+    use product_listing_core::product_listing_image::ProductListingImage;
     use serde_json::json;
 
     #[test]
     fn should_serialize_sale_pricing_valuation() -> Result<(), Box<dyn std::error::Error>> {
         let fx_rate_id = FxRateId::new();
-        let data = ProductPricingValuationData::Sale {
+        let data = ProductListingPricingValuationData::Sale {
             fx_rate_id,
             captured_at: OffsetDateTime::UNIX_EPOCH,
             sold_at: OffsetDateTime::UNIX_EPOCH,
@@ -546,7 +553,8 @@ mod tests {
     #[test]
     fn should_expose_safe_image_url_without_prohibited_content_consent()
     -> Result<(), Box<dyn std::error::Error>> {
-        let data = ProductImageData::from_with_consent(image(ProhibitedContent::None)?, false);
+        let data =
+            ProductListingImageData::from_with_consent(image(ProhibitedContent::None)?, false);
 
         assert_eq!(
             serde_json::to_value(data)?,
@@ -561,7 +569,7 @@ mod tests {
     #[test]
     fn should_redact_unsafe_image_url_without_prohibited_content_consent()
     -> Result<(), Box<dyn std::error::Error>> {
-        let data = ProductImageData::from(image(ProhibitedContent::NaziGermany)?);
+        let data = ProductListingImageData::from(image(ProhibitedContent::NaziGermany)?);
 
         assert_eq!(
             serde_json::to_value(data)?,
@@ -573,7 +581,8 @@ mod tests {
     #[test]
     fn should_expose_unsafe_image_url_with_prohibited_content_consent()
     -> Result<(), Box<dyn std::error::Error>> {
-        let data = ProductImageData::from_with_consent(image(ProhibitedContent::Unknown)?, true);
+        let data =
+            ProductListingImageData::from_with_consent(image(ProhibitedContent::Unknown)?, true);
 
         assert_eq!(
             serde_json::to_value(data)?,
@@ -585,8 +594,10 @@ mod tests {
         Ok(())
     }
 
-    fn image(prohibited_content: ProhibitedContent) -> Result<ProductImage, url::ParseError> {
-        Ok(ProductImage {
+    fn image(
+        prohibited_content: ProhibitedContent,
+    ) -> Result<ProductListingImage, url::ParseError> {
+        Ok(ProductListingImage {
             url: Url::parse("https://shop.example/image.jpg")?,
             prohibited_content,
         })

@@ -12,9 +12,10 @@ use opensearch::{
 use platform_postgres::{
     PostgresConnectError, PostgresPoolConfig, PostgresPoolConfigError, SqlxUnitOfWork,
 };
-use product_listing_opensearch::OpenSearchProductSearchReader;
+use product_listing_opensearch::OpenSearchProductListingSearchReader;
 use product_listing_postgres::{
-    SqlxProductCurrentRevisionGuardFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
+    SqlxProductListingCurrentRevisionGuardFactory,
+    SqlxProductListingSearchFilterMatchSourceReaderFactory,
 };
 use search_filter_postgres::{
     SqlxExistingSearchFilterMatchReader, SqlxPeriodicSearchFilterCandidateReader,
@@ -65,11 +66,11 @@ pub async fn build_from_env() -> Result<(Arc<dyn CronJob>, String, Duration), Wi
             SqlxPeriodicSearchFilterMatchingRunLock::new(config.postgres),
             SqlxPeriodicSearchFilterCandidateReader::new(pool.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
-            OpenSearchProductSearchReader::new(client),
+            OpenSearchProductListingSearchReader::new(client),
             SqlxExistingSearchFilterMatchReader::new(pool),
-            SqlxProductSearchFilterMatchSourceReaderFactory::new(),
+            SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
             evaluator,
-            SqlxProductCurrentRevisionGuardFactory::new(),
+            SqlxProductListingCurrentRevisionGuardFactory::new(),
             SqlxSearchFilterMatchWriterFactory,
             SqlxPeriodicSearchFilterProgressFactory,
             config.policy,

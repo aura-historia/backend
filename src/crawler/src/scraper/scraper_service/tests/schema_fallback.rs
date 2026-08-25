@@ -8,7 +8,7 @@ fn invalid_schema() -> ProductCssSelectorSchema {
 
 #[allow(clippy::result_large_err)]
 async fn scrape_with_schema_service(
-    schema_svc: MockProductSchemaService,
+    schema_svc: MockProductListingSchemaService,
     budget_increments: usize,
 ) -> Result<
     Option<crate::scraper::scraper_service::ScrapedProduct>,
@@ -24,7 +24,7 @@ async fn scrape_with_schema_service(
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()
@@ -56,7 +56,7 @@ async fn should_use_yaml_schema_when_yaml_schema_is_high_confidence_and_covers_p
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -87,7 +87,7 @@ async fn should_use_yaml_schema_when_yaml_confidence_is_low() {
     let yaml_schema = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -117,7 +117,7 @@ async fn should_generate_fresh_schema_after_yaml_schema_does_not_cover_raw_html(
     let schema = shops_product_schema(id);
     let generated_schema = schema.product_schemas.first().cloned().unwrap();
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -171,7 +171,7 @@ async fn should_not_fallback_only_because_one_extra_schema_is_unused() {
     let valid_schema = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -207,7 +207,7 @@ async fn should_not_consume_second_budget_call_when_yaml_confidence_is_low() {
     let yaml_schema = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()

@@ -1,97 +1,115 @@
-pub mod partner_product_authorizer;
-pub mod product_current_revision_guard;
-pub mod product_details_batch_reader;
-pub mod product_details_reader;
-pub mod product_embedding_reader;
-pub mod product_embedding_source_reader;
-pub mod product_embedding_writer;
-pub mod product_event_reader;
-pub mod product_event_store;
-pub mod product_percolation;
-pub mod product_price_filter_plan;
-pub mod product_repository;
-pub mod product_search_filter_match_source_reader;
-pub mod product_search_projection;
-pub mod product_search_reader;
-pub mod product_similar_products_reader;
-pub mod product_title_translator;
-pub mod product_translation_source_reader;
-pub mod product_translation_writer;
-pub mod product_user_state_reader;
-pub mod product_watchlist_details_reader;
-pub mod product_watchlist_notification_source_reader;
+pub mod partner_product_listing_authorizer;
+pub mod product_listing_current_revision_guard;
+pub mod product_listing_details_batch_reader;
+pub mod product_listing_details_reader;
+pub mod product_listing_embedding_reader;
+pub mod product_listing_embedding_source_reader;
+pub mod product_listing_embedding_writer;
+pub mod product_listing_event_reader;
+pub mod product_listing_event_store;
+pub mod product_listing_percolation;
+pub mod product_listing_price_filter_plan;
+pub mod product_listing_repository;
+pub mod product_listing_search_filter_match_source_reader;
+pub mod product_listing_search_projection;
+pub mod product_listing_search_reader;
+pub mod product_listing_similar_product_listings_reader;
+pub mod product_listing_title_translator;
+pub mod product_listing_translation_source_reader;
+pub mod product_listing_translation_writer;
+pub mod product_listing_user_state_reader;
+pub mod product_listing_watchlist_details_reader;
+pub mod product_listing_watchlist_notification_source_reader;
 pub mod watchlist_notification_recipient_reader;
 
-pub use partner_product_authorizer::{
-    PartnerProductAuthorizationError, PartnerProductAuthorizer, PartnerProductAuthorizerFactory,
+pub use partner_product_listing_authorizer::{
+    PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
+    PartnerProductListingAuthorizerFactory,
 };
-pub use product_current_revision_guard::{
-    ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
-    ProductCurrentRevisionGuardFactory, ProductCurrentRevisionRef,
+pub use product_listing_current_revision_guard::{
+    ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError,
+    ProductListingCurrentRevisionGuard, ProductListingCurrentRevisionGuardFactory,
+    ProductListingCurrentRevisionRef,
 };
-pub use product_details_batch_reader::{
-    ProductDetailsBatchReadError, ProductDetailsBatchReadRequest, ProductDetailsBatchReader,
+pub use product_listing_details_batch_reader::{
+    ProductListingDetailsBatchReadError, ProductListingDetailsBatchReadRequest,
+    ProductListingDetailsBatchReader,
 };
-pub use product_details_reader::{
-    PersonalizedProductDetailsReadModel, ProductDetailsReadError, ProductDetailsReadModel,
-    ProductDetailsReadRequest, ProductDetailsReader, ProductDetailsReaderFactory,
+pub use product_listing_details_reader::{
+    PersonalizedProductListingDetailsReadModel, ProductListingDetailsReadError,
+    ProductListingDetailsReadModel, ProductListingDetailsReadRequest, ProductListingDetailsReader,
+    ProductListingDetailsReaderFactory,
 };
-pub use product_embedding_reader::{
-    ProductEmbedding, ProductEmbeddingLookup, ProductEmbeddingReadError, ProductEmbeddingReader,
-    ProductEmbeddingReaderFactory,
+pub use product_listing_embedding_reader::{
+    ProductListingEmbedding, ProductListingEmbeddingLookup, ProductListingEmbeddingReadError,
+    ProductListingEmbeddingReader, ProductListingEmbeddingReaderFactory,
 };
-pub use product_embedding_source_reader::{
-    ProductEmbeddingSource, ProductEmbeddingSourceReadError, ProductEmbeddingSourceReader,
+pub use product_listing_embedding_source_reader::{
+    ProductListingEmbeddingSource, ProductListingEmbeddingSourceReadError,
+    ProductListingEmbeddingSourceReader,
 };
-pub use product_embedding_writer::{
-    ProductEmbeddingWrite, ProductEmbeddingWriteError, ProductEmbeddingWriteOutcome,
-    ProductEmbeddingWriter, ProductEmbeddingWriterFactory,
+pub use product_listing_embedding_writer::{
+    ProductListingEmbeddingWrite, ProductListingEmbeddingWriteError,
+    ProductListingEmbeddingWriteOutcome, ProductListingEmbeddingWriter,
+    ProductListingEmbeddingWriterFactory,
 };
-pub use product_event_reader::{
-    ProductEventReadError, ProductEventReader, ProductEventReaderFactory,
+pub use product_listing_event_reader::{
+    ProductListingEventReadError, ProductListingEventReader, ProductListingEventReaderFactory,
 };
-pub use product_event_store::{
-    ProductEventStore, ProductEventStoreError, ProductEventStoreFactory,
+pub use product_listing_event_store::{
+    ProductListingEventStore, ProductListingEventStoreError, ProductListingEventStoreFactory,
 };
-pub use product_percolation::{
-    ProductPercolationInput, ProductPercolationValuation, ProductPricesByCurrency,
+pub use product_listing_percolation::{
+    ProductListingPercolationInput, ProductListingPercolationValuation,
+    ProductListingPricesByCurrency,
 };
-pub use product_price_filter_plan::{NativePriceRange, ProductPriceFilterPlan};
-pub use product_repository::{ProductRepository, ProductRepositoryError, ProductRepositoryFactory};
-pub use product_search_filter_match_source_reader::{
-    ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
-    ProductSearchFilterMatchSourceEventKind, ProductSearchFilterMatchSourceReadError,
-    ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
-    ProductSearchFilterMatchSourceRef,
+pub use product_listing_price_filter_plan::{NativePriceRange, ProductListingPriceFilterPlan};
+pub use product_listing_repository::{
+    ProductListingRepository, ProductListingRepositoryError, ProductListingRepositoryFactory,
 };
-pub use product_search_projection::{
-    ProductSearchProjection, ProductSearchProjectionWriteError, ProductSearchProjectionWriteOutcome,
+pub use product_listing_search_filter_match_source_reader::{
+    ProductListingSearchFilterMatchShopType, ProductListingSearchFilterMatchSource,
+    ProductListingSearchFilterMatchSourceEventKind, ProductListingSearchFilterMatchSourceReadError,
+    ProductListingSearchFilterMatchSourceReader,
+    ProductListingSearchFilterMatchSourceReaderFactory, ProductListingSearchFilterMatchSourceRef,
 };
-pub use product_search_reader::{
-    CompiledProductSearch, ProductSearchReadError, ProductSearchReadRequest, ProductSearchReader,
+pub use product_listing_search_projection::{
+    ProductListingSearchProjection, ProductListingSearchProjectionWriteError,
+    ProductListingSearchProjectionWriteOutcome,
 };
-pub use product_similar_products_reader::{
-    ProductSimilarProductsReadError, ProductSimilarProductsReader, ProductSimilarProductsRequest,
+pub use product_listing_search_reader::{
+    CompiledProductListingSearch, ProductListingSearchReadError, ProductListingSearchReadRequest,
+    ProductListingSearchReader,
 };
-pub use product_title_translator::{ProductTitleTranslationError, ProductTitleTranslator};
-pub use product_translation_source_reader::{
-    ProductTranslationSource, ProductTranslationSourceReadError, ProductTranslationSourceReader,
+pub use product_listing_similar_product_listings_reader::{
+    ProductListingSimilarProductListingsReadError, ProductListingSimilarProductListingsReader,
+    ProductListingSimilarProductListingsRequest,
 };
-pub use product_translation_writer::{
-    ProductTranslationWrite, ProductTranslationWriteError, ProductTranslationWriteOutcome,
-    ProductTranslationWriter, ProductTranslationWriterFactory,
+pub use product_listing_title_translator::{
+    ProductListingTitleTranslationError, ProductListingTitleTranslator,
 };
-pub use product_user_state_reader::{
-    ProductUserStateLookup, ProductUserStateReadError, ProductUserStateReader,
+pub use product_listing_translation_source_reader::{
+    ProductListingTranslationSource, ProductListingTranslationSourceReadError,
+    ProductListingTranslationSourceReader,
 };
-pub use product_watchlist_details_reader::{
-    ProductWatchlistDetailsCursor, ProductWatchlistDetailsReadError, ProductWatchlistDetailsReader,
-    ProductWatchlistDetailsReaderFactory, ProductWatchlistDetailsRequest,
+pub use product_listing_translation_writer::{
+    ProductListingTranslationWrite, ProductListingTranslationWriteError,
+    ProductListingTranslationWriteOutcome, ProductListingTranslationWriter,
+    ProductListingTranslationWriterFactory,
 };
-pub use product_watchlist_notification_source_reader::{
-    ProductWatchlistNotificationChange, ProductWatchlistNotificationSource,
-    ProductWatchlistNotificationSourceReadError, ProductWatchlistNotificationSourceReader,
-    ProductWatchlistNotificationSourceReaderFactory,
+pub use product_listing_user_state_reader::{
+    ProductListingUserStateLookup, ProductListingUserStateReadError, ProductListingUserStateReader,
+};
+pub use product_listing_watchlist_details_reader::{
+    ProductListingWatchlistDetailsCursor, ProductListingWatchlistDetailsReadError,
+    ProductListingWatchlistDetailsReader, ProductListingWatchlistDetailsReaderFactory,
+    ProductListingWatchlistDetailsRequest,
+};
+pub use product_listing_watchlist_notification_source_reader::{
+    ProductListingWatchlistNotificationChange, ProductListingWatchlistNotificationSource,
+    ProductListingWatchlistNotificationSourceReadError,
+    ProductListingWatchlistNotificationSourceReader,
+    ProductListingWatchlistNotificationSourceReaderFactory,
 };
 pub use watchlist_notification_recipient_reader::{
     WatchlistNotificationRecipient, WatchlistNotificationRecipientReadError,

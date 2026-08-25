@@ -8,7 +8,8 @@ use crate::ports::{
     SearchFilterMatchWriteError, SearchFilterMatchWriter, SearchFilterMatchWriterFactory,
 };
 use crate::product_match_evaluator::{
-    ProductMatchEvaluationOutcome, ProductMatchEvaluationRequest, evaluate_product_matches,
+    ProductListingMatchEvaluationOutcome, ProductListingMatchEvaluationRequest,
+    evaluate_product_matches,
 };
 use application::error::{BoxError, box_error};
 use application::pagination::Cursor;
@@ -20,19 +21,20 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use large_language_model::LargeLanguageModel;
-use product_listing_core::product::ProductPriceValuationBasis;
+use product_listing_core::product_listing::ProductListingPriceValuationBasis;
 
-use product_listing_core::product_search::ProductSearch;
+use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_service::ports::{
-    CompiledProductSearch, ProductCurrentRevisionCheck, ProductCurrentRevisionGuard,
-    ProductCurrentRevisionGuardFactory, ProductCurrentRevisionRef, ProductPriceFilterPlan,
-    ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceReadError,
-    ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
-    ProductSearchFilterMatchSourceRef, ProductSearchReadError, ProductSearchReadRequest,
-    ProductSearchReader,
+    CompiledProductListingSearch, ProductListingCurrentRevisionCheck,
+    ProductListingCurrentRevisionGuard, ProductListingCurrentRevisionGuardFactory,
+    ProductListingCurrentRevisionRef, ProductListingPriceFilterPlan,
+    ProductListingSearchFilterMatchSource, ProductListingSearchFilterMatchSourceReadError,
+    ProductListingSearchFilterMatchSourceReader,
+    ProductListingSearchFilterMatchSourceReaderFactory, ProductListingSearchFilterMatchSourceRef,
+    ProductListingSearchReadError, ProductListingSearchReadRequest, ProductListingSearchReader,
 };
 
-use search_filter_core::{PriceMatchValuation, SearchFilterProductMatch};
+use search_filter_core::{PriceMatchValuation, SearchFilterProductListingMatch};
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use time::{Duration, OffsetDateTime};
@@ -159,34 +161,34 @@ pub enum RunPeriodicSearchFilterMatchingError {
         #[source]
         source: BoxError,
     },
-    #[error("Product search failed")]
-    ProductSearchFailed,
-    #[error("Product search result is invalid")]
-    ProductSearchResultInvalid,
+    #[error("ProductListing search failed")]
+    ProductListingSearchFailed,
+    #[error("ProductListing search result is invalid")]
+    ProductListingSearchResultInvalid,
     #[error("existing search-filter match read failed")]
     ExistingMatchReadFailed {
         #[source]
         source: BoxError,
     },
-    #[error("failed to begin Product source transaction")]
-    BeginProductSourceTransactionFailed {
+    #[error("failed to begin ProductListing source transaction")]
+    BeginProductListingSourceTransactionFailed {
         #[source]
         source: BoxError,
     },
-    #[error("Product source read failed")]
-    ProductSourceReadFailed {
+    #[error("ProductListing source read failed")]
+    ProductListingSourceReadFailed {
         #[source]
         source: BoxError,
     },
-    #[error("Product source persisted state is invalid")]
-    ProductSourceStateInvalid {
+    #[error("ProductListing source persisted state is invalid")]
+    ProductListingSourceStateInvalid {
         #[source]
         source: BoxError,
     },
-    #[error("Product source identity does not match its requested reference")]
-    ProductSourceMismatch,
-    #[error("failed to commit Product source transaction")]
-    CommitProductSourceTransactionFailed {
+    #[error("ProductListing source identity does not match its requested reference")]
+    ProductListingSourceMismatch,
+    #[error("failed to commit ProductListing source transaction")]
+    CommitProductListingSourceTransactionFailed {
         #[source]
         source: BoxError,
     },
@@ -200,8 +202,8 @@ pub enum RunPeriodicSearchFilterMatchingError {
         #[source]
         source: BoxError,
     },
-    #[error("Product revision check failed")]
-    ProductRevisionCheckFailed {
+    #[error("ProductListing revision check failed")]
+    ProductListingRevisionCheckFailed {
         #[source]
         source: BoxError,
     },
@@ -294,11 +296,11 @@ where
     L: PeriodicSearchFilterMatchingRunLock,
     C: PeriodicSearchFilterCandidateReader,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
-    P: ProductSearchReader,
+    P: ProductListingSearchReader,
     X: ExistingSearchFilterMatchReader,
-    S: ProductSearchFilterMatchSourceReaderFactory<U::Tx>,
+    S: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
     E: LargeLanguageModel,
-    G: ProductCurrentRevisionGuardFactory<U::Tx>,
+    G: ProductListingCurrentRevisionGuardFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
     Q: PeriodicSearchFilterProgressFactory<U::Tx>,
 {
@@ -333,11 +335,11 @@ where
     U: UnitOfWork,
     C: PeriodicSearchFilterCandidateReader,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
-    P: ProductSearchReader,
+    P: ProductListingSearchReader,
     X: ExistingSearchFilterMatchReader,
-    S: ProductSearchFilterMatchSourceReaderFactory<U::Tx>,
+    S: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
     E: LargeLanguageModel,
-    G: ProductCurrentRevisionGuardFactory<U::Tx>,
+    G: ProductListingCurrentRevisionGuardFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
     Q: PeriodicSearchFilterProgressFactory<U::Tx>,
 {
@@ -523,15 +525,18 @@ where
                 .commit_filter(filter, window_end, Vec::new(), true, report)
                 .await;
         };
-        let price_filter_plan =
-            ProductPriceFilterPlan::compile(snapshot.clone(), search.currency, search.price_query)
-                .map_err(|source: FxRateSnapshotError| {
-                    RunPeriodicSearchFilterMatchingError::FxSnapshotInvalid {
-                        source: box_error(source),
-                    }
-                })?;
-        let request = ProductSearchReadRequest {
-            compiled_search: CompiledProductSearch {
+        let price_filter_plan = ProductListingPriceFilterPlan::compile(
+            snapshot.clone(),
+            search.currency,
+            search.price_query,
+        )
+        .map_err(|source: FxRateSnapshotError| {
+            RunPeriodicSearchFilterMatchingError::FxSnapshotInvalid {
+                source: box_error(source),
+            }
+        })?;
+        let request = ProductListingSearchReadRequest {
+            compiled_search: CompiledProductListingSearch {
                 search,
                 price_filter_plan: price_filter_plan.clone(),
             },
@@ -567,7 +572,7 @@ where
             .into_iter()
             .filter(|item| !existing.contains(&item.product_id))
             .take(self.policy.evaluation_limit.get())
-            .map(|item| ProductSearchFilterMatchSourceRef {
+            .map(|item| ProductListingSearchFilterMatchSourceRef {
                 product_id: item.product_id,
                 event_id: item.event_id,
             })
@@ -581,12 +586,12 @@ where
                     if source.product_id != reference.product_id
                         || source.event_id != reference.event_id =>
                 {
-                    return Err(RunPeriodicSearchFilterMatchingError::ProductSourceMismatch);
+                    return Err(RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch);
                 }
                 Some(source) if source.current_event_id != reference.event_id => {
                     report.candidates_stale += 1
                 }
-                Some(source) => evaluations.push(ProductMatchEvaluationRequest {
+                Some(source) => evaluations.push(ProductListingMatchEvaluationRequest {
                     key: reference,
                     product: source,
                     search_description: description.as_ref(),
@@ -601,10 +606,10 @@ where
         let mut accepted = Vec::new();
         for evaluation in evaluations {
             match evaluation.outcome {
-                ProductMatchEvaluationOutcome::Matched(reason) => {
-                    let source = sources
-                        .get(&evaluation.key)
-                        .ok_or(RunPeriodicSearchFilterMatchingError::ProductSourceMismatch)?;
+                ProductListingMatchEvaluationOutcome::Matched(reason) => {
+                    let source = sources.get(&evaluation.key).ok_or(
+                        RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch,
+                    )?;
                     let valuation =
                         filter
                             .search
@@ -612,9 +617,9 @@ where
                             .as_ref()
                             .map(|_| PriceMatchValuation {
                                 basis: if source.sale_valuation.is_some() {
-                                    ProductPriceValuationBasis::Sale
+                                    ProductListingPriceValuationBasis::Sale
                                 } else {
-                                    ProductPriceValuationBasis::Current
+                                    ProductListingPriceValuationBasis::Current
                                 },
                                 fx_rate_id: if let Some(sale) = source.sale_valuation {
                                     sale.fx_rate_id
@@ -622,7 +627,7 @@ where
                                     price_filter_plan.fx_rate_id
                                 },
                             });
-                    accepted.push(SearchFilterProductMatch {
+                    accepted.push(SearchFilterProductListingMatch {
                         user_id: filter.user_id,
                         user_search_filter_id: filter.search_filter_id,
                         user_search_filter_name: Some(filter.name.clone()),
@@ -633,11 +638,11 @@ where
                         feedback: None,
                     });
                 }
-                ProductMatchEvaluationOutcome::Rejected => report.candidates_rejected += 1,
-                ProductMatchEvaluationOutcome::PermanentFailure(_) => {
+                ProductListingMatchEvaluationOutcome::Rejected => report.candidates_rejected += 1,
+                ProductListingMatchEvaluationOutcome::PermanentFailure(_) => {
                     report.permanent_evaluation_failures += 1
                 }
-                ProductMatchEvaluationOutcome::RetryableFailure(_) => {
+                ProductListingMatchEvaluationOutcome::RetryableFailure(_) => {
                     report.retryable_evaluation_failures += 1;
                     retryable = true;
                 }
@@ -657,16 +662,16 @@ where
 
     async fn load_sources(
         &self,
-        refs: &[ProductSearchFilterMatchSourceRef],
+        refs: &[ProductListingSearchFilterMatchSourceRef],
     ) -> Result<
-        HashMap<ProductSearchFilterMatchSourceRef, ProductSearchFilterMatchSource>,
+        HashMap<ProductListingSearchFilterMatchSourceRef, ProductListingSearchFilterMatchSource>,
         RunPeriodicSearchFilterMatchingError,
     > {
         if refs.is_empty() {
             return Ok(HashMap::new());
         }
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
-            RunPeriodicSearchFilterMatchingError::BeginProductSourceTransactionFailed {
+            RunPeriodicSearchFilterMatchingError::BeginProductListingSourceTransactionFailed {
                 source: box_error(source),
             }
         })?;
@@ -677,7 +682,7 @@ where
             .await
             .map_err(product_source_error)?;
         tx.commit().await.map_err(|source| {
-            RunPeriodicSearchFilterMatchingError::CommitProductSourceTransactionFailed {
+            RunPeriodicSearchFilterMatchingError::CommitProductListingSourceTransactionFailed {
                 source: box_error(source),
             }
         })?;
@@ -688,7 +693,7 @@ where
         &self,
         filter: &PeriodicSearchFilterCandidate,
         window_end: OffsetDateTime,
-        matches: Vec<SearchFilterProductMatch>,
+        matches: Vec<SearchFilterProductListingMatch>,
         advance_progress: bool,
         report: &mut FilterAttemptReport,
     ) -> Result<FilterOutcome, RunPeriodicSearchFilterMatchingError> {
@@ -725,7 +730,7 @@ where
         }
         let refs = matches
             .iter()
-            .map(|item| ProductCurrentRevisionRef {
+            .map(|item| ProductListingCurrentRevisionRef {
                 product_id: item.product_id,
                 expected_event_id: item.origin_event_id,
             })
@@ -735,18 +740,18 @@ where
             .in_transaction(&mut tx)
             .lock_and_check_all(&refs)
             .await
-            .map_err(
-                |source| RunPeriodicSearchFilterMatchingError::ProductRevisionCheckFailed {
+            .map_err(|source| {
+                RunPeriodicSearchFilterMatchingError::ProductListingRevisionCheckFailed {
                     source: box_error(source),
-                },
-            )?;
+                }
+            })?;
         let matches = matches
             .into_iter()
             .filter(|item| {
-                checks.get(&ProductCurrentRevisionRef {
+                checks.get(&ProductListingCurrentRevisionRef {
                     product_id: item.product_id,
                     expected_event_id: item.origin_event_id,
-                }) == Some(&ProductCurrentRevisionCheck::Current)
+                }) == Some(&ProductListingCurrentRevisionCheck::Current)
             })
             .collect::<Vec<_>>();
         let persisted = self
@@ -802,14 +807,14 @@ enum FilterRetryClass {
 impl RunPeriodicSearchFilterMatchingError {
     const fn retry_class(&self) -> FilterRetryClass {
         match self {
-            Self::ProductSearchFailed
+            Self::ProductListingSearchFailed
             | Self::ExistingMatchReadFailed { .. }
-            | Self::BeginProductSourceTransactionFailed { .. }
-            | Self::ProductSourceReadFailed { .. }
-            | Self::CommitProductSourceTransactionFailed { .. }
+            | Self::BeginProductListingSourceTransactionFailed { .. }
+            | Self::ProductListingSourceReadFailed { .. }
+            | Self::CommitProductListingSourceTransactionFailed { .. }
             | Self::BeginFinalTransactionFailed { .. }
             | Self::ProgressFailed { .. }
-            | Self::ProductRevisionCheckFailed { .. }
+            | Self::ProductListingRevisionCheckFailed { .. }
             | Self::MatchPersistenceFailed { .. }
             | Self::CommitFinalTransactionFailed { .. } => FilterRetryClass::Retryable,
             Self::InvalidPolicy
@@ -822,9 +827,9 @@ impl RunPeriodicSearchFilterMatchingError {
             | Self::CommitFxSnapshotTransactionFailed { .. }
             | Self::CandidateReadFailed { .. }
             | Self::CandidateStateInvalid { .. }
-            | Self::ProductSearchResultInvalid
-            | Self::ProductSourceStateInvalid { .. }
-            | Self::ProductSourceMismatch
+            | Self::ProductListingSearchResultInvalid
+            | Self::ProductListingSourceStateInvalid { .. }
+            | Self::ProductListingSourceMismatch
             | Self::MatchStateInvalid { .. } => FilterRetryClass::Permanent,
         }
     }
@@ -841,7 +846,8 @@ async fn retry_delay(attempt: usize) {
 
 fn periodic_search_description(
     filter: &PeriodicSearchFilterCandidate,
-) -> Result<&product_listing_core::product_search::EnhancedSearchDescription, FilterOutcome> {
+) -> Result<&product_listing_core::product_listing_search::EnhancedSearchDescription, FilterOutcome>
+{
     filter
         .search
         .enhanced_search_description
@@ -892,7 +898,7 @@ fn periodic_search(
     filter: &PeriodicSearchFilterCandidate,
     window_end: OffsetDateTime,
     replay_overlap: Duration,
-) -> Option<ProductSearch> {
+) -> Option<ProductListingSearch> {
     let replay_candidate = filter
         .matched_through
         .checked_sub(replay_overlap)
@@ -924,12 +930,12 @@ fn periodic_search(
         .and_then(|description| description.as_ref().try_into().ok())
         .filter(|query| {
             !search
-                .product_query
+                .product_listing_query
                 .iter()
                 .any(|existing| existing == query)
         })
     {
-        search.product_query.push(query)
+        search.product_listing_query.push(query)
     }
     Some(search)
 }
@@ -968,24 +974,26 @@ fn fx_snapshot_error(error: FxRateSnapshotRepositoryError) -> RunPeriodicSearchF
         },
     }
 }
-fn product_search_error(error: ProductSearchReadError) -> RunPeriodicSearchFilterMatchingError {
+fn product_search_error(
+    error: ProductListingSearchReadError,
+) -> RunPeriodicSearchFilterMatchingError {
     match error {
-        ProductSearchReadError::ProductSearchQueryFailed => {
-            RunPeriodicSearchFilterMatchingError::ProductSearchFailed
+        ProductListingSearchReadError::ProductListingSearchQueryFailed => {
+            RunPeriodicSearchFilterMatchingError::ProductListingSearchFailed
         }
-        ProductSearchReadError::ProductSearchReadModelInvalid => {
-            RunPeriodicSearchFilterMatchingError::ProductSearchResultInvalid
+        ProductListingSearchReadError::ProductListingSearchReadModelInvalid => {
+            RunPeriodicSearchFilterMatchingError::ProductListingSearchResultInvalid
         }
     }
 }
 fn product_source_error(
-    error: ProductSearchFilterMatchSourceReadError,
+    error: ProductListingSearchFilterMatchSourceReadError,
 ) -> RunPeriodicSearchFilterMatchingError {
     match error {
-        ProductSearchFilterMatchSourceReadError::InvalidPersistedState { source } => {
-            RunPeriodicSearchFilterMatchingError::ProductSourceStateInvalid { source }
+        ProductListingSearchFilterMatchSourceReadError::InvalidPersistedState { source } => {
+            RunPeriodicSearchFilterMatchingError::ProductListingSourceStateInvalid { source }
         }
-        error => RunPeriodicSearchFilterMatchingError::ProductSourceReadFailed {
+        error => RunPeriodicSearchFilterMatchingError::ProductListingSourceReadFailed {
             source: box_error(error),
         },
     }
@@ -1024,7 +1032,7 @@ mod tests {
     use large_language_model::{LargeLanguageModelError, StructuredGenerationRequest};
     use localization::Language;
     use money::Currency;
-    use product_listing_core::product_id::ProductId;
+    use product_listing_core::product_listing_id::ProductListingId;
     use search_filter_core::{
         search_filter_state::SearchFilterState, user_search_filter_name::UserSearchFilterName,
     };
@@ -1038,7 +1046,7 @@ mod tests {
         lock_outcome: PeriodicSearchFilterProgressLockOutcome,
         commits: usize,
         revision_checks: usize,
-        persisted: Vec<SearchFilterProductMatch>,
+        persisted: Vec<SearchFilterProductListingMatch>,
         checkpoints: usize,
     }
 
@@ -1150,29 +1158,29 @@ mod tests {
         }
     }
 
-    struct NoopProducts;
+    struct NoopProductListings;
 
     #[async_trait::async_trait]
-    impl ProductSearchReader for NoopProducts {
+    impl ProductListingSearchReader for NoopProductListings {
         async fn search(
             &self,
-            _request: &ProductSearchReadRequest,
+            _request: &ProductListingSearchReadRequest,
         ) -> Result<
-            product_listing_service::use_cases::queries::search_products::ProductSearchReadResult,
-            ProductSearchReadError,
-        > {
-            Err(ProductSearchReadError::ProductSearchQueryFailed)
+            product_listing_service::use_cases::queries::search_product_listings::ProductListingSearchReadResult,
+            ProductListingSearchReadError,
+        >{
+            Err(ProductListingSearchReadError::ProductListingSearchQueryFailed)
         }
 
         async fn search_hybrid(
             &self,
-            _request: &ProductSearchReadRequest,
+            _request: &ProductListingSearchReadRequest,
             _embedding: &[f32],
         ) -> Result<
-            product_listing_service::use_cases::queries::search_products::ProductSearchReadResult,
-            ProductSearchReadError,
-        > {
-            Err(ProductSearchReadError::ProductSearchQueryFailed)
+            product_listing_service::use_cases::queries::search_product_listings::ProductListingSearchReadResult,
+            ProductListingSearchReadError,
+        >{
+            Err(ProductListingSearchReadError::ProductListingSearchQueryFailed)
         }
     }
 
@@ -1183,8 +1191,8 @@ mod tests {
         async fn find_existing_product_ids(
             &self,
             _search_filter_id: search_filter_core::user_search_filter_id::UserSearchFilterId,
-            _product_ids: &[ProductId],
-        ) -> Result<HashSet<ProductId>, ExistingSearchFilterMatchReadError> {
+            _product_ids: &[ProductListingId],
+        ) -> Result<HashSet<ProductListingId>, ExistingSearchFilterMatchReadError> {
             Ok(HashSet::new())
         }
     }
@@ -1193,22 +1201,24 @@ mod tests {
     struct ReadingNoopSources;
 
     #[async_trait::async_trait]
-    impl ProductSearchFilterMatchSourceReader for ReadingNoopSources {
+    impl ProductListingSearchFilterMatchSourceReader for ReadingNoopSources {
         async fn find_source(
             &mut self,
             _event_id: EventId,
-            _product_id: ProductId,
-        ) -> Result<Option<ProductSearchFilterMatchSource>, ProductSearchFilterMatchSourceReadError>
-        {
+            _product_id: ProductListingId,
+        ) -> Result<
+            Option<ProductListingSearchFilterMatchSource>,
+            ProductListingSearchFilterMatchSourceReadError,
+        > {
             Ok(None)
         }
     }
 
-    impl ProductSearchFilterMatchSourceReaderFactory<FakeTransaction> for NoopSources {
+    impl ProductListingSearchFilterMatchSourceReaderFactory<FakeTransaction> for NoopSources {
         fn in_transaction<'tx>(
             &'tx self,
             _tx: &'tx mut FakeTransaction,
-        ) -> impl ProductSearchFilterMatchSourceReader + 'tx {
+        ) -> impl ProductListingSearchFilterMatchSourceReader + 'tx {
             ReadingNoopSources
         }
     }
@@ -1236,30 +1246,30 @@ mod tests {
     struct CheckingRevisions<'a>(&'a Arc<Mutex<State>>);
 
     #[async_trait::async_trait]
-    impl ProductCurrentRevisionGuard for CheckingRevisions<'_> {
+    impl ProductListingCurrentRevisionGuard for CheckingRevisions<'_> {
         async fn lock_and_check(
             &mut self,
-            _product_id: ProductId,
+            _product_id: ProductListingId,
             _expected_event_id: EventId,
         ) -> Result<
-            ProductCurrentRevisionCheck,
-            product_listing_service::ports::ProductCurrentRevisionCheckError,
+            ProductListingCurrentRevisionCheck,
+            product_listing_service::ports::ProductListingCurrentRevisionCheckError,
         > {
             let mut state = self.0.lock().map_err(|_| {
-                product_listing_service::ports::ProductCurrentRevisionCheckError::CheckFailed {
+                product_listing_service::ports::ProductListingCurrentRevisionCheckError::CheckFailed {
                     source: box_error(std::io::Error::other("test mutex poisoned")),
                 }
             })?;
             state.revision_checks += 1;
-            Ok(ProductCurrentRevisionCheck::Current)
+            Ok(ProductListingCurrentRevisionCheck::Current)
         }
     }
 
-    impl ProductCurrentRevisionGuardFactory<FakeTransaction> for FakeRevisions {
+    impl ProductListingCurrentRevisionGuardFactory<FakeTransaction> for FakeRevisions {
         fn in_transaction<'tx>(
             &'tx self,
             _tx: &'tx mut FakeTransaction,
-        ) -> impl ProductCurrentRevisionGuard + 'tx {
+        ) -> impl ProductListingCurrentRevisionGuard + 'tx {
             CheckingRevisions(&self.0)
         }
     }
@@ -1273,7 +1283,7 @@ mod tests {
     impl SearchFilterMatchWriter for WritingMatches<'_> {
         async fn insert_if_absent(
             &mut self,
-            product_match: &SearchFilterProductMatch,
+            product_match: &SearchFilterProductListingMatch,
         ) -> Result<SearchFilterMatchPersistOutcome, SearchFilterMatchWriteError> {
             let mut state =
                 self.0
@@ -1348,7 +1358,7 @@ mod tests {
         NoopRunLock,
         NoopCandidates,
         NoopFxRates,
-        NoopProducts,
+        NoopProductListings,
         NoopExistingMatches,
         NoopSources,
         NoopEvaluator,
@@ -1373,7 +1383,7 @@ mod tests {
             NoopRunLock,
             NoopCandidates,
             NoopFxRates,
-            NoopProducts,
+            NoopProductListings,
             NoopExistingMatches,
             NoopSources,
             NoopEvaluator,
@@ -1399,7 +1409,7 @@ mod tests {
             name: UserSearchFilterName::from("daily"),
             version: 4,
             state: SearchFilterState::Active,
-            search: ProductSearch::new(Language::En, Currency::Eur),
+            search: ProductListingSearch::new(Language::En, Currency::Eur),
             embedding: None,
             created: OffsetDateTime::UNIX_EPOCH,
             matched_through: OffsetDateTime::UNIX_EPOCH,
@@ -1470,12 +1480,12 @@ mod tests {
         )
     }
 
-    fn accepted_match(filter: &PeriodicSearchFilterCandidate) -> SearchFilterProductMatch {
-        SearchFilterProductMatch {
+    fn accepted_match(filter: &PeriodicSearchFilterCandidate) -> SearchFilterProductListingMatch {
+        SearchFilterProductListingMatch {
             user_id: filter.user_id,
             user_search_filter_id: filter.search_filter_id,
             user_search_filter_name: Some(filter.name.clone()),
-            product_id: ProductId::new(),
+            product_id: ProductListingId::new(),
             origin_event_id: EventId::new(),
             price_match_valuation: None,
             enhanced_match_reason: None,

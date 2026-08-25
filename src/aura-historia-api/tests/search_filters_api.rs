@@ -1,7 +1,7 @@
 mod api_support;
 
 use api_support::{assert_problem, json_response, seed_access_token_for, seed_product, seed_user};
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use test_api::{
     AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
     get_postgres_client,
@@ -223,7 +223,8 @@ async fn should_accept_json_string_search_after_for_search_filter_matches() {
     let filter_id = create_search_filter(&client, &token).await;
     let (product_id, _, _) = seed_search_filter_match(user_id, &filter_id).await;
     let search_after =
-        serde_json::json!(["1970-01-01T00:00:00Z", ProductId::new().to_string(),]).to_string();
+        serde_json::json!(["1970-01-01T00:00:00Z", ProductListingId::new().to_string(),])
+            .to_string();
 
     let response = client
         .get(format!(
@@ -483,12 +484,12 @@ async fn create_search_filter(client: &reqwest::Client, token: &RawAccessToken) 
 async fn seed_search_filter_match(
     user_id: user_core::user_id::UserId,
     filter_id: &str,
-) -> (ProductId, String, String) {
+) -> (ProductListingId, String, String) {
     let product_id = seed_product().await;
     let pool = get_postgres_client().await;
-    let (shop_id, shops_product_id, origin_event_id) =
+    let (shop_id, shop_listing_id, origin_event_id) =
         sqlx::query_as::<_, (uuid::Uuid, String, uuid::Uuid)>(
-            "SELECT shop_id, shops_product_id, event_id FROM products WHERE product_id = $1",
+            "SELECT shop_id, shop_listing_id, event_id FROM products WHERE product_id = $1",
         )
         .bind(uuid::Uuid::from(product_id))
         .fetch_one(&pool)
@@ -510,7 +511,7 @@ async fn seed_search_filter_match(
     .await
     .unwrap_or_else(|error| panic!("failed to seed search filter match: {error}"));
 
-    (product_id, shop_id.to_string(), shops_product_id)
+    (product_id, shop_id.to_string(), shop_listing_id)
 }
 
 fn search_filter_body() -> serde_json::Value {

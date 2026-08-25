@@ -37,7 +37,7 @@ async fn should_select_richer_schema_even_when_it_is_later_in_order() {
         updated: OffsetDateTime::now_utc(),
     };
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -49,7 +49,7 @@ async fn should_select_richer_schema_even_when_it_is_later_in_order() {
     schema_svc.expect_save_product_schemas().never();
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .times(1)
@@ -97,7 +97,7 @@ async fn should_pick_earlier_schema_when_it_extracts_more_data() {
         updated: OffsetDateTime::now_utc(),
     };
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -109,7 +109,7 @@ async fn should_pick_earlier_schema_when_it_extracts_more_data() {
     schema_svc.expect_save_product_schemas().never();
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .times(1)
@@ -157,7 +157,7 @@ async fn should_generate_fresh_schema_when_no_cached_schema_applies() {
         updated: OffsetDateTime::now_utc(),
     };
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -191,7 +191,7 @@ async fn should_generate_fresh_schema_when_no_cached_schema_applies() {
         });
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()
@@ -242,7 +242,7 @@ async fn should_generate_fresh_schema_when_richer_candidate_normalization_fails_
         updated: OffsetDateTime::now_utc(),
     };
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -277,7 +277,7 @@ async fn should_generate_fresh_schema_when_richer_candidate_normalization_fails_
 
     let expected = normalized_product(url.clone());
     let normalize_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .times(3) // 2 cached (candidate-data failures) + 1 generated
@@ -332,7 +332,7 @@ async fn should_not_persist_generated_schema_when_normalization_keeps_failing_fi
         updated: OffsetDateTime::now_utc(),
     };
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -353,7 +353,7 @@ async fn should_not_persist_generated_schema_when_normalization_keeps_failing_fi
         });
     schema_svc.expect_save_product_schemas().never();
 
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc.expect_normalize().returning(|_, _, _| {
         Box::pin(async { Err(normalization_failure(NormalizationError::TitleEmpty, 0)) })
     });

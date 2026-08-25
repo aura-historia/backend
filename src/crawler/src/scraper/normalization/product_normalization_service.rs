@@ -6,7 +6,7 @@ use super::{
     price::normalize_price_field,
     text::{
         detect_description_language, localize_normalized_title, normalize_description,
-        normalize_shops_product_id_with_url_sha_fallback, normalize_title,
+        normalize_shop_listing_id_with_url_sha_fallback, normalize_title,
     },
 };
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
@@ -18,8 +18,8 @@ use crate::scraper::normalization::{
 use localization::{Language, Localized};
 use money::Currency;
 use product_listing_core::{
-    description::Description, product_image::ProductImage, shops_product_id::ShopsProductId,
-    title::Title,
+    description::Description, product_listing_image::ProductListingImage,
+    shop_listing_id::ShopListingId, title::Title,
 };
 
 use tracing::debug;
@@ -31,14 +31,14 @@ use url::Url;
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait ProductNormalizationService {
+pub trait ProductListingNormalizationService {
     /// Normalise a raw extracted product.
     ///
     /// The state is resolved automatically from `raw.state` via the injected
     /// [`ProductStateMappingService`]. Callers do not need to pre-resolve the
     /// state; this method handles all async DB/LLM work internally.
     ///
-    /// When `raw.shops_product_id` is blank after trimming, a SHA-256 hash of
+    /// When `raw.shop_listing_id` is blank after trimming, a SHA-256 hash of
     /// the full `url` string is used as a stable fallback identifier rather
     /// than returning an error. This keeps the scrape pipeline alive on pages
     /// where the CSS selector does not extract a product ID.
@@ -58,7 +58,7 @@ pub trait ProductNormalizationService {
         raw: RawExtractedProduct,
         url: Url,
         default_currency: Option<Currency>,
-    ) -> ProductNormalizationResult;
+    ) -> ProductListingNormalizationResult;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -74,19 +74,19 @@ pub struct NormalizationFailure {
     pub llm_calls_used: u32,
 }
 
-pub type ProductNormalizationResult = Result<NormalizationSuccess, NormalizationFailure>;
+pub type ProductListingNormalizationResult = Result<NormalizationSuccess, NormalizationFailure>;
 
 /// Deterministic candidate-local product data. State mapping is intentionally absent.
 #[derive(Debug, Clone)]
 pub struct PreparedProduct {
-    pub shops_product_id: ShopsProductId,
+    pub shop_listing_id: ShopListingId,
     pub title: Localized<Language, Title>,
     pub description: Option<Localized<Language, Description>>,
     pub price: Option<money::Price>,
     pub price_estimate_min: Option<money::Price>,
     pub price_estimate_max: Option<money::Price>,
     pub seller_name: Option<String>,
-    pub images: Vec<ProductImage>,
+    pub images: Vec<ProductListingImage>,
     pub auction_start: Option<time::OffsetDateTime>,
     pub auction_end: Option<time::OffsetDateTime>,
     pub raw_attributes: std::collections::BTreeMap<String, Vec<String>>,
@@ -107,8 +107,8 @@ pub fn prepare_product(
             max: crate::scraper::normalization::state_mapping_service::MAX_STATE_RAW_LEN,
         });
     }
-    let shops_product_id =
-        normalize_shops_product_id_with_url_sha_fallback(&raw.shops_product_id, &url);
+    let shop_listing_id =
+        normalize_shop_listing_id_with_url_sha_fallback(&raw.shop_listing_id, &url);
     let title = normalize_title(&raw.title)?;
     let title_language = detect_language(title.as_ref());
     let description_language = detect_description_language(&raw.description);
@@ -150,7 +150,7 @@ pub fn prepare_product(
         NormalizationError::AuctionEndParseError { raw: r }
     })?;
     Ok(PreparedProduct {
-        shops_product_id,
+        shop_listing_id,
         title,
         description,
         price,
@@ -170,11 +170,11 @@ pub fn prepare_product(
 // Implementation
 // ---------------------------------------------------------------------------
 
-pub struct ProductNormalizationServiceImpl {
+pub struct ProductListingNormalizationServiceImpl {
     state_mapping_service: Box<dyn ProductStateMappingService + Send + Sync>,
 }
 
-impl ProductNormalizationServiceImpl {
+impl ProductListingNormalizationServiceImpl {
     pub fn new(state_mapping_service: Box<dyn ProductStateMappingService + Send + Sync>) -> Self {
         Self {
             state_mapping_service,
@@ -183,16 +183,16 @@ impl ProductNormalizationServiceImpl {
 }
 
 #[async_trait::async_trait]
-impl ProductNormalizationService for ProductNormalizationServiceImpl {
+impl ProductListingNormalizationService for ProductListingNormalizationServiceImpl {
     #[tracing::instrument(skip(self, raw), fields(url = %url))]
     async fn normalize(
         &self,
         raw: RawExtractedProduct,
         url: Url,
         default_currency: Option<Currency>,
-    ) -> ProductNormalizationResult {
+    ) -> ProductListingNormalizationResult {
         debug!(
-            shops_product_id = %raw.shops_product_id,
+            shop_listing_id = %raw.shop_listing_id,
             title = %raw.title,
             state = %raw.state,
             price = ?raw.price,
@@ -238,7 +238,7 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
 
         Ok(NormalizationSuccess {
             product: NormalizedProduct {
-                shops_product_id: prepared.shops_product_id,
+                shop_listing_id: prepared.shop_listing_id,
                 title: prepared.title,
                 description: prepared.description,
                 price: prepared.price,
@@ -271,7 +271,10 @@ mod tests {
     use product_listing_core::product_state::ProductState;
     use time::OffsetDateTime;
 
-    use super::{NormalizationError, ProductNormalizationService, ProductNormalizationServiceImpl};
+    use super::{
+        NormalizationError, ProductListingNormalizationService,
+        ProductListingNormalizationServiceImpl,
+    };
     use crate::scraper::css_selector::product_schema::RawExtractedProduct;
     use crate::scraper::normalization::{
         error::NormalizationFailureScope,
@@ -288,7 +291,7 @@ mod tests {
 
     fn minimal_raw() -> RawExtractedProduct {
         RawExtractedProduct {
-            shops_product_id: "PROD-001".into(),
+            shop_listing_id: "PROD-001".into(),
             // Long enough for lingua to reliably identify as English.
             title: "Antique ceramic vase from the early twentieth century in excellent condition"
                 .into(),
@@ -317,30 +320,30 @@ mod tests {
         }
     }
 
-    /// Create a `ProductNormalizationServiceImpl` whose state mapping service
+    /// Create a `ProductListingNormalizationServiceImpl` whose state mapping service
     /// always resolves `raw_state` to `resolved`.
     fn make_service(
         raw_state: &'static str,
         resolved: ProductState,
-    ) -> ProductNormalizationServiceImpl {
+    ) -> ProductListingNormalizationServiceImpl {
         let record = mapping_record(raw_state, resolved);
         let mut mock = MockProductStateMappingService::new();
         mock.expect_get_state_mapping().returning(move |_| {
             let r = record.clone();
             Box::pin(async move { Ok((r, false)) })
         });
-        ProductNormalizationServiceImpl::new(Box::new(mock))
+        ProductListingNormalizationServiceImpl::new(Box::new(mock))
     }
 
     /// Create a service whose state mapping service always returns `Available`.
-    fn make_available_service() -> ProductNormalizationServiceImpl {
+    fn make_available_service() -> ProductListingNormalizationServiceImpl {
         make_service("available", ProductState::Available)
     }
 
-    fn make_service_that_must_not_map_state() -> ProductNormalizationServiceImpl {
+    fn make_service_that_must_not_map_state() -> ProductListingNormalizationServiceImpl {
         let mut mock = MockProductStateMappingService::new();
         mock.expect_get_state_mapping().times(0);
-        ProductNormalizationServiceImpl::new(Box::new(mock))
+        ProductListingNormalizationServiceImpl::new(Box::new(mock))
     }
 
     // -----------------------------------------------------------------------
@@ -357,7 +360,7 @@ mod tests {
         let result = normalized.product;
         let llm_calls = normalized.llm_calls_used;
 
-        assert_eq!(result.shops_product_id.to_string(), "prod-001");
+        assert_eq!(result.shop_listing_id.to_string(), "prod-001");
         assert_eq!(
             result.title.payload.as_ref(),
             "Antique ceramic vase from the early twentieth century in excellent condition"
@@ -377,7 +380,7 @@ mod tests {
     async fn should_normalize_product_when_full_raw_provided() {
         let svc = make_service("listed", ProductState::Listed);
         let raw = RawExtractedProduct {
-            shops_product_id: "LOT-42".into(),
+            shop_listing_id: "LOT-42".into(),
             // Long enough English text for reliable language detection.
             title:
                 "Victorian silver brooch in excellent original condition from private collection"
@@ -416,7 +419,7 @@ mod tests {
 
         let result = svc.normalize(raw, base_url(), None).await.unwrap().product;
 
-        assert_eq!(result.shops_product_id.to_string(), "lot-42");
+        assert_eq!(result.shop_listing_id.to_string(), "lot-42");
         assert_eq!(
             result.title.payload.as_ref(),
             "Victorian silver brooch in excellent original condition from private collection"
@@ -508,7 +511,7 @@ mod tests {
                 Box::pin(async move { Ok((r, false)) })
             });
 
-        let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
+        let svc = ProductListingNormalizationServiceImpl::new(Box::new(mock));
         let mut raw = minimal_raw();
         raw.state = raw_state.into();
         let result = svc.normalize(raw, base_url(), None).await.unwrap().product;
@@ -530,7 +533,7 @@ mod tests {
             })
         });
 
-        let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
+        let svc = ProductListingNormalizationServiceImpl::new(Box::new(mock));
         let err = svc
             .normalize(minimal_raw(), base_url(), None)
             .await
@@ -553,7 +556,7 @@ mod tests {
             .times(1)
             .returning(|_| Box::pin(async { Err(StateMappingServiceError::UnparsableResponse) }));
 
-        let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
+        let svc = ProductListingNormalizationServiceImpl::new(Box::new(mock));
         let err = svc
             .normalize(minimal_raw(), base_url(), None)
             .await
@@ -581,7 +584,7 @@ mod tests {
             })
         });
 
-        let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
+        let svc = ProductListingNormalizationServiceImpl::new(Box::new(mock));
         let err = svc
             .normalize(minimal_raw(), base_url(), None)
             .await
@@ -603,14 +606,14 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[tokio::test]
-    async fn should_use_url_sha_as_shops_product_id_when_extracted_id_is_blank() {
+    async fn should_use_url_sha_as_shop_listing_id_when_extracted_id_is_blank() {
         let svc = make_available_service();
         let mut raw = minimal_raw();
-        raw.shops_product_id = "  ".into();
+        raw.shop_listing_id = "  ".into();
         let url = Url::parse("https://shop.example.com/item/fallback-item").unwrap();
         let result = svc.normalize(raw, url, None).await.unwrap().product;
         assert_eq!(
-            result.shops_product_id.to_string(),
+            result.shop_listing_id.to_string(),
             "3603d78ef2b4963051a2ca8ea12a0b9d774e99baa08a26bdf73916a0261bf198"
         );
     }
@@ -637,7 +640,7 @@ mod tests {
                 Box::pin(async move { Ok((r, true)) })
             });
 
-        let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
+        let svc = ProductListingNormalizationServiceImpl::new(Box::new(mock));
         let result = svc
             .normalize(minimal_raw(), base_url(), None)
             .await
@@ -893,7 +896,7 @@ mod tests {
             })
         });
 
-        let svc = ProductNormalizationServiceImpl::new(Box::new(mock));
+        let svc = ProductListingNormalizationServiceImpl::new(Box::new(mock));
         let err = svc
             .normalize(minimal_raw(), base_url(), None)
             .await

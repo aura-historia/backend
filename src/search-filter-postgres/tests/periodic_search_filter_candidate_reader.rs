@@ -2,7 +2,9 @@ use application::transaction::{Transaction, UnitOfWork};
 use localization::Language;
 use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
-use product_listing_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use product_listing_core::product_listing_search::{
+    EnhancedSearchDescription, ProductListingSearch,
+};
 use search_filter_core::{
     NewSearchFilter, SearchFilter, search_filter_state::SearchFilterState,
     user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
@@ -131,10 +133,11 @@ async fn should_exclude_filter_whose_checkpoint_already_covers_window() {
 }
 
 async fn seed_enhanced_filter(unit: &SqlxUnitOfWork, user_id: UserId, name: &str) -> SearchFilter {
-    let search = ProductSearch::new(Language::En, Currency::Eur).with_enhanced_search_description(
-        EnhancedSearchDescription::try_from("Find a red bicycle")
-            .unwrap_or_else(|error| panic!("description invalid: {error:?}")),
-    );
+    let search = ProductListingSearch::new(Language::En, Currency::Eur)
+        .with_enhanced_search_description(
+            EnhancedSearchDescription::try_from("Find a red bicycle")
+                .unwrap_or_else(|error| panic!("description invalid: {error:?}")),
+        );
     let filter = SearchFilter::create(NewSearchFilter {
         user_search_filter_id: UserSearchFilterId::new(),
         user_id,

@@ -1,0 +1,162 @@
+use super::product_listing_details_reader::{ProductListingDetailsRow, product_details_select};
+use application::error::box_error;
+use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_service::ports::{
+    PersonalizedProductListingDetailsReadModel, ProductListingDetailsBatchReadError,
+    ProductListingDetailsBatchReadRequest, ProductListingDetailsBatchReader,
+};
+use sqlx::{PgPool, Postgres, QueryBuilder};
+use std::collections::HashMap;
+
+#[derive(Debug, Clone)]
+pub struct SqlxProductListingDetailsBatchReader {
+    pool: PgPool,
+}
+
+impl SqlxProductListingDetailsBatchReader {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("product details batch search-filter identifier conversion failed")]
+struct ProductListingDetailsBatchSearchFilterIdError(#[source] uuid::Error);
+
+#[derive(Debug, thiserror::Error)]
+#[error("product details batch SQL query failed")]
+struct ProductListingDetailsBatchQuerySqlxError(#[source] sqlx::Error);
+
+#[derive(Debug, thiserror::Error)]
+#[error("product details batch row could not map to the read model")]
+struct ProductListingDetailsBatchReadModelMappingError;
+
+impl From<ProductListingDetailsBatchSearchFilterIdError> for ProductListingDetailsBatchReadError {
+    fn from(source: ProductListingDetailsBatchSearchFilterIdError) -> Self {
+        Self::QueryFailed {
+            source: box_error(source),
+        }
+    }
+}
+
+impl From<ProductListingDetailsBatchQuerySqlxError> for ProductListingDetailsBatchReadError {
+    fn from(source: ProductListingDetailsBatchQuerySqlxError) -> Self {
+        Self::QueryFailed {
+            source: box_error(source),
+        }
+    }
+}
+
+impl From<ProductListingDetailsBatchReadModelMappingError> for ProductListingDetailsBatchReadError {
+    fn from(source: ProductListingDetailsBatchReadModelMappingError) -> Self {
+        Self::InvalidReadModel {
+            source: box_error(source),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl ProductListingDetailsBatchReader for SqlxProductListingDetailsBatchReader {
+    async fn find_for_user(
+        &self,
+        request: &ProductListingDetailsBatchReadRequest,
+    ) -> Result<
+        HashMap<ProductListingId, PersonalizedProductListingDetailsReadModel>,
+        ProductListingDetailsBatchReadError,
+    > {
+        if request.product_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let product_ids = request
+            .product_ids
+            .iter()
+            .copied()
+            .map(uuid::Uuid::from)
+            .collect::<Vec<_>>();
+        let search_filter_id = uuid::Uuid::parse_str(&request.search_filter_id.to_string())
+            .map_err(ProductListingDetailsBatchSearchFilterIdError)?;
+        let select = product_details_select(
+            r#"
+    requested_products AS (
+        SELECT DISTINCT requested.product_id
+        FROM UNNEST($3::uuid[]) AS requested(product_id)
+    ),
+    notification_states AS (
+        SELECT
+            notification.product_id,
+            array_agg(
+                notification.notification_id
+                ORDER BY notification.created DESC, notification.notification_id DESC
+            ) AS unseen_notification_ids
+        FROM notifications notification
+        JOIN requested_products requested
+            ON requested.product_id = notification.product_id
+        WHERE notification.user_id = $2
+            AND notification.seen = false
+        GROUP BY notification.product_id
+    )
+"#,
+        )
+        .replace(
+            "AND matched.product_id = p.product_id",
+            "AND matched.product_id = p.product_id AND matched.user_search_filter_id = $4",
+        );
+        let mut query = QueryBuilder::<Postgres>::new(select);
+        query.push(" WHERE p.product_id = ANY($3)");
+        let rows = query
+            .build_query_as::<ProductListingDetailsRow>()
+            .bind(request.language.as_str())
+            .bind(uuid::Uuid::from(request.user_id))
+            .bind(product_ids)
+            .bind(search_filter_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(ProductListingDetailsBatchQuerySqlxError)?;
+
+        rows.into_iter()
+            .map(|row| {
+                let product_id = ProductListingId::from(row.product_id);
+                let details = PersonalizedProductListingDetailsReadModel::try_from(row)
+                    .map_err(|_| ProductListingDetailsBatchReadModelMappingError)?;
+                Ok((product_id, details))
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_preserve_sqlx_query_source() {
+        let error: ProductListingDetailsBatchReadError =
+            ProductListingDetailsBatchQuerySqlxError(sqlx::Error::RowNotFound).into();
+
+        let ProductListingDetailsBatchReadError::QueryFailed { source } = error else {
+            panic!("expected batch query failure");
+        };
+        assert!(
+            source
+                .downcast_ref::<ProductListingDetailsBatchQuerySqlxError>()
+                .is_some()
+        );
+        assert!(source.source().is_some());
+    }
+
+    #[test]
+    fn should_map_read_model_failure_without_exposing_row() {
+        let error: ProductListingDetailsBatchReadError =
+            ProductListingDetailsBatchReadModelMappingError.into();
+
+        let ProductListingDetailsBatchReadError::InvalidReadModel { source } = error else {
+            panic!("expected invalid batch read model");
+        };
+        assert!(
+            source
+                .downcast_ref::<ProductListingDetailsBatchReadModelMappingError>()
+                .is_some()
+        );
+    }
+}

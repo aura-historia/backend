@@ -16,7 +16,7 @@ const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
 fn minimal_css_schema() -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
-        shops_product_id: Some(ExtractionRule {
+        shop_listing_id: Some(ExtractionRule {
             selector: "span.id".into(),
             additional_selectors: vec![],
             extract: ExtractionKind::Text,
@@ -54,7 +54,7 @@ fn minimal_css_schema() -> ProductCssSelectorSchema {
 
 fn full_css_schema() -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
-        shops_product_id: Some(ExtractionRule {
+        shop_listing_id: Some(ExtractionRule {
             selector: "span#product-id".into(),
             additional_selectors: vec![],
             extract: ExtractionKind::Text,

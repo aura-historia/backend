@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use application::transaction::{Transaction, UnitOfWork};
 use platform_postgres::SqlxUnitOfWork;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::ports::{
     WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,
 };
@@ -133,8 +133,8 @@ async fn seed_user(pool: &sqlx::PgPool, label: &str) -> UserId {
     user_id
 }
 
-async fn seed_product(pool: &sqlx::PgPool) -> ProductId {
-    let product_id = ProductId::new();
+async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
+    let product_id = ProductListingId::new();
     let product_uuid = uuid::Uuid::from(product_id);
     let event_id = uuid::Uuid::new_v4();
     let shop_id = uuid::Uuid::new_v4();
@@ -172,7 +172,7 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductId {
 async fn seed_watchlist(
     pool: &sqlx::PgPool,
     user_id: UserId,
-    product_id: ProductId,
+    product_id: ProductListingId,
     notifications: bool,
     state: &str,
     timestamps: (

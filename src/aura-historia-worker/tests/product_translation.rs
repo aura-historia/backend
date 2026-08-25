@@ -7,14 +7,14 @@ use large_language_model::{
     LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
 };
 use platform_postgres::SqlxUnitOfWork;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_postgres::{
-    SqlxProductTranslationSourceReader, SqlxProductTranslationWriterFactory,
+    SqlxProductListingTranslationSourceReader, SqlxProductListingTranslationWriterFactory,
 };
 use product_listing_service::use_cases::{
-    TranslateProductEventHandler, TranslateProductEventUseCase,
+    TranslateProductListingEventHandler, TranslateProductListingEventUseCase,
 };
-use product_listing_translation_llm::LargeLanguageModelProductTitleTranslator;
+use product_listing_translation_llm::LargeLanguageModelProductListingTitleTranslator;
 use std::{sync::Arc, time::Duration};
 use test_api::{
     IntegrationTestService, Postgres, Sequin, aura_integration_test, get_postgres_client,
@@ -175,17 +175,17 @@ struct TranslationWorker {
 impl TranslationWorker {
     async fn start() -> Self {
         let pool = get_postgres_client().await;
-        let handler: Arc<dyn TranslateProductEventUseCase> =
-            Arc::new(TranslateProductEventHandler::new(
-                SqlxProductTranslationSourceReader::new(pool.clone()),
-                LargeLanguageModelProductTitleTranslator::new(FixedTranslationLlm),
+        let handler: Arc<dyn TranslateProductListingEventUseCase> =
+            Arc::new(TranslateProductListingEventHandler::new(
+                SqlxProductListingTranslationSourceReader::new(pool.clone()),
+                LargeLanguageModelProductListingTitleTranslator::new(FixedTranslationLlm),
                 SqlxUnitOfWork::new(pool.clone()),
-                SqlxProductTranslationWriterFactory::new(),
+                SqlxProductListingTranslationWriterFactory::new(),
             ));
         let (runtime, mut receivers) = WorkerRuntime::with_all_queues(QueueConfig::new(16))
             .expect("valid worker queue configuration");
         let receiver = receivers
-            .take(WorkerQueue::ProductTranslate)
+            .take(WorkerQueue::ProductListingTranslate)
             .expect("product translation queue is registered");
         let consumer = tokio::spawn(consume_product_translation_queue(receiver, handler));
         let listener = tokio::net::TcpListener::bind(get_sequin_worker_webhook_bind_addr())
@@ -206,7 +206,7 @@ impl TranslationWorker {
 
     async fn redeliver(
         &self,
-        product_id: ProductId,
+        product_id: ProductListingId,
         event_id: EventId,
         event_type: &str,
         event_group: &str,
@@ -264,8 +264,8 @@ async fn insert_product_with_event(
     pool: &sqlx::PgPool,
     event_type: &str,
     event_group: &str,
-) -> Result<(ProductId, EventId), sqlx::Error> {
-    let product_id = ProductId::new();
+) -> Result<(ProductListingId, EventId), sqlx::Error> {
+    let product_id = ProductListingId::new();
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
@@ -274,7 +274,7 @@ async fn insert_product_with_event(
         .bind(format!("translation-worker-shop-{shop_id}"))
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Antiker Eichenstuhl', 'de', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Antiker Eichenstuhl', 'de', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_id))
         .bind(format!("translation-worker-product-{product_id}"))
         .bind(uuid::Uuid::from(event_id))
@@ -295,7 +295,7 @@ async fn insert_product_with_event(
 
 async fn advance_product_revision(
     pool: &sqlx::PgPool,
-    product_id: ProductId,
+    product_id: ProductListingId,
 ) -> Result<EventId, sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
@@ -315,8 +315,8 @@ async fn advance_product_revision(
 
 async fn insert_product_with_event_then_rollback(
     pool: &sqlx::PgPool,
-) -> Result<ProductId, sqlx::Error> {
-    let product_id = ProductId::new();
+) -> Result<ProductListingId, sqlx::Error> {
+    let product_id = ProductListingId::new();
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
@@ -325,7 +325,7 @@ async fn insert_product_with_event_then_rollback(
         .bind(format!("rollback-translation-shop-{shop_id}"))
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Antiker Eichenstuhl', 'de', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Antiker Eichenstuhl', 'de', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_id))
         .bind(format!("rollback-translation-product-{product_id}"))
         .bind(uuid::Uuid::from(event_id))
@@ -344,7 +344,7 @@ async fn insert_product_with_event_then_rollback(
 
 async fn wait_for_translations(
     pool: &sqlx::PgPool,
-    product_id: ProductId,
+    product_id: ProductListingId,
     expected_count: i64,
 ) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
     for _ in 0..POLL_ATTEMPTS {
@@ -359,7 +359,7 @@ async fn wait_for_translations(
 
 async fn assert_no_translations(
     pool: &sqlx::PgPool,
-    product_id: ProductId,
+    product_id: ProductListingId,
     duration: Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let deadline = tokio::time::Instant::now() + duration;
@@ -374,7 +374,7 @@ async fn assert_no_translations(
 
 async fn assert_translation_count_for_duration(
     pool: &sqlx::PgPool,
-    product_id: ProductId,
+    product_id: ProductListingId,
     expected_count: usize,
     duration: Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -393,7 +393,7 @@ async fn assert_translation_count_for_duration(
 
 async fn translations(
     pool: &sqlx::PgPool,
-    product_id: ProductId,
+    product_id: ProductListingId,
 ) -> Result<Vec<(String, String)>, sqlx::Error> {
     sqlx::query_as(
         "SELECT language, title FROM product_translations WHERE product_id = $1 ORDER BY language",
@@ -405,7 +405,7 @@ async fn translations(
 
 async fn enrichment_event_count(
     pool: &sqlx::PgPool,
-    product_id: ProductId,
+    product_id: ProductListingId,
 ) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar(
         "SELECT count(*) FROM product_events WHERE product_id = $1 AND event_group = 'ENRICHMENT'",

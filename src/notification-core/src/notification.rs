@@ -3,8 +3,9 @@ use domain_primitives::event_id::EventId;
 use localization::Localized;
 use money::Price;
 use product_listing_core::{
-    product_id::ProductId, product_image::ProductImage, product_slug_id::ProductSlugId,
-    product_state::ProductState, shops_product_id::ShopsProductId, title::Title,
+    product_listing_id::ProductListingId, product_listing_image::ProductListingImage,
+    product_listing_slug_id::ProductListingSlugId, product_state::ProductState,
+    shop_listing_id::ShopListingId, title::Title,
 };
 use search_filter_core::{
     user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
@@ -67,7 +68,7 @@ impl Notification {
     pub fn origin_event_id(&self) -> Option<EventId> {
         self.content.origin_event_id()
     }
-    pub fn product_id(&self) -> Option<ProductId> {
+    pub fn product_id(&self) -> Option<ProductListingId> {
         self.content.product_id()
     }
     pub fn mark_seen(&mut self, seen: bool) {
@@ -92,15 +93,15 @@ pub struct RehydratedNotificationState {
 pub enum NotificationContent {
     Watchlist {
         origin_event_id: EventId,
-        product_id: ProductId,
-        snapshot: ProductNotificationSnapshot,
+        product_id: ProductListingId,
+        snapshot: ProductListingNotificationSnapshot,
         change: NotificationWatchlistChange,
     },
     SearchFilter {
         origin_event_id: EventId,
-        product_id: ProductId,
+        product_id: ProductListingId,
         user_search_filter_id: UserSearchFilterId,
-        snapshot: ProductNotificationSnapshot,
+        snapshot: ProductListingNotificationSnapshot,
         user_search_filter_name: UserSearchFilterName,
     },
     PartnerApplication {
@@ -145,7 +146,7 @@ impl NotificationContent {
         }
     }
 
-    pub fn product_id(&self) -> Option<ProductId> {
+    pub fn product_id(&self) -> Option<ProductListingId> {
         match self {
             Self::Watchlist { product_id, .. } | Self::SearchFilter { product_id, .. } => {
                 Some(*product_id)
@@ -195,26 +196,26 @@ impl NotificationContent {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProductNotificationSnapshot {
+pub struct ProductListingNotificationSnapshot {
     pub shop_id: ShopId,
-    pub shops_product_id: ShopsProductId,
+    pub shop_listing_id: ShopListingId,
     pub shop_slug_id: ShopSlugId,
-    pub product_slug_id: ProductSlugId,
+    pub product_slug_id: ProductListingSlugId,
     pub shop_name: ShopName,
     pub title: Option<HashMap<localization::Language, Title>>,
-    pub image: Option<ProductImage>,
+    pub image: Option<ProductListingImage>,
     pub url: Url,
     pub view_url: Url,
 }
 
-impl ProductNotificationSnapshot {
+impl ProductListingNotificationSnapshot {
     fn localized(
         self,
         preferred_languages: &[localization::Language],
-    ) -> LocalizedProductNotificationSnapshot {
-        LocalizedProductNotificationSnapshot {
+    ) -> LocalizedProductListingNotificationSnapshot {
+        LocalizedProductListingNotificationSnapshot {
             shop_id: self.shop_id,
-            shops_product_id: self.shops_product_id,
+            shop_listing_id: self.shop_listing_id,
             shop_slug_id: self.shop_slug_id,
             product_slug_id: self.product_slug_id,
             shop_name: self.shop_name,
@@ -276,13 +277,13 @@ impl NotificationWatchlistChange {
 #[derive(Debug, Clone, PartialEq)]
 pub enum LocalizedNotificationContent {
     Watchlist {
-        product_id: ProductId,
-        snapshot: LocalizedProductNotificationSnapshot,
+        product_id: ProductListingId,
+        snapshot: LocalizedProductListingNotificationSnapshot,
         change: LocalizedNotificationWatchlistChange,
     },
     SearchFilter {
-        product_id: ProductId,
-        snapshot: LocalizedProductNotificationSnapshot,
+        product_id: ProductListingId,
+        snapshot: LocalizedProductListingNotificationSnapshot,
         user_search_filter_id: UserSearchFilterId,
         user_search_filter_name: UserSearchFilterName,
     },
@@ -294,14 +295,14 @@ pub enum LocalizedNotificationContent {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct LocalizedProductNotificationSnapshot {
+pub struct LocalizedProductListingNotificationSnapshot {
     pub shop_id: ShopId,
-    pub shops_product_id: ShopsProductId,
+    pub shop_listing_id: ShopListingId,
     pub shop_slug_id: ShopSlugId,
-    pub product_slug_id: ProductSlugId,
+    pub product_slug_id: ProductListingSlugId,
     pub shop_name: ShopName,
     pub title: Option<Localized<localization::Language, Title>>,
-    pub image: Option<ProductImage>,
+    pub image: Option<ProductListingImage>,
     pub url: Url,
     pub view_url: Url,
 }

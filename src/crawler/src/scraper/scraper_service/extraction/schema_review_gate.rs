@@ -6,7 +6,7 @@ use crate::review::schema_evaluation::{
 };
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
 use crate::scraper::css_selector::product_schema_service::{
-    ProductSchemaServiceError, SchemaLlmEvaluation,
+    ProductListingSchemaServiceError, SchemaLlmEvaluation,
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
@@ -173,8 +173,8 @@ fn should_auto_approve_generated_schema(
 
 fn review_error_to_schema_service_error(
     err: crate::review::repository::ReviewRepositoryError,
-) -> ProductSchemaServiceError {
-    ProductSchemaServiceError::DatabaseError(sqlx::Error::Protocol(err.to_string()))
+) -> ProductListingSchemaServiceError {
+    ProductListingSchemaServiceError::DatabaseError(sqlx::Error::Protocol(err.to_string()))
 }
 
 #[cfg(test)]

@@ -727,7 +727,7 @@ fn notification_payload() -> serde_json::Value {
         "type": "WATCHLIST",
         "snapshot": {
             "shop_id": uuid::Uuid::new_v4(),
-            "shops_product_id": "worker-notification-delivery-product",
+            "shop_listing_id": "worker-notification-delivery-product",
             "shop_slug_id": "worker-delivery-shop",
             "product_slug_id": "worker-delivery-product-abcdef",
             "shop_name": "Delivery test shop",

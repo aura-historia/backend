@@ -1,6 +1,6 @@
 use indexmap::IndexSet;
 use product_listing_core::product_state::ProductState;
-use product_listing_service::use_cases::IngestShopifyProductCommand;
+use product_listing_service::use_cases::IngestShopifyProductListingCommand;
 use serde::Deserialize;
 use url::Url;
 
@@ -70,7 +70,7 @@ impl ShopifyProductEventKind {
         self,
         shop_domain: shop_core::domain::Domain,
         payload: ShopifyProductPayload,
-    ) -> Result<IngestShopifyProductCommand, ShopifyProductEventError> {
+    ) -> Result<IngestShopifyProductListingCommand, ShopifyProductEventError> {
         let state = match self {
             Self::Delete => ProductState::Removed,
             Self::Create | Self::Update => product_state(&payload),
@@ -84,9 +84,9 @@ impl ShopifyProductEventKind {
             .filter(|value| !value.trim().is_empty())
             .ok_or(ShopifyProductEventError::MissingHandle)?;
 
-        Ok(IngestShopifyProductCommand {
+        Ok(IngestShopifyProductListingCommand {
             shop_domain,
-            shops_product_id: product_listing_core::shops_product_id::ShopsProductId::from(
+            shop_listing_id: product_listing_core::shop_listing_id::ShopListingId::from(
                 payload.id.to_string(),
             ),
             title,
@@ -159,7 +159,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("failed mapping payload: {error}"));
 
         assert_eq!(ProductState::Removed, command.state);
-        assert_eq!("42", command.shops_product_id.to_string());
+        assert_eq!("42", command.shop_listing_id.to_string());
     }
 
     #[test]

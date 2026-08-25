@@ -15,8 +15,8 @@ async fn should_skip_fetching_and_return_none_when_hashes_match() {
         Box::pin(async move { Ok(fetch_result(html)) })
     });
 
-    let schema_svc = MockProductSchemaService::new();
-    let norm_svc = MockProductNormalizationService::new();
+    let schema_svc = MockProductListingSchemaService::new();
+    let norm_svc = MockProductListingNormalizationService::new();
     let mut cand_svc = MockScraperCandidateService::new();
     cand_svc
         .expect_touch_scraped()

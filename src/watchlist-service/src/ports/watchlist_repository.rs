@@ -1,12 +1,13 @@
 use application::error::BoxError;
 use domain_primitives::versioned::Versioned;
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use user_core::user_id::UserId;
-use watchlist_core::WatchlistProduct;
+use watchlist_core::WatchlistProductListing;
 
 domain_primitives::version_newtype!(WatchlistStorageVersion);
 
-pub type VersionedWatchlistProduct = Versioned<WatchlistProduct, WatchlistStorageVersion>;
+pub type VersionedWatchlistProductListing =
+    Versioned<WatchlistProductListing, WatchlistStorageVersion>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WatchlistRepositoryError {
@@ -43,24 +44,24 @@ pub trait WatchlistRepository: Send {
     async fn find_by_user_and_product(
         &mut self,
         user_id: UserId,
-        product_id: ProductId,
-    ) -> Result<Option<VersionedWatchlistProduct>, WatchlistRepositoryError>;
+        product_id: ProductListingId,
+    ) -> Result<Option<VersionedWatchlistProductListing>, WatchlistRepositoryError>;
 
     async fn insert(
         &mut self,
-        entry: &WatchlistProduct,
-    ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError>;
+        entry: &WatchlistProductListing,
+    ) -> Result<VersionedWatchlistProductListing, WatchlistRepositoryError>;
 
     async fn update(
         &mut self,
-        entry: &WatchlistProduct,
+        entry: &WatchlistProductListing,
         expected_version: WatchlistStorageVersion,
-    ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError>;
+    ) -> Result<VersionedWatchlistProductListing, WatchlistRepositoryError>;
 
     async fn delete(
         &mut self,
         user_id: UserId,
-        product_id: ProductId,
+        product_id: ProductListingId,
         expected_version: WatchlistStorageVersion,
     ) -> Result<(), WatchlistRepositoryError>;
 }

@@ -1,10 +1,10 @@
 use application::transaction::{Transaction, UnitOfWork};
 use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
-use product_listing_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use user_core::user_id::UserId;
-use watchlist_core::{WatchlistProduct, WatchlistState};
+use watchlist_core::{WatchlistProductListing, WatchlistState};
 use watchlist_postgres::{
     SqlxWatchlistQuotaReaderFactory, SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory,
 };
@@ -24,7 +24,8 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
     let reader = SqlxWatchlistReaderFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-user@example.com").await;
     let product_id = seed_product(&pool, "watchlist-postgres-product").await;
-    let mut entry = WatchlistProduct::rehydrate(user_id, product_id, true, WatchlistState::Active);
+    let mut entry =
+        WatchlistProductListing::rehydrate(user_id, product_id, true, WatchlistState::Active);
 
     let mut tx = begin(&unit).await;
     let inserted = repo
@@ -96,7 +97,7 @@ async fn should_order_user_watchlist_entries_by_created_then_product_id() {
     for product_id in [first_product_id, second_product_id] {
         repository
             .in_transaction(&mut tx)
-            .insert(&WatchlistProduct::rehydrate(
+            .insert(&WatchlistProductListing::rehydrate(
                 user_id,
                 product_id,
                 true,
@@ -138,9 +139,13 @@ async fn should_preserve_and_reset_current_interval_timestamps() {
     let user_id = seed_user(&pool, "watchlist-postgres-intervals@example.com").await;
     let active_product_id = seed_product(&pool, "watchlist-postgres-interval-active").await;
     let inactive_product_id = seed_product(&pool, "watchlist-postgres-interval-inactive").await;
-    let mut active =
-        WatchlistProduct::rehydrate(user_id, active_product_id, true, WatchlistState::Active);
-    let inactive = WatchlistProduct::rehydrate(
+    let mut active = WatchlistProductListing::rehydrate(
+        user_id,
+        active_product_id,
+        true,
+        WatchlistState::Active,
+    );
+    let inactive = WatchlistProductListing::rehydrate(
         user_id,
         inactive_product_id,
         false,
@@ -235,9 +240,13 @@ async fn should_count_only_active_watchlist_entries_in_transaction() {
     let user_id = seed_user(&pool, "watchlist-postgres-quota@example.com").await;
     let active_product_id = seed_product(&pool, "watchlist-postgres-active-product").await;
     let inactive_product_id = seed_product(&pool, "watchlist-postgres-inactive-product").await;
-    let active =
-        WatchlistProduct::rehydrate(user_id, active_product_id, true, WatchlistState::Active);
-    let inactive = WatchlistProduct::rehydrate(
+    let active = WatchlistProductListing::rehydrate(
+        user_id,
+        active_product_id,
+        true,
+        WatchlistState::Active,
+    );
+    let inactive = WatchlistProductListing::rehydrate(
         user_id,
         inactive_product_id,
         true,
@@ -272,7 +281,8 @@ async fn should_report_watchlist_update_and_delete_concurrency_conflicts() {
     let repository = SqlxWatchlistRepositoryFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-conflict@example.com").await;
     let product_id = seed_product(&pool, "watchlist-postgres-conflict-product").await;
-    let entry = WatchlistProduct::rehydrate(user_id, product_id, true, WatchlistState::Active);
+    let entry =
+        WatchlistProductListing::rehydrate(user_id, product_id, true, WatchlistState::Active);
 
     let mut tx = begin(&unit).await;
     repository
@@ -327,7 +337,8 @@ async fn should_reject_stale_delete_and_keep_newer_watchlist_entry() {
     let repository = SqlxWatchlistRepositoryFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-stale-delete@example.com").await;
     let product_id = seed_product(&pool, "watchlist-postgres-stale-delete-product").await;
-    let entry = WatchlistProduct::rehydrate(user_id, product_id, true, WatchlistState::Active);
+    let entry =
+        WatchlistProductListing::rehydrate(user_id, product_id, true, WatchlistState::Active);
 
     let mut insert_tx = begin(&unit).await;
     repository
@@ -383,7 +394,8 @@ async fn should_reject_stale_partial_updates_without_changing_persisted_fields()
     let repository = SqlxWatchlistRepositoryFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-stale-fields@example.com").await;
     let product_id = seed_product(&pool, "watchlist-postgres-stale-fields-product").await;
-    let initial = WatchlistProduct::rehydrate(user_id, product_id, true, WatchlistState::Active);
+    let initial =
+        WatchlistProductListing::rehydrate(user_id, product_id, true, WatchlistState::Active);
 
     let mut insert_tx = begin(&unit).await;
     repository
@@ -456,7 +468,8 @@ async fn should_return_already_exists_when_watchlist_entry_exists() {
     let repo = SqlxWatchlistRepositoryFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-duplicate@example.com").await;
     let product_id = seed_product(&pool, "watchlist-postgres-duplicate-product").await;
-    let entry = WatchlistProduct::rehydrate(user_id, product_id, true, WatchlistState::Active);
+    let entry =
+        WatchlistProductListing::rehydrate(user_id, product_id, true, WatchlistState::Active);
 
     let mut tx = begin(&unit).await;
     repo.in_transaction(&mut tx)
@@ -493,7 +506,8 @@ async fn run_partial_patch_race(state_patch_wins: bool) {
         },
     )
     .await;
-    let initial = WatchlistProduct::rehydrate(user_id, product_id, true, WatchlistState::Active);
+    let initial =
+        WatchlistProductListing::rehydrate(user_id, product_id, true, WatchlistState::Active);
 
     let mut insert_tx = begin(&unit).await;
     repository
@@ -600,7 +614,7 @@ async fn run_partial_patch_race(state_patch_wins: bool) {
 async fn persisted_fields(
     pool: &sqlx::PgPool,
     user_id: UserId,
-    product_id: ProductId,
+    product_id: ProductListingId,
 ) -> (
     String,
     bool,
@@ -623,7 +637,7 @@ async fn persisted_fields(
 async fn repository_update(
     unit: &SqlxUnitOfWork,
     repository: &SqlxWatchlistRepositoryFactory,
-    entry: &WatchlistProduct,
+    entry: &WatchlistProductListing,
 ) {
     let mut tx = begin(unit).await;
     let loaded = repository
@@ -643,7 +657,7 @@ async fn repository_update(
 async fn intervals(
     pool: &sqlx::PgPool,
     user_id: UserId,
-    product_id: ProductId,
+    product_id: ProductListingId,
 ) -> (Option<OffsetDateTime>, Option<OffsetDateTime>) {
     sqlx::query_as(
         "SELECT active_since, notifications_enabled_since FROM product_watchlist WHERE user_id = $1 AND product_id = $2",
@@ -680,8 +694,8 @@ async fn seed_user(pool: &sqlx::PgPool, email: &str) -> UserId {
     id
 }
 
-async fn seed_product(pool: &sqlx::PgPool, slug: &str) -> ProductId {
-    let product_id = ProductId::new();
+async fn seed_product(pool: &sqlx::PgPool, slug: &str) -> ProductListingId {
+    let product_id = ProductListingId::new();
     let shop_id = uuid::Uuid::new_v4();
     let event_id = uuid::Uuid::new_v4();
     let mut tx = pool

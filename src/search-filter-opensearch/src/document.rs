@@ -9,10 +9,10 @@ use geo::{
 use isocountry::CountryCode;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
-use product_listing_core::product_id::ProductId;
 use product_listing_core::product_lifecycle::ProductLifecycle;
-use product_listing_core::product_search::{
-    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductSearch,
+use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::product_listing_search::{
+    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductListingSearch,
 };
 use product_listing_core::product_state::ProductState;
 use product_listing_opensearch::build_percolator_query;
@@ -261,7 +261,7 @@ pub(crate) struct SearchFilterDocument {
 
 /// Decode failure for the complete product-search payload stored in a search document.
 #[derive(Debug, thiserror::Error)]
-pub enum ProductSearchDocumentMappingError {
+pub enum ProductListingSearchDocumentMappingError {
     #[error("OpenSearch document has malformed product search JSON")]
     Deserialize {
         #[source]
@@ -298,7 +298,7 @@ impl TryFrom<&SearchFilterProjection> for SearchFilterDocument {
 }
 
 impl TryFrom<SearchFilterDocument> for SearchFilterView {
-    type Error = ProductSearchDocumentMappingError;
+    type Error = ProductListingSearchDocumentMappingError;
 
     fn try_from(document: SearchFilterDocument) -> Result<Self, Self::Error> {
         Ok(SearchFilterView {
@@ -369,17 +369,17 @@ impl From<GeoDistanceQueryDocument> for GeoDistanceQuery {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProductSearchDocument {
+struct ProductListingSearchDocument {
     #[serde(with = "language")]
     language: Language,
     #[serde(with = "currency")]
     currency: Currency,
     #[serde(rename = "productQuery")]
-    product_query: Vec<TextQuery<1>>,
+    product_listing_query: Vec<TextQuery<1>>,
     #[serde(rename = "enhancedSearchDescription")]
     enhanced_search_description: Option<String>,
     #[serde(rename = "excludeProductId")]
-    exclude_product_id_query: HashSet<ProductId>,
+    exclude_product_listing_id_query: HashSet<ProductListingId>,
     #[serde(rename = "shopName")]
     shop_name_query: HashSet<ShopName>,
     #[serde(rename = "excludeShopName")]
@@ -465,19 +465,23 @@ impl TryFrom<TimeRangeDocument> for RangeQuery<OffsetDateTime> {
     }
 }
 
-impl TryFrom<&ProductSearch> for ProductSearchDocument {
+impl TryFrom<&ProductListingSearch> for ProductListingSearchDocument {
     type Error = serde_json::Error;
 
-    fn try_from(search: &ProductSearch) -> Result<Self, Self::Error> {
+    fn try_from(search: &ProductListingSearch) -> Result<Self, Self::Error> {
         Ok(Self {
             language: search.language,
             currency: search.currency,
-            product_query: search.product_query.clone(),
+            product_listing_query: search.product_listing_query.clone(),
             enhanced_search_description: search
                 .enhanced_search_description
                 .as_ref()
                 .map(ToString::to_string),
-            exclude_product_id_query: search.exclude_product_id_query.iter().copied().collect(),
+            exclude_product_listing_id_query: search
+                .exclude_product_listing_id_query
+                .iter()
+                .copied()
+                .collect(),
             shop_name_query: search.shop_name_query.iter().cloned().collect(),
             exclude_shop_name_query: search.exclude_shop_name_query.iter().cloned().collect(),
             seller_name_query: search.seller_name_query.iter().cloned().collect(),
@@ -516,22 +520,24 @@ impl TryFrom<&ProductSearch> for ProductSearchDocument {
     }
 }
 
-impl TryFrom<ProductSearchDocument> for ProductSearch {
-    type Error = ProductSearchDocumentMappingError;
+impl TryFrom<ProductListingSearchDocument> for ProductListingSearch {
+    type Error = ProductListingSearchDocumentMappingError;
 
-    fn try_from(document: ProductSearchDocument) -> Result<Self, Self::Error> {
+    fn try_from(document: ProductListingSearchDocument) -> Result<Self, Self::Error> {
         Ok(Self {
             language: document.language,
             currency: document.currency,
-            product_query: document.product_query,
+            product_listing_query: document.product_listing_query,
             enhanced_search_description: document
                 .enhanced_search_description
                 .map(EnhancedSearchDescription::try_from)
                 .transpose()
                 .map_err(|source| {
-                    ProductSearchDocumentMappingError::InvalidEnhancedSearchDescription { source }
+                    ProductListingSearchDocumentMappingError::InvalidEnhancedSearchDescription {
+                        source,
+                    }
                 })?,
-            exclude_product_id_query: document.exclude_product_id_query.into(),
+            exclude_product_listing_id_query: document.exclude_product_listing_id_query.into(),
             shop_name_query: document.shop_name_query.into(),
             exclude_shop_name_query: document.exclude_shop_name_query.into(),
             seller_name_query: document.seller_name_query.into(),
@@ -569,31 +575,33 @@ impl TryFrom<ProductSearchDocument> for ProductSearch {
 
 fn parse_time_range(
     value: TimeRangeDocument,
-) -> Result<RangeQuery<OffsetDateTime>, ProductSearchDocumentMappingError> {
+) -> Result<RangeQuery<OffsetDateTime>, ProductListingSearchDocumentMappingError> {
     value
         .try_into()
-        .map_err(|_| ProductSearchDocumentMappingError::InvalidTimestamp)
+        .map_err(|_| ProductListingSearchDocumentMappingError::InvalidTimestamp)
 }
 
-fn product_search_to_value(search: &ProductSearch) -> Result<serde_json::Value, serde_json::Error> {
-    serde_json::to_value(ProductSearchDocument::try_from(search)?)
+fn product_search_to_value(
+    search: &ProductListingSearch,
+) -> Result<serde_json::Value, serde_json::Error> {
+    serde_json::to_value(ProductListingSearchDocument::try_from(search)?)
 }
 
 fn product_search_from_value(
     value: serde_json::Value,
-) -> Result<ProductSearch, ProductSearchDocumentMappingError> {
+) -> Result<ProductListingSearch, ProductListingSearchDocumentMappingError> {
     let Some(object) = value.as_object() else {
-        return Err(ProductSearchDocumentMappingError::InvalidTimestamp);
+        return Err(ProductListingSearchDocumentMappingError::InvalidTimestamp);
     };
     if !PRODUCT_SEARCH_FIELDS
         .iter()
         .all(|field| object.contains_key(*field))
     {
-        return Err(ProductSearchDocumentMappingError::InvalidTimestamp);
+        return Err(ProductListingSearchDocumentMappingError::InvalidTimestamp);
     }
 
-    let document = serde_json::from_value::<ProductSearchDocument>(value)
-        .map_err(|source| ProductSearchDocumentMappingError::Deserialize { source })?;
+    let document = serde_json::from_value::<ProductListingSearchDocument>(value)
+        .map_err(|source| ProductListingSearchDocumentMappingError::Deserialize { source })?;
     document.try_into()
 }
 
@@ -607,7 +615,7 @@ mod tests {
     use search_filter_service::ports::SearchFilterProjection;
     use time::macros::datetime;
 
-    fn projection(search: ProductSearch) -> SearchFilterProjection {
+    fn projection(search: ProductListingSearch) -> SearchFilterProjection {
         SearchFilterProjection {
             view: SearchFilterView {
                 search_filter_id: UserSearchFilterId::new(),
@@ -627,10 +635,11 @@ mod tests {
     #[test]
     fn should_store_authoritative_search_version_and_original_price_range()
     -> Result<(), Box<dyn std::error::Error>> {
-        let search = ProductSearch::new(Language::En, Currency::Usd).with_price_query(RangeQuery {
-            min: Some(MonetaryAmount::from(10_000_u64)),
-            max: Some(MonetaryAmount::from(50_000_u64)),
-        });
+        let search =
+            ProductListingSearch::new(Language::En, Currency::Usd).with_price_query(RangeQuery {
+                min: Some(MonetaryAmount::from(10_000_u64)),
+                max: Some(MonetaryAmount::from(50_000_u64)),
+            });
         let document = SearchFilterDocument::try_from(&projection(search))?;
         let value = serde_json::to_value(&document)?;
 
@@ -650,7 +659,7 @@ mod tests {
     fn should_round_trip_geo_distance_query_with_legacy_document_shape()
     -> Result<(), Box<dyn std::error::Error>> {
         let expected = projection(
-            ProductSearch::new(Language::En, Currency::Usd).with_geo_address_distance_query(
+            ProductListingSearch::new(Language::En, Currency::Usd).with_geo_address_distance_query(
                 GeoDistanceQuery {
                     lat: 52.52,
                     lon: 13.405,
@@ -676,7 +685,7 @@ mod tests {
     fn should_round_trip_search_filter_without_a_price_range()
     -> Result<(), Box<dyn std::error::Error>> {
         let expected = projection(
-            ProductSearch::new(Language::En, Currency::Usd)
+            ProductListingSearch::new(Language::En, Currency::Usd)
                 .with_shop_type_query(
                     std::collections::HashSet::from([ShopType::CommercialDealer]).into(),
                 )

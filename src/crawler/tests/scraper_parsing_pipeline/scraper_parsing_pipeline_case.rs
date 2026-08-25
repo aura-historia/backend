@@ -108,7 +108,7 @@ fn parse_state_record(s: &str) -> ProductState {
 
 fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectation {
     NormalizedExpectation {
-        shops_product_id: data.shops_product_id,
+        shop_listing_id: data.shop_listing_id,
         title: data.title,
         description: data.description.map(|description| {
             product_listing_core::description::Description::from(description.as_str()).to_string()
