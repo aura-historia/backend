@@ -255,7 +255,8 @@ pub(crate) fn product_listing_document(
     product: &ProductListingSearchFilterMatchSource,
     sale_snapshot: Option<&FxRateSnapshot>,
 ) -> Result<ProductListingDocument, ProductListingPercolationDocumentError> {
-    let (sale_prices, sale_fx_rate_id, sold_at) = sale_projection(product, sale_snapshot)?;
+    let (sale_prices, sale_observation_fx_rate_id, sale_observed_at) =
+        sale_projection(product, sale_snapshot)?;
     let (title, language) = selected_title(product);
     let structured_address = product.address.structured.as_ref();
 
@@ -298,8 +299,8 @@ pub(crate) fn product_listing_document(
             currency: price.currency,
         }),
         sale_prices,
-        sale_fx_rate_id,
-        sold_at,
+        sale_observation_fx_rate_id,
+        sale_observed_at,
         availability: product.availability,
         lifecycle: product.lifecycle,
         url: product.url.clone(),
@@ -328,27 +329,34 @@ fn sale_projection(
     product: &ProductListingSearchFilterMatchSource,
     sale_snapshot: Option<&FxRateSnapshot>,
 ) -> Result<SaleProjection, ProductListingPercolationDocumentError> {
-    match (product.sale_valuation, sale_snapshot) {
+    let observation = if product.availability == Some(ListingAvailability::SoldOut) {
+        product.sale_observation
+    } else {
+        None
+    };
+    match (observation, sale_snapshot) {
         (None, None) => Ok((None, None, None)),
         (None, Some(_)) => Err(ProductListingPercolationDocumentError::UnexpectedSaleSnapshot),
-        (Some(valuation), None) if product.pricing.price.is_none() => {
-            Ok((None, Some(valuation.fx_rate_id), Some(valuation.sold_at)))
-        }
+        (Some(observation), None) if product.pricing.price.is_none() => Ok((
+            None,
+            Some(observation.fx_rate_id()),
+            Some(observation.observed_at()),
+        )),
         (Some(_), None) => Err(ProductListingPercolationDocumentError::MissingSaleSnapshot),
-        (Some(valuation), Some(snapshot)) if valuation.fx_rate_id != snapshot.id() => Err(
+        (Some(observation), Some(snapshot)) if observation.fx_rate_id() != snapshot.id() => Err(
             ProductListingPercolationDocumentError::SaleSnapshotMismatch {
-                valuation_fx_rate_id: valuation.fx_rate_id,
+                valuation_fx_rate_id: observation.fx_rate_id(),
                 snapshot_fx_rate_id: snapshot.id(),
             },
         ),
-        (Some(valuation), Some(snapshot)) => Ok((
+        (Some(observation), Some(snapshot)) => Ok((
             product
                 .pricing
                 .price
                 .map(|price| sale_prices(snapshot, price))
                 .transpose()?,
-            Some(valuation.fx_rate_id),
-            Some(valuation.sold_at),
+            Some(observation.fx_rate_id()),
+            Some(observation.observed_at()),
         )),
     }
 }
@@ -434,8 +442,8 @@ mod tests {
         listing_availability::ListingAvailability,
         listing_lifecycle::ListingLifecycle,
         product_listing::{
-            ProductListingAddress, ProductListingAuction, ProductListingPriceValuationBasis,
-            ProductListingPricing, ProductSaleValuation,
+            ListingSaleObservation, ProductListingAddress, ProductListingAuction,
+            ProductListingPriceValuationBasis, ProductListingPricing,
         },
         product_listing_slug_id::ProductListingSlugId,
         shop_listing_id::ShopListingId,
@@ -479,7 +487,7 @@ mod tests {
             titles: HashMap::from([(Language::En, title)]),
             descriptions: HashMap::new(),
             pricing: ProductListingPricing::default(),
-            sale_valuation: None,
+            sale_observation: None,
             availability: Some(ListingAvailability::Available),
             lifecycle: ListingLifecycle::Active,
             url: url.clone(),
@@ -640,10 +648,11 @@ mod tests {
         let mut product = source()?;
         let source_price = money::Price::new(12_500_u64.into(), Currency::Gbp);
         product.pricing.price = Some(source_price);
-        product.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: snapshot.id(),
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
+        product.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            snapshot.id(),
+        ));
+        product.availability = Some(ListingAvailability::SoldOut);
         let prices = ProductListingPricesByCurrency::convert_all(&snapshot, source_price)?;
 
         let persistent =
@@ -651,7 +660,7 @@ mod tests {
         let temporary = product_listing_percolation_document(&ProductListingPercolationInput {
             source: product,
             valuation: Some(ProductListingPercolationValuation {
-                basis: ProductListingPriceValuationBasis::Sale,
+                basis: ProductListingPriceValuationBasis::SaleObservation,
                 fx_rate_id: snapshot.id(),
                 effective_at: snapshot.captured_at(),
                 prices,
@@ -669,10 +678,11 @@ mod tests {
     fn should_project_sold_product_without_main_price_or_sale_prices()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut product = source()?;
-        product.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: FxRateId::new(),
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
+        product.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            FxRateId::new(),
+        ));
+        product.availability = Some(ListingAvailability::SoldOut);
 
         let document = serde_json::to_value(product_listing_document(&product, None)?)?;
 
@@ -680,14 +690,33 @@ mod tests {
         assert!(document.get("salePrices").is_none());
         assert_eq!(
             product
-                .sale_valuation
-                .map(|valuation| valuation.fx_rate_id.to_string()),
+                .sale_observation
+                .map(|observation| observation.fx_rate_id().to_string()),
             document
-                .get("saleFxRateId")
+                .get("saleObservationFxRateId")
                 .and_then(Value::as_str)
                 .map(ToOwned::to_owned)
         );
-        assert!(document.get("soldAt").is_some());
+        assert!(document.get("saleObservedAt").is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn should_omit_sale_observation_metadata_for_active_relisted_product()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut product = source()?;
+        product.pricing.price = Some(money::Price::new(12_500_u64.into(), Currency::Gbp));
+        product.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            FxRateId::new(),
+        ));
+
+        let document = serde_json::to_value(product_listing_document(&product, None)?)?;
+
+        assert!(document.get("saleObservationFxRateId").is_none());
+        assert!(document.get("saleObservedAt").is_none());
+        assert!(document.get("salePrices").is_none());
+        assert!(document.get("sourcePrice").is_some());
         Ok(())
     }
 

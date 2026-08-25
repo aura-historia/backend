@@ -4,7 +4,7 @@ use api_support::{
     assert_problem, aura_api_app_with_failed_search_embedding, json_response, product_route_slugs,
     seed_current_fx_snapshot, seed_product,
 };
-use opensearch::IndexParts;
+use opensearch::{IndexParts, indices::IndicesPutMappingParts};
 use serde_json::{Value, json};
 use test_api::{
     AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
@@ -15,7 +15,7 @@ use time::{Duration, OffsetDateTime};
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
 
 const OPENSEARCH: OpenSearch = OpenSearch();
-const PRODUCTS_INDEX: &str = "products";
+const PRODUCTS_INDEX: &str = "product-listings";
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 static AURA_API_WITH_FAILED_EMBEDDING: AuraHistoriaApi =
     AuraHistoriaApi::new(aura_api_app_with_failed_search_embedding);
@@ -335,7 +335,7 @@ async fn should_keep_sold_display_when_fx_snapshot_changes() {
     let (product_listing_id, mut document) = search_document(
         "Immutable sold cabinet",
         1_000,
-        "SOLD",
+        "SOLD_OUT",
         "ACTIVE",
         "Sold FX Shop",
         "2025-01-01T00:00:00Z",
@@ -348,8 +348,8 @@ async fn should_keep_sold_display_when_fx_snapshot_changes() {
         "rub": 40, "aed": 40, "sar": 40, "hkd": 40,
         "sgd": 40, "chf": 40
     });
-    document["saleFxRateId"] = json!(sale_fx_rate_id.to_string());
-    document["soldAt"] = json!("2025-01-01T00:00:00Z");
+    document["saleObservationFxRateId"] = json!(sale_fx_rate_id.to_string());
+    document["saleObservedAt"] = json!("2025-01-01T00:00:00Z");
     index_search_documents([document]).await;
 
     let path = "/api/v1/product-listings?language=en&currency=EUR&productQuery[0]=Immutable%20sold%20cabinet&price[min]=40&price[max]=40&sort=created&order=asc".to_owned();
@@ -361,7 +361,10 @@ async fn should_keep_sold_display_when_fx_snapshot_changes() {
         vec![product_listing_id.clone()],
         product_listing_ids(&before_body)
     );
-    assert_eq!(json!("SOLD"), before_body["items"][0]["item"]["state"]);
+    assert_eq!(
+        json!("SOLD_OUT"),
+        before_body["items"][0]["item"]["availability"]
+    );
     assert_eq!(
         json!({ "amount": 40, "currency": "EUR" }),
         before_body["items"][0]["item"]["displayPrice"]
@@ -421,7 +424,7 @@ async fn should_return_matching_product_search_summary() {
         json!(125),
         body["items"][0]["item"]["displayPrice"]["amount"]
     );
-    assert_eq!(json!("AVAILABLE"), body["items"][0]["item"]["state"]);
+    assert_eq!(json!("AVAILABLE"), body["items"][0]["item"]["availability"]);
     assert_eq!(json!("ACTIVE"), body["items"][0]["item"]["lifecycle"]);
     assert!(body["items"][0].get("userState").is_none());
 }
@@ -497,7 +500,7 @@ async fn should_intersect_product_search_filters() {
     let target = search_document_with_shop(
         "Filter cabinet",
         550,
-        "LISTED",
+        "AVAILABLE",
         "ACTIVE",
         "Imperial Antiques",
         "imperial-antiques",
@@ -506,16 +509,16 @@ async fn should_intersect_product_search_filters() {
     let wrong_shop = search_document_with_shop(
         "Filter cabinet",
         550,
-        "LISTED",
+        "AVAILABLE",
         "ACTIVE",
         "Other Antiques",
         "other-antiques",
         "2025-01-01T00:00:00Z",
     );
-    let wrong_state = search_document_with_shop(
+    let wrong_availability = search_document_with_shop(
         "Filter cabinet",
         550,
-        "AVAILABLE",
+        "OUT_OF_STOCK",
         "ACTIVE",
         "Imperial Antiques",
         "imperial-antiques",
@@ -524,16 +527,22 @@ async fn should_intersect_product_search_filters() {
     let wrong_price = search_document_with_shop(
         "Filter cabinet",
         2_000,
-        "LISTED",
+        "AVAILABLE",
         "ACTIVE",
         "Imperial Antiques",
         "imperial-antiques",
         "2025-01-01T00:00:00Z",
     );
-    index_search_documents([target.1.clone(), wrong_shop.1, wrong_state.1, wrong_price.1]).await;
+    index_search_documents([
+        target.1.clone(),
+        wrong_shop.1,
+        wrong_availability.1,
+        wrong_price.1,
+    ])
+    .await;
 
     let (response, _) = get_json(
-        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Filter%20cabinet&shopName[0]=Imperial%20Antiques&state[0]=LISTED&price[min]=500&price[max]=600".to_owned(),
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Filter%20cabinet&shopName[0]=Imperial%20Antiques&availability[0]=AVAILABLE&price[min]=500&price[max]=600".to_owned(),
     )
     .await;
     let (status, body) = json_response(response).await;
@@ -545,7 +554,7 @@ async fn should_intersect_product_search_filters() {
         json!("Imperial Antiques"),
         body["items"][0]["item"]["shopName"]
     );
-    assert_eq!(json!("LISTED"), body["items"][0]["item"]["state"]);
+    assert_eq!(json!("AVAILABLE"), body["items"][0]["item"]["availability"]);
     assert_eq!(
         json!(550),
         body["items"][0]["item"]["displayPrice"]["amount"]
@@ -553,7 +562,7 @@ async fn should_intersect_product_search_filters() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_hide_deleted_products_from_default_search() {
+async fn should_return_active_projected_products_from_default_search() {
     let active = search_document(
         "Lifecycle fixture",
         100,
@@ -562,15 +571,8 @@ async fn should_hide_deleted_products_from_default_search() {
         "Lifecycle Shop",
         "2025-01-01T00:00:00Z",
     );
-    let deleted = search_document(
-        "Lifecycle fixture",
-        200,
-        "AVAILABLE",
-        "DELETED",
-        "Lifecycle Shop",
-        "2025-01-01T00:00:00Z",
-    );
-    index_search_documents([active.1.clone(), deleted.1]).await;
+
+    index_search_documents([active.1.clone()]).await;
 
     let (response, _) = get_json(
         "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Lifecycle%20fixture"
@@ -585,34 +587,34 @@ async fn should_hide_deleted_products_from_default_search() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_return_deleted_products_when_lifecycle_filter_requests_them() {
-    let active = search_document(
-        "Deleted fixture",
+async fn should_filter_product_search_by_availability() {
+    let available = search_document(
+        "Availability fixture",
         100,
         "AVAILABLE",
         "ACTIVE",
-        "Lifecycle Shop",
+        "Availability Shop",
         "2025-01-01T00:00:00Z",
     );
-    let deleted = search_document(
-        "Deleted fixture",
+    let sold_out = search_document(
+        "Availability fixture",
         200,
-        "AVAILABLE",
-        "DELETED",
-        "Lifecycle Shop",
+        "SOLD_OUT",
+        "ACTIVE",
+        "Availability Shop",
         "2025-01-01T00:00:00Z",
     );
-    index_search_documents([active.1, deleted.1.clone()]).await;
+    index_search_documents([available.1, sold_out.1.clone()]).await;
 
     let (response, _) = get_json(
-        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Deleted%20fixture&lifecycle[0]=DELETED".to_owned(),
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Availability%20fixture&availability[0]=SOLD_OUT".to_owned(),
     )
     .await;
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(vec![deleted.0], product_listing_ids(&body));
-    assert_eq!(json!("DELETED"), body["items"][0]["item"]["lifecycle"]);
+    assert_eq!(vec![sold_out.0], product_listing_ids(&body));
+    assert_eq!(json!("SOLD_OUT"), body["items"][0]["item"]["availability"]);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -765,6 +767,7 @@ async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;
     let client = get_opensearch_client().await;
+    ensure_canonical_product_listing_mapping(client).await;
     for document in documents {
         let product_listing_id = document["productListingId"]
             .as_str()
@@ -788,10 +791,32 @@ async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
     refresh_index(PRODUCTS_INDEX).await;
 }
 
+async fn ensure_canonical_product_listing_mapping(client: &opensearch::OpenSearch) {
+    let response = client
+        .indices()
+        .put_mapping(IndicesPutMappingParts::Index(&[PRODUCTS_INDEX]))
+        .body(json!({
+            "properties": {
+                "availability": { "type": "keyword" }
+            }
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to add canonical availability mapping: {error}"));
+    if !response.status_code().is_success() {
+        let status = response.status_code();
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|error| panic!("failed to read mapping failure: {error}"));
+        panic!("failed to add canonical availability mapping: {status}: {body}");
+    }
+}
+
 fn search_document(
     title: &str,
     price_usd: u64,
-    state: &str,
+    availability: &str,
     lifecycle: &str,
     shop_name: &str,
     created: &str,
@@ -799,7 +824,7 @@ fn search_document(
     search_document_with_shop(
         title,
         price_usd,
-        state,
+        availability,
         lifecycle,
         shop_name,
         "search-shop",
@@ -810,7 +835,7 @@ fn search_document(
 fn search_document_with_shop(
     title: &str,
     price_usd: u64,
-    state: &str,
+    availability: &str,
     lifecycle: &str,
     shop_name: &str,
     shop_slug_id: &str,
@@ -850,7 +875,7 @@ fn search_document_with_shop(
             "titleEs": null,
             "titleIt": null,
             "sourcePrice": { "amount": price_usd, "currency": "USD" },
-            "state": state,
+            "availability": availability,
             "lifecycle": lifecycle,
             "url": "https://shop.example/product",
             "viewUrl": "https://aura.example/product",

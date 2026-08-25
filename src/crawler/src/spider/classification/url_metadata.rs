@@ -154,21 +154,21 @@ pub struct CrawledUrlMetadata {
 #[cfg(test)]
 mod tests {
     use super::UrlState;
-    use product_listing_core::product_state::ProductState;
+    use product_listing_core::listing_availability::ListingAvailability;
 
     #[test]
-    fn should_map_product_states_to_url_states() {
+    fn should_map_availability_observations_to_url_states() {
         let cases = [
-            (ProductState::Listed, UrlState::Listed),
-            (ProductState::Available, UrlState::Available),
-            (ProductState::Reserved, UrlState::Reserved),
-            (ProductState::Sold, UrlState::Sold),
-            (ProductState::Removed, UrlState::Removed),
-            (ProductState::Unknown, UrlState::Unknown),
+            (Some(ListingAvailability::Available), UrlState::Available),
+            (Some(ListingAvailability::Reserved), UrlState::Reserved),
+            (Some(ListingAvailability::SoldOut), UrlState::Sold),
+            (Some(ListingAvailability::InStock), UrlState::Unknown),
+            (Some(ListingAvailability::OutOfStock), UrlState::Unknown),
+            (None, UrlState::Unknown),
         ];
 
-        for (product_state, expected_url_state) in cases {
-            assert_eq!(UrlState::from(product_state), expected_url_state);
+        for (availability, expected_url_state) in cases {
+            assert_eq!(UrlState::from(availability), expected_url_state);
         }
     }
 }

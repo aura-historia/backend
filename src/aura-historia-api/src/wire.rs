@@ -679,21 +679,16 @@ pub(crate) mod billing_cycle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use geo::core::distance::DistanceUnit;
     use localization::Language;
     use money::Currency;
-    use product_listing_core::product_lifecycle::ProductLifecycle;
-    use product_listing_core::product_state::ProductState;
-    use product_listing_core::prohibited_content::ProhibitedContent;
     use serde::de::DeserializeOwned;
     use serde_json::json;
     use shop_core::partner_status::ShopPartnerStatus;
     use shop_core::shop_type::ShopType;
     use std::collections::HashSet;
-    use user_core::measurement_unit::MeasurementUnit;
 
     #[test]
-    fn should_preserve_canonical_and_alias_wire_values() -> Result<(), serde_json::Error> {
+    fn should_preserve_canonical_wire_values() -> Result<(), serde_json::Error> {
         assert_eq!(
             json!("EUR"),
             serde_json::to_value(WireCurrency(Currency::Eur))?
@@ -707,10 +702,6 @@ mod tests {
             serde_json::from_value::<WireShopType>(json!("AUCTION_HOUSE"))?.0
         );
         assert_eq!(
-            ProductState::Sold,
-            serde_json::from_value::<WireProductState>(json!("SOLD"))?.0
-        );
-        assert_eq!(
             json!({
                 "shopType": "AUCTION_HOUSE",
                 "partnerStatus": "PARTNERED"
@@ -718,22 +709,6 @@ mod tests {
             serde_json::to_value(ShopCodes {
                 shop_type: ShopType::AuctionHouse,
                 partner_status: ShopPartnerStatus::Partnered,
-            })?
-        );
-        assert_eq!(
-            json!({
-                "productState": "SOLD",
-                "productLifecycle": "DELETED",
-                "distanceUnit": "KILOMETERS",
-                "measurementUnit": "METRIC",
-                "prohibitedContent": "NONE"
-            }),
-            serde_json::to_value(CompatibilityCodes {
-                product_state: ProductState::Sold,
-                product_lifecycle: ProductLifecycle::Deleted,
-                distance_unit: DistanceUnit::Kilometers,
-                measurement_unit: Some(MeasurementUnit::Metric),
-                prohibited_content: ProhibitedContent::None,
             })?
         );
         Ok(())
@@ -834,52 +809,6 @@ mod tests {
     }
 
     #[test]
-    fn should_serialize_rest_product_event_type_codes() -> Result<(), serde_json::Error> {
-        let values = [
-            (
-                product_listing_service::use_cases::ProductListingEventType::Created,
-                "CREATED",
-            ),
-            (
-                product_listing_service::use_cases::ProductListingEventType::StateChanged,
-                "STATE_CHANGED",
-            ),
-            (
-                product_listing_service::use_cases::ProductListingEventType::AddressChanged,
-                "ADDRESS_CHANGED",
-            ),
-            (
-                product_listing_service::use_cases::ProductListingEventType::PriceChanged,
-                "PRICE_CHANGED",
-            ),
-            (
-                product_listing_service::use_cases::ProductListingEventType::UrlChanged,
-                "URL_CHANGED",
-            ),
-            (
-                product_listing_service::use_cases::ProductListingEventType::ImagesChanged,
-                "IMAGES_CHANGED",
-            ),
-            (
-                product_listing_service::use_cases::ProductListingEventType::AuctionChanged,
-                "AUCTION_CHANGED",
-            ),
-            (
-                product_listing_service::use_cases::ProductListingEventType::Deleted,
-                "DELETED",
-            ),
-        ];
-
-        for (value, expected) in values {
-            assert_eq!(
-                json!(expected),
-                serde_json::to_value(WireProductEventType(value))?
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
     fn should_decode_code_sets_from_real_query_syntax() -> Result<(), serde_qs::Error> {
         let query: WireShopQuery =
             serde_qs::from_str("shopType[0]=AUCTION_HOUSE&shopType[1]=MARKETPLACE")?;
@@ -908,17 +837,6 @@ mod tests {
     #[derive(serde::Deserialize)]
     #[serde(transparent)]
     struct WireShopType(#[serde(with = "shop_type")] ShopType);
-
-    #[derive(serde::Deserialize)]
-    #[serde(transparent)]
-    struct WireProductState(#[serde(with = "product_state")] ProductState);
-
-    #[derive(serde::Serialize)]
-    #[serde(transparent)]
-    struct WireProductEventType(
-        #[serde(with = "product_event_type")]
-        product_listing_service::use_cases::ProductListingEventType,
-    );
 
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -968,20 +886,5 @@ mod tests {
         shop_type: ShopType,
         #[serde(with = "shop_partner_status")]
         partner_status: ShopPartnerStatus,
-    }
-
-    #[derive(serde::Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct CompatibilityCodes {
-        #[serde(with = "product_state")]
-        product_state: ProductState,
-        #[serde(with = "product_lifecycle")]
-        product_lifecycle: ProductLifecycle,
-        #[serde(with = "distance_unit")]
-        distance_unit: DistanceUnit,
-        #[serde(with = "measurement_unit::option")]
-        measurement_unit: Option<MeasurementUnit>,
-        #[serde(with = "prohibited_content")]
-        prohibited_content: ProhibitedContent,
     }
 }

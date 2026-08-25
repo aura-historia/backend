@@ -50,7 +50,7 @@ async fn current_revision_guard_lock_flow() -> Result<(), Box<dyn std::error::Er
 
     let next_event_id = EventId::new();
     sqlx::query(
-        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_UPDATED', 'DOMAIN', '{}', now())",
+        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_AVAILABILITY_CHANGED', 'DOMAIN', '{}', now())",
     )
     .bind(uuid::Uuid::from(next_event_id))
     .bind(uuid::Uuid::from(product_listing_id))
@@ -97,7 +97,7 @@ async fn seed_product(pool: &sqlx::PgPool) -> Result<(ProductListingId, EventId)
     .execute(&mut *transaction)
     .await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Revision guard description', 'en', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')",
+        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Revision guard description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')",
     )
     .bind(product_uuid)
     .bind(format!("revision-guard-product-{slug_suffix}"))
@@ -108,7 +108,7 @@ async fn seed_product(pool: &sqlx::PgPool) -> Result<(ProductListingId, EventId)
     .execute(&mut *transaction)
     .await?;
     sqlx::query(
-        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', now())",
+        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(product_uuid)

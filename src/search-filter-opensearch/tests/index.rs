@@ -232,7 +232,7 @@ fn product_source(title: &str) -> ProductListingSearchFilterMatchSource {
         titles: HashMap::from([(Language::En, Title::from(title))]),
         descriptions: HashMap::new(),
         pricing: ProductListingPricing::default(),
-        sale_valuation: None,
+        sale_observation: None,
         availability: Some(ListingAvailability::Available),
         lifecycle: product_listing_core::listing_lifecycle::ListingLifecycle::Active,
         url: Url::parse("https://shop.example.test/product_listings/sku-1")

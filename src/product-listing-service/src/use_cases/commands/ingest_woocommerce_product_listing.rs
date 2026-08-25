@@ -317,7 +317,7 @@ fn actor_id(context: &OperationContext) -> Result<UserId, IngestWoocommerceProdu
         Principal::DelegatedUser {
             user_id,
             capabilities,
-        } if capabilities.contains(&CredentialCapability::ProductsWrite) => Ok(*user_id),
+        } if capabilities.contains(&CredentialCapability::PartnerShopsWrite) => Ok(*user_id),
         Principal::Anonymous => {
             Err(IngestWoocommerceProductListingError::AuthenticatedActorRequired)
         }

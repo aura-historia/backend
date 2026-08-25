@@ -85,10 +85,10 @@ mod tests {
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
     use product_listing_service::use_cases::{
         CreateProductListingCommand, CreateProductListingError, CreateProductListingResult,
-        CreateProductListingUseCase, DeleteProductListingError, DeleteProductListingResult,
-        DeleteProductListingUseCase, UpdateProductListingCommand, UpdateProductListingError,
+        CreateProductListingUseCase, UpdateProductListingCommand, UpdateProductListingError,
         UpdateProductListingResult, UpdateProductListingUseCase, UpsertProductListingCommand,
         UpsertProductListingError, UpsertProductListingResult, UpsertProductListingUseCase,
+        WithdrawProductListingError, WithdrawProductListingResult, WithdrawProductListingUseCase,
     };
     use serde_json::{Value, json};
     use std::collections::BTreeSet;
@@ -99,7 +99,7 @@ mod tests {
     mockall::mock! { CreateUseCase {} #[async_trait::async_trait] impl CreateProductListingUseCase for CreateUseCase { async fn execute(&self, context: &OperationContext, command: CreateProductListingCommand) -> Result<CreateProductListingResult, CreateProductListingError>; } }
     mockall::mock! { UpdateUseCase {} #[async_trait::async_trait] impl UpdateProductListingUseCase for UpdateUseCase { async fn execute(&self, context: &OperationContext, product_listing_id: ProductListingId, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>; } }
     mockall::mock! { UpsertUseCase {} #[async_trait::async_trait] impl UpsertProductListingUseCase for UpsertUseCase { async fn execute(&self, context: &OperationContext, command: UpsertProductListingCommand) -> Result<UpsertProductListingResult, UpsertProductListingError>; } }
-    mockall::mock! { DeleteUseCase {} #[async_trait::async_trait] impl DeleteProductListingUseCase for DeleteUseCase { async fn execute(&self, context: &OperationContext, product_listing_id: ProductListingId) -> Result<DeleteProductListingResult, DeleteProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey) -> Result<DeleteProductListingResult, DeleteProductListingError>; } }
+    mockall::mock! { WithdrawUseCase {} #[async_trait::async_trait] impl WithdrawProductListingUseCase for WithdrawUseCase { async fn execute(&self, context: &OperationContext, product_listing_id: ProductListingId) -> Result<WithdrawProductListingResult, WithdrawProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey) -> Result<WithdrawProductListingResult, WithdrawProductListingError>; } }
     mockall::mock! { Authenticator {} #[async_trait::async_trait] impl TokenAuthenticator for Authenticator { async fn authenticate(&self, bearer_token: &str, metadata: &RequestMetadata) -> Result<TransportPrincipal, AuthError>; } }
 
     #[tokio::test]
@@ -135,7 +135,9 @@ mod tests {
         let mut upsert = MockUpsertUseCase::new();
         upsert.expect_execute().times(2).returning(|_, command| {
             if command.shop_listing_id.as_ref() == "failed" {
-                Err(UpsertProductListingError::InvalidProductState)
+                Err(UpsertProductListingError::InvalidProductListing {
+                    source: application::error::static_error("invalid test product listing"),
+                })
             } else {
                 Ok(created())
             }
@@ -167,10 +169,11 @@ mod tests {
     async fn should_map_all_invalid_upserts_to_bad_request()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut upsert = MockUpsertUseCase::new();
-        upsert
-            .expect_execute()
-            .times(1)
-            .returning(|_, _| Err(UpsertProductListingError::InvalidProductState));
+        upsert.expect_execute().times(1).returning(|_, _| {
+            Err(UpsertProductListingError::InvalidProductListing {
+                source: application::error::static_error("invalid test product listing"),
+            })
+        });
         let app = app(upsert);
         let shop_id = ShopId::new();
 
@@ -191,7 +194,7 @@ mod tests {
             Arc::new(MockCreateUseCase::new()),
             Arc::new(MockUpdateUseCase::new()),
             Arc::new(upsert),
-            Arc::new(MockDeleteUseCase::new()),
+            Arc::new(MockWithdrawUseCase::new()),
             Arc::new(authenticator()),
         );
         Router::new()

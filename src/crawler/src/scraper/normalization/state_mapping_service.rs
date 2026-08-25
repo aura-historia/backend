@@ -547,7 +547,7 @@ mod tests {
         }
     }
 
-    fn value_record(raw: &str, state: ProductState) -> ProductStateMappingRecord {
+    fn value_record(raw: &str, state: Option<ListingAvailability>) -> ProductStateMappingRecord {
         let now = OffsetDateTime::now_utc();
         ProductStateMappingRecord {
             raw: raw.to_owned(),
@@ -558,7 +558,10 @@ mod tests {
         }
     }
 
-    fn regex_record(pattern: &str, state: ProductState) -> ProductStateMappingRecord {
+    fn regex_record(
+        pattern: &str,
+        state: Option<ListingAvailability>,
+    ) -> ProductStateMappingRecord {
         let now = OffsetDateTime::now_utc();
         ProductStateMappingRecord {
             raw: pattern.to_owned(),
@@ -582,7 +585,7 @@ mod tests {
     fn record_matches(
         record: &ProductStateMappingRecord,
         raw: &str,
-        normalized: ProductState,
+        normalized: Option<ListingAvailability>,
         mapping_type: StateMappingType,
     ) -> bool {
         record.raw == raw && record.normalized == normalized && record.mapping_type == mapping_type
@@ -596,7 +599,9 @@ mod tests {
 
         assert!(matches!(
             parsed,
-            Ok(ParsedLlmMappingResponse::State(ProductState::Available))
+            Ok(ParsedLlmMappingResponse::State(Some(
+                ListingAvailability::Available
+            )))
         ));
     }
 
@@ -611,7 +616,7 @@ mod tests {
             parsed,
             Ok(ParsedLlmMappingResponse::Regex { pattern, state })
                 if pattern == r"[1-9][0-9]*\s+in\s+stock\b"
-                    && state == ProductState::Available
+                    && state == Some(ListingAvailability::Available)
         ));
     }
 
@@ -638,7 +643,7 @@ mod tests {
         assert!(matches!(
             result,
             Ok(ProductStateMappingRecord {
-                normalized: ProductState::Sold,
+                normalized: Some(ListingAvailability::SoldOut),
                 mapping_type: StateMappingType::Value,
                 ..
             })
@@ -707,7 +712,7 @@ mod tests {
             result,
             Ok(ProductStateMappingRecord {
                 raw,
-                normalized: ProductState::Reserved,
+                normalized: Some(ListingAvailability::Reserved),
                 mapping_type: StateMappingType::Value,
                 ..
             }) if raw == "on hold"
@@ -729,7 +734,7 @@ mod tests {
             result,
             Ok(ProductStateMappingRecord {
                 raw,
-                normalized: ProductState::Available,
+                normalized: Some(ListingAvailability::Available),
                 mapping_type: StateMappingType::Regex,
                 ..
             }) if raw == pattern
@@ -752,7 +757,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_find_normalized_exact_mapping_without_calling_llm() {
-        let expected = value_record("sold", ProductState::Sold);
+        let expected = value_record("sold", Some(ListingAvailability::SoldOut));
         let expected_clone = expected.clone();
         let mut repository = MockProductStateMappingRepository::new();
         repository
@@ -766,7 +771,7 @@ mod tests {
         assert!(matches!(
             result,
             Ok(Some(record))
-                if record_matches(&record, "sold", ProductState::Sold, StateMappingType::Value)
+                if record_matches(&record, "sold", Some(ListingAvailability::SoldOut), StateMappingType::Value)
         ));
     }
 
@@ -788,7 +793,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_insert_mapping_when_no_existing_mapping() {
-        let expected = value_record("nuevo", ProductState::Available);
+        let expected = value_record("nuevo", Some(ListingAvailability::Available));
         let expected_clone = expected.clone();
         let mut repository = MockProductStateMappingRepository::new();
         repository
@@ -799,27 +804,31 @@ mod tests {
             .expect_insert_mapping()
             .withf(|record| {
                 record.raw == "nuevo"
-                    && record.normalized == ProductState::Available
+                    && record.normalized == Some(ListingAvailability::Available)
                     && record.mapping_type == StateMappingType::Value
             })
             .return_once(move |_| Box::pin(async move { Ok(expected_clone) }));
         let service = service(NoCallLlm, repository);
 
         let result = service
-            .save_state_mapping(" NUEVO ", ProductState::Available, StateMappingType::Value)
+            .save_state_mapping(
+                " NUEVO ",
+                Some(ListingAvailability::Available),
+                StateMappingType::Value,
+            )
             .await;
 
         assert!(matches!(
             result,
             Ok(record)
-                if record_matches(&record, "nuevo", ProductState::Available, StateMappingType::Value)
+                if record_matches(&record, "nuevo", Some(ListingAvailability::Available), StateMappingType::Value)
         ));
     }
 
     #[tokio::test]
     async fn should_update_mapping_when_existing_mapping_is_found() {
-        let existing = value_record("sold out", ProductState::Sold);
-        let updated = value_record("sold out", ProductState::Removed);
+        let existing = value_record("sold out", Some(ListingAvailability::SoldOut));
+        let updated = value_record("sold out", None);
         let updated_clone = updated.clone();
         let mut repository = MockProductStateMappingRepository::new();
         repository
@@ -828,28 +837,28 @@ mod tests {
             .return_once(move |_| Box::pin(async move { Ok(Some(existing)) }));
         repository
             .expect_update_mapping()
-            .withf(|raw, state, mapping_type| {
+            .withf(|raw, availability, mapping_type| {
                 raw == "sold out"
-                    && *state == ProductState::Removed
+                    && availability.is_none()
                     && *mapping_type == StateMappingType::Value
             })
             .return_once(move |_, _, _| Box::pin(async move { Ok(updated_clone) }));
         let service = service(NoCallLlm, repository);
 
         let result = service
-            .save_state_mapping("sold out", ProductState::Removed, StateMappingType::Value)
+            .save_state_mapping("sold out", None, StateMappingType::Value)
             .await;
 
         assert!(matches!(
             result,
             Ok(record)
-                if record_matches(&record, "sold out", ProductState::Removed, StateMappingType::Value)
+                if record_matches(&record, "sold out", None, StateMappingType::Value)
         ));
     }
 
     #[tokio::test]
     async fn should_return_exact_mapping_before_regex_or_llm() {
-        let expected = value_record("sold", ProductState::Sold);
+        let expected = value_record("sold", Some(ListingAvailability::SoldOut));
         let expected_clone = expected.clone();
         let mut repository = MockProductStateMappingRepository::new();
         repository
@@ -863,13 +872,16 @@ mod tests {
         assert!(matches!(
             result,
             Ok((record, false))
-                if record_matches(&record, "sold", ProductState::Sold, StateMappingType::Value)
+                if record_matches(&record, "sold", Some(ListingAvailability::SoldOut), StateMappingType::Value)
         ));
     }
 
     #[tokio::test]
     async fn should_return_first_matching_stored_regex_before_llm() {
-        let matching = regex_record(r"[1-9][0-9]*\s+in\s+stock\b", ProductState::Available);
+        let matching = regex_record(
+            r"[1-9][0-9]*\s+in\s+stock\b",
+            Some(ListingAvailability::Available),
+        );
         let matching_clone = matching.clone();
         let mut repository = MockProductStateMappingRepository::new();
         repository
@@ -889,7 +901,7 @@ mod tests {
                 if record_matches(
                     &record,
                     r"[1-9][0-9]*\s+in\s+stock\b",
-                    ProductState::Available,
+                    Some(ListingAvailability::Available),
                     StateMappingType::Regex,
                 )
         ));
@@ -897,7 +909,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_skip_invalid_stored_regex_and_use_next_match() {
-        let matching = regex_record(r"\bsold\s+out\b", ProductState::Sold);
+        let matching = regex_record(r"\bsold\s+out\b", Some(ListingAvailability::SoldOut));
         let matching_clone = matching.clone();
         let mut repository = MockProductStateMappingRepository::new();
         repository
@@ -906,12 +918,7 @@ mod tests {
         repository
             .expect_find_all_regex_mappings()
             .return_once(move || {
-                Box::pin(async move {
-                    Ok(vec![
-                        regex_record("[unclosed", ProductState::Unknown),
-                        matching_clone,
-                    ])
-                })
+                Box::pin(async move { Ok(vec![regex_record("[unclosed", None), matching_clone]) })
             });
         let service = service(NoCallLlm, repository);
 
@@ -923,7 +930,7 @@ mod tests {
                 if record_matches(
                     &record,
                     r"\bsold\s+out\b",
-                    ProductState::Sold,
+                    Some(ListingAvailability::SoldOut),
                     StateMappingType::Regex,
                 )
         ));
@@ -931,7 +938,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_generate_and_persist_value_mapping_after_lookup_misses() {
-        let saved = value_record("brand new phrase", ProductState::Listed);
+        let saved = value_record("brand new phrase", None);
         let saved_clone = saved.clone();
         let mut repository = MockProductStateMappingRepository::new();
         repository
@@ -944,7 +951,7 @@ mod tests {
             .expect_insert_mapping()
             .withf(|record| {
                 record.raw == "brand new phrase"
-                    && record.normalized == ProductState::Listed
+                    && record.normalized.is_none()
                     && record.mapping_type == StateMappingType::Value
             })
             .return_once(move |_| Box::pin(async move { Ok(saved_clone) }));
@@ -961,7 +968,7 @@ mod tests {
                 if record_matches(
                     &record,
                     "brand new phrase",
-                    ProductState::Listed,
+                    None,
                     StateMappingType::Value,
                 )
         ));
@@ -970,7 +977,7 @@ mod tests {
     #[tokio::test]
     async fn should_generate_and_persist_regex_mapping_after_lookup_misses() {
         let pattern = r"[1-9][0-9]*\s+verfügbar\b";
-        let saved = regex_record(pattern, ProductState::Available);
+        let saved = regex_record(pattern, Some(ListingAvailability::Available));
         let saved_clone = saved.clone();
         let mut repository = MockProductStateMappingRepository::new();
         repository
@@ -983,7 +990,7 @@ mod tests {
             .expect_insert_mapping()
             .withf(move |record| {
                 record.raw == pattern
-                    && record.normalized == ProductState::Available
+                    && record.normalized == Some(ListingAvailability::Available)
                     && record.mapping_type == StateMappingType::Regex
             })
             .return_once(move |_| Box::pin(async move { Ok(saved_clone) }));
@@ -1001,7 +1008,7 @@ mod tests {
                 if record_matches(
                     &record,
                     r"[1-9][0-9]*\s+verfügbar\b",
-                    ProductState::Available,
+                    Some(ListingAvailability::Available),
                     StateMappingType::Regex,
                 )
         ));

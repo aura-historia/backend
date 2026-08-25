@@ -928,7 +928,7 @@ impl From<GetProductListingError> for ApiError {
             }
             GetProductListingError::ProductListingDetailsReadModelInvalid
             | GetProductListingError::PricingFxSnapshotInvalid { .. }
-            | GetProductListingError::SaleFxSnapshotMismatch { .. }
+            | GetProductListingError::SaleObservationFxSnapshotMismatch { .. }
             | GetProductListingError::ProductListingPriceConversionFailed { .. } => {
                 ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                     .with_detail("ProductListing details failed internally.")

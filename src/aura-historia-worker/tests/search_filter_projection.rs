@@ -5,11 +5,12 @@ use domain_primitives::event_id::EventId;
 use localization::{Language, Localized};
 use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
-use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::product_state::ProductState;
+
 use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_core::{
     product_listing::{ProductListingAddress, ProductListingAuction, ProductListingPricing},
@@ -399,9 +400,9 @@ fn product_source(
         titles: std::collections::HashMap::from([(Language::En, title)]),
         descriptions: std::collections::HashMap::new(),
         pricing: ProductListingPricing::default(),
-        sale_valuation: None,
-        state: ProductState::Listed,
-        lifecycle: ProductLifecycle::Active,
+        sale_observation: None,
+        availability: Some(ListingAvailability::Available),
+        lifecycle: ListingLifecycle::Active,
         url: url.clone(),
         view_url: url,
         image: None,

@@ -6,13 +6,13 @@ use money::Currency;
 use money::{MonetaryAmount, Price};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::description::Description;
+use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::{
     NewProductListing, ProductListing, ProductListingAddress, ProductListingAuction,
     ProductListingPricing,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::product_state::ProductState;
 use product_listing_core::prohibited_content::ProhibitedContent;
 use product_listing_core::title::Title;
 use product_listing_postgres::{
@@ -20,11 +20,12 @@ use product_listing_postgres::{
 };
 use product_listing_service::ports::{
     ProductListingEventStore, ProductListingEventStoreError, ProductListingEventStoreFactory,
-    ProductListingRepository, ProductListingRepositoryFactory,
+    ProductListingRepository, ProductListingRepositoryFactory, stamp_product_listing_events,
 };
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use time::OffsetDateTime;
 use url::Url;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -38,7 +39,7 @@ async fn should_report_duplicate_event_and_missing_current_event_in_product_list
     let shop_id = seed_shop(&pool, "product-listing-postgres-conflict-shop").await;
     let seller_id = seed_shop(&pool, "product-listing-postgres-conflict-seller").await;
     let product = sample_product("postgres-product-conflict", shop_id, seller_id);
-    let event = product.pending_events()[0].clone();
+    let event = first_stamped_event(&product);
 
     let mut tx = begin(&unit_of_work).await;
     match product_listings
@@ -74,6 +75,22 @@ async fn should_report_duplicate_event_and_missing_current_event_in_product_list
     assert_eq!(None, missing_event);
 }
 
+fn first_stamped_event(
+    product: &ProductListing,
+) -> product_listing_service::ports::product_listing_event_store::ProductListingEvent {
+    match stamp_product_listing_events(
+        product.id(),
+        OffsetDateTime::now_utc(),
+        product.pending_event_payloads().to_vec(),
+    )
+    .into_iter()
+    .next()
+    {
+        Some(event) => event,
+        None => panic!("product is missing a pending event payload"),
+    }
+}
+
 fn sample_product(slug: &str, shop_id: ShopId, seller_id: ShopId) -> ProductListing {
     let mut images = IndexSet::new();
     images.insert(ProductListingImage {
@@ -96,8 +113,7 @@ fn sample_product(slug: &str, shop_id: ShopId, seller_id: ShopId) -> ProductList
             price_estimate_min: None,
             price_estimate_max: None,
         },
-        sale_valuation: None,
-        state: ProductState::Listed,
+        availability: Some(ListingAvailability::Available),
         url: url(&format!("https://example.com/{slug}")),
         images,
         auction: ProductListingAuction::default(),

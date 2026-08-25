@@ -753,7 +753,9 @@ mod tests {
     use super::*;
     use localization::{Language, Localized};
     use product_listing_core::title::Title;
-    use product_listing_core::{product_state::ProductState, shop_listing_id::ShopListingId};
+    use product_listing_core::{
+        listing_availability::ListingAvailability, shop_listing_id::ShopListingId,
+    };
     use shop_core::shop_id::ShopId;
     use url::Url;
 
@@ -770,7 +772,7 @@ mod tests {
             price_estimate_min: None,
             price_estimate_max: None,
             seller_name: None,
-            state: ProductState::Available,
+            availability: Some(ListingAvailability::Available),
             url: base_url(),
             images: vec![],
             auction_start: None,

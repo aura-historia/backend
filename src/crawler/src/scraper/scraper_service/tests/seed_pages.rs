@@ -184,7 +184,10 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(result.product.state, ProductState::Available);
+    assert_eq!(
+        result.product.availability,
+        Some(ListingAvailability::Available)
+    );
 }
 
 #[tokio::test]
@@ -273,7 +276,10 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(result.product.state, ProductState::Available);
+    assert_eq!(
+        result.product.availability,
+        Some(ListingAvailability::Available)
+    );
 }
 
 #[tokio::test]
@@ -361,7 +367,10 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(result.product.state, ProductState::Available);
+    assert_eq!(
+        result.product.availability,
+        Some(ListingAvailability::Available)
+    );
 }
 
 #[tokio::test]

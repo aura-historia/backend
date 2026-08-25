@@ -124,7 +124,7 @@ async fn create_state_notification_from_committed_product_event()
             &mut transaction,
             event_id,
             product_listing_id,
-            "PRODUCT_STATE_CHANGED",
+            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
             json!({"oldState": "Available", "newState": "Sold"}),
         )
         .await?;
@@ -177,7 +177,7 @@ async fn create_price_notifications_only_for_active_watchers()
             &mut transaction,
             event_id,
             product_listing_id,
-            "PRODUCT_PRICE_CHANGED",
+            "PRODUCT_LISTING_PRICE_CHANGED",
             json!({
                 "oldPricing": {"price": {"amount": 1200, "currency": "USD"}},
                 "newPricing": {"price": {"amount": 900, "currency": "USD"}}
@@ -219,7 +219,7 @@ async fn no_notification_for_watcher_created_after_product_event()
             &mut transaction,
             event_id,
             product_listing_id,
-            "PRODUCT_STATE_CHANGED",
+            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
             json!({"oldState": "Available", "newState": "Sold"}),
             event_time,
         )
@@ -244,7 +244,7 @@ async fn no_notification_for_watcher_created_after_product_event()
                 "record": {
                     "event_id": event_id.to_string(),
                     "product_listing_id": product_listing_id.to_string(),
-                    "event_type": "PRODUCT_STATE_CHANGED",
+                    "event_type": "PRODUCT_LISTING_AVAILABILITY_CHANGED",
                     "event_group": "DOMAIN"
                 },
                 "action": "insert",
@@ -272,7 +272,7 @@ async fn hold_product_revision_lock_until_watchlist_notification_commit()
         &mut transaction,
         event_id,
         product_listing_id,
-        "PRODUCT_STATE_CHANGED",
+        "PRODUCT_LISTING_AVAILABILITY_CHANGED",
         json!({"oldState": "Available", "newState": "Sold"}),
         event_time,
     )
@@ -322,7 +322,7 @@ async fn hold_product_revision_lock_until_watchlist_notification_commit()
     let mut update = tokio::spawn(async move {
         let _ = update_started_tx.send(());
         let mut transaction = update_pool.begin().await?;
-        sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_STATE_CHANGED', 'DOMAIN', '{}', $3)")
+        sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_AVAILABILITY_CHANGED', 'DOMAIN', '{}', $3)")
             .bind(uuid::Uuid::from(next_event_id))
             .bind(uuid::Uuid::from(product_listing_id))
             .bind(event_time + time::Duration::seconds(1))
@@ -387,7 +387,7 @@ async fn preserve_one_notification_when_product_event_delivery_is_retried()
             &mut transaction,
             event_id,
             product_listing_id,
-            "PRODUCT_STATE_CHANGED",
+            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
             json!({"oldState": "Listed", "newState": "Available"}),
         )
         .await?;
@@ -403,7 +403,7 @@ async fn preserve_one_notification_when_product_event_delivery_is_retried()
                 "record": {
                     "event_id": event_id.to_string(),
                     "product_listing_id": product_listing_id.to_string(),
-                    "event_type": "PRODUCT_STATE_CHANGED",
+                    "event_type": "PRODUCT_LISTING_AVAILABILITY_CHANGED",
                     "event_group": "DOMAIN"
                 },
                 "action": "insert",
@@ -441,7 +441,7 @@ async fn not_notify_for_rolled_back_or_unrouted_product_listing_events()
             &mut rolled_back_transaction,
             rolled_back_event_id,
             rolled_back_product_listing_id,
-            "PRODUCT_STATE_CHANGED",
+            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
             json!({"oldState": "Available", "newState": "Sold"}),
         )
         .await?;
@@ -618,7 +618,7 @@ async fn seed_product(
         .bind("Worker watchlist shop")
         .execute(&mut **transaction)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Worker watchlist product', 'en', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Worker watchlist product', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-watchlist-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))

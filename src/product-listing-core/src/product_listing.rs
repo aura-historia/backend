@@ -27,7 +27,7 @@ pub struct ProductListing {
     title: Option<Localized<Language, Title>>,
     description: Option<Localized<Language, Description>>,
     pricing: ProductListingPricing,
-    sale_valuation: Option<ProductSaleValuation>,
+    sale_observation: Option<ListingSaleObservation>,
     availability: Option<ListingAvailability>,
     lifecycle: ListingLifecycle,
     url: Url,
@@ -46,7 +46,6 @@ pub struct NewProductListing {
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductListingPricing,
-    pub sale_valuation: Option<ProductSaleValuation>,
     pub availability: Option<ListingAvailability>,
     pub url: Url,
     pub images: IndexSet<ProductListingImage>,
@@ -65,7 +64,7 @@ pub struct RehydratedProductListingState {
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductListingPricing,
-    pub sale_valuation: Option<ProductSaleValuation>,
+    pub sale_observation: Option<ListingSaleObservation>,
     pub availability: Option<ListingAvailability>,
     pub lifecycle: ListingLifecycle,
     pub url: Url,
@@ -90,7 +89,7 @@ pub struct ProductListingPricing {
 pub enum ProductListingPriceValuationBasis {
     Current,
     Event,
-    Sale,
+    SaleObservation,
 }
 
 impl ProductListingPriceValuationBasis {
@@ -98,15 +97,32 @@ impl ProductListingPriceValuationBasis {
         match self {
             Self::Current => "CURRENT",
             Self::Event => "EVENT",
-            Self::Sale => "SALE",
+            Self::SaleObservation => "SALE_OBSERVATION",
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ProductSaleValuation {
-    pub sold_at: OffsetDateTime,
-    pub fx_rate_id: FxRateId,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ListingSaleObservation {
+    observed_at: OffsetDateTime,
+    fx_rate_id: FxRateId,
+}
+
+impl ListingSaleObservation {
+    pub const fn new(observed_at: OffsetDateTime, fx_rate_id: FxRateId) -> Self {
+        Self {
+            observed_at,
+            fx_rate_id,
+        }
+    }
+
+    pub const fn observed_at(self) -> OffsetDateTime {
+        self.observed_at
+    }
+
+    pub const fn fx_rate_id(self) -> FxRateId {
+        self.fx_rate_id
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -126,6 +142,8 @@ pub enum ProductListingEventPayload {
     AuctionChanged(ProductListingAuctionChanged),
     Withdrawn(ProductListingWithdrawn),
     Restored(ProductListingRestored),
+    SaleObserved(ListingSaleObserved),
+    SaleObservationRetracted(ListingSaleObservationRetracted),
 }
 
 impl ProductListingEventPayload {
@@ -140,6 +158,8 @@ impl ProductListingEventPayload {
             Self::AuctionChanged(_) => "PRODUCT_LISTING_AUCTION_CHANGED",
             Self::Withdrawn(_) => "PRODUCT_LISTING_WITHDRAWN",
             Self::Restored(_) => "PRODUCT_LISTING_RESTORED",
+            Self::SaleObserved(_) => "PRODUCT_LISTING_SALE_OBSERVED",
+            Self::SaleObservationRetracted(_) => "PRODUCT_LISTING_SALE_OBSERVATION_RETRACTED",
         }
     }
 }
@@ -150,7 +170,6 @@ pub struct ProductListingCreated {
     pub description: Option<Localized<Language, Description>>,
     pub address: ProductListingAddress,
     pub pricing: ProductListingPricing,
-    pub sale_valuation: Option<ProductSaleValuation>,
     pub availability: Option<ListingAvailability>,
     pub url: Url,
     pub images: IndexSet<ProductListingImage>,
@@ -198,6 +217,16 @@ pub struct ProductListingWithdrawn {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingRestored;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ListingSaleObserved {
+    pub observation: ListingSaleObservation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ListingSaleObservationRetracted {
+    pub observation: ListingSaleObservation,
+}
+
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum RehydrateProductListingError {
     #[error("withdrawn listing has availability")]
@@ -220,6 +249,12 @@ pub enum ChangeProductListingError {
     ListingWithdrawn,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum RecordListingSaleObservationError {
+    #[error("a different sale observation already exists")]
+    ConflictingExistingObservation,
+}
+
 impl ProductListing {
     pub fn create(input: NewProductListing) -> Result<Self, RehydrateProductListingError> {
         let slug_id = product_listing_slug_id(input.id, input.title.as_ref());
@@ -233,7 +268,7 @@ impl ProductListing {
             title: input.title.clone(),
             description: input.description.clone(),
             pricing: input.pricing,
-            sale_valuation: input.sale_valuation,
+            sale_observation: None,
             availability: input.availability,
             lifecycle: ListingLifecycle::Active,
             url: input.url.clone(),
@@ -246,7 +281,6 @@ impl ProductListing {
                 description: input.description,
                 address: input.address,
                 pricing: input.pricing,
-                sale_valuation: input.sale_valuation,
                 availability: input.availability,
                 url: input.url,
                 images: input.images,
@@ -274,7 +308,7 @@ impl ProductListing {
             title: state.title,
             description: state.description,
             pricing: state.pricing,
-            sale_valuation: state.sale_valuation,
+            sale_observation: state.sale_observation,
             availability: state.availability,
             lifecycle: state.lifecycle,
             url: state.url,
@@ -327,6 +361,33 @@ impl ProductListing {
         self.lifecycle = ListingLifecycle::Active;
         self.availability = None;
         self.push_event(ProductListingEventPayload::Restored(ProductListingRestored));
+        ChangeOutcome::Changed
+    }
+
+    pub fn record_sale_observation(
+        &mut self,
+        observation: ListingSaleObservation,
+    ) -> Result<ChangeOutcome, RecordListingSaleObservationError> {
+        match self.sale_observation {
+            None => {
+                self.sale_observation = Some(observation);
+                self.push_event(ProductListingEventPayload::SaleObserved(
+                    ListingSaleObserved { observation },
+                ));
+                Ok(ChangeOutcome::Changed)
+            }
+            Some(existing) if existing == observation => Ok(ChangeOutcome::Unchanged),
+            Some(_) => Err(RecordListingSaleObservationError::ConflictingExistingObservation),
+        }
+    }
+
+    pub fn retract_sale_observation(&mut self) -> ChangeOutcome {
+        let Some(observation) = self.sale_observation.take() else {
+            return ChangeOutcome::Unchanged;
+        };
+        self.push_event(ProductListingEventPayload::SaleObservationRetracted(
+            ListingSaleObservationRetracted { observation },
+        ));
         ChangeOutcome::Changed
     }
 
@@ -444,8 +505,8 @@ impl ProductListing {
     pub fn pricing(&self) -> ProductListingPricing {
         self.pricing
     }
-    pub fn sale_valuation(&self) -> Option<ProductSaleValuation> {
-        self.sale_valuation
+    pub fn sale_observation(&self) -> Option<ListingSaleObservation> {
+        self.sale_observation
     }
     pub fn availability(&self) -> Option<ListingAvailability> {
         self.availability
@@ -542,7 +603,6 @@ mod tests {
             title: None,
             description: None,
             pricing: ProductListingPricing::default(),
-            sale_valuation: None,
             availability: None,
             url: Url::parse("https://shop.example/listing")
                 .unwrap_or_else(|error| panic!("URL: {error}")),
@@ -621,7 +681,7 @@ mod tests {
             title: source.title,
             description: source.description,
             pricing: source.pricing,
-            sale_valuation: source.sale_valuation,
+            sale_observation: None,
             availability: Some(ListingAvailability::Available),
             lifecycle: ListingLifecycle::Withdrawn,
             url: source.url,
@@ -643,6 +703,85 @@ mod tests {
         assert_eq!(ChangeOutcome::Changed, listing.withdraw());
         listing.take_pending_event_payloads();
         assert_eq!(ChangeOutcome::Unchanged, listing.withdraw());
+        assert!(listing.pending_event_payloads().is_empty());
+    }
+
+    fn observation() -> ListingSaleObservation {
+        ListingSaleObservation::new(OffsetDateTime::UNIX_EPOCH, FxRateId::new())
+    }
+
+    #[test]
+    fn should_record_sale_observation_without_changing_listing_facts() {
+        let mut listing =
+            ProductListing::create(input()).unwrap_or_else(|error| panic!("create: {error}"));
+        listing.take_pending_event_payloads();
+        let observation = observation();
+
+        assert_eq!(
+            Ok(ChangeOutcome::Changed),
+            listing.record_sale_observation(observation)
+        );
+        assert_eq!(Some(observation), listing.sale_observation());
+        assert_eq!(ListingLifecycle::Active, listing.lifecycle());
+        assert_eq!(None, listing.availability());
+        assert!(matches!(
+            listing.pending_event_payloads(),
+            [ProductListingEventPayload::SaleObserved(ListingSaleObserved {
+                observation: observed,
+            })] if *observed == observation
+        ));
+    }
+
+    #[test]
+    fn should_make_same_sale_observation_idempotent_and_reject_conflict() {
+        let mut listing =
+            ProductListing::create(input()).unwrap_or_else(|error| panic!("create: {error}"));
+        listing.take_pending_event_payloads();
+        let observation = observation();
+        listing
+            .record_sale_observation(observation)
+            .unwrap_or_else(|error| panic!("record: {error}"));
+        listing.take_pending_event_payloads();
+
+        assert_eq!(
+            Ok(ChangeOutcome::Unchanged),
+            listing.record_sale_observation(observation)
+        );
+        assert_eq!(
+            Err(RecordListingSaleObservationError::ConflictingExistingObservation),
+            listing.record_sale_observation(ListingSaleObservation::new(
+                OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(1),
+                FxRateId::new(),
+            ))
+        );
+        assert_eq!(Some(observation), listing.sale_observation());
+        assert!(listing.pending_event_payloads().is_empty());
+    }
+
+    #[test]
+    fn should_retract_sale_observation_idempotently_and_preserve_it_across_lifecycle_changes() {
+        let mut listing =
+            ProductListing::create(input()).unwrap_or_else(|error| panic!("create: {error}"));
+        listing.take_pending_event_payloads();
+        let observation = observation();
+        listing
+            .record_sale_observation(observation)
+            .unwrap_or_else(|error| panic!("record: {error}"));
+        listing.withdraw();
+        listing.restore();
+        assert_eq!(Some(observation), listing.sale_observation());
+        listing.take_pending_event_payloads();
+
+        assert_eq!(ChangeOutcome::Changed, listing.retract_sale_observation());
+        assert_eq!(None, listing.sale_observation());
+        assert!(matches!(
+            listing.pending_event_payloads(),
+            [ProductListingEventPayload::SaleObservationRetracted(
+                ListingSaleObservationRetracted { observation: retracted }
+            )] if *retracted == observation
+        ));
+        listing.take_pending_event_payloads();
+        assert_eq!(ChangeOutcome::Unchanged, listing.retract_sale_observation());
         assert!(listing.pending_event_payloads().is_empty());
     }
 }

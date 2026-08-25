@@ -113,7 +113,10 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(result.product.state, ProductState::Available);
+    assert_eq!(
+        result.product.availability,
+        Some(ListingAvailability::Available)
+    );
 }
 
 /// When the state mapping LLM call would push the shop over budget, the
@@ -262,7 +265,10 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_fail
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(result.product.state, ProductState::Available);
+    assert_eq!(
+        result.product.availability,
+        Some(ListingAvailability::Available)
+    );
 }
 
 #[tokio::test]

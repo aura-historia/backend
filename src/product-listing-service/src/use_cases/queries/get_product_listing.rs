@@ -29,7 +29,7 @@ use user_core::user_id::UserId;
 use crate::user_state::ProductListingUserState;
 use product_listing_core::description::Description;
 use product_listing_core::product_listing::{
-    ProductListingAddress, ProductListingAuction, ProductListingPricing, ProductSaleValuation,
+    ListingSaleObservation, ProductListingAddress, ProductListingAuction, ProductListingPricing,
 };
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::title::Title;
@@ -72,17 +72,17 @@ pub enum ProductListingPricingValuation {
         fx_rate_id: FxRateId,
         captured_at: OffsetDateTime,
     },
-    Sale {
+    SaleObservation {
         fx_rate_id: FxRateId,
         captured_at: OffsetDateTime,
-        sold_at: OffsetDateTime,
+        observed_at: OffsetDateTime,
     },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ProductListingPricingPresentationError {
-    #[error("sale valuation FX snapshot does not match")]
-    SaleFxSnapshotMismatch {
+    #[error("sale observation FX snapshot does not match")]
+    SaleObservationFxSnapshotMismatch {
         expected: FxRateId,
         actual: FxRateId,
     },
@@ -96,16 +96,16 @@ pub enum ProductListingPricingPresentationError {
 /// Converts all source prices with one immutable snapshot and records its valuation.
 pub fn present_product_pricing(
     source: ProductListingPricing,
-    sale_valuation: Option<ProductSaleValuation>,
+    sale_observation: Option<ListingSaleObservation>,
     snapshot: &FxRateSnapshot,
     display_currency: Currency,
 ) -> Result<ProductListingPricingPresentation, ProductListingPricingPresentationError> {
-    if let Some(sale_valuation) = sale_valuation
-        && sale_valuation.fx_rate_id != snapshot.id()
+    if let Some(sale_observation) = sale_observation
+        && sale_observation.fx_rate_id() != snapshot.id()
     {
         return Err(
-            ProductListingPricingPresentationError::SaleFxSnapshotMismatch {
-                expected: sale_valuation.fx_rate_id,
+            ProductListingPricingPresentationError::SaleObservationFxSnapshotMismatch {
+                expected: sale_observation.fx_rate_id(),
                 actual: snapshot.id(),
             },
         );
@@ -124,11 +124,11 @@ pub fn present_product_pricing(
         price_estimate_min: convert(source.price_estimate_min)?,
         price_estimate_max: convert(source.price_estimate_max)?,
     };
-    let valuation = match sale_valuation {
-        Some(sale_valuation) => ProductListingPricingValuation::Sale {
+    let valuation = match sale_observation {
+        Some(sale_observation) => ProductListingPricingValuation::SaleObservation {
             fx_rate_id: snapshot.id(),
             captured_at: snapshot.captured_at(),
-            sold_at: sale_valuation.sold_at,
+            observed_at: sale_observation.observed_at(),
         },
         None => ProductListingPricingValuation::Current {
             fx_rate_id: snapshot.id(),
@@ -194,8 +194,8 @@ pub enum GetProductListingError {
         #[source]
         source: BoxError,
     },
-    #[error("sale valuation FX snapshot does not match")]
-    SaleFxSnapshotMismatch {
+    #[error("sale observation FX snapshot does not match")]
+    SaleObservationFxSnapshotMismatch {
         expected: FxRateId,
         actual: FxRateId,
     },
@@ -277,7 +277,11 @@ where
         let snapshot = pricing_snapshot(
             &self.fx_rates,
             &mut tx,
-            factual_details.item.sale_valuation,
+            applicable_sale_observation(
+                factual_details.item.sale_observation,
+                factual_details.item.availability,
+                factual_details.item.lifecycle,
+            ),
             valuation_at,
         )
         .await?;
@@ -305,15 +309,15 @@ where
 async fn pricing_snapshot<Tx, F>(
     fx_rates: &F,
     tx: &mut Tx,
-    sale_valuation: Option<ProductSaleValuation>,
+    sale_observation: Option<ListingSaleObservation>,
     valuation_at: OffsetDateTime,
 ) -> Result<FxRateSnapshot, GetProductListingError>
 where
     F: FxRateSnapshotRepositoryFactory<Tx>,
 {
     let mut repository = fx_rates.in_transaction(tx);
-    let snapshot = match sale_valuation {
-        Some(sale_valuation) => repository.find_by_id(sale_valuation.fx_rate_id).await?,
+    let snapshot = match sale_observation {
+        Some(sale_observation) => repository.find_by_id(sale_observation.fx_rate_id()).await?,
         None => repository.find_latest_at_or_before(valuation_at).await?,
     };
     snapshot.ok_or(GetProductListingError::PricingFxSnapshotMissing)
@@ -325,7 +329,12 @@ pub fn present_product_details(
     currency: Currency,
 ) -> Result<PersonalizedProductListingDetailsView, ProductListingPricingPresentationError> {
     let Personalized { item, user_state } = factual_details;
-    let pricing = present_product_pricing(item.pricing, item.sale_valuation, snapshot, currency)?;
+    let pricing = present_product_pricing(
+        item.pricing,
+        applicable_sale_observation(item.sale_observation, item.availability, item.lifecycle),
+        snapshot,
+        currency,
+    )?;
     Ok(Personalized {
         item: ProductListingDetailsView {
             product_listing_id: item.product_listing_id,
@@ -355,6 +364,20 @@ pub fn present_product_details(
         },
         user_state,
     })
+}
+
+fn applicable_sale_observation(
+    sale_observation: Option<ListingSaleObservation>,
+    availability: Option<ListingAvailability>,
+    lifecycle: ListingLifecycle,
+) -> Option<ListingSaleObservation> {
+    if availability == Some(ListingAvailability::SoldOut)
+        || lifecycle == ListingLifecycle::Withdrawn
+    {
+        sale_observation
+    } else {
+        None
+    }
 }
 
 fn personalization_user_id(principal: &Principal) -> Option<UserId> {
@@ -456,9 +479,10 @@ impl From<FxRateSnapshotRepositoryError> for GetProductListingError {
 impl From<ProductListingPricingPresentationError> for GetProductListingError {
     fn from(error: ProductListingPricingPresentationError) -> Self {
         match error {
-            ProductListingPricingPresentationError::SaleFxSnapshotMismatch { expected, actual } => {
-                Self::SaleFxSnapshotMismatch { expected, actual }
-            }
+            ProductListingPricingPresentationError::SaleObservationFxSnapshotMismatch {
+                expected,
+                actual,
+            } => Self::SaleObservationFxSnapshotMismatch { expected, actual },
             ProductListingPricingPresentationError::PriceConversionFailed { source } => {
                 Self::ProductListingPriceConversionFailed { source }
             }
@@ -766,9 +790,9 @@ mod tests {
                         Currency::Eur,
                     )),
                 },
-                sale_valuation: None,
-                state: ProductState::Listed,
-                lifecycle: ProductLifecycle::Active,
+                sale_observation: None,
+                availability: None,
+                lifecycle: ListingLifecycle::Active,
                 url: url("https://shop.example/products/1")?,
                 view_url: url("https://aura.example/products/cabinet-abcdef")?,
                 images: IndexSet::<ProductListingImage>::new(),
@@ -817,24 +841,24 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_sale_valuation_with_a_different_snapshot()
+    fn should_reject_sale_observation_with_a_different_snapshot()
     -> Result<(), Box<dyn std::error::Error>> {
         let snapshot = snapshot()?;
         let expected = FxRateId::new();
 
         let result = present_product_pricing(
             ProductListingPricing::default(),
-            Some(ProductSaleValuation {
-                fx_rate_id: expected,
-                sold_at: OffsetDateTime::UNIX_EPOCH,
-            }),
+            Some(ListingSaleObservation::new(
+                OffsetDateTime::UNIX_EPOCH,
+                expected,
+            )),
             &snapshot,
             Currency::Eur,
         );
 
         assert!(matches!(
             result,
-            Err(ProductListingPricingPresentationError::SaleFxSnapshotMismatch { actual, .. })
+            Err(ProductListingPricingPresentationError::SaleObservationFxSnapshotMismatch { actual, .. })
                 if actual == snapshot.id()
         ));
         Ok(())
@@ -876,16 +900,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_load_sale_snapshot_by_id_and_preserve_sale_timestamp()
+    async fn should_load_sale_snapshot_by_id_and_preserve_observation_timestamp()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let mut details = factual_details()?;
         let snapshot = snapshot()?;
-        let sold_at = OffsetDateTime::UNIX_EPOCH + time::Duration::days(1);
-        details.item.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: snapshot.id(),
-            sold_at,
-        });
+        let observed_at = OffsetDateTime::UNIX_EPOCH + time::Duration::days(1);
+        details.item.sale_observation =
+            Some(ListingSaleObservation::new(observed_at, snapshot.id()));
+        details.item.availability = Some(ListingAvailability::SoldOut);
         lock_state(&state).find_details_result = Some(Ok(Some(details)));
         lock_state(&state).snapshot_by_id_result = Some(Ok(Some(snapshot.clone())));
 
@@ -897,10 +920,10 @@ mod tests {
             .await?;
 
         assert_eq!(
-            ProductListingPricingValuation::Sale {
+            ProductListingPricingValuation::SaleObservation {
                 fx_rate_id: snapshot.id(),
                 captured_at: snapshot.captured_at(),
-                sold_at,
+                observed_at,
             },
             result.item.pricing.valuation
         );
@@ -967,7 +990,7 @@ mod tests {
             ProductListingId::from(uuid::Uuid::nil()),
             result.item.product_listing_id
         );
-        assert_eq!(ProductState::Unknown, result.item.state);
+        assert_eq!(None, result.item.availability);
         assert_eq!(lifecycle, result.item.lifecycle);
         assert_eq!(ProductListingPricing::default(), result.item.pricing.source);
         assert_eq!(
@@ -1006,14 +1029,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_not_commit_when_sale_snapshot_does_not_match_valuation()
+    async fn should_not_commit_when_sale_snapshot_does_not_match_observation()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let mut details = factual_details()?;
-        details.item.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: FxRateId::new(),
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
+        details.item.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            FxRateId::new(),
+        ));
+        details.item.availability = Some(ListingAvailability::SoldOut);
         lock_state(&state).find_details_result = Some(Ok(Some(details)));
         lock_state(&state).snapshot_by_id_result = Some(Ok(Some(snapshot()?)));
 
@@ -1026,7 +1050,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(GetProductListingError::SaleFxSnapshotMismatch { .. })
+            Err(GetProductListingError::SaleObservationFxSnapshotMismatch { .. })
         ));
         assert_eq!(0, lock_state(&state).commit_count);
         Ok(())

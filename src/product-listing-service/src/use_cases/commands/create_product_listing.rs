@@ -128,7 +128,7 @@ where
     ) -> Result<CreateProductListingResult, CreateProductListingError> {
         context
             .require()
-            .credential_capability(CredentialCapability::ProductsWrite)
+            .credential_capability(CredentialCapability::PartnerShopsWrite)
             .authorize::<CreateProductListingError>()?;
         tracing::Span::current().record(
             "actor_id",
@@ -190,7 +190,6 @@ impl CreateProductListingCommand {
             title: self.title,
             description: self.description,
             pricing: self.pricing,
-            sale_valuation: None,
             availability: self.availability,
             url: self.url,
             images: self.images,

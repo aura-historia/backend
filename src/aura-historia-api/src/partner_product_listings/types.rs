@@ -108,7 +108,7 @@ pub(super) struct UpsertProductListingData {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct DeleteProductListingData {
+pub(super) struct WithdrawProductListingData {
     #[serde(rename = "shopListingId")]
     pub(super) shop_listing_id: ShopListingId,
 }
@@ -207,7 +207,7 @@ impl UpsertProductListingData {
     }
 }
 
-impl DeleteProductListingData {
+impl WithdrawProductListingData {
     pub(super) fn into_product_key(self, shop_id: ShopId) -> ProductListingKey {
         ProductListingKey::new(shop_id, self.shop_listing_id)
     }

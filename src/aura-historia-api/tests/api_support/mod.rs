@@ -68,10 +68,10 @@ use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user_id::UserId;
 
 use product_listing_service::use_cases::{
-    CreateProductListingHandler, DeleteProductListingHandler, GetProductListingEventsHandler,
-    GetProductListingHandler, GetSimilarProductListingsHandler,
-    IngestWoocommerceProductListingHandler, SearchProductListingsHandler,
-    UpdateProductListingHandler, UpsertProductListingHandler,
+    CreateProductListingHandler, GetProductListingEventsHandler, GetProductListingHandler,
+    GetSimilarProductListingsHandler, IngestWoocommerceProductListingHandler,
+    SearchProductListingsHandler, UpdateProductListingHandler, UpsertProductListingHandler,
+    WithdrawProductListingHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -472,7 +472,7 @@ pub async fn seed_product() -> ProductListingId {
         r#"
         INSERT INTO product_listings (
             product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id,
-            state, lifecycle, url
+            availability, lifecycle, url
         ) VALUES ($1, $2, $3, $4, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
         "#,
     )
@@ -493,9 +493,9 @@ pub async fn seed_product() -> ProductListingId {
         VALUES (
             $1,
             $2,
-            'PRODUCT_CREATED',
+            'PRODUCT_LISTING_CREATED',
             'DOMAIN',
-            '{"title":null,"description":null,"address":{},"pricing":{},"state":"Available","url":"https://api-acceptance.example/product","images":[],"auction":{}}',
+            '{"title":null,"description":null,"address":{},"pricing":{},"availability":"AVAILABLE","url":"https://api-acceptance.example/product","images":[],"auction":{}}',
             now()
         )
         "#,
@@ -604,28 +604,25 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     )));
 
     let partner_product_listings_state = PartnerProductListingsState::new(
-        Arc::new(CreateProductListingHandler::new_with_fx_rates(
+        Arc::new(CreateProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
             SqlxProductListingEventStoreFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
         )),
-        Arc::new(UpdateProductListingHandler::new_with_fx_rates(
+        Arc::new(UpdateProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
             SqlxProductListingEventStoreFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
         )),
-        Arc::new(UpsertProductListingHandler::new_with_fx_rates(
+        Arc::new(UpsertProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
             SqlxProductListingEventStoreFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
         )),
-        Arc::new(DeleteProductListingHandler::new(
+        Arc::new(WithdrawProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
             SqlxProductListingEventStoreFactory::new(),
@@ -635,15 +632,23 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     );
 
     let webhooks_state = WebhooksState::new(
-        Arc::new(IngestWoocommerceProductListingHandler::new_with_fx_rates(
+        Arc::new(IngestWoocommerceProductListingHandler::new(
             unit_of_work.clone(),
             SqlxPartnerShopReaderFactory::new(),
             SqlxWoocommerceWebhookShopReaderFactory::new(),
             SqlxWoocommerceWebhookSignatureVerifierFactory::new(),
-            SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
-            SqlxPartnerProductListingAuthorizerFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
+            UpsertProductListingHandler::new(
+                unit_of_work.clone(),
+                SqlxProductListingRepositoryFactory::new(),
+                SqlxProductListingEventStoreFactory::new(),
+                SqlxPartnerProductListingAuthorizerFactory::new(),
+            ),
+            WithdrawProductListingHandler::new(
+                unit_of_work.clone(),
+                SqlxProductListingRepositoryFactory::new(),
+                SqlxProductListingEventStoreFactory::new(),
+                SqlxPartnerProductListingAuthorizerFactory::new(),
+            ),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );

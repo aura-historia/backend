@@ -11,7 +11,7 @@ use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{
-    ProductListingAddress, ProductListingAuction, ProductListingPricing, ProductSaleValuation,
+    ListingSaleObservation, ProductListingAddress, ProductListingAuction, ProductListingPricing,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -52,7 +52,7 @@ pub struct ProductListingDetailsReadModel {
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductListingPricing,
-    pub sale_valuation: Option<ProductSaleValuation>,
+    pub sale_observation: Option<ListingSaleObservation>,
     pub availability: Option<ListingAvailability>,
     pub lifecycle: ListingLifecycle,
     pub url: Url,

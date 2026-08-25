@@ -163,8 +163,8 @@ CREATE TABLE product_listings (
     price_estimate_min_currency text,
     price_estimate_max_amount bigint,
     price_estimate_max_currency text,
-    sale_fx_rate_id uuid REFERENCES fx_rates(fx_rate_id) ON DELETE RESTRICT,
-    sold_at timestamptz,
+    sale_observation_fx_rate_id uuid REFERENCES fx_rates(fx_rate_id) ON DELETE RESTRICT,
+    sale_observed_at timestamptz,
     availability text,
     lifecycle text NOT NULL,
     url text NOT NULL,
@@ -193,7 +193,7 @@ CREATE TABLE product_listings (
     CONSTRAINT product_listings_price_currency_check CHECK (price_currency IS NULL OR price_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT product_listings_price_estimate_min_currency_check CHECK (price_estimate_min_currency IS NULL OR price_estimate_min_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT product_listings_price_estimate_max_currency_check CHECK (price_estimate_max_currency IS NULL OR price_estimate_max_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
-    CONSTRAINT product_listings_sale_valuation_pair_check CHECK ((sale_fx_rate_id IS NULL) = (sold_at IS NULL)),
+    CONSTRAINT product_listings_sale_observation_pair_check CHECK ((sale_observation_fx_rate_id IS NULL) = (sale_observed_at IS NULL)),
     CONSTRAINT product_listings_geo_pair_check CHECK ((geo_address_lat IS NULL) = (geo_address_lon IS NULL)),
     CONSTRAINT product_listings_geo_lat_range CHECK (geo_address_lat IS NULL OR geo_address_lat BETWEEN -90 AND 90),
     CONSTRAINT product_listings_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180),
@@ -205,7 +205,7 @@ CREATE TABLE product_listings (
 
 CREATE INDEX product_listings_seller_id_idx ON product_listings (seller_id);
 CREATE INDEX product_listings_lifecycle_updated_idx ON product_listings (lifecycle, updated DESC);
-CREATE INDEX product_listings_sale_fx_rate_id_idx ON product_listings (sale_fx_rate_id);
+CREATE INDEX product_listings_sale_observation_fx_rate_id_idx ON product_listings (sale_observation_fx_rate_id);
 
 CREATE TABLE product_listing_translations (
     product_listing_id uuid NOT NULL REFERENCES product_listings(product_listing_id) ON DELETE CASCADE,
@@ -348,7 +348,7 @@ CREATE TABLE search_filter_matches (
     CONSTRAINT search_filter_matches_price_valuation_check CHECK (
         (price_valuation_basis IS NULL AND price_fx_rate_id IS NULL)
         OR (
-            price_valuation_basis IN ('CURRENT', 'EVENT', 'SALE')
+            price_valuation_basis IN ('CURRENT', 'EVENT', 'SALE_OBSERVATION')
             AND price_fx_rate_id IS NOT NULL
         )
     )

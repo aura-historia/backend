@@ -35,7 +35,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
         });
 
     let mut expected = normalized_product(url.clone());
-    expected.state = ProductState::Sold;
+    expected.availability = Some(ListingAvailability::SoldOut);
     let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
@@ -73,6 +73,9 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(result.product.state, ProductState::Sold);
+    assert_eq!(
+        result.product.availability,
+        Some(ListingAvailability::SoldOut)
+    );
     assert!(!result.snapshot.state.is_empty());
 }

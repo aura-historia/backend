@@ -188,13 +188,13 @@ enum ProductListingPricingValuationData {
         #[serde(rename = "capturedAt", with = "time::serde::rfc3339")]
         captured_at: OffsetDateTime,
     },
-    Sale {
+    SaleObservation {
         #[serde(rename = "fxRateId")]
         fx_rate_id: FxRateId,
         #[serde(rename = "capturedAt", with = "time::serde::rfc3339")]
         captured_at: OffsetDateTime,
-        #[serde(rename = "soldAt", with = "time::serde::rfc3339")]
-        sold_at: OffsetDateTime,
+        #[serde(rename = "observedAt", with = "time::serde::rfc3339")]
+        observed_at: OffsetDateTime,
     },
 }
 
@@ -207,11 +207,11 @@ enum ProductListingSummaryPriceValuationData {
         #[serde(rename = "capturedAt", with = "time::serde::rfc3339")]
         captured_at: OffsetDateTime,
     },
-    Sale {
+    SaleObservation {
         #[serde(rename = "fxRateId")]
         fx_rate_id: FxRateId,
-        #[serde(rename = "soldAt", with = "time::serde::rfc3339")]
-        sold_at: OffsetDateTime,
+        #[serde(rename = "observedAt", with = "time::serde::rfc3339")]
+        observed_at: OffsetDateTime,
     },
 }
 
@@ -320,12 +320,12 @@ impl From<ProductListingSummaryPriceValuation> for ProductListingSummaryPriceVal
                 fx_rate_id,
                 captured_at,
             },
-            ProductListingSummaryPriceValuation::Sale {
+            ProductListingSummaryPriceValuation::SaleObservation {
                 fx_rate_id,
-                sold_at,
-            } => Self::Sale {
+                observed_at,
+            } => Self::SaleObservation {
                 fx_rate_id,
-                sold_at,
+                observed_at,
             },
         }
     }
@@ -341,14 +341,14 @@ impl From<ProductListingPricingValuation> for ProductListingPricingValuationData
                 fx_rate_id,
                 captured_at,
             },
-            ProductListingPricingValuation::Sale {
+            ProductListingPricingValuation::SaleObservation {
                 fx_rate_id,
                 captured_at,
-                sold_at,
-            } => Self::Sale {
+                observed_at,
+            } => Self::SaleObservation {
                 fx_rate_id,
                 captured_at,
-                sold_at,
+                observed_at,
             },
         }
     }
@@ -539,19 +539,19 @@ mod tests {
     #[test]
     fn should_serialize_sale_pricing_valuation() -> Result<(), Box<dyn std::error::Error>> {
         let fx_rate_id = FxRateId::new();
-        let data = ProductListingPricingValuationData::Sale {
+        let data = ProductListingPricingValuationData::SaleObservation {
             fx_rate_id,
             captured_at: OffsetDateTime::UNIX_EPOCH,
-            sold_at: OffsetDateTime::UNIX_EPOCH,
+            observed_at: OffsetDateTime::UNIX_EPOCH,
         };
 
         assert_eq!(
             serde_json::to_value(data)?,
             json!({
-                "type": "SALE",
+                "type": "SALE_OBSERVATION",
                 "fxRateId": fx_rate_id,
                 "capturedAt": "1970-01-01T00:00:00Z",
-                "soldAt": "1970-01-01T00:00:00Z"
+                "observedAt": "1970-01-01T00:00:00Z"
             })
         );
         Ok(())

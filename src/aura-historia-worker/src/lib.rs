@@ -1162,7 +1162,7 @@ mod tests {
     #[case(
         WorkerScope::SearchFilterPercolator,
         WorkerQueue::SearchFilterPercolator,
-        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"DOMAIN_CREATED","event_group":"DOMAIN"}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_CREATED","event_group":"DOMAIN"}}]}"#
     )]
     #[case(
         WorkerScope::SearchFilterMatchNotification,
@@ -1172,7 +1172,7 @@ mod tests {
     #[case(
         WorkerScope::WatchlistNotification,
         WorkerQueue::WatchlistNotification,
-        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_PRICE_CHANGED","event_group":"DOMAIN"}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_PRICE_CHANGED","event_group":"DOMAIN"}}]}"#
     )]
     #[case(
         WorkerScope::ProductListingTranslation,
@@ -1182,7 +1182,7 @@ mod tests {
     #[case(
         WorkerScope::ProductListingEmbedding,
         WorkerQueue::ProductListingEmbed,
-        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"DOMAIN_CREATED","event_group":"DOMAIN"}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_CREATED","event_group":"DOMAIN"}}]}"#
     )]
     #[case(
         WorkerScope::NotificationDelivery,
@@ -1300,7 +1300,7 @@ mod tests {
                     "record": {
                         "event_id": "40000000-0000-0000-0000-000000000001",
                         "product_listing_id": "30000000-0000-0000-0000-000000000001",
-                        "event_type": "DOMAIN_CREATED",
+                        "event_type": "PRODUCT_LISTING_CREATED",
                         "event_group": "DOMAIN"
                     }
                 }

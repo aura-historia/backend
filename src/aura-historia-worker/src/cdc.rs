@@ -55,9 +55,8 @@ pub enum CdcOperation {
 }
 
 impl WorkerQueue {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 10] = [
         Self::ProductListingOpenSearch,
-        Self::ProductListingDeleteCleanup,
         Self::WatchlistNotification,
         Self::SearchFilterPercolator,
         Self::SearchFilterMatchNotification,
@@ -120,7 +119,6 @@ pub struct DomainJob {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WorkerQueue {
     ProductListingOpenSearch,
-    ProductListingDeleteCleanup,
     WatchlistNotification,
     SearchFilterPercolator,
     SearchFilterMatchNotification,
@@ -161,7 +159,6 @@ impl OrderingKey {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainJobPayload {
     ProductListingEvent(ProductListingEventJob),
-    ProductListingDelete(ProductListingDeleteJob),
     ShopChanged(ShopChangedJob),
     SearchFilterChanged(SearchFilterChangedJob),
     SearchFilterMatchCreated(SearchFilterMatchCreatedJob),
@@ -175,12 +172,6 @@ pub struct ProductListingEventJob {
     pub product_listing_id: String,
     pub event_type: String,
     pub event_group: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProductListingDeleteJob {
-    pub event_id: String,
-    pub product_listing_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -722,7 +713,7 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
 
     if matches!(
         event_type.as_str(),
-        "PRODUCT_PRICE_CHANGED" | "PRODUCT_STATE_CHANGED"
+        "PRODUCT_LISTING_PRICE_CHANGED" | "PRODUCT_LISTING_AVAILABILITY_CHANGED"
     ) {
         jobs.push(domain_job(
             WorkerQueue::WatchlistNotification,
@@ -732,7 +723,7 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
         ));
     }
 
-    if event_type == "DOMAIN_CREATED" {
+    if event_type == "PRODUCT_LISTING_CREATED" {
         jobs.push(domain_job(
             WorkerQueue::ProductListingEmbed,
             idempotency_key.clone(),
@@ -747,18 +738,6 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
             idempotency_key.clone(),
             ordering_key.clone(),
             DomainJobPayload::ProductListingEvent(base_job.clone()),
-        ));
-    }
-
-    if event_type == "LIFECYCLE_DELETED" {
-        jobs.push(domain_job(
-            WorkerQueue::ProductListingDeleteCleanup,
-            idempotency_key,
-            ordering_key,
-            DomainJobPayload::ProductListingDelete(ProductListingDeleteJob {
-                event_id,
-                product_listing_id,
-            }),
         ));
     }
 
@@ -984,7 +963,7 @@ mod tests {
     #[test]
     fn should_route_product_created_event_to_projection_percolator_and_embed()
     -> Result<(), Box<dyn std::error::Error>> {
-        let jobs = route_change(&product_event_change("DOMAIN_CREATED", "DOMAIN"))?;
+        let jobs = route_change(&product_event_change("PRODUCT_LISTING_CREATED", "DOMAIN"))?;
 
         assert_eq!(3, jobs.len());
         assert!(
@@ -1012,22 +991,14 @@ mod tests {
     #[test]
     fn should_route_product_price_event_to_watchlist_notifications()
     -> Result<(), Box<dyn std::error::Error>> {
-        let jobs = route_change(&product_event_change("PRODUCT_PRICE_CHANGED", "DOMAIN"))?;
+        let jobs = route_change(&product_event_change(
+            "PRODUCT_LISTING_PRICE_CHANGED",
+            "DOMAIN",
+        ))?;
 
         assert!(
             jobs.iter()
                 .any(|job| job.target_queue == WorkerQueue::WatchlistNotification)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_route_product_delete_event_to_cleanup() -> Result<(), Box<dyn std::error::Error>> {
-        let jobs = route_change(&product_event_change("LIFECYCLE_DELETED", "LIFECYCLE"))?;
-
-        assert!(
-            jobs.iter()
-                .any(|job| job.target_queue == WorkerQueue::ProductListingDeleteCleanup)
         );
         Ok(())
     }
@@ -1358,7 +1329,7 @@ mod tests {
         let batch = CdcBatch {
             delivery_id: Some("delivery-1".to_owned()),
             source: Some("postgres".to_owned()),
-            changes: vec![product_event_change("DOMAIN_CREATED", "DOMAIN")],
+            changes: vec![product_event_change("PRODUCT_LISTING_CREATED", "DOMAIN")],
         };
 
         let enqueued = fanout.ingest_batch(&batch).await?;
@@ -1384,7 +1355,10 @@ mod tests {
                 .ingest_batch(&CdcBatch {
                     delivery_id: Some("delivery-domain".to_owned()),
                     source: Some("postgres".to_owned()),
-                    changes: vec![product_event_change("PRODUCT_STATE_CHANGED", "DOMAIN")],
+                    changes: vec![product_event_change(
+                        "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+                        "DOMAIN"
+                    )],
                 })
                 .await?
         );
@@ -1404,7 +1378,10 @@ mod tests {
                 .ingest_batch(&CdcBatch {
                     delivery_id: Some("delivery-lifecycle".to_owned()),
                     source: Some("postgres".to_owned()),
-                    changes: vec![product_event_change("LIFECYCLE_DELETED", "LIFECYCLE")],
+                    changes: vec![product_event_change(
+                        "PRODUCT_LISTING_WITHDRAWN",
+                        "LIFECYCLE"
+                    )],
                 })
                 .await?
         );
@@ -1431,7 +1408,7 @@ mod tests {
         let batch = CdcBatch {
             delivery_id: Some("delivery-1".to_owned()),
             source: Some("postgres".to_owned()),
-            changes: vec![product_event_change("DOMAIN_CREATED", "DOMAIN")],
+            changes: vec![product_event_change("PRODUCT_LISTING_CREATED", "DOMAIN")],
         };
 
         let result = fanout.ingest_batch(&batch).await;
@@ -1449,7 +1426,7 @@ mod tests {
         let batch = CdcBatch {
             delivery_id: Some("delivery-1".to_owned()),
             source: Some("postgres".to_owned()),
-            changes: vec![product_event_change("DOMAIN_CREATED", "DOMAIN")],
+            changes: vec![product_event_change("PRODUCT_LISTING_CREATED", "DOMAIN")],
         };
 
         let result = fanout.ingest_batch(&batch).await;
@@ -1477,7 +1454,7 @@ mod tests {
                         "new": {
                             "event_id": "40000000-0000-0000-0000-000000000001",
                             "product_listing_id": "30000000-0000-0000-0000-000000000001",
-                            "event_type": "DOMAIN_CREATED",
+                            "event_type": "PRODUCT_LISTING_CREATED",
                             "event_group": "DOMAIN"
                         }
                     }
@@ -1498,7 +1475,7 @@ mod tests {
                 "record": {
                     "event_id": "40000000-0000-0000-0000-000000000001",
                     "product_listing_id": "30000000-0000-0000-0000-000000000001",
-                    "event_type": "PRODUCT_CREATED",
+                    "event_type": "PRODUCT_LISTING_CREATED",
                     "event_group": "DOMAIN"
                 },
                 "changes": null,

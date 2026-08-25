@@ -374,7 +374,7 @@ mod tests {
             description: Some("Cabinet description".to_owned()),
             handle: "cabinet".to_owned(),
             price: Some("42.00".to_owned()),
-            state: ProductState::Available,
+            availability: Some(ListingAvailability::InStock),
             image_urls: IndexSet::new(),
         }
     }

@@ -12,7 +12,8 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use product_listing_core::{
-    listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId,
+    listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
+    product_listing_id::ProductListingId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,15 +47,15 @@ pub enum ProjectProductListingError {
         #[source]
         source: BoxError,
     },
-    #[error("ProductListing projection sale FX snapshot is missing")]
-    SaleFxSnapshotMissing,
-    #[error("ProductListing projection sale FX snapshot is invalid")]
-    SaleFxSnapshotInvalid {
+    #[error("ProductListing projection sale-observation FX snapshot is missing")]
+    SaleObservationFxSnapshotMissing,
+    #[error("ProductListing projection sale-observation FX snapshot is invalid")]
+    SaleObservationFxSnapshotInvalid {
         #[source]
         source: BoxError,
     },
-    #[error("ProductListing projection sale FX snapshot read failed")]
-    SaleFxSnapshotReadFailed {
+    #[error("ProductListing projection sale-observation FX snapshot read failed")]
+    SaleObservationFxSnapshotReadFailed {
         #[source]
         source: BoxError,
     },
@@ -184,18 +185,21 @@ async fn load_sale_snapshot<Tx, F>(
 where
     F: FxRateSnapshotRepositoryFactory<Tx>,
 {
-    let Some(valuation) = source.sale_valuation else {
+    let Some(observation) = source.sale_observation else {
         return Ok(None);
     };
-    if source.pricing.price.is_none() {
+    if source.lifecycle != ListingLifecycle::Active
+        || source.availability != Some(ListingAvailability::SoldOut)
+        || source.pricing.price.is_none()
+    {
         return Ok(None);
     }
     fx_rates
         .in_transaction(tx)
-        .find_by_id(valuation.fx_rate_id)
+        .find_by_id(observation.fx_rate_id())
         .await
         .map_err(fx_rate_error)?
-        .ok_or(ProjectProductListingError::SaleFxSnapshotMissing)
+        .ok_or(ProjectProductListingError::SaleObservationFxSnapshotMissing)
         .map(Some)
 }
 
@@ -215,14 +219,14 @@ fn source_read_error(
 fn fx_rate_error(error: FxRateSnapshotRepositoryError) -> ProjectProductListingError {
     match error {
         FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
-            ProjectProductListingError::SaleFxSnapshotInvalid { source }
+            ProjectProductListingError::SaleObservationFxSnapshotInvalid { source }
         }
         FxRateSnapshotRepositoryError::InsertFailed { source }
         | FxRateSnapshotRepositoryError::ReadFailed { source } => {
-            ProjectProductListingError::SaleFxSnapshotReadFailed { source }
+            ProjectProductListingError::SaleObservationFxSnapshotReadFailed { source }
         }
         FxRateSnapshotRepositoryError::CapturedAtNotMonotonic => {
-            ProjectProductListingError::SaleFxSnapshotMissing
+            ProjectProductListingError::SaleObservationFxSnapshotMissing
         }
     }
 }
@@ -244,12 +248,13 @@ mod tests {
     use money::Currency;
     use product_listing_core::{
         description::Description,
+        listing_availability::ListingAvailability,
+        listing_lifecycle::ListingLifecycle,
         product_listing::{
-            ProductListingAddress, ProductListingAuction, ProductListingPricing,
-            ProductSaleValuation,
+            ListingSaleObservation, ProductListingAddress, ProductListingAuction,
+            ProductListingPricing,
         },
         product_listing_slug_id::ProductListingSlugId,
-        product_state::ProductState,
         shop_listing_id::ShopListingId,
         title::Title,
     };
@@ -553,9 +558,9 @@ mod tests {
             titles: HashMap::from([(Language::En, title)]),
             descriptions: HashMap::new(),
             pricing: ProductListingPricing::default(),
-            sale_valuation: None,
-            state: ProductState::Listed,
-            lifecycle: ProductLifecycle::Active,
+            sale_observation: None,
+            availability: None,
+            lifecycle: ListingLifecycle::Active,
             url: url.clone(),
             view_url: url,
             image: None,
@@ -614,10 +619,11 @@ mod tests {
         let snapshot = snapshot()?;
         let mut source = source()?;
         source.pricing.price = Some(money::Price::new(100_u64.into(), Currency::Eur));
-        source.sale_valuation = Some(ProductSaleValuation {
-            sold_at: time::OffsetDateTime::UNIX_EPOCH,
-            fx_rate_id: snapshot.id(),
-        });
+        source.availability = Some(ListingAvailability::SoldOut);
+        source.sale_observation = Some(ListingSaleObservation::new(
+            time::OffsetDateTime::UNIX_EPOCH,
+            snapshot.id(),
+        ));
         let command = command(&source);
         {
             let mut state = lock_state(&state);
@@ -643,10 +649,10 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let mut source = source()?;
-        source.sale_valuation = Some(ProductSaleValuation {
-            sold_at: time::OffsetDateTime::UNIX_EPOCH,
-            fx_rate_id: FxRateId::new(),
-        });
+        source.sale_observation = Some(ListingSaleObservation::new(
+            time::OffsetDateTime::UNIX_EPOCH,
+            FxRateId::new(),
+        ));
         let command = command(&source);
         lock_state(&state).source_result = Some(Ok(Some(source.clone())));
 
@@ -661,16 +667,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_not_commit_or_write_when_sale_fx_snapshot_is_missing()
+    async fn should_not_commit_or_write_when_sale_observation_fx_snapshot_is_missing()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let snapshot = snapshot()?;
         let mut source = source()?;
         source.pricing.price = Some(money::Price::new(100_u64.into(), Currency::Eur));
-        source.sale_valuation = Some(ProductSaleValuation {
-            sold_at: time::OffsetDateTime::UNIX_EPOCH,
-            fx_rate_id: snapshot.id(),
-        });
+        source.availability = Some(ListingAvailability::SoldOut);
+        source.sale_observation = Some(ListingSaleObservation::new(
+            time::OffsetDateTime::UNIX_EPOCH,
+            snapshot.id(),
+        ));
         let command = command(&source);
         {
             let mut state = lock_state(&state);
@@ -682,7 +689,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(ProjectProductListingError::SaleFxSnapshotMissing)
+            Err(ProjectProductListingError::SaleObservationFxSnapshotMissing)
         ));
         let state = lock_state(&state);
         assert_eq!(0, state.commit_count);
@@ -692,16 +699,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_map_invalid_persisted_sale_snapshot() -> Result<(), Box<dyn std::error::Error>>
-    {
+    async fn should_map_invalid_persisted_sale_observation_snapshot()
+    -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let snapshot = snapshot()?;
         let mut source = source()?;
         source.pricing.price = Some(money::Price::new(100_u64.into(), Currency::Eur));
-        source.sale_valuation = Some(ProductSaleValuation {
-            sold_at: time::OffsetDateTime::UNIX_EPOCH,
-            fx_rate_id: snapshot.id(),
-        });
+        source.availability = Some(ListingAvailability::SoldOut);
+        source.sale_observation = Some(ListingSaleObservation::new(
+            time::OffsetDateTime::UNIX_EPOCH,
+            snapshot.id(),
+        ));
         let command = command(&source);
         {
             let mut state = lock_state(&state);
@@ -717,7 +725,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(ProjectProductListingError::SaleFxSnapshotInvalid { .. })
+            Err(ProjectProductListingError::SaleObservationFxSnapshotInvalid { .. })
         ));
         let state = lock_state(&state);
         assert_eq!(0, state.commit_count);
@@ -767,11 +775,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_delete_exact_source_version_when_deleted_projection_is_applied()
+    async fn should_delete_exact_source_version_when_withdrawn_projection_is_applied()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let mut source = source()?;
-        source.lifecycle = ProductLifecycle::Deleted;
+        source.lifecycle = ListingLifecycle::Withdrawn;
         let command = command(&source);
         lock_state(&state).source_result = Some(Ok(Some(source.clone())));
 
@@ -789,11 +797,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_stale_when_deleted_projection_write_is_stale()
+    async fn should_return_stale_when_withdrawn_projection_write_is_stale()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let mut source = source()?;
-        source.lifecycle = ProductLifecycle::Deleted;
+        source.lifecycle = ListingLifecycle::Withdrawn;
         let command = command(&source);
         {
             let mut state = lock_state(&state);

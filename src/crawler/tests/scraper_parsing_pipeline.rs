@@ -7,7 +7,7 @@
 //!   - `html`         — path to the HTML fixture (relative to crate root)
 //!   - `schema` or `schemas_file` — one schema or a shop schema cache
 //!   - `raw_state`    — the raw state string extracted from the HTML
-//!   - `state_record` — the expected normalized state (`AVAILABLE`, `SOLD`, …)
+//!   - `availability_record` — the expected normalized availability (`AVAILABLE`, `SOLD_OUT`, …)
 //!   - `raw`          — expected raw extraction output
 //!   - `normalized`   — expected normalized product output
 //!
@@ -44,7 +44,7 @@ async fn should_normalize_product_for_all_fixtures() {
             &fixture.schemas[fixture.schema_index],
             &html,
             &fixture.raw_state,
-            fixture.state_record,
+            fixture.availability_record,
             &fixture.normalized.url,
             &fixture.normalized,
         )

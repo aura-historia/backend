@@ -776,7 +776,7 @@ mod tests {
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
-                state: None,
+                availability: None,
                 url: None,
                 images: Default::default(),
                 auction_start: None,

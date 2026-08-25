@@ -389,7 +389,7 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
         r#"
         INSERT INTO product_listings (
             product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id,
-            state, lifecycle, url
+            availability, lifecycle, url
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         "#,
     )
@@ -399,7 +399,7 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     .bind(shop_id)
     .bind(shop_id)
     .bind(raw_product_listing_id.to_string())
-    .bind("LISTED")
+    .bind("AVAILABLE")
     .bind("ACTIVE")
     .bind("https://example.test/product")
     .execute(&mut *transaction)
@@ -417,7 +417,7 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(raw_product_listing_id)
-    .bind("PRODUCT_CREATED")
+    .bind("PRODUCT_LISTING_CREATED")
     .bind("DOMAIN")
     .bind(serde_json::json!({}))
     .bind(OffsetDateTime::UNIX_EPOCH)

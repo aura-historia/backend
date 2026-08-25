@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **Breaking:** ProductListing sale valuation is now an explicit `ListingSaleObservation`. The persistence and OpenSearch fields are `saleObservationFxRateId` and `saleObservedAt`; presentation identifies it as `SALE_OBSERVATION`. Generic listing writes never infer it from `SOLD_OUT`; recording it is a dedicated write. Active relisted listings use current FX, while `SOLD_OUT` and intentional withdrawn history may use the recorded observation snapshot.
 - **Breaking:** Canonical PATCH endpoints now distinguish omitted members from explicit `null`. Omitted members remain unchanged; `null` clears only documented nullable members and returns `400 BAD_BODY_VALUE` for all other members. Clients must omit members they do not intend to modify, and use empty arrays rather than `null` to clear non-null collections.
 - **Breaking:** Empty HTTP bodies are invalid for object PATCH endpoints; `{}` remains a valid no-op. Partner-product PATCH continues to accept `[]` as an empty batch.
 - **Breaking:** OAuth client PATCH metadata no longer accepts `null`; OAuth metadata is non-nullable and clients must omit unchanged members.

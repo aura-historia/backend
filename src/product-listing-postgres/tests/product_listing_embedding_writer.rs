@@ -131,8 +131,8 @@ async fn insert_product_with_created_event(
     let shop_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, 'Embedding shop', 'COMMERCIAL_DEALER', 'SCRAPED', '{}')").bind(shop_id).bind(format!("embedding-shop-{shop_id}")).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Antiker Stuhl', 'de', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')").bind(uuid::Uuid::from(product_listing_id)).bind(format!("embedding-product-{product_listing_id}")).bind(uuid::Uuid::from(event_id)).bind(shop_id).bind(product_listing_id.to_string()).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'DOMAIN_CREATED', 'DOMAIN', '{}', now())").bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_listing_id)).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Antiker Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')").bind(uuid::Uuid::from(product_listing_id)).bind(format!("embedding-product-{product_listing_id}")).bind(uuid::Uuid::from(event_id)).bind(shop_id).bind(product_listing_id.to_string()).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())").bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_listing_id)).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok((product_listing_id, event_id))
 }
@@ -142,7 +142,7 @@ async fn advance_product_revision(
 ) -> Result<(), sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'DOMAIN_STATE_CHANGED', 'DOMAIN', '{}', now())").bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_listing_id)).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_AVAILABILITY_CHANGED', 'DOMAIN', '{}', now())").bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_listing_id)).execute(&mut *tx).await?;
     sqlx::query("UPDATE product_listings SET event_id = $1 WHERE product_listing_id = $2")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))

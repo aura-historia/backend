@@ -1,7 +1,7 @@
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use money::Currency;
 use money::{MonetaryAmount, Price};
-use product_listing_core::product_state::ProductState;
+use product_listing_core::listing_availability::ListingAvailability;
 use serde::Deserialize;
 
 use crate::expectation_types::{NormalizedExpectation, NormalizedExpectationJson, RawExpectation};
@@ -10,7 +10,7 @@ pub struct ScraperParsingPipelineFixture {
     pub schemas: Vec<ProductCssSelectorSchema>,
     pub schema_index: usize,
     pub raw_state: String,
-    pub state_record: ProductState,
+    pub availability_record: Option<ListingAvailability>,
     pub raw: RawExpectation,
     pub normalized: NormalizedExpectation,
     pub html_path: String,
@@ -28,7 +28,7 @@ impl ScraperParsingPipelineFixture {
 struct FixtureJson {
     html: String,
     raw_state: String,
-    state_record: String,
+    availability_record: String,
     schema: Option<ProductCssSelectorSchema>,
     schemas_file: Option<String>,
     #[serde(default)]
@@ -43,7 +43,7 @@ struct FixtureJson {
 ///   1. Drop the HTML file in `tests/fixtures/html/<shop>[_variant].html`.
 ///   2. Add the shop's cached schemas to `tests/fixtures/schemas/<shop>.json`.
 ///   3. Append an element to `tests/fixtures/fixtures.json` with
-///      `schemas_file`, `schema_index`, `html`, `raw_state`, `state_record`,
+///      `schemas_file`, `schema_index`, `html`, `raw_state`, `availability_record`,
 ///      `raw`, and `normalized` fields.
 ///
 /// No Rust code changes are needed.
@@ -87,22 +87,22 @@ fn fixture_from_json(f: FixtureJson) -> ScraperParsingPipelineFixture {
         schemas,
         schema_index: f.schema_index,
         raw_state: f.raw_state,
-        state_record: parse_state_record(&f.state_record),
+        availability_record: parse_availability_record(&f.availability_record),
         raw: f.raw,
         normalized: normalized_from_json(f.normalized),
         html_path: f.html,
     }
 }
 
-fn parse_state_record(s: &str) -> ProductState {
+fn parse_availability_record(s: &str) -> Option<ListingAvailability> {
     match s {
-        "AVAILABLE" => ProductState::Available,
-        "LISTED" => ProductState::Listed,
-        "RESERVED" => ProductState::Reserved,
-        "SOLD" => ProductState::Sold,
-        "REMOVED" => ProductState::Removed,
-        "UNKNOWN" => ProductState::Unknown,
-        other => panic!("unsupported state_record '{other}' in fixtures.json"),
+        "AVAILABLE" => Some(ListingAvailability::Available),
+        "LISTED" => None,
+        "RESERVED" => Some(ListingAvailability::Reserved),
+        "SOLD" => Some(ListingAvailability::SoldOut),
+        "REMOVED" => None,
+        "UNKNOWN" => None,
+        other => panic!("unsupported availability_record '{other}' in fixtures.json"),
     }
 }
 
@@ -123,7 +123,7 @@ fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectatio
             data.price_estimate_max_currency.as_deref(),
         ),
         seller_name: data.seller_name,
-        state: parse_product_state(&data.state),
+        availability: parse_availability(&data.availability),
         url: data.url,
         images: data.images,
         auction_start: parse_optional_rfc3339(data.auction_start.as_deref()),
@@ -168,16 +168,15 @@ fn parse_currency(code: &str) -> Currency {
     }
 }
 
-fn parse_product_state(s: &str) -> product_listing_core::product_state::ProductState {
-    use product_listing_core::product_state::ProductState;
+fn parse_availability(s: &str) -> Option<ListingAvailability> {
     match s {
-        "LISTED" => ProductState::Listed,
-        "AVAILABLE" => ProductState::Available,
-        "RESERVED" => ProductState::Reserved,
-        "SOLD" => ProductState::Sold,
-        "REMOVED" => ProductState::Removed,
-        "UNKNOWN" => ProductState::Unknown,
-        other => panic!("unsupported normalized state '{other}' in fixtures.json"),
+        "LISTED" => None,
+        "AVAILABLE" => Some(ListingAvailability::Available),
+        "RESERVED" => Some(ListingAvailability::Reserved),
+        "SOLD" => Some(ListingAvailability::SoldOut),
+        "REMOVED" => None,
+        "UNKNOWN" => None,
+        other => panic!("unsupported normalized availability '{other}' in fixtures.json"),
     }
 }
 

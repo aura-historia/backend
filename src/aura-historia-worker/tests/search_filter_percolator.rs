@@ -194,7 +194,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
         let (created_product_listing_id, created_event_id) =
             create_product_with_domain_event(&worker.pool, &product_listing_query).await?;
         assert_eq!(
-            "PRODUCT_CREATED",
+            "PRODUCT_LISTING_CREATED",
             product_event_type(&worker.pool, created_event_id).await?
         );
         wait_for_match(&worker.pool, created_event_id, 1).await?;
@@ -231,7 +231,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
         )
         .await?;
         assert_eq!(
-            "PRODUCT_STATE_CHANGED",
+            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
             product_event_type(&worker.pool, updated_event_id).await?
         );
         wait_for_match(&worker.pool, updated_event_id, 1).await?;
@@ -434,7 +434,7 @@ async fn ignored_product_listing_events_flow() -> Result<(), Box<dyn std::error:
         let lifecycle_event = insert_product_event(
             &worker.pool,
             product_listing_id,
-            "LIFECYCLE_DELETED",
+            "PRODUCT_LISTING_WITHDRAWN",
             "LIFECYCLE",
         )
         .await?;
@@ -505,7 +505,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
             &worker.server,
             product_listing_id,
             event_a,
-            "PRODUCT_CREATED",
+            "PRODUCT_LISTING_CREATED",
             "DOMAIN",
         )
         .await?;
@@ -532,7 +532,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
             &worker.server,
             product_listing_id,
             event_a,
-            "PRODUCT_CREATED",
+            "PRODUCT_LISTING_CREATED",
             "DOMAIN",
         )
         .await?;
@@ -612,8 +612,8 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
                 price: Some((10_000, "GBP")),
                 price_estimate_min: None,
                 price_estimate_max: None,
-                state: "LISTED",
-                sale_fx_rate_id: None,
+                availability: "AVAILABLE",
+                sale_observation_fx_rate_id: None,
             },
         )
         .await?;
@@ -658,7 +658,7 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
             &worker.server,
             event_one.product_listing_id,
             event_one.event_id,
-            "PRODUCT_CREATED",
+            "PRODUCT_LISTING_CREATED",
             "DOMAIN",
         )
         .await?;
@@ -686,8 +686,8 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
                 price: Some((10_000, "GBP")),
                 price_estimate_min: None,
                 price_estimate_max: None,
-                state: "LISTED",
-                sale_fx_rate_id: None,
+                availability: "AVAILABLE",
+                sale_observation_fx_rate_id: None,
             },
         )
         .await?;
@@ -734,8 +734,8 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
                 price: Some((10_000, "GBP")),
                 price_estimate_min: None,
                 price_estimate_max: None,
-                state: "SOLD",
-                sale_fx_rate_id: Some(snapshot_b),
+                availability: "SOLD_OUT",
+                sale_observation_fx_rate_id: Some(snapshot_b),
             },
         )
         .await?;
@@ -771,8 +771,8 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
                 price: None,
                 price_estimate_min: Some((10_000, "GBP")),
                 price_estimate_max: Some((10_000, "GBP")),
-                state: "LISTED",
-                sale_fx_rate_id: None,
+                availability: "AVAILABLE",
+                sale_observation_fx_rate_id: None,
             },
         )
         .await?;
@@ -844,7 +844,7 @@ async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std
             &worker.server,
             product_listing_id,
             event_id,
-            "PRODUCT_CREATED",
+            "PRODUCT_LISTING_CREATED",
             "DOMAIN",
         )
         .await?;
@@ -1153,7 +1153,7 @@ async fn create_product_with_domain_event(
     pool: &sqlx::PgPool,
     title: &str,
 ) -> Result<(ProductListingId, EventId), sqlx::Error> {
-    create_product_with_event(pool, title, "PRODUCT_CREATED", "DOMAIN").await
+    create_product_with_event(pool, title, "PRODUCT_LISTING_CREATED", "DOMAIN").await
 }
 
 async fn create_product_with_event(
@@ -1174,7 +1174,7 @@ async fn create_product_with_event(
         .bind("Worker percolator shop")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-percolator-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))
@@ -1205,8 +1205,8 @@ struct CrossCurrencyProductListingInput<'a> {
     price: Option<(i64, &'a str)>,
     price_estimate_min: Option<(i64, &'a str)>,
     price_estimate_max: Option<(i64, &'a str)>,
-    state: &'a str,
-    sale_fx_rate_id: Option<FxRateId>,
+    availability: &'a str,
+    sale_observation_fx_rate_id: Option<FxRateId>,
 }
 
 async fn insert_cross_currency_product_with_event(
@@ -1219,8 +1219,8 @@ async fn insert_cross_currency_product_with_event(
         price,
         price_estimate_min,
         price_estimate_max,
-        state,
-        sale_fx_rate_id,
+        availability,
+        sale_observation_fx_rate_id,
     } = input;
     let product_listing_id = ProductListingId::new();
     let product_uuid = uuid::Uuid::from(product_listing_id);
@@ -1234,7 +1234,7 @@ async fn insert_cross_currency_product_with_event(
         .execute(&mut *tx)
         .await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_fx_rate_id, sold_at, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Cross currency worker description', 'en', $7, $8, $9, $10, $11, $12, $13, CASE WHEN $13 IS NULL THEN NULL ELSE $14 END, $15, 'ACTIVE', 'https://example.test/cross-currency-product', '[]')",
+        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Cross currency worker description', 'en', $7, $8, $9, $10, $11, $12, $13, CASE WHEN $13 IS NULL THEN NULL ELSE $14 END, $15, 'ACTIVE', 'https://example.test/cross-currency-product', '[]')",
     )
     .bind(product_uuid)
     .bind(format!("cross-currency-worker-product-{product_slug_suffix}"))
@@ -1248,12 +1248,12 @@ async fn insert_cross_currency_product_with_event(
     .bind(price_estimate_min.map(|(_, currency)| currency))
     .bind(price_estimate_max.map(|(amount, _)| amount))
     .bind(price_estimate_max.map(|(_, currency)| currency))
-    .bind(sale_fx_rate_id.map(uuid::Uuid::from))
+    .bind(sale_observation_fx_rate_id.map(uuid::Uuid::from))
     .bind(event_time)
-    .bind(state)
+    .bind(availability)
     .execute(&mut *tx)
     .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', $3)")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', $3)")
         .bind(uuid::Uuid::from(event_id))
         .bind(product_uuid)
         .bind(event_time)
@@ -1386,7 +1386,7 @@ async fn update_product_and_insert_event(
         pool,
         product_listing_id,
         title,
-        "PRODUCT_STATE_CHANGED",
+        "PRODUCT_LISTING_AVAILABILITY_CHANGED",
         "DOMAIN",
     )
     .await
@@ -1436,7 +1436,7 @@ async fn create_product_with_event_then_rollback(
         .bind("Worker percolator shop")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-percolator-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))
@@ -1445,7 +1445,7 @@ async fn create_product_with_event_then_rollback(
         .bind(title)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(product_uuid)
         .execute(&mut *tx)

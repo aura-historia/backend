@@ -21,8 +21,10 @@ use fxrate_service::ports::{
 #[cfg(test)]
 use large_language_model::StructuredGenerationRequest;
 use large_language_model::{LargeLanguageModel, LargeLanguageModelError};
-use product_listing_core::product_listing::ProductListingPriceValuationBasis;
-use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::{
+    listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
+    product_listing::ProductListingPriceValuationBasis, product_listing_id::ProductListingId,
+};
 use product_listing_service::ports::{
     ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError,
     ProductListingCurrentRevisionGuard, ProductListingCurrentRevisionGuardFactory,
@@ -420,16 +422,19 @@ where
             let valuation = match product.pricing.price {
                 None => None,
                 Some(source_price) => {
-                    let (basis, snapshot) = match product.sale_valuation {
-                        Some(sale) => (
-                            ProductListingPriceValuationBasis::Sale,
+                    let (basis, snapshot) = match product.sale_observation.filter(|_| {
+                        product.availability == Some(ListingAvailability::SoldOut)
+                            || product.lifecycle == ListingLifecycle::Withdrawn
+                    }) {
+                        Some(observation) => (
+                            ProductListingPriceValuationBasis::SaleObservation,
                             fx_rates
                                 .in_transaction(&mut tx)
-                                .find_by_id(sale.fx_rate_id)
+                                .find_by_id(observation.fx_rate_id())
                                 .await
                                 .map_err(sale_snapshot_read_error)?
                                 .ok_or(MatchProductListingEventError::SaleSnapshotNotFound {
-                                    fx_rate_id: sale.fx_rate_id,
+                                    fx_rate_id: observation.fx_rate_id(),
                                 })?,
                         ),
                         None => (
@@ -688,14 +693,14 @@ mod tests {
     use money::{Currency, MonetaryAmount, Price};
     use product_listing_core::shop_listing_id::ShopListingId;
     use product_listing_core::{
-        product_lifecycle::ProductLifecycle,
+        listing_availability::ListingAvailability,
+        listing_lifecycle::ListingLifecycle,
         product_listing::{
-            ProductListingAddress, ProductListingAuction, ProductListingPricing,
-            ProductSaleValuation,
+            ListingSaleObservation, ProductListingAddress, ProductListingAuction,
+            ProductListingPricing,
         },
         product_listing_image::ProductListingImage,
         product_listing_slug_id::ProductListingSlugId,
-        product_state::ProductState,
     };
     use product_listing_service::ports::{
         ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError,
@@ -1107,9 +1112,9 @@ mod tests {
             titles: std::collections::HashMap::new(),
             descriptions: std::collections::HashMap::new(),
             pricing: ProductListingPricing::default(),
-            sale_valuation: None,
-            state: ProductState::Available,
-            lifecycle: ProductLifecycle::Active,
+            sale_observation: None,
+            availability: Some(ListingAvailability::Available),
+            lifecycle: ListingLifecycle::Active,
             url: url.clone(),
             view_url: url,
             image: None,
@@ -1291,11 +1296,11 @@ mod tests {
         }
         let mut source = product()?;
         source.pricing.price = Some(Price::new(MonetaryAmount::from(12_500_u64), Currency::Gbp));
-        source.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: sale_snapshot.id(),
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
-        source.state = ProductState::Sold;
+        source.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            sale_snapshot.id(),
+        ));
+        source.availability = Some(ListingAvailability::SoldOut);
         let mut saved_filter = filter(UserId::new(), UserSearchFilterId::new());
         saved_filter.search.price_query = Some(RangeQuery {
             min: Some(MonetaryAmount::from(1_u64)),
@@ -1317,7 +1322,7 @@ mod tests {
         assert_eq!(0, state.event_snapshot_reads);
         assert_eq!(
             Some(PriceMatchValuation {
-                basis: ProductListingPriceValuationBasis::Sale,
+                basis: ProductListingPriceValuationBasis::SaleObservation,
                 fx_rate_id: sale_snapshot.id(),
             }),
             state.persisted[0].price_match_valuation
@@ -1355,11 +1360,11 @@ mod tests {
     async fn should_fail_when_sale_snapshot_is_missing() -> Result<(), Box<dyn std::error::Error>> {
         let mut source = product()?;
         source.pricing.price = Some(Price::new(MonetaryAmount::from(1_u64), Currency::Eur));
-        source.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: FxRateId::new(),
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
-        source.state = ProductState::Sold;
+        source.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            FxRateId::new(),
+        ));
+        source.availability = Some(ListingAvailability::SoldOut);
         let handler = matching_handler(
             Arc::new(Mutex::new(State::default())),
             vec![source.clone()],

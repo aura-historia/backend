@@ -277,8 +277,8 @@ mod tests {
     use localization::Localized;
     use money::{Currency, MonetaryAmount, Price};
     use product_listing_core::{
-        product_lifecycle::ProductLifecycle, product_listing_id::ProductListingId,
-        product_listing_slug_id::ProductListingSlugId, product_state::ProductState,
+        listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
+        product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
         shop_listing_id::ShopListingId,
     };
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
@@ -572,8 +572,8 @@ mod tests {
                 fx_rate_id: FxRateId::new(),
                 captured_at: OffsetDateTime::UNIX_EPOCH,
             },
-            state: ProductState::Listed,
-            lifecycle: ProductLifecycle::Active,
+            availability: Some(ListingAvailability::InStock),
+            lifecycle: ListingLifecycle::Active,
             url: Url::parse("https://shop.example/products/1")?,
             view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
             images: IndexSet::new(),

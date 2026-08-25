@@ -32,7 +32,7 @@ struct PartnerAuth {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_partner_product_batch_when_all_products_are_new() -> TestResult {
     let result: TestResult = async {
-        let auth = partner_auth(products_write_scope()).await?;
+        let auth = partner_auth(partner_shops_write_scope()).await?;
 
         let response = send_json(
             reqwest::Method::POST,
@@ -54,7 +54,7 @@ async fn should_create_partner_product_batch_when_all_products_are_new() -> Test
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_duplicate_product_as_partial_create_failure() -> TestResult {
     let result: TestResult = async {
-        let auth = partner_auth(products_write_scope()).await?;
+        let auth = partner_auth(partner_shops_write_scope()).await?;
         let duplicate_id = "post-duplicate";
 
         let response = send_json(
@@ -80,7 +80,7 @@ async fn should_return_duplicate_product_as_partial_create_failure() -> TestResu
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_update_existing_partner_product_batch() -> TestResult {
     let result: TestResult = async {
-        let auth = partner_auth(products_write_scope()).await?;
+        let auth = partner_auth(partner_shops_write_scope()).await?;
         let product_listing_id = "patch-success";
         create_product(&auth, product_listing_id).await?;
 
@@ -88,7 +88,7 @@ async fn should_update_existing_partner_product_batch() -> TestResult {
             reqwest::Method::PATCH,
             products_path(&auth.shop_id),
             Some(&auth.token),
-            &json!([patch_product(product_listing_id, "SOLD")]),
+            &json!([patch_product(product_listing_id, "SOLD_OUT")]),
         )
         .await?;
         let (status, body) = response_json(response).await?;
@@ -104,18 +104,19 @@ async fn should_update_existing_partner_product_batch() -> TestResult {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_unrelated_partner_from_existing_product_update() -> TestResult {
     let result: TestResult = async {
-        let owner = partner_auth(products_write_scope()).await?;
+        let owner = partner_auth(partner_shops_write_scope()).await?;
         let product_listing_id = "patch-unrelated-partner";
         create_product(&owner, product_listing_id).await?;
 
         let unrelated_user_id = seed_user("USER").await;
-        let unrelated_token =
-            String::from(seed_access_token_for(unrelated_user_id, products_write_scope()).await);
+        let unrelated_token = String::from(
+            seed_access_token_for(unrelated_user_id, partner_shops_write_scope()).await,
+        );
         let response = send_json(
             reqwest::Method::PATCH,
             products_path(&owner.shop_id),
             Some(&unrelated_token),
-            &json!([patch_product(product_listing_id, "SOLD")]),
+            &json!([patch_product(product_listing_id, "SOLD_OUT")]),
         )
         .await?;
         let (status, body) = response_json(response).await?;
@@ -131,7 +132,7 @@ async fn should_reject_unrelated_partner_from_existing_product_update() -> TestR
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_missing_product_as_partial_update_failure() -> TestResult {
     let result: TestResult = async {
-        let auth = partner_auth(products_write_scope()).await?;
+        let auth = partner_auth(partner_shops_write_scope()).await?;
         let existing_id = "patch-partial-existing";
         let missing_id = "patch-partial-missing";
         create_product(&auth, existing_id).await?;
@@ -142,7 +143,7 @@ async fn should_return_missing_product_as_partial_update_failure() -> TestResult
             Some(&auth.token),
             &json!([
                 patch_product(existing_id, "AVAILABLE"),
-                patch_product(missing_id, "SOLD")
+                patch_product(missing_id, "SOLD_OUT")
             ]),
         )
         .await?;
@@ -166,13 +167,13 @@ async fn should_return_missing_product_as_partial_update_failure() -> TestResult
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_not_found_when_every_product_update_is_missing() -> TestResult {
     let result: TestResult = async {
-        let auth = partner_auth(products_write_scope()).await?;
+        let auth = partner_auth(partner_shops_write_scope()).await?;
 
         let response = send_json(
             reqwest::Method::PATCH,
             products_path(&auth.shop_id),
             Some(&auth.token),
-            &json!([patch_product("patch-all-missing", "SOLD")]),
+            &json!([patch_product("patch-all-missing", "SOLD_OUT")]),
         )
         .await?;
         let (status, body) = response_json(response).await?;
@@ -188,7 +189,7 @@ async fn should_return_not_found_when_every_product_update_is_missing() -> TestR
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_then_update_partner_product_with_upsert() -> TestResult {
     let result: TestResult = async {
-        let auth = partner_auth(products_write_scope()).await?;
+        let auth = partner_auth(partner_shops_write_scope()).await?;
         let product_listing_id = "put-create-update";
 
         let created = send_json(
@@ -206,7 +207,7 @@ async fn should_create_then_update_partner_product_with_upsert() -> TestResult {
             reqwest::Method::PUT,
             products_path(&auth.shop_id),
             Some(&auth.token),
-            &json!([patch_product(product_listing_id, "SOLD")]),
+            &json!([patch_product(product_listing_id, "SOLD_OUT")]),
         )
         .await?;
         let (updated_status, updated_body) = response_json(updated).await?;
@@ -222,18 +223,19 @@ async fn should_create_then_update_partner_product_with_upsert() -> TestResult {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_unrelated_partner_from_existing_product_upsert() -> TestResult {
     let result: TestResult = async {
-        let owner = partner_auth(products_write_scope()).await?;
+        let owner = partner_auth(partner_shops_write_scope()).await?;
         let product_listing_id = "put-unrelated-partner";
         create_product(&owner, product_listing_id).await?;
 
         let unrelated_user_id = seed_user("USER").await;
-        let unrelated_token =
-            String::from(seed_access_token_for(unrelated_user_id, products_write_scope()).await);
+        let unrelated_token = String::from(
+            seed_access_token_for(unrelated_user_id, partner_shops_write_scope()).await,
+        );
         let response = send_json(
             reqwest::Method::PUT,
             products_path(&owner.shop_id),
             Some(&unrelated_token),
-            &json!([patch_product(product_listing_id, "SOLD")]),
+            &json!([patch_product(product_listing_id, "SOLD_OUT")]),
         )
         .await?;
         let (status, body) = response_json(response).await?;
@@ -249,7 +251,7 @@ async fn should_reject_unrelated_partner_from_existing_product_upsert() -> TestR
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_delete_existing_partner_product_batch() -> TestResult {
     let result: TestResult = async {
-        let auth = partner_auth(products_write_scope()).await?;
+        let auth = partner_auth(partner_shops_write_scope()).await?;
         let first_id = "delete-full-first";
         let second_id = "delete-full-second";
         create_products(&auth, &[first_id, second_id]).await?;
@@ -274,13 +276,14 @@ async fn should_delete_existing_partner_product_batch() -> TestResult {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_unrelated_partner_from_existing_product_delete() -> TestResult {
     let result: TestResult = async {
-        let owner = partner_auth(products_write_scope()).await?;
+        let owner = partner_auth(partner_shops_write_scope()).await?;
         let product_listing_id = "delete-unrelated-partner";
         create_product(&owner, product_listing_id).await?;
 
         let unrelated_user_id = seed_user("USER").await;
-        let unrelated_token =
-            String::from(seed_access_token_for(unrelated_user_id, products_write_scope()).await);
+        let unrelated_token = String::from(
+            seed_access_token_for(unrelated_user_id, partner_shops_write_scope()).await,
+        );
         let response = send_json(
             reqwest::Method::DELETE,
             products_path(&owner.shop_id),
@@ -301,7 +304,7 @@ async fn should_reject_unrelated_partner_from_existing_product_delete() -> TestR
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_missing_product_as_partial_delete_failure() -> TestResult {
     let result: TestResult = async {
-        let auth = partner_auth(products_write_scope()).await?;
+        let auth = partner_auth(partner_shops_write_scope()).await?;
         let existing_id = "delete-partial-existing";
         let missing_id = "delete-partial-missing";
         create_product(&auth, existing_id).await?;
@@ -333,7 +336,7 @@ async fn should_return_missing_product_as_partial_delete_failure() -> TestResult
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_not_found_when_every_product_delete_is_missing() -> TestResult {
     let result: TestResult = async {
-        let auth = partner_auth(products_write_scope()).await?;
+        let auth = partner_auth(partner_shops_write_scope()).await?;
 
         let response = send_json(
             reqwest::Method::DELETE,
@@ -379,7 +382,7 @@ async fn should_reject_unrelated_partner_from_product_batch() -> TestResult {
     let result: TestResult = async {
         let shop = seed_shop().await;
         let user_id = seed_user("USER").await;
-        let token = String::from(seed_access_token_for(user_id, products_write_scope()).await);
+        let token = String::from(seed_access_token_for(user_id, partner_shops_write_scope()).await);
 
         let response = send_json(
             reqwest::Method::POST,
@@ -401,7 +404,7 @@ async fn should_reject_unrelated_partner_from_product_batch() -> TestResult {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_upsert_concurrently_without_returning_temporary_failure() -> TestResult {
     let result: TestResult = async {
-        let auth = partner_auth(products_write_scope()).await?;
+        let auth = partner_auth(partner_shops_write_scope()).await?;
         let path = products_path(&auth.shop_id);
         let body = json!([product("concurrent-upsert")]);
 
@@ -446,7 +449,7 @@ async fn should_reject_partner_product_batch_without_authorization() -> TestResu
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_not_expose_legacy_partner_product_item_delete_route() -> TestResult {
     let result: TestResult = async {
-        let auth = partner_auth(products_write_scope()).await?;
+        let auth = partner_auth(partner_shops_write_scope()).await?;
 
         let response = send_json(
             reqwest::Method::DELETE,
@@ -523,8 +526,8 @@ async fn response_json(
     Ok(json_response(response).await)
 }
 
-fn products_write_scope() -> HashSet<Scope> {
-    HashSet::from([Scope::ProductsWrite])
+fn partner_shops_write_scope() -> HashSet<Scope> {
+    HashSet::from([Scope::PartnerShopsWrite])
 }
 
 fn products_path(shop_id: &str) -> String {
@@ -536,16 +539,16 @@ fn product(shop_listing_id: &str) -> Value {
         "shopListingId": shop_listing_id,
         "title": { "text": "Synchronous Cabinet", "language": "en" },
         "description": { "text": "Created in the request transaction.", "language": "en" },
-        "state": "LISTED",
+        "availability": "AVAILABLE",
         "url": format!("https://partner.example/product-listings/{shop_listing_id}"),
         "images": []
     })
 }
 
-fn patch_product(shop_listing_id: &str, state: &str) -> Value {
+fn patch_product(shop_listing_id: &str, availability: &str) -> Value {
     json!({
         "shopListingId": shop_listing_id,
-        "state": state
+        "availability": availability
     })
 }
 

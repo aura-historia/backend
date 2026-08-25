@@ -227,13 +227,16 @@ fn price_valuation(
     document: &ProductListingDocument,
     price_filter: &ProductListingPriceFilterPlan,
 ) -> Result<ProductListingSummaryPriceValuation, ProductListingSearchReadError> {
-    if let (Some(fx_rate_id), Some(sold_at)) = (document.sale_fx_rate_id, document.sold_at) {
-        return Ok(ProductListingSummaryPriceValuation::Sale {
+    if let (Some(fx_rate_id), Some(observed_at)) = (
+        document.sale_observation_fx_rate_id,
+        document.sale_observed_at,
+    ) {
+        return Ok(ProductListingSummaryPriceValuation::SaleObservation {
             fx_rate_id,
-            sold_at,
+            observed_at,
         });
     }
-    if document.has_sale_valuation() {
+    if document.has_sale_observation() {
         return Err(ProductListingSearchReadError::ProductListingSearchReadModelInvalid);
     }
     Ok(ProductListingSummaryPriceValuation::Current {
@@ -250,7 +253,7 @@ fn resolve_price(
         .validate()
         .map_err(|_| ProductListingSearchReadError::ProductListingSearchReadModelInvalid)?;
 
-    if document.has_sale_valuation() {
+    if document.has_sale_observation() {
         return Ok(document
             .sale_price(price_filter.target_currency)
             .map(|amount| Price::new(amount.into(), price_filter.target_currency)));
@@ -714,7 +717,7 @@ pub(crate) fn build_product_index_price_clause(
     let active = (!active_ranges.is_empty()).then(|| {
         json!({
             "bool": {
-                "must_not": [{ "exists": { "field": "saleFxRateId" } }],
+                "must_not": [{ "exists": { "field": "saleObservationFxRateId" } }],
                 "filter": [{
                     "bool": {
                         "should": active_ranges,
@@ -727,7 +730,7 @@ pub(crate) fn build_product_index_price_clause(
     let sold = json!({
         "bool": {
             "filter": [
-                { "exists": { "field": "saleFxRateId" } },
+                { "exists": { "field": "saleObservationFxRateId" } },
                 { "range": {
                     sale_price_field_for(price_filter.target_currency): display_range_query(price_filter)
                 } }
@@ -929,8 +932,8 @@ mod tests {
                 currency: Currency::Eur,
             }),
             sale_prices: None,
-            sale_fx_rate_id: None,
-            sold_at: None,
+            sale_observation_fx_rate_id: None,
+            sale_observed_at: None,
             availability: Some(ListingAvailability::Available),
             lifecycle: ListingLifecycle::Active,
             url: Url::parse("https://shop.example/product_listings/sku-1")?,
@@ -1008,7 +1011,7 @@ mod tests {
 
         assert_eq!(
             clause.pointer("/bool/should/0/bool/must_not/0/exists/field"),
-            Some(&json!("saleFxRateId"))
+            Some(&json!("saleObservationFxRateId"))
         );
         assert_eq!(
             clause.pointer(
@@ -1022,7 +1025,7 @@ mod tests {
         );
         assert_eq!(
             clause.pointer("/bool/should/1/bool/filter/0/exists/field"),
-            Some(&json!("saleFxRateId"))
+            Some(&json!("saleObservationFxRateId"))
         );
         assert_eq!(
             clause.pointer("/bool/should/1/bool/filter/1/range/salePrices.usd/lte"),
@@ -1136,8 +1139,8 @@ mod tests {
             sgd: 100,
             chf: 100,
         });
-        document.sale_fx_rate_id = Some(FxRateId::new());
-        document.sold_at = Some(OffsetDateTime::UNIX_EPOCH);
+        document.sale_observation_fx_rate_id = Some(FxRateId::new());
+        document.sale_observed_at = Some(OffsetDateTime::UNIX_EPOCH);
 
         let price = resolve_price(&document, &price_filter(Currency::Usd, Some(110))?)?;
 
@@ -1149,13 +1152,14 @@ mod tests {
     }
 
     #[test]
-    fn should_map_sold_document_without_sale_prices_to_sale_valuation_and_no_display_price()
+    fn should_map_sold_document_without_sale_prices_to_sale_observation_and_no_display_price()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut document = document()?;
         let fx_rate_id = FxRateId::new();
         document.source_price = None;
-        document.sale_fx_rate_id = Some(fx_rate_id);
-        document.sold_at = Some(OffsetDateTime::UNIX_EPOCH);
+        document.sale_observation_fx_rate_id = Some(fx_rate_id);
+        document.sale_observed_at = Some(OffsetDateTime::UNIX_EPOCH);
+        document.availability = Some(ListingAvailability::SoldOut);
 
         let summary = map_summary_fields(
             document.clone(),
@@ -1166,9 +1170,9 @@ mod tests {
 
         assert_eq!(None, summary.display_price);
         assert_eq!(
-            ProductListingSummaryPriceValuation::Sale {
+            ProductListingSummaryPriceValuation::SaleObservation {
                 fx_rate_id,
-                sold_at: OffsetDateTime::UNIX_EPOCH,
+                observed_at: OffsetDateTime::UNIX_EPOCH,
             },
             summary.price_valuation
         );
@@ -1179,7 +1183,7 @@ mod tests {
     fn should_reject_invalid_sale_projection_when_mapping_price()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut document = document()?;
-        document.sale_fx_rate_id = Some(FxRateId::new());
+        document.sale_observation_fx_rate_id = Some(FxRateId::new());
 
         assert!(matches!(
             resolve_price(&document, &price_filter(Currency::Usd, None)?),

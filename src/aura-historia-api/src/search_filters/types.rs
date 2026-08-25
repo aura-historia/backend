@@ -559,7 +559,7 @@ mod tests {
                     "language": "de",
                     "productQuery": ["cabinet"],
                     "price": { "min": 10, "max": 20 },
-                    "state": ["AVAILABLE"]
+                    "availability": ["AVAILABLE"]
                 }
             }"#,
         )?;
@@ -580,7 +580,7 @@ mod tests {
         };
         assert_eq!("cabinet", values[0].as_ref());
         assert!(matches!(patch.price_query, PatchField::Set(_)));
-        assert!(matches!(patch.state_query, PatchField::Set(_)));
+        assert!(matches!(patch.availability_query, PatchField::Set(_)));
         assert!(matches!(patch.shop_name_query, PatchField::Unchanged));
         Ok(())
     }

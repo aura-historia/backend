@@ -7,7 +7,7 @@ use product_listing_core::{
     listing_availability::ListingAvailability,
     listing_lifecycle::ListingLifecycle,
     product_listing::{
-        ProductListingAddress, ProductListingAuction, ProductListingPricing, ProductSaleValuation,
+        ListingSaleObservation, ProductListingAddress, ProductListingAuction, ProductListingPricing,
     },
     product_listing_id::ProductListingId,
     product_listing_image::ProductListingImage,
@@ -77,8 +77,8 @@ pub struct ProductListingSearchFilterMatchSource {
     pub descriptions: HashMap<Language, Description>,
     /// Native persisted prices.
     pub pricing: ProductListingPricing,
-    /// Immutable valuation captured when the ProductListing was sold.
-    pub sale_valuation: Option<ProductSaleValuation>,
+    /// Explicit observed sold evidence, independent from availability and lifecycle.
+    pub sale_observation: Option<ListingSaleObservation>,
     pub availability: Option<ListingAvailability>,
     pub lifecycle: ListingLifecycle,
     pub url: Url,

@@ -2,7 +2,8 @@
 
 use domain_primitives::event_id::EventId;
 use product_listing_core::product_listing::{
-    ProductListingAddress, ProductListingAuction, ProductListingEventPayload, ProductListingPricing,
+    ListingSaleObservation, ProductListingAddress, ProductListingAuction,
+    ProductListingEventPayload, ProductListingPricing,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -110,7 +111,6 @@ fn event_payload_json(payload: &ProductListingEventPayload) -> Value {
             "description": payload.description.as_ref().map(localized_description_json),
             "address": address_json(&payload.address),
             "pricing": pricing_json(payload.pricing),
-            "saleValuation": sale_valuation_json(payload.sale_valuation),
             "availability": payload.availability.map(|value| value.as_str()),
             "url": payload.url.as_str(),
             "images": images_json(&payload.images),
@@ -149,6 +149,14 @@ fn event_payload_json(payload: &ProductListingEventPayload) -> Value {
         }),
         ProductListingEventPayload::Restored(_) => json!({
             "kind": "restored",
+        }),
+        ProductListingEventPayload::SaleObserved(payload) => json!({
+            "kind": "saleObserved",
+            "observation": sale_observation_json(payload.observation),
+        }),
+        ProductListingEventPayload::SaleObservationRetracted(payload) => json!({
+            "kind": "saleObservationRetracted",
+            "observation": sale_observation_json(payload.observation),
         }),
     }
 }
@@ -199,14 +207,10 @@ fn pricing_json(pricing: ProductListingPricing) -> Value {
     })
 }
 
-fn sale_valuation_json(
-    valuation: Option<product_listing_core::product_listing::ProductSaleValuation>,
-) -> Value {
-    valuation.map_or(Value::Null, |valuation| {
-        json!({
-            "soldAt": valuation.sold_at.to_string(),
-            "fxRateId": valuation.fx_rate_id.to_string(),
-        })
+fn sale_observation_json(observation: ListingSaleObservation) -> Value {
+    json!({
+        "observedAt": observation.observed_at().to_string(),
+        "fxRateId": observation.fx_rate_id().to_string(),
     })
 }
 

@@ -11,7 +11,7 @@ use crawler::scraper::normalization::state_mapping_service::{
 };
 use crawler::scraper::scraper_service::rank_applicable_schema_indices;
 use money::Currency;
-use product_listing_core::product_state::ProductState;
+use product_listing_core::listing_availability::ListingAvailability;
 use scraper::Html;
 use time::OffsetDateTime;
 use url::Url;
@@ -43,7 +43,7 @@ impl ProductStateMappingService for FixedStateMappingService {
     async fn save_state_mapping(
         &self,
         _raw: &str,
-        _normalized: ProductState,
+        _normalized: Option<ListingAvailability>,
         _mapping_type: StateMappingType,
     ) -> Result<ProductStateMappingRecord, StateMappingServiceError> {
         unreachable!(
@@ -115,7 +115,7 @@ pub async fn assert_normalized(
     schema: &ProductCssSelectorSchema,
     html_src: &str,
     raw_state: &str,
-    state_record: ProductState,
+    availability_record: Option<ListingAvailability>,
     url: &str,
     expected: &NormalizedExpectation,
 ) {
@@ -126,7 +126,7 @@ pub async fn assert_normalized(
 
     let mapping_record = ProductStateMappingRecord {
         raw: raw_state.to_string(),
-        normalized: state_record,
+        normalized: availability_record,
         mapping_type: StateMappingType::Value,
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
@@ -168,7 +168,7 @@ pub async fn assert_normalized(
         expected.seller_name.as_deref(),
         "seller_name"
     );
-    assert_eq!(result.state, expected.state, "state");
+    assert_eq!(result.availability, expected.availability, "availability");
     assert_eq!(result.url.as_str(), expected.url, "url");
     let result_image_urls: Vec<&str> = result.images.iter().map(|i| i.url.as_str()).collect();
     let expected_images: Vec<&str> = expected.images.iter().map(|i| i.as_str()).collect();

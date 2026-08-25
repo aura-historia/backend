@@ -7,11 +7,12 @@ use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
     product_listing::{
-        ListingAvailabilityChanged, ProductListingAddress, ProductListingAddressChanged,
+        ListingAvailabilityChanged, ListingSaleObservation, ListingSaleObservationRetracted,
+        ListingSaleObserved, ProductListingAddress, ProductListingAddressChanged,
         ProductListingAuction, ProductListingAuctionChanged, ProductListingCreated,
         ProductListingEventPayload, ProductListingImagesChanged, ProductListingPriceChanged,
         ProductListingPricing, ProductListingRestored, ProductListingUrlChanged,
-        ProductListingWithdrawn, ProductSaleValuation,
+        ProductListingWithdrawn,
     },
     product_listing_id::ProductListingId,
     product_listing_image::ProductListingImage,
@@ -141,7 +142,6 @@ pub(crate) fn parse_payload(
                 description: localized_description(payload.get("description"))?,
                 address: address(payload.get("address"))?,
                 pricing: pricing(payload.get("pricing"))?,
-                sale_valuation: sale_valuation(payload.get("saleValuation"))?,
                 availability: availability(payload.get("availability"))?,
                 url: url(string(payload, "url")?)?,
                 images: images(payload.get("images"))?,
@@ -189,6 +189,16 @@ pub(crate) fn parse_payload(
         "PRODUCT_LISTING_RESTORED" => {
             Ok(ProductListingEventPayload::Restored(ProductListingRestored))
         }
+        "PRODUCT_LISTING_SALE_OBSERVED" => Ok(ProductListingEventPayload::SaleObserved(
+            ListingSaleObserved {
+                observation: sale_observation(payload.get("observation"))?,
+            },
+        )),
+        "PRODUCT_LISTING_SALE_OBSERVATION_RETRACTED" => Ok(
+            ProductListingEventPayload::SaleObservationRetracted(ListingSaleObservationRetracted {
+                observation: sale_observation(payload.get("observation"))?,
+            }),
+        ),
         _ => Err(ProductListingEventReadError::ProductListingEventReadModelInvalid),
     }
 }
@@ -272,28 +282,22 @@ fn pricing(value: Option<&Value>) -> Result<ProductListingPricing, ProductListin
     })
 }
 
-fn sale_valuation(
+fn sale_observation(
     value: Option<&Value>,
-) -> Result<Option<ProductSaleValuation>, ProductListingEventReadError> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    if value.is_null() {
-        return Ok(None);
-    }
-    let value = object(Some(value))?;
-    let sold_at = optional_string(value, "soldAt")?
+) -> Result<ListingSaleObservation, ProductListingEventReadError> {
+    let value = object(value)?;
+    let observed_at = optional_string(value, "observedAt")?
         .ok_or(ProductListingEventReadError::ProductListingEventReadModelInvalid)?;
     let fx_rate_id = optional_string(value, "fxRateId")?
         .ok_or(ProductListingEventReadError::ProductListingEventReadModelInvalid)?
         .parse::<uuid::Uuid>()
         .map(FxRateId::from)
         .map_err(|_| ProductListingEventReadError::ProductListingEventReadModelInvalid)?;
-    Ok(Some(ProductSaleValuation {
-        sold_at: OffsetDateTime::parse(sold_at, &Rfc3339)
+    Ok(ListingSaleObservation::new(
+        OffsetDateTime::parse(observed_at, &Rfc3339)
             .map_err(|_| ProductListingEventReadError::ProductListingEventReadModelInvalid)?,
         fx_rate_id,
-    }))
+    ))
 }
 
 fn availability(

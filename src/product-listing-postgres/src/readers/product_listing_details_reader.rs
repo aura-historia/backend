@@ -11,7 +11,7 @@ use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{
-    ProductListingAddress, ProductListingAuction, ProductListingPricing, ProductSaleValuation,
+    ListingSaleObservation, ProductListingAddress, ProductListingAuction, ProductListingPricing,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -81,8 +81,8 @@ pub(super) struct ProductListingDetailsRow {
     price_estimate_min_currency: Option<String>,
     price_estimate_max_amount: Option<i64>,
     price_estimate_max_currency: Option<String>,
-    sale_fx_rate_id: Option<uuid::Uuid>,
-    sold_at: Option<OffsetDateTime>,
+    sale_observation_fx_rate_id: Option<uuid::Uuid>,
+    sale_observed_at: Option<OffsetDateTime>,
     availability: Option<String>,
     lifecycle: String,
     url: String,
@@ -213,7 +213,7 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
         selected_text.description_text, selected_text.description_language,
         p.price_amount, p.price_currency, p.price_estimate_min_amount,
         p.price_estimate_min_currency, p.price_estimate_max_amount,
-        p.price_estimate_max_currency, p.sale_fx_rate_id, p.sold_at, p.availability, p.lifecycle, p.url,
+        p.price_estimate_max_currency, p.sale_observation_fx_rate_id, p.sale_observed_at, p.availability, p.lifecycle, p.url,
         p.product_images, p.auction_start, p.auction_end, p.created, p.updated,
         $2::uuid AS personalization_user_id,
         authenticated_user.prohibited_content_consent AS user_prohibited_content_consent,
@@ -387,7 +387,8 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
             row.price_estimate_max_amount,
             row.price_estimate_max_currency,
         )?;
-        let sale_valuation = sale_valuation(row.sold_at, row.sale_fx_rate_id)?;
+        let sale_observation =
+            sale_observation(row.sale_observed_at, row.sale_observation_fx_rate_id)?;
         let url = Url::parse(&row.url).map_err(|_| ())?;
 
         Ok(Personalized {
@@ -413,7 +414,7 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                     price_estimate_min: product_price_estimate_min,
                     price_estimate_max: product_price_estimate_max,
                 },
-                sale_valuation,
+                sale_observation,
                 availability: availability(row.availability.as_deref())?,
                 lifecycle: lifecycle(&row.lifecycle)?,
                 view_url: append_utm_params(url.clone()),
@@ -431,15 +432,15 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
     }
 }
 
-fn sale_valuation(
-    sold_at: Option<OffsetDateTime>,
+fn sale_observation(
+    observed_at: Option<OffsetDateTime>,
     fx_rate_id: Option<uuid::Uuid>,
-) -> Result<Option<ProductSaleValuation>, ()> {
-    match (sold_at, fx_rate_id) {
-        (Some(sold_at), Some(fx_rate_id)) => Ok(Some(ProductSaleValuation {
-            sold_at,
-            fx_rate_id: FxRateId::from(fx_rate_id),
-        })),
+) -> Result<Option<ListingSaleObservation>, ()> {
+    match (observed_at, fx_rate_id) {
+        (Some(observed_at), Some(fx_rate_id)) => Ok(Some(ListingSaleObservation::new(
+            observed_at,
+            FxRateId::from(fx_rate_id),
+        ))),
         (None, None) => Ok(None),
         _ => Err(()),
     }
@@ -657,24 +658,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_map_complete_sale_valuation() {
+    fn should_map_complete_sale_observation() {
         let fx_rate_id = uuid::Uuid::from_u128(1);
-        let sold_at = OffsetDateTime::UNIX_EPOCH;
+        let observed_at = OffsetDateTime::UNIX_EPOCH;
 
-        let result = sale_valuation(Some(sold_at), Some(fx_rate_id));
+        let result = sale_observation(Some(observed_at), Some(fx_rate_id));
 
         assert_eq!(
             result,
-            Ok(Some(ProductSaleValuation {
-                sold_at,
-                fx_rate_id: FxRateId::from(fx_rate_id),
-            }))
+            Ok(Some(ListingSaleObservation::new(
+                observed_at,
+                FxRateId::from(fx_rate_id),
+            )))
         );
     }
 
     #[test]
-    fn should_reject_incomplete_sale_valuation() {
-        let result = sale_valuation(Some(OffsetDateTime::UNIX_EPOCH), None);
+    fn should_reject_incomplete_sale_observation() {
+        let result = sale_observation(Some(OffsetDateTime::UNIX_EPOCH), None);
 
         assert!(result.is_err());
     }

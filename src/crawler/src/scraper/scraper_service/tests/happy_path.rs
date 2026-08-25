@@ -67,7 +67,10 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
         result.product.shop_listing_id,
         ShopListingId::from("SKU-42")
     );
-    assert_eq!(result.product.state, ProductState::Available);
+    assert_eq!(
+        result.product.availability,
+        Some(ListingAvailability::Available)
+    );
     assert_eq!(result.product.url, url);
 }
 

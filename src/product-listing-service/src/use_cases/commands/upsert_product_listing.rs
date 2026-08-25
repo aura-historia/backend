@@ -208,7 +208,7 @@ where
     ) -> Result<UpsertProductListingResult, UpsertProductListingError> {
         context
             .require()
-            .credential_capability(CredentialCapability::ProductsWrite)
+            .credential_capability(CredentialCapability::PartnerShopsWrite)
             .authorize::<UpsertProductListingError>()?;
         tracing::Span::current().record(
             "actor_id",
@@ -259,7 +259,6 @@ impl UpsertProductListingCommand {
                 price_estimate_min: self.price_estimate_min,
                 price_estimate_max: self.price_estimate_max,
             },
-            sale_valuation: None,
             availability: self.availability,
             url,
             images: self.images,

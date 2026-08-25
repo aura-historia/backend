@@ -98,10 +98,10 @@ mod tests {
 
     use product_listing_service::use_cases::{
         CreateProductListingCommand, CreateProductListingError, CreateProductListingResult,
-        CreateProductListingUseCase, DeleteProductListingError, DeleteProductListingResult,
-        DeleteProductListingUseCase, UpdateProductListingCommand, UpdateProductListingError,
+        CreateProductListingUseCase, UpdateProductListingCommand, UpdateProductListingError,
         UpdateProductListingResult, UpdateProductListingUseCase, UpsertProductListingCommand,
         UpsertProductListingError, UpsertProductListingResult, UpsertProductListingUseCase,
+        WithdrawProductListingError, WithdrawProductListingResult, WithdrawProductListingUseCase,
     };
     use serde_json::{Value, json};
     use std::collections::BTreeSet;
@@ -112,7 +112,7 @@ mod tests {
     mockall::mock! { CreateUseCase {} #[async_trait::async_trait] impl CreateProductListingUseCase for CreateUseCase { async fn execute(&self, context: &OperationContext, command: CreateProductListingCommand) -> Result<CreateProductListingResult, CreateProductListingError>; } }
     mockall::mock! { UpdateUseCase {} #[async_trait::async_trait] impl UpdateProductListingUseCase for UpdateUseCase { async fn execute(&self, context: &OperationContext, product_listing_id: ProductListingId, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>; } }
     mockall::mock! { UpsertUseCase {} #[async_trait::async_trait] impl UpsertProductListingUseCase for UpsertUseCase { async fn execute(&self, context: &OperationContext, command: UpsertProductListingCommand) -> Result<UpsertProductListingResult, UpsertProductListingError>; } }
-    mockall::mock! { DeleteUseCase {} #[async_trait::async_trait] impl DeleteProductListingUseCase for DeleteUseCase { async fn execute(&self, context: &OperationContext, product_listing_id: ProductListingId) -> Result<DeleteProductListingResult, DeleteProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey) -> Result<DeleteProductListingResult, DeleteProductListingError>; } }
+    mockall::mock! { WithdrawUseCase {} #[async_trait::async_trait] impl WithdrawProductListingUseCase for WithdrawUseCase { async fn execute(&self, context: &OperationContext, product_listing_id: ProductListingId) -> Result<WithdrawProductListingResult, WithdrawProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey) -> Result<WithdrawProductListingResult, WithdrawProductListingError>; } }
     mockall::mock! { Authenticator {} #[async_trait::async_trait] impl TokenAuthenticator for Authenticator { async fn authenticate(&self, bearer_token: &str, metadata: &RequestMetadata) -> Result<TransportPrincipal, AuthError>; } }
 
     #[tokio::test]
@@ -128,12 +128,15 @@ mod tests {
                 key.shop_id == expected_shop_id
                     && (key.shop_listing_id.as_ref() == "first"
                         || key.shop_listing_id.as_ref() == "second")
-                    && !command.is_empty()
+                    && !matches!(
+                        command.availability,
+                        application::patch_field::PatchField::Unchanged
+                    )
             })
             .returning(|_, _, _| Ok(updated()));
         let app = app(update);
 
-        let response = request(&app, &format!("/api/v1/shops/{shop_id}/product-listings"), r#"[{"shopListingId":"first","state":"AVAILABLE"},{"shopListingId":"second","state":"SOLD"}]"#, true).await?;
+        let response = request(&app, &format!("/api/v1/shops/{shop_id}/product-listings"), r#"[{"shopListingId":"first","availability":"AVAILABLE"},{"shopListingId":"second","availability":"SOLD_OUT"}]"#, true).await?;
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(json!([]), body_json(response).await?);
@@ -150,14 +153,14 @@ mod tests {
             .times(2)
             .returning(|_, key, _| {
                 if key.shop_listing_id.as_ref() == "missing" {
-                    Err(UpdateProductListingError::ProductListingNotFound)
+                    Err(UpdateProductListingError::NotFound)
                 } else {
                     Ok(updated())
                 }
             });
         let app = app(update);
 
-        let response = request(&app, &format!("/api/v1/shops/{shop_id}/product-listings"), r#"[{"shopListingId":"present","state":"AVAILABLE"},{"shopListingId":"missing","state":"AVAILABLE"}]"#, true).await?;
+        let response = request(&app, &format!("/api/v1/shops/{shop_id}/product-listings"), r#"[{"shopListingId":"present","availability":"AVAILABLE"},{"shopListingId":"missing","availability":"AVAILABLE"}]"#, true).await?;
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
@@ -178,14 +181,14 @@ mod tests {
         update
             .expect_execute_by_key()
             .times(1)
-            .returning(|_, _, _| Err(UpdateProductListingError::ProductListingNotFound));
+            .returning(|_, _, _| Err(UpdateProductListingError::NotFound));
         let app = app(update);
         let shop_id = ShopId::new();
 
         let response = request(
             &app,
             &format!("/api/v1/shops/{shop_id}/product-listings"),
-            r#"[{"shopListingId":"missing","state":"AVAILABLE"}]"#,
+            r#"[{"shopListingId":"missing","availability":"AVAILABLE"}]"#,
             true,
         )
         .await?;
@@ -209,7 +212,7 @@ mod tests {
         let response = request(
             &app,
             &format!("/api/v1/shops/{shop_id}/product-listings"),
-            r#"[{"shopListingId":"valid","state":"AVAILABLE"},{"shopListingId":"invalid","state":null}]"#,
+            r#"[{"shopListingId":"valid","availability":"AVAILABLE"},{"shopListingId":"invalid","availability":null}]"#,
             true,
         )
         .await?;
@@ -244,7 +247,7 @@ mod tests {
             Arc::new(MockCreateUseCase::new()),
             Arc::new(update),
             Arc::new(MockUpsertUseCase::new()),
-            Arc::new(MockDeleteUseCase::new()),
+            Arc::new(MockWithdrawUseCase::new()),
             Arc::new(authenticator()),
         );
         Router::new()

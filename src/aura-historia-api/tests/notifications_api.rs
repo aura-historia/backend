@@ -298,12 +298,12 @@ async fn should_return_localized_reason_specific_notification_payloads() {
     assert!(state_change["payload"]["title"].is_null());
     assert!(state_change["payload"]["image"].is_null());
     assert_eq!(
-        serde_json::json!("LISTED"),
-        state_change["payload"]["change"]["oldState"]
+        serde_json::json!("AVAILABLE"),
+        state_change["payload"]["change"]["oldAvailability"]
     );
     assert_eq!(
-        serde_json::json!("SOLD"),
-        state_change["payload"]["change"]["newState"]
+        serde_json::json!("SOLD_OUT"),
+        state_change["payload"]["change"]["newAvailability"]
     );
 
     let search_filter = notification_with_kind(items, "SEARCH_FILTER_MATCH");
@@ -689,8 +689,8 @@ async fn seed_unsafe_image_notification(user_id: UserId) {
             },
             "change": {
                 "type": "STATE_CHANGE",
-                "old_state": "Listed",
-                "new_state": "Available"
+                "old_state": "AVAILABLE",
+                "new_state": "AVAILABLE"
             }
         }),
     )
@@ -843,7 +843,7 @@ async fn seed_notification_payloads(user_id: UserId) {
         serde_json::json!({
             "type": "WATCHLIST",
             "snapshot": product_snapshot(serde_json::Value::Null, serde_json::Value::Null),
-            "change": { "type": "STATE_CHANGE", "old_state": "Listed", "new_state": "Sold" }
+            "change": { "type": "STATE_CHANGE", "old_state": "AVAILABLE", "new_state": "SOLD_OUT" }
         }),
     )
     .await;

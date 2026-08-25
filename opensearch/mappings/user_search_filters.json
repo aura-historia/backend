@@ -275,6 +275,9 @@
                             }
                         }
                     },
+                    "availability": {
+                        "type": "keyword"
+                    },
                     "state": {
                         "type": "keyword"
                     },
@@ -374,6 +377,9 @@
             "lifecycle": {
                 "type": "keyword"
             },
+            "availability": {
+                "type": "keyword"
+            },
             "title": {
                 "type": "object",
                 "properties": {
@@ -464,10 +470,10 @@
             "updatedBy": {
                 "type": "keyword"
             },
-            "productId": {
+            "productListingId": {
                 "type": "keyword"
             },
-            "productSlugId": {
+            "productListingSlugId": {
                 "type": "keyword"
             },
             "shopSlugId": {

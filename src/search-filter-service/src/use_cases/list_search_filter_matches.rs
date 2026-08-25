@@ -14,7 +14,10 @@ use fxrate_service::ports::{
 };
 use localization::Language;
 use money::Currency;
-use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::{
+    listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
+    product_listing_id::ProductListingId,
+};
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use user_core::user_id::UserId;
 
@@ -268,14 +271,19 @@ where
         .filter_map(|details| {
             details
                 .item
-                .sale_valuation
-                .map(|valuation| valuation.fx_rate_id)
+                .sale_observation
+                .filter(|_| {
+                    details.item.availability == Some(ListingAvailability::SoldOut)
+                        || details.item.lifecycle == ListingLifecycle::Withdrawn
+                })
+                .map(|observation| observation.fx_rate_id())
         })
         .collect::<HashSet<_>>();
-    let current = if factual_details
-        .iter()
-        .any(|details| details.item.sale_valuation.is_none())
-    {
+    let current = if factual_details.iter().any(|details| {
+        details.item.sale_observation.is_none()
+            || (details.item.availability != Some(ListingAvailability::SoldOut)
+                && details.item.lifecycle != ListingLifecycle::Withdrawn)
+    }) {
         Some(
             fx_rates
                 .in_transaction(tx)
@@ -307,12 +315,16 @@ fn present_with_pricing_snapshot(
     pricing_snapshots: &PricingSnapshots,
     currency: Currency,
 ) -> Result<PersonalizedProductListingDetailsView, ListSearchFilterMatchesError> {
-    let snapshot = match factual_details.item.sale_valuation {
-        Some(valuation) => pricing_snapshots.sale.get(&valuation.fx_rate_id).ok_or(
-            ListSearchFilterMatchesError::SalePricingFxSnapshotMissing {
-                fx_rate_id: valuation.fx_rate_id,
-            },
-        )?,
+    let snapshot = match factual_details.item.sale_observation.filter(|_| {
+        factual_details.item.availability == Some(ListingAvailability::SoldOut)
+            || factual_details.item.lifecycle == ListingLifecycle::Withdrawn
+    }) {
+        Some(observation) => pricing_snapshots
+            .sale
+            .get(&observation.fx_rate_id())
+            .ok_or(ListSearchFilterMatchesError::SalePricingFxSnapshotMissing {
+                fx_rate_id: observation.fx_rate_id(),
+            })?,
         None => pricing_snapshots
             .current
             .as_ref()
@@ -376,9 +388,10 @@ impl From<FxRateSnapshotRepositoryError> for ListSearchFilterMatchesError {
 impl From<ProductListingPricingPresentationError> for ListSearchFilterMatchesError {
     fn from(error: ProductListingPricingPresentationError) -> Self {
         match error {
-            ProductListingPricingPresentationError::SaleFxSnapshotMismatch { expected, actual } => {
-                Self::SaleFxSnapshotMismatch { expected, actual }
-            }
+            ProductListingPricingPresentationError::SaleObservationFxSnapshotMismatch {
+                expected,
+                actual,
+            } => Self::SaleFxSnapshotMismatch { expected, actual },
             ProductListingPricingPresentationError::PriceConversionFailed { source } => {
                 Self::ProductListingPriceConversionFailed { source }
             }
@@ -417,13 +430,13 @@ mod tests {
     };
     use indexmap::IndexSet;
     use product_listing_core::{
-        product_lifecycle::ProductLifecycle, product_listing_slug_id::ProductListingSlugId,
-        product_state::ProductState, shop_listing_id::ShopListingId,
+        listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
+        product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
     };
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 
     use product_listing_core::product_listing::{
-        ProductListingAddress, ProductListingAuction, ProductListingPricing, ProductSaleValuation,
+        ListingSaleObservation, ProductListingAddress, ProductListingAuction, ProductListingPricing,
     };
     use product_listing_service::ports::ProductListingDetailsReadModel;
     use product_listing_service::use_cases::ProductListingPricingValuation;
@@ -599,9 +612,9 @@ mod tests {
                 title: None,
                 description: None,
                 pricing: ProductListingPricing::default(),
-                sale_valuation: None,
-                state: ProductState::Available,
-                lifecycle: ProductLifecycle::Active,
+                sale_observation: None,
+                availability: Some(ListingAvailability::Available),
+                lifecycle: ListingLifecycle::Active,
                 url: url.clone(),
                 view_url: url,
                 images: IndexSet::new(),
@@ -698,15 +711,17 @@ mod tests {
         let mut current = product(current_product_listing_id)?;
         current.user_state = Some(expected_user_state.clone());
         let mut first_sale = product(first_sale_product_listing_id)?;
-        first_sale.item.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: sale_snapshot.id(),
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
+        first_sale.item.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            sale_snapshot.id(),
+        ));
+        first_sale.item.availability = Some(ListingAvailability::SoldOut);
         let mut second_sale = product(second_sale_product_listing_id)?;
-        second_sale.item.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: sale_snapshot.id(),
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
+        second_sale.item.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            sale_snapshot.id(),
+        ));
+        second_sale.item.availability = Some(ListingAvailability::SoldOut);
         let state = Arc::new(Mutex::new(State {
             latest_snapshot: Some(current_snapshot.clone()),
             sale_snapshots: vec![sale_snapshot.clone()],
@@ -751,7 +766,7 @@ mod tests {
         );
         assert!(result.items[1..].iter().all(|item| matches!(
             item.item.pricing.valuation,
-            ProductListingPricingValuation::Sale { fx_rate_id, .. } if fx_rate_id == sale_snapshot.id()
+            ProductListingPricingValuation::SaleObservation { fx_rate_id, .. } if fx_rate_id == sale_snapshot.id()
         )));
         let state = lock(&state);
         assert_eq!(1, state.product_requests.len());
@@ -774,10 +789,11 @@ mod tests {
         let product_listing_id = ProductListingId::new();
         let missing_snapshot_id = FxRateId::new();
         let mut sale = product(product_listing_id)?;
-        sale.item.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: missing_snapshot_id,
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
+        sale.item.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            missing_snapshot_id,
+        ));
+        sale.item.availability = Some(ListingAvailability::SoldOut);
         let state = Arc::new(Mutex::new(State::default()));
 
         let result = handler(

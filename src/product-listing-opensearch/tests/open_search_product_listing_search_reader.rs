@@ -26,7 +26,7 @@ use test_api::{
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-const PRODUCTS_INDEX: &str = "product_listings";
+const PRODUCTS_INDEX: &str = "product-listings";
 
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
@@ -79,9 +79,9 @@ async fn should_return_sold_product_without_main_price_for_non_price_search_and_
 -> TestResult {
     let sold_without_price =
         product_listing_document(ProductListingSeed::sold_without_main_price("sold-no-price"))?;
-    let product_listing_id = sold_without_price.document["productId"]
+    let product_listing_id = sold_without_price.document["productListingId"]
         .as_str()
-        .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "productId missing"))?
+        .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "productListingId missing"))?
         .to_owned();
     index_products([sold_without_price.document]).await?;
 
@@ -99,7 +99,7 @@ async fn should_return_sold_product_without_main_price_for_non_price_search_and_
     assert_eq!(None, non_price_result.items[0].display_price);
     assert!(matches!(
         non_price_result.items[0].price_valuation,
-        product_listing_service::use_cases::ProductListingSummaryPriceValuation::Sale { .. }
+        product_listing_service::use_cases::ProductListingSummaryPriceValuation::SaleObservation { .. }
     ));
 
     let price_result = search(
@@ -127,8 +127,9 @@ async fn search(
     ProductListingSearchReadResult,
     product_listing_service::ports::ProductListingSearchReadError,
 > {
-    let reader = product_listing_opensearch::OpenSearchProductListingSearchReader::new(
+    let reader = product_listing_opensearch::OpenSearchProductListingSearchReader::with_index(
         get_opensearch_client().await.clone(),
+        PRODUCTS_INDEX,
     );
     reader
         .search(&ProductListingSearchReadRequest {
@@ -199,10 +200,10 @@ async fn index_products(product_listings: impl IntoIterator<Item = Value>) -> Te
 
 fn product_listing_id_string(product: &Value) -> Result<String, IoError> {
     product
-        .get("productId")
+        .get("productListingId")
         .and_then(Value::as_str)
         .map(ToOwned::to_owned)
-        .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "productId missing"))
+        .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "productListingId missing"))
 }
 
 fn assert_ok(result: TestResult) {
@@ -214,7 +215,7 @@ struct ProductListingSeed {
     product_listing_slug_id: ProductListingSlugId,
     source_price: Option<u64>,
     sale_price: Option<u64>,
-    has_sale_valuation: bool,
+    has_sale_observation: bool,
 }
 
 impl ProductListingSeed {
@@ -224,7 +225,7 @@ impl ProductListingSeed {
             product_listing_slug_id: ProductListingSlugId::from(slug),
             source_price: Some(source_price),
             sale_price: None,
-            has_sale_valuation: false,
+            has_sale_observation: false,
         }
     }
 
@@ -234,7 +235,7 @@ impl ProductListingSeed {
             product_listing_slug_id: ProductListingSlugId::from(slug),
             source_price: None,
             sale_price: Some(sale_price),
-            has_sale_valuation: true,
+            has_sale_observation: true,
         }
     }
 
@@ -244,7 +245,7 @@ impl ProductListingSeed {
             product_listing_slug_id: ProductListingSlugId::from(slug),
             source_price: None,
             sale_price: None,
-            has_sale_valuation: true,
+            has_sale_observation: true,
         }
     }
 }
@@ -266,19 +267,19 @@ fn product_listing_document(
             "sgd": amount, "chf": amount
         })
     });
-    let sold_at = seed
-        .has_sale_valuation
+    let sale_observed_at = seed
+        .has_sale_observation
         .then(|| OffsetDateTime::UNIX_EPOCH.format(&Rfc3339))
         .transpose()?;
     let document = json!({
-        "productId": seed.product_listing_id,
-        "productSlugId": seed.product_listing_slug_id,
+        "productListingId": seed.product_listing_id,
+        "productListingSlugId": seed.product_listing_slug_id,
         "shopSlugId": ShopSlugId::from("shop"),
         "sellerSlugId": SellerSlugId::from("seller"),
         "eventId": EventId::new(),
         "shopId": shop_id,
         "sellerId": shop_id,
-        "shopsProductId": ShopListingId::from("sku-1"),
+        "shopListingId": ShopListingId::from("sku-1"),
         "shopName": "Shop",
         "sellerName": "Seller",
         "shopType": "COMMERCIAL_DEALER",
@@ -286,9 +287,9 @@ fn product_listing_document(
         "titleEn": "Blue vase",
         "sourcePrice": seed.source_price.map(|amount| json!({ "amount": amount, "currency": "EUR" })),
         "salePrices": sale_prices,
-        "saleFxRateId": seed.has_sale_valuation.then(FxRateId::new),
-        "soldAt": sold_at,
-        "availability": "AVAILABLE",
+        "saleObservationFxRateId": seed.has_sale_observation.then(FxRateId::new),
+        "saleObservedAt": sale_observed_at,
+
         "lifecycle": "ACTIVE",
         "url": format!("https://shop.example/product_listings/{}", seed.product_listing_slug_id),
         "viewUrl": format!("https://aura.example/product_listings/{}", seed.product_listing_slug_id),

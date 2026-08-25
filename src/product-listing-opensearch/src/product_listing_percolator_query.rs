@@ -141,7 +141,7 @@ mod tests {
 
         assert_eq!(
             Some(&json!({ "gte": 10_000, "lte": 50_000 })),
-            query.pointer("/bool/filter/1/range/priceByCurrency.usd")
+            query.pointer("/bool/filter/0/range/priceByCurrency.usd")
         );
         assert!(query.to_string().contains("priceByCurrency.usd"));
         Ok(())
@@ -160,7 +160,7 @@ mod tests {
 
         assert_eq!(
             Some(&json!({ "gte": 7, "lte": 11 })),
-            query.pointer("/bool/filter/1/range/priceByCurrency.jpy")
+            query.pointer("/bool/filter/0/range/priceByCurrency.jpy")
         );
         Ok(())
     }
@@ -181,11 +181,11 @@ mod tests {
 
         assert_eq!(
             Some(&json!({ "lte": 50_000 })),
-            build_percolator_query(&max_only)?.pointer("/bool/filter/1/range/priceByCurrency.usd")
+            build_percolator_query(&max_only)?.pointer("/bool/filter/0/range/priceByCurrency.usd")
         );
         assert_eq!(
             Some(&json!({ "gte": 10_000 })),
-            build_percolator_query(&min_only)?.pointer("/bool/filter/1/range/priceByCurrency.usd")
+            build_percolator_query(&min_only)?.pointer("/bool/filter/0/range/priceByCurrency.usd")
         );
         Ok(())
     }

@@ -621,7 +621,7 @@ mod tests {
             Some(&serde_json::json!({ "gte": 10_000, "lte": 50_000 })),
             document
                 .query
-                .pointer("/bool/filter/1/range/priceByCurrency.usd")
+                .pointer("/bool/filter/0/range/priceByCurrency.usd")
         );
         assert!(value.get("compiledFxRateId").is_none());
         assert!(value.get("compiledFxGeneration").is_none());

@@ -151,7 +151,7 @@ mod tests {
     use localization::Language;
     use money::Currency;
     use product_listing_core::{
-        product_lifecycle::ProductLifecycle,
+        listing_availability::ListingAvailability,
         product_listing_id::ProductListingId,
         product_listing_search::{EnhancedSearchDescription, ProductListingSearch},
     };
@@ -191,11 +191,11 @@ mod tests {
     }
 
     #[test]
-    fn should_allow_legacy_free_tier_product_exclusions_and_lifecycle_filters() {
+    fn should_allow_free_tier_product_exclusions_and_availability_filters() {
         let with_product_exclusion = ProductListingSearch::new(Language::En, Currency::Eur)
             .with_exclude_product_listing_id_query(HashSet::from([ProductListingId::new()]).into());
-        let with_lifecycle = ProductListingSearch::new(Language::En, Currency::Eur)
-            .with_lifecycle_query(HashSet::from([ProductLifecycle::Deleted]).into());
+        let with_availability = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_availability_query(HashSet::from([ListingAvailability::SoldOut]).into());
 
         assert_eq!(
             Ok(()),
@@ -203,7 +203,7 @@ mod tests {
         );
         assert_eq!(
             Ok(()),
-            validate_search_features(UserTier::Free, &with_lifecycle)
+            validate_search_features(UserTier::Free, &with_availability)
         );
     }
 

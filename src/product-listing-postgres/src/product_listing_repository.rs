@@ -14,8 +14,8 @@ use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{
-    ProductListing, ProductListingAddress, ProductListingAuction, ProductListingPricing,
-    ProductSaleValuation, RehydratedProductListingState,
+    ListingSaleObservation, ProductListing, ProductListingAddress, ProductListingAuction,
+    ProductListingPricing, RehydratedProductListingState,
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -66,8 +66,8 @@ struct ProductListingRow {
     price_estimate_min_currency: Option<String>,
     price_estimate_max_amount: Option<i64>,
     price_estimate_max_currency: Option<String>,
-    sale_fx_rate_id: Option<uuid::Uuid>,
-    sold_at: Option<OffsetDateTime>,
+    sale_observation_fx_rate_id: Option<uuid::Uuid>,
+    sale_observed_at: Option<OffsetDateTime>,
     availability: Option<String>,
     lifecycle: String,
     url: String,
@@ -120,7 +120,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
-                price_estimate_max_currency, sale_fx_rate_id, sold_at, availability, lifecycle, url,
+                price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url,
                 product_images, embedding, auction_start, auction_end, created, updated
             FROM product_listings
             WHERE product_listing_id = $1
@@ -148,7 +148,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
-                price_estimate_max_currency, sale_fx_rate_id, sold_at, availability, lifecycle, url,
+                price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url,
                 product_images, embedding, auction_start, auction_end, created, updated
             FROM product_listings
             WHERE shop_id = $1
@@ -201,7 +201,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
-                price_estimate_max_currency, sale_fx_rate_id, sold_at, availability, lifecycle, url,
+                price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url,
                 product_images, auction_start, auction_end
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
@@ -241,8 +241,12 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 .price_estimate_max
                 .map(|value| value.currency.as_str().to_owned()),
         )
-        .bind(product.sale_valuation().map(|value| uuid::Uuid::from(value.fx_rate_id)))
-        .bind(product.sale_valuation().map(|value| value.sold_at))
+        .bind(
+            product
+                .sale_observation()
+                .map(|value| uuid::Uuid::from(value.fx_rate_id())),
+        )
+        .bind(product.sale_observation().map(|value| value.observed_at()))
         .bind(product.availability().map(ListingAvailability::as_str))
         .bind(product.lifecycle().as_str())
         .bind(product.url().to_string())
@@ -311,8 +315,8 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 price_estimate_min_currency = $21,
                 price_estimate_max_amount = $22,
                 price_estimate_max_currency = $23,
-                sale_fx_rate_id = $24,
-                sold_at = $25,
+                sale_observation_fx_rate_id = $24,
+                sale_observed_at = $25,
                 availability = $26,
                 lifecycle = $27,
                 url = $28,
@@ -391,10 +395,10 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         )
         .bind(
             product
-                .sale_valuation()
-                .map(|value| uuid::Uuid::from(value.fx_rate_id)),
+                .sale_observation()
+                .map(|value| uuid::Uuid::from(value.fx_rate_id())),
         )
-        .bind(product.sale_valuation().map(|value| value.sold_at))
+        .bind(product.sale_observation().map(|value| value.observed_at()))
         .bind(product.availability().map(ListingAvailability::as_str))
         .bind(product.lifecycle().as_str())
         .bind(product.url().to_string())
@@ -448,7 +452,10 @@ impl TryFrom<ProductListingRow> for Versioned<ProductListing, EventId> {
                     row.price_estimate_max_currency,
                 )?,
             },
-            sale_valuation: sale_valuation_from_parts(row.sold_at, row.sale_fx_rate_id)?,
+            sale_observation: sale_observation_from_parts(
+                row.sale_observed_at,
+                row.sale_observation_fx_rate_id,
+            )?,
             availability: parse_listing_availability(row.availability.as_deref())?,
             lifecycle: parse_listing_lifecycle(&row.lifecycle)?,
             url: Url::parse(&row.url)
@@ -468,15 +475,15 @@ impl TryFrom<ProductListingRow> for Versioned<ProductListing, EventId> {
     }
 }
 
-fn sale_valuation_from_parts(
-    sold_at: Option<OffsetDateTime>,
+fn sale_observation_from_parts(
+    observed_at: Option<OffsetDateTime>,
     fx_rate_id: Option<uuid::Uuid>,
-) -> Result<Option<ProductSaleValuation>, ProductListingRepositoryError> {
-    match (sold_at, fx_rate_id) {
-        (Some(sold_at), Some(fx_rate_id)) => Ok(Some(ProductSaleValuation {
-            sold_at,
-            fx_rate_id: FxRateId::from(fx_rate_id),
-        })),
+) -> Result<Option<ListingSaleObservation>, ProductListingRepositoryError> {
+    match (observed_at, fx_rate_id) {
+        (Some(observed_at), Some(fx_rate_id)) => Ok(Some(ListingSaleObservation::new(
+            observed_at,
+            FxRateId::from(fx_rate_id),
+        ))),
         (None, None) => Ok(None),
         _ => Err(ProductListingRepositoryError::InvalidAggregateStatePersisted),
     }
@@ -925,8 +932,8 @@ mod tests {
             price_estimate_min_currency: None,
             price_estimate_max_amount: None,
             price_estimate_max_currency: None,
-            sale_fx_rate_id: None,
-            sold_at: None,
+            sale_observation_fx_rate_id: None,
+            sale_observed_at: None,
             availability: Some("AVAILABLE".to_owned()),
             lifecycle: "ACTIVE".to_owned(),
             url: "https://example.com/unit-product".to_owned(),

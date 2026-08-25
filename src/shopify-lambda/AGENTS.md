@@ -10,7 +10,7 @@
 - Root modules: `types`.
 - Main neighbors: `application`, `platform-observability`, `platform-postgres`, `product-listing-service`, `product-listing-postgres`, `shop-core`, `shop-service`, `shop-postgres`.
 - Event/runtime edge crate. It parses provider-native SQS/EventBridge payloads and invokes canonical ProductListing service handlers; Postgres listing/event writes stay in ProductListing service.
-- Shopify variant inventory maps to listing availability: positive is `InStock`, zero is `OutOfStock`, and missing inventory clears it.
+- Shopify create/update variant inventory maps to listing availability: positive is `InStock`, zero is `OutOfStock`, and missing inventory clears it. Shopify delete withdraws the matching listing; missing listing is acknowledged for idempotency.
 
 ## Ownership
 

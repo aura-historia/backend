@@ -268,7 +268,7 @@ mod tests {
 
     use localization::Language;
     use money::{Currency, MonetaryAmount, Price};
-    use product_listing_core::product_state::ProductState;
+    use product_listing_core::listing_availability::ListingAvailability;
     use time::OffsetDateTime;
 
     use super::{
@@ -309,7 +309,10 @@ mod tests {
     }
 
     /// Build a mapping record for `raw` resolving to `state_record`.
-    fn mapping_record(raw: &str, state_record: ProductState) -> ProductStateMappingRecord {
+    fn mapping_record(
+        raw: &str,
+        state_record: Option<ListingAvailability>,
+    ) -> ProductStateMappingRecord {
         let now = OffsetDateTime::now_utc();
         ProductStateMappingRecord {
             raw: raw.to_string(),
@@ -324,7 +327,7 @@ mod tests {
     /// always resolves `raw_state` to `resolved`.
     fn make_service(
         raw_state: &'static str,
-        resolved: ProductState,
+        resolved: Option<ListingAvailability>,
     ) -> ProductListingNormalizationServiceImpl {
         let record = mapping_record(raw_state, resolved);
         let mut mock = MockProductStateMappingService::new();
@@ -337,7 +340,7 @@ mod tests {
 
     /// Create a service whose state mapping service always returns `Available`.
     fn make_available_service() -> ProductListingNormalizationServiceImpl {
-        make_service("available", ProductState::Available)
+        make_service("available", Some(ListingAvailability::Available))
     }
 
     fn make_service_that_must_not_map_state() -> ProductListingNormalizationServiceImpl {
@@ -369,7 +372,7 @@ mod tests {
         assert!(result.price.is_none());
         assert!(result.price_estimate_min.is_none());
         assert!(result.price_estimate_max.is_none());
-        assert_eq!(result.state, ProductState::Available);
+        assert_eq!(result.availability, Some(ListingAvailability::Available));
         assert!(result.images.is_empty());
         assert!(result.auction_start.is_none());
         assert!(result.auction_end.is_none());
@@ -378,7 +381,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_normalize_product_when_full_raw_provided() {
-        let svc = make_service("listed", ProductState::Listed);
+        let svc = make_service("listed", None);
         let raw = RawExtractedProduct {
             shop_listing_id: "LOT-42".into(),
             // Long enough English text for reliable language detection.
@@ -444,7 +447,7 @@ mod tests {
             result.seller_name.as_deref(),
             Some("Kunstauktionshaus Leipzig | Schütte")
         );
-        assert_eq!(result.state, ProductState::Listed);
+        assert_eq!(result.availability, None);
         assert_eq!(result.images.len(), 2);
         assert_eq!(
             result.auction_start.unwrap(),
@@ -472,23 +475,31 @@ mod tests {
     async fn should_resolve_state_from_raw_state_field_via_mapping_service() {
         // Each state variant is passed through as-is from the mapping service.
         for (raw_state, state_record, expected) in [
-            ("listed", ProductState::Listed, ProductState::Listed),
+            ("listed", None, None),
             (
                 "available",
-                ProductState::Available,
-                ProductState::Available,
+                Some(ListingAvailability::Available),
+                Some(ListingAvailability::Available),
             ),
-            ("reserved", ProductState::Reserved, ProductState::Reserved),
-            ("sold", ProductState::Sold, ProductState::Sold),
-            ("removed", ProductState::Removed, ProductState::Removed),
-            ("unknown", ProductState::Unknown, ProductState::Unknown),
+            (
+                "reserved",
+                Some(ListingAvailability::Reserved),
+                Some(ListingAvailability::Reserved),
+            ),
+            (
+                "sold",
+                Some(ListingAvailability::SoldOut),
+                Some(ListingAvailability::SoldOut),
+            ),
+            ("removed", None, None),
+            ("unknown", None, None),
         ] {
             let svc = make_service(raw_state, state_record);
             let mut raw = minimal_raw();
             raw.state = raw_state.into();
             let result = svc.normalize(raw, base_url(), None).await.unwrap().product;
             assert_eq!(
-                result.state, expected,
+                result.availability, expected,
                 "state_record {state_record:?} was not converted correctly"
             );
         }
@@ -499,7 +510,7 @@ mod tests {
         // Verify that whatever is in raw.state is forwarded verbatim to the
         // mapping service (trimming / lowercasing is the service's concern).
         let raw_state = "  In Stock  ";
-        let record = mapping_record(raw_state, ProductState::Available);
+        let record = mapping_record(raw_state, Some(ListingAvailability::Available));
         let record_clone = record.clone();
 
         let mut mock = MockProductStateMappingService::new();
@@ -515,7 +526,7 @@ mod tests {
         let mut raw = minimal_raw();
         raw.state = raw_state.into();
         let result = svc.normalize(raw, base_url(), None).await.unwrap().product;
-        assert_eq!(result.state, ProductState::Available);
+        assert_eq!(result.availability, Some(ListingAvailability::Available));
     }
 
     // -----------------------------------------------------------------------
@@ -630,7 +641,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_count_one_llm_call_when_state_mapping_uses_llm_after_preparation() {
-        let record = mapping_record("available", ProductState::Available);
+        let record = mapping_record("available", Some(ListingAvailability::Available));
         let mut mock = MockProductStateMappingService::new();
         mock.expect_get_state_mapping()
             .withf(|raw_state| raw_state == "available")
@@ -646,7 +657,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.llm_calls_used, 1);
-        assert_eq!(result.product.state, ProductState::Available);
+        assert_eq!(
+            result.product.availability,
+            Some(ListingAvailability::Available)
+        );
     }
 
     #[tokio::test]

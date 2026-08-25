@@ -173,7 +173,7 @@ mod tests {
         );
         assert_eq!(actual.pointer("/query/knn/embedding/k"), Some(&json!(20)));
         assert_eq!(
-            actual.pointer("/query/knn/embedding/filter/bool/must_not/0/term/productId"),
+            actual.pointer("/query/knn/embedding/filter/bool/must_not/0/term/productListingId"),
             Some(&json!(product_listing_id.to_string()))
         );
         assert!(actual.pointer("/query/bool").is_none());

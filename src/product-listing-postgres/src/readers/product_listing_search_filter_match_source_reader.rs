@@ -12,7 +12,7 @@ use product_listing_core::{
     listing_availability::ListingAvailability,
     listing_lifecycle::ListingLifecycle,
     product_listing::{
-        ProductListingAddress, ProductListingAuction, ProductListingPricing, ProductSaleValuation,
+        ListingSaleObservation, ProductListingAddress, ProductListingAuction, ProductListingPricing,
     },
     product_listing_id::ProductListingId,
     product_listing_image::ProductListingImage,
@@ -80,8 +80,8 @@ struct SourceRow {
     price_estimate_min_currency: Option<String>,
     price_estimate_max_amount: Option<i64>,
     price_estimate_max_currency: Option<String>,
-    sale_fx_rate_id: Option<uuid::Uuid>,
-    sold_at: Option<OffsetDateTime>,
+    sale_observation_fx_rate_id: Option<uuid::Uuid>,
+    sale_observed_at: Option<OffsetDateTime>,
     availability: Option<String>,
     lifecycle: String,
     url: String,
@@ -228,8 +228,8 @@ impl ProductListingSearchFilterMatchSourceReader
                 product.price_estimate_min_currency,
                 product.price_estimate_max_amount,
                 product.price_estimate_max_currency,
-                product.sale_fx_rate_id,
-                product.sold_at,
+                product.sale_observation_fx_rate_id,
+                product.sale_observed_at,
                 product.availability,
                 product.lifecycle,
                 product.url,
@@ -322,7 +322,7 @@ fn source_from_rows(
             row.price_estimate_max_currency.as_deref(),
         )?,
     };
-    let sale_valuation = sale_valuation(row.sale_fx_rate_id, row.sold_at)?;
+    let sale_observation = sale_observation(row.sale_observation_fx_rate_id, row.sale_observed_at)?;
     let images = images(&row.product_images)?;
     let url = Url::parse(&row.url).map_err(|_| ())?;
     let shop_slug_id = ShopSlugId::raw(&row.shop_slug_id).map_err(|_| ())?;
@@ -350,7 +350,7 @@ fn source_from_rows(
         titles,
         descriptions,
         pricing,
-        sale_valuation,
+        sale_observation,
         availability: availability(row.availability.as_deref())?,
         lifecycle: lifecycle(&row.lifecycle)?,
         view_url: append_utm_params(url.clone()),
@@ -507,15 +507,15 @@ fn price(amount: Option<i64>, currency_value: Option<&str>) -> Result<Option<Pri
     }
 }
 
-fn sale_valuation(
+fn sale_observation(
     fx_rate_id: Option<uuid::Uuid>,
-    sold_at: Option<OffsetDateTime>,
-) -> Result<Option<ProductSaleValuation>, ()> {
-    match (fx_rate_id, sold_at) {
-        (Some(fx_rate_id), Some(sold_at)) => Ok(Some(ProductSaleValuation {
-            fx_rate_id: FxRateId::from(fx_rate_id),
-            sold_at,
-        })),
+    observed_at: Option<OffsetDateTime>,
+) -> Result<Option<ListingSaleObservation>, ()> {
+    match (fx_rate_id, observed_at) {
+        (Some(fx_rate_id), Some(observed_at)) => Ok(Some(ListingSaleObservation::new(
+            observed_at,
+            FxRateId::from(fx_rate_id),
+        ))),
         (None, None) => Ok(None),
         _ => Err(()),
     }
@@ -620,21 +620,21 @@ mod tests {
     }
 
     #[test]
-    fn should_map_sale_valuation_only_when_both_persisted_columns_are_present() {
-        assert_eq!(Ok(None), sale_valuation(None, None));
+    fn should_map_sale_observation_only_when_both_persisted_columns_are_present() {
+        assert_eq!(Ok(None), sale_observation(None, None));
 
         let fx_rate_id = uuid::Uuid::new_v4();
-        let sold_at = OffsetDateTime::UNIX_EPOCH;
+        let observed_at = OffsetDateTime::UNIX_EPOCH;
         assert_eq!(
-            Ok(Some(ProductSaleValuation {
-                fx_rate_id: FxRateId::from(fx_rate_id),
-                sold_at,
-            })),
-            sale_valuation(Some(fx_rate_id), Some(sold_at))
+            Ok(Some(ListingSaleObservation::new(
+                observed_at,
+                FxRateId::from(fx_rate_id),
+            ))),
+            sale_observation(Some(fx_rate_id), Some(observed_at))
         );
 
-        assert!(sale_valuation(Some(uuid::Uuid::new_v4()), None).is_err());
-        assert!(sale_valuation(None, Some(sold_at)).is_err());
+        assert!(sale_observation(Some(uuid::Uuid::new_v4()), None).is_err());
+        assert!(sale_observation(None, Some(observed_at)).is_err());
     }
 
     #[test]

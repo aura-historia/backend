@@ -21,7 +21,10 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use large_language_model::LargeLanguageModel;
-use product_listing_core::product_listing::ProductListingPriceValuationBasis;
+use product_listing_core::{
+    listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
+    product_listing::ProductListingPriceValuationBasis,
+};
 
 use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_service::ports::{
@@ -616,13 +619,15 @@ where
                             .price_query
                             .as_ref()
                             .map(|_| PriceMatchValuation {
-                                basis: if source.sale_valuation.is_some() {
-                                    ProductListingPriceValuationBasis::Sale
+                                basis: if has_applicable_sale_observation(source) {
+                                    ProductListingPriceValuationBasis::SaleObservation
                                 } else {
                                     ProductListingPriceValuationBasis::Current
                                 },
-                                fx_rate_id: if let Some(sale) = source.sale_valuation {
-                                    sale.fx_rate_id
+                                fx_rate_id: if let Some(observation) =
+                                    applicable_sale_observation(source)
+                                {
+                                    observation.fx_rate_id()
                                 } else {
                                     price_filter_plan.fx_rate_id
                                 },
@@ -986,6 +991,22 @@ fn product_search_error(
         }
     }
 }
+fn applicable_sale_observation(
+    source: &ProductListingSearchFilterMatchSource,
+) -> Option<product_listing_core::product_listing::ListingSaleObservation> {
+    if source.availability == Some(ListingAvailability::SoldOut)
+        || source.lifecycle == ListingLifecycle::Withdrawn
+    {
+        source.sale_observation
+    } else {
+        None
+    }
+}
+
+fn has_applicable_sale_observation(source: &ProductListingSearchFilterMatchSource) -> bool {
+    applicable_sale_observation(source).is_some()
+}
+
 fn product_source_error(
     error: ProductListingSearchFilterMatchSourceReadError,
 ) -> RunPeriodicSearchFilterMatchingError {

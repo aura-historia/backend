@@ -85,9 +85,9 @@ pub enum ProductListingSummaryPriceValuation {
         fx_rate_id: FxRateId,
         captured_at: OffsetDateTime,
     },
-    Sale {
+    SaleObservation {
         fx_rate_id: FxRateId,
-        sold_at: OffsetDateTime,
+        observed_at: OffsetDateTime,
     },
 }
 
@@ -409,6 +409,9 @@ mod tests {
     use localization::Language;
     use money::Currency;
     use money::MonetaryAmount;
+    use product_listing_core::{
+        listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
+    };
     use user_core::user_id::UserId;
 
     use std::collections::HashMap;
@@ -721,8 +724,8 @@ mod tests {
                     fx_rate_id: FxRateId::new(),
                     captured_at: OffsetDateTime::UNIX_EPOCH,
                 },
-                state: ProductState::Listed,
-                lifecycle: ProductLifecycle::Active,
+                availability: Some(ListingAvailability::InStock),
+                lifecycle: ListingLifecycle::Active,
                 url: Url::parse("https://shop.example/products/1")?,
                 view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
                 images: IndexSet::<ProductListingImage>::new(),

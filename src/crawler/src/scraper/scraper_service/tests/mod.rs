@@ -36,7 +36,7 @@ use crate::scraper::scraper_service::service::{
 use crate::spider::classification::url_metadata::UrlState;
 use localization::Language;
 use localization::Localized;
-use product_listing_core::product_state::ProductState;
+use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_core::title::Title;
 use std::sync::Arc;
@@ -169,7 +169,7 @@ pub(super) fn normalized_product(url: Url) -> NormalizedProduct {
         price_estimate_min: None,
         price_estimate_max: None,
         seller_name: None,
-        state: ProductState::Available,
+        availability: Some(ListingAvailability::Available),
         url,
         images: vec![],
         auction_start: None,

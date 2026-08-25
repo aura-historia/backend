@@ -178,11 +178,11 @@ mod tests {
     use domain_primitives::event_id::EventId;
     use indexmap::IndexSet;
     use product_listing_core::{
-        product_lifecycle::ProductLifecycle,
+        listing_availability::ListingAvailability,
+        listing_lifecycle::ListingLifecycle,
         product_listing::{ProductListingAddress, ProductListingAuction, ProductListingPricing},
         product_listing_image::ProductListingImage,
         product_listing_slug_id::ProductListingSlugId,
-        product_state::ProductState,
         shop_listing_id::ShopListingId,
     };
     use product_listing_service::ports::{
@@ -216,9 +216,9 @@ mod tests {
             titles: std::collections::HashMap::new(),
             descriptions: std::collections::HashMap::new(),
             pricing: ProductListingPricing::default(),
-            sale_valuation: None,
-            state: ProductState::Available,
-            lifecycle: ProductLifecycle::Active,
+            sale_observation: None,
+            availability: Some(ListingAvailability::Available),
+            lifecycle: ListingLifecycle::Active,
             url: url.clone(),
             view_url: url,
             image: None,

@@ -1,5 +1,5 @@
 use money::Price;
-use product_listing_core::product_state::ProductState;
+use product_listing_core::listing_availability::ListingAvailability;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -26,7 +26,7 @@ pub struct NormalizedExpectation {
     pub price_estimate_min: Option<Price>,
     pub price_estimate_max: Option<Price>,
     pub seller_name: Option<String>,
-    pub state: ProductState,
+    pub availability: Option<ListingAvailability>,
     pub url: String,
     pub images: Vec<String>,
     pub auction_start: Option<time::OffsetDateTime>,
@@ -45,7 +45,7 @@ pub struct NormalizedExpectationJson {
     pub price_estimate_max: Option<u64>,
     pub price_estimate_max_currency: Option<String>,
     pub seller_name: Option<String>,
-    pub state: String,
+    pub availability: String,
     pub url: String,
     pub images: Vec<String>,
     pub auction_start: Option<String>,

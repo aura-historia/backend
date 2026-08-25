@@ -1,0 +1,661 @@
+use crate::ports::{
+    PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
+    PartnerProductListingAuthorizerFactory, ProductListingEventStore,
+    ProductListingEventStoreError, ProductListingEventStoreFactory, ProductListingRepository,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
+};
+use application::error::{BoxError, box_error};
+use application::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
+};
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::change_outcome::ChangeOutcome;
+use domain_primitives::event_id::EventId;
+use fxrate_service::ports::{
+    FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
+};
+use product_listing_core::product_listing::{
+    ListingSaleObservation, RecordListingSaleObservationError,
+};
+use product_listing_core::product_listing_id::ProductListingId;
+use time::OffsetDateTime;
+use user_core::user_id::UserId;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordProductListingSaleObservationCommand {
+    pub product_listing_id: ProductListingId,
+    pub observed_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordProductListingSaleObservationResult {
+    pub product_listing_id: ProductListingId,
+    pub event_id: EventId,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RecordProductListingSaleObservationError {
+    #[error("authenticated actor required to record a product listing sale observation")]
+    AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
+    #[error("shop not found")]
+    ShopNotFound,
+    #[error("partner product listing authorization is temporarily unavailable")]
+    PartnerAuthorizationTemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
+    #[error("partner product listing authorization failed internally")]
+    PartnerAuthorizationInternal {
+        #[source]
+        source: BoxError,
+    },
+    #[error("product listing not found")]
+    NotFound,
+    #[error("no persisted FX snapshot is available at the observation time")]
+    FxSnapshotMissing,
+    #[error("FX snapshot lookup is temporarily unavailable")]
+    FxSnapshotUnavailable {
+        #[source]
+        source: BoxError,
+    },
+    #[error("persisted FX snapshot is invalid")]
+    FxSnapshotInvalid {
+        #[source]
+        source: BoxError,
+    },
+    #[error("a different sale observation already exists")]
+    ConflictingExistingObservation,
+    #[error("product listing persistence failed")]
+    PersistenceFailed,
+    #[error("product listing event storage failed")]
+    EventStoreFailed,
+    #[error("failed to begin sale observation transaction")]
+    BeginTransactionFailed,
+    #[error("failed to commit sale observation transaction")]
+    CommitTransactionFailed,
+}
+
+#[async_trait::async_trait]
+pub trait RecordProductListingSaleObservationUseCase: Send + Sync {
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        command: RecordProductListingSaleObservationCommand,
+    ) -> Result<RecordProductListingSaleObservationResult, RecordProductListingSaleObservationError>;
+}
+
+pub struct RecordProductListingSaleObservationHandler<U, R, E, A, F> {
+    unit_of_work: U,
+    products: R,
+    events: E,
+    authorizer: A,
+    fx_rates: F,
+}
+
+impl<U, R, E, A, F> RecordProductListingSaleObservationHandler<U, R, E, A, F> {
+    pub fn new(unit_of_work: U, products: R, events: E, authorizer: A, fx_rates: F) -> Self {
+        Self {
+            unit_of_work,
+            products,
+            events,
+            authorizer,
+            fx_rates,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<U, R, E, A, F> RecordProductListingSaleObservationUseCase
+    for RecordProductListingSaleObservationHandler<U, R, E, A, F>
+where
+    U: UnitOfWork,
+    R: ProductListingRepositoryFactory<U::Tx>,
+    E: ProductListingEventStoreFactory<U::Tx>,
+    A: PartnerProductListingAuthorizerFactory<U::Tx>,
+    F: FxRateSnapshotRepositoryFactory<U::Tx>,
+{
+    #[tracing::instrument(name = "record_product_listing_sale_observation", skip_all, fields(product_listing_id = %command.product_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        command: RecordProductListingSaleObservationCommand,
+    ) -> Result<RecordProductListingSaleObservationResult, RecordProductListingSaleObservationError>
+    {
+        context
+            .require()
+            .credential_capability(CredentialCapability::PartnerShopsWrite)
+            .authorize::<RecordProductListingSaleObservationError>()?;
+        tracing::Span::current().record(
+            "actor_id",
+            tracing::field::display(context.principal.label()),
+        );
+
+        let mut tx = self
+            .unit_of_work
+            .begin()
+            .await
+            .map_err(|_| RecordProductListingSaleObservationError::BeginTransactionFailed)?;
+        let loaded = self
+            .products
+            .in_transaction(&mut tx)
+            .find_by_id(command.product_listing_id)
+            .await?
+            .ok_or(RecordProductListingSaleObservationError::NotFound)?;
+        if let Some(actor_id) = partner_actor(&context.principal) {
+            self.authorizer
+                .in_transaction(&mut tx)
+                .authorize(actor_id, loaded.value.shop_id())
+                .await?;
+        }
+        let snapshot = self
+            .fx_rates
+            .in_transaction(&mut tx)
+            .find_latest_at_or_before(command.observed_at)
+            .await?
+            .ok_or(RecordProductListingSaleObservationError::FxSnapshotMissing)?;
+        let observation = ListingSaleObservation::new(command.observed_at, snapshot.id());
+        let expected_event_id = loaded.version;
+        let mut listing = loaded.value;
+        let outcome = listing.record_sale_observation(observation)?;
+        let events = stamp_product_listing_events(
+            listing.id(),
+            command.observed_at,
+            listing.take_pending_event_payloads(),
+        );
+        let event_id = events
+            .last()
+            .map(|event| event.event_id)
+            .unwrap_or(expected_event_id);
+        if outcome == ChangeOutcome::Changed {
+            listing = self
+                .products
+                .in_transaction(&mut tx)
+                .update(&listing, expected_event_id, event_id)
+                .await?
+                .value;
+            for event in &events {
+                self.events.in_transaction(&mut tx).append(event).await?;
+            }
+        }
+        tx.commit()
+            .await
+            .map_err(|_| RecordProductListingSaleObservationError::CommitTransactionFailed)?;
+        tracing::info!(event = "product_listing.sale_observed", actor_type = context.principal.kind(), actor_id = %context.principal.label(), product_listing_id = %listing.id(), event_id = %event_id, outcome = "success");
+        Ok(RecordProductListingSaleObservationResult {
+            product_listing_id: listing.id(),
+            event_id,
+        })
+    }
+}
+
+fn partner_actor(principal: &Principal) -> Option<UserId> {
+    match principal {
+        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Some(*user_id),
+        Principal::Anonymous | Principal::Service(_) | Principal::System => None,
+    }
+}
+
+impl From<RecordListingSaleObservationError> for RecordProductListingSaleObservationError {
+    fn from(_: RecordListingSaleObservationError) -> Self {
+        Self::ConflictingExistingObservation
+    }
+}
+
+impl From<OperationAuthorizationError> for RecordProductListingSaleObservationError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
+    }
+}
+
+impl From<PartnerProductListingAuthorizationError> for RecordProductListingSaleObservationError {
+    fn from(error: PartnerProductListingAuthorizationError) -> Self {
+        match error {
+            PartnerProductListingAuthorizationError::ShopNotFound => Self::ShopNotFound,
+            PartnerProductListingAuthorizationError::Forbidden => Self::Forbidden,
+            PartnerProductListingAuthorizationError::TemporarilyUnavailable { source } => {
+                Self::PartnerAuthorizationTemporarilyUnavailable { source }
+            }
+            PartnerProductListingAuthorizationError::Internal { source } => {
+                Self::PartnerAuthorizationInternal { source }
+            }
+        }
+    }
+}
+
+impl From<ProductListingRepositoryError> for RecordProductListingSaleObservationError {
+    fn from(_: ProductListingRepositoryError) -> Self {
+        Self::PersistenceFailed
+    }
+}
+
+impl From<ProductListingEventStoreError> for RecordProductListingSaleObservationError {
+    fn from(_: ProductListingEventStoreError) -> Self {
+        Self::EventStoreFailed
+    }
+}
+
+impl From<FxRateSnapshotRepositoryError> for RecordProductListingSaleObservationError {
+    fn from(error: FxRateSnapshotRepositoryError) -> Self {
+        match error {
+            FxRateSnapshotRepositoryError::ReadFailed { source }
+            | FxRateSnapshotRepositoryError::InsertFailed { source } => {
+                Self::FxSnapshotUnavailable { source }
+            }
+            FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
+                Self::FxSnapshotInvalid { source }
+            }
+            FxRateSnapshotRepositoryError::CapturedAtNotMonotonic => Self::FxSnapshotUnavailable {
+                source: box_error(error),
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use application::{
+        operation_context::{CorrelationId, RequestId},
+        transaction::TransactionError,
+    };
+    use domain_primitives::versioned::Versioned;
+    use fxrate_core::{
+        FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote, FxRateSnapshot, FxRateSource,
+        NewFxRateSnapshot,
+    };
+    use indexmap::IndexSet;
+    use money::Currency;
+    use product_listing_core::{
+        listing_lifecycle::ListingLifecycle,
+        product_listing::{
+            ProductListing, ProductListingAddress, ProductListingAuction, ProductListingPricing,
+            RehydratedProductListingState,
+        },
+        product_listing_slug_id::ProductListingSlugId,
+        shop_listing_id::ShopListingId,
+    };
+    use shop_core::shop_id::ShopId;
+    use std::sync::{Arc, Mutex, MutexGuard};
+    use strum::IntoEnumIterator;
+    use url::Url;
+
+    #[derive(Default)]
+    struct State {
+        listing: Option<Versioned<ProductListing, EventId>>,
+        snapshot: Option<FxRateSnapshot>,
+        commits: usize,
+        updates: usize,
+        appends: usize,
+        fx_lookups: usize,
+    }
+
+    type SharedState = Arc<Mutex<State>>;
+
+    #[derive(Clone)]
+    struct UnitOfWorkFake(SharedState);
+    struct TxFake(SharedState);
+    #[derive(Clone)]
+    struct ProductsFake(SharedState);
+    struct ProductRepositoryFake(SharedState);
+    #[derive(Clone)]
+    struct EventsFake(SharedState);
+    struct EventStoreFake(SharedState);
+    #[derive(Clone, Copy)]
+    struct AuthorizerFake;
+    struct AuthorizerRepositoryFake;
+    #[derive(Clone)]
+    struct FxRatesFake(SharedState);
+    struct FxRateRepositoryFake(SharedState);
+
+    fn lock(state: &SharedState) -> MutexGuard<'_, State> {
+        match state.lock() {
+            Ok(state) => state,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for UnitOfWorkFake {
+        type Tx = TxFake;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            Ok(TxFake(Arc::clone(&self.0)))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for TxFake {
+        async fn commit(self) -> Result<(), TransactionError> {
+            lock(&self.0).commits += 1;
+            Ok(())
+        }
+    }
+
+    impl ProductListingRepositoryFactory<TxFake> for ProductsFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut TxFake,
+        ) -> impl ProductListingRepository + 'tx {
+            ProductRepositoryFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductListingRepository for ProductRepositoryFake {
+        async fn find_by_id(
+            &mut self,
+            _id: ProductListingId,
+        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
+        {
+            Ok(lock(&self.0).listing.clone())
+        }
+
+        async fn find_by_key(
+            &mut self,
+            _key: &product_listing_core::product_listing_id::ProductListingKey,
+        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
+        {
+            Ok(None)
+        }
+
+        async fn insert(
+            &mut self,
+            _product: &ProductListing,
+            _current_event_id: EventId,
+        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            Err(ProductListingRepositoryError::ProductListingInsertFailed)
+        }
+
+        async fn update(
+            &mut self,
+            product: &ProductListing,
+            _expected_event_id: EventId,
+            new_event_id: EventId,
+        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            let persisted = Versioned::new(product.clone(), new_event_id);
+            let mut state = lock(&self.0);
+            state.updates += 1;
+            state.listing = Some(persisted.clone());
+            Ok(persisted)
+        }
+    }
+
+    impl ProductListingEventStoreFactory<TxFake> for EventsFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut TxFake,
+        ) -> impl ProductListingEventStore + 'tx {
+            EventStoreFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductListingEventStore for EventStoreFake {
+        async fn append(
+            &mut self,
+            _event: &crate::ports::product_listing_event_store::ProductListingEvent,
+        ) -> Result<(), ProductListingEventStoreError> {
+            lock(&self.0).appends += 1;
+            Ok(())
+        }
+
+        async fn find_current_event_id(
+            &mut self,
+            _product_listing_id: ProductListingId,
+        ) -> Result<Option<EventId>, ProductListingEventStoreError> {
+            Ok(None)
+        }
+    }
+
+    impl PartnerProductListingAuthorizerFactory<TxFake> for AuthorizerFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut TxFake,
+        ) -> impl PartnerProductListingAuthorizer + 'tx {
+            AuthorizerRepositoryFake
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PartnerProductListingAuthorizer for AuthorizerRepositoryFake {
+        async fn authorize(
+            &mut self,
+            _actor_id: UserId,
+            _shop_id: shop_core::shop_id::ShopId,
+        ) -> Result<(), PartnerProductListingAuthorizationError> {
+            Ok(())
+        }
+    }
+
+    impl FxRateSnapshotRepositoryFactory<TxFake> for FxRatesFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut TxFake,
+        ) -> impl FxRateSnapshotRepository + 'tx {
+            FxRateRepositoryFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl FxRateSnapshotRepository for FxRateRepositoryFake {
+        async fn find_latest(
+            &mut self,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(None)
+        }
+
+        async fn find_latest_at_or_before(
+            &mut self,
+            _timestamp: OffsetDateTime,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            let mut state = lock(&self.0);
+            state.fx_lookups += 1;
+            Ok(state.snapshot.clone())
+        }
+
+        async fn find_by_id(
+            &mut self,
+            _id: FxRateId,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(None)
+        }
+
+        async fn find_by_ids(
+            &mut self,
+            _ids: &[FxRateId],
+        ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(Vec::new())
+        }
+
+        async fn insert(
+            &mut self,
+            _snapshot: &NewFxRateSnapshot,
+            _source_event_id: &str,
+        ) -> Result<fxrate_service::ports::FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError>
+        {
+            Ok(fxrate_service::ports::FxRateSnapshotInsertOutcome::Duplicate)
+        }
+    }
+
+    fn handler(
+        state: &SharedState,
+    ) -> RecordProductListingSaleObservationHandler<
+        UnitOfWorkFake,
+        ProductsFake,
+        EventsFake,
+        AuthorizerFake,
+        FxRatesFake,
+    > {
+        RecordProductListingSaleObservationHandler::new(
+            UnitOfWorkFake(Arc::clone(state)),
+            ProductsFake(Arc::clone(state)),
+            EventsFake(Arc::clone(state)),
+            AuthorizerFake,
+            FxRatesFake(Arc::clone(state)),
+        )
+    }
+
+    fn listing(
+        sale_observation: Option<ListingSaleObservation>,
+    ) -> Result<ProductListing, Box<dyn std::error::Error>> {
+        Ok(ProductListing::rehydrate(RehydratedProductListingState {
+            id: ProductListingId::new(),
+            slug_id: ProductListingSlugId::from("listing"),
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shop_listing_id: ShopListingId::from("listing"),
+            address: ProductListingAddress::default(),
+            title: None,
+            description: None,
+            pricing: ProductListingPricing::default(),
+            sale_observation,
+            availability: None,
+            lifecycle: ListingLifecycle::Active,
+            url: Url::parse("https://shop.example/listing")?,
+            images: IndexSet::new(),
+            auction: ProductListingAuction::default(),
+        })?)
+    }
+
+    fn snapshot() -> Result<FxRateSnapshot, fxrate_core::FxRateSnapshotError> {
+        NewFxRateSnapshot::capture_eur(
+            FxRateId::new(),
+            OffsetDateTime::UNIX_EPOCH,
+            FxRateSource::FxRatesApi,
+            Currency::Eur,
+            Currency::iter().map(|currency| FxRateQuote::new(currency, FX_RATE_SCALE)),
+        )
+        .and_then(|snapshot| Ok(snapshot.into_persisted(FxRateGeneration::try_from(1)?)))
+    }
+
+    fn context(principal: Principal) -> OperationContext {
+        OperationContext {
+            principal,
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+
+    #[tokio::test]
+    async fn should_reject_anonymous_before_starting_a_transaction() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let result = handler(&state)
+            .execute(
+                &context(Principal::Anonymous),
+                RecordProductListingSaleObservationCommand {
+                    product_listing_id: ProductListingId::new(),
+                    observed_at: OffsetDateTime::UNIX_EPOCH,
+                },
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(RecordProductListingSaleObservationError::AuthenticatedActorRequired)
+        ));
+        assert_eq!(0, lock(&state).commits);
+    }
+
+    #[tokio::test]
+    async fn should_commit_idempotent_observation_without_persistence()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let snapshot = snapshot()?;
+        let observation = ListingSaleObservation::new(OffsetDateTime::UNIX_EPOCH, snapshot.id());
+        let listing = listing(Some(observation))?;
+        let product_listing_id = listing.id();
+        lock(&state).listing = Some(Versioned::new(listing, EventId::new()));
+        lock(&state).snapshot = Some(snapshot);
+
+        let result = handler(&state)
+            .execute(
+                &context(Principal::System),
+                RecordProductListingSaleObservationCommand {
+                    product_listing_id,
+                    observed_at: OffsetDateTime::UNIX_EPOCH,
+                },
+            )
+            .await?;
+
+        assert_eq!(product_listing_id, result.product_listing_id);
+        let state = lock(&state);
+        assert_eq!(1, state.fx_lookups);
+        assert_eq!(1, state.commits);
+        assert_eq!(0, state.updates);
+        assert_eq!(0, state.appends);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_conflicting_observation_without_persistence()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let existing_snapshot = snapshot()?;
+        let requested_snapshot = snapshot()?;
+        let listing = listing(Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            existing_snapshot.id(),
+        )))?;
+        let product_listing_id = listing.id();
+        lock(&state).listing = Some(Versioned::new(listing, EventId::new()));
+        lock(&state).snapshot = Some(requested_snapshot);
+
+        let result = handler(&state)
+            .execute(
+                &context(Principal::System),
+                RecordProductListingSaleObservationCommand {
+                    product_listing_id,
+                    observed_at: OffsetDateTime::UNIX_EPOCH,
+                },
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(RecordProductListingSaleObservationError::ConflictingExistingObservation)
+        ));
+        let state = lock(&state);
+        assert_eq!(0, state.commits);
+        assert_eq!(0, state.updates);
+        assert_eq!(0, state.appends);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_or_persist_when_snapshot_is_missing()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let listing = listing(None)?;
+        let product_listing_id = listing.id();
+        lock(&state).listing = Some(Versioned::new(listing, EventId::new()));
+
+        let result = handler(&state)
+            .execute(
+                &context(Principal::System),
+                RecordProductListingSaleObservationCommand {
+                    product_listing_id,
+                    observed_at: OffsetDateTime::UNIX_EPOCH,
+                },
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(RecordProductListingSaleObservationError::FxSnapshotMissing)
+        ));
+        let state = lock(&state);
+        assert_eq!(1, state.fx_lookups);
+        assert_eq!(0, state.commits);
+        assert_eq!(0, state.updates);
+        assert_eq!(0, state.appends);
+        Ok(())
+    }
+}

@@ -7,13 +7,13 @@ use money::Currency;
 use money::{MonetaryAmount, Price};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::description::Description;
+use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::{
     NewProductListing, ProductListing, ProductListingAddress, ProductListingAuction,
     ProductListingPricing,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::product_state::ProductState;
 use product_listing_core::prohibited_content::ProhibitedContent;
 use product_listing_core::title::Title;
 use product_listing_postgres::{
@@ -26,6 +26,7 @@ use product_listing_service::ports::{
     ProductListingRepositoryFactory, ProductListingWatchlistDetailsCursor,
     ProductListingWatchlistDetailsReadError, ProductListingWatchlistDetailsReader,
     ProductListingWatchlistDetailsReaderFactory, ProductListingWatchlistDetailsRequest,
+    stamp_product_listing_events,
 };
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
@@ -77,7 +78,7 @@ async fn should_join_watchlisted_product_localization_and_user_state() {
     assert_eq!(view.item.shop_listing_id.as_ref(), "watchlist-joined");
     assert_eq!(view.item.shop_name.as_ref(), "watchlist-joined-shop");
     assert_eq!(view.item.seller_name.as_ref(), "watchlist-joined-seller");
-    assert!(view.item.sale_valuation.is_none());
+    assert!(view.item.sale_observation.is_none());
     assert_localized_title(
         view.item.product_title.as_ref(),
         Language::En,
@@ -274,6 +275,22 @@ async fn find_for_user_page_result(
     result
 }
 
+fn first_stamped_event(
+    product: &ProductListing,
+) -> product_listing_service::ports::product_listing_event_store::ProductListingEvent {
+    match stamp_product_listing_events(
+        product.id(),
+        OffsetDateTime::now_utc(),
+        product.pending_event_payloads().to_vec(),
+    )
+    .into_iter()
+    .next()
+    {
+        Some(event) => event,
+        None => panic!("product is missing a pending event payload"),
+    }
+}
+
 async fn persist_product(
     pool: &sqlx::PgPool,
     slug: &str,
@@ -286,7 +303,7 @@ async fn persist_product(
     let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
     let product = sample_product(slug, shop_id, seller_id, title, description);
-    let event = product.pending_events()[0].clone();
+    let event = first_stamped_event(&product);
 
     let mut tx = begin(&unit_of_work).await;
     match product_listings
@@ -408,8 +425,7 @@ fn sample_product(
             price_estimate_min: None,
             price_estimate_max: None,
         },
-        sale_valuation: None,
-        state: ProductState::Listed,
+        availability: Some(ListingAvailability::Available),
         url: url(&format!("https://example.com/{slug}")),
         images,
         auction: ProductListingAuction::default(),

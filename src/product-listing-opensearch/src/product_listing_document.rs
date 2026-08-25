@@ -294,7 +294,6 @@ pub(crate) struct ProductListingDocument {
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub seller_id: ShopId,
-    #[serde(rename = "shopsProductId")]
     pub shop_listing_id: ShopListingId,
     pub shop_name: String,
     pub seller_name: String,
@@ -336,13 +335,15 @@ pub(crate) struct ProductListingDocument {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub(crate) sale_prices: Option<SalePricesDocument>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub(crate) sale_fx_rate_id: Option<FxRateId>,
+    #[serde(rename = "saleObservationFxRateId")]
+    pub(crate) sale_observation_fx_rate_id: Option<FxRateId>,
     #[serde(
         with = "time::serde::rfc3339::option",
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub(crate) sold_at: Option<OffsetDateTime>,
+    #[serde(rename = "saleObservedAt")]
+    pub(crate) sale_observed_at: Option<OffsetDateTime>,
     #[serde(
         with = "listing_availability::option",
         skip_serializing_if = "Option::is_none",
@@ -381,7 +382,11 @@ impl ProductListingDocument {
     }
 
     pub(crate) fn validate(&self) -> Result<(), ProductListingDocumentValidationError> {
-        match (&self.sale_prices, self.sale_fx_rate_id, self.sold_at) {
+        match (
+            &self.sale_prices,
+            self.sale_observation_fx_rate_id,
+            self.sale_observed_at,
+        ) {
             (None, None, None) | (None, Some(_), Some(_)) | (Some(_), Some(_), Some(_)) => Ok(()),
             _ => Err(ProductListingDocumentValidationError::PartialSaleProjection),
         }
@@ -399,8 +404,8 @@ impl ProductListingDocument {
             .map(|prices| prices.amount_in(currency))
     }
 
-    pub(crate) fn has_sale_valuation(&self) -> bool {
-        self.sale_fx_rate_id.is_some()
+    pub(crate) fn has_sale_observation(&self) -> bool {
+        self.sale_observation_fx_rate_id.is_some()
     }
 }
 
@@ -442,8 +447,8 @@ mod tests {
                 currency: Currency::Eur,
             }),
             sale_prices: None,
-            sale_fx_rate_id: None,
-            sold_at: None,
+            sale_observation_fx_rate_id: None,
+            sale_observed_at: None,
             availability: Some(ListingAvailability::Available),
             lifecycle: ListingLifecycle::Active,
             url: Url::parse("https://shop.example/product_listings/sku-1")?,
@@ -539,8 +544,8 @@ mod tests {
     fn should_allow_sale_metadata_without_sale_prices() -> Result<(), Box<dyn std::error::Error>> {
         let mut document = document()?;
         document.source_price = None;
-        document.sale_fx_rate_id = Some(FxRateId::new());
-        document.sold_at = Some(OffsetDateTime::UNIX_EPOCH);
+        document.sale_observation_fx_rate_id = Some(FxRateId::new());
+        document.sale_observed_at = Some(OffsetDateTime::UNIX_EPOCH);
 
         assert_eq!(Ok(()), document.validate());
         Ok(())
@@ -549,7 +554,7 @@ mod tests {
     #[test]
     fn should_reject_partial_sale_projection() -> Result<(), Box<dyn std::error::Error>> {
         let mut document = document()?;
-        document.sale_fx_rate_id = Some(FxRateId::new());
+        document.sale_observation_fx_rate_id = Some(FxRateId::new());
 
         assert_eq!(
             Err(ProductListingDocumentValidationError::PartialSaleProjection),
@@ -563,8 +568,8 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let mut value = serde_json::to_value(document()?)?;
         value["salePrices"] = serde_json::json!({ "eur": 100 });
-        value["saleFxRateId"] = serde_json::json!(FxRateId::new());
-        value["soldAt"] = serde_json::json!("1970-01-01T00:00:00Z");
+        value["saleObservationFxRateId"] = serde_json::json!(FxRateId::new());
+        value["saleObservedAt"] = serde_json::json!("1970-01-01T00:00:00Z");
 
         assert!(serde_json::from_value::<ProductListingDocument>(value).is_err());
         Ok(())

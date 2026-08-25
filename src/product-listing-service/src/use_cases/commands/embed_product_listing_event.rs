@@ -11,7 +11,7 @@ use domain_primitives::event_id::EventId;
 use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText};
 use product_listing_core::product_listing_id::ProductListingId;
 
-const CREATED_EVENT_TYPE: &str = "DOMAIN_CREATED";
+const CREATED_EVENT_TYPE: &str = "PRODUCT_LISTING_CREATED";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmbedProductListingCommand {
@@ -297,7 +297,7 @@ mod tests {
                 product_listing_id,
                 event_id,
                 current_event_id: event_id,
-                event_type: CREATED_EVENT_TYPE.to_owned(),
+                event_type: "PRODUCT_LISTING_CREATED".to_owned(),
                 title: Some(Localized::new(Language::De, Title::from("Ancient vase"))),
                 description: Some(Localized::new(
                     Language::De,
@@ -422,7 +422,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_generate_legacy_semantic_content_with_first_image_then_commit() {
+    async fn should_generate_product_listing_created_content_with_first_image_then_commit() {
         let state = state();
         let result = handler(&state)
             .execute(&context(Principal::System), command(&state))
@@ -439,6 +439,30 @@ mod tests {
         assert!(
             matches!(state.generated_products.as_slice(), [(title, Some(additional_text), Some(image_url))] if title == "Ancient vase" && additional_text == "Painted clay" && image_url.as_str() == "https://example.test/vase.jpg")
         );
+    }
+
+    #[tokio::test]
+    async fn should_ignore_retired_created_event_type_before_generation_or_transaction() {
+        let state = state();
+        lock(&state)
+            .source
+            .as_mut()
+            .unwrap_or_else(|| panic!("test source missing"))
+            .event_type = "DOMAIN_CREATED".to_owned();
+
+        let result = handler(&state)
+            .execute(&context(Principal::System), command(&state))
+            .await;
+
+        assert!(matches!(
+            result,
+            Ok(EmbedProductListingEventResult {
+                outcome: EmbedProductListingEventOutcome::IgnoredEvent
+            })
+        ));
+        let state = lock(&state);
+        assert!(state.generated_products.is_empty());
+        assert_eq!(0, state.begins);
     }
 
     #[tokio::test]

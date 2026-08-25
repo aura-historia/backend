@@ -174,13 +174,13 @@ mod tests {
     use fxrate_core::FxRateId;
     use localization::Language;
     use money::Currency;
-    use product_listing_core::product_lifecycle::ProductLifecycle;
+    use product_listing_core::listing_availability::ListingAvailability;
+    use product_listing_core::listing_lifecycle::ListingLifecycle;
     use product_listing_core::product_listing::{
         ProductListingAddress, ProductListingAuction, ProductListingPricing,
     };
     use product_listing_core::product_listing_id::ProductListingId;
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-    use product_listing_core::product_state::ProductState;
     use product_listing_core::shop_listing_id::ShopListingId;
     use product_listing_service::user_state::ProductListingUserState;
     use shop_core::shop_id::ShopId;
@@ -333,8 +333,8 @@ mod tests {
                             captured_at: OffsetDateTime::UNIX_EPOCH,
                         },
                 },
-                state: ProductState::Available,
-                lifecycle: ProductLifecycle::Active,
+                availability: Some(ListingAvailability::Available),
+                lifecycle: ListingLifecycle::Active,
                 url: url.clone(),
                 view_url: url,
                 images: Default::default(),

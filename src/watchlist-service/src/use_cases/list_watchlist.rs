@@ -10,6 +10,9 @@ use fxrate_service::ports::{
 };
 use localization::Language;
 use money::Currency;
+use product_listing_core::{
+    listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
+};
 use user_core::user_id::UserId;
 
 use product_listing_service::ports::{
@@ -195,14 +198,19 @@ where
         .filter_map(|details| {
             details
                 .item
-                .sale_valuation
-                .map(|valuation| valuation.fx_rate_id)
+                .sale_observation
+                .filter(|_| {
+                    details.item.availability == Some(ListingAvailability::SoldOut)
+                        || details.item.lifecycle == ListingLifecycle::Withdrawn
+                })
+                .map(|observation| observation.fx_rate_id())
         })
         .collect();
-    let current = if factual_details
-        .iter()
-        .any(|details| details.item.sale_valuation.is_none())
-    {
+    let current = if factual_details.iter().any(|details| {
+        details.item.sale_observation.is_none()
+            || (details.item.availability != Some(ListingAvailability::SoldOut)
+                && details.item.lifecycle != ListingLifecycle::Withdrawn)
+    }) {
         Some(
             fx_rates
                 .in_transaction(tx)
@@ -234,12 +242,16 @@ fn present_with_pricing_snapshot(
     pricing_snapshots: &PricingSnapshots,
     currency: Currency,
 ) -> Result<PersonalizedProductListingDetailsView, ListWatchlistError> {
-    let snapshot = match factual_details.item.sale_valuation {
-        Some(valuation) => pricing_snapshots.sale.get(&valuation.fx_rate_id).ok_or(
-            ListWatchlistError::SalePricingFxSnapshotMissing {
-                fx_rate_id: valuation.fx_rate_id,
-            },
-        )?,
+    let snapshot = match factual_details.item.sale_observation.filter(|_| {
+        factual_details.item.availability == Some(ListingAvailability::SoldOut)
+            || factual_details.item.lifecycle == ListingLifecycle::Withdrawn
+    }) {
+        Some(observation) => pricing_snapshots
+            .sale
+            .get(&observation.fx_rate_id())
+            .ok_or(ListWatchlistError::SalePricingFxSnapshotMissing {
+                fx_rate_id: observation.fx_rate_id(),
+            })?,
         None => pricing_snapshots
             .current
             .as_ref()
@@ -304,9 +316,10 @@ impl From<FxRateSnapshotRepositoryError> for ListWatchlistError {
 impl From<ProductListingPricingPresentationError> for ListWatchlistError {
     fn from(error: ProductListingPricingPresentationError) -> Self {
         match error {
-            ProductListingPricingPresentationError::SaleFxSnapshotMismatch { expected, actual } => {
-                Self::SaleFxSnapshotMismatch { expected, actual }
-            }
+            ProductListingPricingPresentationError::SaleObservationFxSnapshotMismatch {
+                expected,
+                actual,
+            } => Self::SaleFxSnapshotMismatch { expected, actual },
             ProductListingPricingPresentationError::PriceConversionFailed { source } => {
                 Self::ProductListingPriceConversionFailed { source }
             }
@@ -327,10 +340,10 @@ mod tests {
     };
     use localization::Localized;
     use money::{MonetaryAmount, Price};
-    use product_listing_core::product_lifecycle::ProductLifecycle;
+    use product_listing_core::listing_availability::ListingAvailability;
+    use product_listing_core::listing_lifecycle::ListingLifecycle;
     use product_listing_core::product_listing_id::ProductListingId;
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-    use product_listing_core::product_state::ProductState;
     use product_listing_core::shop_listing_id::ShopListingId;
     use shop_core::shop_id::ShopId;
     use shop_core::shop_name::ShopName;
@@ -338,7 +351,7 @@ mod tests {
 
     use product_listing_core::description::Description;
     use product_listing_core::product_listing::{
-        ProductListingAddress, ProductListingAuction, ProductListingPricing, ProductSaleValuation,
+        ListingSaleObservation, ProductListingAddress, ProductListingAuction, ProductListingPricing,
     };
     use product_listing_core::title::Title;
     use product_listing_service::ports::{
@@ -616,9 +629,9 @@ mod tests {
                     price_estimate_min: None,
                     price_estimate_max: None,
                 },
-                sale_valuation: None,
-                state: ProductState::Available,
-                lifecycle: ProductLifecycle::Active,
+                sale_observation: None,
+                availability: Some(ListingAvailability::Available),
+                lifecycle: ListingLifecycle::Active,
                 url: url.clone(),
                 view_url: url,
                 images: Default::default(),
@@ -707,21 +720,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_batch_sale_valuation_snapshots_without_current_snapshot()
+    async fn should_batch_sale_observation_snapshots_without_current_snapshot()
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
         let first_snapshot = snapshot(FxRateId::new())?;
         let second_snapshot = snapshot(FxRateId::new())?;
         let mut first = details(ProductListingId::new())?;
-        first.item.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: first_snapshot.id(),
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
+        first.item.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            first_snapshot.id(),
+        ));
+        first.item.availability = Some(ListingAvailability::SoldOut);
         let mut second = details(ProductListingId::new())?;
-        second.item.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: second_snapshot.id(),
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
+        second.item.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            second_snapshot.id(),
+        ));
+        second.item.availability = Some(ListingAvailability::SoldOut);
         let state = state();
         lock(&state).details_result = Some(Ok(page(vec![first, second])));
         lock(&state).sale_snapshots_result =
@@ -733,11 +748,11 @@ mod tests {
 
         assert!(matches!(
             result.items[0].item.pricing.valuation,
-            ProductListingPricingValuation::Sale { fx_rate_id, .. } if fx_rate_id == first_snapshot.id()
+            ProductListingPricingValuation::SaleObservation { fx_rate_id, .. } if fx_rate_id == first_snapshot.id()
         ));
         assert!(matches!(
             result.items[1].item.pricing.valuation,
-            ProductListingPricingValuation::Sale { fx_rate_id, .. } if fx_rate_id == second_snapshot.id()
+            ProductListingPricingValuation::SaleObservation { fx_rate_id, .. } if fx_rate_id == second_snapshot.id()
         ));
         let state = lock(&state);
         assert_eq!(0, state.latest_snapshot_requests);
@@ -757,10 +772,11 @@ mod tests {
         let sale_snapshot = snapshot(FxRateId::new())?;
         let current = details(ProductListingId::new())?;
         let mut sale = details(ProductListingId::new())?;
-        sale.item.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: sale_snapshot.id(),
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
+        sale.item.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            sale_snapshot.id(),
+        ));
+        sale.item.availability = Some(ListingAvailability::SoldOut);
         let state = state();
         lock(&state).details_result = Some(Ok(page(vec![current, sale])));
         lock(&state).latest_snapshot_result = Some(Ok(Some(current_snapshot)));
@@ -782,10 +798,11 @@ mod tests {
         let user_id = UserId::new();
         let missing_snapshot_id = FxRateId::new();
         let mut sale = details(ProductListingId::new())?;
-        sale.item.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: missing_snapshot_id,
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
+        sale.item.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            missing_snapshot_id,
+        ));
+        sale.item.availability = Some(ListingAvailability::SoldOut);
         let state = state();
         lock(&state).details_result = Some(Ok(page(vec![sale])));
         lock(&state).sale_snapshots_result = Some(Ok(Vec::new()));

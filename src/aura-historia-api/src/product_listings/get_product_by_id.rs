@@ -88,12 +88,12 @@ mod tests {
     use money::Currency;
     use money::{MonetaryAmount, Price};
     use notification_core::notification_id::NotificationId;
-    use product_listing_core::product_lifecycle::ProductLifecycle;
+    use product_listing_core::listing_availability::ListingAvailability;
+    use product_listing_core::listing_lifecycle::ListingLifecycle;
     use product_listing_core::product_listing::{
         ProductListingAddress, ProductListingAuction, ProductListingPricing,
     };
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-    use product_listing_core::product_state::ProductState;
     use product_listing_core::shop_listing_id::ShopListingId;
     use product_listing_core::title::Title;
     use product_listing_service::use_cases::{
@@ -472,8 +472,8 @@ mod tests {
                         captured_at: OffsetDateTime::UNIX_EPOCH,
                     },
                 },
-                state: ProductState::Listed,
-                lifecycle: ProductLifecycle::Active,
+                availability: Some(ListingAvailability::Available),
+                lifecycle: ListingLifecycle::Active,
                 url: Url::parse("https://shop.example/product-listings/1")?,
                 view_url: Url::parse("https://aura.example/product-listings/cabinet-abcdef")?,
                 images: Default::default(),

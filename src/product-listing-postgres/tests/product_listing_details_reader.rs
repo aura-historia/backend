@@ -14,7 +14,7 @@ use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::prohibited_content::ProhibitedContent;
 use product_listing_core::title::Title;
 use product_listing_core::{
-    product_listing_id::ProductListingId, product_state::ProductState,
+    listing_availability::ListingAvailability, product_listing_id::ProductListingId,
     shop_listing_id::ShopListingId,
 };
 use product_listing_postgres::{
@@ -28,6 +28,7 @@ use product_listing_service::ports::{
 use product_listing_service::ports::{
     ProductListingDetailsReader, ProductListingDetailsReaderFactory, ProductListingEventStore,
     ProductListingEventStoreFactory, ProductListingRepository, ProductListingRepositoryFactory,
+    stamp_product_listing_events,
 };
 use product_listing_service::use_cases::queries::get_product_listing::ProductListingLookup;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -80,7 +81,7 @@ async fn should_select_requested_translations_independently_and_preserve_origina
         Language::En,
         "Original description",
     );
-    assert!(view.sale_valuation.is_none());
+    assert!(view.sale_observation.is_none());
     assert_localized_title(view.title.as_ref(), Language::De, "Deutscher Titel");
     assert_localized_description(
         view.description.as_ref(),
@@ -647,6 +648,22 @@ async fn persist_product_with_shop_slug(
     persist_product_for_shops(pool, slug, shop_id, seller_id, None, None).await
 }
 
+fn first_stamped_event(
+    product: &ProductListing,
+) -> product_listing_service::ports::product_listing_event_store::ProductListingEvent {
+    match stamp_product_listing_events(
+        product.id(),
+        OffsetDateTime::now_utc(),
+        product.pending_event_payloads().to_vec(),
+    )
+    .into_iter()
+    .next()
+    {
+        Some(event) => event,
+        None => panic!("product is missing a pending event payload"),
+    }
+}
+
 async fn persist_product_for_shops(
     pool: &sqlx::PgPool,
     slug: &str,
@@ -659,7 +676,7 @@ async fn persist_product_for_shops(
     let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
     let product = sample_product(slug, shop_id, seller_id, title, description);
-    let event = product.pending_events()[0].clone();
+    let event = first_stamped_event(&product);
 
     let mut tx = begin(&unit_of_work).await;
     match product_listings
@@ -887,8 +904,7 @@ fn sample_product(
             price_estimate_min: None,
             price_estimate_max: None,
         },
-        sale_valuation: None,
-        state: ProductState::Listed,
+        availability: Some(ListingAvailability::Available),
         url: url(&format!("https://example.com/{slug}")),
         images,
         auction: ProductListingAuction::default(),

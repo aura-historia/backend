@@ -5,8 +5,8 @@ use fxrate_core::FxRateId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::{
-    ProductListingAddress, ProductListingAuction, ProductListingEventPayload,
-    ProductListingPricing, ProductSaleValuation,
+    ListingSaleObservation, ProductListingAddress, ProductListingAuction,
+    ProductListingEventPayload, ProductListingPricing,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -39,6 +39,8 @@ enum ProductListingEventPayloadData {
     AuctionChanged(ProductListingAuctionChangedHistoryPayloadData),
     Withdrawn(ProductListingWithdrawnHistoryPayloadData),
     Restored(ProductListingRestoredHistoryPayloadData),
+    SaleObserved(ListingSaleObservationHistoryPayloadData),
+    SaleObservationRetracted(ListingSaleObservationHistoryPayloadData),
 }
 
 #[derive(Debug, Serialize)]
@@ -53,8 +55,6 @@ struct ProductListingCreatedHistoryPayloadData {
     #[serde(skip_serializing_if = "Option::is_none")]
     geo_address: Option<GeoAddressData>,
     pricing: ProductListingPricingData,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sale_valuation: Option<ProductSaleValuationData>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         with = "crate::wire::listing_availability::option"
@@ -139,9 +139,9 @@ struct ProductListingPricingData {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ProductSaleValuationData {
+struct ListingSaleObservationHistoryPayloadData {
     #[serde(with = "time::serde::rfc3339")]
-    sold_at: OffsetDateTime,
+    observed_at: OffsetDateTime,
     fx_rate_id: FxRateId,
 }
 
@@ -176,7 +176,6 @@ impl From<ProductListingEventPayload> for ProductListingEventPayloadData {
                     structured_address: value.address.structured.map(Into::into),
                     geo_address: value.address.geo.map(Into::into),
                     pricing: value.pricing.into(),
-                    sale_valuation: value.sale_valuation.map(Into::into),
                     availability: value.availability,
                     url: value.url,
                     images: images(value.images),
@@ -222,6 +221,12 @@ impl From<ProductListingEventPayload> for ProductListingEventPayloadData {
             ProductListingEventPayload::Restored(_) => {
                 Self::Restored(ProductListingRestoredHistoryPayloadData {})
             }
+            ProductListingEventPayload::SaleObserved(value) => {
+                Self::SaleObserved(value.observation.into())
+            }
+            ProductListingEventPayload::SaleObservationRetracted(value) => {
+                Self::SaleObservationRetracted(value.observation.into())
+            }
         }
     }
 }
@@ -245,11 +250,11 @@ impl From<ProductListingPricing> for ProductListingPricingData {
     }
 }
 
-impl From<ProductSaleValuation> for ProductSaleValuationData {
-    fn from(valuation: ProductSaleValuation) -> Self {
+impl From<ListingSaleObservation> for ListingSaleObservationHistoryPayloadData {
+    fn from(observation: ListingSaleObservation) -> Self {
         Self {
-            sold_at: valuation.sold_at,
-            fx_rate_id: valuation.fx_rate_id,
+            observed_at: observation.observed_at(),
+            fx_rate_id: observation.fx_rate_id(),
         }
     }
 }

@@ -29,6 +29,11 @@ pub use commands::project_product_listing::{
     ProjectProductListingCommand, ProjectProductListingError, ProjectProductListingHandler,
     ProjectProductListingOutcome, ProjectProductListingResult, ProjectProductListingUseCase,
 };
+pub use commands::record_product_listing_sale_observation::{
+    RecordProductListingSaleObservationCommand, RecordProductListingSaleObservationError,
+    RecordProductListingSaleObservationHandler, RecordProductListingSaleObservationResult,
+    RecordProductListingSaleObservationUseCase,
+};
 pub use commands::translate_product_listing_event::{
     TranslateProductListingCommand, TranslateProductListingEventError,
     TranslateProductListingEventHandler, TranslateProductListingEventOutcome,

@@ -8,11 +8,11 @@ use product_listing_postgres::{
     SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::use_cases::{
-    IngestShopifyProductListingHandler, UpsertProductListingHandler,
+    IngestShopifyProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
 };
 use shop_postgres::SqlxShopDetailsReaderFactory;
 use shop_service::use_cases::GetShopHandler;
-use shopify_lambda::handler;
+use shopify_lambda::{ShopifyProductListingProcessor, handler};
 use std::{fmt::Display, str::FromStr};
 
 #[tokio::main]
@@ -21,9 +21,18 @@ async fn main() -> Result<(), Error> {
 
     let pool = postgres_config_from_env()?.connect().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool);
-    let ingestion = IngestShopifyProductListingHandler::new(
+    let processor = ShopifyProductListingProcessor::new(
         GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
-        UpsertProductListingHandler::new(
+        IngestShopifyProductListingHandler::new(
+            GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
+            UpsertProductListingHandler::new(
+                unit_of_work.clone(),
+                SqlxProductListingRepositoryFactory::new(),
+                SqlxProductListingEventStoreFactory::new(),
+                SqlxPartnerProductListingAuthorizerFactory::new(),
+            ),
+        ),
+        WithdrawProductListingHandler::new(
             unit_of_work,
             SqlxProductListingRepositoryFactory::new(),
             SqlxProductListingEventStoreFactory::new(),
@@ -33,7 +42,7 @@ async fn main() -> Result<(), Error> {
 
     debug!("Shopify Lambda initialized");
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-        handler(event, &ingestion).await
+        handler(event, &processor).await
     }))
     .await
 }

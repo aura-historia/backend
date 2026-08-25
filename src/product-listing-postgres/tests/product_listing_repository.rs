@@ -9,15 +9,16 @@ use money::Currency;
 use money::{MonetaryAmount, Price};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::description::Description;
-use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{
-    NewProductListing, ProductListing, ProductListingAddress, ProductListingAuction,
-    ProductListingPricing, RehydratedProductListingState,
+    ListingSaleObservation, NewProductListing, ProductListing, ProductListingAddress,
+    ProductListingAuction, ProductListingPricing, RehydratedProductListingState,
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::product_state::ProductState;
+
 use product_listing_core::prohibited_content::ProhibitedContent;
 use product_listing_core::title::Title;
 use product_listing_postgres::{
@@ -25,7 +26,7 @@ use product_listing_postgres::{
 };
 use product_listing_service::ports::{
     ProductListingEventStore, ProductListingEventStoreFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
 };
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
@@ -45,7 +46,7 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     let shop_id = seed_shop(&pool, "product-listing-postgres-main-shop").await;
     let seller_id = seed_shop(&pool, "product-listing-postgres-main-seller").await;
     let product = sample_product("postgres-product-main", shop_id, seller_id);
-    let created_event = product.pending_events()[0].clone();
+    let created_event = first_stamped_event(&product);
 
     let mut tx = begin(&unit_of_work).await;
     match product_listings
@@ -102,12 +103,12 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     assert_eq!(product.id(), loaded_by_id.id());
     assert_eq!(created_event.event_id, version);
     assert_eq!(created_event.event_id, current_event_id);
-    assert_eq!(ProductLifecycle::Active, loaded_by_id.lifecycle());
+    assert_eq!(ListingLifecycle::Active, loaded_by_id.lifecycle());
 
     let mut updated = loaded_by_id;
-    let outcome = updated.mark_available();
+    let outcome = updated.set_availability(ListingAvailability::Available);
     assert!(outcome.is_ok());
-    let update_event = updated.pending_events()[0].clone();
+    let update_event = first_stamped_event(&updated);
     let mut tx = begin(&unit_of_work).await;
     match product_listings
         .in_transaction(&mut tx)
@@ -144,13 +145,16 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     };
     commit(tx).await;
 
-    assert_eq!(ProductState::Available, loaded.value.state());
+    assert_eq!(
+        Some(ListingAvailability::Available),
+        loaded.value.availability()
+    );
     assert_eq!(update_event.event_id, loaded.version);
     assert_eq!(update_event.event_id, current_event_id_after_update);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_round_trip_immutable_sale_valuation_in_postgres() {
+async fn should_round_trip_immutable_sale_observation_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
@@ -159,19 +163,21 @@ async fn should_round_trip_immutable_sale_valuation_in_postgres() {
     let seller_id = seed_shop(&pool, "product-listing-postgres-sale-seller").await;
     let fx_rate_id = FxRateId::new();
     seed_complete_fx_snapshot(&pool, fx_rate_id).await;
-    let valuation = product_listing_core::product_listing::ProductSaleValuation {
-        sold_at: OffsetDateTime::UNIX_EPOCH,
-        fx_rate_id,
-    };
+    let observation = ListingSaleObservation::new(OffsetDateTime::UNIX_EPOCH, fx_rate_id);
     let mut product = sample_product("postgres-product-sale", shop_id, seller_id);
-    let transition = product.mark_sold(valuation);
+    let transition = product.record_sale_observation(observation);
     assert!(matches!(
         transition,
         Ok(domain_primitives::change_outcome::ChangeOutcome::Changed)
     ));
-    let current_event_id = match product.pending_events().last() {
+    let observation_events = stamp_product_listing_events(
+        product.id(),
+        OffsetDateTime::now_utc(),
+        product.pending_event_payloads().to_vec(),
+    );
+    let current_event_id = match observation_events.last() {
         Some(event) => event.event_id,
-        None => panic!("sold product is missing events"),
+        None => panic!("listing with a sale observation is missing events"),
     };
 
     let mut tx = begin(&unit_of_work).await;
@@ -181,9 +187,9 @@ async fn should_round_trip_immutable_sale_valuation_in_postgres() {
         .await
     {
         Ok(_) => {}
-        Err(error) => panic!("failed to insert sold product: {error:?}"),
+        Err(error) => panic!("failed to insert listing with sale observation: {error:?}"),
     }
-    for event in product.pending_events() {
+    for event in &observation_events {
         match events.in_transaction(&mut tx).append(event).await {
             Ok(()) => {}
             Err(error) => panic!("failed to append sold product event: {error:?}"),
@@ -203,51 +209,51 @@ async fn should_round_trip_immutable_sale_valuation_in_postgres() {
     };
     commit(tx).await;
 
-    assert_eq!(ProductState::Sold, loaded.value.state());
-    assert_eq!(Some(valuation), loaded.value.sale_valuation());
+    assert_eq!(Some(observation), loaded.value.sale_observation());
     assert_eq!(product.pricing(), loaded.value.pricing());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_enforce_product_sale_valuation_state_constraints_in_postgres() {
+async fn should_enforce_paired_sale_observation_columns_in_postgres() {
     let pool = get_postgres_client().await;
-    let shop_id = seed_shop(&pool, "product-listing-postgres-sale-constraint-shop").await;
+    let shop_id = seed_shop(
+        &pool,
+        "product-listing-postgres-sale-observation-constraint-shop",
+    )
+    .await;
     let fx_rate_id = FxRateId::new();
     seed_complete_fx_snapshot(&pool, fx_rate_id).await;
 
-    let available_with_sale = insert_product_row(
+    let observation_without_fx_rate = insert_product_row(
         &pool,
         shop_id,
-        "product-listing-postgres-available-with-sale",
-        ProductState::Available,
+        "product-listing-postgres-observation-without-fx-rate",
+        None,
+        Some(OffsetDateTime::UNIX_EPOCH),
+    )
+    .await;
+    assert_check_violation(observation_without_fx_rate);
+
+    let fx_rate_without_observation = insert_product_row(
+        &pool,
+        shop_id,
+        "product-listing-postgres-fx-rate-without-observation",
+        Some(fx_rate_id),
+        None,
+    )
+    .await;
+    assert_check_violation(fx_rate_without_observation);
+
+    let complete_observation = insert_product_row(
+        &pool,
+        shop_id,
+        "product-listing-postgres-complete-observation",
         Some(fx_rate_id),
         Some(OffsetDateTime::UNIX_EPOCH),
     )
     .await;
-    assert_check_violation(available_with_sale);
-
-    let sold_without_sale = insert_product_row(
-        &pool,
-        shop_id,
-        "product-listing-postgres-sold-without-sale",
-        ProductState::Sold,
-        None,
-        None,
-    )
-    .await;
-    assert_check_violation(sold_without_sale);
-
-    let removed_with_sale = insert_product_row(
-        &pool,
-        shop_id,
-        "product-listing-postgres-removed-with-sale",
-        ProductState::Removed,
-        Some(fx_rate_id),
-        Some(OffsetDateTime::UNIX_EPOCH),
-    )
-    .await;
-    if let Err(error) = removed_with_sale {
-        panic!("removed ProductListing with sale valuation must be valid: {error}");
+    if let Err(error) = complete_observation {
+        panic!("complete sale observation must be valid: {error}");
     }
 }
 
@@ -335,7 +341,7 @@ async fn should_report_product_update_conflict_when_event_id_is_stale() {
 
     insert_product_with_event(&unit_of_work, &product_listings, &events, &product).await;
 
-    let outcome = product.mark_reserved();
+    let outcome = product.set_availability(ListingAvailability::Reserved);
     assert!(outcome.is_ok());
     let result = {
         let mut tx = begin(&unit_of_work).await;
@@ -373,13 +379,18 @@ async fn should_report_identity_conflict_when_update_would_duplicate_shop_produc
 
     let result = {
         let mut tx = begin(&unit_of_work).await;
+        let expected_event_id = match events
+            .in_transaction(&mut tx)
+            .find_current_event_id(second.id())
+            .await
+        {
+            Ok(Some(event_id)) => event_id,
+            Ok(None) => panic!("missing current event for second listing"),
+            Err(error) => panic!("failed to find current event: {error:?}"),
+        };
         product_listings
             .in_transaction(&mut tx)
-            .update(
-                &conflict,
-                second.pending_events()[0].event_id,
-                EventId::new(),
-            )
+            .update(&conflict, expected_event_id, EventId::new())
             .await
     };
 
@@ -410,13 +421,18 @@ async fn should_report_slug_conflict_when_update_would_duplicate_product_slug() 
 
     let result = {
         let mut tx = begin(&unit_of_work).await;
+        let expected_event_id = match events
+            .in_transaction(&mut tx)
+            .find_current_event_id(second.id())
+            .await
+        {
+            Ok(Some(event_id)) => event_id,
+            Ok(None) => panic!("missing current event for second listing"),
+            Err(error) => panic!("failed to find current event: {error:?}"),
+        };
         product_listings
             .in_transaction(&mut tx)
-            .update(
-                &conflict,
-                second.pending_events()[0].event_id,
-                EventId::new(),
-            )
+            .update(&conflict, expected_event_id, EventId::new())
             .await
     };
 
@@ -435,7 +451,7 @@ async fn should_roll_back_product_and_event_when_transaction_is_not_committed() 
     let shop_id = seed_shop(&pool, "product-listing-postgres-rollback-shop").await;
     let seller_id = seed_shop(&pool, "product-listing-postgres-rollback-seller").await;
     let product = sample_product("postgres-product-rollback", shop_id, seller_id);
-    let event = product.pending_events()[0].clone();
+    let event = first_stamped_event(&product);
 
     {
         let mut tx = begin(&unit_of_work).await;
@@ -491,35 +507,26 @@ async fn insert_product_row(
     pool: &sqlx::PgPool,
     shop_id: ShopId,
     slug: &str,
-    state: ProductState,
-    sale_fx_rate_id: Option<FxRateId>,
-    sold_at: Option<OffsetDateTime>,
+    sale_observation_fx_rate_id: Option<FxRateId>,
+    sale_observed_at: Option<OffsetDateTime>,
 ) -> Result<(), sqlx::Error> {
     let product_listing_id = uuid::Uuid::new_v4();
     let event_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, state, lifecycle, url, sale_fx_rate_id, sold_at) VALUES ($1, $2, $3, $4, $4, $5, $6, 'ACTIVE', 'https://example.test/product', $7, $8)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, lifecycle, url, sale_observation_fx_rate_id, sale_observed_at) VALUES ($1, $2, $3, $4, $4, $5, 'ACTIVE', 'https://example.test/product', $6, $7)",
     )
     .bind(product_listing_id)
     .bind(slug)
     .bind(event_id)
     .bind(uuid::Uuid::from(shop_id))
     .bind(format!("{slug}-sku"))
-    .bind(match state {
-        ProductState::Listed => "LISTED",
-        ProductState::Available => "AVAILABLE",
-        ProductState::Reserved => "RESERVED",
-        ProductState::Sold => "SOLD",
-        ProductState::Removed => "REMOVED",
-        ProductState::Unknown => "UNKNOWN",
-    })
-    .bind(sale_fx_rate_id.map(uuid::Uuid::from))
-    .bind(sold_at)
+    .bind(sale_observation_fx_rate_id.map(uuid::Uuid::from))
+    .bind(sale_observed_at)
     .execute(&mut *tx)
     .await?;
     sqlx::query(
-        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', now())",
+        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())",
     )
     .bind(event_id)
     .bind(product_listing_id)
@@ -541,7 +548,7 @@ async fn insert_product_with_event(
     events: &SqlxProductListingEventStoreFactory,
     product: &ProductListing,
 ) {
-    let event = product.pending_events()[0].clone();
+    let event = first_stamped_event(product);
     let mut tx = begin(unit_of_work).await;
     match product_listings
         .in_transaction(&mut tx)
@@ -556,6 +563,22 @@ async fn insert_product_with_event(
         Err(error) => panic!("failed to append product event: {error:?}"),
     }
     commit(tx).await;
+}
+
+fn first_stamped_event(
+    product: &ProductListing,
+) -> product_listing_service::ports::product_listing_event_store::ProductListingEvent {
+    match stamp_product_listing_events(
+        product.id(),
+        OffsetDateTime::now_utc(),
+        product.pending_event_payloads().to_vec(),
+    )
+    .into_iter()
+    .next()
+    {
+        Some(event) => event,
+        None => panic!("product is missing a pending event payload"),
+    }
 }
 
 fn rehydrate_product_for_update(
@@ -574,8 +597,8 @@ fn rehydrate_product_for_update(
         title: product.title().cloned(),
         description: product.description().cloned(),
         pricing: product.pricing(),
-        sale_valuation: product.sale_valuation(),
-        state: product.state(),
+        sale_observation: product.sale_observation(),
+        availability: product.availability(),
         lifecycle: product.lifecycle(),
         url: product.url().clone(),
         images: product.images().clone(),
@@ -608,8 +631,7 @@ fn sample_product(slug: &str, shop_id: ShopId, seller_id: ShopId) -> ProductList
             price_estimate_min: None,
             price_estimate_max: None,
         },
-        sale_valuation: None,
-        state: ProductState::Listed,
+        availability: None,
         url: url(&format!("https://example.com/{slug}")),
         images,
         auction: ProductListingAuction::default(),

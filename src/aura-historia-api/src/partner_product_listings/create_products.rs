@@ -86,10 +86,10 @@ mod tests {
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
     use product_listing_service::use_cases::{
         CreateProductListingCommand, CreateProductListingError, CreateProductListingResult,
-        CreateProductListingUseCase, DeleteProductListingError, DeleteProductListingResult,
-        DeleteProductListingUseCase, UpdateProductListingCommand, UpdateProductListingError,
+        CreateProductListingUseCase, UpdateProductListingCommand, UpdateProductListingError,
         UpdateProductListingResult, UpdateProductListingUseCase, UpsertProductListingCommand,
         UpsertProductListingError, UpsertProductListingResult, UpsertProductListingUseCase,
+        WithdrawProductListingError, WithdrawProductListingResult, WithdrawProductListingUseCase,
     };
     use serde_json::{Value, json};
     use std::collections::BTreeSet;
@@ -123,11 +123,11 @@ mod tests {
     }
 
     mockall::mock! {
-        DeleteUseCase {}
+        WithdrawUseCase {}
         #[async_trait::async_trait]
-        impl DeleteProductListingUseCase for DeleteUseCase {
-            async fn execute(&self, context: &OperationContext, product_listing_id: ProductListingId) -> Result<DeleteProductListingResult, DeleteProductListingError>;
-            async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey) -> Result<DeleteProductListingResult, DeleteProductListingError>;
+        impl WithdrawProductListingUseCase for WithdrawUseCase {
+            async fn execute(&self, context: &OperationContext, product_listing_id: ProductListingId) -> Result<WithdrawProductListingResult, WithdrawProductListingError>;
+            async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey) -> Result<WithdrawProductListingResult, WithdrawProductListingError>;
         }
     }
 
@@ -282,7 +282,7 @@ mod tests {
             Arc::new(create),
             Arc::new(MockUpdateUseCase::new()),
             Arc::new(MockUpsertUseCase::new()),
-            Arc::new(MockDeleteUseCase::new()),
+            Arc::new(MockWithdrawUseCase::new()),
             Arc::new(authenticator()),
         );
         Router::new()
@@ -333,7 +333,7 @@ mod tests {
 
     fn product(shop_listing_id: &str) -> String {
         format!(
-            r#"{{"shopListingId":"{shop_listing_id}","title":{{"text":"Cabinet","language":"en"}},"description":{{"text":"Old cabinet","language":"en"}},"state":"LISTED","url":"https://shop.example/product-listings/{shop_listing_id}","images":[]}}"#
+            r#"{{"shopListingId":"{shop_listing_id}","title":{{"text":"Cabinet","language":"en"}},"description":{{"text":"Old cabinet","language":"en"}},"availability":"AVAILABLE","url":"https://shop.example/product-listings/{shop_listing_id}","images":[]}}"#
         )
     }
 }
