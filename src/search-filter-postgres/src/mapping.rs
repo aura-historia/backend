@@ -4,6 +4,7 @@ use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use fxrate_core::FxRateId;
 use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_orderability::ListingOrderability;
 use product_listing_core::product_listing::ProductListingPriceValuationBasis;
 use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::search_filter_state::SearchFilterState;
@@ -20,7 +21,8 @@ use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
 use product_listing_core::product_listing_search::{
-    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductListingSearch,
+    EnhancedSearchDescription, EnhancedSearchDescriptionError, ListingAvailabilityQuery,
+    ProductListingSearch,
 };
 use search_filter_core::{SearchFilter, SearchFilterProductListingMatch};
 use search_filter_service::ports::{
@@ -432,6 +434,29 @@ mod listing_availability {
     }
 }
 
+mod listing_orderability {
+    use super::*;
+
+    pub(crate) fn serialize<S>(
+        values: &HashSet<ListingOrderability>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_set_code(values, serializer, ListingOrderability::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<HashSet<ListingOrderability>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_set_code(deserializer, ListingOrderability::from_code)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 struct DistanceJson {
     amount: f64,
@@ -508,12 +533,21 @@ struct ProductListingSearchJson {
     continent_query: HashSet<ContinentData>,
     geo_address_distance_query: Option<GeoDistanceQueryJson>,
     price_query: Option<RangeQuery<u64>>,
-    #[serde(with = "listing_availability")]
-    availability_query: HashSet<ListingAvailability>,
+    availability_query: Option<ListingAvailabilityQueryJson>,
     created_query: Option<TimeRangeJson>,
     updated_query: Option<TimeRangeJson>,
     auction_start_query: Option<TimeRangeJson>,
     auction_end_query: Option<TimeRangeJson>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListingAvailabilityQueryJson {
+    #[serde(with = "listing_availability")]
+    availability: HashSet<ListingAvailability>,
+    #[serde(with = "listing_orderability")]
+    orderability: HashSet<ListingOrderability>,
+    include_unspecified: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -586,7 +620,13 @@ impl TryFrom<&ProductListingSearch> for ProductListingSearchJson {
             continent_query: v.continent_query.iter().copied().map(Into::into).collect(),
             geo_address_distance_query: v.geo_address_distance_query.map(Into::into),
             price_query: v.price_query.map(|v| v.map(u64::from)),
-            availability_query: v.availability_query.iter().copied().collect(),
+            availability_query: v.availability_query.as_ref().map(|query| {
+                ListingAvailabilityQueryJson {
+                    availability: query.any_of.iter().copied().collect(),
+                    orderability: query.orderability.iter().copied().collect(),
+                    include_unspecified: query.include_unspecified,
+                }
+            }),
             created_query: v.created_query.map(TimeRangeJson::try_from).transpose()?,
             updated_query: v.updated_query.map(TimeRangeJson::try_from).transpose()?,
             auction_start_query: v
@@ -632,7 +672,11 @@ pub(crate) fn product_search_from_json(
             .collect::<AnyOfQuery<_>>(),
         geo_address_distance_query: j.geo_address_distance_query.map(Into::into),
         price_query: j.price_query.map(|v| v.map(Into::into)),
-        availability_query: j.availability_query.into(),
+        availability_query: j.availability_query.map(|query| ListingAvailabilityQuery {
+            any_of: query.availability.into(),
+            orderability: query.orderability.into(),
+            include_unspecified: query.include_unspecified,
+        }),
         created_query: j.created_query.map(TryInto::try_into).transpose()?,
         updated_query: j.updated_query.map(TryInto::try_into).transpose()?,
         auction_start_query: j.auction_start_query.map(TryInto::try_into).transpose()?,
@@ -698,7 +742,11 @@ mod tests {
         let mut persisted =
             product_search_to_json(&ProductListingSearch::new(Language::En, Currency::Eur))?;
         persisted["shop_type_query"] = serde_json::json!(["COMMERCIAL_DEALER"]);
-        persisted["availability_query"] = serde_json::json!(["IN_STOCK"]);
+        persisted["availability_query"] = serde_json::json!({
+            "availability": ["IN_STOCK"],
+            "orderability": ["ORDERABLE_NOW"],
+            "include_unspecified": true
+        });
         persisted["geo_address_distance_query"] = serde_json::json!({
             "lat": 52.52,
             "lon": 13.405,
@@ -713,7 +761,15 @@ mod tests {
         );
         assert_eq!(
             Some(&serde_json::json!("IN_STOCK")),
-            persisted.pointer("/availability_query/0")
+            persisted.pointer("/availability_query/availability/0")
+        );
+        assert_eq!(
+            Some(&serde_json::json!("ORDERABLE_NOW")),
+            persisted.pointer("/availability_query/orderability/0")
+        );
+        assert_eq!(
+            Some(&serde_json::json!(true)),
+            persisted.pointer("/availability_query/include_unspecified")
         );
         assert_eq!(
             Some(&serde_json::json!("KILOMETERS")),
@@ -728,10 +784,13 @@ mod tests {
                 .shop_type_query
                 .contains(&ShopType::CommercialDealer)
         );
-        assert!(
-            decoded
-                .availability_query
-                .contains(&ListingAvailability::InStock)
+        assert_eq!(
+            Some(ListingAvailabilityQuery {
+                any_of: HashSet::from([ListingAvailability::InStock]).into(),
+                orderability: HashSet::from([ListingOrderability::OrderableNow]).into(),
+                include_unspecified: true,
+            }),
+            decoded.availability_query
         );
         assert_eq!(
             Some(DistanceUnit::Kilometers),
@@ -741,6 +800,34 @@ mod tests {
         );
         Ok(())
     }
+    #[test]
+    fn should_preserve_absent_and_configured_empty_availability_queries()
+    -> Result<(), Box<dyn Error>> {
+        let absent =
+            product_search_to_json(&ProductListingSearch::new(Language::En, Currency::Eur))?;
+        assert_eq!(
+            Some(&serde_json::Value::Null),
+            absent.get("availability_query")
+        );
+
+        let mut configured_empty = ProductListingSearch::new(Language::En, Currency::Eur);
+        configured_empty.availability_query = Some(ListingAvailabilityQuery {
+            any_of: Default::default(),
+            orderability: Default::default(),
+            include_unspecified: false,
+        });
+        let configured_empty = product_search_to_json(&configured_empty)?;
+        assert_eq!(
+            Some(&serde_json::json!({
+                "availability": [],
+                "orderability": [],
+                "include_unspecified": false
+            })),
+            configured_empty.get("availability_query")
+        );
+        Ok(())
+    }
+
     #[test]
     fn should_serialize_every_product_search_field() {
         let json =

@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - **Breaking:** Aura-owned listing routes, identifiers, persistence tables, CDC table names, and the OpenSearch index now use `ProductListing` vocabulary: `/api/v1/product-listings`, `productListingId`, `productListingSlugId`, `shopListingId`, `product_listings`, `product_listing_events`, `product_listing_translations`, `product_listing_watchlist`, and `product-listings`. Listing API errors now use `PRODUCT_LISTING_*` codes. No compatibility routes or aliases are provided.
+- **Breaking:** ProductListing discovery and saved searches now use optional `availability`, derived `orderability`, and `includeUnspecifiedAvailability` filters. Exact availability and orderability selections intersect; unspecified availability matches only when explicitly requested. Public discovery no longer accepts a lifecycle filter.
 - OAuth client administration now authorizes in the service layer: delegated reads require `access-tokens:read`; writes and authorization requests require `access-tokens:write`, and requested OAuth scopes cannot exceed delegated caller capabilities. OAuth client `client_id_issued_at` now uses persisted creation metadata consistently across create, update, get, and list responses.
 - OAuth redirect URI invariants are validated during domain construction and persisted-state rehydration; only non-empty HTTPS URIs without fragments are accepted.
 

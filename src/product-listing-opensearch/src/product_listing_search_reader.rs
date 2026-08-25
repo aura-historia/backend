@@ -16,7 +16,9 @@ use opensearch::http::headers::HeaderMap;
 use opensearch::http::request::JsonBody;
 use opensearch::{OpenSearch, SearchParts};
 use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::product_listing_search::ProductListingSearch;
+use product_listing_core::product_listing_search::{
+    ListingAvailabilityQuery, ProductListingSearch,
+};
 use product_listing_core::sort_product_listing_field::SortProductListingField;
 use product_listing_core::title::Title;
 use product_listing_service::ports::{
@@ -649,7 +651,7 @@ pub(crate) fn build_common_filter_clauses(
         }));
     }
 
-    apply_availability_filter(&mut filter, &search.availability_query);
+    apply_availability_filter(&mut filter, search.availability_query.as_ref());
     apply_any_of_filter(
         &mut filter,
         &search.shop_type_query,
@@ -813,16 +815,56 @@ fn sale_price_field_for(currency: Currency) -> &'static str {
 
 fn apply_availability_filter(
     filter: &mut Vec<serde_json::Value>,
-    query: &AnyOfQuery<ListingAvailability>,
+    query: Option<&ListingAvailabilityQuery>,
 ) {
-    let values = query
-        .iter()
-        .map(|availability| availability.as_str())
+    let Some(query) = query else {
+        return;
+    };
+
+    let values = ListingAvailability::iter()
+        .filter(|availability| availability_matches_query(*availability, query))
+        .map(ListingAvailability::as_str)
         .collect::<Vec<_>>();
-    if !values.is_empty() && values.len() != ListingAvailability::iter().count() {
-        filter.push(json!({
+    let missing = json!({
+        "bool": {
+            "must_not": [{
+                "exists": { "field": ProductListingDocumentSerdeField::Availability.as_str() }
+            }]
+        }
+    });
+
+    match (values.is_empty(), query.include_unspecified) {
+        (true, false) => filter.push(json!({ "match_none": {} })),
+        (true, true) => filter.push(missing),
+        (false, false) => filter.push(json!({
             "terms": { ProductListingDocumentSerdeField::Availability.as_str(): values }
-        }));
+        })),
+        (false, true) => filter.push(json!({
+            "bool": {
+                "should": [
+                    { "terms": { ProductListingDocumentSerdeField::Availability.as_str(): values } },
+                    missing
+                ],
+                "minimum_should_match": 1
+            }
+        })),
+    }
+}
+
+fn availability_matches_query(
+    availability: ListingAvailability,
+    query: &ListingAvailabilityQuery,
+) -> bool {
+    let has_exact_values = !query.any_of.is_empty();
+    let has_orderability_values = !query.orderability.is_empty();
+    let matches_exact = query.any_of.contains(&availability);
+    let matches_orderability = query.orderability.contains(&availability.orderability());
+
+    match (has_exact_values, has_orderability_values) {
+        (true, true) => matches_exact && matches_orderability,
+        (true, false) => matches_exact,
+        (false, true) => matches_orderability,
+        (false, false) => false,
     }
 }
 
@@ -849,8 +891,9 @@ mod tests {
     use money::MonetaryAmount;
     use product_listing_core::{
         listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
-        product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
-        shop_listing_id::ShopListingId,
+        listing_orderability::ListingOrderability, product_listing_id::ProductListingId,
+        product_listing_search::ListingAvailabilityQuery,
+        product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
     };
     use shop_core::shop_id::ShopId;
     use shop_core::shop_slug_id::ShopSlugId;
@@ -981,9 +1024,10 @@ mod tests {
     fn should_filter_by_exact_availability_without_a_lifecycle_clause()
     -> Result<(), Box<dyn std::error::Error>> {
         let search = ProductListingSearch::new(Language::En, Currency::Eur)
-            .with_availability_query(
-                std::collections::HashSet::from([ListingAvailability::InStock]).into(),
-            );
+            .with_availability_query(ListingAvailabilityQuery {
+                any_of: std::collections::HashSet::from([ListingAvailability::InStock]).into(),
+                ..Default::default()
+            });
 
         let (_, filters) = build_common_filter_clauses(&search)?;
         let availability_filter = filters
@@ -1000,6 +1044,97 @@ mod tests {
                 .iter()
                 .any(|filter| filter.to_string().contains("lifecycle"))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn should_intersect_exact_availability_and_orderability()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let search = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_availability_query(ListingAvailabilityQuery {
+                any_of: std::collections::HashSet::from([
+                    ListingAvailability::InStock,
+                    ListingAvailability::SoldOut,
+                ])
+                .into(),
+                orderability: std::collections::HashSet::from([ListingOrderability::OrderableNow])
+                    .into(),
+                include_unspecified: false,
+            });
+
+        let (_, filters) = build_common_filter_clauses(&search)?;
+
+        assert_eq!(
+            Some(&json!(["IN_STOCK"])),
+            filters[0].pointer("/terms/availability")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_include_unspecified_availability_with_concrete_matches()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let search = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_availability_query(ListingAvailabilityQuery {
+                any_of: std::collections::HashSet::from([ListingAvailability::InStock]).into(),
+                include_unspecified: true,
+                ..Default::default()
+            });
+
+        let (_, filters) = build_common_filter_clauses(&search)?;
+
+        assert_eq!(
+            Some(&json!(1)),
+            filters[0].pointer("/bool/minimum_should_match")
+        );
+        assert_eq!(
+            Some(&json!("availability")),
+            filters[0].pointer("/bool/should/1/bool/must_not/0/exists/field")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_filter_only_unspecified_availability() -> Result<(), Box<dyn std::error::Error>> {
+        let search = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_availability_query(ListingAvailabilityQuery {
+                include_unspecified: true,
+                ..Default::default()
+            });
+
+        let (_, filters) = build_common_filter_clauses(&search)?;
+
+        assert_eq!(
+            Some(&json!("availability")),
+            filters[0].pointer("/bool/must_not/0/exists/field")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_match_no_listing_for_contradictory_availability_query()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let search = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_availability_query(ListingAvailabilityQuery {
+                any_of: std::collections::HashSet::from([ListingAvailability::SoldOut]).into(),
+                orderability: std::collections::HashSet::from([ListingOrderability::OrderableNow])
+                    .into(),
+                ..Default::default()
+            });
+
+        let (_, filters) = build_common_filter_clauses(&search)?;
+
+        assert_eq!(Some(&json!({})), filters[0].get("match_none"));
+        Ok(())
+    }
+
+    #[test]
+    fn should_not_filter_availability_when_query_is_absent()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (_, filters) =
+            build_common_filter_clauses(&ProductListingSearch::new(Language::En, Currency::Eur))?;
+
+        assert!(filters.is_empty());
         Ok(())
     }
 

@@ -21,9 +21,10 @@ use localization::Language;
 use money::Currency;
 use money::MonetaryAmount;
 use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_orderability::ListingOrderability;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_search::{
-    EnhancedSearchDescription, ProductListingSearch,
+    EnhancedSearchDescription, ListingAvailabilityQuery, ProductListingSearch,
 };
 
 use product_listing_core::sort_product_listing_field::SortProductListingField;
@@ -80,9 +81,18 @@ struct ProductListingSearchData {
     geo_address: Option<GeoDistanceQueryData>,
     #[serde(default)]
     price: Option<RangeQuery<u64>>,
+    #[serde(
+        default,
+        deserialize_with = "crate::wire::listing_availability::set_option::deserialize"
+    )]
+    availability: Option<HashSet<ListingAvailability>>,
+    #[serde(
+        default,
+        deserialize_with = "crate::wire::listing_orderability::set_option::deserialize"
+    )]
+    orderability: Option<HashSet<ListingOrderability>>,
     #[serde(default)]
-    #[serde(with = "crate::wire::listing_availability::set")]
-    availability: HashSet<ListingAvailability>,
+    include_unspecified_availability: Option<bool>,
     #[serde(
         with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
@@ -161,11 +171,31 @@ impl TryFrom<ProductListingSearchData> for ProductListingSearch {
             continent_query: data.continent.into_iter().map(Into::into).collect(),
             geo_address_distance_query: data.geo_address.map(Into::into),
             price_query: data.price.map(|range| range.map(MonetaryAmount::from)),
-            availability_query: data.availability.into(),
+            availability_query: availability_query_from_parts(
+                data.availability,
+                data.orderability,
+                data.include_unspecified_availability,
+            ),
             created_query: data.created,
             updated_query: data.updated,
             auction_start_query: data.auction_start,
             auction_end_query: data.auction_end,
+        })
+    }
+}
+
+fn availability_query_from_parts(
+    availability: Option<HashSet<ListingAvailability>>,
+    orderability: Option<HashSet<ListingOrderability>>,
+    include_unspecified: Option<bool>,
+) -> Option<ListingAvailabilityQuery> {
+    if availability.is_none() && orderability.is_none() && include_unspecified.is_none() {
+        None
+    } else {
+        Some(ListingAvailabilityQuery {
+            any_of: availability.unwrap_or_default().into(),
+            orderability: orderability.unwrap_or_default().into(),
+            include_unspecified: include_unspecified.unwrap_or(false),
         })
     }
 }
@@ -503,6 +533,33 @@ mod tests {
                 }),
             }),
             request.cursor
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_exact_orderability_and_unspecified_availability_query()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (app, calls) = app();
+
+        let response = app
+            .oneshot(
+                Request::get(
+                    "/api/v1/product-listings?availability=IN_STOCK&orderability=ORDERABLE_NOW&includeUnspecifiedAvailability=true",
+                )
+                .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        let calls = lock(&calls);
+        assert_eq!(
+            Some(&ListingAvailabilityQuery {
+                any_of: HashSet::from([ListingAvailability::InStock]).into(),
+                orderability: HashSet::from([ListingOrderability::OrderableNow]).into(),
+                include_unspecified: true,
+            }),
+            calls[0].1.search.availability_query.as_ref()
         );
         Ok(())
     }

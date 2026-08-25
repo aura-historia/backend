@@ -10,9 +10,11 @@ use isocountry::CountryCode;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
 use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_orderability::ListingOrderability;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_search::{
-    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductListingSearch,
+    EnhancedSearchDescription, EnhancedSearchDescriptionError, ListingAvailabilityQuery,
+    ProductListingSearch,
 };
 use product_listing_opensearch::build_percolator_query;
 use search_filter_core::search_filter_state::SearchFilterState;
@@ -216,6 +218,29 @@ mod listing_availability {
     }
 }
 
+mod listing_orderability {
+    use super::*;
+
+    pub(crate) fn serialize<S>(
+        values: &HashSet<ListingOrderability>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serialize_set_code(values, serializer, ListingOrderability::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<HashSet<ListingOrderability>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserialize_set_code(deserializer, ListingOrderability::from_code)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SearchFilterDocument {
@@ -383,8 +408,8 @@ struct ProductListingSearchDocument {
     geo_address_distance_query: Option<GeoDistanceQueryDocument>,
     #[serde(rename = "price")]
     price_query: Option<RangeQuery<u64>>,
-    #[serde(rename = "availability", with = "listing_availability")]
-    availability_query: HashSet<ListingAvailability>,
+    #[serde(rename = "availability")]
+    availability_query: Option<ListingAvailabilityQueryDocument>,
     #[serde(rename = "created")]
     created_query: Option<TimeRangeDocument>,
     #[serde(rename = "updated")]
@@ -393,6 +418,16 @@ struct ProductListingSearchDocument {
     auction_start_query: Option<TimeRangeDocument>,
     #[serde(rename = "auctionEnd")]
     auction_end_query: Option<TimeRangeDocument>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ListingAvailabilityQueryDocument {
+    #[serde(with = "listing_availability")]
+    availability: HashSet<ListingAvailability>,
+    #[serde(with = "listing_orderability")]
+    orderability: HashSet<ListingOrderability>,
+    include_unspecified: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -479,7 +514,13 @@ impl TryFrom<&ProductListingSearch> for ProductListingSearchDocument {
                 .collect(),
             geo_address_distance_query: search.geo_address_distance_query.map(Into::into),
             price_query: search.price_query.map(|range| range.map(u64::from)),
-            availability_query: search.availability_query.iter().copied().collect(),
+            availability_query: search.availability_query.as_ref().map(|query| {
+                ListingAvailabilityQueryDocument {
+                    availability: query.any_of.iter().copied().collect(),
+                    orderability: query.orderability.iter().copied().collect(),
+                    include_unspecified: query.include_unspecified,
+                }
+            }),
             created_query: search.created_query.map(TryInto::try_into).transpose()?,
             updated_query: search.updated_query.map(TryInto::try_into).transpose()?,
             auction_start_query: search
@@ -531,7 +572,13 @@ impl TryFrom<ProductListingSearchDocument> for ProductListingSearch {
             price_query: document
                 .price_query
                 .map(|range| range.map(MonetaryAmount::from)),
-            availability_query: document.availability_query.into(),
+            availability_query: document
+                .availability_query
+                .map(|query| ListingAvailabilityQuery {
+                    any_of: query.availability.into(),
+                    orderability: query.orderability.into(),
+                    include_unspecified: query.include_unspecified,
+                }),
             created_query: document.created_query.map(parse_time_range).transpose()?,
             updated_query: document.updated_query.map(parse_time_range).transpose()?,
             auction_start_query: document
@@ -662,9 +709,14 @@ mod tests {
                 .with_shop_type_query(
                     std::collections::HashSet::from([ShopType::CommercialDealer]).into(),
                 )
-                .with_availability_query(
-                    std::collections::HashSet::from([ListingAvailability::InStock]).into(),
-                ),
+                .with_availability_query(ListingAvailabilityQuery {
+                    any_of: std::collections::HashSet::from([ListingAvailability::InStock]).into(),
+                    orderability: std::collections::HashSet::from([
+                        ListingOrderability::OrderableNow,
+                    ])
+                    .into(),
+                    include_unspecified: true,
+                }),
         );
         let document = SearchFilterDocument::try_from(&expected)?;
         let value = serde_json::to_value(&document)?;
@@ -684,9 +736,64 @@ mod tests {
         );
         assert_eq!(
             Some(&serde_json::json!("IN_STOCK")),
-            value.pointer("/search/availability/0")
+            value.pointer("/search/availability/availability/0")
+        );
+        assert_eq!(
+            Some(&serde_json::json!("ORDERABLE_NOW")),
+            value.pointer("/search/availability/orderability/0")
+        );
+        assert_eq!(
+            Some(&serde_json::json!(true)),
+            value.pointer("/search/availability/includeUnspecified")
         );
         assert_eq!(expected.view, SearchFilterView::try_from(document)?);
+        Ok(())
+    }
+
+    #[test]
+    fn should_preserve_absent_and_configured_empty_availability_queries()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let absent_document = SearchFilterDocument::try_from(&projection(
+            ProductListingSearch::new(Language::En, Currency::Eur),
+        ))?;
+        assert_eq!(
+            None,
+            SearchFilterView::try_from(absent_document.clone())?
+                .search
+                .availability_query
+        );
+        let absent = serde_json::to_value(absent_document)?;
+        assert_eq!(
+            Some(&serde_json::Value::Null),
+            absent.pointer("/search/availability")
+        );
+
+        let mut configured_empty = ProductListingSearch::new(Language::En, Currency::Eur);
+        configured_empty.availability_query = Some(ListingAvailabilityQuery {
+            any_of: Default::default(),
+            orderability: Default::default(),
+            include_unspecified: false,
+        });
+        let document = SearchFilterDocument::try_from(&projection(configured_empty))?;
+        let value = serde_json::to_value(&document)?;
+        assert_eq!(
+            Some(&serde_json::json!({
+                "availability": [],
+                "orderability": [],
+                "includeUnspecified": false
+            })),
+            value.pointer("/search/availability")
+        );
+        assert_eq!(
+            Some(ListingAvailabilityQuery {
+                any_of: Default::default(),
+                orderability: Default::default(),
+                include_unspecified: false,
+            }),
+            SearchFilterView::try_from(document)?
+                .search
+                .availability_query
+        );
         Ok(())
     }
 }

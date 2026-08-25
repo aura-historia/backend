@@ -1,4 +1,5 @@
 use crate::listing_availability::ListingAvailability;
+use crate::listing_orderability::ListingOrderability;
 use crate::product_listing_id::ProductListingId;
 
 use domain_primitives::query::any_of_query::AnyOfQuery;
@@ -85,6 +86,13 @@ impl From<EnhancedSearchDescription> for String {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ListingAvailabilityQuery {
+    pub any_of: AnyOfQuery<ListingAvailability>,
+    pub orderability: AnyOfQuery<ListingOrderability>,
+    pub include_unspecified: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Default, SerdeField)]
 pub struct ProductListingSearch {
     pub language: Language,
@@ -105,7 +113,7 @@ pub struct ProductListingSearch {
     pub continent_query: AnyOfQuery<Continent>,
     pub geo_address_distance_query: Option<GeoDistanceQuery>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
-    pub availability_query: AnyOfQuery<ListingAvailability>,
+    pub availability_query: Option<ListingAvailabilityQuery>,
     pub created_query: Option<RangeQuery<OffsetDateTime>>,
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
     pub auction_start_query: Option<RangeQuery<OffsetDateTime>>,
@@ -133,7 +141,7 @@ impl ProductListingSearch {
             continent_query: AnyOfQuery::default(),
             geo_address_distance_query: None,
             price_query: None,
-            availability_query: AnyOfQuery::default(),
+            availability_query: None,
             created_query: None,
             updated_query: None,
             auction_start_query: None,
@@ -245,11 +253,8 @@ impl ProductListingSearch {
         self
     }
 
-    pub fn with_availability_query(
-        mut self,
-        availability_query: AnyOfQuery<ListingAvailability>,
-    ) -> Self {
-        self.availability_query = availability_query;
+    pub fn with_availability_query(mut self, availability_query: ListingAvailabilityQuery) -> Self {
+        self.availability_query = Some(availability_query);
         self
     }
 
@@ -301,7 +306,10 @@ mod tests {
                 EnhancedSearchDescription::try_from("bronze").unwrap(),
             )
             .with_exclude_product_listing_id_query(HashSet::from([product_listing_id]).into())
-            .with_availability_query(HashSet::from([ListingAvailability::Available]).into())
+            .with_availability_query(ListingAvailabilityQuery {
+                any_of: HashSet::from([ListingAvailability::Available]).into(),
+                ..Default::default()
+            })
             .with_price_query(RangeQuery {
                 min: Some(MonetaryAmount::from(10_u64)),
                 max: Some(MonetaryAmount::from(20_u64)),
@@ -317,7 +325,8 @@ mod tests {
         assert!(
             search
                 .availability_query
-                .contains(&ListingAvailability::Available)
+                .as_ref()
+                .is_some_and(|query| query.any_of.contains(&ListingAvailability::Available))
         );
         assert!(search.price_query.is_some());
     }
@@ -369,7 +378,7 @@ pub mod faker {
                 continent_query: config.fake_with_rng(rng),
                 geo_address_distance_query: None,
                 price_query: config.fake_with_rng(rng),
-                availability_query: config.fake_with_rng(rng),
+                availability_query: None,
                 created_query: fake_range_query_datetime(config, rng),
                 updated_query: fake_range_query_datetime(config, rng),
                 auction_start_query: fake_range_query_datetime(config, rng),

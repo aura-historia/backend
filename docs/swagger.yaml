@@ -1459,7 +1459,7 @@ paths:
 
         `language` defaults to `en` and `currency` defaults to `EUR`.
 
-        Additional optional filters from `ProductSearchData` are also supported as query parameters
+        Additional optional filters from `ProductListingSearchData` are also supported as query parameters
         using the same field names:
         - `excludeProductId`
         - `shopName`
@@ -1475,8 +1475,9 @@ paths:
         - `continent`
         - `geoAddress[lat]`, `geoAddress[lon]`, `geoAddress[distance][amount]`, `geoAddress[distance][unit]`
         - `price[min]`, `price[max]`
-        - `state`
-        - `lifecycle`
+        - `availability`
+        - `orderability`
+        - `includeUnspecifiedAvailability`
         - `created[min]`, `created[max]`
         - `updated[min]`, `updated[max]`
         - `auctionStart[min]`, `auctionStart[max]`
@@ -1717,30 +1718,38 @@ paths:
                 minimum: 0
                 description: Maximum price (inclusive) in minor currency units for the selected indexed currency
                 example: 50000
-        - name: state
+        - name: availability
           in: query
           required: false
-          description: Optional filter by product states. When provided, only product-listings in the given states are returned.
+          description: Optional exact availability assertions. Values are ORed. When used with `orderability`, a listing must satisfy both filters.
           style: form
           explode: true
           schema:
             type: array
             items:
-              $ref: "#/components/schemas/ProductStateData"
+              $ref: "#/components/schemas/ListingAvailabilityData"
             uniqueItems: true
-          example: ["AVAILABLE"]
-        - name: lifecycle
+          example: ["IN_STOCK", "LIMITED_AVAILABILITY"]
+        - name: orderability
           in: query
           required: false
-          description: Optional filter by product lifecycle. Defaults to `ACTIVE` when omitted.
+          description: Optional broad orderability classes. A class expands to its concrete availability assertions. Unspecified availability does not match a class.
           style: form
           explode: true
           schema:
             type: array
             items:
-              $ref: "#/components/schemas/ProductLifecycleData"
+              $ref: "#/components/schemas/ListingOrderabilityData"
             uniqueItems: true
-          example: ["ACTIVE"]
+          example: ["ORDERABLE_NOW"]
+        - name: includeUnspecifiedAvailability
+          in: query
+          required: false
+          description: When `true`, also returns listings with no reliable current availability assertion.
+          schema:
+            type: boolean
+            default: false
+          example: true
 
         - name: created
           in: query
@@ -10530,6 +10539,31 @@ components:
       default: METRIC
       example: METRIC
 
+    ListingAvailabilityData:
+      type: string
+      enum:
+        [
+          AVAILABLE,
+          IN_STOCK,
+          LIMITED_AVAILABILITY,
+          BACK_ORDER,
+          MADE_TO_ORDER,
+          PRE_ORDER,
+          PRE_SALE,
+          UNAVAILABLE,
+          RESERVED,
+          OUT_OF_STOCK,
+          SOLD_OUT,
+        ]
+      description: Current reliable source assertion of listing purchase availability. Omitted or `null` means Aura has no reliable current assertion.
+      example: IN_STOCK
+
+    ListingOrderabilityData:
+      type: string
+      enum: [ORDERABLE_NOW, ORDERABLE_CONDITIONALLY, NOT_ORDERABLE]
+      description: Broad classification derived from a concrete availability assertion; it is not independently stored.
+      example: ORDERABLE_NOW
+
     ProductStateData:
       type: string
       enum: [LISTED, AVAILABLE, RESERVED, SOLD, REMOVED, UNKNOWN]
@@ -10761,9 +10795,9 @@ components:
           description: Type of parameter that caused the error
           example: "path"
 
-    ProductSearchData:
+    ProductListingSearchData:
       type: object
-      description: Product search configuration with query parameters and filtering options
+      description: ProductListing search configuration with query parameters and filtering options
       properties:
         language:
           $ref: "#/components/schemas/LanguageData"
@@ -10929,15 +10963,25 @@ components:
             - $ref: "#/components/schemas/RangeQueryUInt64"
           nullable: true
           description: Optional price range filter in minor currency units for the selected indexed currency; no request-time conversion occurs
-        state:
+        availability:
           type: array
           items:
-            $ref: "#/components/schemas/ProductStateData"
-          description: Optional filter by product states
+            $ref: "#/components/schemas/ListingAvailabilityData"
+          description: Optional exact availability assertions. Exact values are ORed and intersect with any selected orderability classes.
           uniqueItems: true
-          default: []
           nullable: true
-          example: ["AVAILABLE"]
+          example: ["IN_STOCK"]
+        orderability:
+          type: array
+          items:
+            $ref: "#/components/schemas/ListingOrderabilityData"
+          description: Optional derived orderability classes. Unspecified availability never matches a class.
+          uniqueItems: true
+          nullable: true
+          example: ["ORDERABLE_NOW"]
+        includeUnspecifiedAvailability:
+          type: boolean
+          description: Also match listings with no reliable current availability assertion.
 
         created:
           allOf:
@@ -10979,7 +11023,7 @@ components:
           maxLength: 255
           example: "My Tech Store Search"
         search:
-          $ref: "#/components/schemas/ProductSearchData"
+          $ref: "#/components/schemas/ProductListingSearchData"
 
     PatchUserSearchFilterData:
       type: object
@@ -11014,7 +11058,7 @@ components:
             Omit to leave the current state unchanged.
         search:
           allOf:
-            - $ref: "#/components/schemas/PatchProductSearchData"
+            - $ref: "#/components/schemas/PatchProductListingSearchData"
           nullable: true
           description: Partial search filter criteria to update
 
@@ -11032,12 +11076,13 @@ components:
             `true` marks the product as relevant to the saved search filter, `false` marks it as not relevant.
           example: true
 
-    PatchProductSearchData:
+    PatchProductListingSearchData:
       type: object
       description: |
-        Partial search filter criteria update.
+        Partial ProductListing search criteria update.
         All fields are optional and only provided fields will be updated.
-        Follows the same structure as ProductSearchData but with optional fields.
+        `availability`, `orderability`, and `includeUnspecifiedAvailability` form one atomic availability query: supply all three values to replace it, or all three as `null` to clear it.
+        Follows the same structure as ProductListingSearchData but with optional fields.
       properties:
         language:
           allOf:
@@ -11194,14 +11239,26 @@ components:
             - $ref: "#/components/schemas/RangeQueryUInt64"
           nullable: true
           description: Optional price range filter in minor currency units for the selected indexed currency; no request-time conversion occurs
-        state:
+        availability:
           type: array
           items:
-            $ref: "#/components/schemas/ProductStateData"
-          description: Optional filter by product states
+            $ref: "#/components/schemas/ListingAvailabilityData"
+          description: Exact availability assertions for an atomic availability-query replacement. Supply this and the other two availability-query fields together, or all three as `null` to clear the query.
           uniqueItems: true
           nullable: true
-          example: ["AVAILABLE", "LISTED"]
+          example: ["IN_STOCK"]
+        orderability:
+          type: array
+          items:
+            $ref: "#/components/schemas/ListingOrderabilityData"
+          description: Derived orderability classes for the atomic availability-query replacement.
+          uniqueItems: true
+          nullable: true
+          example: ["ORDERABLE_NOW"]
+        includeUnspecifiedAvailability:
+          type: boolean
+          nullable: true
+          description: Flag for unspecified availability in the atomic availability-query replacement.
         created:
           allOf:
             - $ref: "#/components/schemas/RangeQueryDateTime"
@@ -11269,7 +11326,7 @@ components:
         state:
           $ref: "#/components/schemas/ResourceStateData"
         search:
-          $ref: "#/components/schemas/ProductSearchData"
+          $ref: "#/components/schemas/ProductListingSearchData"
         createdBy:
           $ref: "#/components/schemas/ActorData"
         updatedBy:

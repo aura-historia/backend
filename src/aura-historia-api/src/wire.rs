@@ -400,29 +400,6 @@ pub(crate) mod listing_availability {
         }
     }
 
-    pub(crate) mod set {
-        use super::*;
-
-        pub(crate) fn serialize<S>(
-            values: &HashSet<ListingAvailability>,
-            serializer: S,
-        ) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            serialize_set_code(values, serializer, ListingAvailability::as_str)
-        }
-
-        pub(crate) fn deserialize<'de, D>(
-            deserializer: D,
-        ) -> Result<HashSet<ListingAvailability>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_set_code(deserializer, parse, None)
-        }
-    }
-
     pub(crate) mod patch_set {
         use super::*;
 
@@ -436,6 +413,25 @@ pub(crate) mod listing_availability {
         }
     }
 
+    pub(crate) mod set_option {
+        use super::*;
+
+        pub(crate) fn deserialize<'de, D>(
+            deserializer: D,
+        ) -> Result<Option<HashSet<ListingAvailability>>, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            Option::<Vec<String>>::deserialize(deserializer)?.map_or(Ok(None), |values| {
+                values
+                    .into_iter()
+                    .map(|value| parse(&value).ok_or_else(|| invalid_code(&value, None)))
+                    .collect::<Result<HashSet<_>, D::Error>>()
+                    .map(Some)
+            })
+        }
+    }
+
     pub(crate) mod patch {
         use super::*;
 
@@ -446,6 +442,33 @@ pub(crate) mod listing_availability {
             D: Deserializer<'de>,
         {
             deserialize_patch_code(deserializer, parse, None)
+        }
+    }
+}
+
+pub(crate) mod listing_orderability {
+    use super::*;
+    use product_listing_core::listing_orderability::ListingOrderability;
+
+    pub(crate) mod set_option {
+        use super::*;
+
+        pub(crate) fn deserialize<'de, D>(
+            deserializer: D,
+        ) -> Result<Option<HashSet<ListingOrderability>>, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            Option::<Vec<String>>::deserialize(deserializer)?.map_or(Ok(None), |values| {
+                values
+                    .into_iter()
+                    .map(|value| {
+                        ListingOrderability::from_code(&value)
+                            .ok_or_else(|| invalid_code(&value, None))
+                    })
+                    .collect::<Result<HashSet<_>, D::Error>>()
+                    .map(Some)
+            })
         }
     }
 }

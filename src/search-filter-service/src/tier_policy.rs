@@ -153,7 +153,9 @@ mod tests {
     use product_listing_core::{
         listing_availability::ListingAvailability,
         product_listing_id::ProductListingId,
-        product_listing_search::{EnhancedSearchDescription, ProductListingSearch},
+        product_listing_search::{
+            EnhancedSearchDescription, ListingAvailabilityQuery, ProductListingSearch,
+        },
     };
     use std::collections::HashSet;
     use user_core::tier::UserTier;
@@ -195,7 +197,11 @@ mod tests {
         let with_product_exclusion = ProductListingSearch::new(Language::En, Currency::Eur)
             .with_exclude_product_listing_id_query(HashSet::from([ProductListingId::new()]).into());
         let with_availability = ProductListingSearch::new(Language::En, Currency::Eur)
-            .with_availability_query(HashSet::from([ListingAvailability::SoldOut]).into());
+            .with_availability_query(ListingAvailabilityQuery {
+                any_of: HashSet::from([ListingAvailability::SoldOut]).into(),
+                orderability: Default::default(),
+                include_unspecified: false,
+            });
 
         assert_eq!(
             Ok(()),

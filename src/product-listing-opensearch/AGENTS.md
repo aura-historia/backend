@@ -29,7 +29,7 @@
 - Think caveman. Talk caveman. Few word.
 - Search documents do not escape this adapter.
 - Map OpenSearch payloads into `product-listing-service` read models.
-- Preserve query-building tests for filters, cursors, canonical percolator semantics, pinned price conversion, and invalid sale-observation documents.
+- Preserve query-building tests for filters, cursors, canonical percolator semantics, pinned price conversion, and invalid sale-observation documents. Availability query clauses intersect exact values with derived orderability expansions and add an `exists`-based missing-field clause only when unspecified availability is requested.
 - Price sorting is unsupported. Product Listing search and similar readers consume one compiled request. Search filters use exact optional-availability fields and never lifecycle clauses. Active summary prices use its pinned plan and sold summaries use exact indexed target values; summary valuation metadata names the current or sale-observation basis. Product Listing projection writes use `product_listings.projection_version` with OpenSearch external versioning; conflicts are stale no-ops.
 
 ## Verification

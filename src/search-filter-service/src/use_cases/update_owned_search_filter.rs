@@ -21,9 +21,8 @@ use geo::core::{continent::Continent, distance::GeoDistanceQuery};
 use isocountry::CountryCode;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
-use product_listing_core::{
-    listing_availability::ListingAvailability,
-    product_listing_search::{EnhancedSearchDescription, ProductListingSearch},
+use product_listing_core::product_listing_search::{
+    EnhancedSearchDescription, ListingAvailabilityQuery, ProductListingSearch,
 };
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -55,7 +54,7 @@ pub struct ProductListingSearchPatch {
     pub continent_query: PatchField<AnyOfQuery<Continent>>,
     pub geo_address_distance_query: PatchField<GeoDistanceQuery>,
     pub price_query: PatchField<RangeQuery<MonetaryAmount>>,
-    pub availability_query: PatchField<AnyOfQuery<ListingAvailability>>,
+    pub availability_query: PatchField<ListingAvailabilityQuery>,
     pub created_query: PatchField<RangeQuery<OffsetDateTime>>,
     pub updated_query: PatchField<RangeQuery<OffsetDateTime>>,
     pub auction_start_query: PatchField<RangeQuery<OffsetDateTime>>,
@@ -389,7 +388,7 @@ fn apply_product_search_patch(
         &mut search.geo_address_distance_query,
     );
     changed |= apply_optional_patch(&patch.price_query, &mut search.price_query);
-    changed |= apply_default_patch(&patch.availability_query, &mut search.availability_query);
+    changed |= apply_optional_patch(&patch.availability_query, &mut search.availability_query);
     changed |= apply_optional_patch(&patch.created_query, &mut search.created_query);
     changed |= apply_optional_patch(&patch.updated_query, &mut search.updated_query);
     changed |= apply_optional_patch(&patch.auction_start_query, &mut search.auction_start_query);
@@ -542,6 +541,37 @@ mod tests {
             Some(EnhancedSearchDescription::try_from("gold ring")?),
             search.enhanced_search_description
         );
+        Ok(())
+    }
+
+    #[test]
+    fn should_replace_and_clear_the_optional_availability_query()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use product_listing_core::{
+            listing_availability::ListingAvailability, listing_orderability::ListingOrderability,
+        };
+        use std::collections::HashSet;
+
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
+        let query = ListingAvailabilityQuery {
+            any_of: HashSet::from([ListingAvailability::InStock]).into(),
+            orderability: HashSet::from([ListingOrderability::OrderableNow]).into(),
+            include_unspecified: true,
+        };
+        let patch = ProductListingSearchPatch {
+            availability_query: PatchField::Set(query.clone()),
+            ..Default::default()
+        };
+
+        assert!(apply_product_search_patch(&mut search, &patch)?);
+        assert_eq!(Some(query), search.availability_query);
+
+        let clear = ProductListingSearchPatch {
+            availability_query: PatchField::Clear,
+            ..Default::default()
+        };
+        assert!(apply_product_search_patch(&mut search, &clear)?);
+        assert_eq!(None, search.availability_query);
         Ok(())
     }
 

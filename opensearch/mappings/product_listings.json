@@ -262,7 +262,7 @@
                 "type": "date",
                 "format": "strict_date_time"
             },
-            "state": {
+            "availability": {
                 "type": "keyword"
             },
             "lifecycle": {

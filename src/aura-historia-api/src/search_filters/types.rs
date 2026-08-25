@@ -10,6 +10,7 @@ use money::Currency;
 
 use money::MonetaryAmount;
 use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_orderability::ListingOrderability;
 use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
@@ -22,12 +23,13 @@ use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
 use product_listing_core::product_listing_search::{
-    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductListingSearch,
+    EnhancedSearchDescription, EnhancedSearchDescriptionError, ListingAvailabilityQuery,
+    ProductListingSearch,
 };
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_service::ports::{SearchFilterMatchView, SearchFilterView};
 use search_filter_service::use_cases::ProductListingSearchPatch;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use shop_core::shop_type::ShopType;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -50,6 +52,120 @@ pub(super) struct CreateSearchFilterData {
 
 fn default_notifications() -> bool {
     true
+}
+
+fn serialize_optional_set_code<T, S>(
+    values: &Option<HashSet<T>>,
+    serializer: S,
+    code: fn(T) -> &'static str,
+) -> Result<S::Ok, S::Error>
+where
+    T: Copy + Eq + std::hash::Hash,
+    S: Serializer,
+{
+    match values {
+        Some(values) => serializer.collect_seq(values.iter().map(|value| code(*value))),
+        None => serializer.serialize_none(),
+    }
+}
+
+fn deserialize_optional_set_code<'de, T, D>(
+    deserializer: D,
+    parse: fn(&str) -> Option<T>,
+) -> Result<Option<HashSet<T>>, D::Error>
+where
+    T: Eq + std::hash::Hash,
+    D: Deserializer<'de>,
+{
+    Option::<Vec<String>>::deserialize(deserializer)?.map_or(Ok(None), |values| {
+        values
+            .into_iter()
+            .map(|value| {
+                parse(&value)
+                    .ok_or_else(|| serde::de::Error::custom(format!("unsupported code `{value}`")))
+            })
+            .collect::<Result<HashSet<_>, D::Error>>()
+            .map(Some)
+    })
+}
+
+fn deserialize_patch_set_code<'de, T, D>(
+    deserializer: D,
+    parse: fn(&str) -> Option<T>,
+) -> Result<PatchValue<HashSet<T>>, D::Error>
+where
+    T: Eq + std::hash::Hash,
+    D: Deserializer<'de>,
+{
+    Option::<Vec<String>>::deserialize(deserializer)?.map_or(Ok(PatchValue::Null), |values| {
+        values
+            .into_iter()
+            .map(|value| {
+                parse(&value)
+                    .ok_or_else(|| serde::de::Error::custom(format!("unsupported code `{value}`")))
+            })
+            .collect::<Result<HashSet<_>, D::Error>>()
+            .map(PatchValue::Value)
+    })
+}
+
+mod listing_availability_set_option {
+    use super::*;
+
+    pub(super) fn serialize<S>(
+        values: &Option<HashSet<ListingAvailability>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_optional_set_code(values, serializer, ListingAvailability::as_str)
+    }
+
+    pub(super) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<Option<HashSet<ListingAvailability>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserialize_optional_set_code(deserializer, ListingAvailability::from_code)
+    }
+}
+
+mod listing_orderability_set_option {
+    use super::*;
+
+    pub(super) fn serialize<S>(
+        values: &Option<HashSet<ListingOrderability>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_optional_set_code(values, serializer, ListingOrderability::as_str)
+    }
+
+    pub(super) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<Option<HashSet<ListingOrderability>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserialize_optional_set_code(deserializer, ListingOrderability::from_code)
+    }
+}
+
+mod listing_orderability_patch_set {
+    use super::*;
+
+    pub(super) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<PatchValue<HashSet<ListingOrderability>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserialize_patch_set_code(deserializer, ListingOrderability::from_code)
+    }
 }
 
 type UpdateSearchFilterFields = (
@@ -137,6 +253,11 @@ pub(super) struct ProductListingSearchPatchData {
     #[serde(rename = "availability", default)]
     #[serde(deserialize_with = "crate::wire::listing_availability::patch_set::deserialize")]
     availability_query: PatchValue<HashSet<ListingAvailability>>,
+    #[serde(rename = "orderability", default)]
+    #[serde(deserialize_with = "listing_orderability_patch_set::deserialize")]
+    orderability_query: PatchValue<HashSet<ListingOrderability>>,
+    #[serde(rename = "includeUnspecifiedAvailability", default)]
+    include_unspecified_availability: PatchValue<bool>,
     #[serde(
         rename = "created",
         default,
@@ -232,15 +353,59 @@ impl ProductListingSearchPatchData {
                 self.price_query
                     .map(|query| query.map(MonetaryAmount::from)),
             ),
-            availability_query: non_nullable_patch(
-                self.availability_query.map(AnyOfQuery::from),
-                "search.availability",
+            availability_query: availability_query_patch(
+                self.availability_query,
+                self.orderability_query,
+                self.include_unspecified_availability,
             )?,
             created_query: clearable(self.created_query),
             updated_query: clearable(self.updated_query),
             auction_start_query: clearable(self.auction_start_query),
             auction_end_query: clearable(self.auction_end_query),
         })
+    }
+}
+
+fn availability_query_from_parts(
+    availability: Option<HashSet<ListingAvailability>>,
+    orderability: Option<HashSet<ListingOrderability>>,
+    include_unspecified: Option<bool>,
+) -> Option<ListingAvailabilityQuery> {
+    if availability.is_none() && orderability.is_none() && include_unspecified.is_none() {
+        None
+    } else {
+        Some(ListingAvailabilityQuery {
+            any_of: availability.unwrap_or_default().into(),
+            orderability: orderability.unwrap_or_default().into(),
+            include_unspecified: include_unspecified.unwrap_or(false),
+        })
+    }
+}
+
+fn availability_query_patch(
+    availability: PatchValue<HashSet<ListingAvailability>>,
+    orderability: PatchValue<HashSet<ListingOrderability>>,
+    include_unspecified: PatchValue<bool>,
+) -> Result<PatchField<ListingAvailabilityQuery>, crate::error::ApiError> {
+    match (availability, orderability, include_unspecified) {
+        (PatchValue::Omitted, PatchValue::Omitted, PatchValue::Omitted) => {
+            Ok(PatchField::Unchanged)
+        }
+        (PatchValue::Null, PatchValue::Null, PatchValue::Null) => Ok(PatchField::Clear),
+        (
+            PatchValue::Value(availability),
+            PatchValue::Value(orderability),
+            PatchValue::Value(include_unspecified),
+        ) => Ok(PatchField::Set(ListingAvailabilityQuery {
+            any_of: availability.into(),
+            orderability: orderability.into(),
+            include_unspecified,
+        })),
+        _ => Err(
+            crate::error::ApiError::bad_request(crate::error::BAD_BODY_VALUE).with_detail(
+                "Availability query fields must be supplied together, or all null to clear the query.",
+            ),
+        ),
     }
 }
 
@@ -355,11 +520,24 @@ pub(super) struct ProductListingSearchData {
     price_query: Option<RangeQuery<u64>>,
     #[serde(
         rename = "availability",
-        skip_serializing_if = "HashSet::is_empty",
+        skip_serializing_if = "Option::is_none",
+        default,
+        with = "listing_availability_set_option"
+    )]
+    availability_query: Option<HashSet<ListingAvailability>>,
+    #[serde(
+        rename = "orderability",
+        skip_serializing_if = "Option::is_none",
+        default,
+        with = "listing_orderability_set_option"
+    )]
+    orderability_query: Option<HashSet<ListingOrderability>>,
+    #[serde(
+        rename = "includeUnspecifiedAvailability",
+        skip_serializing_if = "Option::is_none",
         default
     )]
-    #[serde(with = "crate::wire::listing_availability::set")]
-    availability_query: HashSet<ListingAvailability>,
+    include_unspecified_availability: Option<bool>,
     #[serde(
         rename = "created",
         with = "domain_primitives::query::range_query::range_rfc3339::option",
@@ -418,7 +596,11 @@ impl TryFrom<ProductListingSearchData> for ProductListingSearch {
             price_query: data
                 .price_query
                 .map(|query| query.map(MonetaryAmount::from)),
-            availability_query: data.availability_query.into(),
+            availability_query: availability_query_from_parts(
+                data.availability_query,
+                data.orderability_query,
+                data.include_unspecified_availability,
+            ),
             created_query: data.created_query,
             updated_query: data.updated_query,
             auction_start_query: data.auction_start_query,
@@ -448,7 +630,18 @@ impl From<ProductListingSearch> for ProductListingSearchData {
             continent_query: search.continent_query.into_iter().map(Into::into).collect(),
             geo_address_distance_query: search.geo_address_distance_query.map(Into::into),
             price_query: search.price_query.map(|query| query.map(u64::from)),
-            availability_query: search.availability_query.into(),
+            availability_query: search
+                .availability_query
+                .as_ref()
+                .map(|query| query.any_of.iter().copied().collect()),
+            orderability_query: search
+                .availability_query
+                .as_ref()
+                .map(|query| query.orderability.iter().copied().collect()),
+            include_unspecified_availability: search
+                .availability_query
+                .as_ref()
+                .map(|query| query.include_unspecified),
             created_query: search.created_query,
             updated_query: search.updated_query,
             auction_start_query: search.auction_start_query,
@@ -559,7 +752,9 @@ mod tests {
                     "language": "de",
                     "productQuery": ["cabinet"],
                     "price": { "min": 10, "max": 20 },
-                    "availability": ["AVAILABLE"]
+                    "availability": ["AVAILABLE"],
+                    "orderability": ["ORDERABLE_NOW"],
+                    "includeUnspecifiedAvailability": true
                 }
             }"#,
         )?;
@@ -580,8 +775,74 @@ mod tests {
         };
         assert_eq!("cabinet", values[0].as_ref());
         assert!(matches!(patch.price_query, PatchField::Set(_)));
-        assert!(matches!(patch.availability_query, PatchField::Set(_)));
+        assert_eq!(
+            PatchField::Set(ListingAvailabilityQuery {
+                any_of: HashSet::from([ListingAvailability::Available]).into(),
+                orderability: HashSet::from([ListingOrderability::OrderableNow]).into(),
+                include_unspecified: true,
+            }),
+            patch.availability_query
+        );
         assert!(matches!(patch.shop_name_query, PatchField::Unchanged));
+        Ok(())
+    }
+
+    #[test]
+    fn should_preserve_absent_and_configured_empty_availability_queries()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let absent =
+            ProductListingSearchData::from(ProductListingSearch::new(Language::En, Currency::Eur));
+        let absent_value = serde_json::to_value(absent)?;
+        assert!(absent_value.get("availability").is_none());
+        assert!(absent_value.get("orderability").is_none());
+        assert!(absent_value.get("includeUnspecifiedAvailability").is_none());
+
+        let mut configured_empty = ProductListingSearch::new(Language::En, Currency::Eur);
+        configured_empty.availability_query = Some(ListingAvailabilityQuery {
+            any_of: Default::default(),
+            orderability: Default::default(),
+            include_unspecified: false,
+        });
+        let value = serde_json::to_value(ProductListingSearchData::from(configured_empty))?;
+        assert_eq!(Some(&serde_json::json!([])), value.get("availability"));
+        assert_eq!(Some(&serde_json::json!([])), value.get("orderability"));
+        assert_eq!(
+            Some(&serde_json::json!(false)),
+            value.get("includeUnspecifiedAvailability")
+        );
+        let data: ProductListingSearchData = serde_json::from_value(value)?;
+        let decoded = ProductListingSearch::try_from(data)?;
+        assert_eq!(
+            Some(ListingAvailabilityQuery {
+                any_of: Default::default(),
+                orderability: Default::default(),
+                include_unspecified: false,
+            }),
+            decoded.availability_query
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_require_an_atomic_availability_query_patch() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let clear: UpdateSearchFilterData = serde_json::from_str(
+            r#"{ "search": {
+                "availability": null,
+                "orderability": null,
+                "includeUnspecifiedAvailability": null
+            } }"#,
+        )?;
+        let (_, _, _, patch) = clear.into_fields()?;
+        assert_eq!(PatchField::Clear, patch.availability_query);
+
+        let partial: UpdateSearchFilterData =
+            serde_json::from_str(r#"{ "search": { "orderability": null } }"#)?;
+        assert!(partial.into_fields().is_err());
+
+        let omitted: UpdateSearchFilterData = serde_json::from_str(r#"{ "search": {} }"#)?;
+        let (_, _, _, patch) = omitted.into_fields()?;
+        assert_eq!(PatchField::Unchanged, patch.availability_query);
         Ok(())
     }
 }
