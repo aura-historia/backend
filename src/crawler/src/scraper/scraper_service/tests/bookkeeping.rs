@@ -35,7 +35,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
         });
 
     let mut expected = normalized_product(url.clone());
-    expected.availability = Some(ListingAvailability::SoldOut);
+    expected.availability = ListingAvailabilityMapping::Availability(ListingAvailability::SoldOut);
     let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
@@ -47,14 +47,14 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    let url_for_set_state = url.clone();
+    let url_for_set_presence = url.clone();
     cand_svc
-        .expect_set_state()
+        .expect_set_presence()
         .once()
         .withf(move |received_shop_id, received_url, received_state| {
             *received_shop_id == id
-                && received_url == &url_for_set_state
-                && *received_state == UrlState::Sold
+                && received_url == &url_for_set_presence
+                && *received_state == UrlPresence::Present
         })
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
@@ -75,7 +75,10 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
 
     assert_eq!(
         result.product.availability,
-        Some(ListingAvailability::SoldOut)
+        ListingAvailabilityMapping::Availability(ListingAvailability::SoldOut)
     );
-    assert!(!result.snapshot.state.is_empty());
+    assert_eq!(
+        result.snapshot.availability.as_deref(),
+        Some(ListingAvailability::SoldOut.as_str())
+    );
 }

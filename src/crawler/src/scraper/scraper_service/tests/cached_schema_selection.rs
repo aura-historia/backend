@@ -21,8 +21,8 @@ fn should_classify_title_errors_as_cached_schema_fallback_failures() {
     );
 
     assert_eq!(
-        NormalizationError::StateMappingError(
-            crate::scraper::normalization::state_mapping_service::StateMappingServiceError::DatabaseError(
+        NormalizationError::ListingAvailabilityMappingError(
+            crate::scraper::normalization::listing_availability_mapping_service::ListingAvailabilityMappingServiceError::DatabaseError(
                 sqlx::Error::RowNotFound,
             ),
         )
@@ -93,7 +93,7 @@ async fn should_validate_images_before_ranking_all_cached_candidates() {
         });
 
     let mut candidate_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut candidate_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut candidate_svc, id, url.clone(), UrlPresence::Present);
     let image_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -173,7 +173,7 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
 
     let mut cand_svc = MockScraperCandidateService::new();
     if expected_scope == NormalizationFailureScope::CandidateData {
-        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
     }
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -307,7 +307,7 @@ async fn should_try_all_cached_schemas_before_fresh_generation() {
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -400,7 +400,7 @@ async fn should_generate_fresh_schema_when_cached_data_fails() {
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -449,8 +449,8 @@ async fn should_abort_without_fresh_schema_when_cached_candidate_has_external_fa
     norm_svc.expect_normalize().once().returning(|_, _, _| {
         Box::pin(async {
             Err(normalization_failure(
-                NormalizationError::StateMappingError(
-                    crate::scraper::normalization::state_mapping_service::StateMappingServiceError::DatabaseError(
+                NormalizationError::ListingAvailabilityMappingError(
+                    crate::scraper::normalization::listing_availability_mapping_service::ListingAvailabilityMappingServiceError::DatabaseError(
                         sqlx::Error::RowNotFound,
                     ),
                 ),
@@ -524,7 +524,7 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -600,7 +600,7 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate() {
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),

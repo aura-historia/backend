@@ -1,9 +1,9 @@
 mod types;
 
 pub use types::{
-    ShopifyEventDetail, ShopifyEventMetadata, ShopifyImagePayload, ShopifyProductEventError,
-    ShopifyProductEventKind, ShopifyProductPayload, ShopifyVariantPayload,
-    fallbacked_html_to_markdown, product_availability,
+    ShopifyEventDetail, ShopifyEventMetadata, ShopifyImagePayload, ShopifyListingAction,
+    ShopifyProductEventError, ShopifyProductEventKind, ShopifyProductPayload,
+    ShopifyVariantPayload, fallbacked_html_to_markdown, product_availability,
 };
 
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
@@ -85,18 +85,19 @@ where
         shop_domain: Domain,
         payload: ShopifyProductPayload,
     ) -> Result<(), ShopifyProductListingProcessingError> {
-        match kind {
-            ShopifyProductEventKind::Create | ShopifyProductEventKind::Update => self
+        let shop_listing_id = ShopListingId::from(payload.id.to_string());
+        match kind
+            .listing_action(shop_domain.clone(), payload)
+            .map_err(ShopifyProductListingProcessingError::InvalidPayload)?
+        {
+            ShopifyListingAction::Ingest(command) => self
                 .ingestion
-                .execute(
-                    context,
-                    kind.command(shop_domain, payload)
-                        .map_err(ShopifyProductListingProcessingError::InvalidPayload)?,
-                )
+                .execute(context, *command)
                 .await
                 .map(|_| ())
                 .map_err(ShopifyProductListingProcessingError::Ingestion),
-            ShopifyProductEventKind::Delete => {
+            ShopifyListingAction::Ignore => Ok(()),
+            ShopifyListingAction::Withdraw => {
                 let shop = match self
                     .shops
                     .execute(context, GetShopRequest::ByShopifyDomain(shop_domain))
@@ -108,10 +109,7 @@ where
                         return Err(ShopifyProductListingProcessingError::ShopLookup(error));
                     }
                 };
-                let key = ProductListingKey::new(
-                    shop.shop_id,
-                    ShopListingId::from(payload.id.to_string()),
-                );
+                let key = ProductListingKey::new(shop.shop_id, shop_listing_id);
                 match self.withdrawal.execute_by_key(context, key).await {
                     Ok(_) | Err(WithdrawProductListingError::NotFound) => Ok(()),
                     Err(error) => Err(ShopifyProductListingProcessingError::Withdrawal(error)),

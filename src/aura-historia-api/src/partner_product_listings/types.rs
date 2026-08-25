@@ -1,6 +1,7 @@
 use crate::error::{ApiError, ApiErrorCode, BAD_BODY_VALUE};
 use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
 use crate::values::{LocalizedTextData, PriceData};
+use application::patch_field::PatchField;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use money::Price;
 use product_listing_core::description::Description;
@@ -198,7 +199,10 @@ impl UpsertProductListingData {
             price: self.price.map(price),
             price_estimate_min: self.price_estimate_min.map(price),
             price_estimate_max: self.price_estimate_max.map(price),
-            availability: self.availability,
+            availability: self
+                .availability
+                .map(PatchField::Set)
+                .unwrap_or(PatchField::Unchanged),
             url: self.url,
             images: product_images(self.images.unwrap_or_default()),
             auction_start: self.auction_start,

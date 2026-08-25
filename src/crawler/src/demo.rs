@@ -21,7 +21,7 @@
 //! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
 //! | `VERTEX_AI_MODEL` | Schema generation/repair model | `gemini-3.1-pro-preview` |
 //! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default low-risk crawler LLM model | `gemini-3.1-flash-lite` |
-//! | `CRAWLER_VERTEX_AI_STATE_MAPPING_MODEL` | Optional state mapping model override | `CRAWLER_VERTEX_AI_CHEAP_MODEL` |
+//! | `CRAWLER_VERTEX_AI_LISTING_AVAILABILITY_MAPPING_MODEL` | Optional state mapping model override | `CRAWLER_VERTEX_AI_CHEAP_MODEL` |
 //! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override | `CRAWLER_VERTEX_AI_CHEAP_MODEL` |
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls | `1` |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between LLM request starts | `2000` |
@@ -51,9 +51,9 @@ use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
+use crawler::scraper::normalization::listing_availability_mapping_repository::ListingAvailabilityMappingRepositoryImpl;
+use crawler::scraper::normalization::listing_availability_mapping_service::ListingAvailabilityMappingServiceImpl;
 use crawler::scraper::normalization::product_normalization_service::ProductListingNormalizationServiceImpl;
-use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
-use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{
     DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
@@ -265,7 +265,7 @@ async fn main() {
         info!(
             llm_provider = "vertex_ai",
             schema_model = %vertex_ai_models.product_schema,
-            state_mapping_model = %vertex_ai_models.product_state_mapping,
+            listing_availability_mapping_model = %vertex_ai_models.listing_availability_mapping,
             url_classification_model = %vertex_ai_models.url_classification,
             review_required,
             url_pattern_review_required,
@@ -276,24 +276,25 @@ async fn main() {
             CrawlerLlmRateLimitConfig::from_env(),
         ));
 
-        let state_llm =
-            match vertex_ai_config.create_model(vertex_ai_models.product_state_mapping.clone()) {
-                Ok(model) => model,
-                Err(error) => {
-                    error!(%error, "Failed to initialize Vertex AI model for state mapping");
-                    return;
-                }
-            };
-        let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(Box::leak(
-            Box::new(pool.clone()),
-        )));
-        let state_mapping_svc = ProductStateMappingServiceImpl::new(
+        let state_llm = match vertex_ai_config
+            .create_model(vertex_ai_models.listing_availability_mapping.clone())
+        {
+            Ok(model) => model,
+            Err(error) => {
+                error!(%error, "Failed to initialize Vertex AI model for state mapping");
+                return;
+            }
+        };
+        let listing_availability_mapping_repo = Box::new(
+            ListingAvailabilityMappingRepositoryImpl::new(Box::leak(Box::new(pool.clone()))),
+        );
+        let listing_availability_mapping_svc = ListingAvailabilityMappingServiceImpl::new(
             state_llm,
-            state_mapping_repo,
+            listing_availability_mapping_repo,
             Some(Arc::clone(&llm_governor)),
         );
         let normalization_svc =
-            ProductListingNormalizationServiceImpl::new(Box::new(state_mapping_svc));
+            ProductListingNormalizationServiceImpl::new(Box::new(listing_availability_mapping_svc));
 
         let create_schema_llm =
             match vertex_ai_config.create_model(vertex_ai_models.product_schema.clone()) {
@@ -409,7 +410,7 @@ async fn main() {
             shop_count = demo_shops().len(),
             llm_provider = "vertex_ai",
             schema_model = %vertex_ai_models.product_schema,
-            state_mapping_model = %vertex_ai_models.product_state_mapping,
+            listing_availability_mapping_model = %vertex_ai_models.listing_availability_mapping,
             url_classification_model = %vertex_ai_models.url_classification,
             review_required,
             url_pattern_review_required,

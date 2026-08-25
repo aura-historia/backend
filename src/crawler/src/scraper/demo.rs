@@ -13,7 +13,7 @@
 //! 1. Initialises structured info logging.
 //! 2. Connects to local Postgres and applies pending migrations.
 //! 3. Wires up all real service implementations:
-//!    - [`ProductStateMappingServiceImpl`]
+//!    - [`ListingAvailabilityMappingServiceImpl`]
 //!    - [`ProductListingNormalizationServiceImpl`]
 //!    - [`ProductListingSchemaServiceImpl`]
 //!    - [`ScraperServiceImpl`] (backed by a real [`reqwest::Client`])
@@ -29,7 +29,7 @@
 //! | `GOOGLE_APPLICATION_CREDENTIALS` | Optional local Application Default Credentials file | unset |
 //! | `VERTEX_AI_MODEL` | Schema generation/repair model | `gemini-3.1-pro-preview` |
 //! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default low-risk crawler LLM model | `gemini-3.1-flash-lite` |
-//! | `CRAWLER_VERTEX_AI_STATE_MAPPING_MODEL` | Optional state mapping model override | `CRAWLER_VERTEX_AI_CHEAP_MODEL` |
+//! | `CRAWLER_VERTEX_AI_LISTING_AVAILABILITY_MAPPING_MODEL` | Optional state mapping model override | `CRAWLER_VERTEX_AI_CHEAP_MODEL` |
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls | `1` |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between LLM request starts | `2000` |
 //! | `LOG_LEVEL`      | Log level for `init_logging`         | `info`             |
@@ -56,10 +56,10 @@ use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
+use crawler::scraper::normalization::listing_availability_mapping_repository::ListingAvailabilityMappingRepositoryImpl;
+use crawler::scraper::normalization::listing_availability_mapping_service::ListingAvailabilityMappingServiceImpl;
 use crawler::scraper::normalization::product::NormalizedProduct;
 use crawler::scraper::normalization::product_normalization_service::ProductListingNormalizationServiceImpl;
-use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
-use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{
     DEFAULT_MAX_LLM_CALLS_PER_SHOP, ReqwestHtmlFetcher, ScraperService, ScraperServiceImpl,
 };
@@ -187,7 +187,7 @@ impl From<NormalizedProduct> for DemoProduct {
             price: p.price.map(Into::into),
             price_estimate_min: p.price_estimate_min.map(Into::into),
             price_estimate_max: p.price_estimate_max.map(Into::into),
-            availability: p.availability,
+            availability: p.availability.availability(),
             url: p.url,
             images: p.images.into_iter().map(Into::into).collect(),
             auction_start: p.auction_start,
@@ -365,7 +365,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     info!(
         llm_provider = "vertex_ai",
         schema_model = %vertex_ai_models.product_schema,
-        state_mapping_model = %vertex_ai_models.product_state_mapping,
+        listing_availability_mapping_model = %vertex_ai_models.listing_availability_mapping,
         "Crawler scraper demo Vertex AI configuration resolved"
     );
     let llm_governor = Arc::new(CrawlerLlmGovernor::new(
@@ -379,20 +379,21 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         .create_model(vertex_ai_models.product_schema.clone())
         .expect("failed to initialize Vertex AI model for fresh schema generation");
     let state_llm = vertex_ai_config
-        .create_model(vertex_ai_models.product_state_mapping.clone())
+        .create_model(vertex_ai_models.listing_availability_mapping.clone())
         .expect("failed to initialize Vertex AI model for state mapping");
 
     // State-mapping service (DB-backed + LLM fallback).
-    let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(pool));
-    let state_mapping_svc = ProductStateMappingServiceImpl::new(
+    let listing_availability_mapping_repo =
+        Box::new(ListingAvailabilityMappingRepositoryImpl::new(pool));
+    let listing_availability_mapping_svc = ListingAvailabilityMappingServiceImpl::new(
         state_llm,
-        state_mapping_repo,
+        listing_availability_mapping_repo,
         Some(Arc::clone(&llm_governor)),
     );
 
     // Normalization service.
     let normalization_svc =
-        ProductListingNormalizationServiceImpl::new(Box::new(state_mapping_svc));
+        ProductListingNormalizationServiceImpl::new(Box::new(listing_availability_mapping_svc));
 
     // Schema service (DB-backed + initial/fresh LLM generation).
     let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(pool));

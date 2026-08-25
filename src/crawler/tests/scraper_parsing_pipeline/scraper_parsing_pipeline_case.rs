@@ -95,15 +95,14 @@ fn fixture_from_json(f: FixtureJson) -> ScraperParsingPipelineFixture {
 }
 
 fn parse_availability_record(s: &str) -> Option<ListingAvailability> {
-    match s {
-        "AVAILABLE" => Some(ListingAvailability::Available),
-        "LISTED" => None,
-        "RESERVED" => Some(ListingAvailability::Reserved),
-        "SOLD" => Some(ListingAvailability::SoldOut),
-        "REMOVED" => None,
-        "UNKNOWN" => None,
-        other => panic!("unsupported availability_record '{other}' in fixtures.json"),
+    if s == "NO_ASSERTION" {
+        return None;
     }
+
+    Some(
+        ListingAvailability::from_code(s)
+            .unwrap_or_else(|| panic!("unsupported availability_record '{s}' in fixtures.json")),
+    )
 }
 
 fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectation {
@@ -123,7 +122,7 @@ fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectatio
             data.price_estimate_max_currency.as_deref(),
         ),
         seller_name: data.seller_name,
-        availability: parse_availability(&data.availability),
+        availability: parse_availability(data.availability.as_deref()),
         url: data.url,
         images: data.images,
         auction_start: parse_optional_rfc3339(data.auction_start.as_deref()),
@@ -168,16 +167,12 @@ fn parse_currency(code: &str) -> Currency {
     }
 }
 
-fn parse_availability(s: &str) -> Option<ListingAvailability> {
-    match s {
-        "LISTED" => None,
-        "AVAILABLE" => Some(ListingAvailability::Available),
-        "RESERVED" => Some(ListingAvailability::Reserved),
-        "SOLD" => Some(ListingAvailability::SoldOut),
-        "REMOVED" => None,
-        "UNKNOWN" => None,
-        other => panic!("unsupported normalized availability '{other}' in fixtures.json"),
-    }
+fn parse_availability(value: Option<&str>) -> Option<ListingAvailability> {
+    value.map(|code| {
+        ListingAvailability::from_code(code).unwrap_or_else(|| {
+            panic!("unsupported normalized availability '{code}' in fixtures.json")
+        })
+    })
 }
 
 fn parse_optional_rfc3339(value: Option<&str>) -> Option<time::OffsetDateTime> {

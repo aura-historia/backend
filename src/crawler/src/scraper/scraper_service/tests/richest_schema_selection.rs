@@ -60,7 +60,7 @@ async fn should_select_richer_schema_even_when_it_is_later_in_order() {
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -120,7 +120,7 @@ async fn should_pick_earlier_schema_when_it_extracts_more_data() {
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -202,7 +202,7 @@ async fn should_generate_fresh_schema_when_no_cached_schema_applies() {
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -296,7 +296,7 @@ async fn should_generate_fresh_schema_when_richer_candidate_normalization_fails_
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),

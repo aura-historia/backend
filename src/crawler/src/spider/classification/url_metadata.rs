@@ -1,4 +1,3 @@
-use product_listing_core::listing_availability::ListingAvailability;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -62,71 +61,28 @@ impl UrlClass {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum UrlState {
-    Listed,
-    Available,
-    Reserved,
-    Sold,
-    Removed,
-    Unknown,
+pub enum UrlPresence {
+    Present,
+    Withdrawn,
 }
 
-impl std::fmt::Display for UrlState {
+impl std::fmt::Display for UrlPresence {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            UrlState::Listed => write!(f, "LISTED"),
-            UrlState::Available => write!(f, "AVAILABLE"),
-            UrlState::Reserved => write!(f, "RESERVED"),
-            UrlState::Sold => write!(f, "SOLD"),
-            UrlState::Removed => write!(f, "REMOVED"),
-            UrlState::Unknown => write!(f, "UNKNOWN"),
-        }
+        f.write_str(match self {
+            Self::Present => "PRESENT",
+            Self::Withdrawn => "WITHDRAWN",
+        })
     }
 }
 
-impl std::str::FromStr for UrlState {
+impl std::str::FromStr for UrlPresence {
     type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "LISTED" => Ok(UrlState::Listed),
-            "AVAILABLE" => Ok(UrlState::Available),
-            "RESERVED" => Ok(UrlState::Reserved),
-            "SOLD" => Ok(UrlState::Sold),
-            "REMOVED" => Ok(UrlState::Removed),
-            "UNKNOWN" => Ok(UrlState::Unknown),
-            _ => Err(format!("Invalid URL state: {s}")),
-        }
-    }
-}
 
-impl UrlState {
-    pub fn from_db(value: &str) -> Self {
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "LISTED" => UrlState::Listed,
-            "AVAILABLE" => UrlState::Available,
-            "RESERVED" => UrlState::Reserved,
-            "SOLD" => UrlState::Sold,
-            "REMOVED" => UrlState::Removed,
-            _ => UrlState::Unknown,
-        }
-    }
-}
-
-impl From<Option<ListingAvailability>> for UrlState {
-    fn from(value: Option<ListingAvailability>) -> Self {
-        match value {
-            Some(ListingAvailability::Available) => Self::Available,
-            Some(ListingAvailability::Reserved) => Self::Reserved,
-            Some(ListingAvailability::SoldOut) => Self::Sold,
-            Some(ListingAvailability::InStock)
-            | Some(ListingAvailability::LimitedAvailability)
-            | Some(ListingAvailability::BackOrder)
-            | Some(ListingAvailability::MadeToOrder)
-            | Some(ListingAvailability::PreOrder)
-            | Some(ListingAvailability::PreSale)
-            | Some(ListingAvailability::Unavailable)
-            | Some(ListingAvailability::OutOfStock)
-            | None => Self::Unknown,
+            "PRESENT" => Ok(Self::Present),
+            "WITHDRAWN" => Ok(Self::Withdrawn),
+            _ => Err(format!("Invalid URL presence: {value}")),
         }
     }
 }
@@ -135,7 +91,9 @@ impl From<Option<ListingAvailability>> for UrlState {
 pub struct CrawledUrlMetadata {
     pub url: String,
     pub class: UrlClass,
-    pub state: UrlState,
+    pub presence: UrlPresence,
+    /// Canonical crawler-local availability code, if the last scrape asserted one.
+    pub availability: Option<String>,
 
     #[serde(
         with = "time::serde::rfc3339::option",
@@ -153,22 +111,12 @@ pub struct CrawledUrlMetadata {
 
 #[cfg(test)]
 mod tests {
-    use super::UrlState;
-    use product_listing_core::listing_availability::ListingAvailability;
+    use super::UrlPresence;
 
     #[test]
-    fn should_map_availability_observations_to_url_states() {
-        let cases = [
-            (Some(ListingAvailability::Available), UrlState::Available),
-            (Some(ListingAvailability::Reserved), UrlState::Reserved),
-            (Some(ListingAvailability::SoldOut), UrlState::Sold),
-            (Some(ListingAvailability::InStock), UrlState::Unknown),
-            (Some(ListingAvailability::OutOfStock), UrlState::Unknown),
-            (None, UrlState::Unknown),
-        ];
-
-        for (availability, expected_url_state) in cases {
-            assert_eq!(UrlState::from(availability), expected_url_state);
-        }
+    fn should_parse_only_presence_values() {
+        assert_eq!("PRESENT".parse(), Ok(UrlPresence::Present));
+        assert_eq!("WITHDRAWN".parse(), Ok(UrlPresence::Withdrawn));
+        assert!("AVAILABLE".parse::<UrlPresence>().is_err());
     }
 }

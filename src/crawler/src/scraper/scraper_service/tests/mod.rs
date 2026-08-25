@@ -25,6 +25,7 @@ use crate::scraper::css_selector::rule::{
     CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
 };
 use crate::scraper::normalization::error::NormalizationError;
+use crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping;
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::normalization::product_normalization_service::{
     MockProductListingNormalizationService, NormalizationFailure, NormalizationSuccess,
@@ -33,7 +34,7 @@ use crate::scraper::scraper_service::ScraperService;
 use crate::scraper::scraper_service::service::{
     DEFAULT_MAX_LLM_CALLS_PER_SHOP, FetchedHtml, MockHtmlFetcher, ScraperServiceImpl,
 };
-use crate::spider::classification::url_metadata::UrlState;
+use crate::spider::classification::url_metadata::UrlPresence;
 use localization::Language;
 use localization::Localized;
 use product_listing_core::listing_availability::ListingAvailability;
@@ -169,7 +170,7 @@ pub(super) fn normalized_product(url: Url) -> NormalizedProduct {
         price_estimate_min: None,
         price_estimate_max: None,
         seller_name: None,
-        availability: Some(ListingAvailability::Available),
+        availability: ListingAvailabilityMapping::Availability(ListingAvailability::Available),
         url,
         images: vec![],
         auction_start: None,
@@ -202,15 +203,15 @@ pub(super) fn expect_successful_bookkeeping(
     cand_svc: &mut MockScraperCandidateService,
     shop_id: ShopId,
     url: Url,
-    state: UrlState,
+    state: UrlPresence,
 ) {
-    let url_for_set_state = url.clone();
+    let url_for_set_presence = url.clone();
     cand_svc
-        .expect_set_state()
+        .expect_set_presence()
         .once()
         .withf(move |received_shop_id, received_url, received_state| {
             *received_shop_id == shop_id
-                && received_url == &url_for_set_state
+                && received_url == &url_for_set_presence
                 && *received_state == state
         })
         .returning(|_, _, _| Box::pin(async { Ok(()) }));

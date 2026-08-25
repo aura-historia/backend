@@ -3,6 +3,7 @@ use crate::use_cases::{
     UpsertProductListingUseCase,
 };
 use application::operation_context::OperationContext;
+use application::patch_field::PatchField;
 use indexmap::IndexSet;
 use localization::Localized;
 use money::{MonetaryAmount, Price};
@@ -26,7 +27,7 @@ pub struct IngestShopifyProductListingCommand {
     pub description: Option<String>,
     pub handle: String,
     pub price: Option<String>,
-    pub availability: Option<ListingAvailability>,
+    pub availability: PatchField<ListingAvailability>,
     pub image_urls: IndexSet<Url>,
 }
 
@@ -374,7 +375,7 @@ mod tests {
             description: Some("Cabinet description".to_owned()),
             handle: "cabinet".to_owned(),
             price: Some("42.00".to_owned()),
-            availability: Some(ListingAvailability::InStock),
+            availability: PatchField::Set(ListingAvailability::InStock),
             image_urls: IndexSet::new(),
         }
     }

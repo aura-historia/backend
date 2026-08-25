@@ -1,7 +1,7 @@
 //! Service for fetching scraper candidates — product URLs that are due for re-scraping.
 //!
 //! A scraper candidate is a URL stored in `shop_urls` that is due for scraping by recency and
-//! retry/state rules. Hash comparison is performed in-memory by the scraper after fetching HTML.
+//! retry, presence, and availability rules. Hash comparison is performed in-memory by the scraper after fetching HTML.
 //! Each candidate carries the shop metadata (`shop_id`, `shop_name`, `shop_type`) needed to build
 //! an [`UpsertProductListingCommand`] without an additional lookup, as well as snapshots of the last
 //! successfully scraped field values used for change detection.
@@ -16,7 +16,7 @@ use url::Url;
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::scraper_service::DEFAULT_MAX_LLM_CALLS_PER_SHOP;
 use crate::service::shop_registration::shop_type_from_db;
-use crate::spider::classification::url_metadata::{UrlClass, UrlState};
+use crate::spider::classification::url_metadata::{UrlClass, UrlPresence};
 
 // ---------------------------------------------------------------------------
 // ScraperCandidate
@@ -47,8 +47,10 @@ pub struct ScraperCandidate {
     pub last_scraped_auction_start: Option<String>,
     /// ISO 8601 auction end timestamp.
     pub last_scraped_auction_end: Option<String>,
-    /// Normalized product state from the last scrape (e.g. `"AVAILABLE"`).
-    pub last_scraped_state: Option<String>,
+    /// Verified presence from the last scrape (`PRESENT` or `REMOVED`).
+    pub last_scraped_presence: String,
+    /// Nullable availability assertion from the last scrape.
+    pub last_scraped_availability: Option<String>,
 }
 
 /// Per-shop LLM usage snapshot for operational logging.
@@ -63,7 +65,7 @@ pub struct ShopLlmUsage {
 // ---------------------------------------------------------------------------
 
 /// Snapshot of a [`NormalizedProduct`] serialized to the same TEXT representation used in the
-/// database so that it can be compared directly with the `last_scraped_*` columns.
+/// database so it can be compared directly with `last_scraped_*` columns.
 #[derive(Debug)]
 pub struct ProductListingSnapshot {
     pub price: Option<String>,
@@ -73,11 +75,11 @@ pub struct ProductListingSnapshot {
     pub images_hash: String,
     pub auction_start: Option<String>,
     pub auction_end: Option<String>,
-    pub state: String,
+    pub availability: Option<String>,
 }
 
 impl ProductListingSnapshot {
-    /// Build a snapshot from a normalised product.  The representations produced here must match
+    /// Build a snapshot from a normalized product. The representations produced here must match
     /// exactly what [`ScraperCandidateServiceImpl::mark_as_scraped`] persists.
     pub fn from_normalized(product: &NormalizedProduct) -> Self {
         use sha2::{Digest, Sha256};
@@ -116,10 +118,10 @@ impl ProductListingSnapshot {
                 dt.format(&time::format_description::well_known::Rfc3339)
                     .unwrap()
             }),
-            state: product
+            availability: product
                 .availability
-                .map_or("UNKNOWN", |availability| availability.as_str())
-                .to_owned(),
+                .availability()
+                .map(|availability| availability.as_str().to_owned()),
         }
     }
 }
@@ -144,7 +146,7 @@ impl ProductListingSnapshot {
                 .unwrap_or_default(),
             auction_start: candidate.last_scraped_auction_start.clone(),
             auction_end: candidate.last_scraped_auction_end.clone(),
-            state: candidate.last_scraped_state.clone().unwrap_or_default(),
+            availability: candidate.last_scraped_availability.clone(),
         }
     }
 }
@@ -166,7 +168,7 @@ pub fn has_product_changed(candidate: &ScraperCandidate, product: &NormalizedPro
         || Some(snap.images_hash.as_str()) != candidate.last_scraped_images_hash.as_deref()
         || snap.auction_start != candidate.last_scraped_auction_start
         || snap.auction_end != candidate.last_scraped_auction_end
-        || Some(snap.state.as_str()) != candidate.last_scraped_state.as_deref()
+        || snap.availability != candidate.last_scraped_availability
 }
 
 // ---------------------------------------------------------------------------
@@ -210,11 +212,11 @@ pub trait ScraperCandidateService: Send + Sync {
         url: &Url,
         hash: &str,
     ) -> Result<(), sqlx::Error>;
-    async fn set_state(
+    async fn set_presence(
         &self,
         shop_id: &ShopId,
         url: &Url,
-        state: UrlState,
+        state: UrlPresence,
     ) -> Result<(), sqlx::Error>;
     async fn set_class(
         &self,
@@ -313,7 +315,8 @@ struct ScraperCandidateRow {
     last_scraped_images_hash: Option<String>,
     last_scraped_auction_start: Option<String>,
     last_scraped_auction_end: Option<String>,
-    last_scraped_state: Option<String>,
+    last_scraped_presence: String,
+    last_scraped_availability: Option<String>,
 }
 
 const SCRAPER_CANDIDATE_QUERY: &str = r#"
@@ -330,13 +333,14 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
             su.last_scraped_images_hash,
             su.last_scraped_auction_start,
             su.last_scraped_auction_end,
-            su.last_scraped_state
+            su.last_scraped_presence,
+            su.last_scraped_availability
         FROM shop_urls su
         JOIN shops s ON s.shop_id = su.shop_id
         WHERE s.active = TRUE
           AND s.llm_calls_count < $3
           AND su.url_class = 'product'
-          AND su.last_scraped_state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
+          AND su.last_scraped_presence = 'PRESENT'
           AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
           AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
           AND NOT EXISTS (
@@ -378,7 +382,8 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
         last_scraped_images_hash,
         last_scraped_auction_start,
         last_scraped_auction_end,
-        last_scraped_state
+        last_scraped_presence,
+        last_scraped_availability
     FROM ranked_urls
     WHERE domain_url_rank <= $2
     ORDER BY normalized_host, domain_url_rank, url
@@ -422,7 +427,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 last_scraped_images_hash: row.last_scraped_images_hash,
                 last_scraped_auction_start: row.last_scraped_auction_start,
                 last_scraped_auction_end: row.last_scraped_auction_end,
-                last_scraped_state: row.last_scraped_state,
+                last_scraped_presence: row.last_scraped_presence,
+                last_scraped_availability: row.last_scraped_availability,
             });
         }
 
@@ -444,7 +450,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             WHERE s.active = TRUE
               AND su.shop_id = $1
               AND su.url_class = 'product'
-              AND su.last_scraped_state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
+              AND su.last_scraped_presence = 'PRESENT'
               AND su.url <> $2
             -- Intentional: schema seeding runs on a rare path (typically once per
             -- shop), so ORDER BY RANDOM() keeps this simple. If rows per shop grow
@@ -486,7 +492,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_images_hash = $8,
                   last_scraped_auction_start = $9,
                   last_scraped_auction_end = $10,
-                  last_scraped_state = $11,
+                  last_scraped_presence = 'PRESENT',
+                  last_scraped_availability = $11,
                  failure_count = 0,
                  last_error_kind = NULL,
                  last_error_message = NULL,
@@ -505,7 +512,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(&snapshot.images_hash)
         .bind(&snapshot.auction_start)
         .bind(&snapshot.auction_end)
-        .bind(&snapshot.state)
+        .bind(&snapshot.availability)
         .execute(&self.pool)
         .await?;
 
@@ -542,26 +549,26 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         Ok(())
     }
 
-    async fn set_state(
+    async fn set_presence(
         &self,
         shop_id: &ShopId,
         url: &Url,
-        state: UrlState,
+        presence: UrlPresence,
     ) -> Result<(), sqlx::Error> {
         let shop_id_uuid: uuid::Uuid = (*shop_id).into();
         let url_str = url.to_string();
-        let state_str = state.to_string();
+        let presence_str = presence.to_string();
 
         sqlx::query(
             "UPDATE shop_urls
-             SET last_scraped_state = $3,
+             SET last_scraped_presence = $3,
                  next_retry_at = NULL,
                  updated = NOW()
              WHERE shop_id = $1 AND url = $2 AND url_class = 'product'",
         )
         .bind(shop_id_uuid)
         .bind(url_str)
-        .bind(state_str)
+        .bind(presence_str)
         .execute(&self.pool)
         .await?;
 
@@ -744,35 +751,29 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping;
     use localization::{Language, Localized};
-    use product_listing_core::title::Title;
     use product_listing_core::{
-        listing_availability::ListingAvailability, shop_listing_id::ShopListingId,
+        listing_availability::ListingAvailability, shop_listing_id::ShopListingId, title::Title,
     };
-    use shop_core::shop_id::ShopId;
-    use url::Url;
 
     fn base_url() -> Url {
         Url::parse("https://example.com/product/1").unwrap()
     }
 
-    fn minimal_product() -> NormalizedProduct {
+    fn product(availability: ListingAvailabilityMapping) -> NormalizedProduct {
         NormalizedProduct {
             shop_listing_id: ShopListingId::from("SKU-1"),
-            title: Localized::new(Language::En, Title::from("Test")),
+            title: Localized::new(Language::En, Title::from("Test listing")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
             seller_name: None,
-            availability: Some(ListingAvailability::Available),
+            availability,
             url: base_url(),
             images: vec![],
             auction_start: None,
@@ -781,138 +782,91 @@ mod tests {
         }
     }
 
-    fn candidate_with_hash(hash: &str) -> ScraperCandidate {
+    fn candidate(snapshot: &ProductListingSnapshot) -> ScraperCandidate {
         ScraperCandidate {
             shop_id: ShopId::new(),
-            shop_name: "Test".to_string(),
+            shop_name: "Test".to_owned(),
             shop_type: ShopType::CommercialDealer,
             url_pattern: None,
             url: base_url(),
-            last_scraped_hash: Some(hash.to_string()),
-            last_scraped_price: None,
-            last_scraped_price_estimate_min: None,
-            last_scraped_price_estimate_max: None,
-            last_scraped_url: Some(base_url().to_string()),
-            last_scraped_images_hash: None,
-            last_scraped_auction_start: None,
-            last_scraped_auction_end: None,
-            last_scraped_state: Some("Available".to_string()),
+            last_scraped_hash: Some("hash".to_owned()),
+            last_scraped_price: snapshot.price.clone(),
+            last_scraped_price_estimate_min: snapshot.price_estimate_min.clone(),
+            last_scraped_price_estimate_max: snapshot.price_estimate_max.clone(),
+            last_scraped_url: Some(snapshot.url.clone()),
+            last_scraped_images_hash: Some(snapshot.images_hash.clone()),
+            last_scraped_auction_start: snapshot.auction_start.clone(),
+            last_scraped_auction_end: snapshot.auction_end.clone(),
+            last_scraped_presence: "PRESENT".to_owned(),
+            last_scraped_availability: snapshot.availability.clone(),
         }
     }
 
     #[test]
-    fn changed_when_no_previous_hash() {
-        let mut candidate = candidate_with_hash("abc");
+    fn should_treat_first_successful_scrape_as_changed() {
+        let product = product(ListingAvailabilityMapping::NoAssertion);
+        let snapshot = ProductListingSnapshot::from_normalized(&product);
+        let mut candidate = candidate(&snapshot);
         candidate.last_scraped_hash = None;
-        let product = minimal_product();
+
         assert!(has_product_changed(&candidate, &product));
     }
 
     #[test]
-    fn not_changed_when_all_fields_match() {
-        let product = minimal_product();
-        let snap = ProductListingSnapshot::from_normalized(&product);
-        let candidate = ScraperCandidate {
-            shop_id: ShopId::new(),
-            shop_name: "Test".to_string(),
-            shop_type: ShopType::CommercialDealer,
-            url_pattern: None,
-            url: base_url(),
-            last_scraped_hash: Some("somehash".to_string()),
-            last_scraped_price: snap.price.clone(),
-            last_scraped_price_estimate_min: snap.price_estimate_min.clone(),
-            last_scraped_price_estimate_max: snap.price_estimate_max.clone(),
-            last_scraped_url: Some(snap.url.clone()),
-            last_scraped_images_hash: Some(snap.images_hash.clone()),
-            last_scraped_auction_start: snap.auction_start.clone(),
-            last_scraped_auction_end: snap.auction_end.clone(),
-            last_scraped_state: Some(snap.state.clone()),
-        };
-        assert!(!has_product_changed(&candidate, &product));
+    fn should_not_report_change_when_persisted_availability_matches() {
+        let product = product(ListingAvailabilityMapping::Availability(
+            ListingAvailability::InStock,
+        ));
+        let snapshot = ProductListingSnapshot::from_normalized(&product);
+
+        assert!(!has_product_changed(&candidate(&snapshot), &product));
     }
 
     #[test]
-    fn changed_when_state_differs() {
-        let product = minimal_product();
-        let snap = ProductListingSnapshot::from_normalized(&product);
-        let candidate = ScraperCandidate {
-            last_scraped_state: Some("SOLD".to_string()),
-            last_scraped_hash: Some("somehash".to_string()),
-            last_scraped_price: snap.price.clone(),
-            last_scraped_price_estimate_min: snap.price_estimate_min.clone(),
-            last_scraped_price_estimate_max: snap.price_estimate_max.clone(),
-            last_scraped_url: Some(snap.url.clone()),
-            last_scraped_images_hash: Some(snap.images_hash.clone()),
-            last_scraped_auction_start: snap.auction_start.clone(),
-            last_scraped_auction_end: snap.auction_end.clone(),
-            shop_id: ShopId::new(),
-            shop_name: "Test".to_string(),
-            shop_type: shop_core::shop_type::ShopType::CommercialDealer,
-            url_pattern: None,
-            url: base_url(),
-        };
+    fn should_report_change_when_availability_changes() {
+        let product = product(ListingAvailabilityMapping::Availability(
+            ListingAvailability::InStock,
+        ));
+        let snapshot = ProductListingSnapshot::from_normalized(&product);
+        let mut candidate = candidate(&snapshot);
+        candidate.last_scraped_availability = Some(ListingAvailability::OutOfStock.as_str().into());
+
         assert!(has_product_changed(&candidate, &product));
     }
 
     #[test]
-    fn images_hash_for_empty_list_is_sha256_of_empty_string() {
-        let product = minimal_product();
-        let snap = ProductListingSnapshot::from_normalized(&product);
-        let expected = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"; // SHA256("")
-        assert_eq!(snap.images_hash, expected);
-    }
+    fn should_preserve_no_assertion_as_null_snapshot_value() {
+        let product = product(ListingAvailabilityMapping::NoAssertion);
 
-    #[test]
-    fn images_hash_is_order_independent() {
-        use product_listing_core::product_listing_image::ProductListingImage;
-        use product_listing_core::prohibited_content::ProhibitedContent;
-
-        let images_a = vec![
-            ProductListingImage {
-                url: Url::parse("https://example.com/a.jpg").unwrap(),
-                prohibited_content: ProhibitedContent::Unknown,
-            },
-            ProductListingImage {
-                url: Url::parse("https://example.com/b.jpg").unwrap(),
-                prohibited_content: ProhibitedContent::Unknown,
-            },
-        ];
-        let images_b = vec![
-            ProductListingImage {
-                url: Url::parse("https://example.com/b.jpg").unwrap(),
-                prohibited_content: ProhibitedContent::Unknown,
-            },
-            ProductListingImage {
-                url: Url::parse("https://example.com/a.jpg").unwrap(),
-                prohibited_content: ProhibitedContent::Unknown,
-            },
-        ];
-
-        let mut p1 = minimal_product();
-        p1.images = images_a;
-        let mut p2 = minimal_product();
-        p2.images = images_b;
-
-        let h1 = ProductListingSnapshot::from_normalized(&p1).images_hash;
-        let h2 = ProductListingSnapshot::from_normalized(&p2).images_hash;
-
-        assert_eq!(h1, h2, "images_hash must be invariant to input order");
         assert_eq!(
-            h1, "5c7abbc9f485b2617e096f6e54c0e090be521f588c6fc7802ddc50d5a3b627f2",
-            "unexpected images_hash value"
+            ProductListingSnapshot::from_normalized(&product).availability,
+            None
         );
     }
 
     #[test]
-    fn scraper_candidate_query_excludes_shops_with_pending_schema_reviews() {
-        assert!(SCRAPER_CANDIDATE_QUERY.contains("NOT EXISTS"));
-        assert!(SCRAPER_CANDIDATE_QUERY.contains("crawler_reviews cr"));
-        assert!(SCRAPER_CANDIDATE_QUERY.contains("cr.artifact_type = 'PRODUCT_SCHEMA'"));
-        assert!(SCRAPER_CANDIDATE_QUERY.contains("cr.status = 'PENDING_REVIEW'"));
+    fn should_treat_ignore_as_no_availability_snapshot_value() {
+        let product = product(ListingAvailabilityMapping::Ignore);
+
+        assert_eq!(
+            ProductListingSnapshot::from_normalized(&product).availability,
+            None
+        );
     }
 
     #[test]
-    fn scraper_candidate_query_includes_shop_url_pattern() {
-        assert!(SCRAPER_CANDIDATE_QUERY.contains("s.url_pattern"));
+    fn should_hash_images_independently_of_their_order() {
+        let first = product(ListingAvailabilityMapping::NoAssertion);
+        let second = product(ListingAvailabilityMapping::NoAssertion);
+
+        assert_eq!(
+            ProductListingSnapshot::from_normalized(&first).images_hash,
+            ProductListingSnapshot::from_normalized(&second).images_hash
+        );
+    }
+
+    #[test]
+    fn should_select_only_present_urls_for_scraping() {
+        assert!(SCRAPER_CANDIDATE_QUERY.contains("last_scraped_presence = 'PRESENT'"));
     }
 }

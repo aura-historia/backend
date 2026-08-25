@@ -2,7 +2,7 @@ use crawler::scraper::candidate_service::{
     ProductListingSnapshot, ScraperCandidateService, ScraperCandidateServiceImpl,
 };
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
-use crawler::spider::classification::url_metadata::{UrlClass, UrlState};
+use crawler::spider::classification::url_metadata::{UrlClass, UrlPresence};
 use crawler::spider::classification::url_metadata_repository::{
     UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
@@ -20,7 +20,7 @@ fn minimal_snapshot(url: &str) -> ProductListingSnapshot {
         images_hash: "0".repeat(64),
         auction_start: None,
         auction_end: None,
-        state: "AVAILABLE".to_string(),
+        availability: Some("AVAILABLE".to_owned()),
     }
 }
 
@@ -652,108 +652,52 @@ async fn scraper_should_not_return_candidate_when_shop_is_inactive() {
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates — excluded states (Sold, Removed) are NOT returned
+// get_candidates — withdrawn URLs are not eligible, regardless of availability
 // ---------------------------------------------------------------------------
 
 #[serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn scraper_should_not_return_candidate_when_state_is_excluded() {
+async fn scraper_should_not_return_candidate_when_presence_is_withdrawn() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
-
-    let shop_id_uuid = uuid::Uuid::new_v4();
-    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "scraper-state.example.com").await;
-
-    let shop_id = shop_core::shop_id::ShopId::from(shop_id_uuid);
-    let repo = UrlMetadataRepositoryImpl::new(pool.clone());
-
-    let url_sold = url::Url::parse("https://scraper-state.example.com/p/sold").unwrap();
-    let url_removed = url::Url::parse("https://scraper-state.example.com/p/removed").unwrap();
-
-    repo.upsert_link(&shop_id, &domain_id, &url_sold, &UrlClass::ProductListing)
-        .await
-        .unwrap();
-    repo.upsert_link(
-        &shop_id,
-        &domain_id,
-        &url_removed,
-        &UrlClass::ProductListing,
-    )
-    .await
-    .unwrap();
-
-    repo.set_state(&shop_id, &url_sold, &UrlState::Sold)
-        .await
-        .unwrap();
-    repo.set_state(&shop_id, &url_removed, &UrlState::Removed)
-        .await
-        .unwrap();
-
-    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
-
-    assert!(
-        !candidates.iter().any(|c| c.url == url_sold),
-        "SOLD URL should not be returned"
-    );
-    assert!(
-        !candidates.iter().any(|c| c.url == url_removed),
-        "REMOVED URL should not be returned"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// get_candidates — included states (Available, Listed, Reserved, Unknown)
-//                  ARE returned
-// ---------------------------------------------------------------------------
-
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
-async fn scraper_should_return_candidate_for_all_included_states() {
-    let pool = get_postgres_client().await;
-    let service = ScraperCandidateServiceImpl::new(pool.clone());
-
     let shop_id_uuid = uuid::Uuid::new_v4();
     let domain_id =
-        insert_shop_with_domain(&pool, shop_id_uuid, "scraper-states.example.com").await;
-
+        insert_shop_with_domain(&pool, shop_id_uuid, "scraper-presence.example.com").await;
     let shop_id = shop_core::shop_id::ShopId::from(shop_id_uuid);
-    let repo = UrlMetadataRepositoryImpl::new(pool.clone());
+    let removed_url = url::Url::parse("https://scraper-presence.example.com/p/removed").unwrap();
+    let present_url =
+        url::Url::parse("https://scraper-presence.example.com/p/out-of-stock").unwrap();
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
 
-    let states = [
-        (
-            UrlState::Available,
-            "https://scraper-states.example.com/p/available",
-        ),
-        (
-            UrlState::Listed,
-            "https://scraper-states.example.com/p/listed",
-        ),
-        (
-            UrlState::Reserved,
-            "https://scraper-states.example.com/p/reserved",
-        ),
-        (
-            UrlState::Unknown,
-            "https://scraper-states.example.com/p/unknown",
-        ),
-    ];
-
-    for (state, url_str) in &states {
-        let url = url::Url::parse(url_str).unwrap();
-        repo.upsert_link(&shop_id, &domain_id, &url, &UrlClass::ProductListing)
+    for url in [&removed_url, &present_url] {
+        repository
+            .upsert_link(&shop_id, &domain_id, url, &UrlClass::ProductListing)
             .await
             .unwrap();
-        repo.set_state(&shop_id, &url, state).await.unwrap();
     }
+    repository
+        .set_presence(&shop_id, &removed_url, &UrlPresence::Withdrawn)
+        .await
+        .unwrap();
+
+    sqlx::query("UPDATE shop_urls SET last_scraped_availability = 'OUT_OF_STOCK' WHERE url = $1")
+        .bind(present_url.as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
 
-    for (_, url_str) in &states {
-        assert!(
-            candidates.iter().any(|c| c.url.as_str() == *url_str),
-            "URL with state that should be included was not returned: {url_str}"
-        );
-    }
+    assert!(
+        !candidates
+            .iter()
+            .any(|candidate| candidate.url == removed_url)
+    );
+    assert!(
+        candidates
+            .iter()
+            .any(|candidate| candidate.url == present_url)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1163,12 +1107,12 @@ async fn scraper_seed_urls_should_exclude_current_url() {
 }
 
 // ---------------------------------------------------------------------------
-// get_random_product_urls_for_schema_seed — same shop + product class + states
+// get_random_product_urls_for_schema_seed — same shop, product class, and presence
 // ---------------------------------------------------------------------------
 
 #[serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn scraper_seed_urls_should_only_include_same_shop_product_urls_in_eligible_states() {
+async fn scraper_seed_urls_should_only_include_same_shop_present_product_urls() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
@@ -1197,7 +1141,7 @@ async fn scraper_seed_urls_should_only_include_same_shop_product_urls_in_eligibl
     )
     .await
     .unwrap();
-    repo.set_state(&seed_shop_id, &eligible_url, &UrlState::Available)
+    repo.set_presence(&seed_shop_id, &eligible_url, &UrlPresence::Present)
         .await
         .unwrap();
 
@@ -1210,7 +1154,25 @@ async fn scraper_seed_urls_should_only_include_same_shop_product_urls_in_eligibl
     )
     .await
     .unwrap();
-    repo.set_state(&seed_shop_id, &sold_url, &UrlState::Sold)
+    repo.set_presence(&seed_shop_id, &sold_url, &UrlPresence::Present)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE shop_urls SET last_scraped_availability = 'SOLD_OUT' WHERE url = $1")
+        .bind(sold_url.as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let withdrawn_url = url::Url::parse("https://seed-filters.example.com/p/withdrawn").unwrap();
+    repo.upsert_link(
+        &seed_shop_id,
+        &seed_domain_id,
+        &withdrawn_url,
+        &UrlClass::ProductListing,
+    )
+    .await
+    .unwrap();
+    repo.set_presence(&seed_shop_id, &withdrawn_url, &UrlPresence::Withdrawn)
         .await
         .unwrap();
 
@@ -1253,8 +1215,12 @@ async fn scraper_seed_urls_should_only_include_same_shop_product_urls_in_eligibl
         "current URL must be excluded"
     );
     assert!(
-        sampled.iter().all(|u| u != &sold_url),
-        "SOLD URLs must be excluded"
+        sampled.iter().any(|u| u == &sold_url),
+        "present sold-out listings remain eligible schema seed pages"
+    );
+    assert!(
+        sampled.iter().all(|u| u != &withdrawn_url),
+        "withdrawn URLs must be excluded"
     );
     assert!(
         sampled.iter().all(|u| u != &category_url),

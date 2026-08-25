@@ -1,6 +1,7 @@
 //! Service for pushing scraped products to the canonical product use case.
 
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+use application::patch_field::PatchField;
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
 use indexmap::IndexSet;
@@ -121,8 +122,8 @@ fn merge_upsert_command(
     if let Some(value) = price_estimate_max {
         current.price_estimate_max = Some(value);
     }
-    if let Some(value) = availability {
-        current.availability = Some(value);
+    if !matches!(availability, PatchField::Unchanged) {
+        current.availability = availability;
     }
     if let Some(value) = url {
         current.url = Some(value);
@@ -267,7 +268,7 @@ struct UpsertCommandSnapshot {
     price: Option<PriceSnapshot>,
     price_estimate_min: Option<PriceSnapshot>,
     price_estimate_max: Option<PriceSnapshot>,
-    state: Option<String>,
+    availability: Option<String>,
     url: Option<String>,
     images: Vec<ProductListingImageSnapshot>,
     auction_start: Option<String>,
@@ -316,10 +317,10 @@ impl From<&ProductListingPushItem> for UpsertCommandSnapshot {
             price: command.price.map(snapshot_price),
             price_estimate_min: command.price_estimate_min.map(snapshot_price),
             price_estimate_max: command.price_estimate_max.map(snapshot_price),
-            state: command
-                .availability
-                .map(availability_name)
-                .map(str::to_owned),
+            availability: match command.availability {
+                PatchField::Set(availability) => Some(availability_name(availability).to_owned()),
+                PatchField::Unchanged | PatchField::Clear => None,
+            },
             url: command.url.as_ref().map(ToString::to_string),
             images: command
                 .images
@@ -443,7 +444,11 @@ pub fn normalize_to_upsert(
         price: product.price,
         price_estimate_min: product.price_estimate_min,
         price_estimate_max: product.price_estimate_max,
-        availability: product.availability,
+        availability: match product.availability {
+            crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping::Availability(availability) => PatchField::Set(availability),
+            crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping::NoAssertion => PatchField::Clear,
+            crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping::Ignore => PatchField::Unchanged,
+        },
         url: Some(product.url),
         images: product.images.into_iter().collect::<IndexSet<_>>(),
         auction_start: product.auction_start,
@@ -520,7 +525,7 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            availability: Some(ListingAvailability::Available),
+            availability: PatchField::Set(ListingAvailability::Available),
             url: Some(Url::parse("https://example.com/product/1")?),
             images: Default::default(),
             auction_start: None,
@@ -805,7 +810,8 @@ mod tests {
             last_scraped_images_hash: None,
             last_scraped_auction_start: None,
             last_scraped_auction_end: None,
-            last_scraped_state: None,
+            last_scraped_presence: "PRESENT".to_owned(),
+            last_scraped_availability: None,
         };
         let product = NormalizedProduct {
             shop_listing_id: ShopListingId::from("prod-1"),
@@ -815,7 +821,7 @@ mod tests {
             price_estimate_min: None,
             price_estimate_max: None,
             seller_name: None,
-            availability: Some(ListingAvailability::Available),
+            availability: crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping::Availability(ListingAvailability::Available),
             url: candidate.url.clone(),
             images: Vec::new(),
             auction_start: None,
@@ -865,7 +871,7 @@ mod tests {
             Err(error) => panic!("failed to read product snapshot: {error}"),
         };
         assert!(content.contains("\"seller_id\""));
-        assert!(content.contains("\"state\": \"AVAILABLE\""));
+        assert!(content.contains("\"availability\": \"AVAILABLE\""));
 
         let _ = std::fs::remove_file(path);
         Ok(())

@@ -21,7 +21,7 @@
 //! | `GOOGLE_APPLICATION_CREDENTIALS`| Optional local Application Default Credentials file             |
 //! | `VERTEX_AI_MODEL`               | Schema generation/repair model (default: `gemini-3.1-pro-preview`) |
 //! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default model for low-risk crawler LLM tasks                   |
-//! | `CRAWLER_VERTEX_AI_STATE_MAPPING_MODEL` | Optional state mapping model override                   |
+//! | `CRAWLER_VERTEX_AI_LISTING_AVAILABILITY_MAPPING_MODEL` | Optional state mapping model override                   |
 //! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override       |
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls (default: `1`)          |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between crawler LLM request starts (default: `2000`) |
@@ -59,9 +59,9 @@ use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
+use crawler::scraper::normalization::listing_availability_mapping_repository::ListingAvailabilityMappingRepositoryImpl;
+use crawler::scraper::normalization::listing_availability_mapping_service::ListingAvailabilityMappingServiceImpl;
 use crawler::scraper::normalization::product_normalization_service::ProductListingNormalizationServiceImpl;
-use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
-use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{
     DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
@@ -436,7 +436,7 @@ async fn main() {
         info!(
             llm_provider = "vertex_ai",
             schema_model = %vertex_ai_models.product_schema,
-            state_mapping_model = %vertex_ai_models.product_state_mapping,
+            listing_availability_mapping_model = %vertex_ai_models.listing_availability_mapping,
             url_classification_model = %vertex_ai_models.url_classification,
             max_concurrent_requests = llm_rate_limit_config.max_concurrent_requests,
             min_request_interval_ms = llm_rate_limit_config.min_request_interval.as_millis(),
@@ -444,19 +444,19 @@ async fn main() {
         );
 
         let state_llm = vertex_ai_config
-            .create_model(vertex_ai_models.product_state_mapping.clone())
+            .create_model(vertex_ai_models.listing_availability_mapping.clone())
             .expect("failed to initialize Vertex AI model for state mapping");
-        let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(Box::leak(
-            Box::new(pool.clone()),
-        )));
-        let state_mapping_svc = ProductStateMappingServiceImpl::new(
+        let listing_availability_mapping_repo = Box::new(
+            ListingAvailabilityMappingRepositoryImpl::new(Box::leak(Box::new(pool.clone()))),
+        );
+        let listing_availability_mapping_svc = ListingAvailabilityMappingServiceImpl::new(
             state_llm,
-            state_mapping_repo,
+            listing_availability_mapping_repo,
             Some(Arc::clone(&llm_governor)),
         );
 
         let normalization_svc =
-            ProductListingNormalizationServiceImpl::new(Box::new(state_mapping_svc));
+            ProductListingNormalizationServiceImpl::new(Box::new(listing_availability_mapping_svc));
 
         let create_schema_llm = vertex_ai_config
             .create_model(vertex_ai_models.product_schema.clone())
@@ -589,7 +589,7 @@ async fn main() {
             business_db_max_connections,
             llm_provider = "vertex_ai",
             schema_model = %vertex_ai_models.product_schema,
-            state_mapping_model = %vertex_ai_models.product_state_mapping,
+            listing_availability_mapping_model = %vertex_ai_models.listing_availability_mapping,
             url_classification_model = %vertex_ai_models.url_classification,
             review_required,
             url_pattern_review_required,

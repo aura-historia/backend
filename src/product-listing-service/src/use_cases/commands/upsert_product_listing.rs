@@ -9,6 +9,7 @@ use application::error::{BoxError, box_error};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
+use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
 
 use indexmap::IndexSet;
@@ -41,7 +42,7 @@ pub struct UpsertProductListingCommand {
     pub price: Option<Price>,
     pub price_estimate_min: Option<Price>,
     pub price_estimate_max: Option<Price>,
-    pub availability: Option<ListingAvailability>,
+    pub availability: PatchField<ListingAvailability>,
     pub url: Option<Url>,
     pub images: IndexSet<ProductListingImage>,
     pub auction_start: Option<time::OffsetDateTime>,
@@ -135,6 +136,7 @@ where
             Some(loaded) => {
                 let expected_event_id = loaded.version;
                 let mut product = loaded.value;
+                product.restore();
                 apply_update(&mut product, &command)?;
                 let events = stamp_product_listing_events(
                     product.id(),
@@ -259,7 +261,10 @@ impl UpsertProductListingCommand {
                 price_estimate_min: self.price_estimate_min,
                 price_estimate_max: self.price_estimate_max,
             },
-            availability: self.availability,
+            availability: match self.availability {
+                PatchField::Unchanged | PatchField::Clear => None,
+                PatchField::Set(availability) => Some(availability),
+            },
             url,
             images: self.images,
             auction: ProductListingAuction {
@@ -283,8 +288,14 @@ fn apply_update(
             .or(product.pricing().price_estimate_max),
     };
     product.replace_pricing(pricing)?;
-    if let Some(availability) = command.availability {
-        product.set_availability(availability)?;
+    match command.availability {
+        PatchField::Unchanged => {}
+        PatchField::Set(availability) => {
+            product.set_availability(availability)?;
+        }
+        PatchField::Clear => {
+            product.clear_availability()?;
+        }
     }
     if let Some(url) = &command.url {
         product.change_url(url.clone())?;

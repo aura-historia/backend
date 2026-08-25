@@ -1,3 +1,4 @@
+use application::patch_field::PatchField;
 use indexmap::IndexSet;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_service::use_cases::IngestShopifyProductListingCommand;
@@ -43,6 +44,8 @@ pub struct ShopifyVariantPayload {
     pub price: Option<String>,
     #[serde(default)]
     pub inventory_quantity: Option<i64>,
+    #[serde(default)]
+    pub inventory_management: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -57,6 +60,13 @@ pub enum ShopifyProductEventKind {
     Delete,
 }
 
+#[derive(Debug)]
+pub enum ShopifyListingAction {
+    Ingest(Box<IngestShopifyProductListingCommand>),
+    Withdraw,
+    Ignore,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ShopifyProductEventError {
     #[error("Shopify product title is missing")]
@@ -66,15 +76,29 @@ pub enum ShopifyProductEventError {
 }
 
 impl ShopifyProductEventKind {
-    pub fn command(
+    pub fn listing_action(
         self,
         shop_domain: shop_core::domain::Domain,
         payload: ShopifyProductPayload,
+    ) -> Result<ShopifyListingAction, ShopifyProductEventError> {
+        if self == Self::Delete {
+            return Ok(ShopifyListingAction::Withdraw);
+        }
+
+        match payload.status.as_deref() {
+            Some("archived" | "draft") => Ok(ShopifyListingAction::Withdraw),
+            Some("active") => Self::active_command(shop_domain, payload)
+                .map(Box::new)
+                .map(ShopifyListingAction::Ingest),
+            Some(_) | None => Ok(ShopifyListingAction::Ignore),
+        }
+    }
+
+    fn active_command(
+        shop_domain: shop_core::domain::Domain,
+        payload: ShopifyProductPayload,
     ) -> Result<IngestShopifyProductListingCommand, ShopifyProductEventError> {
-        let availability = match self {
-            Self::Delete => None,
-            Self::Create | Self::Update => product_availability(&payload),
-        };
+        let availability = product_availability(&payload);
         let title = payload
             .title
             .filter(|value| !value.trim().is_empty())
@@ -117,26 +141,24 @@ pub fn fallbacked_html_to_markdown(html: &str) -> String {
     }
 }
 
-pub fn product_availability(payload: &ShopifyProductPayload) -> Option<ListingAvailability> {
-    if payload.variants.iter().any(|variant| {
+/// Maps only reliable Shopify inventory facts. Missing and untracked inventory
+/// explicitly clears Aura's current availability assertion.
+pub fn product_availability(payload: &ShopifyProductPayload) -> PatchField<ListingAvailability> {
+    let tracked_quantities = payload.variants.iter().filter_map(|variant| {
         variant
-            .inventory_quantity
-            .is_some_and(|quantity| quantity > 0)
-    }) {
-        Some(ListingAvailability::InStock)
-    } else if payload
-        .variants
-        .iter()
-        .any(|variant| variant.inventory_quantity == Some(0))
-        && payload.variants.iter().all(|variant| {
-            variant
-                .inventory_quantity
-                .is_some_and(|quantity| quantity >= 0)
-        })
-    {
-        Some(ListingAvailability::OutOfStock)
+            .inventory_management
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .and(variant.inventory_quantity)
+    });
+    let quantities: Vec<i64> = tracked_quantities.collect();
+
+    if quantities.iter().any(|quantity| *quantity > 0) {
+        PatchField::Set(ListingAvailability::InStock)
+    } else if !quantities.is_empty() {
+        PatchField::Set(ListingAvailability::OutOfStock)
     } else {
-        None
+        PatchField::Clear
     }
 }
 
@@ -145,60 +167,91 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_clear_availability_for_delete_product_command() {
-        let payload = ShopifyProductPayload {
+    fn should_map_active_tracked_positive_inventory_to_in_stock() {
+        assert_eq!(
+            PatchField::Set(ListingAvailability::InStock),
+            product_availability(&payload_with_inventory(Some(1), Some("shopify")))
+        );
+    }
+
+    #[test]
+    fn should_map_active_tracked_non_positive_inventory_to_out_of_stock() {
+        assert_eq!(
+            PatchField::Set(ListingAvailability::OutOfStock),
+            product_availability(&payload_with_inventory(Some(0), Some("shopify")))
+        );
+    }
+
+    #[test]
+    fn should_clear_availability_when_inventory_is_missing_or_untracked() {
+        assert_eq!(
+            PatchField::Clear,
+            product_availability(&payload_with_inventory(None, Some("shopify")))
+        );
+        assert_eq!(
+            PatchField::Clear,
+            product_availability(&payload_with_inventory(Some(1), None))
+        );
+    }
+
+    #[test]
+    fn should_withdraw_for_delete_archived_and_draft() {
+        let domain = domain();
+        for (kind, status) in [
+            (ShopifyProductEventKind::Delete, Some("active")),
+            (ShopifyProductEventKind::Update, Some("archived")),
+            (ShopifyProductEventKind::Update, Some("draft")),
+        ] {
+            let mut payload = payload_with_inventory(Some(1), Some("shopify"));
+            payload.status = status.map(str::to_owned);
+            assert!(matches!(
+                kind.listing_action(domain.clone(), payload),
+                Ok(ShopifyListingAction::Withdraw)
+            ));
+        }
+    }
+
+    #[test]
+    fn should_ignore_missing_or_unsupported_status_without_requiring_listing_data() {
+        let mut payload = payload_with_inventory(Some(1), Some("shopify"));
+        payload.status = None;
+        assert!(matches!(
+            ShopifyProductEventKind::Update.listing_action(domain(), payload),
+            Ok(ShopifyListingAction::Ignore)
+        ));
+    }
+
+    #[test]
+    fn should_create_active_command_with_clear_for_untracked_inventory() {
+        let action = ShopifyProductEventKind::Create
+            .listing_action(domain(), payload_with_inventory(Some(1), None))
+            .unwrap_or_else(|error| panic!("mapping failed: {error}"));
+        assert!(matches!(
+            action,
+            ShopifyListingAction::Ingest(command)
+                if command.availability == PatchField::Clear
+        ));
+    }
+
+    fn domain() -> shop_core::domain::Domain {
+        shop_core::domain::Domain::try_from("partner.example")
+            .unwrap_or_else(|error| panic!("invalid domain: {error}"))
+    }
+
+    fn payload_with_inventory(
+        inventory_quantity: Option<i64>,
+        inventory_management: Option<&str>,
+    ) -> ShopifyProductPayload {
+        ShopifyProductPayload {
             id: 42,
             title: Some("Cabinet".to_owned()),
             body_html: None,
             handle: Some("cabinet".to_owned()),
             status: Some("active".to_owned()),
-            variants: Vec::new(),
-            images: Vec::new(),
-        };
-
-        let command = ShopifyProductEventKind::Delete
-            .command(
-                shop_core::domain::Domain::try_from("partner.example")
-                    .unwrap_or_else(|error| panic!("invalid domain: {error}")),
-                payload,
-            )
-            .unwrap_or_else(|error| panic!("failed mapping payload: {error}"));
-
-        assert_eq!(None, command.availability);
-        assert_eq!("42", command.shop_listing_id.to_string());
-    }
-
-    #[test]
-    fn should_map_positive_inventory_to_in_stock() {
-        assert_eq!(
-            Some(ListingAvailability::InStock),
-            product_availability(&payload_with_inventory(Some(1)))
-        );
-    }
-
-    #[test]
-    fn should_map_zero_inventory_to_out_of_stock() {
-        assert_eq!(
-            Some(ListingAvailability::OutOfStock),
-            product_availability(&payload_with_inventory(Some(0)))
-        );
-    }
-
-    #[test]
-    fn should_clear_availability_when_inventory_is_missing() {
-        assert_eq!(None, product_availability(&payload_with_inventory(None)));
-    }
-
-    fn payload_with_inventory(inventory_quantity: Option<i64>) -> ShopifyProductPayload {
-        ShopifyProductPayload {
-            id: 42,
-            title: None,
-            body_html: None,
-            handle: None,
-            status: Some("active".to_owned()),
             variants: vec![ShopifyVariantPayload {
                 price: None,
                 inventory_quantity,
+                inventory_management: inventory_management.map(str::to_owned),
             }],
             images: Vec::new(),
         }

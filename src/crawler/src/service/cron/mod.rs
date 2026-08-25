@@ -52,7 +52,8 @@ pub(super) mod test_support {
             last_scraped_images_hash: None,
             last_scraped_auction_start: None,
             last_scraped_auction_end: None,
-            last_scraped_state: None,
+            last_scraped_presence: "PRESENT".to_owned(),
+            last_scraped_availability: None,
         }
     }
 }

@@ -50,7 +50,8 @@ async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_
 /// fallback), that call must be charged against the per-shop budget in
 /// addition to the schema-generation call.
 #[tokio::test]
-async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses_llm() {
+async fn should_charge_budget_for_listing_availability_mapping_llm_call_when_normalization_uses_llm()
+ {
     let id = shop_id();
     let url = product_url();
 
@@ -97,7 +98,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses
     let mut cand_svc = MockScraperCandidateService::new();
     // Schema generation = 1 call, state mapping LLM = 1 call → 2 total.
     expect_budget_increment(&mut cand_svc, 2);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -115,7 +116,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses
         .unwrap();
     assert_eq!(
         result.product.availability,
-        Some(ListingAvailability::Available)
+        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
     );
 }
 
@@ -201,7 +202,7 @@ async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_c
 }
 
 #[tokio::test]
-async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_fails_and_next_schema_succeeds()
+async fn should_charge_budget_for_listing_availability_mapping_llm_call_when_normalization_fails_and_next_schema_succeeds()
  {
     let id = shop_id();
     let url = product_url();
@@ -249,7 +250,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_fail
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -267,7 +268,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_fail
         .unwrap();
     assert_eq!(
         result.product.availability,
-        Some(ListingAvailability::Available)
+        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
     );
 }
 

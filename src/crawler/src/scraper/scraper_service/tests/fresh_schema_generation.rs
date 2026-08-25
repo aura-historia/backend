@@ -85,7 +85,7 @@ async fn should_use_yaml_only_when_single_schema_applies() {
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher_with_sample_html()),
@@ -321,12 +321,12 @@ async fn should_mark_removed_when_fresh_generation_classifies_removed() {
     expect_budget_increment(&mut cand_svc, 1);
     let url_for_state = url.clone();
     cand_svc
-        .expect_set_state()
+        .expect_set_presence()
         .once()
         .withf(move |received_shop_id, received_url, received_state| {
             *received_shop_id == id
                 && received_url == &url_for_state
-                && *received_state == UrlState::Removed
+                && *received_state == UrlPresence::Withdrawn
         })
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
@@ -459,7 +459,7 @@ async fn should_reject_low_confidence_fresh_classification(
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    cand_svc.expect_set_state().never();
+    cand_svc.expect_set_presence().never();
     cand_svc.expect_set_class().never();
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -542,7 +542,7 @@ async fn should_not_change_state_or_class_when_fresh_classification_does_not_mat
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    cand_svc.expect_set_state().never();
+    cand_svc.expect_set_presence().never();
     cand_svc.expect_set_class().never();
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(

@@ -95,7 +95,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -168,7 +168,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         .expect_get_random_product_urls_for_schema_seed()
         .once()
         .returning(|_, _, _| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -186,7 +186,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         .unwrap();
     assert_eq!(
         result.product.availability,
-        Some(ListingAvailability::Available)
+        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
     );
 }
 
@@ -260,7 +260,7 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
             let sampled = vec![sample_seed_url_clone.clone()];
             Box::pin(async move { Ok(sampled) })
         });
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -278,7 +278,7 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
         .unwrap();
     assert_eq!(
         result.product.availability,
-        Some(ListingAvailability::Available)
+        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
     );
 }
 
@@ -351,7 +351,7 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
             let sampled = vec![sample_seed_url_clone.clone()];
             Box::pin(async move { Ok(sampled) })
         });
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -369,7 +369,7 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
         .unwrap();
     assert_eq!(
         result.product.availability,
-        Some(ListingAvailability::Available)
+        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
     );
 }
 
@@ -420,7 +420,7 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),

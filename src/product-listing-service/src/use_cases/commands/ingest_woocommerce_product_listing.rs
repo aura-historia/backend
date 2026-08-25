@@ -5,6 +5,7 @@ use crate::use_cases::{
 };
 use application::error::BoxError;
 use application::operation_context::{CredentialCapability, OperationContext, Principal};
+use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
 use indexmap::IndexSet;
 use localization::Localized;
@@ -28,7 +29,7 @@ use shop_service::use_cases::CheckUserPartnerShopRequest;
 use url::Url;
 use user_core::user_id::UserId;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WoocommerceProductEventKind {
     Create,
     Update,
@@ -52,8 +53,16 @@ pub struct IngestWoocommerceProductListingCommand {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum IngestWoocommerceProductListingResult {
+    Ignored,
     Upserted(UpsertProductListingResult),
     Withdrawn(WithdrawProductListingResult),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WoocommerceListingAction {
+    Upsert(PatchField<ListingAvailability>),
+    Withdraw,
+    Ignore,
 }
 #[derive(Debug, thiserror::Error)]
 pub enum IngestWoocommerceProductListingError {
@@ -235,8 +244,13 @@ where
         tx.commit()
             .await
             .map_err(|_| IngestWoocommerceProductListingError::CommitTransactionFailed)?;
-        match command.kind {
-            WoocommerceProductEventKind::Delete => self
+        match listing_action(
+            command.kind,
+            command.status.as_deref(),
+            command.stock_status.as_deref(),
+        ) {
+            WoocommerceListingAction::Ignore => Ok(IngestWoocommerceProductListingResult::Ignored),
+            WoocommerceListingAction::Withdraw => self
                 .withdrawals
                 .execute_by_key(
                     context,
@@ -250,7 +264,7 @@ where
                 .map_err(|source| {
                     IngestWoocommerceProductListingError::ProductListingWithdrawalFailed { source }
                 }),
-            WoocommerceProductEventKind::Create | WoocommerceProductEventKind::Update => {
+            WoocommerceListingAction::Upsert(availability) => {
                 let language = shop
                     .language
                     .ok_or(IngestWoocommerceProductListingError::MissingShopLanguage)?;
@@ -292,10 +306,7 @@ where
                             price,
                             price_estimate_min: None,
                             price_estimate_max: None,
-                            availability: product_availability(
-                                command.status.as_deref(),
-                                command.stock_status.as_deref(),
-                            ),
+                            availability,
                             url: Some(url),
                             images,
                             auction_start: None,
@@ -361,19 +372,24 @@ fn fallbacked_html_to_markdown(html: &str) -> String {
         Err(_) => html.to_owned(),
     }
 }
-fn product_availability(
+fn listing_action(
+    kind: WoocommerceProductEventKind,
     status: Option<&str>,
     stock_status: Option<&str>,
-) -> Option<ListingAvailability> {
+) -> WoocommerceListingAction {
+    if kind == WoocommerceProductEventKind::Delete {
+        return WoocommerceListingAction::Withdraw;
+    }
+
     match status {
-        Some("publish") if stock_status == Some("outofstock") => {
-            Some(ListingAvailability::OutOfStock)
-        }
-        Some("publish") if stock_status == Some("onbackorder") => {
-            Some(ListingAvailability::BackOrder)
-        }
-        Some("publish") => Some(ListingAvailability::InStock),
-        _ => None,
+        Some("trash" | "draft" | "pending" | "private") => WoocommerceListingAction::Withdraw,
+        Some("publish") => WoocommerceListingAction::Upsert(match stock_status {
+            Some("instock") => PatchField::Set(ListingAvailability::InStock),
+            Some("outofstock") => PatchField::Set(ListingAvailability::OutOfStock),
+            Some("onbackorder") => PatchField::Set(ListingAvailability::BackOrder),
+            Some(_) | None => PatchField::Clear,
+        }),
+        Some(_) | None => WoocommerceListingAction::Ignore,
     }
 }
 impl From<PartnerShopReadError> for IngestWoocommerceProductListingError {
@@ -399,5 +415,67 @@ impl From<WoocommerceWebhookShopReadError> for IngestWoocommerceProductListingEr
                 Self::InvalidWebhookShopReadModel { source }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_map_published_stock_statuses_without_creating_sale_observations() {
+        let cases = [
+            (
+                Some("instock"),
+                PatchField::Set(ListingAvailability::InStock),
+            ),
+            (
+                Some("outofstock"),
+                PatchField::Set(ListingAvailability::OutOfStock),
+            ),
+            (
+                Some("onbackorder"),
+                PatchField::Set(ListingAvailability::BackOrder),
+            ),
+            (None, PatchField::Clear),
+            (Some("unsupported"), PatchField::Clear),
+        ];
+
+        for (stock_status, expected) in cases {
+            assert!(matches!(
+                listing_action(WoocommerceProductEventKind::Update, Some("publish"), stock_status),
+                WoocommerceListingAction::Upsert(actual) if actual == expected
+            ));
+        }
+    }
+
+    #[test]
+    fn should_withdraw_only_authoritative_non_public_observations() {
+        for status in ["trash", "draft", "pending", "private"] {
+            assert!(matches!(
+                listing_action(WoocommerceProductEventKind::Update, Some(status), None),
+                WoocommerceListingAction::Withdraw
+            ));
+        }
+        assert!(matches!(
+            listing_action(WoocommerceProductEventKind::Delete, None, None),
+            WoocommerceListingAction::Withdraw
+        ));
+    }
+
+    #[test]
+    fn should_ignore_missing_or_unsupported_status() {
+        assert!(matches!(
+            listing_action(WoocommerceProductEventKind::Update, None, None),
+            WoocommerceListingAction::Ignore
+        ));
+        assert!(matches!(
+            listing_action(
+                WoocommerceProductEventKind::Update,
+                Some("future-status"),
+                Some("instock")
+            ),
+            WoocommerceListingAction::Ignore
+        ));
     }
 }

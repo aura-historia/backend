@@ -245,9 +245,9 @@
       ],
       "auction_start": null,
       "auction_end": null,
-      "availability": "REMOVED"
+      "availability": null
     },
-    "availability_record": "REMOVED"
+    "availability_record": "NO_ASSERTION"
   },
   {
     "html": "tests/fixtures/html/antik-und-stil_available.html",
@@ -702,9 +702,9 @@
       ],
       "auction_start": null,
       "auction_end": null,
-      "availability": "LISTED"
+      "availability": null
     },
-    "availability_record": "LISTED"
+    "availability_record": "NO_ASSERTION"
   },
   {
     "html": "tests/fixtures/html/collingeantiques_sold.html",
@@ -769,9 +769,9 @@
       ],
       "auction_start": null,
       "auction_end": null,
-      "availability": "SOLD"
+      "availability": "SOLD_OUT"
     },
-    "availability_record": "SOLD"
+    "availability_record": "SOLD_OUT"
   },
   {
     "html": "tests/fixtures/html/georgianantiques_sale.html",

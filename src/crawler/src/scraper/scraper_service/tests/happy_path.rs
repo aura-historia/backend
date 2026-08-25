@@ -46,7 +46,7 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -69,7 +69,7 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
     );
     assert_eq!(
         result.product.availability,
-        Some(ListingAvailability::Available)
+        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
     );
     assert_eq!(result.product.url, url);
 }
@@ -117,7 +117,7 @@ async fn should_return_normalized_product_with_all_fields_when_normalization_pro
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -186,7 +186,7 @@ async fn should_filter_invalid_thumbnail_images_before_normalization() {
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),

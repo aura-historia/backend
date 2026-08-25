@@ -8,7 +8,7 @@ use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSch
 use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
 use crate::scraper::scraper_service::util::hash::{hash_html, hash_main_fragment};
 use crate::scraper::scraper_service::util::html::extract_main_fragment;
-use crate::spider::classification::url_metadata::UrlState;
+use crate::spider::classification::url_metadata::UrlPresence;
 use crate::spider::utils::url::CrawledUrl;
 use regex::Regex;
 use shop_core::shop_id::ShopId;
@@ -56,22 +56,21 @@ impl ScraperServiceImpl {
     pub(crate) async fn mark_product_removed_best_effort(&self, shop_id: &ShopId, url: &Url) {
         if let Err(err) = self
             .candidate_service
-            .set_state(shop_id, url, UrlState::Removed)
+            .set_presence(shop_id, url, UrlPresence::Withdrawn)
             .await
         {
-            warn!(error = ?err, "Failed to mark product as REMOVED");
+            warn!(error = ?err, "Failed to mark product as withdrawn");
         }
     }
 
-    #[tracing::instrument(skip(self), fields(shop_id = %shop_id, url = %url, state = %state))]
-    pub(crate) async fn persist_scraped_state_best_effort(
-        &self,
-        shop_id: &ShopId,
-        url: &Url,
-        state: UrlState,
-    ) {
-        if let Err(err) = self.candidate_service.set_state(shop_id, url, state).await {
-            warn!(error = ?err, "Failed to persist scraped URL state");
+    #[tracing::instrument(skip(self), fields(shop_id = %shop_id, url = %url))]
+    pub(crate) async fn mark_product_present_best_effort(&self, shop_id: &ShopId, url: &Url) {
+        if let Err(err) = self
+            .candidate_service
+            .set_presence(shop_id, url, UrlPresence::Present)
+            .await
+        {
+            warn!(error = ?err, "Failed to mark product as PRESENT");
         }
     }
 
@@ -232,12 +231,7 @@ impl ScraperService for ScraperServiceImpl {
         };
 
         // 4. Bookkeeping ------------------------------------------------
-        self.persist_scraped_state_best_effort(
-            shop_id,
-            url,
-            UrlState::from(final_product.availability),
-        )
-        .await;
+        self.mark_product_present_best_effort(shop_id, url).await;
 
         // `mark_as_scraped` is intentionally NOT called here.  The caller
         // (cron pipeline) must call it only after the push to the product

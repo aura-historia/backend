@@ -776,7 +776,7 @@ mod tests {
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
-                availability: None,
+                availability: application::patch_field::PatchField::Unchanged,
                 url: None,
                 images: Default::default(),
                 auction_start: None,
@@ -799,7 +799,7 @@ mod tests {
                 images_hash: String::new(),
                 auction_start: None,
                 auction_end: None,
-                state: "AVAILABLE".to_owned(),
+                availability: Some("AVAILABLE".to_owned()),
             },
         }
     }

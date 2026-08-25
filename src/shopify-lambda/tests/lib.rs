@@ -1,12 +1,7 @@
 use application::transaction::{Transaction, UnitOfWork};
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
-use fxrate_core::FxRateId;
-use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
-use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
-use fxrate_service::ports::{
-    FxRateSnapshotInsertOutcome, FxRateSnapshotRepository, FxRateSnapshotRepositoryFactory,
-};
+
 use lambda_runtime::{Context, LambdaEvent};
 use localization::Language;
 use money::Currency;
@@ -32,9 +27,8 @@ use shopify_lambda::{
     ShopifyProductListingProcessor, ShopifyProductListingProcessorUseCase, handler,
 };
 use std::collections::HashSet;
-use strum::IntoEnumIterator;
+
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
-use time::OffsetDateTime;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -92,7 +86,6 @@ async fn should_append_availability_event_in_postgres_for_shopify_update() {
     let created = invoke(SHOPIFY_TOPIC_PRODUCTS_CREATE, domain, 102, 5).await;
     assert!(created.batch_item_failures.is_empty());
 
-    seed_canonical_fx_snapshot().await;
     let updated = invoke(SHOPIFY_TOPIC_PRODUCTS_UPDATE, domain, 102, 0).await;
 
     assert!(updated.batch_item_failures.is_empty());
@@ -279,7 +272,6 @@ async fn should_not_append_duplicate_event_for_redelivered_shopify_update() {
             .is_empty()
     );
 
-    seed_canonical_fx_snapshot().await;
     let first = invoke(SHOPIFY_TOPIC_PRODUCTS_UPDATE, domain, 112, 0).await;
     let second = invoke(SHOPIFY_TOPIC_PRODUCTS_UPDATE, domain, 112, 0).await;
 
@@ -314,40 +306,6 @@ async fn should_not_append_duplicate_event_for_redelivered_shopify_delete() {
     assert_eq!(None, listing.availability);
     assert_eq!("WITHDRAWN", listing.lifecycle);
     assert_eq!(2, listing_event_count(listing.product_listing_id).await);
-}
-
-async fn seed_canonical_fx_snapshot() {
-    let snapshot = NewFxRateSnapshot::capture_eur(
-        FxRateId::new(),
-        OffsetDateTime::UNIX_EPOCH,
-        FxRateSource::FxRatesApi,
-        Currency::Eur,
-        Currency::iter().map(|currency| {
-            FxRateQuote::new(
-                currency,
-                if currency == Currency::Eur {
-                    FX_RATE_SCALE
-                } else {
-                    1_250_000
-                },
-            )
-        }),
-    )
-    .unwrap_or_else(|error| panic!("valid canonical FX test fixture: {error}"));
-    let unit_of_work = SqlxUnitOfWork::new(get_postgres_client().await);
-    let mut tx = unit_of_work
-        .begin()
-        .await
-        .unwrap_or_else(|error| panic!("start canonical FX test fixture transaction: {error}"));
-    let outcome = SqlxFxRateSnapshotRepositoryFactory::new()
-        .in_transaction(&mut tx)
-        .insert(&snapshot, &format!("shopify-fx-{}", FxRateId::new()))
-        .await
-        .unwrap_or_else(|error| panic!("insert canonical FX test fixture: {error}"));
-    assert!(matches!(outcome, FxRateSnapshotInsertOutcome::Inserted(_)));
-    tx.commit()
-        .await
-        .unwrap_or_else(|error| panic!("commit canonical FX test fixture: {error}"));
 }
 
 async fn invoke(
@@ -486,7 +444,7 @@ fn shopify_payload(product_id: u64, inventory_quantity: i64) -> serde_json::Valu
         "body_html": "<p>Imported cabinet</p>",
         "handle": format!("cabinet-{product_id}"),
         "status": "active",
-        "variants": [{"price": "42.00", "inventory_quantity": inventory_quantity}],
+        "variants": [{"price": "42.00", "inventory_quantity": inventory_quantity, "inventory_management": "shopify"}],
         "images": [{"src": "https://images.example/cabinet.jpg"}]
     })
 }

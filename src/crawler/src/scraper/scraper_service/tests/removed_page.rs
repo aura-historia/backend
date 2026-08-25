@@ -48,12 +48,12 @@ async fn should_mark_product_removed_when_stored_removed_page_schema_matches() {
     let mut cand_svc = MockScraperCandidateService::new();
     let url_for_state = url.clone();
     cand_svc
-        .expect_set_state()
+        .expect_set_presence()
         .once()
         .withf(move |received_shop_id, received_url, received_state| {
             *received_shop_id == id
                 && received_url == &url_for_state
-                && *received_state == UrlState::Removed
+                && *received_state == UrlPresence::Withdrawn
         })
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
 

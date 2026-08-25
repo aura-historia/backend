@@ -1,4 +1,4 @@
-use crate::scraper::normalization::state_mapping_service::StateMappingServiceError;
+use crate::scraper::normalization::listing_availability_mapping_service::ListingAvailabilityMappingServiceError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NormalizationFailureScope {
@@ -9,7 +9,7 @@ pub(crate) enum NormalizationFailureScope {
 #[derive(Debug, thiserror::Error)]
 pub enum NormalizationError {
     #[error("failed to resolve product state: {0}")]
-    StateMappingError(#[from] StateMappingServiceError),
+    ListingAvailabilityMappingError(#[from] ListingAvailabilityMappingServiceError),
 
     /// Emitted by the strict (test-only) `normalize_shop_listing_id` function
     /// when the extracted value is empty after trimming.
@@ -81,15 +81,21 @@ pub enum NormalizationError {
 impl NormalizationError {
     pub(crate) const fn failure_reason(&self) -> &'static str {
         match self {
-            Self::StateMappingError(error) => match error {
-                StateMappingServiceError::LargeLanguageModelError(_) => "state_llm_error",
-                StateMappingServiceError::UnparsableResponse => "state_unparsable_response",
-                StateMappingServiceError::ResponseJsonSchemaSerialization(_) => {
+            Self::ListingAvailabilityMappingError(error) => match error {
+                ListingAvailabilityMappingServiceError::LargeLanguageModelError(_) => {
+                    "state_llm_error"
+                }
+                ListingAvailabilityMappingServiceError::UnparsableResponse => {
+                    "state_unparsable_response"
+                }
+                ListingAvailabilityMappingServiceError::ResponseJsonSchemaSerialization(_) => {
                     "state_response_schema_serialization"
                 }
-                StateMappingServiceError::RawStateTooLong { .. } => "state_text_too_long",
-                StateMappingServiceError::DatabaseError(_) => "state_database_error",
-                StateMappingServiceError::DatabaseErrorAfterLlm(_) => {
+                ListingAvailabilityMappingServiceError::RawStateTooLong { .. } => {
+                    "state_text_too_long"
+                }
+                ListingAvailabilityMappingServiceError::DatabaseError(_) => "state_database_error",
+                ListingAvailabilityMappingServiceError::DatabaseErrorAfterLlm(_) => {
                     "state_database_error_after_llm"
                 }
             },
@@ -113,15 +119,15 @@ impl NormalizationError {
 
     pub(crate) const fn failure_scope(&self) -> NormalizationFailureScope {
         match self {
-            Self::StateMappingError(error) => match error {
-                StateMappingServiceError::LargeLanguageModelError(_)
-                | StateMappingServiceError::UnparsableResponse
-                | StateMappingServiceError::ResponseJsonSchemaSerialization(_)
-                | StateMappingServiceError::DatabaseError(_)
-                | StateMappingServiceError::DatabaseErrorAfterLlm(_) => {
+            Self::ListingAvailabilityMappingError(error) => match error {
+                ListingAvailabilityMappingServiceError::LargeLanguageModelError(_)
+                | ListingAvailabilityMappingServiceError::UnparsableResponse
+                | ListingAvailabilityMappingServiceError::ResponseJsonSchemaSerialization(_)
+                | ListingAvailabilityMappingServiceError::DatabaseError(_)
+                | ListingAvailabilityMappingServiceError::DatabaseErrorAfterLlm(_) => {
                     NormalizationFailureScope::External
                 }
-                StateMappingServiceError::RawStateTooLong { .. } => {
+                ListingAvailabilityMappingServiceError::RawStateTooLong { .. } => {
                     NormalizationFailureScope::CandidateData
                 }
             },

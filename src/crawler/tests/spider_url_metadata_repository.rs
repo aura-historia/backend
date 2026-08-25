@@ -1,4 +1,4 @@
-use crawler::spider::classification::url_metadata::{UrlClass, UrlState};
+use crawler::spider::classification::url_metadata::{UrlClass, UrlPresence};
 use crawler::spider::classification::url_metadata_repository::{
     UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
@@ -47,7 +47,7 @@ async fn insert_domain_for_shop(
 
 #[serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_insert_new_url_when_url_does_not_exist() {
+async fn should_insert_new_url_with_present_presence_when_url_does_not_exist() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
 
@@ -64,7 +64,7 @@ async fn should_insert_new_url_when_url_does_not_exist() {
 
     assert_eq!(result.url, url);
     assert_eq!(result.url_class, url_class);
-    assert_eq!(result.state, UrlState::Unknown);
+    assert_eq!(result.state, UrlPresence::Present);
     assert_eq!(result.domain_id, domain_id);
 }
 
@@ -99,7 +99,7 @@ async fn should_update_existing_url_when_url_already_exists() {
 
     assert_eq!(result2.url, url);
     assert_eq!(result2.url_class, new_class);
-    assert_eq!(result2.state, UrlState::Unknown);
+    assert_eq!(result2.state, UrlPresence::Present);
     assert_eq!(result2.domain_id, domain_id);
 }
 
@@ -212,12 +212,12 @@ async fn should_update_last_scraped_timestamp_when_marking_as_scraped() {
 }
 
 // ---------------------------------------------------------------------------
-// set_state — domain_id preserved in returned record
+// set_presence — domain_id preserved in returned record
 // ---------------------------------------------------------------------------
 
 #[serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_update_state_when_setting_new_state() {
+async fn should_update_presence_when_setting_new_presence() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
 
@@ -232,17 +232,17 @@ async fn should_update_state_when_setting_new_state() {
         .await
         .unwrap();
 
-    assert_eq!(result.state, UrlState::Unknown);
+    assert_eq!(result.state, UrlPresence::Present);
 
     let marked = repository
-        .set_state(&shop_id, &url, &UrlState::Sold)
+        .set_presence(&shop_id, &url, &UrlPresence::Present)
         .await
         .unwrap();
 
-    assert_eq!(marked.state, UrlState::Sold);
+    assert_eq!(marked.state, UrlPresence::Present);
     assert_eq!(
         marked.domain_id, domain_id,
-        "domain_id should be returned by set_state"
+        "domain_id should be returned by set_presence"
     );
 }
 

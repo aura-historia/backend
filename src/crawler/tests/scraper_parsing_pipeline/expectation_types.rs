@@ -45,7 +45,7 @@ pub struct NormalizedExpectationJson {
     pub price_estimate_max: Option<u64>,
     pub price_estimate_max_currency: Option<String>,
     pub seller_name: Option<String>,
-    pub availability: String,
+    pub availability: Option<String>,
     pub url: String,
     pub images: Vec<String>,
     pub auction_start: Option<String>,
