@@ -265,9 +265,6 @@
             "availability": {
                 "type": "keyword"
             },
-            "lifecycle": {
-                "type": "keyword"
-            },
             "url": {
                 "type": "keyword"
             },

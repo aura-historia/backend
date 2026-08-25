@@ -3,7 +3,11 @@ use crate::product_listing_percolation_document::{
 };
 use application::error::box_error;
 use fxrate_core::FxRateSnapshot;
-use opensearch::{DeleteParts, IndexParts, OpenSearch, http::StatusCode, params::VersionType};
+use opensearch::{
+    DeleteParts, IndexParts, OpenSearch,
+    http::{StatusCode, response::Response},
+    params::VersionType,
+};
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::ports::{
     ProductListingSearchFilterMatchSource, ProductListingSearchProjection,
@@ -60,7 +64,7 @@ impl ProductListingSearchProjection for OpenSearchProductListingSearchProjection
                     source: box_error(source),
                 },
             )?;
-        write_outcome(response.status_code(), true)
+        write_response_outcome(response, true).await
     }
 
     async fn delete(
@@ -85,7 +89,7 @@ impl ProductListingSearchProjection for OpenSearchProductListingSearchProjection
                     source: box_error(source),
                 },
             )?;
-        write_outcome(response.status_code(), false)
+        write_response_outcome(response, false).await
     }
 }
 
@@ -107,6 +111,25 @@ fn document_error(
     }
 }
 
+async fn write_response_outcome(
+    response: Response,
+    is_write: bool,
+) -> Result<ProductListingSearchProjectionWriteOutcome, ProductListingSearchProjectionWriteError> {
+    let status = response.status_code();
+    if let Ok(outcome) = write_outcome(status, is_write) {
+        return Ok(outcome);
+    }
+    let payload = response.text().await.map_err(|source| {
+        projection_write_error(is_write, application::error::box_error(source))
+    })?;
+    Err(projection_write_error(
+        is_write,
+        application::error::box_error(std::io::Error::other(format!(
+            "OpenSearch ProductListing projection returned {status}: {payload}",
+        ))),
+    ))
+}
+
 fn write_outcome(
     status: StatusCode,
     is_write: bool,
@@ -117,14 +140,23 @@ fn write_outcome(
     if status.is_success() {
         return Ok(ProductListingSearchProjectionWriteOutcome::Applied);
     }
-    let error = application::error::static_error(
-        "OpenSearch ProductListing projection returned an unsuccessful status",
-    );
-    Err(if is_write {
-        ProductListingSearchProjectionWriteError::WriteFailed { source: error }
+    Err(projection_write_error(
+        is_write,
+        application::error::static_error(
+            "OpenSearch ProductListing projection returned an unsuccessful status",
+        ),
+    ))
+}
+
+fn projection_write_error(
+    is_write: bool,
+    source: application::error::BoxError,
+) -> ProductListingSearchProjectionWriteError {
+    if is_write {
+        ProductListingSearchProjectionWriteError::WriteFailed { source }
     } else {
-        ProductListingSearchProjectionWriteError::DeleteFailed { source: error }
-    })
+        ProductListingSearchProjectionWriteError::DeleteFailed { source }
+    }
 }
 
 #[cfg(test)]

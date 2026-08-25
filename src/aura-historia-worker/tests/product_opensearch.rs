@@ -22,7 +22,7 @@ use tokio::{sync::oneshot, task::JoinHandle};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 const WORKER_SEQUIN: Sequin = Sequin::worker_webhook();
-const PRODUCTS_INDEX: &str = "product_listings";
+const PRODUCT_LISTINGS_INDEX: &str = "product-listings";
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 const POLL_ATTEMPTS: usize = 80;
 const NO_PROJECTION_OBSERVATION: Duration = Duration::from_secs(2);
@@ -41,7 +41,7 @@ async fn should_project_committed_active_product_with_native_source_price_and_no
         assert_eq!(Some(7), response.get("_version").and_then(Value::as_i64));
         assert_eq!(
             Some(fixture.product_listing_id.to_string().as_str()),
-            document.get("productId").and_then(Value::as_str)
+            document.get("productListingId").and_then(Value::as_str)
         );
         assert_eq!(
             Some(fixture.event_id.to_string().as_str()),
@@ -68,10 +68,7 @@ async fn should_project_committed_active_product_with_native_source_price_and_no
             Some("AVAILABLE"),
             document.get("availability").and_then(Value::as_str)
         );
-        assert_eq!(
-            Some("ACTIVE"),
-            document.get("lifecycle").and_then(Value::as_str)
-        );
+        assert!(document.get("lifecycle").is_none());
         Ok(())
     }
     .await;
@@ -106,7 +103,12 @@ async fn should_keep_product_projection_unchanged_when_event_is_redelivered() {
         let expected = wait_for_product_response(fixture.product_listing_id).await?;
 
         worker
-            .redeliver(fixture.product_listing_id, fixture.event_id)
+            .redeliver(
+                fixture.product_listing_id,
+                fixture.event_id,
+                "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+                "DOMAIN",
+            )
             .await?;
         assert_product_response_unchanged_for(
             fixture.product_listing_id,
@@ -138,7 +140,12 @@ async fn should_skip_stale_product_event_trigger() {
             expected.pointer("/_source/eventId").and_then(Value::as_str)
         );
         worker
-            .redeliver(fixture.product_listing_id, fixture.event_id)
+            .redeliver(
+                fixture.product_listing_id,
+                fixture.event_id,
+                "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+                "DOMAIN",
+            )
             .await?;
         assert_product_response_unchanged_for(
             fixture.product_listing_id,
@@ -156,7 +163,7 @@ async fn should_skip_stale_product_event_trigger() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
-async fn should_remove_indexed_product_when_current_lifecycle_is_withdrawn() {
+async fn should_delete_withdrawn_listing_then_reproject_restored_listing_without_stale_removal() {
     let worker = ProductListingOpenSearchWorker::start().await;
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let fixture = insert_active_product_with_event(&worker.pool, 15).await?;
@@ -167,16 +174,56 @@ async fn should_remove_indexed_product_when_current_lifecycle_is_withdrawn() {
         wait_for_product_deletion(fixture.product_listing_id).await?;
         assert_no_product_projection(fixture.product_listing_id, NO_PROJECTION_OBSERVATION).await?;
 
-        let (current_event_id, projection_version, lifecycle): (uuid::Uuid, i64, String) =
-            sqlx::query_as(
-                "SELECT event_id, projection_version, lifecycle FROM product_listings WHERE product_listing_id = $1",
+        let restored_event_id = restore_product_listing(&worker.pool, fixture.product_listing_id).await?;
+        let restored = wait_for_product_event(fixture.product_listing_id, restored_event_id).await?;
+        assert_eq!(Some(17), restored.get("_version").and_then(Value::as_i64));
+        let document = restored
+            .get("_source")
+            .ok_or_else(|| std::io::Error::other("restored ProductListing response has no _source"))?;
+        assert!(document.get("availability").is_none());
+        assert!(document.get("lifecycle").is_none());
+
+        worker
+            .redeliver(
+                fixture.product_listing_id,
+                withdrawn_event_id,
+                "PRODUCT_LISTING_WITHDRAWN",
+                "LIFECYCLE",
             )
-            .bind(uuid::Uuid::from(fixture.product_listing_id))
-            .fetch_one(&worker.pool)
             .await?;
-        assert_eq!(uuid::Uuid::from(withdrawn_event_id), current_event_id);
-        assert_eq!(16, projection_version);
-        assert_eq!("WITHDRAWN", lifecycle);
+        assert_product_response_unchanged_for(
+            fixture.product_listing_id,
+            &restored,
+            NO_PROJECTION_OBSERVATION,
+        )
+        .await?;
+
+        worker
+            .redeliver(
+                fixture.product_listing_id,
+                restored_event_id,
+                "PRODUCT_LISTING_RESTORED",
+                "LIFECYCLE",
+            )
+            .await?;
+        assert_product_response_unchanged_for(
+            fixture.product_listing_id,
+            &restored,
+            NO_PROJECTION_OBSERVATION,
+        )
+        .await?;
+
+        let (current_event_id, projection_version, lifecycle, availability):
+            (uuid::Uuid, i64, String, Option<String>) = sqlx::query_as(
+            "SELECT event_id, projection_version, lifecycle, availability FROM product_listings WHERE product_listing_id = $1",
+        )
+        .bind(uuid::Uuid::from(fixture.product_listing_id))
+        .fetch_one(&worker.pool)
+        .await?;
+        assert_eq!(uuid::Uuid::from(restored_event_id), current_event_id);
+        assert_eq!(17, projection_version);
+        assert_eq!("ACTIVE", lifecycle);
+        assert_eq!(None, availability);
         Ok(())
     }
     .await;
@@ -359,6 +406,8 @@ impl ProductListingOpenSearchWorker {
         &self,
         product_listing_id: ProductListingId,
         event_id: EventId,
+        event_type: &str,
+        event_group: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let response = reqwest::Client::new()
             .post(format!(
@@ -369,8 +418,8 @@ impl ProductListingOpenSearchWorker {
                 "record": {
                     "event_id": event_id.to_string(),
                     "product_listing_id": product_listing_id.to_string(),
-                    "event_type": "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-                    "event_group": "DOMAIN",
+                    "event_type": event_type,
+                    "event_group": event_group,
                 },
                 "action": "insert",
                 "metadata": {
@@ -480,9 +529,41 @@ async fn withdraw_product_listing(
 ) -> Result<EventId, sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
-    insert_product_event(&mut tx, product_listing_id, event_id).await?;
+    insert_product_event_with_type(
+        &mut tx,
+        product_listing_id,
+        event_id,
+        "PRODUCT_LISTING_WITHDRAWN",
+        "LIFECYCLE",
+    )
+    .await?;
     sqlx::query(
         "UPDATE product_listings SET event_id = $1, lifecycle = 'WITHDRAWN', availability = NULL, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
+    )
+    .bind(uuid::Uuid::from(event_id))
+    .bind(uuid::Uuid::from(product_listing_id))
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(event_id)
+}
+
+async fn restore_product_listing(
+    pool: &sqlx::PgPool,
+    product_listing_id: ProductListingId,
+) -> Result<EventId, sqlx::Error> {
+    let event_id = EventId::new();
+    let mut tx = pool.begin().await?;
+    insert_product_event_with_type(
+        &mut tx,
+        product_listing_id,
+        event_id,
+        "PRODUCT_LISTING_RESTORED",
+        "LIFECYCLE",
+    )
+    .await?;
+    sqlx::query(
+        "UPDATE product_listings SET event_id = $1, lifecycle = 'ACTIVE', availability = NULL, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(uuid::Uuid::from(product_listing_id))
@@ -592,11 +673,30 @@ async fn insert_product_event(
     product_listing_id: ProductListingId,
     event_id: EventId,
 ) -> Result<(), sqlx::Error> {
+    insert_product_event_with_type(
+        tx,
+        product_listing_id,
+        event_id,
+        "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+        "DOMAIN",
+    )
+    .await
+}
+
+async fn insert_product_event_with_type(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    product_listing_id: ProductListingId,
+    event_id: EventId,
+    event_type: &str,
+    event_group: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_AVAILABILITY_CHANGED', 'DOMAIN', '{}', now())",
+        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(uuid::Uuid::from(product_listing_id))
+    .bind(event_type)
+    .bind(event_group)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -630,7 +730,7 @@ async fn wait_for_product_response(
     product_listing_id: ProductListingId,
 ) -> Result<Value, Box<dyn std::error::Error>> {
     for _ in 0..POLL_ATTEMPTS {
-        refresh_index(PRODUCTS_INDEX).await;
+        refresh_index(PRODUCT_LISTINGS_INDEX).await;
         if let Some(response) = product_response(product_listing_id).await? {
             return Ok(response);
         }
@@ -647,7 +747,7 @@ async fn wait_for_product_event(
     event_id: EventId,
 ) -> Result<Value, Box<dyn std::error::Error>> {
     for _ in 0..POLL_ATTEMPTS {
-        refresh_index(PRODUCTS_INDEX).await;
+        refresh_index(PRODUCT_LISTINGS_INDEX).await;
         if let Some(response) = product_response(product_listing_id).await?
             && response.pointer("/_source/eventId").and_then(Value::as_str)
                 == Some(event_id.to_string().as_str())
@@ -666,7 +766,7 @@ async fn wait_for_product_deletion(
     product_listing_id: ProductListingId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     for _ in 0..POLL_ATTEMPTS {
-        refresh_index(PRODUCTS_INDEX).await;
+        refresh_index(PRODUCT_LISTINGS_INDEX).await;
         if product_response(product_listing_id).await?.is_none() {
             return Ok(());
         }
@@ -684,7 +784,7 @@ async fn assert_no_product_projection(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let deadline = tokio::time::Instant::now() + duration;
     while tokio::time::Instant::now() < deadline {
-        refresh_index(PRODUCTS_INDEX).await;
+        refresh_index(PRODUCT_LISTINGS_INDEX).await;
         if product_response(product_listing_id).await?.is_some() {
             return Err(std::io::Error::other(format!(
                 "unexpected ProductListing OpenSearch projection for {product_listing_id}"
@@ -703,7 +803,7 @@ async fn assert_product_response_unchanged_for(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let deadline = tokio::time::Instant::now() + duration;
     while tokio::time::Instant::now() < deadline {
-        refresh_index(PRODUCTS_INDEX).await;
+        refresh_index(PRODUCT_LISTINGS_INDEX).await;
         let actual = product_response(product_listing_id).await?.ok_or_else(|| {
             std::io::Error::other("ProductListing projection disappeared after redelivery")
         })?;
@@ -724,7 +824,7 @@ async fn product_response(
     let response = get_opensearch_client()
         .await
         .get(GetParts::IndexId(
-            PRODUCTS_INDEX,
+            PRODUCT_LISTINGS_INDEX,
             &product_listing_id.to_string(),
         ))
         .send()

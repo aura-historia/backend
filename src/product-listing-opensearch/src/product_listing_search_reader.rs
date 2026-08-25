@@ -16,6 +16,7 @@ use opensearch::http::headers::HeaderMap;
 use opensearch::http::request::JsonBody;
 use opensearch::{OpenSearch, SearchParts};
 use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_search::{
     ListingAvailabilityQuery, ProductListingSearch,
 };
@@ -195,7 +196,7 @@ fn map_summary_fields(
         display_price,
         price_valuation,
         availability: document.availability,
-        lifecycle: document.lifecycle,
+        lifecycle: ListingLifecycle::Active,
         url: document.url,
         view_url: document.view_url,
         images: document.images.into_iter().map(Into::into).collect(),
@@ -890,9 +891,8 @@ mod tests {
     use indexmap::IndexSet;
     use money::MonetaryAmount;
     use product_listing_core::{
-        listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
-        listing_orderability::ListingOrderability, product_listing_id::ProductListingId,
-        product_listing_search::ListingAvailabilityQuery,
+        listing_availability::ListingAvailability, listing_orderability::ListingOrderability,
+        product_listing_id::ProductListingId, product_listing_search::ListingAvailabilityQuery,
         product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
     };
     use shop_core::shop_id::ShopId;
@@ -978,7 +978,6 @@ mod tests {
             sale_observation_fx_rate_id: None,
             sale_observed_at: None,
             availability: Some(ListingAvailability::Available),
-            lifecycle: ListingLifecycle::Active,
             url: Url::parse("https://shop.example/product_listings/sku-1")?,
             view_url: Url::parse("https://aura.example/product_listings/vase-abcdef")?,
             images: IndexSet::new(),

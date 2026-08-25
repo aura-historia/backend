@@ -989,6 +989,18 @@ mod tests {
     }
 
     #[test]
+    fn should_route_lifecycle_events_only_to_product_listing_projection()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for event_type in ["PRODUCT_LISTING_WITHDRAWN", "PRODUCT_LISTING_RESTORED"] {
+            let jobs = route_change(&product_event_change(event_type, "LIFECYCLE"))?;
+
+            assert_eq!(1, jobs.len(), "{event_type}");
+            assert_eq!(WorkerQueue::ProductListingOpenSearch, jobs[0].target_queue);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn should_route_product_price_event_to_watchlist_notifications()
     -> Result<(), Box<dyn std::error::Error>> {
         let jobs = route_change(&product_event_change(

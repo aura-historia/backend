@@ -121,10 +121,16 @@ impl OpenSearchSearchFilterIndex {
                 ))
                 .send()
                 .await
-                .map_err(percolation_error)?
-                .error_for_status_code()
                 .map_err(percolation_error)?;
+            let status = response.status_code();
             let payload = response.text().await.map_err(percolation_error)?;
+            if !status.is_success() {
+                return Err(SearchFilterIndexError::PercolateFailed {
+                    source: box_error(std::io::Error::other(format!(
+                        "OpenSearch percolation returned {status}: {payload}"
+                    ))),
+                });
+            }
             let response = serde_json::from_str::<SearchResponse<SearchFilterDocument>>(&payload)
                 .map_err(|source| SearchFilterIndexError::InvalidDocument {
                 source: box_error(source),

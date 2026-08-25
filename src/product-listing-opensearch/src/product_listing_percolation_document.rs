@@ -1,7 +1,7 @@
 use crate::{
     product_listing_document::{
         ProductListingDocument, SalePricesDocument, SourcePriceDocument, TextDocument, continent,
-        listing_availability, listing_lifecycle, shop_type,
+        listing_availability, shop_type,
     },
     product_listing_image_document::ProductListingImageDocument,
 };
@@ -13,9 +13,8 @@ use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
 use product_listing_core::{
-    listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
-    product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
-    shop_listing_id::ShopListingId,
+    listing_availability::ListingAvailability, product_listing_id::ProductListingId,
+    product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
 };
 use product_listing_service::ports::{
     ProductListingPercolationInput, ProductListingPricesByCurrency,
@@ -68,7 +67,6 @@ struct ProductListingPercolationDocument {
     event_id: EventId,
     shop_id: ShopId,
     seller_id: ShopId,
-    #[serde(rename = "shopsProductId")]
     shop_listing_id: ShopListingId,
     shop_name: String,
     seller_name: String,
@@ -108,8 +106,6 @@ struct ProductListingPercolationDocument {
         skip_serializing_if = "Option::is_none"
     )]
     availability: Option<ListingAvailability>,
-    #[serde(with = "listing_lifecycle")]
-    lifecycle: ListingLifecycle,
     url: Url,
     view_url: Url,
     #[serde(skip_serializing_if = "IndexSet::is_empty")]
@@ -210,7 +206,6 @@ fn build_product_listing_percolation_document(
             .as_ref()
             .map(|valuation| percolation_prices(valuation.prices)),
         availability: product.availability,
-        lifecycle: product.lifecycle,
         url: product.url.clone(),
         view_url: product.view_url.clone(),
         images: product
@@ -302,7 +297,6 @@ pub(crate) fn product_listing_document(
         sale_observation_fx_rate_id,
         sale_observed_at,
         availability: product.availability,
-        lifecycle: product.lifecycle,
         url: product.url.clone(),
         view_url: product.view_url.clone(),
         images: product

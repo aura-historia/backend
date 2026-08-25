@@ -7,7 +7,6 @@ use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
 use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
@@ -189,24 +188,6 @@ pub(crate) mod continent {
     }
 }
 
-pub(crate) mod listing_lifecycle {
-    use super::*;
-
-    pub(crate) fn serialize<S>(value: &ListingLifecycle, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serialize_code(value, serializer, ListingLifecycle::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ListingLifecycle, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserialize_code(deserializer, ListingLifecycle::from_code)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct TextDocument {
     pub(crate) text: String,
@@ -350,8 +331,6 @@ pub(crate) struct ProductListingDocument {
         default
     )]
     pub availability: Option<ListingAvailability>,
-    #[serde(with = "listing_lifecycle")]
-    pub lifecycle: ListingLifecycle,
     pub url: Url,
     pub view_url: Url,
     #[serde(skip_serializing_if = "IndexSet::is_empty", default)]
@@ -450,7 +429,6 @@ mod tests {
             sale_observation_fx_rate_id: None,
             sale_observed_at: None,
             availability: Some(ListingAvailability::Available),
-            lifecycle: ListingLifecycle::Active,
             url: Url::parse("https://shop.example/product_listings/sku-1")?,
             view_url: Url::parse("https://aura.example/product_listings/vase-abcdef")?,
             images: IndexSet::new(),

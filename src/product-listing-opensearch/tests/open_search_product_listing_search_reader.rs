@@ -290,7 +290,6 @@ fn product_listing_document(
         "saleObservationFxRateId": seed.has_sale_observation.then(FxRateId::new),
         "saleObservedAt": sale_observed_at,
 
-        "lifecycle": "ACTIVE",
         "url": format!("https://shop.example/product_listings/{}", seed.product_listing_slug_id),
         "viewUrl": format!("https://aura.example/product_listings/{}", seed.product_listing_slug_id),
         "created": OffsetDateTime::UNIX_EPOCH.format(&Rfc3339)?,

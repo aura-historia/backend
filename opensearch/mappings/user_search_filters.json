@@ -276,13 +276,18 @@
                         }
                     },
                     "availability": {
-                        "type": "keyword"
-                    },
-                    "state": {
-                        "type": "keyword"
-                    },
-                    "lifecycle": {
-                        "type": "keyword"
+                        "type": "object",
+                        "properties": {
+                            "availability": {
+                                "type": "keyword"
+                            },
+                            "orderability": {
+                                "type": "keyword"
+                            },
+                            "includeUnspecified": {
+                                "type": "boolean"
+                            }
+                        }
                     },
                     "created": {
                         "type": "object",
@@ -372,9 +377,6 @@
                 }
             },
             "state": {
-                "type": "keyword"
-            },
-            "lifecycle": {
                 "type": "keyword"
             },
             "availability": {
@@ -491,7 +493,7 @@
             "sellerId": {
                 "type": "keyword"
             },
-            "shopsProductId": {
+            "shopListingId": {
                 "type": "keyword"
             },
             "url": {
