@@ -36,7 +36,7 @@
 - Prefer `Postgres`/`OperationalBackendPostgres` and `postgres` feature over legacy `Rds`/`rds` in new tests.
 - Use process-lived `AuraHistoriaApi` helper for local black-box tests against `aura-historia-api`.
 - Use `Postgres::new("migrations")` for the shared schema-only business migrations.
-- Use `Sequin::worker_webhook()` after Postgres and target fixtures in `#[aura_integration_test]` when a test must verify real worker delivery. It starts process-lived Redis/Sequin sinks for `product_events`, `search_filters`, `search_filter_matches`, plus insert-only `notification_deliveries`; it waits for the logical replication slot to become active, then has no per-test reset or shutdown. Start the worker at `get_sequin_worker_webhook_bind_addr()` before writing watched source rows.
+- Use `Sequin::worker_webhook()` after Postgres and target fixtures in `#[aura_integration_test]` when a test must verify real worker delivery. It starts process-lived Redis/Sequin sinks for `product_events`, `search_filters`, `search_filter_matches`, plus insert-only `notification_deliveries`; it waits for the logical replication slot to become active, then has no per-test reset. PID-named containers are removed on normal exit and SIGINT/SIGTERM. Start the worker at `get_sequin_worker_webhook_bind_addr()` before writing watched source rows.
 
 ## Verification
 

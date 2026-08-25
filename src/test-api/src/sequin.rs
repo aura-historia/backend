@@ -8,7 +8,8 @@ use base64::engine::general_purpose::STANDARD;
 use reqwest::StatusCode;
 use sqlx::{AssertSqlSafe, Executor};
 use std::net::{SocketAddr, TcpListener};
-use std::sync::OnceLock;
+use std::process::{Command, Stdio};
+use std::sync::{Once, OnceLock};
 use std::time::Duration;
 use testcontainers::core::{Host, IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
@@ -17,7 +18,9 @@ use tokio::sync::OnceCell;
 use tracing::debug;
 
 const REDIS_CONTAINER_PORT: u16 = 6379;
+const REDIS_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-sequin-redis-test";
 const SEQUIN_CONTAINER_PORT: u16 = 7376;
+const SEQUIN_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-sequin-test";
 const SEQUIN_HEALTH_MAX_ATTEMPTS: u8 = 90;
 const SEQUIN_STATE_DB_PREFIX: &str = "sequin";
 const SECRET_KEY_BASE: &str = "wDPLYus0pvD6qJhKJICO4vYl782Zjtpew5qRBDp7CZvbWtQmY0eB13If01234567";
@@ -31,6 +34,38 @@ const NOTIFICATION_DELIVERY_TABLE: &str = "public.notification_deliveries";
 
 static WORKER_WEBHOOK_SEQUIN: OnceCell<RunningSequin> = OnceCell::const_new();
 static WORKER_WEBHOOK_PORT: OnceLock<u16> = OnceLock::new();
+
+fn redis_container_name() -> String {
+    format!("{REDIS_CONTAINER_NAME_PREFIX}-{}", std::process::id())
+}
+
+fn sequin_container_name() -> String {
+    format!("{SEQUIN_CONTAINER_NAME_PREFIX}-{}", std::process::id())
+}
+
+fn docker_remove(name: &str) -> std::io::Result<std::process::ExitStatus> {
+    Command::new("docker")
+        .args(["rm", "-f", name])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+}
+
+extern "C" fn cleanup() {
+    let _ = docker_remove(&sequin_container_name());
+    let _ = docker_remove(&redis_container_name());
+}
+
+/// Installs cleanup hooks for the process-lived Redis and Sequin containers.
+///
+/// The hooks remove both containers on normal exit and on SIGINT or SIGTERM.
+fn install_cleanup() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        unsafe { libc::atexit(cleanup) };
+        crate::signal::register_signal_cleanup(|| cleanup());
+    });
+}
 
 /// Process-lived Sequin fixture that delivers the worker's CDC tables to its local webhook.
 #[derive(Debug, Clone, Copy)]
@@ -77,13 +112,22 @@ async fn get_or_start_worker_webhook_sequin() -> &'static RunningSequin {
 }
 
 async fn start_worker_webhook_sequin(webhook_url: &str) -> RunningSequin {
+    install_cleanup();
+
     let suffix = std::process::id().to_string();
     let state_database = format!("{SEQUIN_STATE_DB_PREFIX}_{suffix}");
     ensure_sequin_state_database(&state_database).await;
 
+    let redis_name = redis_container_name();
+    let sequin_name = sequin_container_name();
+    // A reused PID can leave containers from an aborted earlier test process.
+    let _ = docker_remove(&redis_name);
+    let _ = docker_remove(&sequin_name);
+
     let redis_port = find_free_port();
     let redis = GenericImage::new("redis", "7-alpine")
         .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
+        .with_container_name(redis_name)
         .with_mapped_port(redis_port, REDIS_CONTAINER_PORT.tcp())
         .start()
         .await
@@ -107,6 +151,7 @@ async fn start_worker_webhook_sequin(webhook_url: &str) -> RunningSequin {
         .with_env_var("TELEMETRY_ENABLED", "false")
         .with_env_var("CRASH_REPORTING_DISABLED", "true")
         .with_host("host.docker.internal", Host::HostGateway)
+        .with_container_name(sequin_name)
         .with_mapped_port(sequin_port, SEQUIN_CONTAINER_PORT.tcp())
         .start()
         .await
