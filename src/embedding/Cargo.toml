@@ -7,7 +7,7 @@ edition = "2024"
 async-trait = { workspace = true }
 google-cloud-auth = { workspace = true }
 image-fetcher = { workspace = true }
-lru = "0.16"
+lru = "0.18"
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
