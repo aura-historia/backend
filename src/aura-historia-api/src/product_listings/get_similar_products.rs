@@ -1,7 +1,9 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
-use crate::error::{ApiError, BAD_PATH_PARAMETER_VALUE, INVALID_UUID, PRODUCT_INTERNAL_ERROR};
-use crate::products::product_data::personalized_product_summary_data;
-use crate::state::ProductsState;
+use crate::error::{
+    ApiError, BAD_PATH_PARAMETER_VALUE, INVALID_UUID, PRODUCT_LISTING_INTERNAL_ERROR,
+};
+use crate::product_listings::product_data::personalized_product_summary_data;
+use crate::state::ProductListingsState;
 use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
@@ -30,17 +32,17 @@ const READY_CACHE_CONTROL: &str = "public, max-age=180, s-maxage=900";
 const PENDING_CACHE_CONTROL: &str = "public, max-age=300, s-maxage=900";
 
 pub async fn get_similar_products_by_id(
-    State(state): State<ProductsState>,
+    State(state): State<ProductListingsState>,
     headers: HeaderMap,
-    Path(raw_product_id): Path<String>,
+    Path(raw_product_listing_id): Path<String>,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
-    let product_id = match ProductListingId::try_from(raw_product_id.as_str()) {
+    let product_listing_id = match ProductListingId::try_from(raw_product_listing_id.as_str()) {
         Ok(value) => value,
         Err(_) => {
             return ApiError::bad_request(INVALID_UUID)
-                .with_path_field("productId")
-                .with_detail("Path parameter 'productId' must be a UUID.")
+                .with_path_field("productListingId")
+                .with_detail("Path parameter 'productListingId' must be a UUID.")
                 .into_response();
         }
     };
@@ -51,16 +53,16 @@ pub async fn get_similar_products_by_id(
     similar_response(
         state,
         headers,
-        ProductListingEmbeddingLookup::ById(product_id),
+        ProductListingEmbeddingLookup::ById(product_listing_id),
         query,
     )
     .await
 }
 
 pub async fn get_similar_products_by_slug(
-    State(state): State<ProductsState>,
+    State(state): State<ProductListingsState>,
     headers: HeaderMap,
-    Path((raw_shop_slug_id, raw_product_slug_id)): Path<(String, String)>,
+    Path((raw_shop_slug_id, raw_product_listing_slug_id)): Path<(String, String)>,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
     let shop_slug_id = match ShopSlugId::raw(&raw_shop_slug_id) {
@@ -72,12 +74,12 @@ pub async fn get_similar_products_by_slug(
                 .into_response();
         }
     };
-    let product_slug_id = match ProductListingSlugId::raw(&raw_product_slug_id) {
+    let product_listing_slug_id = match ProductListingSlugId::raw(&raw_product_listing_slug_id) {
         Ok(value) => value,
         Err(_) => {
             return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
-                .with_path_field("productSlugId")
-                .with_detail("Path parameter 'productSlugId' is invalid.")
+                .with_path_field("productListingSlugId")
+                .with_detail("Path parameter 'productListingSlugId' is invalid.")
                 .into_response();
         }
     };
@@ -90,7 +92,7 @@ pub async fn get_similar_products_by_slug(
         headers,
         ProductListingEmbeddingLookup::BySlug {
             shop_slug_id,
-            product_slug_id,
+            product_listing_slug_id,
         },
         query,
     )
@@ -105,7 +107,7 @@ fn parse_query(raw_query: Option<&str>) -> Result<SimilarProductListingsQuery, A
 }
 
 async fn similar_response(
-    state: ProductsState,
+    state: ProductListingsState,
     headers: HeaderMap,
     lookup: ProductListingEmbeddingLookup,
     query: SimilarProductListingsQuery,
@@ -140,11 +142,11 @@ async fn similar_response(
 }
 
 fn ready_response(
-    products: Vec<product_listing_service::use_cases::PersonalizedProductListingSummary>,
+    product_listings: Vec<product_listing_service::use_cases::PersonalizedProductListingSummary>,
     principal: &crate::auth::TransportPrincipal,
 ) -> Response {
     let mut response = Json(
-        products
+        product_listings
             .into_iter()
             .map(personalized_product_summary_data)
             .collect::<Vec<_>>(),
@@ -163,18 +165,20 @@ fn ready_response(
 
 fn pending_response(lookup: ProductListingEmbeddingLookup) -> Response {
     let location_path = match lookup {
-        ProductListingEmbeddingLookup::ById(product_id) => {
-            format!("/api/v1/products/{product_id}/similar")
+        ProductListingEmbeddingLookup::ById(product_listing_id) => {
+            format!("/api/v1/product-listings/{product_listing_id}/similar")
         }
         ProductListingEmbeddingLookup::BySlug {
             shop_slug_id,
-            product_slug_id,
-        } => format!("/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar"),
+            product_listing_slug_id,
+        } => format!(
+            "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar"
+        ),
     };
     let location = match HeaderValue::from_str(&location_path) {
         Ok(value) => value,
         Err(_) => {
-            return ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+            return ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                 .with_detail("Similar product polling location failed internally.")
                 .into_response();
         }
@@ -327,7 +331,7 @@ mod tests {
     async fn should_return_ready_similar_products_as_json_with_public_cache_header()
     -> Result<(), Box<dyn std::error::Error>> {
         let product = product_summary()?;
-        let product_id = product.item.product_id;
+        let product_listing_id = product.item.product_listing_id;
         let app = app(
             FakeSimilarProductListingsResult::Ready(vec![product]),
             TransportPrincipal::Anonymous,
@@ -335,8 +339,10 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get(format!("/api/v1/products/{product_id}/similar"))
-                    .body(Body::empty())?,
+                Request::get(format!(
+                    "/api/v1/product-listings/{product_listing_id}/similar"
+                ))
+                .body(Body::empty())?,
             )
             .await?;
 
@@ -346,7 +352,10 @@ mod tests {
             response.headers()[header::CACHE_CONTROL]
         );
         let body = body_json(response).await?;
-        assert_eq!(product_id.to_string(), body[0]["item"]["productId"]);
+        assert_eq!(
+            product_listing_id.to_string(),
+            body[0]["item"]["productListingId"]
+        );
         assert_eq!("Cabinet", body[0]["item"]["title"]["text"]);
         Ok(())
     }
@@ -354,7 +363,7 @@ mod tests {
     #[tokio::test]
     async fn should_not_cache_ready_similar_products_for_authenticated_request()
     -> Result<(), Box<dyn std::error::Error>> {
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         let mut product = product_summary()?;
         product.user_state = Some(ProductListingUserState::default());
         let app = app(
@@ -368,9 +377,11 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get(format!("/api/v1/products/{product_id}/similar"))
-                    .header(header::AUTHORIZATION, "Bearer token")
-                    .body(Body::empty())?,
+                Request::get(format!(
+                    "/api/v1/product-listings/{product_listing_id}/similar"
+                ))
+                .header(header::AUTHORIZATION, "Bearer token")
+                .body(Body::empty())?,
             )
             .await?;
 
@@ -386,7 +397,7 @@ mod tests {
     #[tokio::test]
     async fn should_return_pending_response_with_id_location_and_cache_header()
     -> Result<(), Box<dyn std::error::Error>> {
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         let app = app(
             FakeSimilarProductListingsResult::Pending,
             TransportPrincipal::Anonymous,
@@ -394,14 +405,16 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get(format!("/api/v1/products/{product_id}/similar"))
-                    .body(Body::empty())?,
+                Request::get(format!(
+                    "/api/v1/product-listings/{product_listing_id}/similar"
+                ))
+                .body(Body::empty())?,
             )
             .await?;
 
         assert_eq!(StatusCode::ACCEPTED, response.status());
         assert_eq!(
-            format!("/api/v1/products/{product_id}/similar"),
+            format!("/api/v1/product-listings/{product_listing_id}/similar"),
             response.headers()[header::LOCATION]
         );
         assert_eq!(
@@ -415,7 +428,7 @@ mod tests {
     async fn should_return_pending_response_with_slug_location_and_cache_header()
     -> Result<(), Box<dyn std::error::Error>> {
         let shop_slug_id = "antique-depot";
-        let product_slug_id = "cabinet-a1b2c3";
+        let product_listing_slug_id = "cabinet-a1b2c3";
         let app = app(
             FakeSimilarProductListingsResult::Pending,
             TransportPrincipal::Anonymous,
@@ -424,7 +437,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar"
+                    "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar"
                 ))
                 .body(Body::empty())?,
             )
@@ -432,7 +445,9 @@ mod tests {
 
         assert_eq!(StatusCode::ACCEPTED, response.status());
         assert_eq!(
-            format!("/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar"),
+            format!(
+                "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar"
+            ),
             response.headers()[header::LOCATION]
         );
         assert_eq!(
@@ -453,7 +468,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/products/{}/similar",
+                    "/api/v1/product-listings/{}/similar",
                     ProductListingId::new()
                 ))
                 .body(Body::empty())?,
@@ -461,7 +476,10 @@ mod tests {
             .await?;
 
         assert_eq!(StatusCode::NOT_FOUND, response.status());
-        assert_eq!("PRODUCT_NOT_FOUND", body_json(response).await?["error"]);
+        assert_eq!(
+            "PRODUCT_LISTING_NOT_FOUND",
+            body_json(response).await?["error"]
+        );
         Ok(())
     }
 
@@ -476,7 +494,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/products/{}/similar",
+                    "/api/v1/product-listings/{}/similar",
                     ProductListingId::new()
                 ))
                 .body(Body::empty())?,
@@ -485,14 +503,14 @@ mod tests {
 
         assert_eq!(StatusCode::SERVICE_UNAVAILABLE, response.status());
         assert_eq!(
-            "PRODUCT_TEMPORARILY_UNAVAILABLE",
+            "PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE",
             body_json(response).await?["error"]
         );
         Ok(())
     }
 
     fn app(result: FakeSimilarProductListingsResult, principal: TransportPrincipal) -> Router {
-        let state = ProductsState::new(
+        let state = ProductListingsState::new(
             Arc::new(UnusedGetProductListingUseCase),
             Arc::new(FakeSimilarProductListingsUseCase { result }),
             Arc::new(UnusedSearchProductListingsUseCase),
@@ -500,11 +518,11 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/products/{product_id}/similar",
+                "/api/v1/product-listings/{product_listing_id}/similar",
                 axum::routing::get(get_similar_products_by_id),
             )
             .route(
-                "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar",
+                "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar",
                 axum::routing::get(get_similar_products_by_slug),
             )
             .with_state(state)
@@ -520,8 +538,8 @@ mod tests {
     fn product_summary() -> Result<PersonalizedProductListingSummary, url::ParseError> {
         Ok(Personalized {
             item: ProductListingSummary {
-                product_id: ProductListingId::new(),
-                product_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+                product_listing_id: ProductListingId::new(),
+                product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
                 event_id: EventId::new(),
                 shop_id: ShopId::new(),
                 seller_id: ShopId::new(),
@@ -539,8 +557,8 @@ mod tests {
                 },
                 state: ProductState::Listed,
                 lifecycle: ProductLifecycle::Active,
-                url: Url::parse("https://shop.example/products/1")?,
-                view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
+                url: Url::parse("https://shop.example/product-listings/1")?,
+                view_url: Url::parse("https://aura.example/product-listings/cabinet-abcdef")?,
                 images: Default::default(),
                 updated: OffsetDateTime::UNIX_EPOCH,
             },

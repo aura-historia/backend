@@ -33,7 +33,7 @@ use user_service::ports::{
 pub struct GenerateSearchFilterMatchNotificationCommand {
     pub user_id: UserId,
     pub search_filter_id: UserSearchFilterId,
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub origin_event_id: EventId,
 }
 
@@ -121,7 +121,7 @@ pub trait GenerateSearchFilterMatchNotificationUseCase: Send + Sync {
 pub struct GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, N> {
     unit_of_work: U,
     matches: M,
-    products: P,
+    product_listings: P,
     quotas: Q,
     tier_entitlements: A,
     product_revision_guard: G,
@@ -132,7 +132,7 @@ impl<U, M, P, Q, A, G, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, 
     pub fn new(
         unit_of_work: U,
         matches: M,
-        products: P,
+        product_listings: P,
         quotas: Q,
         tier_entitlements: A,
         product_revision_guard: G,
@@ -141,7 +141,7 @@ impl<U, M, P, Q, A, G, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, 
         Self {
             unit_of_work,
             matches,
-            products,
+            product_listings,
             quotas,
             tier_entitlements,
             product_revision_guard,
@@ -167,7 +167,7 @@ where
         skip_all,
         fields(
             origin_event_id = %command.origin_event_id,
-            product_id = %command.product_id,
+            product_listing_id = %command.product_listing_id,
             user_id = %command.user_id,
             search_filter_id = %command.search_filter_id,
         )
@@ -191,7 +191,7 @@ where
             .find_source(
                 command.user_id,
                 command.search_filter_id,
-                command.product_id,
+                command.product_listing_id,
                 command.origin_event_id,
             )
             .await
@@ -206,9 +206,9 @@ where
         }
 
         let product = self
-            .products
+            .product_listings
             .in_transaction(&mut tx)
-            .find_source(command.origin_event_id, command.product_id)
+            .find_source(command.origin_event_id, command.product_listing_id)
             .await
             .map_err(product_source_read_error)?;
         let Some(product) = product else {
@@ -217,13 +217,15 @@ where
                 GenerateSearchFilterMatchNotificationResult::SuppressedForMissingProductListing,
             );
         };
-        if product.event_id != command.origin_event_id || product.product_id != command.product_id {
+        if product.event_id != command.origin_event_id
+            || product.product_listing_id != command.product_listing_id
+        {
             return Err(GenerateSearchFilterMatchNotificationError::ProductListingSourceMismatch);
         }
         let revision = self
             .product_revision_guard
             .in_transaction(&mut tx)
-            .lock_and_check(command.product_id, command.origin_event_id)
+            .lock_and_check(command.product_listing_id, command.origin_event_id)
             .await
             .map_err(|source: ProductListingCurrentRevisionCheckError| {
                 GenerateSearchFilterMatchNotificationError::ProductListingCurrentRevisionCheckFailed {
@@ -288,7 +290,7 @@ fn match_source_matches_command(
 ) -> bool {
     source.user_id == command.user_id
         && source.search_filter_id == command.search_filter_id
-        && source.product_id == command.product_id
+        && source.product_listing_id == command.product_listing_id
         && source.origin_event_id == command.origin_event_id
 }
 
@@ -303,13 +305,13 @@ async fn create_notification(
             match_source.user_id,
             NotificationContent::SearchFilter {
                 origin_event_id: match_source.origin_event_id,
-                product_id: product.product_id,
+                product_listing_id: product.product_listing_id,
                 user_search_filter_id: match_source.search_filter_id,
                 snapshot: ProductListingNotificationSnapshot {
                     shop_id: product.shop_id,
                     shop_listing_id: product.shop_listing_id,
                     shop_slug_id: product.shop_slug_id,
-                    product_slug_id: product.product_slug_id,
+                    product_listing_slug_id: product.product_listing_slug_id,
                     shop_name: product.shop_name,
                     title: (!product.titles.is_empty()).then_some(product.titles),
                     image: product.image,
@@ -461,7 +463,7 @@ mod tests {
             &mut self,
             _user_id: UserId,
             _search_filter_id: UserSearchFilterId,
-            _product_id: ProductListingId,
+            _product_listing_id: ProductListingId,
             _origin_event_id: EventId,
         ) -> Result<
             Option<SearchFilterMatchNotificationSource>,
@@ -495,7 +497,7 @@ mod tests {
         async fn find_source(
             &mut self,
             _event_id: EventId,
-            _product_id: ProductListingId,
+            _product_listing_id: ProductListingId,
         ) -> Result<
             Option<ProductListingSearchFilterMatchSource>,
             ProductListingSearchFilterMatchSourceReadError,
@@ -527,7 +529,7 @@ mod tests {
     impl ProductListingCurrentRevisionGuard for ProductListingRevisionGuard {
         async fn lock_and_check(
             &mut self,
-            _product_id: ProductListingId,
+            _product_listing_id: ProductListingId,
             _expected_event_id: EventId,
         ) -> Result<ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError>
         {
@@ -679,18 +681,18 @@ mod tests {
     > {
         let user_id = UserId::new();
         let search_filter_id = UserSearchFilterId::new();
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         let origin_event_id = EventId::new();
         let command = GenerateSearchFilterMatchNotificationCommand {
             user_id,
             search_filter_id,
-            product_id,
+            product_listing_id,
             origin_event_id,
         };
         let match_source = SearchFilterMatchNotificationSource {
             user_id,
             search_filter_id,
-            product_id,
+            product_listing_id,
             origin_event_id,
             search_filter_name: UserSearchFilterName::from("daily"),
             matched_at: OffsetDateTime::UNIX_EPOCH,
@@ -703,8 +705,8 @@ mod tests {
             origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: origin_event_id,
             projection_version: 1,
-            product_id,
-            product_slug_id: ProductListingSlugId::from("product"),
+            product_listing_id,
+            product_listing_slug_id: ProductListingSlugId::from("product"),
             shop_id: ShopId::new(),
             shop_slug_id: ShopSlugId::from("shop"),
             shop_name: ShopName::from("Shop"),

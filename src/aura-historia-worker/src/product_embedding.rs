@@ -77,14 +77,15 @@ fn command_from_job(
             source: box_error(source),
         }
     })?;
-    let product_id = ProductListingId::try_from(event.product_id.as_str()).map_err(|source| {
-        ProductListingEmbeddingWorkerError::InvalidProductListingId {
-            source: box_error(source),
-        }
-    })?;
+    let product_listing_id = ProductListingId::try_from(event.product_listing_id.as_str())
+        .map_err(
+            |source| ProductListingEmbeddingWorkerError::InvalidProductListingId {
+                source: box_error(source),
+            },
+        )?;
     Ok(EmbedProductListingCommand {
         event_id,
-        product_id,
+        product_listing_id,
     })
 }
 
@@ -111,7 +112,7 @@ mod tests {
 
     #[test]
     fn should_map_product_event_job_to_embedding_command() {
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         let event_id = EventId::new();
         let command = command_from_job(DomainJob {
             target_queue: WorkerQueue::ProductListingEmbed,
@@ -119,13 +120,13 @@ mod tests {
             ordering_key: OrderingKey::new("product:test"),
             payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
                 event_id: event_id.to_string(),
-                product_id: product_id.to_string(),
+                product_listing_id: product_listing_id.to_string(),
                 event_type: "DOMAIN_CREATED".to_owned(),
                 event_group: "DOMAIN".to_owned(),
             }),
         });
         assert!(
-            matches!(command, Ok(EmbedProductListingCommand { event_id: actual_event_id, product_id: actual_product_id }) if actual_event_id == event_id && actual_product_id == product_id)
+            matches!(command, Ok(EmbedProductListingCommand { event_id: actual_event_id, product_listing_id: actual_product_listing_id }) if actual_event_id == event_id && actual_product_listing_id == product_listing_id)
         );
     }
 }

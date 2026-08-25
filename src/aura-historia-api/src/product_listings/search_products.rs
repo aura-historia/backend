@@ -1,9 +1,9 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_ORDER_VALUE, BAD_QUERY_PARAMETER_VALUE, BAD_SORT_VALUE};
-use crate::products::product_data::{
+use crate::product_listings::product_data::{
     PersonalizedProductListingSummaryData, personalized_product_summary_data,
 };
-use crate::state::ProductsState;
+use crate::state::ProductListingsState;
 use crate::values::GeoDistanceQueryData;
 use application::operation_context::Principal;
 use application::pagination::Cursor;
@@ -52,7 +52,7 @@ struct ProductListingSearchData {
     #[serde(default)]
     enhanced_search_description: Option<String>,
     #[serde(default)]
-    exclude_product_id: HashSet<ProductListingId>,
+    exclude_product_listing_id: HashSet<ProductListingId>,
     #[serde(default)]
     shop_name: HashSet<ShopName>,
     #[serde(default)]
@@ -150,7 +150,7 @@ impl TryFrom<ProductListingSearchData> for ProductListingSearch {
                 .enhanced_search_description
                 .map(EnhancedSearchDescription::try_from)
                 .transpose()?,
-            exclude_product_listing_id_query: data.exclude_product_id.into(),
+            exclude_product_listing_id_query: data.exclude_product_listing_id.into(),
             shop_name_query: data.shop_name.into(),
             exclude_shop_name_query: data.exclude_shop_name.into(),
             seller_name_query: data.seller_name.into(),
@@ -212,7 +212,7 @@ impl From<ProductListingSearchCursorData> for ProductListingSearchCursor {
 }
 
 pub async fn get_products(
-    State(state): State<ProductsState>,
+    State(state): State<ProductListingsState>,
     headers: HeaderMap,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
@@ -228,7 +228,7 @@ pub async fn get_products(
 }
 
 async fn handle_search(
-    state: ProductsState,
+    state: ProductListingsState,
     headers: HeaderMap,
     raw_query: Option<&str>,
     data: ProductListingSearchData,
@@ -474,7 +474,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(
-                    "/api/v1/products?language=de&currency=USD&productQuery=cabinet&sort=updated&order=desc&size=200&searchAfter=%7B%22fxRateId%22%3A%2210000000-0000-0000-0000-000000000001%22%2C%22searchAfter%22%3A%5B%22next%22%5D%7D",
+                    "/api/v1/product-listings?language=de&currency=USD&productQuery=cabinet&sort=updated&order=desc&size=200&searchAfter=%7B%22fxRateId%22%3A%2210000000-0000-0000-0000-000000000001%22%2C%22searchAfter%22%3A%5B%22next%22%5D%7D",
                 )
                 .body(Body::empty())?,
             )
@@ -516,7 +516,9 @@ mod tests {
         let (app, calls) = app();
 
         let response = app
-            .oneshot(Request::get("/api/v1/products?sort=price&order=asc").body(Body::empty())?)
+            .oneshot(
+                Request::get("/api/v1/product-listings?sort=price&order=asc").body(Body::empty())?,
+            )
             .await?;
 
         assert_eq!(StatusCode::BAD_REQUEST, response.status());
@@ -526,7 +528,7 @@ mod tests {
 
     fn app() -> (Router, SearchProductListingsCalls) {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        let state = ProductsState::new(
+        let state = ProductListingsState::new(
             Arc::new(UnusedGetProductListingUseCase),
             Arc::new(UnusedSimilarProductListingsUseCase),
             Arc::new(FakeSearchProductListingsUseCase {
@@ -536,7 +538,7 @@ mod tests {
         );
         (
             Router::new()
-                .route("/api/v1/products", axum::routing::get(get_products))
+                .route("/api/v1/product-listings", axum::routing::get(get_products))
                 .with_state(state),
             calls,
         )

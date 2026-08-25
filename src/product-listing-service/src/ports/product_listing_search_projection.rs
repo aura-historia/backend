@@ -14,7 +14,7 @@ pub trait ProductListingSearchProjection: Send + Sync {
 
     async fn delete(
         &self,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         source_version: i64,
     ) -> Result<ProductListingSearchProjectionWriteOutcome, ProductListingSearchProjectionWriteError>;
 }

@@ -10,18 +10,18 @@ use watchlist_service::use_cases::UnwatchProductListingCommand;
 pub async fn delete_watchlist(
     State(state): State<WatchlistState>,
     headers: HeaderMap,
-    Path(raw_product_id): Path<String>,
+    Path(raw_product_listing_id): Path<String>,
 ) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return *r,
     };
-    let product_id = match ProductListingId::try_from(raw_product_id.as_str()) {
+    let product_listing_id = match ProductListingId::try_from(raw_product_listing_id.as_str()) {
         Ok(v) => v,
         Err(_) => {
             return ApiError::bad_request(INVALID_UUID)
-                .with_path_field("productId")
-                .with_detail("Path parameter 'productId' must be a product UUID.")
+                .with_path_field("productListingId")
+                .with_detail("Path parameter 'productListingId' must be a product UUID.")
                 .into_response();
         }
     };
@@ -31,7 +31,7 @@ pub async fn delete_watchlist(
             &ctx,
             UnwatchProductListingCommand {
                 user_id,
-                product_id,
+                product_listing_id,
             },
         )
         .await

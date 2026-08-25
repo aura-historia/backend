@@ -45,9 +45,9 @@ impl ProductListingEmbeddingWriter for SqlxProductListingEmbeddingWriter<'_> {
         write: &ProductListingEmbeddingWrite,
     ) -> Result<ProductListingEmbeddingWriteOutcome, ProductListingEmbeddingWriteError> {
         let current_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT event_id FROM products WHERE product_id = $1 FOR UPDATE",
+            "SELECT event_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE",
         )
-        .bind(uuid::Uuid::from(write.product_id))
+        .bind(uuid::Uuid::from(write.product_listing_id))
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(ProductListingEmbeddingWriteSqlxError)?;
@@ -75,23 +75,23 @@ impl ProductListingEmbeddingWriter for SqlxProductListingEmbeddingWriter<'_> {
         });
         sqlx::query(
             r#"
-            INSERT INTO product_events (
-                event_id, product_id, event_type, event_group, payload, event_time
+            INSERT INTO product_listing_events (
+                event_id, product_listing_id, event_type, event_group, payload, event_time
             ) VALUES ($1, $2, 'ENRICHMENT_EMBEDDED', 'ENRICHMENT', $3, now())
         "#,
         )
         .bind(uuid::Uuid::from(write.enrichment_event_id))
-        .bind(uuid::Uuid::from(write.product_id))
+        .bind(uuid::Uuid::from(write.product_listing_id))
         .bind(payload)
         .execute(&mut *self.connection)
         .await
         .map_err(ProductListingEmbeddingWriteSqlxError)?;
         let update = sqlx::query(
-            "UPDATE products SET embedding = $1, event_id = $2, projection_version = projection_version + 1, updated = now() WHERE product_id = $3 AND event_id = $4",
+            "UPDATE product_listings SET embedding = $1, event_id = $2, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $3 AND event_id = $4",
         )
         .bind(&write.embedding)
         .bind(uuid::Uuid::from(write.enrichment_event_id))
-        .bind(uuid::Uuid::from(write.product_id))
+        .bind(uuid::Uuid::from(write.product_listing_id))
         .bind(uuid::Uuid::from(write.source_event_id))
         .execute(&mut *self.connection).await.map_err(ProductListingEmbeddingWriteSqlxError)?;
         if update.rows_affected() != 1 {
@@ -112,15 +112,15 @@ async fn duplicate_embedding_exists(
     sqlx::query_scalar::<_, bool>(
         r#"
         SELECT EXISTS (
-            SELECT 1 FROM product_events
-            WHERE product_id = $1
+            SELECT 1 FROM product_listing_events
+            WHERE product_listing_id = $1
               AND event_type = 'ENRICHMENT_EMBEDDED'
               AND event_group = 'ENRICHMENT'
               AND payload ->> 'sourceEventId' = $2
         )
     "#,
     )
-    .bind(uuid::Uuid::from(write.product_id))
+    .bind(uuid::Uuid::from(write.product_listing_id))
     .bind(write.source_event_id.to_string())
     .fetch_one(&mut *connection)
     .await

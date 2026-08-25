@@ -35,10 +35,10 @@ struct SqlxProductListingWatchlistNotificationSourceReader<'tx> {
 struct SourceRow {
     event_id: uuid::Uuid,
     event_time: time::OffsetDateTime,
-    product_id: uuid::Uuid,
+    product_listing_id: uuid::Uuid,
     event_type: String,
     payload: serde_json::Value,
-    product_slug_id: String,
+    product_listing_slug_id: String,
     shop_id: uuid::Uuid,
     shop_listing_id: String,
     shop_slug_id: String,
@@ -126,7 +126,7 @@ impl ProductListingWatchlistNotificationSourceReader
     async fn find_source(
         &mut self,
         event_id: EventId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<
         Option<ProductListingWatchlistNotificationSource>,
         ProductListingWatchlistNotificationSourceReadError,
@@ -134,18 +134,18 @@ impl ProductListingWatchlistNotificationSourceReader
         let row = sqlx::query_as::<_, SourceRow>(
             r#"
             SELECT
-                event.event_id, event.event_time, event.product_id, event.event_type, event.payload,
-                product.product_slug_id, product.shop_id, product.shops_product_id AS shop_listing_id,
+                event.event_id, event.event_time, event.product_listing_id, event.event_type, event.payload,
+                product.product_listing_slug_id, product.shop_id, product.shop_listing_id AS shop_listing_id,
                 shop.shop_slug_id, shop.name AS shop_name,
                 product.title_text, product.title_language, product.product_images, product.url
-            FROM product_events event
-            JOIN products product ON product.product_id = event.product_id
+            FROM product_listing_events event
+            JOIN product_listings product ON product.product_listing_id = event.product_listing_id
             JOIN shops shop ON shop.shop_id = product.shop_id
-            WHERE event.event_id = $1 AND event.product_id = $2
+            WHERE event.event_id = $1 AND event.product_listing_id = $2
             "#,
         )
         .bind(uuid::Uuid::from(event_id))
-        .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(product_listing_id))
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(WatchlistNotificationSourceQueryError)?;
@@ -170,9 +170,9 @@ impl ProductListingWatchlistNotificationSourceReader
             _ => return Ok(None),
         };
         let translations = sqlx::query_as::<_, TitleRow>(
-            "SELECT language, title FROM product_translations WHERE product_id = $1 AND title IS NOT NULL",
+            "SELECT language, title FROM product_listing_translations WHERE product_listing_id = $1 AND title IS NOT NULL",
         )
-        .bind(row.product_id)
+        .bind(row.product_listing_id)
         .fetch_all(&mut *self.connection)
         .await
         .map_err(WatchlistNotificationSourceQueryError)?;
@@ -199,8 +199,8 @@ impl ProductListingWatchlistNotificationSourceReader
         Ok(Some(ProductListingWatchlistNotificationSource {
             event_id: EventId::from(row.event_id),
             event_time: row.event_time,
-            product_id: ProductListingId::from(row.product_id),
-            product_slug_id: ProductListingSlugId::raw(&row.product_slug_id)
+            product_listing_id: ProductListingId::from(row.product_listing_id),
+            product_listing_slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
                 .map_err(WatchlistNotificationSourceMappingError::with_source)?,
             shop_id: ShopId::from(row.shop_id),
             shop_listing_id: ShopListingId::from(row.shop_listing_id),

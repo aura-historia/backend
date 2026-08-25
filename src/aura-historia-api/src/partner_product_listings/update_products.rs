@@ -3,7 +3,7 @@ use super::types::{
 };
 use crate::auth::protected_context;
 use crate::error::{ApiError, INVALID_UUID};
-use crate::state::PartnerProductsState;
+use crate::state::PartnerProductListingsState;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -11,7 +11,7 @@ use axum::response::{IntoResponse, Response};
 use shop_core::shop_id::ShopId;
 
 pub async fn update_products(
-    State(state): State<PartnerProductsState>,
+    State(state): State<PartnerProductListingsState>,
     headers: HeaderMap,
     Path(raw_shop_id): Path<String>,
     body: String,
@@ -110,9 +110,9 @@ mod tests {
     use user_core::user_id::UserId;
 
     mockall::mock! { CreateUseCase {} #[async_trait::async_trait] impl CreateProductListingUseCase for CreateUseCase { async fn execute(&self, context: &OperationContext, command: CreateProductListingCommand) -> Result<CreateProductListingResult, CreateProductListingError>; } }
-    mockall::mock! { UpdateUseCase {} #[async_trait::async_trait] impl UpdateProductListingUseCase for UpdateUseCase { async fn execute(&self, context: &OperationContext, product_id: ProductListingId, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>; } }
+    mockall::mock! { UpdateUseCase {} #[async_trait::async_trait] impl UpdateProductListingUseCase for UpdateUseCase { async fn execute(&self, context: &OperationContext, product_listing_id: ProductListingId, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>; } }
     mockall::mock! { UpsertUseCase {} #[async_trait::async_trait] impl UpsertProductListingUseCase for UpsertUseCase { async fn execute(&self, context: &OperationContext, command: UpsertProductListingCommand) -> Result<UpsertProductListingResult, UpsertProductListingError>; } }
-    mockall::mock! { DeleteUseCase {} #[async_trait::async_trait] impl DeleteProductListingUseCase for DeleteUseCase { async fn execute(&self, context: &OperationContext, product_id: ProductListingId) -> Result<DeleteProductListingResult, DeleteProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey) -> Result<DeleteProductListingResult, DeleteProductListingError>; } }
+    mockall::mock! { DeleteUseCase {} #[async_trait::async_trait] impl DeleteProductListingUseCase for DeleteUseCase { async fn execute(&self, context: &OperationContext, product_listing_id: ProductListingId) -> Result<DeleteProductListingResult, DeleteProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey) -> Result<DeleteProductListingResult, DeleteProductListingError>; } }
     mockall::mock! { Authenticator {} #[async_trait::async_trait] impl TokenAuthenticator for Authenticator { async fn authenticate(&self, bearer_token: &str, metadata: &RequestMetadata) -> Result<TransportPrincipal, AuthError>; } }
 
     #[tokio::test]
@@ -133,7 +133,7 @@ mod tests {
             .returning(|_, _, _| Ok(updated()));
         let app = app(update);
 
-        let response = request(&app, &format!("/api/v1/shops/{shop_id}/products"), r#"[{"shopsProductId":"first","state":"AVAILABLE"},{"shopsProductId":"second","state":"SOLD"}]"#, true).await?;
+        let response = request(&app, &format!("/api/v1/shops/{shop_id}/product-listings"), r#"[{"shopListingId":"first","state":"AVAILABLE"},{"shopListingId":"second","state":"SOLD"}]"#, true).await?;
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(json!([]), body_json(response).await?);
@@ -157,14 +157,14 @@ mod tests {
             });
         let app = app(update);
 
-        let response = request(&app, &format!("/api/v1/shops/{shop_id}/products"), r#"[{"shopsProductId":"present","state":"AVAILABLE"},{"shopsProductId":"missing","state":"AVAILABLE"}]"#, true).await?;
+        let response = request(&app, &format!("/api/v1/shops/{shop_id}/product-listings"), r#"[{"shopListingId":"present","state":"AVAILABLE"},{"shopListingId":"missing","state":"AVAILABLE"}]"#, true).await?;
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
             json!([{
                 "shopId": shop_id.to_string(),
-                "shopsProductId": "missing",
-                "error": "PRODUCT_NOT_FOUND"
+                "shopListingId": "missing",
+                "error": "PRODUCT_LISTING_NOT_FOUND"
             }]),
             body_json(response).await?
         );
@@ -184,14 +184,17 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/products"),
-            r#"[{"shopsProductId":"missing","state":"AVAILABLE"}]"#,
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            r#"[{"shopListingId":"missing","state":"AVAILABLE"}]"#,
             true,
         )
         .await?;
 
         assert_eq!(StatusCode::NOT_FOUND, response.status());
-        assert_eq!("PRODUCT_NOT_FOUND", body_json(response).await?["error"]);
+        assert_eq!(
+            "PRODUCT_LISTING_NOT_FOUND",
+            body_json(response).await?["error"]
+        );
         Ok(())
     }
 
@@ -205,8 +208,8 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/products"),
-            r#"[{"shopsProductId":"valid","state":"AVAILABLE"},{"shopsProductId":"invalid","state":null}]"#,
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            r#"[{"shopListingId":"valid","state":"AVAILABLE"},{"shopListingId":"invalid","state":null}]"#,
             true,
         )
         .await?;
@@ -226,7 +229,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/products"),
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
             "{",
             true,
         )
@@ -237,7 +240,7 @@ mod tests {
     }
 
     fn app(update: MockUpdateUseCase) -> Router {
-        let state = PartnerProductsState::new(
+        let state = PartnerProductListingsState::new(
             Arc::new(MockCreateUseCase::new()),
             Arc::new(update),
             Arc::new(MockUpsertUseCase::new()),
@@ -246,7 +249,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/shops/{shop_id}/products",
+                "/api/v1/shops/{shop_id}/product-listings",
                 axum::routing::patch(update_products),
             )
             .with_state(state)
@@ -266,7 +269,7 @@ mod tests {
 
     fn updated() -> UpdateProductListingResult {
         UpdateProductListingResult {
-            product_id: ProductListingId::new(),
+            product_listing_id: ProductListingId::new(),
             event_id: Some(EventId::new()),
         }
     }

@@ -91,7 +91,7 @@ pub trait SearchFilterMatchRepository: Send {
     async fn find_by_filter_and_product(
         &mut self,
         filter_id: UserSearchFilterId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<Option<PersistedSearchFilterMatch>, SearchFilterMatchRepositoryError>;
     async fn insert(
         &mut self,

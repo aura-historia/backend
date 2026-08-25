@@ -40,7 +40,7 @@ pub enum ProductListingLookup {
     ById(ProductListingId),
     BySlug {
         shop_slug_id: ShopSlugId,
-        product_slug_id: ProductListingSlugId,
+        product_listing_slug_id: ProductListingSlugId,
     },
 }
 
@@ -144,8 +144,8 @@ pub fn present_product_pricing(
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingDetailsView {
-    pub product_id: ProductListingId,
-    pub product_slug_id: ProductListingSlugId,
+    pub product_listing_id: ProductListingId,
+    pub product_listing_slug_id: ProductListingSlugId,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub seller_id: ShopId,
@@ -327,8 +327,8 @@ pub fn present_product_details(
     let pricing = present_product_pricing(item.pricing, item.sale_valuation, snapshot, currency)?;
     Ok(Personalized {
         item: ProductListingDetailsView {
-            product_id: item.product_id,
-            product_slug_id: item.product_slug_id,
+            product_listing_id: item.product_listing_id,
+            product_listing_slug_id: item.product_listing_slug_id,
             event_id: item.event_id,
             shop_id: item.shop_id,
             seller_id: item.seller_id,
@@ -375,8 +375,8 @@ pub fn redact_hidden_product(
     let hidden_url = Url::parse("https://aura-historia.com/pricing")
         .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?;
 
-    details.product_id = ProductListingId::from(nil);
-    details.product_slug_id = ProductListingSlugId::from("Hidden");
+    details.product_listing_id = ProductListingId::from(nil);
+    details.product_listing_slug_id = ProductListingSlugId::from("Hidden");
     details.event_id = EventId::from(nil);
     details.shop_id = ShopId::from(nil);
     details.seller_id = ShopId::from(nil);
@@ -733,8 +733,8 @@ mod tests {
     fn factual_details() -> Result<PersonalizedProductListingDetailsReadModel, url::ParseError> {
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
-                product_id: ProductListingId::new(),
-                product_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+                product_listing_id: ProductListingId::new(),
+                product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
                 event_id: EventId::new(),
                 shop_id: ShopId::new(),
                 seller_id: ShopId::new(),
@@ -844,7 +844,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let details = factual_details()?;
-        let product_id = details.item.product_id;
+        let product_listing_id = details.item.product_listing_id;
         lock_state(&state).find_details_result = Some(Ok(Some(details)));
         prepare_current_snapshot(&state)?;
         let request = request(Language::De, Currency::Usd);
@@ -870,7 +870,7 @@ mod tests {
             }),
             state.find_details_request
         );
-        assert_eq!(product_id, result.item.product_id);
+        assert_eq!(product_listing_id, result.item.product_listing_id);
         Ok(())
     }
 
@@ -964,7 +964,7 @@ mod tests {
 
         assert_eq!(
             ProductListingId::from(uuid::Uuid::nil()),
-            result.item.product_id
+            result.item.product_listing_id
         );
         assert_eq!(ProductState::Unknown, result.item.state);
         assert_eq!(lifecycle, result.item.lifecycle);

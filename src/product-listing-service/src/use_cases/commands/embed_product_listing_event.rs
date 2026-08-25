@@ -16,7 +16,7 @@ const CREATED_EVENT_TYPE: &str = "DOMAIN_CREATED";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmbedProductListingCommand {
     pub event_id: EventId,
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,7 +109,7 @@ where
         name = "embed_product_event",
         skip_all,
         fields(
-            product_id = %command.product_id,
+            product_listing_id = %command.product_listing_id,
             event_id = %command.event_id,
             principal_type = context.principal.kind(),
             actor_id = tracing::field::Empty,
@@ -132,7 +132,7 @@ where
 
         let Some(source) = self
             .sources
-            .find_source(command.event_id, command.product_id)
+            .find_source(command.event_id, command.product_listing_id)
             .await
             .map_err(|source| EmbedProductListingEventError::SourceReadFailed {
                 source: box_error(source),
@@ -189,7 +189,7 @@ where
             .embeddings
             .in_transaction(&mut tx)
             .apply(&ProductListingEmbeddingWrite {
-                product_id: command.product_id,
+                product_listing_id: command.product_listing_id,
                 source_event_id: command.event_id,
                 enrichment_event_id: EventId::new(),
                 embedding,
@@ -220,7 +220,7 @@ where
             }
         };
         if outcome == EmbedProductListingEventOutcome::Applied {
-            tracing::info!(event = "product.embedded", actor_type = context.principal.kind(), product_id = %command.product_id, source_event_id = %command.event_id, outcome = "success");
+            tracing::info!(event = "product.embedded", actor_type = context.principal.kind(), product_listing_id = %command.product_listing_id, source_event_id = %command.event_id, outcome = "success");
         }
         Ok(result(outcome))
     }
@@ -290,11 +290,11 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
     fn state() -> SharedState {
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         let event_id = EventId::new();
         Arc::new(Mutex::new(State {
             source: Some(crate::ports::ProductListingEmbeddingSource {
-                product_id,
+                product_listing_id,
                 event_id,
                 current_event_id: event_id,
                 event_type: CREATED_EVENT_TYPE.to_owned(),
@@ -322,7 +322,7 @@ mod tests {
             .unwrap_or_else(|| panic!("test source missing"));
         EmbedProductListingCommand {
             event_id: source.event_id,
-            product_id: source.product_id,
+            product_listing_id: source.product_listing_id,
         }
     }
     fn context(principal: Principal) -> OperationContext {

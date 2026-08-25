@@ -33,7 +33,7 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 async fn should_report_duplicate_event_and_missing_current_event_in_product_listing_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let products = SqlxProductListingRepositoryFactory::new();
+    let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
     let shop_id = seed_shop(&pool, "product-listing-postgres-conflict-shop").await;
     let seller_id = seed_shop(&pool, "product-listing-postgres-conflict-seller").await;
@@ -41,7 +41,7 @@ async fn should_report_duplicate_event_and_missing_current_event_in_product_list
     let event = product.pending_events()[0].clone();
 
     let mut tx = begin(&unit_of_work).await;
-    match products
+    match product_listings
         .in_transaction(&mut tx)
         .insert(&product, event.event_id)
         .await

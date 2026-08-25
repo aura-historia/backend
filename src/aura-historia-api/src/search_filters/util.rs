@@ -56,11 +56,11 @@ pub(super) fn parse_search_filter_id(raw: &str) -> Result<UserSearchFilterId, Re
 }
 
 #[allow(clippy::result_large_err)]
-pub(super) fn parse_product_id(raw: &str) -> Result<ProductListingId, Response> {
+pub(super) fn parse_product_listing_id(raw: &str) -> Result<ProductListingId, Response> {
     ProductListingId::try_from(raw).map_err(|_| {
         ApiError::bad_request(INVALID_UUID)
-            .with_path_field("productId")
-            .with_detail("Path parameter 'productId' must be a UUID.")
+            .with_path_field("productListingId")
+            .with_detail("Path parameter 'productListingId' must be a UUID.")
             .into_response()
     })
 }

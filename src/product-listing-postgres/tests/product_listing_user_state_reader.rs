@@ -80,7 +80,7 @@ async fn should_return_complete_state_with_safe_and_unsafe_content_and_free_tier
         &pool,
         ProductListingUserStateLookup {
             user_id,
-            product_ids: vec![unsafe_product, safe_product],
+            product_listing_ids: vec![unsafe_product, safe_product],
         },
     )
     .await;
@@ -125,10 +125,10 @@ async fn should_return_complete_state_with_safe_and_unsafe_content_and_free_tier
 async fn should_return_default_state_when_user_has_no_watchlist_or_matches() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, "FREE", false).await;
-    let product_id = seed_product(&pool).await;
+    let product_listing_id = seed_product(&pool).await;
     set_product_images(
         &pool,
-        product_id,
+        product_listing_id,
         serde_json::json!([{
             "url": "https://example.test/unsafe.jpg",
             "prohibited_content": "UNKNOWN"
@@ -140,13 +140,13 @@ async fn should_return_default_state_when_user_has_no_watchlist_or_matches() {
         &pool,
         ProductListingUserStateLookup {
             user_id,
-            product_ids: vec![product_id],
+            product_listing_ids: vec![product_listing_id],
         },
     )
     .await;
 
     assert_eq!(
-        state(&states, product_id),
+        state(&states, product_listing_id),
         &ProductListingUserState::default()
     );
 }
@@ -159,7 +159,7 @@ async fn should_reject_unknown_user_instead_of_defaulting_state() {
         &pool,
         ProductListingUserStateLookup {
             user_id: UserId::new(),
-            product_ids: vec![ProductListingId::new()],
+            product_listing_ids: vec![ProductListingId::new()],
         },
     )
     .await;
@@ -174,8 +174,8 @@ async fn should_reject_unknown_user_instead_of_defaulting_state() {
 async fn should_return_all_unseen_notification_ids_newest_first_without_cross_product_leakage() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, "PRO", false).await;
-    let product_id = seed_product(&pool).await;
-    let other_product_id = seed_product(&pool).await;
+    let product_listing_id = seed_product(&pool).await;
+    let other_product_listing_id = seed_product(&pool).await;
     let watchlist_notification_id = NotificationId::new();
     let filter_notification_id = NotificationId::new();
     let seen_notification_id = NotificationId::new();
@@ -185,7 +185,7 @@ async fn should_return_all_unseen_notification_ids_newest_first_without_cross_pr
     insert_watchlist_notification(
         &pool,
         user_id,
-        product_id,
+        product_listing_id,
         watchlist_notification_id,
         OffsetDateTime::UNIX_EPOCH + Duration::seconds(1),
         false,
@@ -194,7 +194,7 @@ async fn should_return_all_unseen_notification_ids_newest_first_without_cross_pr
     insert_search_filter_notification(
         &pool,
         user_id,
-        product_id,
+        product_listing_id,
         filter_id,
         filter_notification_id,
         OffsetDateTime::UNIX_EPOCH + Duration::seconds(2),
@@ -204,7 +204,7 @@ async fn should_return_all_unseen_notification_ids_newest_first_without_cross_pr
     insert_watchlist_notification(
         &pool,
         user_id,
-        product_id,
+        product_listing_id,
         seen_notification_id,
         OffsetDateTime::UNIX_EPOCH + Duration::seconds(3),
         true,
@@ -213,7 +213,7 @@ async fn should_return_all_unseen_notification_ids_newest_first_without_cross_pr
     insert_watchlist_notification(
         &pool,
         user_id,
-        other_product_id,
+        other_product_listing_id,
         other_notification_id,
         OffsetDateTime::UNIX_EPOCH + Duration::seconds(4),
         false,
@@ -224,30 +224,31 @@ async fn should_return_all_unseen_notification_ids_newest_first_without_cross_pr
         &pool,
         ProductListingUserStateLookup {
             user_id,
-            product_ids: vec![product_id, other_product_id],
+            product_listing_ids: vec![product_listing_id, other_product_listing_id],
         },
     )
     .await;
 
     assert_eq!(
         vec![filter_notification_id, watchlist_notification_id],
-        state(&states, product_id)
+        state(&states, product_listing_id)
             .notification
             .unseen_notification_ids
     );
     assert_eq!(
         vec![other_notification_id],
-        state(&states, other_product_id)
+        state(&states, other_product_listing_id)
             .notification
             .unseen_notification_ids
     );
 
-    let update =
-        sqlx::query("UPDATE notifications SET seen = true WHERE user_id = $1 AND product_id = $2")
-            .bind(uuid::Uuid::from(user_id))
-            .bind(uuid::Uuid::from(product_id))
-            .execute(&pool)
-            .await;
+    let update = sqlx::query(
+        "UPDATE notifications SET seen = true WHERE user_id = $1 AND product_listing_id = $2",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(uuid::Uuid::from(product_listing_id))
+    .execute(&pool)
+    .await;
     if let Err(error) = update {
         panic!("failed to mark product notifications seen: {error}");
     }
@@ -256,12 +257,12 @@ async fn should_return_all_unseen_notification_ids_newest_first_without_cross_pr
         &pool,
         ProductListingUserStateLookup {
             user_id,
-            product_ids: vec![product_id],
+            product_listing_ids: vec![product_listing_id],
         },
     )
     .await;
     assert!(
-        state(&states, product_id)
+        state(&states, product_listing_id)
             .notification
             .unseen_notification_ids
             .is_empty()
@@ -291,7 +292,7 @@ async fn should_return_user_state_for_many_products_in_one_batched_lookup() {
         &pool,
         ProductListingUserStateLookup {
             user_id,
-            product_ids: vec![watched_product, safe_product, unsafe_product],
+            product_listing_ids: vec![watched_product, safe_product, unsafe_product],
         },
     )
     .await;
@@ -324,11 +325,11 @@ async fn find_for_user_result(
 
 fn state(
     states: &HashMap<ProductListingId, ProductListingUserState>,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
 ) -> &ProductListingUserState {
-    match states.get(&product_id) {
+    match states.get(&product_listing_id) {
         Some(state) => state,
-        None => panic!("missing user state for product {product_id}"),
+        None => panic!("missing user state for product {product_listing_id}"),
     }
 }
 
@@ -356,10 +357,10 @@ async fn seed_user(pool: &sqlx::PgPool, tier: &str, prohibited_content_consent: 
 }
 
 async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
-    let product_id = ProductListingId::new();
+    let product_listing_id = ProductListingId::new();
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::from(ProductListingId::new());
-    let raw_product_id = uuid::Uuid::from(product_id);
+    let raw_product_listing_id = uuid::Uuid::from(product_listing_id);
     let mut transaction = match pool.begin().await {
         Ok(transaction) => transaction,
         Err(error) => panic!("failed to begin product seed transaction: {error}"),
@@ -386,18 +387,18 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
 
     let product_result = sqlx::query(
         r#"
-        INSERT INTO products (
-            product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id,
+        INSERT INTO product_listings (
+            product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id,
             state, lifecycle, url
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         "#,
     )
-    .bind(raw_product_id)
-    .bind(format!("product-user-state-{raw_product_id}"))
+    .bind(raw_product_listing_id)
+    .bind(format!("product-user-state-{raw_product_listing_id}"))
     .bind(uuid::Uuid::from(event_id))
     .bind(shop_id)
     .bind(shop_id)
-    .bind(raw_product_id.to_string())
+    .bind(raw_product_listing_id.to_string())
     .bind("LISTED")
     .bind("ACTIVE")
     .bind("https://example.test/product")
@@ -409,13 +410,13 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
 
     let event_result = sqlx::query(
         r#"
-        INSERT INTO product_events (
-            event_id, product_id, event_type, event_group, payload, event_time
+        INSERT INTO product_listing_events (
+            event_id, product_listing_id, event_type, event_group, payload, event_time
         ) VALUES ($1, $2, $3, $4, $5, $6)
         "#,
     )
     .bind(uuid::Uuid::from(event_id))
-    .bind(raw_product_id)
+    .bind(raw_product_listing_id)
     .bind("PRODUCT_CREATED")
     .bind("DOMAIN")
     .bind(serde_json::json!({}))
@@ -430,19 +431,21 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
         panic!("failed to commit product seed transaction: {error}");
     }
 
-    product_id
+    product_listing_id
 }
 
 async fn set_product_images(
     pool: &sqlx::PgPool,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     images: serde_json::Value,
 ) {
-    let result = sqlx::query("UPDATE products SET product_images = $1 WHERE product_id = $2")
-        .bind(images)
-        .bind(uuid::Uuid::from(product_id))
-        .execute(pool)
-        .await;
+    let result = sqlx::query(
+        "UPDATE product_listings SET product_images = $1 WHERE product_listing_id = $2",
+    )
+    .bind(images)
+    .bind(uuid::Uuid::from(product_listing_id))
+    .execute(pool)
+    .await;
 
     if let Err(error) = result {
         panic!("failed to set product images: {error}");
@@ -452,7 +455,7 @@ async fn set_product_images(
 async fn insert_watchlist_notification(
     pool: &sqlx::PgPool,
     user_id: UserId,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     notification_id: NotificationId,
     created: OffsetDateTime,
     seen: bool,
@@ -460,14 +463,14 @@ async fn insert_watchlist_notification(
     let result = sqlx::query(
         r#"
         INSERT INTO notifications (
-            notification_id, user_id, kind, origin_event_id, product_id, payload, seen, created
+            notification_id, user_id, kind, origin_event_id, product_listing_id, payload, seen, created
         ) VALUES ($1, $2, 'WATCHLIST_STATE_CHANGED', $3, $4, $5, $6, $7)
         "#,
     )
     .bind(uuid::Uuid::from(notification_id))
     .bind(uuid::Uuid::from(user_id))
     .bind(uuid::Uuid::new_v4())
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .bind(serde_json::json!({}))
     .bind(seen)
     .bind(created)
@@ -482,7 +485,7 @@ async fn insert_watchlist_notification(
 async fn insert_search_filter_notification(
     pool: &sqlx::PgPool,
     user_id: UserId,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     filter_id: UserSearchFilterId,
     notification_id: NotificationId,
     created: OffsetDateTime,
@@ -491,7 +494,7 @@ async fn insert_search_filter_notification(
     let result = sqlx::query(
         r#"
         INSERT INTO notifications (
-            notification_id, user_id, kind, origin_event_id, product_id,
+            notification_id, user_id, kind, origin_event_id, product_listing_id,
             user_search_filter_id, payload, seen, created
         ) VALUES ($1, $2, 'SEARCH_FILTER_MATCH', $3, $4, $5, $6, $7, $8)
         "#,
@@ -499,7 +502,7 @@ async fn insert_search_filter_notification(
     .bind(uuid::Uuid::from(notification_id))
     .bind(uuid::Uuid::from(user_id))
     .bind(uuid::Uuid::new_v4())
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .bind(uuid_from_filter_id(filter_id))
     .bind(serde_json::json!({}))
     .bind(seen)
@@ -515,17 +518,17 @@ async fn insert_search_filter_notification(
 async fn insert_watchlist(
     pool: &sqlx::PgPool,
     user_id: UserId,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     notifications: bool,
 ) {
     let result = sqlx::query(
         r#"
-        INSERT INTO product_watchlist (user_id, product_id, notifications, state, active_since, notifications_enabled_since)
+        INSERT INTO product_listing_watchlist (user_id, product_listing_id, notifications, state, active_since, notifications_enabled_since)
         VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'ACTIVE' THEN now() ELSE NULL END, CASE WHEN $3 THEN now() ELSE NULL END)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .bind(notifications)
     .bind("ACTIVE")
     .execute(pool)
@@ -570,24 +573,24 @@ async fn insert_search_filter_match(
     pool: &sqlx::PgPool,
     user_id: UserId,
     filter_id: UserSearchFilterId,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     name: &str,
     reason: Option<&str>,
     feedback: Option<bool>,
     created: OffsetDateTime,
 ) {
-    let origin_event_id = event_id_for_product(pool, product_id).await;
+    let origin_event_id = event_id_for_product(pool, product_listing_id).await;
     let result = sqlx::query(
         r#"
         INSERT INTO search_filter_matches (
-            user_id, user_search_filter_id, product_id, origin_event_id,
+            user_id, user_search_filter_id, product_listing_id, origin_event_id,
             user_search_filter_name, enhanced_match_reason, feedback, created
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(uuid_from_filter_id(filter_id))
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .bind(origin_event_id)
     .bind(name)
     .bind(reason)
@@ -601,12 +604,16 @@ async fn insert_search_filter_match(
     }
 }
 
-async fn event_id_for_product(pool: &sqlx::PgPool, product_id: ProductListingId) -> uuid::Uuid {
-    let result =
-        sqlx::query_scalar::<_, uuid::Uuid>("SELECT event_id FROM products WHERE product_id = $1")
-            .bind(uuid::Uuid::from(product_id))
-            .fetch_one(pool)
-            .await;
+async fn event_id_for_product(
+    pool: &sqlx::PgPool,
+    product_listing_id: ProductListingId,
+) -> uuid::Uuid {
+    let result = sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT event_id FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .fetch_one(pool)
+    .await;
 
     match result {
         Ok(event_id) => event_id,

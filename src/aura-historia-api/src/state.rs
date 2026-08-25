@@ -75,8 +75,8 @@ impl ReadinessCheck for AlwaysReady {
 pub struct AppState {
     pub(crate) readiness: Arc<dyn ReadinessCheck>,
     pub(crate) shops: ShopsState,
-    pub(crate) products: Option<ProductsState>,
-    pub(crate) partner_products: Option<PartnerProductsState>,
+    pub(crate) product_listings: Option<ProductListingsState>,
+    pub(crate) partner_product_listings: Option<PartnerProductListingsState>,
     pub(crate) users: Option<UsersState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partner_applications: Option<PartnerApplicationsState>,
@@ -98,8 +98,8 @@ impl AppState {
         Self {
             readiness: Arc::new(AlwaysReady),
             shops,
-            products: None,
-            partner_products: None,
+            product_listings: None,
+            partner_product_listings: None,
             users: Some(users),
             watchlist: Some(watchlist),
             partner_applications: Some(partner_applications),
@@ -116,8 +116,8 @@ impl AppState {
         Self {
             readiness: Arc::new(AlwaysReady),
             shops,
-            products: None,
-            partner_products: None,
+            product_listings: None,
+            partner_product_listings: None,
             users: None,
             watchlist: None,
             partner_applications: None,
@@ -135,13 +135,16 @@ impl AppState {
         self
     }
 
-    pub fn with_products(mut self, products: ProductsState) -> Self {
-        self.products = Some(products);
+    pub fn with_products(mut self, product_listings: ProductListingsState) -> Self {
+        self.product_listings = Some(product_listings);
         self
     }
 
-    pub fn with_partner_products(mut self, partner_products: PartnerProductsState) -> Self {
-        self.partner_products = Some(partner_products);
+    pub fn with_partner_product_listings(
+        mut self,
+        partner_product_listings: PartnerProductListingsState,
+    ) -> Self {
+        self.partner_product_listings = Some(partner_product_listings);
         self
     }
 
@@ -384,15 +387,15 @@ impl ShopsState {
 }
 
 #[derive(Clone)]
-pub struct ProductsState {
+pub struct ProductListingsState {
     pub(crate) get_product: Arc<dyn GetProductListingUseCase>,
-    pub(crate) get_product_events: Option<Arc<dyn GetProductListingEventsUseCase>>,
+    pub(crate) get_product_listing_events: Option<Arc<dyn GetProductListingEventsUseCase>>,
     pub(crate) get_similar_products: Arc<dyn GetSimilarProductListingsUseCase>,
     pub(crate) search_products: Arc<dyn SearchProductListingsUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
-impl ProductsState {
+impl ProductListingsState {
     pub fn new(
         get_product: Arc<dyn GetProductListingUseCase>,
         get_similar_products: Arc<dyn GetSimilarProductListingsUseCase>,
@@ -401,24 +404,24 @@ impl ProductsState {
     ) -> Self {
         Self {
             get_product,
-            get_product_events: None,
+            get_product_listing_events: None,
             get_similar_products,
             search_products,
             authenticator,
         }
     }
 
-    pub fn with_product_events(
+    pub fn with_product_listing_events(
         mut self,
-        get_product_events: Arc<dyn GetProductListingEventsUseCase>,
+        get_product_listing_events: Arc<dyn GetProductListingEventsUseCase>,
     ) -> Self {
-        self.get_product_events = Some(get_product_events);
+        self.get_product_listing_events = Some(get_product_listing_events);
         self
     }
 }
 
 #[derive(Clone)]
-pub struct PartnerProductsState {
+pub struct PartnerProductListingsState {
     pub(crate) create: Arc<dyn CreateProductListingUseCase>,
     pub(crate) update: Arc<dyn UpdateProductListingUseCase>,
     pub(crate) upsert: Arc<dyn UpsertProductListingUseCase>,
@@ -426,7 +429,7 @@ pub struct PartnerProductsState {
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
-impl PartnerProductsState {
+impl PartnerProductListingsState {
     pub fn new(
         create: Arc<dyn CreateProductListingUseCase>,
         update: Arc<dyn UpdateProductListingUseCase>,

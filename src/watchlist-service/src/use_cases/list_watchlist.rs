@@ -585,13 +585,13 @@ mod tests {
     }
 
     fn details(
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<PersonalizedProductListingDetailsReadModel, url::ParseError> {
         let url = Url::parse("https://example.test/product")?;
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
-                product_id,
-                product_slug_id: ProductListingSlugId::from("product"),
+                product_listing_id,
+                product_listing_slug_id: ProductListingSlugId::from("product"),
                 event_id: EventId::new(),
                 shop_id: ShopId::new(),
                 seller_id: ShopId::new(),
@@ -647,13 +647,13 @@ mod tests {
     async fn should_use_one_current_snapshot_for_all_current_products()
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
-        let first_product_id = ProductListingId::new();
-        let second_product_id = ProductListingId::new();
+        let first_product_listing_id = ProductListingId::new();
+        let second_product_listing_id = ProductListingId::new();
         let current_snapshot = snapshot(FxRateId::new())?;
         let state = state();
         lock(&state).details_result = Some(Ok(page(vec![
-            details(first_product_id)?,
-            details(second_product_id)?,
+            details(first_product_listing_id)?,
+            details(second_product_listing_id)?,
         ])));
         lock(&state).latest_snapshot_result = Some(Ok(Some(current_snapshot.clone())));
 
@@ -662,11 +662,11 @@ mod tests {
             .await?;
 
         assert_eq!(
-            vec![first_product_id, second_product_id],
+            vec![first_product_listing_id, second_product_listing_id],
             result
                 .items
                 .iter()
-                .map(|item| item.item.product_id)
+                .map(|item| item.item.product_listing_id)
                 .collect::<Vec<_>>()
         );
         assert!(result.items.iter().all(|item| matches!(

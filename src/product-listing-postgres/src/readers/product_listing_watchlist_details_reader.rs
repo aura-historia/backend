@@ -52,8 +52,8 @@ struct SqlxProductListingWatchlistDetailsReader<'tx> {
 
 #[derive(Debug, sqlx::FromRow)]
 struct ProductListingDetailsRow {
-    product_id: uuid::Uuid,
-    product_slug_id: String,
+    product_listing_id: uuid::Uuid,
+    product_listing_slug_id: String,
     event_id: uuid::Uuid,
     shop_id: uuid::Uuid,
     seller_id: uuid::Uuid,
@@ -163,7 +163,7 @@ impl ProductListingWatchlistDetailsReader for SqlxProductListingWatchlistDetails
                     request
                         .cursor
                         .search_after
-                        .map(|cursor| uuid::Uuid::from(cursor.product_id)),
+                        .map(|cursor| uuid::Uuid::from(cursor.product_listing_id)),
                 )
                 .fetch_all(&mut *self.connection)
                 .await
@@ -177,18 +177,18 @@ impl ProductListingWatchlistDetailsReader for SqlxProductListingWatchlistDetails
             .then(|| {
                 rows.last().map(|row| ProductListingWatchlistDetailsCursor {
                     watchlist_created: row.watchlist_created,
-                    product_id: ProductListingId::from(row.product_id),
+                    product_listing_id: ProductListingId::from(row.product_listing_id),
                 })
             })
             .flatten();
-        let products = rows
+        let product_listings = rows
             .into_iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| ProductListingWatchlistDetailsReadError::InvalidReadModel)?;
 
         Ok(CursoredResult {
-            items: products,
+            items: product_listings,
             cursor: Cursor {
                 size: request.cursor.size,
                 search_after,
@@ -201,7 +201,7 @@ impl ProductListingWatchlistDetailsReader for SqlxProductListingWatchlistDetails
 const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
     WITH notification_states AS (
         SELECT
-            notification.product_id,
+            notification.product_listing_id,
             array_agg(
                 notification.notification_id
                 ORDER BY notification.created DESC, notification.notification_id DESC
@@ -209,18 +209,18 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
         FROM notifications notification
         WHERE notification.user_id = $2
             AND notification.seen = false
-        GROUP BY notification.product_id
+        GROUP BY notification.product_listing_id
     ),
     ranked_matches AS (
         SELECT
             matched.user_id,
-            matched.product_id,
+            matched.product_listing_id,
             matched.user_search_filter_id,
             matched.user_search_filter_name,
             matched.enhanced_match_reason,
             matched.feedback,
             ROW_NUMBER() OVER (
-                PARTITION BY matched.user_id, matched.product_id
+                PARTITION BY matched.user_id, matched.product_listing_id
                 ORDER BY matched.created ASC, matched.user_search_filter_id ASC
             ) AS product_position,
             ROW_NUMBER() OVER (
@@ -230,13 +230,13 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
                 ORDER BY
                     matched.created ASC,
                     matched.user_search_filter_id ASC,
-                    matched.product_id ASC
+                    matched.product_listing_id ASC
             ) AS month_position
         FROM search_filter_matches matched
         WHERE matched.user_id = $2
     )
     SELECT
-        p.product_id, p.product_slug_id, p.event_id, p.shop_id, p.seller_id, p.shops_product_id AS shop_listing_id,
+        p.product_listing_id, p.product_listing_slug_id, p.event_id, p.shop_id, p.seller_id, p.shop_listing_id AS shop_listing_id,
         shop.name AS shop_name, shop.shop_slug_id,
         seller.name AS seller_name, seller.shop_slug_id AS seller_slug_id,
         p.structured_address_addressline, p.structured_address_addressline_extra,
@@ -265,18 +265,18 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
         END AS selected_match_month_position,
         notification_state.unseen_notification_ids,
         watchlist.created AS watchlist_created
-    FROM products p
+    FROM product_listings p
     JOIN shops shop ON shop.shop_id = p.shop_id
     JOIN shops seller ON seller.shop_id = p.seller_id
     LEFT JOIN users authenticated_user ON authenticated_user.user_id = $2
-    LEFT JOIN product_watchlist watchlist
+    LEFT JOIN product_listing_watchlist watchlist
         ON watchlist.user_id = $2
-        AND watchlist.product_id = p.product_id
+        AND watchlist.product_listing_id = p.product_listing_id
     LEFT JOIN ranked_matches selected_match
-        ON selected_match.product_id = p.product_id
+        ON selected_match.product_listing_id = p.product_listing_id
         AND selected_match.product_position = 1
     LEFT JOIN notification_states notification_state
-        ON notification_state.product_id = p.product_id
+        ON notification_state.product_listing_id = p.product_listing_id
     LEFT JOIN LATERAL (
         SELECT
             (
@@ -356,8 +356,8 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
                 translation.description AS description_text,
                 translation.language AS description_language,
                 0 AS source_priority
-            FROM product_translations translation
-            WHERE translation.product_id = p.product_id
+            FROM product_listing_translations translation
+            WHERE translation.product_listing_id = p.product_listing_id
 
             UNION ALL
 
@@ -373,9 +373,9 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
         AND (
             $4::timestamptz IS NULL
             OR watchlist.created < $4
-            OR (watchlist.created = $4 AND p.product_id > $5)
+            OR (watchlist.created = $4 AND p.product_listing_id > $5)
         )
-    ORDER BY watchlist.created DESC, p.product_id ASC
+    ORDER BY watchlist.created DESC, p.product_listing_id ASC
     LIMIT $3
 "#;
 
@@ -407,8 +407,9 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
 
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
-                product_id: ProductListingId::from(row.product_id),
-                product_slug_id: ProductListingSlugId::raw(&row.product_slug_id).map_err(|_| ())?,
+                product_listing_id: ProductListingId::from(row.product_listing_id),
+                product_listing_slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
+                    .map_err(|_| ())?,
                 event_id: EventId::from(row.event_id),
                 shop_id: ShopId::from(row.shop_id),
                 seller_id: ShopId::from(row.seller_id),

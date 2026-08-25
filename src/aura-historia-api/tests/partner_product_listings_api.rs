@@ -81,14 +81,14 @@ async fn should_return_duplicate_product_as_partial_create_failure() -> TestResu
 async fn should_update_existing_partner_product_batch() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(products_write_scope()).await?;
-        let product_id = "patch-success";
-        create_product(&auth, product_id).await?;
+        let product_listing_id = "patch-success";
+        create_product(&auth, product_listing_id).await?;
 
         let response = send_json(
             reqwest::Method::PATCH,
             products_path(&auth.shop_id),
             Some(&auth.token),
-            &json!([patch_product(product_id, "SOLD")]),
+            &json!([patch_product(product_listing_id, "SOLD")]),
         )
         .await?;
         let (status, body) = response_json(response).await?;
@@ -105,8 +105,8 @@ async fn should_update_existing_partner_product_batch() -> TestResult {
 async fn should_reject_unrelated_partner_from_existing_product_update() -> TestResult {
     let result: TestResult = async {
         let owner = partner_auth(products_write_scope()).await?;
-        let product_id = "patch-unrelated-partner";
-        create_product(&owner, product_id).await?;
+        let product_listing_id = "patch-unrelated-partner";
+        create_product(&owner, product_listing_id).await?;
 
         let unrelated_user_id = seed_user("USER").await;
         let unrelated_token =
@@ -115,7 +115,7 @@ async fn should_reject_unrelated_partner_from_existing_product_update() -> TestR
             reqwest::Method::PATCH,
             products_path(&owner.shop_id),
             Some(&unrelated_token),
-            &json!([patch_product(product_id, "SOLD")]),
+            &json!([patch_product(product_listing_id, "SOLD")]),
         )
         .await?;
         let (status, body) = response_json(response).await?;
@@ -150,7 +150,11 @@ async fn should_return_missing_product_as_partial_update_failure() -> TestResult
 
         assert_eq!(reqwest::StatusCode::OK, status);
         assert_eq!(
-            json!([failure(&auth.shop_id, missing_id, "PRODUCT_NOT_FOUND")]),
+            json!([failure(
+                &auth.shop_id,
+                missing_id,
+                "PRODUCT_LISTING_NOT_FOUND"
+            )]),
             body
         );
         Ok::<(), Box<dyn std::error::Error>>(())
@@ -174,7 +178,7 @@ async fn should_return_not_found_when_every_product_update_is_missing() -> TestR
         let (status, body) = response_json(response).await?;
 
         assert_eq!(reqwest::StatusCode::NOT_FOUND, status);
-        assert_eq!(json!("PRODUCT_NOT_FOUND"), body["error"]);
+        assert_eq!(json!("PRODUCT_LISTING_NOT_FOUND"), body["error"]);
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;
@@ -185,13 +189,13 @@ async fn should_return_not_found_when_every_product_update_is_missing() -> TestR
 async fn should_create_then_update_partner_product_with_upsert() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(products_write_scope()).await?;
-        let product_id = "put-create-update";
+        let product_listing_id = "put-create-update";
 
         let created = send_json(
             reqwest::Method::PUT,
             products_path(&auth.shop_id),
             Some(&auth.token),
-            &json!([product(product_id)]),
+            &json!([product(product_listing_id)]),
         )
         .await?;
         let (created_status, created_body) = response_json(created).await?;
@@ -202,7 +206,7 @@ async fn should_create_then_update_partner_product_with_upsert() -> TestResult {
             reqwest::Method::PUT,
             products_path(&auth.shop_id),
             Some(&auth.token),
-            &json!([patch_product(product_id, "SOLD")]),
+            &json!([patch_product(product_listing_id, "SOLD")]),
         )
         .await?;
         let (updated_status, updated_body) = response_json(updated).await?;
@@ -219,8 +223,8 @@ async fn should_create_then_update_partner_product_with_upsert() -> TestResult {
 async fn should_reject_unrelated_partner_from_existing_product_upsert() -> TestResult {
     let result: TestResult = async {
         let owner = partner_auth(products_write_scope()).await?;
-        let product_id = "put-unrelated-partner";
-        create_product(&owner, product_id).await?;
+        let product_listing_id = "put-unrelated-partner";
+        create_product(&owner, product_listing_id).await?;
 
         let unrelated_user_id = seed_user("USER").await;
         let unrelated_token =
@@ -229,7 +233,7 @@ async fn should_reject_unrelated_partner_from_existing_product_upsert() -> TestR
             reqwest::Method::PUT,
             products_path(&owner.shop_id),
             Some(&unrelated_token),
-            &json!([patch_product(product_id, "SOLD")]),
+            &json!([patch_product(product_listing_id, "SOLD")]),
         )
         .await?;
         let (status, body) = response_json(response).await?;
@@ -271,8 +275,8 @@ async fn should_delete_existing_partner_product_batch() -> TestResult {
 async fn should_reject_unrelated_partner_from_existing_product_delete() -> TestResult {
     let result: TestResult = async {
         let owner = partner_auth(products_write_scope()).await?;
-        let product_id = "delete-unrelated-partner";
-        create_product(&owner, product_id).await?;
+        let product_listing_id = "delete-unrelated-partner";
+        create_product(&owner, product_listing_id).await?;
 
         let unrelated_user_id = seed_user("USER").await;
         let unrelated_token =
@@ -281,7 +285,7 @@ async fn should_reject_unrelated_partner_from_existing_product_delete() -> TestR
             reqwest::Method::DELETE,
             products_path(&owner.shop_id),
             Some(&unrelated_token),
-            &json!([delete_product(product_id)]),
+            &json!([delete_product(product_listing_id)]),
         )
         .await?;
         let (status, body) = response_json(response).await?;
@@ -313,7 +317,11 @@ async fn should_return_missing_product_as_partial_delete_failure() -> TestResult
 
         assert_eq!(reqwest::StatusCode::OK, status);
         assert_eq!(
-            json!([failure(&auth.shop_id, missing_id, "PRODUCT_NOT_FOUND")]),
+            json!([failure(
+                &auth.shop_id,
+                missing_id,
+                "PRODUCT_LISTING_NOT_FOUND"
+            )]),
             body
         );
         Ok::<(), Box<dyn std::error::Error>>(())
@@ -337,7 +345,7 @@ async fn should_return_not_found_when_every_product_delete_is_missing() -> TestR
         let (status, body) = response_json(response).await?;
 
         assert_eq!(reqwest::StatusCode::NOT_FOUND, status);
-        assert_eq!(json!("PRODUCT_NOT_FOUND"), body["error"]);
+        assert_eq!(json!("PRODUCT_LISTING_NOT_FOUND"), body["error"]);
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;
@@ -520,35 +528,35 @@ fn products_write_scope() -> HashSet<Scope> {
 }
 
 fn products_path(shop_id: &str) -> String {
-    format!("/api/v1/shops/{shop_id}/products")
+    format!("/api/v1/shops/{shop_id}/product-listings")
 }
 
 fn product(shop_listing_id: &str) -> Value {
     json!({
-        "shopsProductId": shop_listing_id,
+        "shopListingId": shop_listing_id,
         "title": { "text": "Synchronous Cabinet", "language": "en" },
         "description": { "text": "Created in the request transaction.", "language": "en" },
         "state": "LISTED",
-        "url": format!("https://partner.example/products/{shop_listing_id}"),
+        "url": format!("https://partner.example/product-listings/{shop_listing_id}"),
         "images": []
     })
 }
 
 fn patch_product(shop_listing_id: &str, state: &str) -> Value {
     json!({
-        "shopsProductId": shop_listing_id,
+        "shopListingId": shop_listing_id,
         "state": state
     })
 }
 
 fn delete_product(shop_listing_id: &str) -> Value {
-    json!({ "shopsProductId": shop_listing_id })
+    json!({ "shopListingId": shop_listing_id })
 }
 
 fn failure(shop_id: &str, shop_listing_id: &str, error: &str) -> Value {
     json!({
         "shopId": shop_id,
-        "shopsProductId": shop_listing_id,
+        "shopListingId": shop_listing_id,
         "error": error
     })
 }

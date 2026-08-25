@@ -24,7 +24,7 @@ pub struct SqlxProductListingUserStateReader {
 
 #[derive(Debug, sqlx::FromRow)]
 struct ProductListingUserStateRow {
-    product_id: Option<uuid::Uuid>,
+    product_listing_id: Option<uuid::Uuid>,
     has_prohibited_content: Option<bool>,
     user_prohibited_content_consent: bool,
     user_tier: String,
@@ -72,15 +72,15 @@ impl ProductListingUserStateReader for SqlxProductListingUserStateReader {
         lookup: &ProductListingUserStateLookup,
     ) -> Result<HashMap<ProductListingId, ProductListingUserState>, ProductListingUserStateReadError>
     {
-        let product_ids = lookup
-            .product_ids
+        let product_listing_ids = lookup
+            .product_listing_ids
             .iter()
             .copied()
             .map(uuid::Uuid::from)
             .collect::<Vec<_>>();
         let rows = sqlx::query_as::<_, ProductListingUserStateRow>(SELECT_PRODUCT_USER_STATES)
             .bind(uuid::Uuid::from(lookup.user_id))
-            .bind(product_ids)
+            .bind(product_listing_ids)
             .fetch_all(&self.pool)
             .await
             .map_err(|source| ProductListingUserStateReadError::QueryFailed {
@@ -93,7 +93,7 @@ impl ProductListingUserStateReader for SqlxProductListingUserStateReader {
             });
         }
 
-        if lookup.product_ids.is_empty() {
+        if lookup.product_listing_ids.is_empty() {
             let [row] = rows.as_slice() else {
                 return Err(ProductListingUserStateReadError::InvalidReadModel {
                     source: static_error("empty product user state lookup returned product rows"),
@@ -105,7 +105,7 @@ impl ProductListingUserStateReader for SqlxProductListingUserStateReader {
                 }
             })?;
 
-            if row.product_id.is_some() || row.has_prohibited_content.is_some() {
+            if row.product_listing_id.is_some() || row.has_prohibited_content.is_some() {
                 return Err(ProductListingUserStateReadError::InvalidReadModel {
                     source: static_error("empty product user state lookup returned a product"),
                 });
@@ -127,11 +127,11 @@ impl ProductListingUserStateReader for SqlxProductListingUserStateReader {
 
 const SELECT_PRODUCT_USER_STATES: &str = r#"
     WITH requested_products AS (
-        SELECT DISTINCT requested.product_id
-        FROM UNNEST($2::uuid[]) AS requested(product_id)
+        SELECT DISTINCT requested.product_listing_id
+        FROM UNNEST($2::uuid[]) AS requested(product_listing_id)
     ),
     requested_rows AS (
-        SELECT product_id
+        SELECT product_listing_id
         FROM requested_products
 
         UNION ALL
@@ -146,38 +146,38 @@ const SELECT_PRODUCT_USER_STATES: &str = r#"
     ),
     notification_states AS (
         SELECT
-            notification.product_id,
+            notification.product_listing_id,
             array_agg(
                 notification.notification_id
                 ORDER BY notification.created DESC, notification.notification_id DESC
             ) AS unseen_notification_ids
         FROM notifications notification
         JOIN requested_products requested
-            ON requested.product_id = notification.product_id
+            ON requested.product_listing_id = notification.product_listing_id
         WHERE notification.user_id = $1
             AND notification.seen = false
-        GROUP BY notification.product_id
+        GROUP BY notification.product_listing_id
     ),
     ranked_requested_matches AS (
         SELECT
-            matched.product_id,
+            matched.product_listing_id,
             matched.user_search_filter_id,
             matched.user_search_filter_name,
             matched.enhanced_match_reason,
             matched.feedback,
             matched.created,
             ROW_NUMBER() OVER (
-                PARTITION BY matched.product_id
+                PARTITION BY matched.product_listing_id
                 ORDER BY matched.created ASC, matched.user_search_filter_id ASC
             ) AS product_position
         FROM search_filter_matches matched
         JOIN requested_products requested
-            ON requested.product_id = matched.product_id
+            ON requested.product_listing_id = matched.product_listing_id
         WHERE matched.user_id = $1
     ),
     selected_matches AS (
         SELECT
-            product_id,
+            product_listing_id,
             user_search_filter_id,
             user_search_filter_name,
             enhanced_match_reason,
@@ -193,14 +193,14 @@ const SELECT_PRODUCT_USER_STATES: &str = r#"
     ),
     ranked_month_matches AS (
         SELECT
-            matched.product_id,
+            matched.product_listing_id,
             matched.user_search_filter_id,
             ROW_NUMBER() OVER (
                 PARTITION BY date_trunc('month', matched.created AT TIME ZONE 'UTC')
                 ORDER BY
                     matched.created ASC,
                     matched.user_search_filter_id ASC,
-                    matched.product_id ASC
+                    matched.product_listing_id ASC
             ) AS month_position
         FROM authenticated_user authenticated_user
         JOIN search_filter_matches matched
@@ -211,9 +211,9 @@ const SELECT_PRODUCT_USER_STATES: &str = r#"
         WHERE authenticated_user.tier = 'FREE'
     )
     SELECT
-        requested.product_id,
+        requested.product_listing_id,
         CASE
-            WHEN requested.product_id IS NULL OR product.product_id IS NULL THEN NULL
+            WHEN requested.product_listing_id IS NULL OR product.product_listing_id IS NULL THEN NULL
             ELSE EXISTS (
                 SELECT 1
                 FROM jsonb_array_elements(product.product_images) AS image
@@ -234,25 +234,25 @@ const SELECT_PRODUCT_USER_STATES: &str = r#"
         notification_state.unseen_notification_ids
     FROM authenticated_user authenticated_user
     CROSS JOIN requested_rows requested
-    LEFT JOIN products product
-        ON product.product_id = requested.product_id
-    LEFT JOIN product_watchlist watchlist
+    LEFT JOIN product_listings product
+        ON product.product_listing_id = requested.product_listing_id
+    LEFT JOIN product_listing_watchlist watchlist
         ON watchlist.user_id = $1
-        AND watchlist.product_id = requested.product_id
+        AND watchlist.product_listing_id = requested.product_listing_id
     LEFT JOIN selected_matches selected_match
-        ON selected_match.product_id = requested.product_id
+        ON selected_match.product_listing_id = requested.product_listing_id
     LEFT JOIN ranked_month_matches monthly_match
-        ON monthly_match.product_id = selected_match.product_id
+        ON monthly_match.product_listing_id = selected_match.product_listing_id
         AND monthly_match.user_search_filter_id = selected_match.user_search_filter_id
     LEFT JOIN notification_states notification_state
-        ON notification_state.product_id = requested.product_id
+        ON notification_state.product_listing_id = requested.product_listing_id
 "#;
 
 fn product_user_state(
     row: ProductListingUserStateRow,
 ) -> Result<(ProductListingId, ProductListingUserState), ProductListingUserStateRowMappingError> {
-    let product_id = row
-        .product_id
+    let product_listing_id = row
+        .product_listing_id
         .map(ProductListingId::from)
         .ok_or(ProductListingUserStateRowMappingError::MissingRequestedProductListing)?;
     let has_prohibited_content = row
@@ -262,7 +262,7 @@ fn product_user_state(
     let search_filter = search_filter_user_state(&row, tier)?;
 
     Ok((
-        product_id,
+        product_listing_id,
         ProductListingUserState {
             watchlist: WatchlistUserState {
                 watching: row.watchlist_notifications.is_some(),

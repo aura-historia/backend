@@ -34,8 +34,10 @@ pub(crate) enum ProductListingSummaryPersonalizationError {
         source: BoxError,
     },
 
-    #[error("product user state is missing for product {product_id}")]
-    UserStateMissing { product_id: ProductListingId },
+    #[error("product user state is missing for product {product_listing_id}")]
+    UserStateMissing {
+        product_listing_id: ProductListingId,
+    },
     #[error("hidden product summary could not be constructed")]
     HiddenProductListingSummaryInvalid {
         #[source]
@@ -57,9 +59,9 @@ where
 
     let lookup = ProductListingUserStateLookup {
         user_id,
-        product_ids: products
+        product_listing_ids: products
             .iter()
-            .map(|product| product.item.product_id)
+            .map(|product| product.item.product_listing_id)
             .collect::<HashSet<_>>()
             .into_iter()
             .collect(),
@@ -70,11 +72,14 @@ where
         .map_err(ProductListingSummaryPersonalizationError::from)?;
 
     for product in products {
-        let user_state = user_states.get(&product.item.product_id).cloned().ok_or(
-            ProductListingSummaryPersonalizationError::UserStateMissing {
-                product_id: product.item.product_id,
-            },
-        )?;
+        let user_state = user_states
+            .get(&product.item.product_listing_id)
+            .cloned()
+            .ok_or(
+                ProductListingSummaryPersonalizationError::UserStateMissing {
+                    product_listing_id: product.item.product_listing_id,
+                },
+            )?;
 
         let hidden = user_state.search_filter.hidden;
         product.user_state = Some(user_state);
@@ -101,8 +106,8 @@ fn redact_hidden_product_summary(
         }
     })?;
 
-    product.product_id = ProductListingId::from(nil);
-    product.product_slug_id = ProductListingSlugId::from("Hidden");
+    product.product_listing_id = ProductListingId::from(nil);
+    product.product_listing_slug_id = ProductListingSlugId::from("Hidden");
     product.event_id = EventId::from(nil);
     product.shop_id = ShopId::from(nil);
     product.seller_id = ShopId::from(nil);

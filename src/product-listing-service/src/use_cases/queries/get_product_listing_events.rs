@@ -26,7 +26,7 @@ pub enum ProductListingEventLookup {
     ById(ProductListingId),
     BySlug {
         shop_slug_id: ShopSlugId,
-        product_slug_id: ProductListingSlugId,
+        product_listing_slug_id: ProductListingSlugId,
     },
 }
 
@@ -37,7 +37,7 @@ pub struct GetProductListingEventsRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingEvent {
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub event_id: EventId,
     pub event_type: ProductListingEventType,
     pub payload: ProductListingEventPayload,
@@ -157,7 +157,7 @@ where
     U: UnitOfWork,
     R: ProductListingEventReaderFactory<U::Tx>,
 {
-    #[tracing::instrument(name = "get_product_events", skip_all, fields(principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    #[tracing::instrument(name = "get_product_listing_events", skip_all, fields(principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
         &self,
         context: &OperationContext,

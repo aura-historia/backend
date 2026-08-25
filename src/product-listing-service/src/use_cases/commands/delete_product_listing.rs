@@ -15,7 +15,7 @@ use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeleteProductListingResult {
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub event_id: EventId,
 }
 
@@ -103,7 +103,7 @@ pub trait DeleteProductListingUseCase: Send + Sync {
     async fn execute(
         &self,
         context: &OperationContext,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<DeleteProductListingResult, DeleteProductListingError>;
 
     async fn execute_by_key(
@@ -163,10 +163,10 @@ where
             .await
             .map_err(|_| DeleteProductListingError::BeginTransactionFailed)?;
         let loaded = match target {
-            DeleteProductListingTarget::Id(product_id) => self
+            DeleteProductListingTarget::Id(product_listing_id) => self
                 .products
                 .in_transaction(&mut tx)
-                .find_by_id(product_id)
+                .find_by_id(product_listing_id)
                 .await?
                 .ok_or(DeleteProductListingError::ProductListingNotFound)?,
             DeleteProductListingTarget::Key(product_key) => {
@@ -212,13 +212,13 @@ where
             event = "product.deleted",
             actor_type = context.principal.kind(),
             actor_id = %context.principal.label(),
-            product_id = %product.id(),
+            product_listing_id = %product.id(),
             event_id = %event_id,
             outcome = "success",
         );
 
         Ok(DeleteProductListingResult {
-            product_id: product.id(),
+            product_listing_id: product.id(),
             event_id,
         })
     }
@@ -236,7 +236,7 @@ where
         name = "delete_product",
         skip_all,
         fields(
-            product_id = %product_id,
+            product_listing_id = %product_listing_id,
             principal_type = context.principal.kind(),
             actor_id = tracing::field::Empty,
             request_id = %context.request_id,
@@ -246,9 +246,9 @@ where
     async fn execute(
         &self,
         context: &OperationContext,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<DeleteProductListingResult, DeleteProductListingError> {
-        self.execute_for_target(context, DeleteProductListingTarget::Id(product_id))
+        self.execute_for_target(context, DeleteProductListingTarget::Id(product_listing_id))
             .await
     }
 
@@ -637,7 +637,7 @@ mod tests {
 
         async fn find_current_event_id(
             &mut self,
-            _product_id: ProductListingId,
+            _product_listing_id: ProductListingId,
         ) -> Result<Option<EventId>, ProductListingEventStoreError> {
             Ok(None)
         }
@@ -686,9 +686,11 @@ mod tests {
         .map_err(|_| url::ParseError::EmptyHost)
     }
 
-    fn new_product(product_id: ProductListingId) -> Result<NewProductListing, url::ParseError> {
+    fn new_product(
+        product_listing_id: ProductListingId,
+    ) -> Result<NewProductListing, url::ParseError> {
         Ok(NewProductListing {
-            id: product_id,
+            id: product_listing_id,
             shop_id: ShopId::new(),
             seller_id: ShopId::new(),
             shop_listing_id: ShopListingId::new(),
@@ -714,9 +716,9 @@ mod tests {
     }
 
     fn rehydrated_state(
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<RehydratedProductListingState, url::ParseError> {
-        let input = new_product(product_id)?;
+        let input = new_product(product_listing_id)?;
         Ok(RehydratedProductListingState {
             id: input.id,
             slug_id: ProductListingSlugId::from("cabinet-abcdef"),
@@ -744,10 +746,12 @@ mod tests {
     async fn should_delete_product_when_active() -> Result<(), url::ParseError> {
         let state = state();
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
 
-        let result = handler(&state).execute(&context(), product_id).await;
+        let result = handler(&state)
+            .execute(&context(), product_listing_id)
+            .await;
 
         assert!(result.is_ok());
         let state = lock_state(&state);
@@ -777,10 +781,12 @@ mod tests {
     async fn should_commit_idempotent_delete_when_already_deleted() -> Result<(), url::ParseError> {
         let state = state();
         let product = deleted_product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
 
-        let result = handler(&state).execute(&context(), product_id).await;
+        let result = handler(&state)
+            .execute(&context(), product_listing_id)
+            .await;
 
         assert!(result.is_ok());
         let state = lock_state(&state);
@@ -825,10 +831,12 @@ mod tests {
         let state = state();
         lock_state(&state).commit_error = true;
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
 
-        let result = handler(&state).execute(&context(), product_id).await;
+        let result = handler(&state)
+            .execute(&context(), product_listing_id)
+            .await;
 
         assert!(matches!(
             result,
@@ -859,7 +867,7 @@ mod tests {
     async fn should_not_commit_when_delete_repository_fails() -> Result<(), url::ParseError> {
         let state = state();
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         {
             let mut state = lock_state(&state);
             state.find_by_id_result = Some(Ok(Some(versioned_product(product))));
@@ -868,7 +876,9 @@ mod tests {
             ));
         }
 
-        let result = handler(&state).execute(&context(), product_id).await;
+        let result = handler(&state)
+            .execute(&context(), product_listing_id)
+            .await;
 
         assert!(matches!(
             result,
@@ -882,7 +892,7 @@ mod tests {
     async fn should_not_commit_when_delete_event_append_fails() -> Result<(), url::ParseError> {
         let state = state();
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         {
             let mut state = lock_state(&state);
             state.find_by_id_result = Some(Ok(Some(versioned_product(product))));
@@ -891,7 +901,9 @@ mod tests {
             ));
         }
 
-        let result = handler(&state).execute(&context(), product_id).await;
+        let result = handler(&state)
+            .execute(&context(), product_listing_id)
+            .await;
 
         assert!(matches!(
             result,

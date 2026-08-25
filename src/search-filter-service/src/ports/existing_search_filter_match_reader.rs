@@ -14,9 +14,9 @@ pub enum ExistingSearchFilterMatchReadError {
 
 #[async_trait::async_trait]
 pub trait ExistingSearchFilterMatchReader: Send + Sync {
-    async fn find_existing_product_ids(
+    async fn find_existing_product_listing_ids(
         &self,
         search_filter_id: UserSearchFilterId,
-        product_ids: &[ProductListingId],
+        product_listing_ids: &[ProductListingId],
     ) -> Result<HashSet<ProductListingId>, ExistingSearchFilterMatchReadError>;
 }

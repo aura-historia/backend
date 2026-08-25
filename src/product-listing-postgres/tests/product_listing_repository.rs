@@ -40,7 +40,7 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let products = SqlxProductListingRepositoryFactory::new();
+    let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
     let shop_id = seed_shop(&pool, "product-listing-postgres-main-shop").await;
     let seller_id = seed_shop(&pool, "product-listing-postgres-main-seller").await;
@@ -48,7 +48,7 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     let created_event = product.pending_events()[0].clone();
 
     let mut tx = begin(&unit_of_work).await;
-    match products
+    match product_listings
         .in_transaction(&mut tx)
         .insert(&product, created_event.event_id)
         .await
@@ -66,7 +66,7 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     let Versioned {
         value: loaded_by_id,
         version,
-    } = match products
+    } = match product_listings
         .in_transaction(&mut tx)
         .find_by_id(product.id())
         .await
@@ -76,7 +76,7 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
         Err(error) => panic!("failed to find product by id: {error:?}"),
     };
 
-    let loaded_by_key = products
+    let loaded_by_key = product_listings
         .in_transaction(&mut tx)
         .find_by_key(&ProductListingKey::new(
             product.shop_id(),
@@ -109,7 +109,7 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     assert!(outcome.is_ok());
     let update_event = updated.pending_events()[0].clone();
     let mut tx = begin(&unit_of_work).await;
-    match products
+    match product_listings
         .in_transaction(&mut tx)
         .update(&updated, version, update_event.event_id)
         .await
@@ -124,7 +124,7 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     commit(tx).await;
 
     let mut tx = begin(&unit_of_work).await;
-    let loaded = match products
+    let loaded = match product_listings
         .in_transaction(&mut tx)
         .find_by_id(product.id())
         .await
@@ -153,7 +153,7 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
 async fn should_round_trip_immutable_sale_valuation_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let products = SqlxProductListingRepositoryFactory::new();
+    let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
     let shop_id = seed_shop(&pool, "product-listing-postgres-sale-shop").await;
     let seller_id = seed_shop(&pool, "product-listing-postgres-sale-seller").await;
@@ -175,7 +175,7 @@ async fn should_round_trip_immutable_sale_valuation_in_postgres() {
     };
 
     let mut tx = begin(&unit_of_work).await;
-    match products
+    match product_listings
         .in_transaction(&mut tx)
         .insert(&product, current_event_id)
         .await
@@ -192,7 +192,7 @@ async fn should_round_trip_immutable_sale_valuation_in_postgres() {
     commit(tx).await;
 
     let mut tx = begin(&unit_of_work).await;
-    let loaded = match products
+    let loaded = match product_listings
         .in_transaction(&mut tx)
         .find_by_id(product.id())
         .await
@@ -255,13 +255,13 @@ async fn should_enforce_product_sale_valuation_state_constraints_in_postgres() {
 async fn should_return_none_when_product_is_missing_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
-    let products = SqlxProductListingRepositoryFactory::new();
-    let product_id = ProductListingId::new();
+    let product_listings = SqlxProductListingRepositoryFactory::new();
+    let product_listing_id = ProductListingId::new();
 
     let mut tx = begin(&unit_of_work).await;
-    let by_id = match products
+    let by_id = match product_listings
         .in_transaction(&mut tx)
-        .find_by_id(product_id)
+        .find_by_id(product_listing_id)
         .await
     {
         Ok(value) => value,
@@ -274,20 +274,21 @@ async fn should_return_none_when_product_is_missing_in_postgres() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_report_product_insert_conflict_when_shop_product_identity_or_slug_duplicates() {
+async fn should_report_product_insert_conflict_when_shop_product_listing_identity_or_slug_duplicates()
+ {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let products = SqlxProductListingRepositoryFactory::new();
+    let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
     let shop_id = seed_shop(&pool, "product-listing-postgres-conflict-shop").await;
     let seller_id = seed_shop(&pool, "product-listing-postgres-conflict-seller").await;
     let first = sample_product("postgres-product-conflict", shop_id, seller_id);
     let second = sample_product("postgres-product-conflict", shop_id, seller_id);
 
-    insert_product_with_event(&unit_of_work, &products, &events, &first).await;
+    insert_product_with_event(&unit_of_work, &product_listings, &events, &first).await;
 
     let mut tx = begin(&unit_of_work).await;
-    let duplicate_product = products
+    let duplicate_product = product_listings
         .in_transaction(&mut tx)
         .insert(&second, EventId::new())
         .await;
@@ -303,14 +304,14 @@ async fn should_report_product_insert_conflict_when_shop_product_identity_or_slu
 async fn should_report_product_update_conflict_when_product_row_is_missing() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let products = SqlxProductListingRepositoryFactory::new();
+    let product_listings = SqlxProductListingRepositoryFactory::new();
     let shop_id = seed_shop(&pool, "product-listing-postgres-missing-update-shop").await;
     let seller_id = seed_shop(&pool, "product-listing-postgres-missing-update-seller").await;
     let product = sample_product("postgres-product-missing-update", shop_id, seller_id);
 
     let result = {
         let mut tx = begin(&unit_of_work).await;
-        products
+        product_listings
             .in_transaction(&mut tx)
             .update(&product, EventId::new(), EventId::new())
             .await
@@ -326,19 +327,19 @@ async fn should_report_product_update_conflict_when_product_row_is_missing() {
 async fn should_report_product_update_conflict_when_event_id_is_stale() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let products = SqlxProductListingRepositoryFactory::new();
+    let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
     let shop_id = seed_shop(&pool, "product-listing-postgres-stale-shop").await;
     let seller_id = seed_shop(&pool, "product-listing-postgres-stale-seller").await;
     let mut product = sample_product("postgres-product-stale", shop_id, seller_id);
 
-    insert_product_with_event(&unit_of_work, &products, &events, &product).await;
+    insert_product_with_event(&unit_of_work, &product_listings, &events, &product).await;
 
     let outcome = product.mark_reserved();
     assert!(outcome.is_ok());
     let result = {
         let mut tx = begin(&unit_of_work).await;
-        products
+        product_listings
             .in_transaction(&mut tx)
             .update(&product, EventId::new(), EventId::new())
             .await
@@ -351,17 +352,18 @@ async fn should_report_product_update_conflict_when_event_id_is_stale() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_report_identity_conflict_when_update_would_duplicate_shop_product_identity() {
+async fn should_report_identity_conflict_when_update_would_duplicate_shop_product_listing_identity()
+{
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let products = SqlxProductListingRepositoryFactory::new();
+    let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
     let shop_id = seed_shop(&pool, "product-listing-postgres-update-key-shop").await;
     let seller_id = seed_shop(&pool, "product-listing-postgres-update-key-seller").await;
     let first = sample_product("postgres-product-update-key-first", shop_id, seller_id);
     let second = sample_product("postgres-product-update-key-second", shop_id, seller_id);
-    insert_product_with_event(&unit_of_work, &products, &events, &first).await;
-    insert_product_with_event(&unit_of_work, &products, &events, &second).await;
+    insert_product_with_event(&unit_of_work, &product_listings, &events, &first).await;
+    insert_product_with_event(&unit_of_work, &product_listings, &events, &second).await;
     let conflict = rehydrate_product_for_update(
         &second,
         second.slug_id().clone(),
@@ -371,7 +373,7 @@ async fn should_report_identity_conflict_when_update_would_duplicate_shop_produc
 
     let result = {
         let mut tx = begin(&unit_of_work).await;
-        products
+        product_listings
             .in_transaction(&mut tx)
             .update(
                 &conflict,
@@ -391,14 +393,14 @@ async fn should_report_identity_conflict_when_update_would_duplicate_shop_produc
 async fn should_report_slug_conflict_when_update_would_duplicate_product_slug() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let products = SqlxProductListingRepositoryFactory::new();
+    let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
     let shop_id = seed_shop(&pool, "product-listing-postgres-update-slug-shop").await;
     let seller_id = seed_shop(&pool, "product-listing-postgres-update-slug-seller").await;
     let first = sample_product("postgres-product-update-slug-first", shop_id, seller_id);
     let second = sample_product("postgres-product-update-slug-second", shop_id, seller_id);
-    insert_product_with_event(&unit_of_work, &products, &events, &first).await;
-    insert_product_with_event(&unit_of_work, &products, &events, &second).await;
+    insert_product_with_event(&unit_of_work, &product_listings, &events, &first).await;
+    insert_product_with_event(&unit_of_work, &product_listings, &events, &second).await;
     let conflict = rehydrate_product_for_update(
         &second,
         first.slug_id().clone(),
@@ -408,7 +410,7 @@ async fn should_report_slug_conflict_when_update_would_duplicate_product_slug() 
 
     let result = {
         let mut tx = begin(&unit_of_work).await;
-        products
+        product_listings
             .in_transaction(&mut tx)
             .update(
                 &conflict,
@@ -428,7 +430,7 @@ async fn should_report_slug_conflict_when_update_would_duplicate_product_slug() 
 async fn should_roll_back_product_and_event_when_transaction_is_not_committed() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let products = SqlxProductListingRepositoryFactory::new();
+    let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
     let shop_id = seed_shop(&pool, "product-listing-postgres-rollback-shop").await;
     let seller_id = seed_shop(&pool, "product-listing-postgres-rollback-seller").await;
@@ -437,7 +439,7 @@ async fn should_roll_back_product_and_event_when_transaction_is_not_committed() 
 
     {
         let mut tx = begin(&unit_of_work).await;
-        match products
+        match product_listings
             .in_transaction(&mut tx)
             .insert(&product, event.event_id)
             .await
@@ -452,7 +454,7 @@ async fn should_roll_back_product_and_event_when_transaction_is_not_committed() 
     }
 
     let mut tx = begin(&unit_of_work).await;
-    let product_after_rollback = match products
+    let product_after_rollback = match product_listings
         .in_transaction(&mut tx)
         .find_by_id(product.id())
         .await
@@ -468,15 +470,16 @@ async fn should_roll_back_product_and_event_when_transaction_is_not_committed() 
         Ok(value) => value,
         Err(error) => panic!("failed to find rolled-back current event: {error:?}"),
     };
-    let persisted_event_count: i64 =
-        match sqlx::query_scalar("SELECT count(*) FROM product_events WHERE product_id = $1")
-            .bind(uuid::Uuid::from(product.id()))
-            .fetch_one(&pool)
-            .await
-        {
-            Ok(value) => value,
-            Err(error) => panic!("failed to count rolled-back events: {error}"),
-        };
+    let persisted_event_count: i64 = match sqlx::query_scalar(
+        "SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product.id()))
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => panic!("failed to count rolled-back events: {error}"),
+    };
     commit(tx).await;
 
     assert!(product_after_rollback.is_none());
@@ -492,13 +495,13 @@ async fn insert_product_row(
     sale_fx_rate_id: Option<FxRateId>,
     sold_at: Option<OffsetDateTime>,
 ) -> Result<(), sqlx::Error> {
-    let product_id = uuid::Uuid::new_v4();
+    let product_listing_id = uuid::Uuid::new_v4();
     let event_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
     sqlx::query(
-        "INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, state, lifecycle, url, sale_fx_rate_id, sold_at) VALUES ($1, $2, $3, $4, $4, $5, $6, 'ACTIVE', 'https://example.test/product', $7, $8)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, state, lifecycle, url, sale_fx_rate_id, sold_at) VALUES ($1, $2, $3, $4, $4, $5, $6, 'ACTIVE', 'https://example.test/product', $7, $8)",
     )
-    .bind(product_id)
+    .bind(product_listing_id)
     .bind(slug)
     .bind(event_id)
     .bind(uuid::Uuid::from(shop_id))
@@ -516,10 +519,10 @@ async fn insert_product_row(
     .execute(&mut *tx)
     .await?;
     sqlx::query(
-        "INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', now())",
+        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', now())",
     )
     .bind(event_id)
-    .bind(product_id)
+    .bind(product_listing_id)
     .execute(&mut *tx)
     .await?;
     tx.commit().await
@@ -534,13 +537,13 @@ fn assert_check_violation(result: Result<(), sqlx::Error>) {
 
 async fn insert_product_with_event(
     unit_of_work: &SqlxUnitOfWork,
-    products: &SqlxProductListingRepositoryFactory,
+    product_listings: &SqlxProductListingRepositoryFactory,
     events: &SqlxProductListingEventStoreFactory,
     product: &ProductListing,
 ) {
     let event = product.pending_events()[0].clone();
     let mut tx = begin(unit_of_work).await;
-    match products
+    match product_listings
         .in_transaction(&mut tx)
         .insert(product, event.event_id)
         .await

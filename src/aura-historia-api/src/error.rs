@@ -111,10 +111,12 @@ pub(crate) const SHOP_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("SHOP_INTERNAL
 pub(crate) const SHOP_NOT_FOUND: ApiErrorCode = ApiErrorCode("SHOP_NOT_FOUND");
 pub(crate) const SHOP_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("SHOP_TEMPORARILY_UNAVAILABLE");
-pub(crate) const PRODUCT_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("PRODUCT_INTERNAL_ERROR");
-pub(crate) const PRODUCT_NOT_FOUND: ApiErrorCode = ApiErrorCode("PRODUCT_NOT_FOUND");
-pub(crate) const PRODUCT_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
-    ApiErrorCode("PRODUCT_TEMPORARILY_UNAVAILABLE");
+pub(crate) const PRODUCT_LISTING_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("PRODUCT_LISTING_INTERNAL_ERROR");
+pub(crate) const PRODUCT_LISTING_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("PRODUCT_LISTING_NOT_FOUND");
+pub(crate) const PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE");
 pub(crate) const SEARCH_FILTER_ALREADY_EXISTS: ApiErrorCode =
     ApiErrorCode("SEARCH_FILTER_ALREADY_EXISTS");
 pub(crate) const SEARCH_FILTER_INTERNAL_ERROR: ApiErrorCode =
@@ -738,14 +740,14 @@ impl From<CreateProductListingError> for ApiError {
             | CreateProductListingError::CurrentProductListingEventLookupFailed
             | CreateProductListingError::BeginTransactionFailed
             | CreateProductListingError::CommitTransactionFailed => {
-                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing create is temporarily unavailable.")
             }
             CreateProductListingError::SaleFxSnapshotInvalid { .. } => {
-                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                     .with_detail("ProductListing sale FX snapshot is invalid.")
             }
-            _ => ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+            _ => ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                 .with_detail("ProductListing create failed internally."),
         }
     }
@@ -766,7 +768,7 @@ impl From<UpdateProductListingError> for ApiError {
                 ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
             }
             UpdateProductListingError::ProductListingNotFound => {
-                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("ProductListing was not found.")
+                ApiError::not_found(PRODUCT_LISTING_NOT_FOUND).with_detail("ProductListing was not found.")
             }
             UpdateProductListingError::ProductListingCurrentEventIdConflict
             | UpdateProductListingError::SoldProductReopenRequiresExplicitOperation
@@ -789,14 +791,14 @@ impl From<UpdateProductListingError> for ApiError {
             | UpdateProductListingError::CurrentProductListingEventLookupFailed
             | UpdateProductListingError::BeginTransactionFailed
             | UpdateProductListingError::CommitTransactionFailed => {
-                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing update is temporarily unavailable.")
             }
             UpdateProductListingError::SaleFxSnapshotInvalid { .. } => {
-                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                     .with_detail("ProductListing sale FX snapshot is invalid.")
             }
-            _ => ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+            _ => ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                 .with_detail("ProductListing update failed internally."),
         }
     }
@@ -817,7 +819,7 @@ impl From<DeleteProductListingError> for ApiError {
                 ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
             }
             DeleteProductListingError::ProductListingNotFound => {
-                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("ProductListing was not found.")
+                ApiError::not_found(PRODUCT_LISTING_NOT_FOUND).with_detail("ProductListing was not found.")
             }
             DeleteProductListingError::ProductListingCurrentEventIdConflict
             | DeleteProductListingError::ShopListingAlreadyExists
@@ -834,10 +836,10 @@ impl From<DeleteProductListingError> for ApiError {
             | DeleteProductListingError::CurrentProductListingEventLookupFailed
             | DeleteProductListingError::BeginTransactionFailed
             | DeleteProductListingError::CommitTransactionFailed => {
-                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing delete is temporarily unavailable.")
             }
-            _ => ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+            _ => ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                 .with_detail("ProductListing delete failed internally."),
         }
     }
@@ -899,7 +901,7 @@ impl From<IngestWoocommerceProductListingError> for ApiError {
             }
             IngestWoocommerceProductListingError::BeginTransactionFailed
             | IngestWoocommerceProductListingError::CommitTransactionFailed => {
-                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("WooCommerce product ingestion is temporarily unavailable.")
             }
         }
@@ -936,13 +938,13 @@ impl From<UpsertProductListingError> for ApiError {
             | UpsertProductListingError::ProductListingEventStoreTemporarilyUnavailable { .. }
             | UpsertProductListingError::BeginTransactionFailed
             | UpsertProductListingError::CommitTransactionFailed => {
-                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing upsert is temporarily unavailable.")
             }
             UpsertProductListingError::SaleFxSnapshotInvalid { .. }
             | UpsertProductListingError::PartnerProductListingAuthorizationInternal { .. }
             | UpsertProductListingError::InvalidPersistedProductState { .. } => {
-                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                     .with_detail("ProductListing upsert failed internally.")
             }
         }
@@ -952,22 +954,21 @@ impl From<UpsertProductListingError> for ApiError {
 impl From<GetProductListingError> for ApiError {
     fn from(error: GetProductListingError) -> Self {
         match error {
-            GetProductListingError::NotFound => {
-                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("ProductListing was not found.")
-            }
+            GetProductListingError::NotFound => ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
+                .with_detail("ProductListing was not found."),
             GetProductListingError::ProductListingDetailsQueryFailed
             | GetProductListingError::PricingFxSnapshotMissing
             | GetProductListingError::PricingFxSnapshotUnavailable { .. }
             | GetProductListingError::BeginTransactionFailed
             | GetProductListingError::CommitTransactionFailed => {
-                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing details are temporarily unavailable.")
             }
             GetProductListingError::ProductListingDetailsReadModelInvalid
             | GetProductListingError::PricingFxSnapshotInvalid { .. }
             | GetProductListingError::SaleFxSnapshotMismatch { .. }
             | GetProductListingError::ProductListingPriceConversionFailed { .. } => {
-                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                     .with_detail("ProductListing details failed internally.")
             }
         }
@@ -978,16 +979,17 @@ impl From<GetProductListingEventsError> for ApiError {
     fn from(error: GetProductListingEventsError) -> Self {
         match error {
             GetProductListingEventsError::NotFound => {
-                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("ProductListing was not found.")
+                ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
+                    .with_detail("ProductListing was not found.")
             }
             GetProductListingEventsError::ProductListingEventQueryFailed
             | GetProductListingEventsError::BeginTransactionFailed
             | GetProductListingEventsError::CommitTransactionFailed => {
-                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing history is temporarily unavailable.")
             }
             GetProductListingEventsError::ProductListingEventReadModelInvalid => {
-                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                     .with_detail("ProductListing history contains invalid event data.")
             }
         }
@@ -998,7 +1000,8 @@ impl From<GetSimilarProductListingsError> for ApiError {
     fn from(error: GetSimilarProductListingsError) -> Self {
         match error {
             GetSimilarProductListingsError::NotFound => {
-                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("ProductListing was not found.")
+                ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
+                    .with_detail("ProductListing was not found.")
             }
             GetSimilarProductListingsError::ProductListingEmbeddingQueryFailed { .. }
             | GetSimilarProductListingsError::SimilaritySearchUnavailable
@@ -1007,14 +1010,14 @@ impl From<GetSimilarProductListingsError> for ApiError {
             | GetSimilarProductListingsError::PricingFxSnapshotMissing
             | GetSimilarProductListingsError::PricingFxSnapshotUnavailable { .. }
             | GetSimilarProductListingsError::ProductListingUserStateQueryFailed { .. } => {
-                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Similar products are temporarily unavailable.")
             }
             GetSimilarProductListingsError::PricingFxSnapshotInvalid { .. }
             | GetSimilarProductListingsError::ProductListingUserStateReadModelInvalid { .. }
             | GetSimilarProductListingsError::ProductListingUserStateMissing
             | GetSimilarProductListingsError::HiddenProductListingSummaryInvalid { .. } => {
-                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                     .with_detail("Similar product personalization failed internally.")
             }
         }
@@ -1030,7 +1033,7 @@ impl From<SearchProductListingsError> for ApiError {
             | SearchProductListingsError::FxRateSnapshotReadFailed { .. }
             | SearchProductListingsError::CommitFxRateSnapshotTransactionFailed { .. }
             | SearchProductListingsError::ProductListingUserStateQueryFailed { .. } => {
-                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing search is temporarily unavailable.")
             }
             SearchProductListingsError::ProductListingSearchReadModelInvalid
@@ -1038,7 +1041,7 @@ impl From<SearchProductListingsError> for ApiError {
             | SearchProductListingsError::ProductListingUserStateReadModelInvalid { .. }
             | SearchProductListingsError::ProductListingUserStateMissing
             | SearchProductListingsError::HiddenProductListingSummaryInvalid { .. } => {
-                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                     .with_detail("ProductListing search failed internally.")
             }
         }

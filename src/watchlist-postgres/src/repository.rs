@@ -31,14 +31,14 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
     async fn find_by_user_and_product(
         &mut self,
         user_id: UserId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<Option<VersionedWatchlistProductListing>, WatchlistRepositoryError> {
         let row = sqlx::query_as::<_, WatchlistRepositoryRow>(
-            "SELECT user_id, product_id, notifications, state, version \
-             FROM product_watchlist WHERE user_id = $1 AND product_id = $2",
+            "SELECT user_id, product_listing_id, notifications, state, version \
+             FROM product_listing_watchlist WHERE user_id = $1 AND product_listing_id = $2",
         )
         .bind(uuid::Uuid::from(user_id))
-        .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(product_listing_id))
         .fetch_optional(self.tx.connection())
         .await
         .map_err(|source| WatchlistRepositoryError::LookupFailed {
@@ -55,13 +55,13 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
     ) -> Result<VersionedWatchlistProductListing, WatchlistRepositoryError> {
         let now = OffsetDateTime::now_utc();
         let row = sqlx::query_as::<_, WatchlistRepositoryRow>(
-            "INSERT INTO product_watchlist \
-             (user_id, product_id, notifications, state, active_since, notifications_enabled_since, created, updated) \
+            "INSERT INTO product_listing_watchlist \
+             (user_id, product_listing_id, notifications, state, active_since, notifications_enabled_since, created, updated) \
              VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'ACTIVE' THEN $5 ELSE NULL END, CASE WHEN $3 THEN $5 ELSE NULL END, $5, $5) \
-             RETURNING user_id, product_id, notifications, state, version",
+             RETURNING user_id, product_listing_id, notifications, state, version",
         )
             .bind(uuid::Uuid::from(entry.user_id()))
-            .bind(uuid::Uuid::from(entry.product_id()))
+            .bind(uuid::Uuid::from(entry.product_listing_id()))
             .bind(entry.notifications())
             .bind(entry.state().as_str())
             .bind(now)
@@ -80,7 +80,7 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
         let expected_version = version_to_i64(expected_version)?;
         let now = OffsetDateTime::now_utc();
         let row = sqlx::query_as::<_, WatchlistRepositoryRow>(
-            "UPDATE product_watchlist SET \
+            "UPDATE product_listing_watchlist SET \
                  notifications = $3, \
                  state = $4, \
                  active_since = CASE \
@@ -95,11 +95,11 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
                  END, \
                  version = version + 1, \
                  updated = $5 \
-             WHERE user_id = $1 AND product_id = $2 AND version = $6 \
-             RETURNING user_id, product_id, notifications, state, version",
+             WHERE user_id = $1 AND product_listing_id = $2 AND version = $6 \
+             RETURNING user_id, product_listing_id, notifications, state, version",
         )
         .bind(uuid::Uuid::from(entry.user_id()))
-        .bind(uuid::Uuid::from(entry.product_id()))
+        .bind(uuid::Uuid::from(entry.product_listing_id()))
         .bind(entry.notifications())
         .bind(entry.state().as_str())
         .bind(now)
@@ -117,15 +117,15 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
     async fn delete(
         &mut self,
         user_id: UserId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         expected_version: WatchlistStorageVersion,
     ) -> Result<(), WatchlistRepositoryError> {
         let expected_version = version_to_i64(expected_version)?;
         let result = sqlx::query(
-            "DELETE FROM product_watchlist WHERE user_id = $1 AND product_id = $2 AND version = $3",
+            "DELETE FROM product_listing_watchlist WHERE user_id = $1 AND product_listing_id = $2 AND version = $3",
         )
         .bind(uuid::Uuid::from(user_id))
-        .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(product_listing_id))
         .bind(expected_version)
         .execute(self.tx.connection())
         .await

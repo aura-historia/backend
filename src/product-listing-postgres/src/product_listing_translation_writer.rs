@@ -45,9 +45,9 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
         write: &ProductListingTranslationWrite,
     ) -> Result<ProductListingTranslationWriteOutcome, ProductListingTranslationWriteError> {
         let current_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT event_id FROM products WHERE product_id = $1 FOR UPDATE",
+            "SELECT event_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE",
         )
-        .bind(uuid::Uuid::from(write.product_id))
+        .bind(uuid::Uuid::from(write.product_listing_id))
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(ProductListingTranslationWriteSqlxError)?;
@@ -68,16 +68,16 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
         for (language, title) in &write.titles {
             sqlx::query(
                 r#"
-                INSERT INTO product_translations (product_id, language, title, source_event_id)
+                INSERT INTO product_listing_translations (product_listing_id, language, title, source_event_id)
                 VALUES ($1, $2, $3, $4)
-                ON CONFLICT (product_id, language)
+                ON CONFLICT (product_listing_id, language)
                 DO UPDATE SET
                     title = EXCLUDED.title,
                     source_event_id = EXCLUDED.source_event_id,
                     updated = now()
                 "#,
             )
-            .bind(uuid::Uuid::from(write.product_id))
+            .bind(uuid::Uuid::from(write.product_listing_id))
             .bind(language.as_str())
             .bind(title.as_ref())
             .bind(uuid::Uuid::from(write.source_event_id))
@@ -104,23 +104,23 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
         });
         sqlx::query(
             r#"
-            INSERT INTO product_events (
-                event_id, product_id, event_type, event_group, payload, event_time
+            INSERT INTO product_listing_events (
+                event_id, product_listing_id, event_type, event_group, payload, event_time
             ) VALUES ($1, $2, 'ENRICHMENT_TRANSLATED_TITLES', 'ENRICHMENT', $3, now())
             "#,
         )
         .bind(uuid::Uuid::from(write.enrichment_event_id))
-        .bind(uuid::Uuid::from(write.product_id))
+        .bind(uuid::Uuid::from(write.product_listing_id))
         .bind(payload)
         .execute(&mut *self.connection)
         .await
         .map_err(ProductListingTranslationWriteSqlxError)?;
 
         let update = sqlx::query(
-            "UPDATE products SET event_id = $1, projection_version = projection_version + 1, updated = now() WHERE product_id = $2 AND event_id = $3",
+            "UPDATE product_listings SET event_id = $1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2 AND event_id = $3",
         )
         .bind(uuid::Uuid::from(write.enrichment_event_id))
-        .bind(uuid::Uuid::from(write.product_id))
+        .bind(uuid::Uuid::from(write.product_listing_id))
         .bind(uuid::Uuid::from(write.source_event_id))
         .execute(&mut *self.connection)
         .await
@@ -154,15 +154,15 @@ async fn duplicate_translation_exists(
     let matched_count = sqlx::query_scalar::<_, i64>(
         r#"
         SELECT count(*)
-        FROM product_translations
-        WHERE product_id = $1
+        FROM product_listing_translations
+        WHERE product_listing_id = $1
           AND source_event_id = $2
           AND (language, title) IN (
               SELECT * FROM unnest($3::text[], $4::text[])
           )
         "#,
     )
-    .bind(uuid::Uuid::from(write.product_id))
+    .bind(uuid::Uuid::from(write.product_listing_id))
     .bind(uuid::Uuid::from(write.source_event_id))
     .bind(
         write

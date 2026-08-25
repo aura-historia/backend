@@ -82,15 +82,16 @@ fn command_from_job(
             source: box_error(source),
         }
     })?;
-    let product_id = ProductListingId::try_from(event.product_id.as_str()).map_err(|source| {
-        SearchFilterPercolatorWorkerError::InvalidProductListingId {
-            source: box_error(source),
-        }
-    })?;
+    let product_listing_id = ProductListingId::try_from(event.product_listing_id.as_str())
+        .map_err(
+            |source| SearchFilterPercolatorWorkerError::InvalidProductListingId {
+                source: box_error(source),
+            },
+        )?;
 
     Ok(MatchProductListingEventCommand {
         origin_event_id,
-        product_id,
+        product_listing_id,
     })
 }
 

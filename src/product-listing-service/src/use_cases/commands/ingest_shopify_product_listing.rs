@@ -356,8 +356,9 @@ mod tests {
                 .unwrap_or_else(|error| error.into_inner()) = Some(command);
             Ok(UpsertProductListingResult::Created(
                 crate::use_cases::CreateProductListingResult {
-                    product_id: product_listing_core::product_listing_id::ProductListingId::new(),
-                    product_slug_id: "shopify-product".into(),
+                    product_listing_id:
+                        product_listing_core::product_listing_id::ProductListingId::new(),
+                    product_listing_slug_id: "shopify-product".into(),
                     event_id: domain_primitives::event_id::EventId::new(),
                 },
             ))

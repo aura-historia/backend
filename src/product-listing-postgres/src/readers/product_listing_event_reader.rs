@@ -41,7 +41,7 @@ struct SqlxProductListingEventReader<'tx> {
 
 #[derive(Debug, sqlx::FromRow)]
 struct ProductListingEventRow {
-    product_id: uuid::Uuid,
+    product_listing_id: uuid::Uuid,
     event_id: uuid::Uuid,
     event_type: String,
     payload: Value,
@@ -73,37 +73,37 @@ impl ProductListingEventReader for SqlxProductListingEventReader<'_> {
         &mut self,
         lookup: &ProductListingEventLookup,
     ) -> Result<Option<Vec<ProductListingEvent>>, ProductListingEventReadError> {
-        let product_id = match lookup {
-            ProductListingEventLookup::ById(product_id) => sqlx::query_scalar::<_, uuid::Uuid>(
-                "SELECT product_id FROM products WHERE product_id = $1",
+        let product_listing_id = match lookup {
+            ProductListingEventLookup::ById(product_listing_id) => sqlx::query_scalar::<_, uuid::Uuid>(
+                "SELECT product_listing_id FROM product_listings WHERE product_listing_id = $1",
             )
-            .bind(uuid::Uuid::from(*product_id))
+            .bind(uuid::Uuid::from(*product_listing_id))
             .fetch_optional(&mut *self.connection)
             .await,
-            ProductListingEventLookup::BySlug { shop_slug_id, product_slug_id } => sqlx::query_scalar::<_, uuid::Uuid>(
-                "SELECT p.product_id FROM products p JOIN shops s ON s.shop_id = p.shop_id WHERE s.shop_slug_id = $1 AND p.product_slug_id = $2",
+            ProductListingEventLookup::BySlug { shop_slug_id, product_listing_slug_id } => sqlx::query_scalar::<_, uuid::Uuid>(
+                "SELECT p.product_listing_id FROM product_listings p JOIN shops s ON s.shop_id = p.shop_id WHERE s.shop_slug_id = $1 AND p.product_listing_slug_id = $2",
             )
             .bind(shop_slug_id.as_ref())
-            .bind(product_slug_id.as_ref())
+            .bind(product_listing_slug_id.as_ref())
             .fetch_optional(&mut *self.connection)
             .await,
         }
         .map_err(|_| ProductListingEventReadError::ProductListingEventQueryFailed)?;
 
-        let Some(product_id) = product_id else {
+        let Some(product_listing_id) = product_listing_id else {
             return Ok(None);
         };
 
         let rows = sqlx::query_as::<_, ProductListingEventRow>(
             r#"
-            SELECT event_id, product_id, event_type, payload, event_time
-            FROM product_events
-            WHERE product_id = $1
+            SELECT event_id, product_listing_id, event_type, payload, event_time
+            FROM product_listing_events
+            WHERE product_listing_id = $1
               AND event_group = 'DOMAIN'
             ORDER BY event_time ASC, event_id ASC
             "#,
         )
-        .bind(product_id)
+        .bind(product_listing_id)
         .fetch_all(&mut *self.connection)
         .await
         .map_err(|_| ProductListingEventReadError::ProductListingEventQueryFailed)?;
@@ -121,7 +121,7 @@ impl TryFrom<ProductListingEventRow> for ProductListingEvent {
     fn try_from(row: ProductListingEventRow) -> Result<Self, Self::Error> {
         let (event_type, payload) = parse_payload(&row.event_type, &row.payload)?;
         Ok(ProductListingEvent {
-            product_id: ProductListingId::from(row.product_id),
+            product_listing_id: ProductListingId::from(row.product_listing_id),
             event_id: EventId::from(row.event_id),
             event_type,
             payload,

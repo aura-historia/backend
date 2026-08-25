@@ -46,8 +46,8 @@ use url::Url;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductListingDetailsData {
-    product_id: ProductListingId,
-    product_slug_id: ProductListingSlugId,
+    product_listing_id: ProductListingId,
+    product_listing_slug_id: ProductListingSlugId,
     event_id: EventId,
     shop_id: ShopId,
     seller_id: ShopId,
@@ -129,8 +129,8 @@ struct SearchFilterUserStateData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductListingSummaryData {
-    product_id: ProductListingId,
-    product_slug_id: ProductListingSlugId,
+    product_listing_id: ProductListingId,
+    product_listing_slug_id: ProductListingSlugId,
     event_id: EventId,
     shop_id: ShopId,
     seller_id: ShopId,
@@ -229,8 +229,8 @@ struct ProductListingAuctionData {
 impl ProductListingDetailsData {
     fn from_view(view: ProductListingDetailsView, prohibited_content_consent: bool) -> Self {
         Self {
-            product_id: view.product_id,
-            product_slug_id: view.product_slug_id,
+            product_listing_id: view.product_listing_id,
+            product_listing_slug_id: view.product_listing_slug_id,
             event_id: view.event_id,
             shop_id: view.shop_id,
             seller_id: view.seller_id,
@@ -399,8 +399,8 @@ impl From<SearchFilterUserState> for SearchFilterUserStateData {
 impl ProductListingSummaryData {
     fn from_view(summary: ProductListingSummary, prohibited_content_consent: bool) -> Self {
         Self {
-            product_id: summary.product_id,
-            product_slug_id: summary.product_slug_id,
+            product_listing_id: summary.product_listing_id,
+            product_listing_slug_id: summary.product_listing_slug_id,
             event_id: summary.event_id,
             shop_id: summary.shop_id,
             seller_id: summary.seller_id,

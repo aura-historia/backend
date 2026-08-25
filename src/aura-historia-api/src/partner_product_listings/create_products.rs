@@ -3,7 +3,7 @@ use super::types::{
 };
 use crate::auth::protected_context;
 use crate::error::{ApiError, INVALID_UUID};
-use crate::state::PartnerProductsState;
+use crate::state::PartnerProductListingsState;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -11,7 +11,7 @@ use axum::response::{IntoResponse, Response};
 use shop_core::shop_id::ShopId;
 
 pub async fn create_products(
-    State(state): State<PartnerProductsState>,
+    State(state): State<PartnerProductListingsState>,
     headers: HeaderMap,
     Path(raw_shop_id): Path<String>,
     body: String,
@@ -76,7 +76,7 @@ mod tests {
     use crate::auth::{
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
-    use crate::partner_products::types::MAX_PARTNER_PRODUCT_BATCH_SIZE;
+    use crate::partner_product_listings::types::MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE;
     use application::operation_context::{CredentialCapability, OperationContext};
     use axum::Router;
     use axum::body::Body;
@@ -109,7 +109,7 @@ mod tests {
         UpdateUseCase {}
         #[async_trait::async_trait]
         impl UpdateProductListingUseCase for UpdateUseCase {
-            async fn execute(&self, context: &OperationContext, product_id: ProductListingId, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>;
+            async fn execute(&self, context: &OperationContext, product_listing_id: ProductListingId, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>;
             async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>;
         }
     }
@@ -126,7 +126,7 @@ mod tests {
         DeleteUseCase {}
         #[async_trait::async_trait]
         impl DeleteProductListingUseCase for DeleteUseCase {
-            async fn execute(&self, context: &OperationContext, product_id: ProductListingId) -> Result<DeleteProductListingResult, DeleteProductListingError>;
+            async fn execute(&self, context: &OperationContext, product_listing_id: ProductListingId) -> Result<DeleteProductListingResult, DeleteProductListingError>;
             async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey) -> Result<DeleteProductListingResult, DeleteProductListingError>;
         }
     }
@@ -152,7 +152,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/products"),
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
             format!("[{},{}]", product("first"), product("second")),
             true,
         )
@@ -179,7 +179,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/products"),
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
             format!("[{},{}]", product("created"), product("failed")),
             true,
         )
@@ -189,7 +189,7 @@ mod tests {
         assert_eq!(
             json!([{
                 "shopId": shop_id.to_string(),
-                "shopsProductId": "failed",
+                "shopListingId": "failed",
                 "error": "CONFLICT"
             }]),
             body_json(response).await?
@@ -210,7 +210,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/products"),
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
             format!("[{}]", product("duplicate")),
             true,
         )
@@ -230,7 +230,7 @@ mod tests {
         let shop_id = ShopId::new();
         let body = format!(
             "[{}]",
-            (0..=MAX_PARTNER_PRODUCT_BATCH_SIZE)
+            (0..=MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE)
                 .map(|_| product("too-many"))
                 .collect::<Vec<_>>()
                 .join(",")
@@ -238,7 +238,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/products"),
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
             body,
             true,
         )
@@ -259,7 +259,7 @@ mod tests {
 
         let missing_auth = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/products"),
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
             format!("[{}]", product("created")),
             false,
         )
@@ -268,7 +268,7 @@ mod tests {
 
         let invalid_body = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/products"),
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
             "{".to_owned(),
             true,
         )
@@ -278,7 +278,7 @@ mod tests {
     }
 
     fn app(create: MockCreateUseCase) -> Router {
-        let state = PartnerProductsState::new(
+        let state = PartnerProductListingsState::new(
             Arc::new(create),
             Arc::new(MockUpdateUseCase::new()),
             Arc::new(MockUpsertUseCase::new()),
@@ -287,7 +287,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/shops/{shop_id}/products",
+                "/api/v1/shops/{shop_id}/product-listings",
                 axum::routing::post(create_products),
             )
             .with_state(state)
@@ -307,8 +307,8 @@ mod tests {
 
     fn created() -> CreateProductListingResult {
         CreateProductListingResult {
-            product_id: ProductListingId::new(),
-            product_slug_id: ProductListingSlugId::from("created-product"),
+            product_listing_id: ProductListingId::new(),
+            product_listing_slug_id: ProductListingSlugId::from("created-product"),
             event_id: EventId::new(),
         }
     }
@@ -333,7 +333,7 @@ mod tests {
 
     fn product(shop_listing_id: &str) -> String {
         format!(
-            r#"{{"shopsProductId":"{shop_listing_id}","title":{{"text":"Cabinet","language":"en"}},"description":{{"text":"Old cabinet","language":"en"}},"state":"LISTED","url":"https://shop.example/products/{shop_listing_id}","images":[]}}"#
+            r#"{{"shopListingId":"{shop_listing_id}","title":{{"text":"Cabinet","language":"en"}},"description":{{"text":"Old cabinet","language":"en"}},"state":"LISTED","url":"https://shop.example/product-listings/{shop_listing_id}","images":[]}}"#
         )
     }
 }

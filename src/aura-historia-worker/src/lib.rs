@@ -1162,27 +1162,27 @@ mod tests {
     #[case(
         WorkerScope::SearchFilterPercolator,
         WorkerQueue::SearchFilterPercolator,
-        r#"{"changes":[{"table":"product_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","event_type":"DOMAIN_CREATED","event_group":"DOMAIN"}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"DOMAIN_CREATED","event_group":"DOMAIN"}}]}"#
     )]
     #[case(
         WorkerScope::SearchFilterMatchNotification,
         WorkerQueue::SearchFilterMatchNotification,
-        r#"{"changes":[{"table":"search_filter_matches","operation":"insert","record":{"user_id":"10000000-0000-0000-0000-000000000001","user_search_filter_id":"20000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","origin_event_id":"30000000-0000-0000-0000-000000000001"}}]}"#
+        r#"{"changes":[{"table":"search_filter_matches","operation":"insert","record":{"user_id":"10000000-0000-0000-0000-000000000001","user_search_filter_id":"20000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","origin_event_id":"30000000-0000-0000-0000-000000000001"}}]}"#
     )]
     #[case(
         WorkerScope::WatchlistNotification,
         WorkerQueue::WatchlistNotification,
-        r#"{"changes":[{"table":"product_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_PRICE_CHANGED","event_group":"DOMAIN"}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_PRICE_CHANGED","event_group":"DOMAIN"}}]}"#
     )]
     #[case(
         WorkerScope::ProductListingTranslation,
         WorkerQueue::ProductListingTranslate,
-        r#"{"changes":[{"table":"product_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","event_type":"ENRICHMENT_EMBEDDED","event_group":"ENRICHMENT"}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"ENRICHMENT_EMBEDDED","event_group":"ENRICHMENT"}}]}"#
     )]
     #[case(
         WorkerScope::ProductListingEmbedding,
         WorkerQueue::ProductListingEmbed,
-        r#"{"changes":[{"table":"product_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","event_type":"DOMAIN_CREATED","event_group":"DOMAIN"}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"DOMAIN_CREATED","event_group":"DOMAIN"}}]}"#
     )]
     #[case(
         WorkerScope::NotificationDelivery,
@@ -1295,11 +1295,11 @@ mod tests {
         let body = r#"{
             "changes": [
                 {
-                    "table": "product_events",
+                    "table": "product_listing_events",
                     "operation": "insert",
                     "record": {
                         "event_id": "40000000-0000-0000-0000-000000000001",
-                        "product_id": "30000000-0000-0000-0000-000000000001",
+                        "product_listing_id": "30000000-0000-0000-0000-000000000001",
                         "event_type": "DOMAIN_CREATED",
                         "event_group": "DOMAIN"
                     }

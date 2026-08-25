@@ -9,13 +9,13 @@ info:
     workflows on top of Aura Historia's serverless AWS platform.
 
     This reference is designed for two audiences:
-    - **Internal developers** building Aura Historia products, operational tooling, and backoffice workflows
+    - **Internal developers** building Aura Historia product-listings, operational tooling, and backoffice workflows
     - **External partners and integrators** synchronizing inventory, consuming platform data, or
       integrating with delegated access
 
     ## Core API domains
 
-    - **Products and shops** — search, retrieve, and explore products, related products, product
+    - **ProductListings and shops** — search, retrieve, and explore product-listings, related product-listings, product
       history, and shop data
     - **Personalization** — manage watchlists, saved search filters, and user notifications
     - **Partner workflows** — submit partner applications, maintain partner shops, ingest catalog data
@@ -47,8 +47,8 @@ info:
       remains a valid empty batch. Responses may omit absent optional values.
     - Product detail, watchlist, and saved-search match reads accept optional **`language`** and
       **`currency`** parameters. Currency defaults to `EUR`. Detail pricing contains the seller's source
-      amounts, converted display amounts, and FX valuation metadata. Active products use the latest persisted
-      snapshot; sold products use their immutable sale snapshot. Product history remains immutable, source-only,
+      amounts, converted display amounts, and FX valuation metadata. Active product-listings use the latest persisted
+      snapshot; sold product-listings use their immutable sale snapshot. Product history remains immutable, source-only,
       and is not localized.
     - Errors are returned as **`application/problem+json`** using a consistent RFC 9457-style structure
       with `status`, `title`, `error`, optional `source`, and optional `detail`
@@ -66,9 +66,9 @@ info:
 
     ## Notes for integrators
 
-    - Treat Aura Historia identifiers such as `shopId`, `productId`, `eventId`, `userSearchFilterId`,
+    - Treat Aura Historia identifiers such as `shopId`, `productListingId`, `eventId`, `userSearchFilterId`,
       and `partnerApplicationId` as opaque values
-    - For partner product ingestion, `shopsProductId` is the partner-controlled identifier and should
+    - For partner product ingestion, `shopListingId` is the partner-controlled identifier and should
       remain stable within a shop
     - Endpoints marked `deprecated` or `x-disabled` are retained for reference only and should not be
       used for new integrations
@@ -87,27 +87,27 @@ servers:
     description: Production environment
 
 paths:
-  /api/v1/shops/{shopId}/products:
+  /api/v1/shops/{shopId}/product-listings:
     post:
-      summary: Batch create products (Partner API)
+      summary: Batch create product-listings (Partner API)
       description: |
-        Creates one or more products for a shop using bearer authentication.
+        Creates one or more product-listings for a shop using bearer authentication.
         This endpoint is intended for partner shops and accepts:
         - a Cognito bearer token for the partner user linked to the shop, or
         - an Aura Historia access token owned by that partner user.
 
-        Aura Historia access tokens on this endpoint must include the `products:write` scope.
+        Aura Historia access tokens on this endpoint must include the `product-listings:write` scope.
         Allowed callers are Aura Historia admins and users partnered with the target shop.
 
         The request body is an array of `PostProductData` objects. Each entry is created
         synchronously in its own PostgreSQL transaction.
 
-        The response returns HTTP 200 with failures as `{ shopId, shopsProductId, error }` objects when
+        The response returns HTTP 200 with failures as `{ shopId, shopListingId, error }` objects when
         one or more entries succeed. `error` is the stable API error key for that entry. If every non-empty entry fails, the first failure is returned
         as a problem response. An empty array is accepted and returns `[]`.
-      operationId: postPartnerProducts
+      operationId: postPartnerProductListings
       tags:
-        - Products
+        - ProductListings
       parameters:
         - name: shopId
           in: path
@@ -122,7 +122,7 @@ paths:
         - AccessTokenAuth: []
       requestBody:
         required: true
-        description: Array of at most 100 products to create synchronously. May be empty.
+        description: Array of at most 100 product-listings to create synchronously. May be empty.
         content:
           application/json:
             schema:
@@ -131,7 +131,7 @@ paths:
               items:
                 $ref: "#/components/schemas/PostProductData"
             example:
-              - shopsProductId: "baroque-violin-001"
+              - shopListingId: "baroque-violin-001"
                 title:
                   text: "Baroque Violin"
                   language: "en"
@@ -142,7 +142,7 @@ paths:
                   currency: "EUR"
                   amount: 4500
                 state: "AVAILABLE"
-                url: "https://my-shop.com/products/baroque-violin"
+                url: "https://my-shop.com/product-listings/baroque-violin"
                 images:
                   - "https://my-shop.com/images/violin-1.jpg"
                   - "https://my-shop.com/images/violin-2.jpg"
@@ -163,13 +163,13 @@ paths:
                 $ref: "#/components/schemas/PartnerProductBatchFailuresResponse"
               examples:
                 all_succeeded:
-                  summary: All products were created
+                  summary: All product-listings were created
                   value: []
                 partial_failure:
-                  summary: Some products failed while at least one product was created
+                  summary: Some product-listings failed while at least one product was created
                   value:
                     - shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      shopsProductId: "baroque-violin-002"
+                      shopListingId: "baroque-violin-002"
                       error: "CONFLICT"
         "400":
           description: Bad request — request body is missing, empty, or contains invalid JSON
@@ -217,7 +217,7 @@ paths:
                     title: "Unauthorized"
                     error: "ACCESS_TOKEN_NOT_FOUND"
         "403":
-          description: Forbidden — the authenticated caller is not allowed to ingest products for this shop
+          description: Forbidden — the authenticated caller is not allowed to ingest product-listings for this shop
           content:
             application/problem+json:
               schema:
@@ -245,7 +245,7 @@ paths:
               example:
                 status: 503
                 title: "Service Unavailable"
-                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
+                error: "PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE"
         "500":
           description: Internal server error
           content:
@@ -255,16 +255,16 @@ paths:
               example:
                 status: 500
                 title: "Internal Server Error"
-                error: "PRODUCT_INTERNAL_ERROR"
+                error: "PRODUCT_LISTING_INTERNAL_ERROR"
     patch:
-      summary: Batch update products (Partner API)
+      summary: Batch update product-listings (Partner API)
       description: |
-        Updates one or more existing products for a shop using bearer authentication.
+        Updates one or more existing product-listings for a shop using bearer authentication.
         This endpoint is intended for partner shops and accepts:
         - a Cognito bearer token for the partner user linked to the shop, or
         - an Aura Historia access token owned by that partner user.
 
-        Aura Historia access tokens on this endpoint must include the `products:write` scope.
+        Aura Historia access tokens on this endpoint must include the `product-listings:write` scope.
         Allowed callers are Aura Historia admins and users partnered with the target shop.
 
         The request body is an array of `PatchProductData` objects. Omitted fields are unchanged;
@@ -272,12 +272,12 @@ paths:
         `400 BAD_BODY_VALUE`; send `[]` to remove all images. The complete batch contract is
         validated before any entry is applied synchronously in its own PostgreSQL transaction.
 
-        The response returns HTTP 200 with failures as `{ shopId, shopsProductId, error }` objects when
+        The response returns HTTP 200 with failures as `{ shopId, shopListingId, error }` objects when
         one or more entries succeed. `error` is the stable API error key for that entry. If every non-empty entry fails, the first failure is returned
         as a problem response. An empty array is accepted and returns `[]`.
-      operationId: patchPartnerProducts
+      operationId: patchPartnerProductListings
       tags:
-        - Products
+        - ProductListings
       parameters:
         - name: shopId
           in: path
@@ -301,9 +301,9 @@ paths:
               items:
                 $ref: "#/components/schemas/PatchProductData"
             example:
-              - shopsProductId: "baroque-violin-001"
+              - shopListingId: "baroque-violin-001"
                 state: "SOLD"
-              - shopsProductId: "baroque-violin-002"
+              - shopListingId: "baroque-violin-002"
                 price:
                   currency: "EUR"
                   amount: 5000
@@ -325,14 +325,14 @@ paths:
                 $ref: "#/components/schemas/PartnerProductBatchFailuresResponse"
               examples:
                 all_succeeded:
-                  summary: All products were updated
+                  summary: All product-listings were updated
                   value: []
                 partial_failure:
-                  summary: Some products failed while at least one product was updated
+                  summary: Some product-listings failed while at least one product was updated
                   value:
                     - shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      shopsProductId: "baroque-violin-002"
-                      error: "PRODUCT_NOT_FOUND"
+                      shopListingId: "baroque-violin-002"
+                      error: "PRODUCT_LISTING_NOT_FOUND"
         "400":
           description: Bad request — request body is missing, empty, or contains invalid JSON
           content:
@@ -379,7 +379,7 @@ paths:
                     title: "Unauthorized"
                     error: "ACCESS_TOKEN_NOT_FOUND"
         "403":
-          description: Forbidden — the authenticated caller is not allowed to ingest products for this shop
+          description: Forbidden — the authenticated caller is not allowed to ingest product-listings for this shop
           content:
             application/problem+json:
               schema:
@@ -407,7 +407,7 @@ paths:
               example:
                 status: 503
                 title: "Service Unavailable"
-                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
+                error: "PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE"
         "500":
           description: Internal server error
           content:
@@ -417,16 +417,16 @@ paths:
               example:
                 status: 500
                 title: "Internal Server Error"
-                error: "PRODUCT_INTERNAL_ERROR"
+                error: "PRODUCT_LISTING_INTERNAL_ERROR"
     put:
-      summary: Batch upsert products (Partner API)
+      summary: Batch upsert product-listings (Partner API)
       description: |
-        Creates new products or updates existing ones for a shop in a single batch call,
+        Creates new product-listings or updates existing ones for a shop in a single batch call,
         using bearer authentication. This endpoint is intended for partner shops and accepts:
         - a Cognito bearer token for the partner user linked to the shop, or
         - an Aura Historia access token owned by that partner user.
 
-        Aura Historia access tokens on this endpoint must include the `products:write` scope.
+        Aura Historia access tokens on this endpoint must include the `product-listings:write` scope.
         Allowed callers are Aura Historia admins and users partnered with the target shop.
 
         The request body is an array of `PutProductData` objects. Each entry is upserted
@@ -445,13 +445,13 @@ paths:
           `images` or sending `null` is treated as an empty list and therefore clears all
           stored images.
 
-        The response returns HTTP 200 with failures as `{ shopId, shopsProductId, error }` objects when
+        The response returns HTTP 200 with failures as `{ shopId, shopListingId, error }` objects when
         one or more entries succeed. `error` is the stable API error key for that entry. If every non-empty entry fails, the first failure is returned
         as a problem response. An empty array is accepted and returns `[]`.
 
-      operationId: putPartnerProducts
+      operationId: putPartnerProductListings
       tags:
-        - Products
+        - ProductListings
       parameters:
         - name: shopId
           in: path
@@ -466,7 +466,7 @@ paths:
         - AccessTokenAuth: []
       requestBody:
         required: true
-        description: Array of at most 100 products to upsert synchronously. May be empty.
+        description: Array of at most 100 product-listings to upsert synchronously. May be empty.
         content:
           application/json:
             schema:
@@ -478,7 +478,7 @@ paths:
               create_new:
                 summary: Create a new product
                 value:
-                  - shopsProductId: "baroque-violin-001"
+                  - shopListingId: "baroque-violin-001"
                     title:
                       text: "Baroque Violin"
                       language: "en"
@@ -489,13 +489,13 @@ paths:
                       currency: "EUR"
                       amount: 4500
                     state: "AVAILABLE"
-                    url: "https://my-shop.com/products/baroque-violin"
+                    url: "https://my-shop.com/product-listings/baroque-violin"
                     images:
                       - "https://my-shop.com/images/violin-1.jpg"
               update_existing:
                 summary: Update an existing product while leaving the current price unchanged
                 value:
-                  - shopsProductId: "baroque-violin-001"
+                  - shopListingId: "baroque-violin-001"
                     state: "SOLD"
                     priceEstimateMin:
                       currency: "EUR"
@@ -503,7 +503,7 @@ paths:
                     priceEstimateMax:
                       currency: "EUR"
                       amount: 4800
-                    url: "https://my-shop.com/products/baroque-violin?status=sold"
+                    url: "https://my-shop.com/product-listings/baroque-violin?status=sold"
                     images:
                       - "https://my-shop.com/images/violin-1.jpg"
                       - "https://my-shop.com/images/violin-detail.jpg"
@@ -511,7 +511,7 @@ paths:
               clear_images:
                 summary: Clear an existing product's images
                 value:
-                  - shopsProductId: "baroque-violin-001"
+                  - shopListingId: "baroque-violin-001"
                     images: null
       responses:
         "200":
@@ -530,13 +530,13 @@ paths:
                 $ref: "#/components/schemas/PartnerProductBatchFailuresResponse"
               examples:
                 all_succeeded:
-                  summary: All products were upserted
+                  summary: All product-listings were upserted
                   value: []
                 partial_failure:
-                  summary: Some products failed while at least one product was upserted
+                  summary: Some product-listings failed while at least one product was upserted
                   value:
                     - shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      shopsProductId: "baroque-violin-002"
+                      shopListingId: "baroque-violin-002"
                       error: "BAD_BODY_VALUE"
         "400":
           description: Bad request — request body is missing, empty, or contains invalid JSON
@@ -584,7 +584,7 @@ paths:
                     title: "Unauthorized"
                     error: "ACCESS_TOKEN_NOT_FOUND"
         "403":
-          description: Forbidden — the authenticated caller is not allowed to ingest products for this shop
+          description: Forbidden — the authenticated caller is not allowed to ingest product-listings for this shop
           content:
             application/problem+json:
               schema:
@@ -612,7 +612,7 @@ paths:
               example:
                 status: 503
                 title: "Service Unavailable"
-                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
+                error: "PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE"
         "500":
           description: Internal server error
           content:
@@ -622,23 +622,23 @@ paths:
               example:
                 status: 500
                 title: "Internal Server Error"
-                error: "PRODUCT_INTERNAL_ERROR"
+                error: "PRODUCT_LISTING_INTERNAL_ERROR"
     delete:
-      summary: Batch delete products (Partner API)
+      summary: Batch delete product-listings (Partner API)
       description: |
-        Soft-deletes products for a shop. Each entry writes its product lifecycle delete event and
+        Soft-deletes product-listings for a shop. Each entry writes its product lifecycle delete event and
         materialized PostgreSQL state synchronously in its own transaction.
 
         Allowed callers are Aura Historia admins and users partnered with the target shop. Aura
-        Historia access tokens must include the `products:write` scope.
+        Historia access tokens must include the `product-listings:write` scope.
 
         The request body is an array of product identifiers. The response returns HTTP 200 with
-        failures as `{ shopId, shopsProductId, error }` objects when one or more entries succeed.
+        failures as `{ shopId, shopListingId, error }` objects when one or more entries succeed.
         `error` is the stable API error key for that entry. If every non-empty entry fails, the first
         failure is returned as a problem response. An empty array is accepted and returns `[]`.
-      operationId: deletePartnerProducts
+      operationId: deletePartnerProductListings
       tags:
-        - Products
+        - ProductListings
       parameters:
         - name: shopId
           in: path
@@ -653,7 +653,7 @@ paths:
         - AccessTokenAuth: []
       requestBody:
         required: true
-        description: Array of at most 100 products to delete synchronously. May be empty.
+        description: Array of at most 100 product-listings to delete synchronously. May be empty.
         content:
           application/json:
             schema:
@@ -662,7 +662,7 @@ paths:
               items:
                 $ref: "#/components/schemas/PartnerProductDeleteData"
             example:
-              - shopsProductId: "baroque-violin-001"
+              - shopListingId: "baroque-violin-001"
       responses:
         "200":
           description: |
@@ -678,8 +678,8 @@ paths:
                 partial_failure:
                   value:
                     - shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      shopsProductId: "baroque-violin-002"
-                      error: "PRODUCT_NOT_FOUND"
+                      shopListingId: "baroque-violin-002"
+                      error: "PRODUCT_LISTING_NOT_FOUND"
         "400":
           description: Bad request — request body is missing, empty, or contains invalid JSON
           content:
@@ -693,7 +693,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "403":
-          description: Forbidden — caller is neither admin nor partnered with this shop, or the access token lacks `products:write`.
+          description: Forbidden — caller is neither admin nor partnered with this shop, or the access token lacks `product-listings:write`.
           content:
             application/problem+json:
               schema:
@@ -740,7 +740,7 @@ paths:
         If a non-empty `price` is sent, the shop must also have `woocommerceCurrency` configured.
       operationId: postWoocommerceWebhook
       tags:
-        - Products
+        - ProductListings
       security:
         - BearerAuth: []
         - AccessTokenAuth: []
@@ -961,11 +961,11 @@ paths:
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
 
-  /api/v1/products/{productId}:
+  /api/v1/product-listings/{productListingId}:
     get:
       summary: Get a single product
       description: |
-        Retrieves a single product by its `productId`.
+        Retrieves a single product by its `productListingId`.
 
         `pricing.source` preserves seller-supplied source amounts and currencies. `pricing.display` contains
         HalfUp-converted amounts in the requested currency, and `pricing.valuation` identifies the persisted
@@ -980,9 +980,9 @@ paths:
 
       operationId: getProduct
       tags:
-        - Products
+        - ProductListings
       parameters:
-        - name: productId
+        - name: productListingId
           in: path
           required: true
           description: Unique identifier of the product
@@ -1040,7 +1040,7 @@ paths:
               example:
                 status: 404
                 title: "Not Found"
-                error: "PRODUCT_NOT_FOUND"
+                error: "PRODUCT_LISTING_NOT_FOUND"
         "500":
           description: Internal server error
           content:
@@ -1050,7 +1050,7 @@ paths:
               example:
                 status: 500
                 title: "Internal Server Error"
-                error: "PRODUCT_INTERNAL_ERROR"
+                error: "PRODUCT_LISTING_INTERNAL_ERROR"
         "503":
           description: Product detail or notification state is temporarily unavailable
           content:
@@ -1060,9 +1060,9 @@ paths:
               example:
                 status: 503
                 title: "Service Unavailable"
-                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
+                error: "PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE"
 
-  /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}:
+  /api/v1/by-slug/shops/{shopSlugId}/product-listings/{productListingSlugId}:
     get:
       summary: Get a single product by slug
       description: |
@@ -1086,7 +1086,7 @@ paths:
 
       operationId: getProductBySlug
       tags:
-        - Products
+        - ProductListings
       parameters:
         - name: shopSlugId
           in: path
@@ -1096,7 +1096,7 @@ paths:
             type: string
             pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
             example: "tech-store-premium"
-        - name: productSlugId
+        - name: productListingSlugId
           in: path
           required: true
           description: |
@@ -1157,7 +1157,7 @@ paths:
               example:
                 status: 404
                 title: "Not Found"
-                error: "PRODUCT_NOT_FOUND"
+                error: "PRODUCT_LISTING_NOT_FOUND"
         "500":
           description: Internal server error
           content:
@@ -1167,7 +1167,7 @@ paths:
               example:
                 status: 500
                 title: "Internal Server Error"
-                error: "PRODUCT_INTERNAL_ERROR"
+                error: "PRODUCT_LISTING_INTERNAL_ERROR"
         "503":
           description: Product detail or notification state is temporarily unavailable
           content:
@@ -1177,13 +1177,13 @@ paths:
               example:
                 status: 503
                 title: "Service Unavailable"
-                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
+                error: "PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE"
 
-  /api/v1/products/{productId}/history:
+  /api/v1/product-listings/{productListingId}/history:
     get:
       summary: Get product event history
       description: |
-        Retrieves the event history for a specific product by its `productId`.
+        Retrieves the event history for a specific product by its `productListingId`.
         Returns an array of immutable events representing state changes, price changes, and other
         product lifecycle events, ordered chronologically.
 
@@ -1191,9 +1191,9 @@ paths:
         immutable `saleValuation` separately. This endpoint performs no currency conversion.
       operationId: getProductHistory
       tags:
-        - Products
+        - ProductListings
       parameters:
-        - name: productId
+        - name: productListingId
           in: path
           required: true
           description: Unique identifier of the product
@@ -1220,7 +1220,7 @@ paths:
                   summary: Example product history
                   value:
                     - eventType: "CREATED"
-                      productId: "550e8400-e29b-41d4-a716-446655440000"
+                      productListingId: "550e8400-e29b-41d4-a716-446655440000"
                       eventId: "650e8400-e29b-41d4-a716-446655440001"
                       payload:
                         pricing:
@@ -1228,12 +1228,12 @@ paths:
                             currency: "EUR"
                             amount: 3000
                         state: "LISTED"
-                        url: "https://shop.example/products/6ba7b810"
+                        url: "https://shop.example/product-listings/6ba7b810"
                         images: []
                         auction: {}
                       timestamp: "2024-01-01T10:00:00Z"
                     - eventType: "PRICE_CHANGED"
-                      productId: "550e8400-e29b-41d4-a716-446655440000"
+                      productListingId: "550e8400-e29b-41d4-a716-446655440000"
                       eventId: "650e8400-e29b-41d4-a716-446655440003"
                       payload:
                         oldPricing:
@@ -1261,7 +1261,7 @@ paths:
               example:
                 status: 404
                 title: "Not Found"
-                error: "PRODUCT_NOT_FOUND"
+                error: "PRODUCT_LISTING_NOT_FOUND"
         "500":
           description: Internal server error
           content:
@@ -1273,23 +1273,23 @@ paths:
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
 
-  /api/v1/products/{productId}/similar:
+  /api/v1/product-listings/{productListingId}/similar:
     get:
-      summary: Get similar products
+      summary: Get similar product-listings
       description: |
-        Retrieves products similar to the specified product using KNN search over text embeddings.
-        When the product embedding is ready, the endpoint returns matching products. If it is absent,
+        Retrieves product-listings similar to the specified product using KNN search over text embeddings.
+        When the product embedding is ready, the endpoint returns matching product-listings. If it is absent,
         the endpoint returns `202 Accepted` with a polling location.
 
         Ready entries return `displayPrice` in the requested currency and `priceValuation` metadata.
-        Active Products use one persisted snapshot pinned for the request; sold Products use immutable
+        Active ProductListings use one persisted snapshot pinned for the request; sold ProductListings use immutable
         sale-time values. Every ready entry contains `item`; a valid user or delegated-user bearer token adds
         `userState`. Personalized KNN results use `Cache-Control: no-store`.
-      operationId: getSimilarProducts
+      operationId: getSimilarProductListings
       tags:
-        - Products
+        - ProductListings
       parameters:
-        - name: productId
+        - name: productListingId
           in: path
           required: true
           description: Unique identifier of the product
@@ -1314,7 +1314,7 @@ paths:
         - {}
       responses:
         "200":
-          description: Similar products found and returned successfully
+          description: Similar product-listings found and returned successfully
           content:
             application/json:
               schema:
@@ -1326,11 +1326,11 @@ paths:
           description: Product embedding is not available yet. Poll the Location URL for KNN results.
           headers:
             Location:
-              description: URL to poll for similar products once the embedding is available
+              description: URL to poll for similar product-listings once the embedding is available
               schema:
                 type: string
                 format: uri
-              example: "/api/v1/products/550e8400-e29b-41d4-a716-446655440000/similar"
+              example: "/api/v1/product-listings/550e8400-e29b-41d4-a716-446655440000/similar"
         "400":
           description: Bad request - invalid parameters
           content:
@@ -1347,8 +1347,8 @@ paths:
               example:
                 status: 404
                 title: "Not Found"
-                error: "PRODUCT_NOT_FOUND"
-                detail: "Product with ShopId '550e8400-e29b-41d4-a716-446655440000' and ShopsProductId '6ba7b810' not found."
+                error: "PRODUCT_LISTING_NOT_FOUND"
+                detail: "ProductListing with ShopId '550e8400-e29b-41d4-a716-446655440000' and ShopListingId '6ba7b810' not found."
         "500":
           description: Internal server error
           content:
@@ -1360,13 +1360,13 @@ paths:
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
 
-  /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}/history:
+  /api/v1/by-slug/shops/{shopSlugId}/product-listings/{productListingSlugId}/history:
     get:
       summary: Get product event history by slug
       description: Returns immutable history for a shop/product slug pair. Price snapshots preserve stored source amounts and currencies; sale valuation is recorded separately; no conversion is performed.
       operationId: getProductHistoryBySlug
       tags:
-        - Products
+        - ProductListings
       parameters:
         - name: shopSlugId
           in: path
@@ -1374,7 +1374,7 @@ paths:
           schema:
             type: string
             pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
-        - name: productSlugId
+        - name: productListingSlugId
           in: path
           required: true
           schema:
@@ -1393,13 +1393,13 @@ paths:
                 items:
                   $ref: "#/components/schemas/GetProductEventData"
 
-  /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}/similar:
+  /api/v1/by-slug/shops/{shopSlugId}/product-listings/{productListingSlugId}/similar:
     get:
-      summary: Get similar products by slug
-      description: Returns KNN matches when the product embedding is ready, or `202 Accepted` with a polling location when it is absent. Ready entries return `displayPrice` in the requested currency and `priceValuation`; active Products use one persisted request snapshot and sold Products use immutable sale values. Every ready entry contains `item`; a valid user or delegated-user bearer token adds `userState`. Anonymous responses omit it and remain cacheable.
-      operationId: getSimilarProductsBySlug
+      summary: Get similar product-listings by slug
+      description: Returns KNN matches when the product embedding is ready, or `202 Accepted` with a polling location when it is absent. Ready entries return `displayPrice` in the requested currency and `priceValuation`; active ProductListings use one persisted request snapshot and sold ProductListings use immutable sale values. Every ready entry contains `item`; a valid user or delegated-user bearer token adds `userState`. Anonymous responses omit it and remain cacheable.
+      operationId: getSimilarProductListingsBySlug
       tags:
-        - Products
+        - ProductListings
       parameters:
         - name: shopSlugId
           in: path
@@ -1407,7 +1407,7 @@ paths:
           schema:
             type: string
             pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
-        - name: productSlugId
+        - name: productListingSlugId
           in: path
           required: true
           schema:
@@ -1430,7 +1430,7 @@ paths:
         - {}
       responses:
         "200":
-          description: Similar products found and returned successfully
+          description: Similar product-listings found and returned successfully
           content:
             application/json:
               schema:
@@ -1446,7 +1446,7 @@ paths:
                 type: string
                 format: uri
 
-  /api/v1/products:
+  /api/v1/product-listings:
     get:
       summary: Simple product search via query parameters
       description: |
@@ -1481,9 +1481,9 @@ paths:
         - `updated[min]`, `updated[max]`
         - `auctionStart[min]`, `auctionStart[max]`
         - `auctionEnd[min]`, `auctionEnd[max]`
-      operationId: simpleSearchProducts
+      operationId: simpleSearchProductListings
       tags:
-        - Products
+        - ProductListings
       parameters:
         - name: language
           in: query
@@ -1502,7 +1502,7 @@ paths:
         - name: productQuery
           in: query
           required: false
-          description: Optional text queries for products. Multiple entries are ORed together.
+          description: Optional text queries for product-listings. Multiple entries are ORed together.
           style: form
           explode: true
           schema:
@@ -1529,7 +1529,7 @@ paths:
           required: false
           description: |
             Optional filter by exact shop names (keyword matching).
-            Products are filtered to those from shops whose names exactly match one of the provided values.
+            ProductListings are filtered to those from shops whose names exactly match one of the provided values.
           style: form
           explode: true
           schema:
@@ -1542,8 +1542,8 @@ paths:
           in: query
           required: false
           description: |
-            Optional filter to exclude products from specific shops (keyword matching).
-            Products from shops whose names exactly match one of the provided values are excluded from results.
+            Optional filter to exclude product-listings from specific shops (keyword matching).
+            ProductListings from shops whose names exactly match one of the provided values are excluded from results.
           style: form
           explode: true
           schema:
@@ -1557,7 +1557,7 @@ paths:
           required: false
           description: |
             Optional filter by exact seller names (keyword matching).
-            Products are filtered to those from sellers whose names exactly match one of the provided values.
+            ProductListings are filtered to those from sellers whose names exactly match one of the provided values.
           style: form
           explode: true
           schema:
@@ -1570,8 +1570,8 @@ paths:
           in: query
           required: false
           description: |
-            Optional filter to exclude products from specific sellers (keyword matching).
-            Products from sellers whose names exactly match one of the provided values are excluded from results.
+            Optional filter to exclude product-listings from specific sellers (keyword matching).
+            ProductListings from sellers whose names exactly match one of the provided values are excluded from results.
           style: form
           explode: true
           schema:
@@ -1585,7 +1585,7 @@ paths:
           required: false
           description: |
             Optional filter by exact shop slug identifiers.
-            Products are filtered to those whose `shopSlugId` exactly matches one of the provided kebab-case values.
+            ProductListings are filtered to those whose `shopSlugId` exactly matches one of the provided kebab-case values.
           style: form
           explode: true
           schema:
@@ -1599,8 +1599,8 @@ paths:
           in: query
           required: false
           description: |
-            Optional filter to exclude products from specific shop slug identifiers.
-            Products whose `shopSlugId` exactly matches one of the provided kebab-case values are excluded from results.
+            Optional filter to exclude product-listings from specific shop slug identifiers.
+            ProductListings whose `shopSlugId` exactly matches one of the provided kebab-case values are excluded from results.
           style: form
           explode: true
           schema:
@@ -1615,7 +1615,7 @@ paths:
           required: false
           description: |
             Optional filter by exact seller slug identifiers.
-            Products are filtered to those whose seller slug ID exactly matches one of the provided kebab-case values.
+            ProductListings are filtered to those whose seller slug ID exactly matches one of the provided kebab-case values.
           style: form
           explode: true
           schema:
@@ -1629,8 +1629,8 @@ paths:
           in: query
           required: false
           description: |
-            Optional filter to exclude products from specific seller slug identifiers.
-            Products whose seller slug ID exactly matches one of the provided kebab-case values are excluded from results.
+            Optional filter to exclude product-listings from specific seller slug identifiers.
+            ProductListings whose seller slug ID exactly matches one of the provided kebab-case values are excluded from results.
           style: form
           explode: true
           schema:
@@ -1643,7 +1643,7 @@ paths:
         - name: shopType
           in: query
           required: false
-          description: Optional filter by shop types. When provided, only products from shops of the given types are returned.
+          description: Optional filter by shop types. When provided, only product-listings from shops of the given types are returned.
           style: form
           explode: true
           schema:
@@ -1657,7 +1657,7 @@ paths:
           required: false
           description: |
             Optional filter by one or more structured-address country codes of the selling shop.
-            Uses ISO 3166-1 alpha-2 codes and matches products whose indexed shop address country is one of the provided values.
+            Uses ISO 3166-1 alpha-2 codes and matches product-listings whose indexed shop address country is one of the provided values.
           style: form
           explode: true
           schema:
@@ -1671,7 +1671,7 @@ paths:
           required: false
           description: |
             Optional filter by one or more structured-address continents of the selling shop.
-            Matches products whose indexed shop address continent is one of the provided values.
+            Matches product-listings whose indexed shop address continent is one of the provided values.
           style: form
           explode: true
           schema:
@@ -1720,7 +1720,7 @@ paths:
         - name: state
           in: query
           required: false
-          description: Optional filter by product states. When provided, only products in the given states are returned.
+          description: Optional filter by product states. When provided, only product-listings in the given states are returned.
           style: form
           explode: true
           schema:
@@ -1790,7 +1790,7 @@ paths:
           description: |
             Optional filter by auction start datetime range (RFC3339 format).
             Use `auctionStart[min]` and/or `auctionStart[max]` to specify the bounds.
-            Only matches products that have an auction start time set.
+            Only matches product-listings that have an auction start time set.
           style: deepObject
           explode: true
           schema:
@@ -1812,7 +1812,7 @@ paths:
           description: |
             Optional filter by auction end datetime range (RFC3339 format).
             Use `auctionEnd[min]` and/or `auctionEnd[max]` to specify the bounds.
-            Only matches products that have an auction end time set.
+            Only matches product-listings that have an auction end time set.
           style: deepObject
           explode: true
           schema:
@@ -1856,7 +1856,7 @@ paths:
         - name: size
           in: query
           required: false
-          description: Number of products to return per page
+          description: Number of product-listings to return per page
           schema:
             type: integer
             minimum: 1
@@ -1926,7 +1926,7 @@ paths:
               example:
                 status: 503
                 title: "Service Unavailable"
-                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
+                error: "PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE"
         "500":
           description: Internal server error
           content:
@@ -2629,20 +2629,20 @@ paths:
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
 
-  /api/v1/me/search-filters/{userSearchFilterId}/products:
+  /api/v1/me/search-filters/{userSearchFilterId}/product-listings:
     get:
       summary: Preview product matches for a saved search filter
       description: |
-        Previews products that would match the authenticated user's saved search filter using the same
+        Previews product-listings that would match the authenticated user's saved search filter using the same
         percolator-style query semantics used by search-filter product-match processing. The request only
         controls response localization (`language`, `currency`).
 
         Client-driven pagination is not supported. The endpoint always returns a fixed preview of up to
-        10 products and rejects `size` or `searchAfter` query parameters with `BAD_QUERY_PARAMETER_VALUE`.
+        10 product-listings and rejects `size` or `searchAfter` query parameters with `BAD_QUERY_PARAMETER_VALUE`.
 
         When the saved search filter contains `search.enhancedSearchDescription` and enhanced matching is available,
-        the backend re-evaluates each candidate product for this specific filter. Products rejected by enhanced
-        matching are omitted from the preview; accepted products expose the live result in
+        the backend re-evaluates each candidate product for this specific filter. ProductListings rejected by enhanced
+        matching are omitted from the preview; accepted product-listings expose the live result in
         `userState.searchFilter`:
         - `matched` (`true`)
         - `hidden` (always `false` in this flow)
@@ -2652,7 +2652,7 @@ paths:
         from `userState.searchFilter`.
 
         Requires valid Cognito JWT authentication.
-      operationId: getSearchFilterPreviewProducts
+      operationId: getSearchFilterPreviewProductListings
       tags:
         - Search Filters
       parameters:
@@ -2703,12 +2703,12 @@ paths:
               example:
                 items:
                   - item:
-                      productId: "550e8400-e29b-41d4-a716-446655440000"
-                      productSlugId: "golden-cufflinks-a1b2c3"
+                      productListingId: "550e8400-e29b-41d4-a716-446655440000"
+                      productListingSlugId: "golden-cufflinks-a1b2c3"
                       shopSlugId: "curated-antiques"
                       eventId: "550e8400-e29b-41d4-a716-446655440001"
                       shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      shopsProductId: "6ba7b810"
+                      shopListingId: "6ba7b810"
                       shopName: "Curated Antiques"
                       sellerName: "Curated Antiques"
                       shopType: "COMMERCIAL_DEALER"
@@ -2719,8 +2719,8 @@ paths:
                         currency: "EUR"
                         amount: 2999
                       state: "AVAILABLE"
-                      url: "https://curated-antiques.example/products/golden-cufflinks"
-                      viewUrl: "https://curated-antiques.example/products/golden-cufflinks?utm_source=aura_historia&utm_medium=referral"
+                      url: "https://curated-antiques.example/product-listings/golden-cufflinks"
+                      viewUrl: "https://curated-antiques.example/product-listings/golden-cufflinks?utm_source=aura_historia&utm_medium=referral"
                       images:
                         - url: "https://curated-antiques.example/images/golden-cufflinks-1.jpg"
                           prohibitedContent: "NONE"
@@ -2860,7 +2860,7 @@ paths:
         - name: size
           in: query
           required: false
-          description: Number of matched products to return per page
+          description: Number of matched product-listings to return per page
           schema:
             type: integer
             minimum: 1
@@ -2872,7 +2872,7 @@ paths:
         - AccessTokenAuth: []
       responses:
         "200":
-          description: Hydrated search-filter matched products retrieved successfully
+          description: Hydrated search-filter matched product-listings retrieved successfully
           headers:
             Cache-Control:
               description: Cache control directive — always set to `no-store`
@@ -2891,12 +2891,12 @@ paths:
               example:
                 items:
                   - item:
-                      productId: "550e8400-e29b-41d4-a716-446655440111"
-                      productSlugId: "golden-accessory"
+                      productListingId: "550e8400-e29b-41d4-a716-446655440111"
+                      productListingSlugId: "golden-accessory"
                       eventId: "550e8400-e29b-41d4-a716-446655440222"
                       shopId: "550e8400-e29b-41d4-a716-446655440333"
                       sellerId: "550e8400-e29b-41d4-a716-446655440333"
-                      shopsProductId: "accessory-1"
+                      shopListingId: "accessory-1"
                       shopName: "Golden Shop"
                       sellerName: "Golden Shop"
                       shopSlugId: "golden-shop"
@@ -3017,7 +3017,7 @@ paths:
                 title: "Service Unavailable"
                 error: "SEARCH_FILTER_TEMPORARILY_UNAVAILABLE"
 
-  /api/v1/me/search-filters/{userSearchFilterId}/matches/{productId}:
+  /api/v1/me/search-filters/{userSearchFilterId}/matches/{productListingId}:
     patch:
       summary: Update feedback for a search-filter match
       description: |
@@ -3042,7 +3042,7 @@ paths:
             type: string
             format: uuid
           example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-        - name: productId
+        - name: productListingId
           in: path
           required: true
           description: Canonical identifier of the matched product
@@ -3100,7 +3100,7 @@ paths:
                   value:
                     userId: "550e8400-e29b-41d4-a716-446655440000"
                     userSearchFilterId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-                    productId: "550e8400-e29b-41d4-a716-446655440111"
+                    productListingId: "550e8400-e29b-41d4-a716-446655440111"
                     originEventId: "550e8400-e29b-41d4-a716-446655440222"
                     feedback: true
                     created: "2024-01-01T10:00:00Z"
@@ -3110,7 +3110,7 @@ paths:
                   value:
                     userId: "550e8400-e29b-41d4-a716-446655440000"
                     userSearchFilterId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-                    productId: "550e8400-e29b-41d4-a716-446655440111"
+                    productListingId: "550e8400-e29b-41d4-a716-446655440111"
                     originEventId: "550e8400-e29b-41d4-a716-446655440222"
                     feedback: true
                     created: "2024-01-01T10:00:00Z"
@@ -3138,7 +3138,7 @@ paths:
                     title: "Bad Request"
                     error: "BAD_PATH_PARAMETER_VALUE"
                     source:
-                      field: "productId"
+                      field: "productListingId"
                       sourceType: "path"
                 invalid_search_filter_id:
                   summary: Invalid search filter ID format
@@ -3157,7 +3157,7 @@ paths:
                     title: "Bad Request"
                     error: "INVALID_UUID"
                     source:
-                      field: "productId"
+                      field: "productListingId"
                       sourceType: "path"
                     detail: "Invalid UUID format"
                 missing_body:
@@ -3216,12 +3216,12 @@ paths:
 
   /api/v1/me/watchlist:
     get:
-      summary: List user's watchlist products
+      summary: List user's watchlist product-listings
       description: |
-        Retrieves all products in the authenticated user's watchlist in watchlist creation order.
+        Retrieves all product-listings in the authenticated user's watchlist in watchlist creation order.
         Each result contains current product data and complete user-specific state.
         Accepts Cognito JWT authentication or an Aura Historia access token with `watchlist:read`.
-      operationId: getWatchlistProducts
+      operationId: getWatchlistProductListings
       tags:
         - Watchlist
       parameters:
@@ -3241,7 +3241,7 @@ paths:
         - name: size
           in: query
           required: false
-          description: Products per page. Defaults to 21; values are clamped to 1..100.
+          description: ProductListings per page. Defaults to 21; values are clamped to 1..100.
           schema:
             type: integer
             minimum: 1
@@ -3258,7 +3258,7 @@ paths:
         - BearerAuth: []
       responses:
         "200":
-          description: Watchlist products retrieved successfully
+          description: Watchlist product-listings retrieved successfully
           headers:
             Access-Control-Allow-Origin:
               description: CORS header
@@ -3289,11 +3289,11 @@ paths:
               example:
                 items:
                   - item:
-                      productId: "550e8400-e29b-41d4-a716-446655440000"
-                      productSlugId: "smartphone-case-a1b2c3"
+                      productListingId: "550e8400-e29b-41d4-a716-446655440000"
+                      productListingSlugId: "smartphone-case-a1b2c3"
                       eventId: "550e8400-e29b-41d4-a716-446655440001"
                       shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      shopsProductId: "6ba7b810"
+                      shopListingId: "6ba7b810"
                       shopName: "Tech Store"
                       title:
                         text: "Smartphone Case"
@@ -3365,7 +3365,7 @@ paths:
       summary: Add product to watchlist
       description: |
         Adds a product to the authenticated user's watchlist.
-        The request body requires canonical `productId` and may set `notifications`; notifications default to `true`.
+        The request body requires canonical `productListingId` and may set `notifications`; notifications default to `true`.
         Active-entry quota depends on the user's tier: Free users may have 20, Pro users 100,
         and Ultimate users have no active-entry limit. Adding beyond the active quota returns
         a 422 Unprocessable Entity error.
@@ -3385,7 +3385,7 @@ paths:
             schema:
               $ref: "#/components/schemas/PostWatchlistData"
             example:
-              productId: "550e8400-e29b-41d4-a716-446655440000"
+              productListingId: "550e8400-e29b-41d4-a716-446655440000"
               notifications: true
       responses:
         "201":
@@ -3402,7 +3402,7 @@ paths:
                 $ref: "#/components/schemas/WatchlistEntryData"
               example:
                 userId: "550e8400-e29b-41d4-a716-446655440000"
-                productId: "550e8400-e29b-41d4-a716-446655440000"
+                productListingId: "550e8400-e29b-41d4-a716-446655440000"
                 notifications: true
                 state: "ACTIVE"
         "400":
@@ -4407,7 +4407,7 @@ paths:
               $ref: "#/components/schemas/PostAccessTokenData"
             example:
               name: "Partner product sync"
-              scope: ["products:write"]
+              scope: ["product-listings:write"]
               expiresAt: "2026-06-30T00:00:00Z"
       responses:
         "201":
@@ -4430,7 +4430,7 @@ paths:
               example:
                 accessTokenId: "01970f22-2bf0-7000-8000-000000000001"
                 name: "Partner product sync"
-                scope: ["products:write"]
+                scope: ["product-listings:write"]
                 token: "aurahistoria_abcdefghijk_abcdefghijklmnopqrstuvwxyz1234567"
                 tokenType: "BEARER"
                 expiresAt: "2026-06-30T00:00:00Z"
@@ -4457,7 +4457,7 @@ paths:
                     status: 400
                     title: "Bad Request"
                     error: "BAD_BODY_VALUE"
-                    detail: "unknown scope `products_write`, expected one of: shops:manage, products:write"
+                    detail: "unknown scope `product-listings_write`, expected one of: shops:manage, product-listings:write"
         "401":
           description: Unauthorized - invalid or missing JWT token
           content:
@@ -4525,7 +4525,7 @@ paths:
                   value:
                     - accessTokenId: "01970f22-2bf0-7000-8000-000000000001"
                       name: "Partner product sync"
-                      scope: ["products:write"]
+                      scope: ["product-listings:write"]
                       token: "aurahistoria_abcdefghijk_****"
                       tokenType: "BEARER"
                       expiresAt: "2026-06-30T00:00:00Z"
@@ -4587,7 +4587,7 @@ paths:
             example:
               accessTokenId: "01970f22-2bf0-7000-8000-000000000001"
               name: "Renamed partner sync token"
-              scopes: ["products:write"]
+              scopes: ["product-listings:write"]
               expires: "2026-07-31T00:00:00Z"
       responses:
         "200":
@@ -4610,7 +4610,7 @@ paths:
               example:
                 accessTokenId: "01970f22-2bf0-7000-8000-000000000001"
                 name: "Renamed partner sync token"
-                scope: ["products:write"]
+                scope: ["product-listings:write"]
                 token: "aurahistoria_abcdefghijk_****"
                 tokenType: "BEARER"
                 expiresAt: "2026-07-31T00:00:00Z"
@@ -4710,7 +4710,7 @@ paths:
               example:
                 accessTokenId: "01970f22-2bf0-7000-8000-000000000001"
                 name: "Partner product sync"
-                scope: ["products:write"]
+                scope: ["product-listings:write"]
                 token: "aurahistoria_abcdefghijk_****"
                 tokenType: "BEARER"
                 expiresAt: "2026-06-30T00:00:00Z"
@@ -5166,7 +5166,7 @@ paths:
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
 
-  /api/v1/me/watchlist/{productId}:
+  /api/v1/me/watchlist/{productListingId}:
     delete:
       summary: Remove product from watchlist
       description: |
@@ -5177,7 +5177,7 @@ paths:
       tags:
         - Watchlist
       parameters:
-        - name: productId
+        - name: productListingId
           in: path
           required: true
           description: Unique identifier of the product
@@ -5210,7 +5210,7 @@ paths:
                     title: "Bad Request"
                     error: "BAD_PATH_PARAMETER_VALUE"
                     source:
-                      field: "productId"
+                      field: "productListingId"
                       sourceType: "path"
                 invalid_uuid:
                   summary: Invalid product ID format
@@ -5219,7 +5219,7 @@ paths:
                     title: "Bad Request"
                     error: "INVALID_UUID"
                     source:
-                      field: "productId"
+                      field: "productListingId"
                       sourceType: "path"
                     detail: "Invalid UUID format"
         "401":
@@ -5274,7 +5274,7 @@ paths:
       tags:
         - Watchlist
       parameters:
-        - name: productId
+        - name: productListingId
           in: path
           required: true
           description: Unique identifier of the product
@@ -5339,12 +5339,12 @@ paths:
                 $ref: "#/components/schemas/PersonalizedGetProductData"
               example:
                 item:
-                  productId: "550e8400-e29b-41d4-a716-446655440000"
-                  productSlugId: "smartphone-case-a1b2c3"
+                  productListingId: "550e8400-e29b-41d4-a716-446655440000"
+                  productListingSlugId: "smartphone-case-a1b2c3"
                   shopSlugId: "tech-store"
                   eventId: "550e8400-e29b-41d4-a716-446655440001"
                   shopId: "550e8400-e29b-41d4-a716-446655440000"
-                  shopsProductId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+                  shopListingId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
                   shopName: "Tech Store"
                   shopType: "COMMERCIAL_DEALER"
                   title:
@@ -5391,7 +5391,7 @@ paths:
                     title: "Bad Request"
                     error: "BAD_PATH_PARAMETER_VALUE"
                     source:
-                      field: "productId"
+                      field: "productListingId"
                       sourceType: "path"
                 invalid_uuid:
                   summary: Invalid product ID format
@@ -5400,7 +5400,7 @@ paths:
                     title: "Bad Request"
                     error: "INVALID_UUID"
                     source:
-                      field: "productId"
+                      field: "productListingId"
                       sourceType: "path"
                     detail: "Invalid UUID format"
                 missing_body:
@@ -8357,7 +8357,7 @@ paths:
           description: Space-separated list of requested scopes. Must be a subset of the client's allowed scopes.
           schema:
             type: string
-          example: "products:write"
+          example: "product-listings:write"
         - name: state
           in: query
           required: false
@@ -8594,7 +8594,7 @@ paths:
                 access_token: "aurahistoria_abcdefghijk_verylongtokenvalue"
                 token_type: "BEARER"
                 expires_in: null
-                scope: "products:write"
+                scope: "product-listings:write"
                 third_party_exchange_code: "01970f22-2bf0-7000-8000-000000000099"
         "400":
           description: Bad request — a required form field is missing, `client_id` is not a valid UUID, `redirect_uri` is malformed, or an authorization code error occurred (code not found, expired, mismatched client or redirect URI, or invalid PKCE verifier).
@@ -8748,7 +8748,7 @@ paths:
                 access_token: "aurahistoria_abcdefghijk_verylongtokenvalue"
                 token_type: "BEARER"
                 expires_in: null
-                scope: "products:write"
+                scope: "product-listings:write"
         "400":
           description: |
             Bad request — the path parameter is missing/invalid, or the exchange code was not found
@@ -8967,7 +8967,7 @@ paths:
                   summary: Active token
                   value:
                     active: true
-                    scope: "products:write"
+                    scope: "product-listings:write"
                     client_id: "01970f22-2bf0-7000-8000-000000000010"
                     sub: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                     token_type: "Bearer"
@@ -9066,7 +9066,7 @@ paths:
               redirect_uris:
                 - "https://client.example/callback"
               scope:
-                - "products:write"
+                - "product-listings:write"
       responses:
         "201":
           description: OAuth client metadata created successfully.
@@ -9097,7 +9097,7 @@ paths:
                 redirect_uris:
                   - "https://client.example/callback"
                 scope:
-                  - "products:write"
+                  - "product-listings:write"
                 client_id_issued_at: 1748539200
         "400":
           description: Bad request — missing, empty, malformed JSON body, or invalid OAuth client metadata.
@@ -9199,7 +9199,7 @@ paths:
                       redirect_uris:
                         - "https://client.example/callback"
                       scope:
-                        - "products:write"
+                        - "product-listings:write"
                       client_id_issued_at: 1748539200
                 no_clients:
                   summary: No OAuth clients exist
@@ -9282,7 +9282,7 @@ paths:
                 redirect_uris:
                   - "https://client.example/callback"
                 scope:
-                  - "products:write"
+                  - "product-listings:write"
                 client_id_issued_at: 1748539200
         "400":
           description: Bad request — invalid or missing OAuth client path parameter.
@@ -9626,12 +9626,12 @@ components:
       type: object
       description: Complete product information including metadata and localized content
       required:
-        - productId
-        - productSlugId
+        - productListingId
+        - productListingSlugId
         - shopSlugId
         - eventId
         - shopId
-        - shopsProductId
+        - shopListingId
         - shopName
         - sellerName
         - shopType
@@ -9642,11 +9642,11 @@ components:
         - viewUrl
         - images
       properties:
-        productId:
+        productListingId:
           type: string
           format: uuid
           description: Unique internal identifier for the product
-        productSlugId:
+        productListingSlugId:
           type: string
           pattern: "^[a-z0-9]+(-[a-z0-9]+)*-[a-f0-9]{6}$"
           description: |
@@ -9667,7 +9667,7 @@ components:
           type: string
           format: uuid
           description: Unique identifier of the shop
-        shopsProductId:
+        shopListingId:
           type: string
           description: Shop's unique identifier for the product. Can be any arbitrary string.
         shopName:
@@ -9730,7 +9730,7 @@ components:
           nullable: true
           description: |
             Optional auction time window information.
-            Only present for products from auction houses with scheduled auction times.
+            Only present for product-listings from auction houses with scheduled auction times.
             Contains start and/or end timestamps for the auction.
         created:
           type: string
@@ -9745,12 +9745,12 @@ components:
       type: object
       description: Lightweight product summary for search and similar-product results.
       required:
-        - productId
-        - productSlugId
+        - productListingId
+        - productListingSlugId
         - eventId
         - shopId
         - sellerId
-        - shopsProductId
+        - shopListingId
         - shopName
         - shopSlugId
         - state
@@ -9761,11 +9761,11 @@ components:
         - updated
         - priceValuation
       properties:
-        productId:
+        productListingId:
           type: string
           format: uuid
           description: Unique internal identifier for the product
-        productSlugId:
+        productListingSlugId:
           type: string
           pattern: "^[a-z0-9]+(-[a-z0-9]+)*-[a-f0-9]{6}$"
           description: Human-readable product slug.
@@ -9781,7 +9781,7 @@ components:
           type: string
           format: uuid
           description: Unique identifier of the seller.
-        shopsProductId:
+        shopListingId:
           type: string
           description: Shop-provided identifier for the product.
         shopName:
@@ -9854,12 +9854,12 @@ components:
       type: object
       description: Canonical Product detail data inside a personalized response wrapper.
       required:
-        - productId
-        - productSlugId
+        - productListingId
+        - productListingSlugId
         - eventId
         - shopId
         - sellerId
-        - shopsProductId
+        - shopListingId
         - shopName
         - sellerName
         - shopSlugId
@@ -9874,10 +9874,10 @@ components:
         - created
         - updated
       properties:
-        productId:
+        productListingId:
           type: string
           format: uuid
-        productSlugId:
+        productListingSlugId:
           type: string
         eventId:
           type: string
@@ -9888,7 +9888,7 @@ components:
         sellerId:
           type: string
           format: uuid
-        shopsProductId:
+        shopListingId:
           type: string
         shopName:
           type: string
@@ -10058,7 +10058,7 @@ components:
       type: object
       description: |
         Wrapper for lightweight product summary data with optional user-specific state.
-        Used in search results and similar products listings.
+        Used in search results and similar product-listings listings.
         When user is authenticated, includes personalized information such as watchlist status.
         When user is anonymous, only the product summary data is present.
       required:
@@ -10094,7 +10094,7 @@ components:
           type: integer
           minimum: 0
           nullable: true
-          description: Total matching products for BM25 search when the backend provides it. Hybrid BM25 plus KNN search omits this value because its fused candidate pool is not a reliable total.
+          description: Total matching product-listings for BM25 search when the backend provides it. Hybrid BM25 plus KNN search omits this value because its fused candidate pool is not a reliable total.
           example: 127
         searchAfter:
           allOf:
@@ -10123,7 +10123,7 @@ components:
     PersonalizedProductSearchResultData:
       type: object
       description: |
-        Paginated collection of personalized products using cursor-based pagination (search-after pattern).
+        Paginated collection of personalized product-listings using cursor-based pagination (search-after pattern).
         Each product may include user-specific state when the request is authenticated.
       required:
         - items
@@ -10137,12 +10137,12 @@ components:
         size:
           type: integer
           minimum: 0
-          description: Number of products returned in the current page
+          description: Number of product-listings returned in the current page
           example: 21
         total:
           type: integer
           minimum: 0
-          description: Total number of products matching the query (optional, may not always be available)
+          description: Total number of product-listings matching the query (optional, may not always be available)
           nullable: true
           example: 127
         searchAfter:
@@ -10242,7 +10242,7 @@ components:
           type: boolean
           description: |
             Whether this match is hidden because the user has exceeded their monthly search-filter match quota.
-            When `true`, the product data in the response is anonymized: the `productId` is set to a nil UUID,
+            When `true`, the product data in the response is anonymized: the `productListingId` is set to a nil UUID,
             the title becomes a language-specific placeholder, all other UUID
             fields are nil, enum fields are set to their unknown variants, optional fields are omitted, and
             timestamps are set to the Unix epoch.
@@ -10374,7 +10374,7 @@ components:
           type: string
           format: uri
           description: The new URL of the product on the shop's website.
-          example: "https://my-shop.com/products/baroque-violin-updated"
+          example: "https://my-shop.com/product-listings/baroque-violin-updated"
 
     ProductEventImagesChangedPayloadData:
       type: object
@@ -10412,7 +10412,7 @@ components:
       description: Historical event for a product
       required:
         - eventType
-        - productId
+        - productListingId
         - eventId
 
         - payload
@@ -10431,7 +10431,7 @@ components:
               AUCTION_CHANGED,
               DELETED,
             ]
-        productId:
+        productListingId:
           type: string
           format: uuid
           description: Unique internal identifier for the product
@@ -10555,7 +10555,7 @@ components:
     AuctionData:
       type: object
       description: |
-        Auction time window information for products from auction houses.
+        Auction time window information for product-listings from auction houses.
         Contains optional start and end timestamps for scheduled auctions.
         At least one of the fields (start or end) must be present when this object is included.
       properties:
@@ -10565,7 +10565,7 @@ components:
           nullable: true
           description: |
             Start datetime of the auction window for this product (RFC3339 format).
-            Only present for products from auction houses with scheduled auction start times.
+            Only present for product-listings from auction houses with scheduled auction start times.
             Used to indicate when bidding begins or when the item will be auctioned.
           example: "2025-05-01T12:00:00Z"
         end:
@@ -10574,7 +10574,7 @@ components:
           nullable: true
           description: |
             End datetime of the auction window for this product (RFC3339 format).
-            Only present for products from auction houses with scheduled auction end times.
+            Only present for product-listings from auction houses with scheduled auction end times.
             Used to indicate when bidding ends or when the auction session concludes.
           example: "2025-05-10T12:00:00Z"
 
@@ -10771,7 +10771,7 @@ components:
           $ref: "#/components/schemas/CurrencyData"
         productQuery:
           type: array
-          description: Optional text queries for searching products. Multiple entries are ORed together. Empty list means no text query.
+          description: Optional text queries for searching product-listings. Multiple entries are ORed together. Empty list means no text query.
           items:
             type: string
             minLength: 1
@@ -10782,7 +10782,7 @@ components:
           description: |
             Optional natural-language description used by the AI-enhanced search filter matching service.
             When provided on a saved search filter, a language model evaluates each matched product against
-            this description and only keeps products that are a true match, attaching a user-facing reason
+            this description and only keeps product-listings that are a true match, attaching a user-facing reason
             to every confirmed hit.
             Leading and trailing whitespace is removed. Blank values are rejected; values longer than
             1000 characters are canonicalized to the supported maximum length.
@@ -10804,7 +10804,7 @@ components:
             type: string
           description: |
             Optional filter by exact shop names (keyword matching).
-            Filters products to only those from shops with names exactly matching one of the provided values.
+            Filters product-listings to only those from shops with names exactly matching one of the provided values.
             This is an exact match filter, not a fuzzy text search.
           uniqueItems: true
           default: []
@@ -10814,8 +10814,8 @@ components:
           items:
             type: string
           description: |
-            Optional filter to exclude products from specific shop names (keyword matching).
-            Products from shops with names exactly matching one of the provided values will be excluded from results.
+            Optional filter to exclude product-listings from specific shop names (keyword matching).
+            ProductListings from shops with names exactly matching one of the provided values will be excluded from results.
             This is an exact match filter, not a fuzzy text search.
             Empty array means no shops are excluded.
           uniqueItems: true
@@ -10827,7 +10827,7 @@ components:
             type: string
           description: |
             Optional filter by exact seller names (keyword matching).
-            Filters products to only those from sellers with names exactly matching one of the provided values.
+            Filters product-listings to only those from sellers with names exactly matching one of the provided values.
             This is an exact match filter, not a fuzzy text search.
             Applied independently from `shopName` filters.
           uniqueItems: true
@@ -10838,8 +10838,8 @@ components:
           items:
             type: string
           description: |
-            Optional filter to exclude products from specific seller names (keyword matching).
-            Products from sellers with names exactly matching one of the provided values will be excluded from results.
+            Optional filter to exclude product-listings from specific seller names (keyword matching).
+            ProductListings from sellers with names exactly matching one of the provided values will be excluded from results.
             This is an exact match filter, not a fuzzy text search.
             Applied independently from `excludeShopName` filters.
             Empty array means no sellers are excluded.
@@ -10853,7 +10853,7 @@ components:
             pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
           description: |
             Optional filter by exact shop slug identifiers.
-            Filters products to only those whose `shopSlugId` exactly matches one of the provided kebab-case values.
+            Filters product-listings to only those whose `shopSlugId` exactly matches one of the provided kebab-case values.
           uniqueItems: true
           default: []
           example: ["imperial-antiques", "heritage-gallery"]
@@ -10863,8 +10863,8 @@ components:
             type: string
             pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
           description: |
-            Optional filter to exclude products from specific shop slug identifiers.
-            Products whose `shopSlugId` exactly matches one of the provided kebab-case values are excluded from results.
+            Optional filter to exclude product-listings from specific shop slug identifiers.
+            ProductListings whose `shopSlugId` exactly matches one of the provided kebab-case values are excluded from results.
           uniqueItems: true
           default: []
           example: ["other-antique-shop"]
@@ -10875,7 +10875,7 @@ components:
             pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
           description: |
             Optional filter by exact seller slug identifiers.
-            Filters products to only those whose seller slug ID exactly matches one of the provided kebab-case values.
+            Filters product-listings to only those whose seller slug ID exactly matches one of the provided kebab-case values.
           uniqueItems: true
           default: []
           example: ["imperial-antiques", "vintage-seller"]
@@ -10885,8 +10885,8 @@ components:
             type: string
             pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
           description: |
-            Optional filter to exclude products from specific seller slug identifiers.
-            Products whose seller slug ID exactly matches one of the provided kebab-case values are excluded from results.
+            Optional filter to exclude product-listings from specific seller slug identifiers.
+            ProductListings whose seller slug ID exactly matches one of the provided kebab-case values are excluded from results.
           uniqueItems: true
           default: []
           example: ["other-seller-shop"]
@@ -10923,7 +10923,7 @@ components:
           nullable: true
           description: |
             Optional geospatial proximity filter for the selling shop's indexed coordinates.
-            Matches products whose indexed shop coordinates fall within the given distance of the provided point.
+            Matches product-listings whose indexed shop coordinates fall within the given distance of the provided point.
         price:
           allOf:
             - $ref: "#/components/schemas/RangeQueryUInt64"
@@ -10955,16 +10955,16 @@ components:
           nullable: true
           description: |
             Optional filter by auction start datetime range.
-            Filters products by when their auction windows begin.
-            Only matches products that have auction start times set.
+            Filters product-listings by when their auction windows begin.
+            Only matches product-listings that have auction start times set.
         auctionEnd:
           allOf:
             - $ref: "#/components/schemas/RangeQueryDateTime"
           nullable: true
           description: |
             Optional filter by auction end datetime range.
-            Filters products by when their auction windows end.
-            Only matches products that have auction end times set.
+            Filters product-listings by when their auction windows end.
+            Only matches product-listings that have auction end times set.
 
     PostUserSearchFilterData:
       type: object
@@ -10998,7 +10998,7 @@ components:
           type: boolean
           nullable: true
           description: |
-            Whether to enable or disable email notifications for new products matching this search filter.
+            Whether to enable or disable email notifications for new product-listings matching this search filter.
             When `true`, the user will be notified when a new product matches this filter.
             When `false`, no notifications are sent for this filter.
             Omit to leave unchanged.
@@ -11051,7 +11051,7 @@ components:
           description: Currency for price display
         productQuery:
           type: array
-          description: Text queries for searching products. Multiple entries are ORed together. Empty list clears the text query when patching.
+          description: Text queries for searching product-listings. Multiple entries are ORed together. Empty list clears the text query when patching.
           items:
             type: string
             minLength: 1
@@ -11062,7 +11062,7 @@ components:
           description: |
             Optional natural-language description used by the AI-enhanced search filter matching service.
             When provided on a saved search filter, a language model evaluates each matched product against
-            this description and only keeps products that are a true match, attaching a user-facing reason
+            this description and only keeps product-listings that are a true match, attaching a user-facing reason
             to every confirmed hit.
             Leading and trailing whitespace is removed. Blank values are rejected; values longer than
             1000 characters are canonicalized to the supported maximum length. Omit to leave unchanged.
@@ -11076,7 +11076,7 @@ components:
             type: string
           description: |
             Optional filter by exact shop names (keyword matching).
-            Filters products to only those from shops with names exactly matching one of the provided values.
+            Filters product-listings to only those from shops with names exactly matching one of the provided values.
             This is an exact match filter, not a fuzzy text search.
           uniqueItems: true
           nullable: true
@@ -11086,8 +11086,8 @@ components:
           items:
             type: string
           description: |
-            Optional filter to exclude products from specific shop names (keyword matching).
-            Products from shops with names exactly matching one of the provided values will be excluded from results.
+            Optional filter to exclude product-listings from specific shop names (keyword matching).
+            ProductListings from shops with names exactly matching one of the provided values will be excluded from results.
             This is an exact match filter, not a fuzzy text search.
           uniqueItems: true
           nullable: true
@@ -11098,7 +11098,7 @@ components:
             type: string
           description: |
             Optional filter by exact seller names (keyword matching).
-            Filters products to only those from sellers with names exactly matching one of the provided values.
+            Filters product-listings to only those from sellers with names exactly matching one of the provided values.
             This is an exact match filter, not a fuzzy text search.
             Applied independently from `shopName` filters.
           uniqueItems: true
@@ -11109,8 +11109,8 @@ components:
           items:
             type: string
           description: |
-            Optional filter to exclude products from specific seller names (keyword matching).
-            Products from sellers with names exactly matching one of the provided values will be excluded from results.
+            Optional filter to exclude product-listings from specific seller names (keyword matching).
+            ProductListings from sellers with names exactly matching one of the provided values will be excluded from results.
             This is an exact match filter, not a fuzzy text search.
             Applied independently from `excludeShopName` filters.
           uniqueItems: true
@@ -11123,7 +11123,7 @@ components:
             pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
           description: |
             Optional filter by exact shop slug identifiers.
-            Filters products to only those whose `shopSlugId` exactly matches one of the provided kebab-case values.
+            Filters product-listings to only those whose `shopSlugId` exactly matches one of the provided kebab-case values.
           uniqueItems: true
           nullable: true
           example: ["imperial-antiques", "heritage-gallery"]
@@ -11133,8 +11133,8 @@ components:
             type: string
             pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
           description: |
-            Optional filter to exclude products from specific shop slug identifiers.
-            Products whose `shopSlugId` exactly matches one of the provided kebab-case values are excluded from results.
+            Optional filter to exclude product-listings from specific shop slug identifiers.
+            ProductListings whose `shopSlugId` exactly matches one of the provided kebab-case values are excluded from results.
           uniqueItems: true
           nullable: true
           example: ["other-antique-shop"]
@@ -11145,7 +11145,7 @@ components:
             pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
           description: |
             Optional filter by exact seller slug identifiers.
-            Filters products to only those whose seller slug ID exactly matches one of the provided kebab-case values.
+            Filters product-listings to only those whose seller slug ID exactly matches one of the provided kebab-case values.
           uniqueItems: true
           nullable: true
           example: ["imperial-antiques", "vintage-seller"]
@@ -11155,8 +11155,8 @@ components:
             type: string
             pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
           description: |
-            Optional filter to exclude products from specific seller slug identifiers.
-            Products whose seller slug ID exactly matches one of the provided kebab-case values are excluded from results.
+            Optional filter to exclude product-listings from specific seller slug identifiers.
+            ProductListings whose seller slug ID exactly matches one of the provided kebab-case values are excluded from results.
           uniqueItems: true
           nullable: true
           example: ["other-seller-shop"]
@@ -11218,16 +11218,16 @@ components:
           nullable: true
           description: |
             Optional filter by auction start datetime range.
-            Filters products by when their auction windows begin.
-            Only matches products that have auction start times set.
+            Filters product-listings by when their auction windows begin.
+            Only matches product-listings that have auction start times set.
         auctionEnd:
           allOf:
             - $ref: "#/components/schemas/RangeQueryDateTime"
           nullable: true
           description: |
             Optional filter by auction end datetime range.
-            Filters products by when their auction windows end.
-            Only matches products that have auction end times set.
+            Filters product-listings by when their auction windows end.
+            Only matches product-listings that have auction end times set.
 
     UserSearchFilterData:
       type: object
@@ -11315,7 +11315,7 @@ components:
       required:
         - userId
         - userSearchFilterId
-        - productId
+        - productListingId
         - originEventId
         - created
         - updated
@@ -11334,7 +11334,7 @@ components:
           type: string
           description: Saved-search name captured with the match, when available.
           example: "Golden Accessories"
-        productId:
+        productListingId:
           type: string
           format: uuid
           description: Unique internal identifier of the matched product.
@@ -11475,17 +11475,17 @@ components:
         from:
           type: integer
           minimum: 0
-          description: Number of products skipped (offset)
+          description: Number of product-listings skipped (offset)
           example: 0
         size:
           type: integer
           minimum: 0
-          description: Number of products in the current page
+          description: Number of product-listings in the current page
           example: 21
         total:
           type: integer
           minimum: 0
-          description: Total number of products matching the query
+          description: Total number of product-listings matching the query
           nullable: true
           example: 127
 
@@ -11891,7 +11891,7 @@ components:
             - $ref: "#/components/schemas/CurrencyData"
           nullable: true
           description: |
-            Optional WooCommerce currency configured for webhook-ingested products, serialized as an ISO 4217 code.
+            Optional WooCommerce currency configured for webhook-ingested product-listings, serialized as an ISO 4217 code.
             When WooCommerce webhooks send a non-empty `price`, the backend parses that amount in this currency.
         woocommerceLanguage:
           allOf:
@@ -11900,7 +11900,7 @@ components:
           description: |
             Optional WooCommerce default language configured for the shop.
             Relevant for shops using `POST /api/v1/webhooks/woocommerce/{shopId}`.
-            When present, WooCommerce webhook-ingested products for this shop are ingested using this language.
+            When present, WooCommerce webhook-ingested product-listings for this shop are ingested using this language.
             When absent, WooCommerce webhook requests for this shop currently fail instead of inferring or defaulting a language.
         url:
           type: string
@@ -12077,7 +12077,7 @@ components:
           nullable: true
           description: |
             Optional updated WooCommerce default language for the shop.
-            When configured, WooCommerce webhook-ingested products for this shop are ingested using this language.
+            When configured, WooCommerce webhook-ingested product-listings for this shop are ingested using this language.
             When absent on the stored shop record, WooCommerce webhook requests currently fail instead of inferring or defaulting a language.
             Omit to leave unchanged. Send `null` to clear the current WooCommerce language.
         url:
@@ -12190,7 +12190,7 @@ components:
           description: |
             Optional WooCommerce default language associated with the shop.
             Relevant for shops using `POST /api/v1/webhooks/woocommerce/{shopId}`.
-            When configured, WooCommerce webhook-ingested products for this shop are ingested using this language.
+            When configured, WooCommerce webhook-ingested product-listings for this shop are ingested using this language.
             When omitted, WooCommerce webhook requests for this shop currently fail instead of inferring or defaulting a language.
         url:
           type: string
@@ -12224,12 +12224,12 @@ components:
           example: "contact@tech-store-premium.com"
     AccessTokenScopeData:
       type: string
-      enum: ["shops:manage", "products:write"]
+      enum: ["shops:manage", "product-listings:write"]
       description: |
         Aura Historia access-token scope string.
         - `shops:manage`: reserved for shop-management flows
-        - `products:write`: required for partner batch product ingestion
-      example: "products:write"
+        - `product-listings:write`: required for partner batch product ingestion
+      example: "product-listings:write"
 
     AccessTokenTypeData:
       type: string
@@ -12269,7 +12269,7 @@ components:
             $ref: "#/components/schemas/AccessTokenScopeData"
           uniqueItems: true
           description: Granted access-token scopes. Omitted when the token has no scopes.
-          example: ["products:write"]
+          example: ["product-listings:write"]
         token:
           type: string
           description: |
@@ -12324,7 +12324,7 @@ components:
             $ref: "#/components/schemas/AccessTokenScopeData"
           uniqueItems: true
           description: Optional scopes granted to the access token. Defaults to an empty set.
-          example: ["products:write"]
+          example: ["product-listings:write"]
         expiresAt:
           type: string
           format: date-time
@@ -12357,7 +12357,7 @@ components:
             $ref: "#/components/schemas/AccessTokenScopeData"
           uniqueItems: true
           description: Omit to leave unchanged. Send `[]` to empty the set; null is invalid.
-          example: ["products:write"]
+          example: ["product-listings:write"]
         expires:
           type: string
           format: date-time
@@ -12419,7 +12419,7 @@ components:
           items:
             $ref: "#/components/schemas/AccessTokenScopeData"
           example:
-            - "products:write"
+            - "product-listings:write"
 
     OAuthClientMetadataPatchData:
       type: object
@@ -12539,7 +12539,7 @@ components:
           items:
             $ref: "#/components/schemas/AccessTokenScopeData"
           example:
-            - "products:write"
+            - "product-listings:write"
         client_id_issued_at:
           type: integer
           format: int64
@@ -12575,7 +12575,7 @@ components:
         scope:
           type: string
           description: Space-separated list of scopes granted to the access token.
-          example: "products:write"
+          example: "product-listings:write"
         third_party_exchange_code:
           type: string
           format: uuid
@@ -12601,7 +12601,7 @@ components:
         scope:
           type: string
           description: Space-separated list of scopes granted to the token. Present only when `active` is `true`.
-          example: "products:write"
+          example: "product-listings:write"
         client_id:
           type: string
           format: uuid
@@ -12761,7 +12761,7 @@ components:
         - categoryId
         - categoryKey
         - name
-        - products
+        - product-listings
         - created
         - updated
       properties:
@@ -12778,11 +12778,11 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           description: Localized display name
-        products:
+        product-listings:
           type: integer
           format: int32
           minimum: 0
-          description: Total number of products associated with this category
+          description: Total number of product-listings associated with this category
           example: 42
         created:
           type: string
@@ -12803,7 +12803,7 @@ components:
         - categoryId
         - categoryKey
         - name
-        - products
+        - product-listings
         - created
         - updated
       properties:
@@ -12820,11 +12820,11 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           description: Localized display name
-        products:
+        product-listings:
           type: integer
           format: int32
           minimum: 0
-          description: Total number of products associated with this category
+          description: Total number of product-listings associated with this category
           example: 42
         created:
           type: string
@@ -12870,7 +12870,7 @@ components:
         - periodId
         - periodKey
         - name
-        - products
+        - product-listings
         - created
         - updated
       properties:
@@ -12887,11 +12887,11 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           description: Localized display name
-        products:
+        product-listings:
           type: integer
           format: int32
           minimum: 0
-          description: Total number of products associated with this period
+          description: Total number of product-listings associated with this period
           example: 42
         created:
           type: string
@@ -12912,7 +12912,7 @@ components:
         - periodId
         - periodKey
         - name
-        - products
+        - product-listings
         - created
         - updated
       properties:
@@ -12929,11 +12929,11 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           description: Localized display name
-        products:
+        product-listings:
           type: integer
           format: int32
           minimum: 0
-          description: Total number of products associated with this period
+          description: Total number of product-listings associated with this period
           example: 42
         created:
           type: string
@@ -12951,14 +12951,14 @@ components:
       description: Identifier for a product using shop ID and shop's product ID
       required:
         - shopId
-        - shopsProductId
+        - shopListingId
       properties:
         shopId:
           type: string
           format: uuid
           description: Unique identifier of the shop
           example: "550e8400-e29b-41d4-a716-446655440000"
-        shopsProductId:
+        shopListingId:
           type: string
           description: Shop's unique identifier for the product. Can be any arbitrary string.
           example: "6ba7b810"
@@ -12967,9 +12967,9 @@ components:
       type: object
       description: Request body for creating a watchlist entry.
       required:
-        - productId
+        - productListingId
       properties:
-        productId:
+        productListingId:
           type: string
           format: uuid
           description: Canonical identifier of the product to add to the watchlist.
@@ -12985,7 +12985,7 @@ components:
       description: A user's watchlist entry.
       required:
         - userId
-        - productId
+        - productListingId
         - notifications
         - state
       properties:
@@ -12994,7 +12994,7 @@ components:
           format: uuid
           description: Identifier of the user who owns the entry.
           example: "550e8400-e29b-41d4-a716-446655440000"
-        productId:
+        productListingId:
           type: string
           format: uuid
           description: Canonical identifier of the watched product.
@@ -13038,7 +13038,7 @@ components:
       type: string
       enum: [created]
       description: |
-        Fields available for sorting watchlist products:
+        Fields available for sorting watchlist product-listings:
         - created: Sort by when product was added to watchlist
       example: created
 
@@ -13068,11 +13068,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PersonalizedProductDetailsData"
-          description: Matched products in persisted-match order.
+          description: Matched product-listings in persisted-match order.
         size:
           type: integer
           minimum: 0
-          description: Number of matched products in the current page.
+          description: Number of matched product-listings in the current page.
           example: 21
         searchAfter:
           type: array
@@ -13504,11 +13504,11 @@ components:
       type: object
       required:
         [
-          productId,
+          productListingId,
           shopId,
-          shopsProductId,
+          shopListingId,
           shopSlugId,
-          productSlugId,
+          productListingSlugId,
           shopName,
           title,
           image,
@@ -13517,11 +13517,11 @@ components:
           change,
         ]
       properties:
-        productId: { type: string, format: uuid }
+        productListingId: { type: string, format: uuid }
         shopId: { type: string, format: uuid }
-        shopsProductId: { type: string }
+        shopListingId: { type: string }
         shopSlugId: { type: string }
-        productSlugId: { type: string }
+        productListingSlugId: { type: string }
         shopName: { type: string }
         title:
           allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
@@ -13564,13 +13564,13 @@ components:
       type: object
       required:
         [
-          productId,
+          productListingId,
           userSearchFilterId,
           userSearchFilterName,
           shopId,
-          shopsProductId,
+          shopListingId,
           shopSlugId,
-          productSlugId,
+          productListingSlugId,
           shopName,
           title,
           image,
@@ -13578,13 +13578,13 @@ components:
           viewUrl,
         ]
       properties:
-        productId: { type: string, format: uuid }
+        productListingId: { type: string, format: uuid }
         userSearchFilterId: { type: string, format: uuid }
         userSearchFilterName: { type: string }
         shopId: { type: string, format: uuid }
-        shopsProductId: { type: string }
+        shopListingId: { type: string }
         shopSlugId: { type: string }
-        productSlugId: { type: string }
+        productListingSlugId: { type: string }
         shopName: { type: string }
         title:
           allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
@@ -13644,14 +13644,14 @@ components:
       description: |
         Data for creating a single product via the partner batch-create endpoint.
       required:
-        - shopsProductId
+        - shopListingId
         - title
         - description
         - state
         - url
         - images
       properties:
-        shopsProductId:
+        shopListingId:
           type: string
           description: The shop's own identifier for the product. Must be unique within the shop.
           example: "baroque-violin-001"
@@ -13680,7 +13680,7 @@ components:
           type: string
           format: uri
           description: URL to the product on the shop's website
-          example: "https://my-shop.com/products/baroque-violin"
+          example: "https://my-shop.com/product-listings/baroque-violin"
         images:
           type: array
           items:
@@ -13696,7 +13696,7 @@ components:
           nullable: true
           description: |
             RFC3339 timestamp of when the auction for this product starts.
-            Only relevant for auction-house shop types. Omit for non-auction products.
+            Only relevant for auction-house shop types. Omit for non-auction product-listings.
           example: "2025-05-01T12:00:00Z"
         auctionEnd:
           type: string
@@ -13704,7 +13704,7 @@ components:
           nullable: true
           description: |
             RFC3339 timestamp of when the auction for this product ends.
-            Only relevant for auction-house shop types. Omit for non-auction products.
+            Only relevant for auction-house shop types. Omit for non-auction product-listings.
           example: "2025-05-10T12:00:00Z"
         sellerName:
           type: string
@@ -13734,31 +13734,31 @@ components:
         type: object
         required:
           - shopId
-          - shopsProductId
+          - shopListingId
           - error
         properties:
           shopId:
             type: string
             format: uuid
             description: Shop that owns the failed product entry.
-          shopsProductId:
+          shopListingId:
             type: string
             description: Partner-controlled identifier of the failed product entry.
           error:
             type: string
             description: Stable API error key for the failed product entry.
-            example: "PRODUCT_NOT_FOUND"
+            example: "PRODUCT_LISTING_NOT_FOUND"
       example:
         - shopId: "550e8400-e29b-41d4-a716-446655440000"
-          shopsProductId: "baroque-violin-002"
-          error: "PRODUCT_NOT_FOUND"
+          shopListingId: "baroque-violin-002"
+          error: "PRODUCT_LISTING_NOT_FOUND"
 
     PartnerProductDeleteData:
       type: object
       required:
-        - shopsProductId
+        - shopListingId
       properties:
-        shopsProductId:
+        shopListingId:
           type: string
           description: Partner-controlled identifier of the product to soft-delete.
           example: "baroque-violin-001"
@@ -13770,9 +13770,9 @@ components:
         Omitted fields remain unchanged. `null` clears price and auction fields only; `state`,
         `url`, and `images` reject null. Send `images: []` to remove all images.
       required:
-        - shopsProductId
+        - shopListingId
       properties:
-        shopsProductId:
+        shopListingId:
           type: string
           description: The shop's own identifier for the product to update. Product existence is evaluated synchronously.
           example: "baroque-violin-001"
@@ -13799,7 +13799,7 @@ components:
           type: string
           format: uri
           description: Omit to leave unchanged. Null is invalid.
-          example: "https://my-shop.com/products/baroque-violin"
+          example: "https://my-shop.com/product-listings/baroque-violin"
         images:
           type: array
           items:
@@ -13824,7 +13824,7 @@ components:
       type: object
       description: |
         Data for synchronously upserting a single product via the partner batch-upsert endpoint.
-        Only `shopsProductId` is required. All other fields are optional.
+        Only `shopListingId` is required. All other fields are optional.
 
         During the synchronous upsert:
         - If the product **does not yet exist**, it is created using all provided fields.
@@ -13839,9 +13839,9 @@ components:
         - On the update path, omitting `images` or sending `null` is treated as an empty list
           and therefore clears all stored images.
       required:
-        - shopsProductId
+        - shopListingId
       properties:
-        shopsProductId:
+        shopListingId:
           type: string
           description: The shop's own identifier for the product. Must be unique within the shop.
           example: "baroque-violin-001"
@@ -13880,7 +13880,7 @@ components:
           format: uri
           nullable: true
           description: URL to the product on the shop's website. Applied on both create and update paths. Omit or send `null` to leave the current stored URL unchanged.
-          example: "https://my-shop.com/products/baroque-violin"
+          example: "https://my-shop.com/product-listings/baroque-violin"
         images:
           type: array
           items:
@@ -13955,7 +13955,7 @@ components:
           type: integer
           format: int64
           minimum: 0
-          description: WooCommerce product identifier. It is converted to the internal `shopsProductId`.
+          description: WooCommerce product identifier. It is converted to the internal `shopListingId`.
           example: 17
         name:
           type: string
@@ -14020,7 +14020,7 @@ components:
           type: integer
           format: int64
           minimum: 0
-          description: WooCommerce product identifier. It is converted to the internal `shopsProductId`.
+          description: WooCommerce product identifier. It is converted to the internal `shopListingId`.
           example: 17
 
     PartnerShopApplicationStateData:
@@ -14213,7 +14213,7 @@ components:
 x-tagGroups:
   - name: Discovery
     tags:
-      - Products
+      - ProductListings
       - Shops
   - name: User Experience
     tags:
@@ -14233,7 +14233,7 @@ x-tagGroups:
       - Periods
 
 tags:
-  - name: Products
+  - name: ProductListings
     description: Product retrieval, product history, similar-product discovery, product search, and partner catalog ingestion workflows.
   - name: Shops
     description: Shop retrieval, shop search, partner-facing shop maintenance, and admin shop management workflows.

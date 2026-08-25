@@ -10,7 +10,7 @@ use product_listing_service::ports::{
     ProductListingSearchProjectionWriteError, ProductListingSearchProjectionWriteOutcome,
 };
 
-const DEFAULT_INDEX: &str = "products";
+const DEFAULT_INDEX: &str = "product-listings";
 
 #[derive(Clone)]
 pub struct OpenSearchProductListingSearchProjection {
@@ -48,7 +48,7 @@ impl ProductListingSearchProjection for OpenSearchProductListingSearchProjection
             .client
             .index(IndexParts::IndexId(
                 &self.index,
-                &source.product_id.to_string(),
+                &source.product_listing_id.to_string(),
             ))
             .version(version)
             .version_type(VersionType::External)
@@ -65,14 +65,17 @@ impl ProductListingSearchProjection for OpenSearchProductListingSearchProjection
 
     async fn delete(
         &self,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         source_version: i64,
     ) -> Result<ProductListingSearchProjectionWriteOutcome, ProductListingSearchProjectionWriteError>
     {
         let version = checked_source_version(source_version)?;
         let response = self
             .client
-            .delete(DeleteParts::IndexId(&self.index, &product_id.to_string()))
+            .delete(DeleteParts::IndexId(
+                &self.index,
+                &product_listing_id.to_string(),
+            ))
             .version(version)
             .version_type(VersionType::External)
             .send()

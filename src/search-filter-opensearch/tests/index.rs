@@ -214,10 +214,9 @@ fn product_source(title: &str) -> ProductListingSearchFilterMatchSource {
         origin_event_time: OffsetDateTime::UNIX_EPOCH,
         current_event_id: event_id,
         projection_version: 1,
-        product_id: product_listing_core::product_listing_id::ProductListingId::new(),
-        product_slug_id: product_listing_core::product_listing_slug_id::ProductListingSlugId::from(
-            "product",
-        ),
+        product_listing_id: product_listing_core::product_listing_id::ProductListingId::new(),
+        product_listing_slug_id:
+            product_listing_core::product_listing_slug_id::ProductListingSlugId::from("product"),
         shop_id: shop_core::shop_id::ShopId::new(),
         shop_slug_id: shop_core::shop_slug_id::ShopSlugId::from("shop"),
         shop_name: shop_core::shop_name::ShopName::from("Shop"),
@@ -235,9 +234,9 @@ fn product_source(title: &str) -> ProductListingSearchFilterMatchSource {
         sale_valuation: None,
         state: product_listing_core::product_state::ProductState::Available,
         lifecycle: product_listing_core::product_lifecycle::ProductLifecycle::Active,
-        url: Url::parse("https://shop.example.test/products/sku-1")
+        url: Url::parse("https://shop.example.test/product_listings/sku-1")
             .unwrap_or_else(|error| panic!("test URL must be valid: {error}")),
-        view_url: Url::parse("https://aura.example.test/products/product")
+        view_url: Url::parse("https://aura.example.test/product_listings/product")
             .unwrap_or_else(|error| panic!("test URL must be valid: {error}")),
         image: None,
         images: IndexSet::<ProductListingImage>::new(),

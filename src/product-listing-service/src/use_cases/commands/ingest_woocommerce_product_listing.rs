@@ -305,7 +305,7 @@ where
 
                 Ok(UpsertProductListingResult::Updated(
                     UpdateProductListingResult {
-                        product_id: product.id(),
+                        product_listing_id: product.id(),
                         event_id,
                     },
                 ))
@@ -351,8 +351,8 @@ where
 
                 Ok(UpsertProductListingResult::Created(
                     crate::use_cases::CreateProductListingResult {
-                        product_id: persisted.value.id(),
-                        product_slug_id: persisted.value.slug_id().clone(),
+                        product_listing_id: persisted.value.id(),
+                        product_listing_slug_id: persisted.value.slug_id().clone(),
                         event_id,
                     },
                 ))
@@ -403,7 +403,7 @@ where
         }
 
         Ok(UpdateProductListingResult {
-            product_id: product.id(),
+            product_listing_id: product.id(),
             event_id,
         })
     }
@@ -1043,7 +1043,7 @@ mod tests {
 
         async fn find_current_event_id(
             &mut self,
-            _product_id: ProductListingId,
+            _product_listing_id: ProductListingId,
         ) -> Result<Option<EventId>, crate::ports::ProductListingEventStoreError> {
             Ok(None)
         }

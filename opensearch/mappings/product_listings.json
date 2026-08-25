@@ -152,10 +152,10 @@
     },
     "mappings": {
         "properties": {
-            "productId": {
+            "productListingId": {
                 "type": "keyword"
             },
-            "productSlugId": {
+            "productListingSlugId": {
                 "type": "keyword"
             },
             "shopSlugId": {
@@ -173,7 +173,7 @@
             "sellerId": {
                 "type": "keyword"
             },
-            "shopsProductId": {
+            "shopListingId": {
                 "type": "keyword"
             },
             "shopName": {

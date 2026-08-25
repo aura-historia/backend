@@ -37,7 +37,7 @@ use strum::IntoEnumIterator;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 pub(crate) const FILTER_COLUMNS: &str = "user_search_filter_id, user_id, name, notifications, state, search, embedding, created, updated, version";
-pub(crate) const MATCH_COLUMNS: &str = "user_id, user_search_filter_id, product_id, origin_event_id, price_valuation_basis, price_fx_rate_id, user_search_filter_name, enhanced_match_reason, feedback, created, updated";
+pub(crate) const MATCH_COLUMNS: &str = "user_id, user_search_filter_id, product_listing_id, origin_event_id, price_valuation_basis, price_fx_rate_id, user_search_filter_name, enhanced_match_reason, feedback, created, updated";
 
 #[derive(Debug)]
 pub(crate) enum SearchFilterRowMappingError {
@@ -207,7 +207,7 @@ impl FilterRow {
 pub(crate) struct MatchRow {
     pub user_id: uuid::Uuid,
     pub user_search_filter_id: uuid::Uuid,
-    pub product_id: uuid::Uuid,
+    pub product_listing_id: uuid::Uuid,
     pub origin_event_id: uuid::Uuid,
     pub price_valuation_basis: Option<String>,
     pub price_fx_rate_id: Option<uuid::Uuid>,
@@ -225,7 +225,7 @@ impl TryFrom<MatchRow> for PersistedSearchFilterMatch {
                 user_id: UserId::from(row.user_id),
                 user_search_filter_id: UserSearchFilterId::from(row.user_search_filter_id),
                 user_search_filter_name: row.user_search_filter_name.map(name).transpose()?,
-                product_id: ProductListingId::from(row.product_id),
+                product_listing_id: ProductListingId::from(row.product_listing_id),
                 origin_event_id: EventId::from(row.origin_event_id),
                 price_match_valuation: price_match_valuation(
                     row.price_valuation_basis.as_deref(),
@@ -247,7 +247,7 @@ impl TryFrom<MatchRow> for SearchFilterMatchView {
             user_id: UserId::from(row.user_id),
             search_filter_id: UserSearchFilterId::from(row.user_search_filter_id),
             search_filter_name: row.user_search_filter_name.map(name).transpose()?,
-            product_id: ProductListingId::from(row.product_id),
+            product_listing_id: ProductListingId::from(row.product_listing_id),
             origin_event_id: EventId::from(row.origin_event_id),
             enhanced_match_reason: row.enhanced_match_reason.map(Into::into),
             feedback: row.feedback,

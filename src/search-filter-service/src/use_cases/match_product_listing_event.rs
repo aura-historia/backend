@@ -45,7 +45,7 @@ const MAX_CONCURRENT_LLM_REQUESTS: NonZeroUsize = match NonZeroUsize::new(4) {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchProductListingEventCommand {
     pub origin_event_id: EventId,
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -233,7 +233,7 @@ where
         skip_all,
         fields(
             origin_event_id = %command.origin_event_id,
-            product_id = %command.product_id,
+            product_listing_id = %command.product_listing_id,
         )
     )]
     async fn execute(
@@ -301,7 +301,7 @@ where
         let revision = self
             .revisions
             .in_transaction(&mut tx)
-            .lock_and_check(command.product_id, command.origin_event_id)
+            .lock_and_check(command.product_listing_id, command.origin_event_id)
             .await
             .map_err(product_revision_check_error)?;
         if revision == ProductListingCurrentRevisionCheck::Stale {
@@ -331,7 +331,7 @@ where
                 user_id: candidate.user_id,
                 user_search_filter_id: candidate.search_filter_id,
                 user_search_filter_name: Some(candidate.search_filter_name),
-                product_id: command.product_id,
+                product_listing_id: command.product_listing_id,
                 origin_event_id: command.origin_event_id,
                 price_match_valuation: candidate.price_match_valuation,
                 enhanced_match_reason: candidate.enhanced_match_reason,
@@ -399,14 +399,14 @@ where
     })?;
     let source = sources
         .in_transaction(&mut tx)
-        .find_source(command.origin_event_id, command.product_id)
+        .find_source(command.origin_event_id, command.product_listing_id)
         .await
         .map_err(product_source_read_error)?;
     let outcome = match source {
         None => ProductListingSourceReadOutcome::Missing,
         Some(product)
             if product.event_id != command.origin_event_id
-                || product.product_id != command.product_id =>
+                || product.product_listing_id != command.product_listing_id =>
         {
             return Err(MatchProductListingEventError::ProductListingSourceMismatch);
         }
@@ -760,7 +760,7 @@ mod tests {
         async fn find_source(
             &mut self,
             event_id: EventId,
-            product_id: ProductListingId,
+            product_listing_id: ProductListingId,
         ) -> Result<
             Option<ProductListingSearchFilterMatchSource>,
             ProductListingSearchFilterMatchSourceReadError,
@@ -768,7 +768,9 @@ mod tests {
             Ok(self
                 .0
                 .iter()
-                .find(|source| source.event_id == event_id && source.product_id == product_id)
+                .find(|source| {
+                    source.event_id == event_id && source.product_listing_id == product_listing_id
+                })
                 .cloned())
         }
     }
@@ -791,7 +793,7 @@ mod tests {
     impl ProductListingCurrentRevisionGuard for CheckingRevision<'_> {
         async fn lock_and_check(
             &mut self,
-            _product_id: ProductListingId,
+            _product_listing_id: ProductListingId,
             expected_event_id: EventId,
         ) -> Result<ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError>
         {
@@ -1062,7 +1064,7 @@ mod tests {
                     })?;
             if state.persisted.iter().any(|persisted| {
                 persisted.user_search_filter_id == product_match.user_search_filter_id
-                    && persisted.product_id == product_match.product_id
+                    && persisted.product_listing_id == product_match.product_listing_id
             }) {
                 return Ok(SearchFilterMatchPersistOutcome::AlreadyExists);
             }
@@ -1089,8 +1091,8 @@ mod tests {
             origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: event_id,
             projection_version: 1,
-            product_id: product_listing_core::product_listing_id::ProductListingId::new(),
-            product_slug_id: ProductListingSlugId::from("product"),
+            product_listing_id: product_listing_core::product_listing_id::ProductListingId::new(),
+            product_listing_slug_id: ProductListingSlugId::from("product"),
             shop_id: ShopId::new(),
             shop_slug_id: ShopSlugId::from("shop"),
             shop_name: ShopName::from("Shop"),
@@ -1216,7 +1218,7 @@ mod tests {
         let result = handler
             .execute(MatchProductListingEventCommand {
                 origin_event_id: product.event_id,
-                product_id: product.product_id,
+                product_listing_id: product.product_listing_id,
             })
             .await?;
 
@@ -1253,7 +1255,7 @@ mod tests {
         let result = handler
             .execute(MatchProductListingEventCommand {
                 origin_event_id: source.event_id,
-                product_id: source.product_id,
+                product_listing_id: source.product_listing_id,
             })
             .await?;
 
@@ -1304,7 +1306,7 @@ mod tests {
         handler
             .execute(MatchProductListingEventCommand {
                 origin_event_id: source.event_id,
-                product_id: source.product_id,
+                product_listing_id: source.product_listing_id,
             })
             .await?;
 
@@ -1337,7 +1339,7 @@ mod tests {
         let error = handler
             .execute(MatchProductListingEventCommand {
                 origin_event_id: source.event_id,
-                product_id: source.product_id,
+                product_listing_id: source.product_listing_id,
             })
             .await
             .err()
@@ -1367,7 +1369,7 @@ mod tests {
         let error = handler
             .execute(MatchProductListingEventCommand {
                 origin_event_id: source.event_id,
-                product_id: source.product_id,
+                product_listing_id: source.product_listing_id,
             })
             .await
             .err()
@@ -1408,7 +1410,7 @@ mod tests {
         let result = handler
             .execute(MatchProductListingEventCommand {
                 origin_event_id: product.event_id,
-                product_id: product.product_id,
+                product_listing_id: product.product_listing_id,
             })
             .await?;
 
@@ -1453,7 +1455,7 @@ mod tests {
         let result = handler
             .execute(MatchProductListingEventCommand {
                 origin_event_id: product.event_id,
-                product_id: product.product_id,
+                product_listing_id: product.product_listing_id,
             })
             .await?;
 
@@ -1488,25 +1490,25 @@ mod tests {
         let stale_first = handler
             .execute(MatchProductListingEventCommand {
                 origin_event_id: event_a.event_id,
-                product_id: event_a.product_id,
+                product_listing_id: event_a.product_listing_id,
             })
             .await?;
         let current_second = handler
             .execute(MatchProductListingEventCommand {
                 origin_event_id: event_b.event_id,
-                product_id: event_b.product_id,
+                product_listing_id: event_b.product_listing_id,
             })
             .await?;
         let redelivered_stale = handler
             .execute(MatchProductListingEventCommand {
                 origin_event_id: event_a.event_id,
-                product_id: event_a.product_id,
+                product_listing_id: event_a.product_listing_id,
             })
             .await?;
         let redelivered_current = handler
             .execute(MatchProductListingEventCommand {
                 origin_event_id: event_b.event_id,
-                product_id: event_b.product_id,
+                product_listing_id: event_b.product_listing_id,
             })
             .await?;
 
@@ -1546,13 +1548,13 @@ mod tests {
         let current_first = reverse_handler
             .execute(MatchProductListingEventCommand {
                 origin_event_id: event_b.event_id,
-                product_id: event_b.product_id,
+                product_listing_id: event_b.product_listing_id,
             })
             .await?;
         let stale_second = reverse_handler
             .execute(MatchProductListingEventCommand {
                 origin_event_id: event_a.event_id,
-                product_id: event_a.product_id,
+                product_listing_id: event_a.product_listing_id,
             })
             .await?;
 
@@ -1590,7 +1592,7 @@ mod tests {
         )
         .execute(MatchProductListingEventCommand {
             origin_event_id: ignored_product.event_id,
-            product_id: ignored_product.product_id,
+            product_listing_id: ignored_product.product_listing_id,
         })
         .await?;
         let missing = matching_handler(
@@ -1600,7 +1602,7 @@ mod tests {
         )
         .execute(MatchProductListingEventCommand {
             origin_event_id: EventId::new(),
-            product_id: ignored_product.product_id,
+            product_listing_id: ignored_product.product_listing_id,
         })
         .await?;
 
@@ -1637,13 +1639,13 @@ mod tests {
             Matches(Arc::clone(&state)),
         );
 
-        let product_id = product.product_id;
+        let product_listing_id = product.product_listing_id;
         let event_id = product.event_id;
         let matching = tokio::spawn(async move {
             handler
                 .execute(MatchProductListingEventCommand {
                     origin_event_id: event_id,
-                    product_id,
+                    product_listing_id,
                 })
                 .await
         });
@@ -1669,7 +1671,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_ignore_stale_product_events_after_committing_source_read()
+    async fn should_ignore_stale_product_listing_events_after_committing_source_read()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = Arc::new(Mutex::new(State::default()));
         let mut product = product()?;
@@ -1690,7 +1692,7 @@ mod tests {
         let result = handler
             .execute(MatchProductListingEventCommand {
                 origin_event_id: product.event_id,
-                product_id: product.product_id,
+                product_listing_id: product.product_listing_id,
             })
             .await?;
 

@@ -48,7 +48,7 @@ impl SearchFilterMatchReader for SqlxSearchFilterReader {
         let items = rows
             .into_iter()
             .map(|row| SearchFilterMatchListItem {
-                product_id: row.product_id.into(),
+                product_listing_id: row.product_listing_id.into(),
                 created: row.created,
             })
             .collect::<Vec<_>>();
@@ -56,7 +56,7 @@ impl SearchFilterMatchReader for SqlxSearchFilterReader {
             .then(|| {
                 items.last().map(|item| SearchFilterMatchCursor {
                     created: item.created,
-                    product_id: item.product_id,
+                    product_listing_id: item.product_listing_id,
                 })
             })
             .flatten();
@@ -86,22 +86,22 @@ async fn match_rows(
     match (order, after.is_some()) {
         (SortOrder::Asc, true) => {
             query_builder.push(
-                "WHERE user_search_filter_id=$1 AND (created>$2 OR (created=$2 AND product_id>$3)) ORDER BY created ASC, product_id ASC LIMIT $4",
+                "WHERE user_search_filter_id=$1 AND (created>$2 OR (created=$2 AND product_listing_id>$3)) ORDER BY created ASC, product_listing_id ASC LIMIT $4",
             );
         }
         (SortOrder::Asc, false) => {
             query_builder.push(
-                "WHERE user_search_filter_id=$1 ORDER BY created ASC, product_id ASC LIMIT $2",
+                "WHERE user_search_filter_id=$1 ORDER BY created ASC, product_listing_id ASC LIMIT $2",
             );
         }
         (SortOrder::Desc, true) => {
             query_builder.push(
-                "WHERE user_search_filter_id=$1 AND (created<$2 OR (created=$2 AND product_id>$3)) ORDER BY created DESC, product_id ASC LIMIT $4",
+                "WHERE user_search_filter_id=$1 AND (created<$2 OR (created=$2 AND product_listing_id>$3)) ORDER BY created DESC, product_listing_id ASC LIMIT $4",
             );
         }
         (SortOrder::Desc, false) => {
             query_builder.push(
-                "WHERE user_search_filter_id=$1 ORDER BY created DESC, product_id ASC LIMIT $2",
+                "WHERE user_search_filter_id=$1 ORDER BY created DESC, product_listing_id ASC LIMIT $2",
             );
         }
     }
@@ -109,7 +109,7 @@ async fn match_rows(
     if let Some(after) = after {
         query = query
             .bind(after.created)
-            .bind(uuid::Uuid::from(after.product_id));
+            .bind(uuid::Uuid::from(after.product_listing_id));
     }
     query
         .bind(i64::try_from(size).map_err(|_| SearchFilterMatchReadError::ReadFailed)?)

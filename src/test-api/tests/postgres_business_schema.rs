@@ -25,10 +25,10 @@ async fn should_apply_business_schema_migrations() {
         "partner_shop_applications",
         "fx_rate_quotes",
         "fx_rates",
-        "products",
-        "product_events",
-        "product_translations",
-        "product_watchlist",
+        "product_listings",
+        "product_listing_events",
+        "product_listing_translations",
+        "product_listing_watchlist",
         "search_filters",
         "search_filter_matches",
     ] {
@@ -93,12 +93,12 @@ async fn should_apply_intentional_secondary_index_definitions() {
 
     for (index_name, definition_fragment) in [
         (
-            "product_watchlist_product_user_idx",
-            "(product_id, user_id)",
+            "product_listing_watchlist_product_user_idx",
+            "(product_listing_id, user_id)",
         ),
         (
-            "search_filter_matches_filter_created_desc_product_idx",
-            "(user_search_filter_id, created DESC, product_id)",
+            "search_filter_matches_filter_created_desc_product_listing_idx",
+            "(user_search_filter_id, created DESC, product_listing_id)",
         ),
         (
             "shops_published_name_shop_id_idx",
@@ -113,8 +113,8 @@ async fn should_apply_intentional_secondary_index_definitions() {
             "(created DESC, shop_id) WHERE (lifecycle = 'PUBLISHED'::text)",
         ),
         (
-            "product_events_product_time_event_idx",
-            "(product_id, event_time, event_id)",
+            "product_listing_events_product_time_event_idx",
+            "(product_listing_id, event_time, event_id)",
         ),
     ] {
         let definition: Option<String> = sqlx::query_scalar(
@@ -135,9 +135,9 @@ async fn should_apply_intentional_secondary_index_definitions() {
         "SELECT indexrelname FROM pg_stat_user_indexes WHERE indexrelname = ANY($1) ORDER BY indexrelname",
     )
     .bind(vec![
-        "product_events_product_time_idx",
-        "product_watchlist_product_id_idx",
-        "product_watchlist_user_created_idx",
+        "product_listing_events_product_time_idx",
+        "product_listing_watchlist_product_listing_id_idx",
+        "product_listing_watchlist_user_created_idx",
     ])
     .fetch_all(&pool)
     .await
@@ -187,13 +187,13 @@ async fn should_support_core_business_relations() {
 
         BEGIN;
 
-        INSERT INTO products (
-            product_id,
-            product_slug_id,
+        INSERT INTO product_listings (
+            product_listing_id,
+            product_listing_slug_id,
             event_id,
             shop_id,
             seller_id,
-            shops_product_id,
+            shop_listing_id,
             title_text,
             title_language,
             state,
@@ -212,13 +212,13 @@ async fn should_support_core_business_relations() {
             'en',
             'LISTED',
             'ACTIVE',
-            'https://shop.example.com/products/external-1',
+            'https://shop.example.com/product_listings/external-1',
             '[{"url": "https://cdn.example.com/image.jpg", "prohibited_content": "NONE"}]'
         );
 
-        INSERT INTO product_events (
+        INSERT INTO product_listing_events (
             event_id,
-            product_id,
+            product_listing_id,
             event_type,
             event_group,
             payload,
@@ -235,7 +235,7 @@ async fn should_support_core_business_relations() {
 
         COMMIT;
 
-        INSERT INTO product_watchlist (user_id, product_id, state, active_since, notifications_enabled_since)
+        INSERT INTO product_listing_watchlist (user_id, product_listing_id, state, active_since, notifications_enabled_since)
         VALUES (
             '10000000-0000-0000-0000-000000000001',
             '30000000-0000-0000-0000-000000000001',
@@ -266,7 +266,7 @@ async fn should_support_core_business_relations() {
         INSERT INTO search_filter_matches (
             user_id,
             user_search_filter_id,
-            product_id,
+            product_listing_id,
             origin_event_id
         )
         VALUES (

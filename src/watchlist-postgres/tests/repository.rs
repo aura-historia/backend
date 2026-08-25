@@ -23,9 +23,13 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
     let repo = SqlxWatchlistRepositoryFactory;
     let reader = SqlxWatchlistReaderFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-user@example.com").await;
-    let product_id = seed_product(&pool, "watchlist-postgres-product").await;
-    let mut entry =
-        WatchlistProductListing::rehydrate(user_id, product_id, true, WatchlistState::Active);
+    let product_listing_id = seed_product(&pool, "watchlist-postgres-product").await;
+    let mut entry = WatchlistProductListing::rehydrate(
+        user_id,
+        product_listing_id,
+        true,
+        WatchlistState::Active,
+    );
 
     let mut tx = begin(&unit).await;
     let inserted = repo
@@ -39,7 +43,7 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
     let mut tx = begin(&unit).await;
     let loaded = repo
         .in_transaction(&mut tx)
-        .find_by_user_and_product(user_id, product_id)
+        .find_by_user_and_product(user_id, product_listing_id)
         .await
         .unwrap_or_else(|error| panic!("find failed: {error:?}"))
         .unwrap_or_else(|| panic!("missing watchlist entry"));
@@ -66,7 +70,7 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
 
     let user_ids = reader
         .in_transaction(&mut tx)
-        .find_user_ids_for_product(product_id)
+        .find_user_ids_for_product(product_listing_id)
         .await
         .unwrap_or_else(|error| panic!("read users failed: {error:?}"));
     assert_eq!(vec![user_id], user_ids);
@@ -74,32 +78,32 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
 
     let mut tx = begin(&unit).await;
     repo.in_transaction(&mut tx)
-        .delete(user_id, product_id, updated.version)
+        .delete(user_id, product_listing_id, updated.version)
         .await
         .unwrap_or_else(|error| panic!("delete failed: {error:?}"));
     commit(tx).await;
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_order_user_watchlist_entries_by_created_then_product_id() {
+async fn should_order_user_watchlist_entries_by_created_then_product_listing_id() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
     let repository = SqlxWatchlistRepositoryFactory;
     let reader = SqlxWatchlistReaderFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-order@example.com").await;
-    let first_product_id = seed_product(&pool, "watchlist-postgres-order-first").await;
-    let second_product_id = seed_product(&pool, "watchlist-postgres-order-second").await;
+    let first_product_listing_id = seed_product(&pool, "watchlist-postgres-order-first").await;
+    let second_product_listing_id = seed_product(&pool, "watchlist-postgres-order-second").await;
     let created = OffsetDateTime::now_utc()
         .replace_nanosecond(0)
         .unwrap_or_else(|error| panic!("failed to normalize timestamp: {error}"));
 
     let mut tx = begin(&unit).await;
-    for product_id in [first_product_id, second_product_id] {
+    for product_listing_id in [first_product_listing_id, second_product_listing_id] {
         repository
             .in_transaction(&mut tx)
             .insert(&WatchlistProductListing::rehydrate(
                 user_id,
-                product_id,
+                product_listing_id,
                 true,
                 WatchlistState::Active,
             ))
@@ -108,7 +112,7 @@ async fn should_order_user_watchlist_entries_by_created_then_product_id() {
     }
     commit(tx).await;
 
-    sqlx::query("UPDATE product_watchlist SET created = $1 WHERE user_id = $2")
+    sqlx::query("UPDATE product_listing_watchlist SET created = $1 WHERE user_id = $2")
         .bind(created)
         .bind(uuid::Uuid::from(user_id))
         .execute(&pool)
@@ -116,19 +120,19 @@ async fn should_order_user_watchlist_entries_by_created_then_product_id() {
         .unwrap_or_else(|error| panic!("failed to align watchlist timestamps: {error:?}"));
 
     let mut tx = begin(&unit).await;
-    let product_ids = reader
+    let product_listing_ids = reader
         .in_transaction(&mut tx)
         .find_for_user(user_id)
         .await
         .unwrap_or_else(|error| panic!("read watchlist entries failed: {error:?}"))
         .into_iter()
-        .map(|entry| entry.product_id)
+        .map(|entry| entry.product_listing_id)
         .collect::<Vec<_>>();
     commit(tx).await;
 
-    let mut expected = [first_product_id, second_product_id];
+    let mut expected = [first_product_listing_id, second_product_listing_id];
     expected.sort();
-    assert_eq!(product_ids, expected);
+    assert_eq!(product_listing_ids, expected);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -137,17 +141,18 @@ async fn should_preserve_and_reset_current_interval_timestamps() {
     let unit = SqlxUnitOfWork::new(pool.clone());
     let repository = SqlxWatchlistRepositoryFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-intervals@example.com").await;
-    let active_product_id = seed_product(&pool, "watchlist-postgres-interval-active").await;
-    let inactive_product_id = seed_product(&pool, "watchlist-postgres-interval-inactive").await;
+    let active_product_listing_id = seed_product(&pool, "watchlist-postgres-interval-active").await;
+    let inactive_product_listing_id =
+        seed_product(&pool, "watchlist-postgres-interval-inactive").await;
     let mut active = WatchlistProductListing::rehydrate(
         user_id,
-        active_product_id,
+        active_product_listing_id,
         true,
         WatchlistState::Active,
     );
     let inactive = WatchlistProductListing::rehydrate(
         user_id,
-        inactive_product_id,
+        inactive_product_listing_id,
         false,
         WatchlistState::InactiveByUser,
     );
@@ -166,7 +171,7 @@ async fn should_preserve_and_reset_current_interval_timestamps() {
     commit(tx).await;
 
     let (initial_active_since, initial_email_since) =
-        intervals(&pool, user_id, active_product_id).await;
+        intervals(&pool, user_id, active_product_listing_id).await;
     assert!(initial_active_since.is_some());
     assert!(initial_email_since.is_some());
 
@@ -174,10 +179,10 @@ async fn should_preserve_and_reset_current_interval_timestamps() {
         .replace_nanosecond(0)
         .unwrap_or_else(|error| panic!("failed to normalize baseline timestamp: {error}"));
     sqlx::query(
-        "UPDATE product_watchlist SET active_since = $3, notifications_enabled_since = $3, created = $3, updated = $3 WHERE user_id = $1 AND product_id = $2",
+        "UPDATE product_listing_watchlist SET active_since = $3, notifications_enabled_since = $3, created = $3, updated = $3 WHERE user_id = $1 AND product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(user_id))
-    .bind(uuid::Uuid::from(active_product_id))
+    .bind(uuid::Uuid::from(active_product_listing_id))
     .bind(old)
     .execute(&pool)
     .await
@@ -186,7 +191,7 @@ async fn should_preserve_and_reset_current_interval_timestamps() {
     let mut tx = begin(&unit).await;
     let loaded = repository
         .in_transaction(&mut tx)
-        .find_by_user_and_product(user_id, active_product_id)
+        .find_by_user_and_product(user_id, active_product_listing_id)
         .await
         .unwrap_or_else(|error| panic!("active lookup failed: {error:?}"))
         .unwrap_or_else(|| panic!("missing active entry"));
@@ -198,19 +203,20 @@ async fn should_preserve_and_reset_current_interval_timestamps() {
     commit(tx).await;
     assert_eq!(
         (Some(old), Some(old)),
-        intervals(&pool, user_id, active_product_id).await
+        intervals(&pool, user_id, active_product_listing_id).await
     );
 
     active.change_state(WatchlistState::InactiveByUser);
     repository_update(&unit, &repository, &active).await;
     assert_eq!(
         (None, Some(old)),
-        intervals(&pool, user_id, active_product_id).await
+        intervals(&pool, user_id, active_product_listing_id).await
     );
 
     active.change_state(WatchlistState::Active);
     repository_update(&unit, &repository, &active).await;
-    let (reactivated_since, email_since) = intervals(&pool, user_id, active_product_id).await;
+    let (reactivated_since, email_since) =
+        intervals(&pool, user_id, active_product_listing_id).await;
     assert!(reactivated_since.is_some_and(|value| value > old));
     assert_eq!(Some(old), email_since);
 
@@ -218,12 +224,13 @@ async fn should_preserve_and_reset_current_interval_timestamps() {
     repository_update(&unit, &repository, &active).await;
     assert_eq!(
         (reactivated_since, None),
-        intervals(&pool, user_id, active_product_id).await
+        intervals(&pool, user_id, active_product_listing_id).await
     );
 
     active.change_notifications(true);
     repository_update(&unit, &repository, &active).await;
-    let (active_since, reenabled_email_since) = intervals(&pool, user_id, active_product_id).await;
+    let (active_since, reenabled_email_since) =
+        intervals(&pool, user_id, active_product_listing_id).await;
     assert_eq!(
         Some(reactivated_since.expect("active interval must remain")),
         active_since
@@ -238,17 +245,18 @@ async fn should_count_only_active_watchlist_entries_in_transaction() {
     let repository = SqlxWatchlistRepositoryFactory;
     let quotas = SqlxWatchlistQuotaReaderFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-quota@example.com").await;
-    let active_product_id = seed_product(&pool, "watchlist-postgres-active-product").await;
-    let inactive_product_id = seed_product(&pool, "watchlist-postgres-inactive-product").await;
+    let active_product_listing_id = seed_product(&pool, "watchlist-postgres-active-product").await;
+    let inactive_product_listing_id =
+        seed_product(&pool, "watchlist-postgres-inactive-product").await;
     let active = WatchlistProductListing::rehydrate(
         user_id,
-        active_product_id,
+        active_product_listing_id,
         true,
         WatchlistState::Active,
     );
     let inactive = WatchlistProductListing::rehydrate(
         user_id,
-        inactive_product_id,
+        inactive_product_listing_id,
         true,
         WatchlistState::InactiveByUser,
     );
@@ -280,9 +288,13 @@ async fn should_report_watchlist_update_and_delete_concurrency_conflicts() {
     let unit = SqlxUnitOfWork::new(pool.clone());
     let repository = SqlxWatchlistRepositoryFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-conflict@example.com").await;
-    let product_id = seed_product(&pool, "watchlist-postgres-conflict-product").await;
-    let entry =
-        WatchlistProductListing::rehydrate(user_id, product_id, true, WatchlistState::Active);
+    let product_listing_id = seed_product(&pool, "watchlist-postgres-conflict-product").await;
+    let entry = WatchlistProductListing::rehydrate(
+        user_id,
+        product_listing_id,
+        true,
+        WatchlistState::Active,
+    );
 
     let mut tx = begin(&unit).await;
     repository
@@ -292,7 +304,7 @@ async fn should_report_watchlist_update_and_delete_concurrency_conflicts() {
         .unwrap_or_else(|error| panic!("insert failed: {error:?}"));
     let loaded = repository
         .in_transaction(&mut tx)
-        .find_by_user_and_product(user_id, product_id)
+        .find_by_user_and_product(user_id, product_listing_id)
         .await
         .unwrap_or_else(|error| panic!("find failed: {error:?}"))
         .unwrap_or_else(|| panic!("missing watchlist entry"));
@@ -310,7 +322,7 @@ async fn should_report_watchlist_update_and_delete_concurrency_conflicts() {
         .await;
     let stale_delete = repository
         .in_transaction(&mut tx)
-        .delete(user_id, product_id, loaded.version)
+        .delete(user_id, product_listing_id, loaded.version)
         .await;
 
     assert!(matches!(
@@ -324,7 +336,7 @@ async fn should_report_watchlist_update_and_delete_concurrency_conflicts() {
 
     repository
         .in_transaction(&mut tx)
-        .delete(user_id, product_id, updated.version)
+        .delete(user_id, product_listing_id, updated.version)
         .await
         .unwrap_or_else(|error| panic!("current delete failed: {error:?}"));
     commit(tx).await;
@@ -336,9 +348,13 @@ async fn should_reject_stale_delete_and_keep_newer_watchlist_entry() {
     let unit = SqlxUnitOfWork::new(pool.clone());
     let repository = SqlxWatchlistRepositoryFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-stale-delete@example.com").await;
-    let product_id = seed_product(&pool, "watchlist-postgres-stale-delete-product").await;
-    let entry =
-        WatchlistProductListing::rehydrate(user_id, product_id, true, WatchlistState::Active);
+    let product_listing_id = seed_product(&pool, "watchlist-postgres-stale-delete-product").await;
+    let entry = WatchlistProductListing::rehydrate(
+        user_id,
+        product_listing_id,
+        true,
+        WatchlistState::Active,
+    );
 
     let mut insert_tx = begin(&unit).await;
     repository
@@ -351,7 +367,7 @@ async fn should_reject_stale_delete_and_keep_newer_watchlist_entry() {
     let mut delete_tx = begin(&unit).await;
     let stale = repository
         .in_transaction(&mut delete_tx)
-        .find_by_user_and_product(user_id, product_id)
+        .find_by_user_and_product(user_id, product_listing_id)
         .await
         .unwrap_or_else(|error| panic!("delete lookup failed: {error:?}"))
         .unwrap_or_else(|| panic!("missing watchlist entry"));
@@ -359,7 +375,7 @@ async fn should_reject_stale_delete_and_keep_newer_watchlist_entry() {
     let mut update_tx = begin(&unit).await;
     let current = repository
         .in_transaction(&mut update_tx)
-        .find_by_user_and_product(user_id, product_id)
+        .find_by_user_and_product(user_id, product_listing_id)
         .await
         .unwrap_or_else(|error| panic!("update lookup failed: {error:?}"))
         .unwrap_or_else(|| panic!("missing watchlist entry"));
@@ -374,7 +390,7 @@ async fn should_reject_stale_delete_and_keep_newer_watchlist_entry() {
 
     let stale_delete = repository
         .in_transaction(&mut delete_tx)
-        .delete(user_id, product_id, stale.version)
+        .delete(user_id, product_listing_id, stale.version)
         .await;
     assert!(matches!(
         stale_delete,
@@ -382,7 +398,7 @@ async fn should_reject_stale_delete_and_keep_newer_watchlist_entry() {
     ));
     drop(delete_tx);
 
-    let persisted = persisted_fields(&pool, user_id, product_id).await;
+    let persisted = persisted_fields(&pool, user_id, product_listing_id).await;
     assert!(!persisted.1);
     assert_eq!(2, persisted.5);
 }
@@ -393,9 +409,13 @@ async fn should_reject_stale_partial_updates_without_changing_persisted_fields()
     let unit = SqlxUnitOfWork::new(pool.clone());
     let repository = SqlxWatchlistRepositoryFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-stale-fields@example.com").await;
-    let product_id = seed_product(&pool, "watchlist-postgres-stale-fields-product").await;
-    let initial =
-        WatchlistProductListing::rehydrate(user_id, product_id, true, WatchlistState::Active);
+    let product_listing_id = seed_product(&pool, "watchlist-postgres-stale-fields-product").await;
+    let initial = WatchlistProductListing::rehydrate(
+        user_id,
+        product_listing_id,
+        true,
+        WatchlistState::Active,
+    );
 
     let mut insert_tx = begin(&unit).await;
     repository
@@ -408,7 +428,7 @@ async fn should_reject_stale_partial_updates_without_changing_persisted_fields()
     let mut winner_tx = begin(&unit).await;
     let loaded_by_winner = repository
         .in_transaction(&mut winner_tx)
-        .find_by_user_and_product(user_id, product_id)
+        .find_by_user_and_product(user_id, product_listing_id)
         .await
         .unwrap_or_else(|error| panic!("winner lookup failed: {error:?}"))
         .unwrap_or_else(|| panic!("missing watchlist entry"));
@@ -418,7 +438,7 @@ async fn should_reject_stale_partial_updates_without_changing_persisted_fields()
     let mut stale_tx = begin(&unit).await;
     let loaded_by_stale = repository
         .in_transaction(&mut stale_tx)
-        .find_by_user_and_product(user_id, product_id)
+        .find_by_user_and_product(user_id, product_listing_id)
         .await
         .unwrap_or_else(|error| panic!("stale lookup failed: {error:?}"))
         .unwrap_or_else(|| panic!("missing watchlist entry"));
@@ -431,7 +451,7 @@ async fn should_reject_stale_partial_updates_without_changing_persisted_fields()
         .await
         .unwrap_or_else(|error| panic!("winner update failed: {error:?}"));
     commit(winner_tx).await;
-    let expected = persisted_fields(&pool, user_id, product_id).await;
+    let expected = persisted_fields(&pool, user_id, product_listing_id).await;
 
     let stale_result = repository
         .in_transaction(&mut stale_tx)
@@ -443,7 +463,10 @@ async fn should_reject_stale_partial_updates_without_changing_persisted_fields()
     ));
     drop(stale_tx);
 
-    assert_eq!(expected, persisted_fields(&pool, user_id, product_id).await);
+    assert_eq!(
+        expected,
+        persisted_fields(&pool, user_id, product_listing_id).await
+    );
     assert_eq!("INACTIVE_BY_USER", expected.0);
     assert!(expected.1);
     assert_eq!(None, expected.2);
@@ -467,9 +490,13 @@ async fn should_return_already_exists_when_watchlist_entry_exists() {
     let unit = SqlxUnitOfWork::new(pool.clone());
     let repo = SqlxWatchlistRepositoryFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-duplicate@example.com").await;
-    let product_id = seed_product(&pool, "watchlist-postgres-duplicate-product").await;
-    let entry =
-        WatchlistProductListing::rehydrate(user_id, product_id, true, WatchlistState::Active);
+    let product_listing_id = seed_product(&pool, "watchlist-postgres-duplicate-product").await;
+    let entry = WatchlistProductListing::rehydrate(
+        user_id,
+        product_listing_id,
+        true,
+        WatchlistState::Active,
+    );
 
     let mut tx = begin(&unit).await;
     repo.in_transaction(&mut tx)
@@ -497,7 +524,7 @@ async fn run_partial_patch_race(state_patch_wins: bool) {
         },
     )
     .await;
-    let product_id = seed_product(
+    let product_listing_id = seed_product(
         &pool,
         if state_patch_wins {
             "watchlist-postgres-state-wins-product"
@@ -506,8 +533,12 @@ async fn run_partial_patch_race(state_patch_wins: bool) {
         },
     )
     .await;
-    let initial =
-        WatchlistProductListing::rehydrate(user_id, product_id, true, WatchlistState::Active);
+    let initial = WatchlistProductListing::rehydrate(
+        user_id,
+        product_listing_id,
+        true,
+        WatchlistState::Active,
+    );
 
     let mut insert_tx = begin(&unit).await;
     repository
@@ -520,7 +551,7 @@ async fn run_partial_patch_race(state_patch_wins: bool) {
     let mut state_tx = begin(&unit).await;
     let loaded_by_state = repository
         .in_transaction(&mut state_tx)
-        .find_by_user_and_product(user_id, product_id)
+        .find_by_user_and_product(user_id, product_listing_id)
         .await
         .unwrap_or_else(|error| panic!("state lookup failed: {error:?}"))
         .unwrap_or_else(|| panic!("missing watchlist entry"));
@@ -530,7 +561,7 @@ async fn run_partial_patch_race(state_patch_wins: bool) {
     let mut notifications_tx = begin(&unit).await;
     let loaded_by_notifications = repository
         .in_transaction(&mut notifications_tx)
-        .find_by_user_and_product(user_id, product_id)
+        .find_by_user_and_product(user_id, product_listing_id)
         .await
         .unwrap_or_else(|error| panic!("notifications lookup failed: {error:?}"))
         .unwrap_or_else(|| panic!("missing watchlist entry"));
@@ -557,7 +588,7 @@ async fn run_partial_patch_race(state_patch_wins: bool) {
         let mut retry_tx = begin(&unit).await;
         let current = repository
             .in_transaction(&mut retry_tx)
-            .find_by_user_and_product(user_id, product_id)
+            .find_by_user_and_product(user_id, product_listing_id)
             .await
             .unwrap_or_else(|error| panic!("retry lookup failed: {error:?}"))
             .unwrap_or_else(|| panic!("missing watchlist entry"));
@@ -589,7 +620,7 @@ async fn run_partial_patch_race(state_patch_wins: bool) {
         let mut retry_tx = begin(&unit).await;
         let current = repository
             .in_transaction(&mut retry_tx)
-            .find_by_user_and_product(user_id, product_id)
+            .find_by_user_and_product(user_id, product_listing_id)
             .await
             .unwrap_or_else(|error| panic!("retry lookup failed: {error:?}"))
             .unwrap_or_else(|| panic!("missing watchlist entry"));
@@ -603,7 +634,7 @@ async fn run_partial_patch_race(state_patch_wins: bool) {
         commit(retry_tx).await;
     }
 
-    let persisted = persisted_fields(&pool, user_id, product_id).await;
+    let persisted = persisted_fields(&pool, user_id, product_listing_id).await;
     assert_eq!("INACTIVE_BY_USER", persisted.0);
     assert!(!persisted.1);
     assert_eq!(None, persisted.2);
@@ -614,7 +645,7 @@ async fn run_partial_patch_race(state_patch_wins: bool) {
 async fn persisted_fields(
     pool: &sqlx::PgPool,
     user_id: UserId,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
 ) -> (
     String,
     bool,
@@ -625,10 +656,10 @@ async fn persisted_fields(
 ) {
     sqlx::query_as(
         "SELECT state, notifications, active_since, notifications_enabled_since, updated, version \
-         FROM product_watchlist WHERE user_id = $1 AND product_id = $2",
+         FROM product_listing_watchlist WHERE user_id = $1 AND product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(user_id))
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .fetch_one(pool)
     .await
     .unwrap_or_else(|error| panic!("failed to read persisted watchlist fields: {error:?}"))
@@ -642,7 +673,7 @@ async fn repository_update(
     let mut tx = begin(unit).await;
     let loaded = repository
         .in_transaction(&mut tx)
-        .find_by_user_and_product(entry.user_id(), entry.product_id())
+        .find_by_user_and_product(entry.user_id(), entry.product_listing_id())
         .await
         .unwrap_or_else(|error| panic!("watchlist lookup failed: {error:?}"))
         .unwrap_or_else(|| panic!("missing watchlist entry"));
@@ -657,13 +688,13 @@ async fn repository_update(
 async fn intervals(
     pool: &sqlx::PgPool,
     user_id: UserId,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
 ) -> (Option<OffsetDateTime>, Option<OffsetDateTime>) {
     sqlx::query_as(
-        "SELECT active_since, notifications_enabled_since FROM product_watchlist WHERE user_id = $1 AND product_id = $2",
+        "SELECT active_since, notifications_enabled_since FROM product_listing_watchlist WHERE user_id = $1 AND product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(user_id))
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .fetch_one(pool)
     .await
     .unwrap_or_else(|error| panic!("failed to read watchlist intervals: {error:?}"))
@@ -695,7 +726,7 @@ async fn seed_user(pool: &sqlx::PgPool, email: &str) -> UserId {
 }
 
 async fn seed_product(pool: &sqlx::PgPool, slug: &str) -> ProductListingId {
-    let product_id = ProductListingId::new();
+    let product_listing_id = ProductListingId::new();
     let shop_id = uuid::Uuid::new_v4();
     let event_id = uuid::Uuid::new_v4();
     let mut tx = pool
@@ -704,12 +735,12 @@ async fn seed_product(pool: &sqlx::PgPool, slug: &str) -> ProductListingId {
         .unwrap_or_else(|error| panic!("seed tx failed: {error:?}"));
     sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, $3, 'MARKETPLACE', 'SCRAPED', '{}')")
         .bind(shop_id).bind(format!("{slug}-shop")).bind(format!("{slug} shop")).execute(&mut *tx).await.unwrap_or_else(|error| panic!("seed shop failed: {error:?}"));
-    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'Created', 'DOMAIN', '{}', now())")
-        .bind(event_id).bind(uuid::Uuid::from(product_id)).execute(&mut *tx).await.unwrap_or_else(|error| panic!("seed event failed: {error:?}"));
-    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, state, lifecycle, url) VALUES ($1, $2, $3, $4, $4, $5, 'LISTED', 'ACTIVE', 'https://example.com/product')")
-        .bind(uuid::Uuid::from(product_id)).bind(slug).bind(event_id).bind(shop_id).bind(slug).execute(&mut *tx).await.unwrap_or_else(|error| panic!("seed product failed: {error:?}"));
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'Created', 'DOMAIN', '{}', now())")
+        .bind(event_id).bind(uuid::Uuid::from(product_listing_id)).execute(&mut *tx).await.unwrap_or_else(|error| panic!("seed event failed: {error:?}"));
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, state, lifecycle, url) VALUES ($1, $2, $3, $4, $4, $5, 'LISTED', 'ACTIVE', 'https://example.com/product')")
+        .bind(uuid::Uuid::from(product_listing_id)).bind(slug).bind(event_id).bind(shop_id).bind(slug).execute(&mut *tx).await.unwrap_or_else(|error| panic!("seed product failed: {error:?}"));
     tx.commit()
         .await
         .unwrap_or_else(|error| panic!("seed commit failed: {error:?}"));
-    product_id
+    product_listing_id
 }

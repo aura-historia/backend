@@ -1,7 +1,7 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE};
-use crate::products::product_data::product_response;
-use crate::state::ProductsState;
+use crate::product_listings::product_data::product_response;
+use crate::state::ProductListingsState;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
@@ -22,9 +22,9 @@ struct ProductListingDetailsQuery {
 }
 
 pub async fn get_product_by_slug(
-    State(state): State<ProductsState>,
+    State(state): State<ProductListingsState>,
     headers: HeaderMap,
-    Path((raw_shop_slug_id, raw_product_slug_id)): Path<(String, String)>,
+    Path((raw_shop_slug_id, raw_product_listing_slug_id)): Path<(String, String)>,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
     let query: ProductListingDetailsQuery =
@@ -54,12 +54,12 @@ pub async fn get_product_by_slug(
                 .into_response();
         }
     };
-    let product_slug_id = match ProductListingSlugId::raw(&raw_product_slug_id) {
-        Ok(product_slug_id) => product_slug_id,
+    let product_listing_slug_id = match ProductListingSlugId::raw(&raw_product_listing_slug_id) {
+        Ok(product_listing_slug_id) => product_listing_slug_id,
         Err(_) => {
             return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
-                .with_path_field("productSlugId")
-                .with_detail("Path parameter 'productSlugId' is invalid.")
+                .with_path_field("productListingSlugId")
+                .with_detail("Path parameter 'productListingSlugId' is invalid.")
                 .into_response();
         }
     };
@@ -72,7 +72,7 @@ pub async fn get_product_by_slug(
             GetProductListingRequest {
                 lookup: ProductListingLookup::BySlug {
                     shop_slug_id,
-                    product_slug_id,
+                    product_listing_slug_id,
                 },
                 language: query.language,
                 currency: query.currency,
@@ -167,13 +167,13 @@ mod tests {
     async fn should_pass_valid_raw_slug_path_values_unchanged_to_use_case()
     -> Result<(), Box<dyn std::error::Error>> {
         let raw_shop_slug_id = "antique-depot";
-        let raw_product_slug_id = "louis-xvi-commode-a1b2c3";
+        let raw_product_listing_slug_id = "louis-xvi-commode-a1b2c3";
         let (app, calls) = app();
 
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/by-slug/shops/{raw_shop_slug_id}/products/{raw_product_slug_id}"
+                    "/api/v1/by-slug/shops/{raw_shop_slug_id}/product-listings/{raw_product_listing_slug_id}"
                 ))
                 .body(Body::empty())?,
             )
@@ -185,12 +185,12 @@ mod tests {
             [GetProductListingRequest {
                 lookup: ProductListingLookup::BySlug {
                     shop_slug_id,
-                    product_slug_id,
+                    product_listing_slug_id,
                 },
                 language: Language::En,
                 currency: money::Currency::Eur,
             }] if shop_slug_id.as_ref() == raw_shop_slug_id
-                && product_slug_id.as_ref() == raw_product_slug_id
+                && product_listing_slug_id.as_ref() == raw_product_listing_slug_id
         ));
         Ok(())
     }
@@ -202,7 +202,7 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get("/api/v1/by-slug/shops/antique-depot/products/louis-xvi-commode-a1b2c3?language=de&currency=USD")
+                Request::get("/api/v1/by-slug/shops/antique-depot/product-listings/louis-xvi-commode-a1b2c3?language=de&currency=USD")
                     .body(Body::empty())?,
             )
             .await?;
@@ -226,7 +226,7 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get("/api/v1/by-slug/shops/antique-depot/products/commode-A1B2C3")
+                Request::get("/api/v1/by-slug/shops/antique-depot/product-listings/commode-A1B2C3")
                     .body(Body::empty())?,
             )
             .await?;
@@ -243,7 +243,7 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get("/api/v1/by-slug/shops/Antique-Depot/products/commode-a1b2c3")
+                Request::get("/api/v1/by-slug/shops/Antique-Depot/product-listings/commode-a1b2c3")
                     .body(Body::empty())?,
             )
             .await?;
@@ -255,7 +255,7 @@ mod tests {
 
     fn app() -> (Router, GetProductListingCalls) {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        let state = ProductsState::new(
+        let state = ProductListingsState::new(
             Arc::new(FakeGetProductListingUseCase {
                 calls: Arc::clone(&calls),
             }),
@@ -266,7 +266,7 @@ mod tests {
         (
             Router::new()
                 .route(
-                    "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}",
+                    "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}",
                     axum::routing::get(get_product_by_slug),
                 )
                 .with_state(state),

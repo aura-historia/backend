@@ -32,7 +32,7 @@ async fn should_persist_woocommerce_created_webhook_after_signature_validation()
     let body = json!({
         "id": 17,
         "name": "Woo Cabinet",
-        "permalink": "https://partner.example/products/woo-cabinet",
+        "permalink": "https://partner.example/product-listings/woo-cabinet",
         "description": "<p>Cabinet description</p>",
         "price": "42.699",
         "status": "publish",
@@ -47,7 +47,7 @@ async fn should_persist_woocommerce_created_webhook_after_signature_validation()
 
     let pool = get_postgres_client().await;
     let row = sqlx::query_as::<_, (String, i64, String, String)>(
-        "SELECT title_text, price_amount, state, shop_listing_id FROM products WHERE shop_id = $1 AND shop_listing_id = $2",
+        "SELECT title_text, price_amount, state, shop_listing_id FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
     )
     .bind(uuid::Uuid::parse_str(&shop_id)?)
     .bind("17")
@@ -69,7 +69,7 @@ async fn should_mark_existing_product_removed_when_woocommerce_deleted_webhook_a
         let created = json!({
             "id": 18,
             "name": "Woo Cabinet",
-            "permalink": "https://partner.example/products/woo-cabinet",
+            "permalink": "https://partner.example/product-listings/woo-cabinet",
             "status": "publish",
             "stock_status": "instock",
             "images": []
@@ -92,7 +92,7 @@ async fn should_mark_existing_product_removed_when_woocommerce_deleted_webhook_a
 
         let pool = get_postgres_client().await;
         let state: (String,) = sqlx::query_as(
-            "SELECT state FROM products WHERE shop_id = $1 AND shop_listing_id = $2",
+            "SELECT state FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
         )
         .bind(uuid::Uuid::parse_str(&shop_id)?)
         .bind("18")
@@ -123,7 +123,7 @@ async fn should_update_existing_product_and_not_append_event_for_redelivery() {
 
         let pool = get_postgres_client().await;
         let event_count_after_update: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM product_events WHERE product_id = (SELECT product_id FROM products WHERE shop_id = $1 AND shop_listing_id = $2)",
+            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = (SELECT product_listing_id FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2)",
         )
         .bind(uuid::Uuid::parse_str(&shop_id)?)
         .bind("20")
@@ -135,14 +135,14 @@ async fn should_update_existing_product_and_not_append_event_for_redelivery() {
         );
 
         let product: (uuid::Uuid, i64, String) = sqlx::query_as(
-            "SELECT product_id, price_amount, state FROM products WHERE shop_id = $1 AND shop_listing_id = $2",
+            "SELECT product_listing_id, price_amount, state FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
         )
         .bind(uuid::Uuid::parse_str(&shop_id)?)
         .bind("20")
         .fetch_one(&pool)
         .await?;
         let event_count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM product_events WHERE product_id = $1",
+            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = $1",
         )
         .bind(product.0)
         .fetch_one(&pool)
@@ -350,7 +350,7 @@ async fn configure_webhook_shop(shop_id: shop_core::shop_id::ShopId) -> Result<(
 
 async fn product_count(shop_id: shop_core::shop_id::ShopId) -> Result<i64, sqlx::Error> {
     let pool = get_postgres_client().await;
-    sqlx::query_scalar("SELECT COUNT(*) FROM products WHERE shop_id = $1")
+    sqlx::query_scalar("SELECT COUNT(*) FROM product_listings WHERE shop_id = $1")
         .bind(uuid::Uuid::from(shop_id))
         .fetch_one(&pool)
         .await
@@ -360,7 +360,7 @@ fn product_body(id: u64, price: &str, status: &str, stock_status: &str) -> Strin
     json!({
         "id": id,
         "name": "Woo Cabinet",
-        "permalink": format!("https://partner.example/products/woo-cabinet-{id}"),
+        "permalink": format!("https://partner.example/product-listings/woo-cabinet-{id}"),
         "description": "<p>Cabinet description</p>",
         "price": price,
         "status": status,

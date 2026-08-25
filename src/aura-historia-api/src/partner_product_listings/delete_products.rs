@@ -1,17 +1,17 @@
 use super::types::{
-    PartnerProductFailureData, UpsertProductListingData, parse_partner_product_batch,
+    DeleteProductListingData, PartnerProductFailureData, parse_partner_product_batch,
 };
 use crate::auth::protected_context;
 use crate::error::{ApiError, INVALID_UUID};
-use crate::state::PartnerProductsState;
+use crate::state::PartnerProductListingsState;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use shop_core::shop_id::ShopId;
 
-pub async fn upsert_products(
-    State(state): State<PartnerProductsState>,
+pub async fn delete_products(
+    State(state): State<PartnerProductListingsState>,
     headers: HeaderMap,
     Path(raw_shop_id): Path<String>,
     body: String,
@@ -24,7 +24,7 @@ pub async fn upsert_products(
         Ok(value) => value,
         Err(response) => return *response,
     };
-    let products: Vec<UpsertProductListingData> = match parse_partner_product_batch(&body) {
+    let products: Vec<DeleteProductListingData> = match parse_partner_product_batch(&body) {
         Ok(products) => products,
         Err(error) => return error.into_response(),
     };
@@ -35,8 +35,8 @@ pub async fn upsert_products(
     for product in products {
         let shop_listing_id = product.shop_listing_id.clone();
         match state
-            .upsert
-            .execute(&context, product.into_command(shop_id))
+            .delete
+            .execute_by_key(&context, product.into_product_key(shop_id))
             .await
         {
             Ok(_) => successes += 1,
@@ -82,7 +82,7 @@ mod tests {
     use axum::http::{Request, header};
     use domain_primitives::event_id::EventId;
     use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
-    use product_listing_core::product_listing_slug_id::ProductListingSlugId;
+
     use product_listing_service::use_cases::{
         CreateProductListingCommand, CreateProductListingError, CreateProductListingResult,
         CreateProductListingUseCase, DeleteProductListingError, DeleteProductListingResult,
@@ -97,29 +97,32 @@ mod tests {
     use user_core::user_id::UserId;
 
     mockall::mock! { CreateUseCase {} #[async_trait::async_trait] impl CreateProductListingUseCase for CreateUseCase { async fn execute(&self, context: &OperationContext, command: CreateProductListingCommand) -> Result<CreateProductListingResult, CreateProductListingError>; } }
-    mockall::mock! { UpdateUseCase {} #[async_trait::async_trait] impl UpdateProductListingUseCase for UpdateUseCase { async fn execute(&self, context: &OperationContext, product_id: ProductListingId, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>; } }
+    mockall::mock! { UpdateUseCase {} #[async_trait::async_trait] impl UpdateProductListingUseCase for UpdateUseCase { async fn execute(&self, context: &OperationContext, product_listing_id: ProductListingId, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey, command: UpdateProductListingCommand) -> Result<UpdateProductListingResult, UpdateProductListingError>; } }
     mockall::mock! { UpsertUseCase {} #[async_trait::async_trait] impl UpsertProductListingUseCase for UpsertUseCase { async fn execute(&self, context: &OperationContext, command: UpsertProductListingCommand) -> Result<UpsertProductListingResult, UpsertProductListingError>; } }
-    mockall::mock! { DeleteUseCase {} #[async_trait::async_trait] impl DeleteProductListingUseCase for DeleteUseCase { async fn execute(&self, context: &OperationContext, product_id: ProductListingId) -> Result<DeleteProductListingResult, DeleteProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey) -> Result<DeleteProductListingResult, DeleteProductListingError>; } }
+    mockall::mock! { DeleteUseCase {} #[async_trait::async_trait] impl DeleteProductListingUseCase for DeleteUseCase { async fn execute(&self, context: &OperationContext, product_listing_id: ProductListingId) -> Result<DeleteProductListingResult, DeleteProductListingError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductListingKey) -> Result<DeleteProductListingResult, DeleteProductListingError>; } }
     mockall::mock! { Authenticator {} #[async_trait::async_trait] impl TokenAuthenticator for Authenticator { async fn authenticate(&self, bearer_token: &str, metadata: &RequestMetadata) -> Result<TransportPrincipal, AuthError>; } }
 
     #[tokio::test]
-    async fn should_upsert_each_batch_item() -> Result<(), Box<dyn std::error::Error>> {
-        let mut upsert = MockUpsertUseCase::new();
-        upsert
-            .expect_execute()
-            .times(2)
-            .withf(|_, command| {
-                command.shop_listing_id.as_ref() == "first"
-                    || command.shop_listing_id.as_ref() == "second"
-            })
-            .returning(|_, _| Ok(created()));
-        let app = app(upsert);
+    async fn should_delete_each_collection_item_by_product_key()
+    -> Result<(), Box<dyn std::error::Error>> {
         let shop_id = ShopId::new();
+        let expected_shop_id = shop_id;
+        let mut delete = MockDeleteUseCase::new();
+        delete
+            .expect_execute_by_key()
+            .times(2)
+            .withf(move |_, key| {
+                key.shop_id == expected_shop_id
+                    && (key.shop_listing_id.as_ref() == "first"
+                        || key.shop_listing_id.as_ref() == "second")
+            })
+            .returning(|_, _| Ok(deleted()));
+        let app = app(delete);
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/products"),
-            r#"[{"shopsProductId":"first"},{"shopsProductId":"second"}]"#,
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            r#"[{"shopListingId":"first"},{"shopListingId":"second"}]"#,
             true,
         )
         .await?;
@@ -130,23 +133,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_failed_key_when_upsert_batch_partially_succeeds()
+    async fn should_return_failed_key_when_delete_batch_partially_succeeds()
     -> Result<(), Box<dyn std::error::Error>> {
-        let mut upsert = MockUpsertUseCase::new();
-        upsert.expect_execute().times(2).returning(|_, command| {
-            if command.shop_listing_id.as_ref() == "failed" {
-                Err(UpsertProductListingError::InvalidProductState)
+        let shop_id = ShopId::new();
+        let mut delete = MockDeleteUseCase::new();
+        delete.expect_execute_by_key().times(2).returning(|_, key| {
+            if key.shop_listing_id.as_ref() == "missing" {
+                Err(DeleteProductListingError::ProductListingNotFound)
             } else {
-                Ok(created())
+                Ok(deleted())
             }
         });
-        let app = app(upsert);
-        let shop_id = ShopId::new();
+        let app = app(delete);
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/products"),
-            r#"[{"shopsProductId":"created"},{"shopsProductId":"failed"}]"#,
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            r#"[{"shopListingId":"present"},{"shopListingId":"missing"}]"#,
             true,
         )
         .await?;
@@ -155,8 +158,8 @@ mod tests {
         assert_eq!(
             json!([{
                 "shopId": shop_id.to_string(),
-                "shopsProductId": "failed",
-                "error": "BAD_BODY_VALUE"
+                "shopListingId": "missing",
+                "error": "PRODUCT_LISTING_NOT_FOUND"
             }]),
             body_json(response).await?
         );
@@ -164,40 +167,52 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_map_all_invalid_upserts_to_bad_request()
+    async fn should_map_all_missing_deletes_to_not_found_and_leave_legacy_item_route_absent()
     -> Result<(), Box<dyn std::error::Error>> {
-        let mut upsert = MockUpsertUseCase::new();
-        upsert
-            .expect_execute()
+        let mut delete = MockDeleteUseCase::new();
+        delete
+            .expect_execute_by_key()
             .times(1)
-            .returning(|_, _| Err(UpsertProductListingError::InvalidProductState));
-        let app = app(upsert);
+            .returning(|_, _| Err(DeleteProductListingError::ProductListingNotFound));
+        let app = app(delete);
         let shop_id = ShopId::new();
 
-        let response = request(
+        let missing = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/products"),
-            r#"[{"shopsProductId":"invalid"}]"#,
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            r#"[{"shopListingId":"missing"}]"#,
             true,
         )
         .await?;
+        assert_eq!(StatusCode::NOT_FOUND, missing.status());
+        assert_eq!(
+            "PRODUCT_LISTING_NOT_FOUND",
+            body_json(missing).await?["error"]
+        );
 
-        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        let old_route = request(
+            &app,
+            &format!("/api/v1/shops/{shop_id}/product-listings/missing"),
+            "",
+            true,
+        )
+        .await?;
+        assert_eq!(StatusCode::NOT_FOUND, old_route.status());
         Ok(())
     }
 
-    fn app(upsert: MockUpsertUseCase) -> Router {
-        let state = PartnerProductsState::new(
+    fn app(delete: MockDeleteUseCase) -> Router {
+        let state = PartnerProductListingsState::new(
             Arc::new(MockCreateUseCase::new()),
             Arc::new(MockUpdateUseCase::new()),
-            Arc::new(upsert),
-            Arc::new(MockDeleteUseCase::new()),
+            Arc::new(MockUpsertUseCase::new()),
+            Arc::new(delete),
             Arc::new(authenticator()),
         );
         Router::new()
             .route(
-                "/api/v1/shops/{shop_id}/products",
-                axum::routing::put(upsert_products),
+                "/api/v1/shops/{shop_id}/product-listings",
+                axum::routing::delete(delete_products),
             )
             .with_state(state)
     }
@@ -214,12 +229,11 @@ mod tests {
         authenticator
     }
 
-    fn created() -> UpsertProductListingResult {
-        UpsertProductListingResult::Created(CreateProductListingResult {
-            product_id: ProductListingId::new(),
-            product_slug_id: ProductListingSlugId::from("upserted-product"),
+    fn deleted() -> DeleteProductListingResult {
+        DeleteProductListingResult {
+            product_listing_id: ProductListingId::new(),
             event_id: EventId::new(),
-        })
+        }
     }
 
     async fn request(
@@ -228,7 +242,7 @@ mod tests {
         body: &str,
         authenticated: bool,
     ) -> Result<Response, Box<dyn std::error::Error>> {
-        let mut builder = Request::builder().method("PUT").uri(uri);
+        let mut builder = Request::builder().method("DELETE").uri(uri);
         if authenticated {
             builder = builder.header(header::AUTHORIZATION, "Bearer valid");
         }

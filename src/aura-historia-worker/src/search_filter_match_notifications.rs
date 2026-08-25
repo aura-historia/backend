@@ -39,7 +39,7 @@ pub async fn consume_search_filter_match_notification_queue(
                 %ordering_key,
                 user_id = %identity.user_id,
                 search_filter_id = %identity.search_filter_id,
-                product_id = %identity.product_id,
+                product_listing_id = %identity.product_listing_id,
                 origin_event_id = %identity.origin_event_id,
                 outcome = "applied",
                 "search filter match notification job completed"
@@ -50,7 +50,7 @@ pub async fn consume_search_filter_match_notification_queue(
                 %ordering_key,
                 user_id = %identity.user_id,
                 search_filter_id = %identity.search_filter_id,
-                product_id = %identity.product_id,
+                product_listing_id = %identity.product_listing_id,
                 origin_event_id = %identity.origin_event_id,
                 error = %error,
                 outcome = "dead_lettered_in_memory",
@@ -66,7 +66,7 @@ pub async fn consume_search_filter_match_notification_queue(
     fields(
         user_id = tracing::field::Empty,
         search_filter_id = tracing::field::Empty,
-        product_id = tracing::field::Empty,
+        product_listing_id = tracing::field::Empty,
         origin_event_id = tracing::field::Empty,
     )
 )]
@@ -81,7 +81,10 @@ async fn execute_job(
         "search_filter_id",
         tracing::field::display(command.search_filter_id),
     );
-    span.record("product_id", tracing::field::display(command.product_id));
+    span.record(
+        "product_listing_id",
+        tracing::field::display(command.product_listing_id),
+    );
     span.record(
         "origin_event_id",
         tracing::field::display(command.origin_event_id),
@@ -118,7 +121,7 @@ async fn execute_job(
 struct SearchFilterMatchNotificationJobIdentity {
     user_id: String,
     search_filter_id: String,
-    product_id: String,
+    product_listing_id: String,
     origin_event_id: String,
 }
 
@@ -130,7 +133,7 @@ fn match_job_identity(job: &DomainJob) -> SearchFilterMatchNotificationJobIdenti
     SearchFilterMatchNotificationJobIdentity {
         user_id: change.user_id.clone(),
         search_filter_id: change.user_search_filter_id.clone(),
-        product_id: change.product_id.clone(),
+        product_listing_id: change.product_listing_id.clone(),
         origin_event_id: change.origin_event_id.clone(),
     }
 }
@@ -153,11 +156,12 @@ fn command_from_job(
                 source: box_error(source),
             },
         )?;
-    let product_id = ProductListingId::try_from(change.product_id.as_str()).map_err(|source| {
-        SearchFilterMatchNotificationWorkerError::InvalidProductListingId {
-            source: box_error(source),
-        }
-    })?;
+    let product_listing_id = ProductListingId::try_from(change.product_listing_id.as_str())
+        .map_err(
+            |source| SearchFilterMatchNotificationWorkerError::InvalidProductListingId {
+                source: box_error(source),
+            },
+        )?;
     let origin_event_id = EventId::try_from(change.origin_event_id.as_str()).map_err(|source| {
         SearchFilterMatchNotificationWorkerError::InvalidOriginEventId {
             source: box_error(source),
@@ -167,7 +171,7 @@ fn command_from_job(
     Ok(GenerateSearchFilterMatchNotificationCommand {
         user_id,
         search_filter_id,
-        product_id,
+        product_listing_id,
         origin_event_id,
     })
 }

@@ -64,12 +64,12 @@ impl ProductListingDetailsBatchReader for SqlxProductListingDetailsBatchReader {
         HashMap<ProductListingId, PersonalizedProductListingDetailsReadModel>,
         ProductListingDetailsBatchReadError,
     > {
-        if request.product_ids.is_empty() {
+        if request.product_listing_ids.is_empty() {
             return Ok(HashMap::new());
         }
 
-        let product_ids = request
-            .product_ids
+        let product_listing_ids = request
+            .product_listing_ids
             .iter()
             .copied()
             .map(uuid::Uuid::from)
@@ -79,36 +79,36 @@ impl ProductListingDetailsBatchReader for SqlxProductListingDetailsBatchReader {
         let select = product_details_select(
             r#"
     requested_products AS (
-        SELECT DISTINCT requested.product_id
-        FROM UNNEST($3::uuid[]) AS requested(product_id)
+        SELECT DISTINCT requested.product_listing_id
+        FROM UNNEST($3::uuid[]) AS requested(product_listing_id)
     ),
     notification_states AS (
         SELECT
-            notification.product_id,
+            notification.product_listing_id,
             array_agg(
                 notification.notification_id
                 ORDER BY notification.created DESC, notification.notification_id DESC
             ) AS unseen_notification_ids
         FROM notifications notification
         JOIN requested_products requested
-            ON requested.product_id = notification.product_id
+            ON requested.product_listing_id = notification.product_listing_id
         WHERE notification.user_id = $2
             AND notification.seen = false
-        GROUP BY notification.product_id
+        GROUP BY notification.product_listing_id
     )
 "#,
         )
         .replace(
-            "AND matched.product_id = p.product_id",
-            "AND matched.product_id = p.product_id AND matched.user_search_filter_id = $4",
+            "AND matched.product_listing_id = p.product_listing_id",
+            "AND matched.product_listing_id = p.product_listing_id AND matched.user_search_filter_id = $4",
         );
         let mut query = QueryBuilder::<Postgres>::new(select);
-        query.push(" WHERE p.product_id = ANY($3)");
+        query.push(" WHERE p.product_listing_id = ANY($3)");
         let rows = query
             .build_query_as::<ProductListingDetailsRow>()
             .bind(request.language.as_str())
             .bind(uuid::Uuid::from(request.user_id))
-            .bind(product_ids)
+            .bind(product_listing_ids)
             .bind(search_filter_id)
             .fetch_all(&self.pool)
             .await
@@ -116,10 +116,10 @@ impl ProductListingDetailsBatchReader for SqlxProductListingDetailsBatchReader {
 
         rows.into_iter()
             .map(|row| {
-                let product_id = ProductListingId::from(row.product_id);
+                let product_listing_id = ProductListingId::from(row.product_listing_id);
                 let details = PersonalizedProductListingDetailsReadModel::try_from(row)
                     .map_err(|_| ProductListingDetailsBatchReadModelMappingError)?;
-                Ok((product_id, details))
+                Ok((product_listing_id, details))
             })
             .collect()
     }

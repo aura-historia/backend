@@ -1,4 +1,4 @@
-use crate::products::product_data::ProductListingImageData;
+use crate::product_listings::product_data::ProductListingImageData;
 use crate::values::{LocalizedTextData, PriceData};
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
@@ -22,7 +22,7 @@ use url::Url;
 pub(crate) struct ProductListingEventData {
     #[serde(with = "crate::wire::product_event_type")]
     event_type: ProductListingEventType,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     event_id: EventId,
     payload: ProductListingEventPayloadData,
     #[serde(with = "time::serde::rfc3339")]
@@ -149,7 +149,7 @@ impl From<ProductListingEvent> for ProductListingEventData {
     fn from(event: ProductListingEvent) -> Self {
         Self {
             event_type: event.event_type,
-            product_id: event.product_id,
+            product_listing_id: event.product_listing_id,
             event_id: event.event_id,
             payload: event.payload.into(),
             timestamp: event.timestamp,

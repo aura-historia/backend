@@ -181,7 +181,7 @@ where
         let products = self
             .similar_products_reader
             .find_similar_product_listings(&ProductListingSimilarProductListingsRequest::new(
-                seed.product_id,
+                seed.product_listing_id,
                 embedding,
                 request.language,
                 price_filter_plan,
@@ -300,7 +300,7 @@ mod tests {
         find_similar_product_listings_result: Option<
             Result<Vec<ProductListingSummary>, ProductListingSimilarProductListingsReadError>,
         >,
-        requested_product_ids: Vec<ProductListingId>,
+        requested_product_listing_ids: Vec<ProductListingId>,
         requested_similar_products: Vec<ProductListingSimilarProductListingsRequest>,
         commit_count: usize,
     }
@@ -459,12 +459,12 @@ mod tests {
             &mut self,
             lookup: &ProductListingEmbeddingLookup,
         ) -> Result<Option<ProductListingEmbedding>, ProductListingEmbeddingReadError> {
-            let product_id = match lookup {
-                ProductListingEmbeddingLookup::ById(product_id) => *product_id,
+            let product_listing_id = match lookup {
+                ProductListingEmbeddingLookup::ById(product_listing_id) => *product_listing_id,
                 ProductListingEmbeddingLookup::BySlug { .. } => ProductListingId::new(),
             };
             let mut state = lock_state(&self.state);
-            state.requested_product_ids.push(product_id);
+            state.requested_product_listing_ids.push(product_listing_id);
             match state.find_embedding_result.take() {
                 Some(result) => result,
                 None => Ok(None),
@@ -555,11 +555,11 @@ mod tests {
     }
 
     fn product_summary(
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<ProductListingSummary, url::ParseError> {
         Ok(ProductListingSummary {
-            product_id,
-            product_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+            product_listing_id,
+            product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
             event_id: EventId::new(),
             shop_id: ShopId::new(),
             seller_id: ShopId::new(),
@@ -594,7 +594,7 @@ mod tests {
         let state = state();
         let request = request();
         lock_state(&state).find_embedding_result = Some(Ok(Some(ProductListingEmbedding {
-            product_id: ProductListingId::new(),
+            product_listing_id: ProductListingId::new(),
             embedding: None,
         })));
 
@@ -606,16 +606,16 @@ mod tests {
         ));
         assert_eq!(
             vec![match request.lookup {
-                ProductListingEmbeddingLookup::ById(product_id) => product_id,
+                ProductListingEmbeddingLookup::ById(product_listing_id) => product_listing_id,
                 ProductListingEmbeddingLookup::BySlug { .. } => ProductListingId::new(),
             }],
-            lock_state(&state).requested_product_ids
+            lock_state(&state).requested_product_listing_ids
         );
         assert_eq!(1, lock_state(&state).commit_count);
     }
 
     #[tokio::test]
-    async fn should_return_not_found_when_product_id_is_missing() {
+    async fn should_return_not_found_when_product_listing_id_is_missing() {
         let state = state();
 
         let result = handler(&state).execute(&context(), request()).await;
@@ -630,9 +630,9 @@ mod tests {
     #[tokio::test]
     async fn should_return_ready_products_when_embedding_is_available() {
         let state = state();
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         lock_state(&state).find_embedding_result = Some(Ok(Some(ProductListingEmbedding {
-            product_id,
+            product_listing_id,
             embedding: Some(vec![0.1_f32]),
         })));
 
@@ -644,7 +644,10 @@ mod tests {
         let state = lock_state(&state);
         assert_eq!(1, state.commit_count);
         assert_eq!(1, state.requested_similar_products.len());
-        assert_eq!(product_id, state.requested_similar_products[0].product_id);
+        assert_eq!(
+            product_listing_id,
+            state.requested_similar_products[0].product_listing_id
+        );
         assert_eq!(vec![0.1_f32], state.requested_similar_products[0].embedding);
         assert_eq!(Language::En, state.requested_similar_products[0].language);
     }
@@ -654,15 +657,15 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let user_id = user_core::user_id::UserId::new();
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         let mut user_state = ProductListingUserState::default();
         user_state.watchlist.watching = true;
         lock_state(&state).find_embedding_result = Some(Ok(Some(ProductListingEmbedding {
-            product_id: ProductListingId::new(),
+            product_listing_id: ProductListingId::new(),
             embedding: Some(vec![0.1_f32]),
         })));
         lock_state(&state).find_similar_product_listings_result =
-            Some(Ok(vec![product_summary(product_id)?]));
+            Some(Ok(vec![product_summary(product_listing_id)?]));
         let handler = GetSimilarProductListingsHandler::new(
             FakeUnitOfWork {
                 state: Arc::clone(&state),
@@ -675,7 +678,7 @@ mod tests {
                 state: Arc::clone(&state),
             },
             StaticUserStateReader {
-                states: HashMap::from([(product_id, user_state)]),
+                states: HashMap::from([(product_listing_id, user_state)]),
             },
         );
 
@@ -700,7 +703,7 @@ mod tests {
     async fn should_map_similar_products_reader_failure_to_unavailable_after_commit() {
         let state = state();
         lock_state(&state).find_embedding_result = Some(Ok(Some(ProductListingEmbedding {
-            product_id: ProductListingId::new(),
+            product_listing_id: ProductListingId::new(),
             embedding: Some(vec![0.1_f32]),
         })));
         lock_state(&state).find_similar_product_listings_result = Some(Err(

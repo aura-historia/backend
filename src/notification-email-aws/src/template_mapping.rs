@@ -212,7 +212,7 @@ pub(crate) fn template_data(
             let mut data = product_template_data(
                 snapshot.shop_name.to_string(),
                 snapshot.shop_slug_id.to_string(),
-                snapshot.product_slug_id.to_string(),
+                snapshot.product_listing_slug_id.to_string(),
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image),
                 snapshot.view_url.to_string(),
@@ -246,7 +246,7 @@ pub(crate) fn template_data(
             let mut data = product_template_data(
                 snapshot.shop_name.to_string(),
                 snapshot.shop_slug_id.to_string(),
-                snapshot.product_slug_id.to_string(),
+                snapshot.product_listing_slug_id.to_string(),
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image),
                 snapshot.view_url.to_string(),
@@ -279,12 +279,12 @@ fn add_recipient_data(mut data: Value, first_name: Option<&str>) -> Value {
 fn product_template_data(
     shop_name: String,
     shop_slug_id: String,
-    product_slug_id: String,
+    product_listing_slug_id: String,
     title: Option<String>,
     image_url: Option<String>,
     view_url: String,
 ) -> Value {
-    json!({ "shop_name": shop_name, "shop_slug_id": shop_slug_id, "product_slug_id": product_slug_id, "title": title, "image_url": image_url, "view_url": view_url })
+    json!({ "shop_name": shop_name, "shop_slug_id": shop_slug_id, "product_listing_slug_id": product_listing_slug_id, "title": title, "image_url": image_url, "view_url": view_url })
 }
 fn price_text(price: Option<Price>) -> Option<String> {
     price.map(|price| price.format_human_readable())
@@ -596,12 +596,12 @@ mod tests {
             target_key: NotificationDeliveryTargetKey::primary(),
             content: NotificationContent::Watchlist {
                 origin_event_id: EventId::new(),
-                product_id: ProductListingId::new(),
+                product_listing_id: ProductListingId::new(),
                 snapshot: ProductListingNotificationSnapshot {
                     shop_id: ShopId::new(),
                     shop_listing_id: ShopListingId::from("shop-product"),
                     shop_slug_id: ShopSlugId::from("shop"),
-                    product_slug_id: ProductListingSlugId::from("product"),
+                    product_listing_slug_id: ProductListingSlugId::from("product"),
                     shop_name: ShopName::from("Test Shop"),
                     title: None,
                     image: prohibited_content

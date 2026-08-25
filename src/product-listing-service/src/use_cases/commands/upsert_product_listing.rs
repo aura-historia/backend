@@ -210,7 +210,7 @@ where
                 }
 
                 UpsertProductListingResult::Updated(UpdateProductListingResult {
-                    product_id: product.id(),
+                    product_listing_id: product.id(),
                     event_id,
                 })
             }
@@ -236,8 +236,8 @@ where
                 }
 
                 UpsertProductListingResult::Created(CreateProductListingResult {
-                    product_id: persisted.value.id(),
-                    product_slug_id: persisted.value.slug_id().clone(),
+                    product_listing_id: persisted.value.id(),
+                    product_listing_slug_id: persisted.value.slug_id().clone(),
                     event_id,
                 })
             }
@@ -309,9 +309,9 @@ where
             event = "product.upserted",
             actor_type = context.principal.kind(),
             actor_id = %context.principal.label(),
-            product_id = %match &result {
-                UpsertProductListingResult::Created(value) => value.product_id,
-                UpsertProductListingResult::Updated(value) => value.product_id,
+            product_listing_id = %match &result {
+                UpsertProductListingResult::Created(value) => value.product_listing_id,
+                UpsertProductListingResult::Updated(value) => value.product_listing_id,
             },
             outcome = "success",
         );
@@ -322,7 +322,7 @@ where
 impl UpsertProductListingCommand {
     fn into_new_product(
         self,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<NewProductListing, UpsertProductListingError> {
         let url = match self.url {
             Some(url) => url,
@@ -333,7 +333,7 @@ impl UpsertProductListingCommand {
             })?,
         };
         Ok(NewProductListing {
-            id: product_id,
+            id: product_listing_id,
             shop_id: self.shop_id,
             seller_id: self.seller_id,
             shop_listing_id: self.shop_listing_id,
@@ -831,7 +831,7 @@ mod tests {
 
         async fn find_current_event_id(
             &mut self,
-            _product_id: ProductListingId,
+            _product_listing_id: ProductListingId,
         ) -> Result<Option<EventId>, ProductListingEventStoreError> {
             Ok(None)
         }

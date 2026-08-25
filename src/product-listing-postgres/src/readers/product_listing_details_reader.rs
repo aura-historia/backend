@@ -49,8 +49,8 @@ struct SqlxProductListingDetailsReader<'tx> {
 
 #[derive(Debug, sqlx::FromRow)]
 pub(super) struct ProductListingDetailsRow {
-    pub(super) product_id: uuid::Uuid,
-    product_slug_id: String,
+    pub(super) product_listing_id: uuid::Uuid,
+    product_listing_slug_id: String,
     event_id: uuid::Uuid,
     shop_id: uuid::Uuid,
     seller_id: uuid::Uuid,
@@ -138,34 +138,34 @@ impl ProductListingDetailsReader for SqlxProductListingDetailsReader<'_> {
         let requested_language = request.language.as_str();
         let user_id = request.user_id.map(uuid::Uuid::from);
         let row = match &request.lookup {
-            ProductListingLookup::ById(product_id) => {
+            ProductListingLookup::ById(product_listing_id) => {
                 let mut query = QueryBuilder::<Postgres>::new(product_details_select(
                     DEFAULT_NOTIFICATION_STATES,
                 ));
-                query.push(" WHERE p.product_id = $3");
+                query.push(" WHERE p.product_listing_id = $3");
                 query
                     .build_query_as::<ProductListingDetailsRow>()
                     .bind(requested_language)
                     .bind(user_id)
-                    .bind(uuid::Uuid::from(*product_id))
+                    .bind(uuid::Uuid::from(*product_listing_id))
                     .fetch_optional(&mut *self.connection)
                     .await
             }
 
             ProductListingLookup::BySlug {
                 shop_slug_id,
-                product_slug_id,
+                product_listing_slug_id,
             } => {
                 let mut query = QueryBuilder::<Postgres>::new(product_details_select(
                     DEFAULT_NOTIFICATION_STATES,
                 ));
-                query.push(" WHERE shop.shop_slug_id = $3 AND p.product_slug_id = $4");
+                query.push(" WHERE shop.shop_slug_id = $3 AND p.product_listing_slug_id = $4");
                 query
                     .build_query_as::<ProductListingDetailsRow>()
                     .bind(requested_language)
                     .bind(user_id)
                     .bind(shop_slug_id.as_ref())
-                    .bind(product_slug_id.as_ref())
+                    .bind(product_listing_slug_id.as_ref())
                     .fetch_optional(&mut *self.connection)
                     .await
             }
@@ -181,7 +181,7 @@ impl ProductListingDetailsReader for SqlxProductListingDetailsReader<'_> {
 pub(super) const DEFAULT_NOTIFICATION_STATES: &str = r#"
     notification_states AS (
         SELECT
-            notification.product_id,
+            notification.product_listing_id,
             array_agg(
                 notification.notification_id
                 ORDER BY notification.created DESC, notification.notification_id DESC
@@ -189,7 +189,7 @@ pub(super) const DEFAULT_NOTIFICATION_STATES: &str = r#"
         FROM notifications notification
         WHERE notification.user_id = $2
             AND notification.seen = false
-        GROUP BY notification.product_id
+        GROUP BY notification.product_listing_id
     )
 "#;
 
@@ -200,7 +200,7 @@ pub(super) fn product_details_select(notification_states: &str) -> String {
 pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
     WITH /* NOTIFICATION_STATES */
     SELECT
-        p.product_id, p.product_slug_id, p.event_id, p.shop_id, p.seller_id, p.shops_product_id AS shop_listing_id,
+        p.product_listing_id, p.product_listing_slug_id, p.event_id, p.shop_id, p.seller_id, p.shop_listing_id AS shop_listing_id,
         shop.name AS shop_name, shop.shop_slug_id,
         seller.name AS seller_name, seller.shop_slug_id AS seller_slug_id,
         p.structured_address_addressline, p.structured_address_addressline_extra,
@@ -225,13 +225,13 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
         selected_match.feedback AS selected_match_feedback,
         selected_match.month_position AS selected_match_month_position,
         notification_state.unseen_notification_ids
-    FROM products p
+    FROM product_listings p
     JOIN shops shop ON shop.shop_id = p.shop_id
     JOIN shops seller ON seller.shop_id = p.seller_id
     LEFT JOIN users authenticated_user ON authenticated_user.user_id = $2
-    LEFT JOIN product_watchlist watchlist
+    LEFT JOIN product_listing_watchlist watchlist
         ON watchlist.user_id = $2
-        AND watchlist.product_id = p.product_id
+        AND watchlist.product_listing_id = p.product_listing_id
     LEFT JOIN LATERAL (
         SELECT
             matched.user_search_filter_id,
@@ -254,7 +254,7 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
                                     monthly_match.user_search_filter_id < matched.user_search_filter_id
                                     OR (
                                         monthly_match.user_search_filter_id = matched.user_search_filter_id
-                                        AND monthly_match.product_id <= matched.product_id
+                                        AND monthly_match.product_listing_id <= matched.product_listing_id
                                     )
                                 )
                             )
@@ -264,12 +264,12 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
             END AS month_position
         FROM search_filter_matches matched
         WHERE matched.user_id = $2
-            AND matched.product_id = p.product_id
+            AND matched.product_listing_id = p.product_listing_id
         ORDER BY matched.created ASC, matched.user_search_filter_id ASC
         LIMIT 1
     ) AS selected_match ON TRUE
     LEFT JOIN notification_states notification_state
-        ON notification_state.product_id = p.product_id
+        ON notification_state.product_listing_id = p.product_listing_id
     LEFT JOIN LATERAL (
         SELECT
             (
@@ -349,8 +349,8 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
                 translation.description AS description_text,
                 translation.language AS description_language,
                 0 AS source_priority
-            FROM product_translations translation
-            WHERE translation.product_id = p.product_id
+            FROM product_listing_translations translation
+            WHERE translation.product_listing_id = p.product_listing_id
 
             UNION ALL
 
@@ -392,8 +392,9 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
 
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
-                product_id: ProductListingId::from(row.product_id),
-                product_slug_id: ProductListingSlugId::raw(&row.product_slug_id).map_err(|_| ())?,
+                product_listing_id: ProductListingId::from(row.product_listing_id),
+                product_listing_slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
+                    .map_err(|_| ())?,
                 event_id: EventId::from(row.event_id),
                 shop_id: ShopId::from(row.shop_id),
                 seller_id: ShopId::from(row.seller_id),

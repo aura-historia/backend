@@ -28,7 +28,7 @@ pub async fn post_watchlist(
             &ctx,
             WatchProductListingCommand {
                 user_id,
-                product_id: data.product_id,
+                product_listing_id: data.product_listing_id,
                 notifications: data.notifications.unwrap_or(true),
             },
         )

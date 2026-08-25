@@ -26,7 +26,7 @@ use test_api::{
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-const PRODUCTS_INDEX: &str = "products";
+const PRODUCTS_INDEX: &str = "product_listings";
 
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
@@ -79,7 +79,7 @@ async fn should_return_sold_product_without_main_price_for_non_price_search_and_
 -> TestResult {
     let sold_without_price =
         product_listing_document(ProductListingSeed::sold_without_main_price("sold-no-price"))?;
-    let product_id = sold_without_price.document["productId"]
+    let product_listing_id = sold_without_price.document["productId"]
         .as_str()
         .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "productId missing"))?
         .to_owned();
@@ -92,7 +92,10 @@ async fn should_return_sold_product_without_main_price_for_non_price_search_and_
     .await?;
     assert_eq!(Some(1), non_price_result.total);
     assert_eq!(1, non_price_result.items.len());
-    assert_eq!(product_id, non_price_result.items[0].product_id.to_string());
+    assert_eq!(
+        product_listing_id,
+        non_price_result.items[0].product_listing_id.to_string()
+    );
     assert_eq!(None, non_price_result.items[0].display_price);
     assert!(matches!(
         non_price_result.items[0].price_valuation,
@@ -171,10 +174,10 @@ fn price_filter(
     )?)
 }
 
-async fn index_products(products: impl IntoIterator<Item = Value>) -> TestResult {
+async fn index_products(product_listings: impl IntoIterator<Item = Value>) -> TestResult {
     let client = get_opensearch_client().await;
-    for product in products {
-        let id = product_id_string(&product)?;
+    for product in product_listings {
+        let id = product_listing_id_string(&product)?;
         let response = client
             .index(IndexParts::IndexId(PRODUCTS_INDEX, &id))
             .body(product)
@@ -194,7 +197,7 @@ async fn index_products(products: impl IntoIterator<Item = Value>) -> TestResult
     Ok(())
 }
 
-fn product_id_string(product: &Value) -> Result<String, IoError> {
+fn product_listing_id_string(product: &Value) -> Result<String, IoError> {
     product
         .get("productId")
         .and_then(Value::as_str)
@@ -207,8 +210,8 @@ fn assert_ok(result: TestResult) {
 }
 
 struct ProductListingSeed {
-    product_id: ProductListingId,
-    product_slug_id: ProductListingSlugId,
+    product_listing_id: ProductListingId,
+    product_listing_slug_id: ProductListingSlugId,
     source_price: Option<u64>,
     sale_price: Option<u64>,
     has_sale_valuation: bool,
@@ -217,8 +220,8 @@ struct ProductListingSeed {
 impl ProductListingSeed {
     fn active(slug: &str, source_price: u64) -> Self {
         Self {
-            product_id: ProductListingId::new(),
-            product_slug_id: ProductListingSlugId::from(slug),
+            product_listing_id: ProductListingId::new(),
+            product_listing_slug_id: ProductListingSlugId::from(slug),
             source_price: Some(source_price),
             sale_price: None,
             has_sale_valuation: false,
@@ -227,8 +230,8 @@ impl ProductListingSeed {
 
     fn sold(slug: &str, sale_price: u64) -> Self {
         Self {
-            product_id: ProductListingId::new(),
-            product_slug_id: ProductListingSlugId::from(slug),
+            product_listing_id: ProductListingId::new(),
+            product_listing_slug_id: ProductListingSlugId::from(slug),
             source_price: None,
             sale_price: Some(sale_price),
             has_sale_valuation: true,
@@ -237,8 +240,8 @@ impl ProductListingSeed {
 
     fn sold_without_main_price(slug: &str) -> Self {
         Self {
-            product_id: ProductListingId::new(),
-            product_slug_id: ProductListingSlugId::from(slug),
+            product_listing_id: ProductListingId::new(),
+            product_listing_slug_id: ProductListingSlugId::from(slug),
             source_price: None,
             sale_price: None,
             has_sale_valuation: true,
@@ -268,8 +271,8 @@ fn product_listing_document(
         .then(|| OffsetDateTime::UNIX_EPOCH.format(&Rfc3339))
         .transpose()?;
     let document = json!({
-        "productId": seed.product_id,
-        "productSlugId": seed.product_slug_id,
+        "productId": seed.product_listing_id,
+        "productSlugId": seed.product_listing_slug_id,
         "shopSlugId": ShopSlugId::from("shop"),
         "sellerSlugId": SellerSlugId::from("seller"),
         "eventId": EventId::new(),
@@ -287,8 +290,8 @@ fn product_listing_document(
         "soldAt": sold_at,
         "state": if seed.has_sale_valuation { "SOLD" } else { "AVAILABLE" },
         "lifecycle": "ACTIVE",
-        "url": format!("https://shop.example/products/{}", seed.product_slug_id),
-        "viewUrl": format!("https://aura.example/products/{}", seed.product_slug_id),
+        "url": format!("https://shop.example/product_listings/{}", seed.product_listing_slug_id),
+        "viewUrl": format!("https://aura.example/product_listings/{}", seed.product_listing_slug_id),
         "created": OffsetDateTime::UNIX_EPOCH.format(&Rfc3339)?,
         "updated": OffsetDateTime::UNIX_EPOCH.format(&Rfc3339)?
     });

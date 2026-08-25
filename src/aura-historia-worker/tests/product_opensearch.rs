@@ -22,7 +22,7 @@ use tokio::{sync::oneshot, task::JoinHandle};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 const WORKER_SEQUIN: Sequin = Sequin::worker_webhook();
-const PRODUCTS_INDEX: &str = "products";
+const PRODUCTS_INDEX: &str = "product_listings";
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 const POLL_ATTEMPTS: usize = 80;
 const NO_PROJECTION_OBSERVATION: Duration = Duration::from_secs(2);
@@ -33,14 +33,14 @@ async fn should_project_committed_active_product_with_native_source_price_and_no
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let fixture = insert_active_product_with_event(&worker.pool, 7).await?;
 
-        let response = wait_for_product_response(fixture.product_id).await?;
+        let response = wait_for_product_response(fixture.product_listing_id).await?;
         let document = response.get("_source").ok_or_else(|| {
             std::io::Error::other("projected ProductListing response has no _source")
         })?;
 
         assert_eq!(Some(7), response.get("_version").and_then(Value::as_i64));
         assert_eq!(
-            Some(fixture.product_id.to_string().as_str()),
+            Some(fixture.product_listing_id.to_string().as_str()),
             document.get("productId").and_then(Value::as_str)
         );
         assert_eq!(
@@ -86,9 +86,9 @@ async fn should_project_committed_active_product_with_native_source_price_and_no
 async fn should_not_project_rolled_back_product_event() {
     let worker = ProductListingOpenSearchWorker::start().await;
     let result: Result<(), Box<dyn std::error::Error>> = async {
-        let product_id = insert_product_with_event_then_rollback(&worker.pool).await?;
+        let product_listing_id = insert_product_with_event_then_rollback(&worker.pool).await?;
 
-        assert_no_product_projection(product_id, NO_PROJECTION_OBSERVATION).await
+        assert_no_product_projection(product_listing_id, NO_PROJECTION_OBSERVATION).await
     }
     .await;
 
@@ -103,13 +103,13 @@ async fn should_keep_product_projection_unchanged_when_event_is_redelivered() {
     let worker = ProductListingOpenSearchWorker::start().await;
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let fixture = insert_active_product_with_event(&worker.pool, 9).await?;
-        let expected = wait_for_product_response(fixture.product_id).await?;
+        let expected = wait_for_product_response(fixture.product_listing_id).await?;
 
         worker
-            .redeliver(fixture.product_id, fixture.event_id)
+            .redeliver(fixture.product_listing_id, fixture.event_id)
             .await?;
         assert_product_response_unchanged_for(
-            fixture.product_id,
+            fixture.product_listing_id,
             &expected,
             NO_PROJECTION_OBSERVATION,
         )
@@ -128,19 +128,20 @@ async fn should_skip_stale_product_event_trigger() {
     let worker = ProductListingOpenSearchWorker::start().await;
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let fixture = insert_active_product_with_event(&worker.pool, 11).await?;
-        let _ = wait_for_product_response(fixture.product_id).await?;
-        let current_event_id = advance_product_revision(&worker.pool, fixture.product_id).await?;
-        let expected = wait_for_product_event(fixture.product_id, current_event_id).await?;
+        let _ = wait_for_product_response(fixture.product_listing_id).await?;
+        let current_event_id =
+            advance_product_revision(&worker.pool, fixture.product_listing_id).await?;
+        let expected = wait_for_product_event(fixture.product_listing_id, current_event_id).await?;
 
         assert_eq!(
             Some(current_event_id.to_string().as_str()),
             expected.pointer("/_source/eventId").and_then(Value::as_str)
         );
         worker
-            .redeliver(fixture.product_id, fixture.event_id)
+            .redeliver(fixture.product_listing_id, fixture.event_id)
             .await?;
         assert_product_response_unchanged_for(
-            fixture.product_id,
+            fixture.product_listing_id,
             &expected,
             NO_PROJECTION_OBSERVATION,
         )
@@ -159,18 +160,18 @@ async fn should_remove_indexed_product_when_current_lifecycle_is_deleted() {
     let worker = ProductListingOpenSearchWorker::start().await;
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let fixture = insert_active_product_with_event(&worker.pool, 15).await?;
-        let response = wait_for_product_response(fixture.product_id).await?;
+        let response = wait_for_product_response(fixture.product_listing_id).await?;
         assert_eq!(Some(15), response.get("_version").and_then(Value::as_i64));
 
-        let deleted_event_id = delete_product_lifecycle(&worker.pool, fixture.product_id).await?;
-        wait_for_product_deletion(fixture.product_id).await?;
-        assert_no_product_projection(fixture.product_id, NO_PROJECTION_OBSERVATION).await?;
+        let deleted_event_id = delete_product_lifecycle(&worker.pool, fixture.product_listing_id).await?;
+        wait_for_product_deletion(fixture.product_listing_id).await?;
+        assert_no_product_projection(fixture.product_listing_id, NO_PROJECTION_OBSERVATION).await?;
 
         let (current_event_id, projection_version, lifecycle): (uuid::Uuid, i64, String) =
             sqlx::query_as(
-                "SELECT event_id, projection_version, lifecycle FROM products WHERE product_id = $1",
+                "SELECT event_id, projection_version, lifecycle FROM product_listings WHERE product_listing_id = $1",
             )
-            .bind(uuid::Uuid::from(fixture.product_id))
+            .bind(uuid::Uuid::from(fixture.product_listing_id))
             .fetch_one(&worker.pool)
             .await?;
         assert_eq!(uuid::Uuid::from(deleted_event_id), current_event_id);
@@ -193,7 +194,7 @@ async fn should_project_sold_product_with_all_sale_price_currencies() {
         let fx_rate_id = insert_equal_rate_snapshot(&worker.pool).await?;
         let fixture = insert_sold_product_with_event(&worker.pool, fx_rate_id).await?;
 
-        let response = wait_for_product_response(fixture.product_id).await?;
+        let response = wait_for_product_response(fixture.product_listing_id).await?;
         let document = response.get("_source").ok_or_else(|| {
             std::io::Error::other("projected ProductListing response has no _source")
         })?;
@@ -240,7 +241,7 @@ async fn should_project_sold_product_without_main_price_then_add_sale_prices_whe
         let fixture =
             insert_sold_product_without_main_price_with_event(&worker.pool, fx_rate_id).await?;
 
-        let initial = wait_for_product_response(fixture.product_id).await?;
+        let initial = wait_for_product_response(fixture.product_listing_id).await?;
         let initial_document = initial.get("_source").ok_or_else(|| {
             std::io::Error::other("projected ProductListing response has no _source")
         })?;
@@ -260,8 +261,9 @@ async fn should_project_sold_product_without_main_price_then_add_sale_prices_whe
         assert!(initial_document.get("priceEstimateMax").is_none());
 
         let corrected_event_id =
-            correct_sold_product_main_price(&worker.pool, fixture.product_id).await?;
-        let corrected = wait_for_product_event(fixture.product_id, corrected_event_id).await?;
+            correct_sold_product_main_price(&worker.pool, fixture.product_listing_id).await?;
+        let corrected =
+            wait_for_product_event(fixture.product_listing_id, corrected_event_id).await?;
         let corrected_document = corrected.get("_source").ok_or_else(|| {
             std::io::Error::other("corrected ProductListing response has no _source")
         })?;
@@ -293,7 +295,7 @@ async fn should_project_sold_product_without_main_price_then_add_sale_prices_whe
 }
 
 struct ProductListingFixture {
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     event_id: EventId,
 }
 
@@ -343,7 +345,7 @@ impl ProductListingOpenSearchWorker {
 
     async fn redeliver(
         &self,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         event_id: EventId,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let response = reqwest::Client::new()
@@ -354,14 +356,14 @@ impl ProductListingOpenSearchWorker {
             .json(&json!({
                 "record": {
                     "event_id": event_id.to_string(),
-                    "product_id": product_id.to_string(),
+                    "product_listing_id": product_listing_id.to_string(),
                     "event_type": "PRODUCT_STATE_CHANGED",
                     "event_group": "DOMAIN",
                 },
                 "action": "insert",
                 "metadata": {
                     "table_schema": "public",
-                    "table_name": "product_events",
+                    "table_name": "product_listing_events",
                 }
             }))
             .send()
@@ -395,26 +397,26 @@ async fn insert_active_product_with_event(
     pool: &sqlx::PgPool,
     projection_version: i64,
 ) -> Result<ProductListingFixture, sqlx::Error> {
-    let product_id = ProductListingId::new();
+    let product_listing_id = ProductListingId::new();
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
     insert_shop(&mut tx, shop_id, "active-os").await?;
     sqlx::query(
-        "INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, state, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $4, $4, $5, 'Active ProductListing OpenSearch chair', 'en', 'Native source price only', 'en', 12345, 'USD', 10000, 'USD', 15000, 'USD', 'LISTED', 'ACTIVE', 'https://example.test/products/active', '[{\"url\": \"https://example.test/images/active.jpg\", \"prohibited_content\": \"NONE\"}]', $6)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, state, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $4, $4, $5, 'Active ProductListing OpenSearch chair', 'en', 'Native source price only', 'en', 12345, 'USD', 10000, 'USD', 15000, 'USD', 'LISTED', 'ACTIVE', 'https://example.test/product_listings/active', '[{\"url\": \"https://example.test/images/active.jpg\", \"prohibited_content\": \"NONE\"}]', $6)",
     )
-    .bind(uuid::Uuid::from(product_id))
-    .bind(product_slug("active-os", product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
+    .bind(product_slug("active-os", product_listing_id))
     .bind(uuid::Uuid::from(event_id))
     .bind(shop_id)
-    .bind(product_id.to_string())
+    .bind(product_listing_id.to_string())
     .bind(projection_version)
     .execute(&mut *tx)
     .await?;
-    insert_product_event(&mut tx, product_id, event_id).await?;
+    insert_product_event(&mut tx, product_listing_id, event_id).await?;
     tx.commit().await?;
     Ok(ProductListingFixture {
-        product_id,
+        product_listing_id,
         event_id,
     })
 }
@@ -422,38 +424,38 @@ async fn insert_active_product_with_event(
 async fn insert_product_with_event_then_rollback(
     pool: &sqlx::PgPool,
 ) -> Result<ProductListingId, sqlx::Error> {
-    let product_id = ProductListingId::new();
+    let product_listing_id = ProductListingId::new();
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
     insert_shop(&mut tx, shop_id, "rollback-os").await?;
     sqlx::query(
-        "INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Rolled back ProductListing OpenSearch chair', 'en', 'LISTED', 'ACTIVE', 'https://example.test/products/rolled-back', '[]')",
+        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Rolled back ProductListing OpenSearch chair', 'en', 'LISTED', 'ACTIVE', 'https://example.test/product_listings/rolled-back', '[]')",
     )
-    .bind(uuid::Uuid::from(product_id))
-    .bind(product_slug("rollback-os", product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
+    .bind(product_slug("rollback-os", product_listing_id))
     .bind(uuid::Uuid::from(event_id))
     .bind(shop_id)
-    .bind(product_id.to_string())
+    .bind(product_listing_id.to_string())
     .execute(&mut *tx)
     .await?;
-    insert_product_event(&mut tx, product_id, event_id).await?;
+    insert_product_event(&mut tx, product_listing_id, event_id).await?;
     tx.rollback().await?;
-    Ok(product_id)
+    Ok(product_listing_id)
 }
 
 async fn advance_product_revision(
     pool: &sqlx::PgPool,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
 ) -> Result<EventId, sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
-    insert_product_event(&mut tx, product_id, event_id).await?;
+    insert_product_event(&mut tx, product_listing_id, event_id).await?;
     sqlx::query(
-        "UPDATE products SET event_id = $1, title_text = 'Current ProductListing OpenSearch chair', projection_version = projection_version + 1, updated = now() WHERE product_id = $2",
+        "UPDATE product_listings SET event_id = $1, title_text = 'Current ProductListing OpenSearch chair', projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(event_id))
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -462,16 +464,16 @@ async fn advance_product_revision(
 
 async fn delete_product_lifecycle(
     pool: &sqlx::PgPool,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
 ) -> Result<EventId, sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
-    insert_product_event(&mut tx, product_id, event_id).await?;
+    insert_product_event(&mut tx, product_listing_id, event_id).await?;
     sqlx::query(
-        "UPDATE products SET event_id = $1, lifecycle = 'DELETED', projection_version = projection_version + 1, updated = now() WHERE product_id = $2",
+        "UPDATE product_listings SET event_id = $1, lifecycle = 'DELETED', projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(event_id))
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -482,26 +484,26 @@ async fn insert_sold_product_with_event(
     pool: &sqlx::PgPool,
     fx_rate_id: uuid::Uuid,
 ) -> Result<ProductListingFixture, sqlx::Error> {
-    let product_id = ProductListingId::new();
+    let product_listing_id = ProductListingId::new();
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
     insert_shop(&mut tx, shop_id, "sold-os").await?;
     sqlx::query(
-        "INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, price_amount, price_currency, sale_fx_rate_id, sold_at, state, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $4, $4, $5, 'Sold ProductListing OpenSearch chair', 'en', 12345, 'EUR', $6, now(), 'SOLD', 'ACTIVE', 'https://example.test/products/sold', '[]', 13)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, price_amount, price_currency, sale_fx_rate_id, sold_at, state, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $4, $4, $5, 'Sold ProductListing OpenSearch chair', 'en', 12345, 'EUR', $6, now(), 'SOLD', 'ACTIVE', 'https://example.test/product_listings/sold', '[]', 13)",
     )
-    .bind(uuid::Uuid::from(product_id))
-    .bind(product_slug("sold-os", product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
+    .bind(product_slug("sold-os", product_listing_id))
     .bind(uuid::Uuid::from(event_id))
     .bind(shop_id)
-    .bind(product_id.to_string())
+    .bind(product_listing_id.to_string())
     .bind(fx_rate_id)
     .execute(&mut *tx)
     .await?;
-    insert_product_event(&mut tx, product_id, event_id).await?;
+    insert_product_event(&mut tx, product_listing_id, event_id).await?;
     tx.commit().await?;
     Ok(ProductListingFixture {
-        product_id,
+        product_listing_id,
         event_id,
     })
 }
@@ -510,50 +512,50 @@ async fn insert_sold_product_without_main_price_with_event(
     pool: &sqlx::PgPool,
     fx_rate_id: uuid::Uuid,
 ) -> Result<ProductListingFixture, sqlx::Error> {
-    let product_id = ProductListingId::new();
+    let product_listing_id = ProductListingId::new();
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
     insert_shop(&mut tx, shop_id, "sold-no-price-os").await?;
     sqlx::query(
-        "INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_fx_rate_id, sold_at, state, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $4, $4, $5, 'Sold ProductListing OpenSearch chair without main price', 'en', 10000, 'EUR', 15000, 'EUR', $6, now(), 'SOLD', 'ACTIVE', 'https://example.test/products/sold-no-price', '[]', 17)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_fx_rate_id, sold_at, state, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $4, $4, $5, 'Sold ProductListing OpenSearch chair without main price', 'en', 10000, 'EUR', 15000, 'EUR', $6, now(), 'SOLD', 'ACTIVE', 'https://example.test/product_listings/sold-no-price', '[]', 17)",
     )
-    .bind(uuid::Uuid::from(product_id))
-    .bind(product_slug("sold-no-price-os", product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
+    .bind(product_slug("sold-no-price-os", product_listing_id))
     .bind(uuid::Uuid::from(event_id))
     .bind(shop_id)
-    .bind(product_id.to_string())
+    .bind(product_listing_id.to_string())
     .bind(fx_rate_id)
     .execute(&mut *tx)
     .await?;
-    insert_product_event(&mut tx, product_id, event_id).await?;
+    insert_product_event(&mut tx, product_listing_id, event_id).await?;
     tx.commit().await?;
     Ok(ProductListingFixture {
-        product_id,
+        product_listing_id,
         event_id,
     })
 }
 
 async fn correct_sold_product_main_price(
     pool: &sqlx::PgPool,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
 ) -> Result<EventId, sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
-    insert_product_event(&mut tx, product_id, event_id).await?;
+    insert_product_event(&mut tx, product_listing_id, event_id).await?;
     sqlx::query(
-        "UPDATE products SET event_id = $1, price_amount = 12345, price_currency = 'EUR', projection_version = projection_version + 1, updated = now() WHERE product_id = $2",
+        "UPDATE product_listings SET event_id = $1, price_amount = 12345, price_currency = 'EUR', projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(event_id))
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(event_id)
 }
 
-fn product_slug(prefix: &str, product_id: ProductListingId) -> String {
-    let product_uuid = uuid::Uuid::from(product_id);
+fn product_slug(prefix: &str, product_listing_id: ProductListingId) -> String {
+    let product_uuid = uuid::Uuid::from(product_listing_id);
     let suffix = product_uuid.simple().to_string();
     format!("{prefix}-{}", &suffix[..6])
 }
@@ -575,14 +577,14 @@ async fn insert_shop(
 
 async fn insert_product_event(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     event_id: EventId,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_STATE_CHANGED', 'DOMAIN', '{}', now())",
+        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_STATE_CHANGED', 'DOMAIN', '{}', now())",
     )
     .bind(uuid::Uuid::from(event_id))
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -613,28 +615,28 @@ async fn insert_equal_rate_snapshot(pool: &sqlx::PgPool) -> Result<uuid::Uuid, s
 }
 
 async fn wait_for_product_response(
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
 ) -> Result<Value, Box<dyn std::error::Error>> {
     for _ in 0..POLL_ATTEMPTS {
         refresh_index(PRODUCTS_INDEX).await;
-        if let Some(response) = product_response(product_id).await? {
+        if let Some(response) = product_response(product_listing_id).await? {
             return Ok(response);
         }
         tokio::time::sleep(POLL_INTERVAL).await;
     }
     Err(std::io::Error::other(format!(
-        "timed out waiting for ProductListing OpenSearch projection for {product_id}"
+        "timed out waiting for ProductListing OpenSearch projection for {product_listing_id}"
     ))
     .into())
 }
 
 async fn wait_for_product_event(
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     event_id: EventId,
 ) -> Result<Value, Box<dyn std::error::Error>> {
     for _ in 0..POLL_ATTEMPTS {
         refresh_index(PRODUCTS_INDEX).await;
-        if let Some(response) = product_response(product_id).await?
+        if let Some(response) = product_response(product_listing_id).await?
             && response.pointer("/_source/eventId").and_then(Value::as_str)
                 == Some(event_id.to_string().as_str())
         {
@@ -649,31 +651,31 @@ async fn wait_for_product_event(
 }
 
 async fn wait_for_product_deletion(
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     for _ in 0..POLL_ATTEMPTS {
         refresh_index(PRODUCTS_INDEX).await;
-        if product_response(product_id).await?.is_none() {
+        if product_response(product_listing_id).await?.is_none() {
             return Ok(());
         }
         tokio::time::sleep(POLL_INTERVAL).await;
     }
     Err(std::io::Error::other(format!(
-        "timed out waiting for ProductListing OpenSearch deletion for {product_id}"
+        "timed out waiting for ProductListing OpenSearch deletion for {product_listing_id}"
     ))
     .into())
 }
 
 async fn assert_no_product_projection(
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     duration: Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let deadline = tokio::time::Instant::now() + duration;
     while tokio::time::Instant::now() < deadline {
         refresh_index(PRODUCTS_INDEX).await;
-        if product_response(product_id).await?.is_some() {
+        if product_response(product_listing_id).await?.is_some() {
             return Err(std::io::Error::other(format!(
-                "unexpected ProductListing OpenSearch projection for {product_id}"
+                "unexpected ProductListing OpenSearch projection for {product_listing_id}"
             ))
             .into());
         }
@@ -683,14 +685,14 @@ async fn assert_no_product_projection(
 }
 
 async fn assert_product_response_unchanged_for(
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     expected: &Value,
     duration: Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let deadline = tokio::time::Instant::now() + duration;
     while tokio::time::Instant::now() < deadline {
         refresh_index(PRODUCTS_INDEX).await;
-        let actual = product_response(product_id).await?.ok_or_else(|| {
+        let actual = product_response(product_listing_id).await?.ok_or_else(|| {
             std::io::Error::other("ProductListing projection disappeared after redelivery")
         })?;
         if &actual != expected {
@@ -705,11 +707,14 @@ async fn assert_product_response_unchanged_for(
 }
 
 async fn product_response(
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
 ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
     let response = get_opensearch_client()
         .await
-        .get(GetParts::IndexId(PRODUCTS_INDEX, &product_id.to_string()))
+        .get(GetParts::IndexId(
+            PRODUCTS_INDEX,
+            &product_listing_id.to_string(),
+        ))
         .send()
         .await?;
     if response.status_code().as_u16() == 404 {

@@ -16,7 +16,7 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_select_watchlist_recipients_using_current_intervals_at_event_time() {
     let pool = get_postgres_client().await;
-    let product_id = seed_product(&pool).await;
+    let product_listing_id = seed_product(&pool).await;
     let event_time = time::OffsetDateTime::now_utc();
     let before = event_time - Duration::hours(1);
     let after = event_time + Duration::hours(1);
@@ -44,7 +44,7 @@ async fn should_select_watchlist_recipients_using_current_intervals_at_event_tim
         seed_watchlist(
             &pool,
             user_id,
-            product_id,
+            product_listing_id,
             notifications,
             state,
             (active_since, email_since, before),
@@ -59,7 +59,7 @@ async fn should_select_watchlist_recipients_using_current_intervals_at_event_tim
         .unwrap_or_else(|error| panic!("begin failed: {error:?}"));
     let recipients = SqlxWatchlistNotificationRecipientReaderFactory
         .in_transaction(&mut tx)
-        .find_eligible_for_product_at(product_id, event_time)
+        .find_eligible_for_product_at(product_listing_id, event_time)
         .await
         .unwrap_or_else(|error| panic!("recipient read failed: {error:?}"));
     tx.commit()
@@ -134,8 +134,8 @@ async fn seed_user(pool: &sqlx::PgPool, label: &str) -> UserId {
 }
 
 async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
-    let product_id = ProductListingId::new();
-    let product_uuid = uuid::Uuid::from(product_id);
+    let product_listing_id = ProductListingId::new();
+    let product_uuid = uuid::Uuid::from(product_listing_id);
     let event_id = uuid::Uuid::new_v4();
     let shop_id = uuid::Uuid::new_v4();
     let mut tx = pool
@@ -148,16 +148,16 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
         .execute(&mut *tx)
         .await
         .unwrap_or_else(|error| panic!("seed shop failed: {error:?}"));
-    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, state, lifecycle, url) VALUES ($1, $2, $3, $4, $4, $5, 'LISTED', 'ACTIVE', 'https://example.test/product')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, state, lifecycle, url) VALUES ($1, $2, $3, $4, $4, $5, 'LISTED', 'ACTIVE', 'https://example.test/product')")
         .bind(product_uuid)
-        .bind(format!("recipient-product-{product_id}"))
+        .bind(format!("recipient-product-{product_listing_id}"))
         .bind(event_id)
         .bind(shop_id)
         .bind(product_uuid.to_string())
         .execute(&mut *tx)
         .await
         .unwrap_or_else(|error| panic!("seed product failed: {error:?}"));
-    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', now())")
         .bind(event_id)
         .bind(product_uuid)
         .execute(&mut *tx)
@@ -166,13 +166,13 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     tx.commit()
         .await
         .unwrap_or_else(|error| panic!("seed product commit failed: {error:?}"));
-    product_id
+    product_listing_id
 }
 
 async fn seed_watchlist(
     pool: &sqlx::PgPool,
     user_id: UserId,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     notifications: bool,
     state: &str,
     timestamps: (
@@ -182,9 +182,9 @@ async fn seed_watchlist(
     ),
 ) {
     let (active_since, email_since, updated) = timestamps;
-    sqlx::query("INSERT INTO product_watchlist (user_id, product_id, notifications, state, active_since, notifications_enabled_since, created, updated) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)")
+    sqlx::query("INSERT INTO product_listing_watchlist (user_id, product_listing_id, notifications, state, active_since, notifications_enabled_since, created, updated) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)")
         .bind(uuid::Uuid::from(user_id))
-        .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(product_listing_id))
         .bind(notifications)
         .bind(state)
         .bind(active_since)

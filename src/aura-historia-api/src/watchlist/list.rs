@@ -2,7 +2,7 @@ use super::util::no_store;
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE, WATCHLIST_INTERNAL_ERROR};
 use crate::pagination_data::JsonCursoredData;
-use crate::products::product_data::{
+use crate::product_listings::product_data::{
     PersonalizedProductListingDetailsData, personalized_product_details_data,
 };
 use crate::state::WatchlistState;
@@ -126,7 +126,7 @@ fn parse_watchlist_cursor(value: Value) -> Result<ProductListingWatchlistDetails
             .with_query_field("searchAfter")
             .with_detail("searchAfter must be a JSON array containing timestamp and product ID."));
     };
-    let [Value::String(created), Value::String(product_id)] = values.as_slice() else {
+    let [Value::String(created), Value::String(product_listing_id)] = values.as_slice() else {
         return Err(ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
             .with_query_field("searchAfter")
             .with_detail("searchAfter must contain an RFC3339 timestamp and product UUID."));
@@ -136,14 +136,14 @@ fn parse_watchlist_cursor(value: Value) -> Result<ProductListingWatchlistDetails
             .with_query_field("searchAfter")
             .with_detail(error.to_string())
     })?;
-    let product_id = ProductListingId::try_from(product_id).map_err(|_| {
+    let product_listing_id = ProductListingId::try_from(product_listing_id).map_err(|_| {
         ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
             .with_query_field("searchAfter")
             .with_detail("searchAfter must contain a product UUID.")
     })?;
     Ok(ProductListingWatchlistDetailsCursor {
         watchlist_created,
-        product_id,
+        product_listing_id,
     })
 }
 
@@ -151,7 +151,7 @@ fn watchlist_cursor_value(cursor: ProductListingWatchlistDetailsCursor) -> Resul
     cursor
         .watchlist_created
         .format(&Rfc3339)
-        .map(|created| json!([created, cursor.product_id]))
+        .map(|created| json!([created, cursor.product_listing_id]))
         .map_err(|_| {
             ApiError::internal_server_error(WATCHLIST_INTERNAL_ERROR)
                 .with_detail("Watchlist cursor failed internally.")
@@ -297,7 +297,7 @@ mod tests {
     }
 
     fn product(
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<
         product_listing_service::use_cases::PersonalizedProductListingDetailsView,
         url::ParseError,
@@ -305,8 +305,8 @@ mod tests {
         let url = Url::parse("https://example.test/product")?;
         Ok(Personalized {
             item: product_listing_service::use_cases::ProductListingDetailsView {
-                product_id,
-                product_slug_id: ProductListingSlugId::from("product"),
+                product_listing_id,
+                product_listing_slug_id: ProductListingSlugId::from("product"),
                 event_id: EventId::new(),
                 shop_id: ShopId::new(),
                 seller_id: ShopId::new(),
@@ -386,8 +386,8 @@ mod tests {
     async fn should_return_personalized_products_without_cache_and_forward_language()
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
-        let product_id = ProductListingId::new();
-        let (app, requests) = app(user_id, vec![product(product_id)?], false);
+        let product_listing_id = ProductListingId::new();
+        let (app, requests) = app(user_id, vec![product(product_listing_id)?], false);
 
         let response = app
             .oneshot(
@@ -403,8 +403,8 @@ mod tests {
         assert_eq!(21, body["size"]);
         assert!(body["searchAfter"].is_null());
         assert_eq!(
-            product_id.to_string(),
-            body["items"][0]["item"]["productId"]
+            product_listing_id.to_string(),
+            body["items"][0]["item"]["productListingId"]
         );
         assert_eq!(
             serde_json::json!([]),
@@ -425,13 +425,14 @@ mod tests {
     #[test]
     fn should_parse_tie_safe_watchlist_cursor_and_clamp_size()
     -> Result<(), Box<dyn std::error::Error>> {
-        let product_id = ProductListingId::new();
-        let raw_cursor = serde_json::to_string(&json!(["1970-01-01T00:00:00Z", product_id]))?;
+        let product_listing_id = ProductListingId::new();
+        let raw_cursor =
+            serde_json::to_string(&json!(["1970-01-01T00:00:00Z", product_listing_id]))?;
         let cursor = watchlist_cursor(Some(500), Some(&raw_cursor))?;
 
         assert_eq!(100, cursor.size);
         let search_after = cursor.search_after.ok_or("cursor was missing")?;
-        assert_eq!(product_id, search_after.product_id);
+        assert_eq!(product_listing_id, search_after.product_listing_id);
         assert_eq!(
             search_after,
             parse_watchlist_cursor(watchlist_cursor_value(search_after)?)?

@@ -7,7 +7,7 @@ pub mod watchlist_state;
 #[derive(Debug, Clone, PartialEq)]
 pub struct WatchlistProductListing {
     user_id: UserId,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     notifications: bool,
     state: WatchlistState,
 }
@@ -15,7 +15,7 @@ pub struct WatchlistProductListing {
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewWatchlistProductListing {
     pub user_id: UserId,
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub notifications: bool,
     pub state: WatchlistState,
 }
@@ -24,7 +24,7 @@ impl WatchlistProductListing {
     pub fn create(new: NewWatchlistProductListing) -> Self {
         Self {
             user_id: new.user_id,
-            product_id: new.product_id,
+            product_listing_id: new.product_listing_id,
             notifications: new.notifications,
             state: new.state,
         }
@@ -32,13 +32,13 @@ impl WatchlistProductListing {
 
     pub fn rehydrate(
         user_id: UserId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         notifications: bool,
         state: WatchlistState,
     ) -> Self {
         Self {
             user_id,
-            product_id,
+            product_listing_id,
             notifications,
             state,
         }
@@ -55,8 +55,8 @@ impl WatchlistProductListing {
     pub fn user_id(&self) -> UserId {
         self.user_id
     }
-    pub fn product_id(&self) -> ProductListingId {
-        self.product_id
+    pub fn product_listing_id(&self) -> ProductListingId {
+        self.product_listing_id
     }
     pub fn notifications(&self) -> bool {
         self.notifications
@@ -90,17 +90,17 @@ mod tests {
     #[test]
     fn should_create_active_watchlist_product() {
         let user_id = UserId::new();
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
 
         let entry = WatchlistProductListing::create(NewWatchlistProductListing {
             user_id,
-            product_id,
+            product_listing_id,
             notifications: true,
             state: WatchlistState::Active,
         });
 
         assert_eq!(user_id, entry.user_id());
-        assert_eq!(product_id, entry.product_id());
+        assert_eq!(product_listing_id, entry.product_listing_id());
         assert!(entry.notifications());
         assert_eq!(WatchlistState::Active, entry.state());
     }
@@ -109,7 +109,7 @@ mod tests {
     fn should_change_notifications() {
         let mut entry = WatchlistProductListing::create(NewWatchlistProductListing {
             user_id: UserId::new(),
-            product_id: ProductListingId::new(),
+            product_listing_id: ProductListingId::new(),
             notifications: true,
             state: WatchlistState::Active,
         });
@@ -123,7 +123,7 @@ mod tests {
     fn should_change_state() {
         let mut entry = WatchlistProductListing::create(NewWatchlistProductListing {
             user_id: UserId::new(),
-            product_id: ProductListingId::new(),
+            product_listing_id: ProductListingId::new(),
             notifications: true,
             state: WatchlistState::Active,
         });

@@ -15,8 +15,8 @@ async fn main() -> Result<(), Error> {
 
     let pool = postgres_config_from_env()?.connect().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool);
-    let pro_product_id = required_env("STRIPE_PRO_PRODUCT_ID")?;
-    let ultimate_product_id = required_env("STRIPE_ULTIMATE_PRODUCT_ID")?;
+    let pro_product_listing_id = required_env("STRIPE_PRO_PRODUCT_ID")?;
+    let ultimate_product_listing_id = required_env("STRIPE_ULTIMATE_PRODUCT_ID")?;
 
     let subscriptions = ApplyStripeSubscriptionHandler::new(
         unit_of_work,
@@ -24,8 +24,8 @@ async fn main() -> Result<(), Error> {
         SqlxUserTierEntitlementsFactory::new(),
     );
     let tier_map = StripeProductTierMap {
-        pro_product_id,
-        ultimate_product_id,
+        pro_product_listing_id,
+        ultimate_product_listing_id,
     };
 
     debug!("Lambda initialized.");

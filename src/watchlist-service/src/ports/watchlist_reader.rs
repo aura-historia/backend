@@ -6,7 +6,7 @@ use watchlist_core::watchlist_state::WatchlistState;
 #[derive(Debug, Clone, PartialEq)]
 pub struct WatchlistProductListingView {
     pub user_id: UserId,
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub notifications: bool,
     pub state: WatchlistState,
     pub created: OffsetDateTime,
@@ -29,7 +29,7 @@ pub trait WatchlistReader: Send {
     ) -> Result<Vec<WatchlistProductListingView>, WatchlistReadError>;
     async fn find_user_ids_for_product(
         &mut self,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<Vec<UserId>, WatchlistReadError>;
 }
 

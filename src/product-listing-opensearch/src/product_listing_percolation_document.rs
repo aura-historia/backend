@@ -61,8 +61,8 @@ struct ProductListingPercolationPricesDocument {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProductListingPercolationDocument {
-    product_id: ProductListingId,
-    product_slug_id: ProductListingSlugId,
+    product_listing_id: ProductListingId,
+    product_listing_slug_id: ProductListingSlugId,
     shop_slug_id: ShopSlugId,
     seller_slug_id: SellerSlugId,
     event_id: EventId,
@@ -171,8 +171,8 @@ fn build_product_listing_percolation_document(
     let structured_address = product.address.structured.as_ref();
 
     ProductListingPercolationDocument {
-        product_id: product.product_id,
-        product_slug_id: product.product_slug_id.clone(),
+        product_listing_id: product.product_listing_id,
+        product_listing_slug_id: product.product_listing_slug_id.clone(),
         shop_slug_id: product.shop_slug_id.clone(),
         seller_slug_id: product.seller_slug_id.clone(),
         event_id: product.current_event_id,
@@ -259,8 +259,8 @@ pub(crate) fn product_listing_document(
     let structured_address = product.address.structured.as_ref();
 
     Ok(ProductListingDocument {
-        product_id: product.product_id,
-        product_slug_id: product.product_slug_id.clone(),
+        product_listing_id: product.product_listing_id,
+        product_listing_slug_id: product.product_listing_slug_id.clone(),
         shop_slug_id: product.shop_slug_id.clone(),
         seller_slug_id: product.seller_slug_id.clone(),
         event_id: product.current_event_id,
@@ -455,7 +455,7 @@ mod tests {
 
     fn source() -> Result<ProductListingSearchFilterMatchSource, url::ParseError> {
         let title = Title::from("Blue vase");
-        let url = Url::parse("https://shop.example.test/products/blue-vase")?;
+        let url = Url::parse("https://shop.example.test/product_listings/blue-vase")?;
         let event_id = EventId::new();
         Ok(ProductListingSearchFilterMatchSource {
             event_id,
@@ -463,8 +463,8 @@ mod tests {
             origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: event_id,
             projection_version: 1,
-            product_id: ProductListingId::new(),
-            product_slug_id: ProductListingSlugId::from("blue-vase"),
+            product_listing_id: ProductListingId::new(),
+            product_listing_slug_id: ProductListingSlugId::from("blue-vase"),
             shop_id: ShopId::new(),
             shop_slug_id: ShopSlugId::from("shop"),
             shop_name: ShopName::from("Shop"),

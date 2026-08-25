@@ -21,12 +21,12 @@ use shop_core::shop_id::ShopId;
 use time::OffsetDateTime;
 use url::Url;
 
-pub(super) const MAX_PARTNER_PRODUCT_BATCH_SIZE: usize = 100;
+pub(super) const MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE: usize = 100;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct CreateProductListingData {
-    #[serde(rename = "shopsProductId")]
+    #[serde(rename = "shopListingId")]
     pub(super) shop_listing_id: ShopListingId,
     pub(super) title: LocalizedTextData,
     pub(super) description: LocalizedTextData,
@@ -53,7 +53,7 @@ pub(super) struct CreateProductListingData {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct UpdateProductListingData {
-    #[serde(rename = "shopsProductId")]
+    #[serde(rename = "shopListingId")]
     pub(super) shop_listing_id: ShopListingId,
     #[serde(default)]
     pub(super) price: PatchValue<PriceData>,
@@ -77,7 +77,7 @@ pub(super) struct UpdateProductListingData {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct UpsertProductListingData {
-    #[serde(rename = "shopsProductId")]
+    #[serde(rename = "shopListingId")]
     pub(super) shop_listing_id: ShopListingId,
     #[serde(default)]
     pub(super) title: Option<LocalizedTextData>,
@@ -109,7 +109,7 @@ pub(super) struct UpsertProductListingData {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct DeleteProductListingData {
-    #[serde(rename = "shopsProductId")]
+    #[serde(rename = "shopListingId")]
     pub(super) shop_listing_id: ShopListingId,
 }
 
@@ -117,7 +117,7 @@ pub(super) struct DeleteProductListingData {
 #[serde(rename_all = "camelCase")]
 pub(super) struct PartnerProductFailureData {
     shop_id: ShopId,
-    #[serde(rename = "shopsProductId")]
+    #[serde(rename = "shopListingId")]
     shop_listing_id: ShopListingId,
     error: ApiErrorCode,
 }
@@ -131,9 +131,9 @@ pub(super) fn parse_partner_product_batch<T: DeserializeOwned>(
 
     let products: Vec<T> = serde_json::from_str(body)
         .map_err(|error| ApiError::bad_request(BAD_BODY_VALUE).with_detail(error.to_string()))?;
-    if products.len() > MAX_PARTNER_PRODUCT_BATCH_SIZE {
+    if products.len() > MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE {
         return Err(ApiError::bad_request(BAD_BODY_VALUE).with_detail(format!(
-            "Body cannot contain more than {MAX_PARTNER_PRODUCT_BATCH_SIZE} products."
+            "Body cannot contain more than {MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE} products."
         )));
     }
 

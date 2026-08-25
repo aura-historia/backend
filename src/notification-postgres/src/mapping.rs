@@ -35,7 +35,7 @@ pub(crate) struct NotificationRow {
     pub(crate) user_id: uuid::Uuid,
     pub(crate) kind: String,
     pub(crate) origin_event_id: Option<uuid::Uuid>,
-    pub(crate) product_id: Option<uuid::Uuid>,
+    pub(crate) product_listing_id: Option<uuid::Uuid>,
     pub(crate) user_search_filter_id: Option<uuid::Uuid>,
     pub(crate) partner_shop_application_id: Option<uuid::Uuid>,
     pub(crate) payload_version: i16,
@@ -125,7 +125,7 @@ struct ProductListingNotificationSnapshotV1 {
     shop_id: ShopId,
     shop_listing_id: ShopListingId,
     shop_slug_id: ShopSlugId,
-    product_slug_id: ProductListingSlugId,
+    product_listing_slug_id: ProductListingSlugId,
     shop_name: ShopName,
     title: Option<Vec<LocalizedTitleV1>>,
     image: Option<ProductListingImage>,
@@ -159,7 +159,7 @@ impl From<&ProductListingNotificationSnapshot> for ProductListingNotificationSna
             shop_id: snapshot.shop_id,
             shop_listing_id: snapshot.shop_listing_id.clone(),
             shop_slug_id: snapshot.shop_slug_id.clone(),
-            product_slug_id: snapshot.product_slug_id.clone(),
+            product_listing_slug_id: snapshot.product_listing_slug_id.clone(),
             shop_name: snapshot.shop_name.clone(),
             title: snapshot.title.as_ref().map(|titles| {
                 titles
@@ -203,7 +203,7 @@ impl TryFrom<ProductListingNotificationSnapshotV1> for ProductListingNotificatio
             shop_id: snapshot.shop_id,
             shop_listing_id: snapshot.shop_listing_id,
             shop_slug_id: snapshot.shop_slug_id,
-            product_slug_id: snapshot.product_slug_id,
+            product_listing_slug_id: snapshot.product_listing_slug_id,
             shop_name: snapshot.shop_name,
             title,
             image: snapshot.image,
@@ -278,7 +278,7 @@ pub(crate) struct NotificationWriteValues {
     pub(crate) user_id: uuid::Uuid,
     pub(crate) kind: &'static str,
     pub(crate) origin_event_id: Option<uuid::Uuid>,
-    pub(crate) product_id: Option<uuid::Uuid>,
+    pub(crate) product_listing_id: Option<uuid::Uuid>,
     pub(crate) user_search_filter_id: Option<uuid::Uuid>,
     pub(crate) partner_shop_application_id: Option<uuid::Uuid>,
     pub(crate) payload: serde_json::Value,
@@ -290,19 +290,19 @@ impl TryFrom<&Notification> for NotificationWriteValues {
     fn try_from(notification: &Notification) -> Result<Self, Self::Error> {
         let (
             origin_event_id,
-            product_id,
+            product_listing_id,
             user_search_filter_id,
             partner_shop_application_id,
             payload,
         ) = match notification.content() {
             NotificationContent::Watchlist {
                 origin_event_id,
-                product_id,
+                product_listing_id,
                 snapshot,
                 change,
             } => (
                 Some(uuid::Uuid::from(*origin_event_id)),
-                Some(uuid::Uuid::from(*product_id)),
+                Some(uuid::Uuid::from(*product_listing_id)),
                 None,
                 None,
                 NotificationPayloadV1::Watchlist {
@@ -312,13 +312,13 @@ impl TryFrom<&Notification> for NotificationWriteValues {
             ),
             NotificationContent::SearchFilter {
                 origin_event_id,
-                product_id,
+                product_listing_id,
                 user_search_filter_id,
                 snapshot,
                 user_search_filter_name,
             } => (
                 Some(uuid::Uuid::from(*origin_event_id)),
-                Some(uuid::Uuid::from(*product_id)),
+                Some(uuid::Uuid::from(*product_listing_id)),
                 Some(uuid::Uuid::from(*user_search_filter_id)),
                 None,
                 NotificationPayloadV1::SearchFilter {
@@ -347,7 +347,7 @@ impl TryFrom<&Notification> for NotificationWriteValues {
             user_id: uuid::Uuid::from(notification.user_id()),
             kind: notification.kind().as_str(),
             origin_event_id,
-            product_id,
+            product_listing_id,
             user_search_filter_id,
             partner_shop_application_id,
             payload,
@@ -371,7 +371,7 @@ impl TryFrom<NotificationRow> for Notification {
             kind,
             payload,
             row.origin_event_id,
-            row.product_id,
+            row.product_listing_id,
             row.user_search_filter_id,
             row.partner_shop_application_id,
         ) {
@@ -379,7 +379,7 @@ impl TryFrom<NotificationRow> for Notification {
                 NotificationKind::WatchlistPriceChanged | NotificationKind::WatchlistStateChanged,
                 NotificationPayloadV1::Watchlist { snapshot, change },
                 Some(origin_event_id),
-                Some(product_id),
+                Some(product_listing_id),
                 None,
                 None,
             ) => {
@@ -389,7 +389,7 @@ impl TryFrom<NotificationRow> for Notification {
                 }
                 NotificationContent::Watchlist {
                     origin_event_id: EventId::from(origin_event_id),
-                    product_id: ProductListingId::from(product_id),
+                    product_listing_id: ProductListingId::from(product_listing_id),
                     snapshot: snapshot.try_into()?,
                     change,
                 }
@@ -401,12 +401,12 @@ impl TryFrom<NotificationRow> for Notification {
                     user_search_filter_name,
                 },
                 Some(origin_event_id),
-                Some(product_id),
+                Some(product_listing_id),
                 Some(user_search_filter_id),
                 None,
             ) => NotificationContent::SearchFilter {
                 origin_event_id: EventId::from(origin_event_id),
-                product_id: ProductListingId::from(product_id),
+                product_listing_id: ProductListingId::from(product_listing_id),
                 user_search_filter_id: UserSearchFilterId::from(user_search_filter_id),
                 snapshot: snapshot.try_into()?,
                 user_search_filter_name,

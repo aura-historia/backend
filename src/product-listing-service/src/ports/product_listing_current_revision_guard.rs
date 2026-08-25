@@ -6,7 +6,7 @@ use std::collections::HashMap;
 /// Exact expected current ProductListing revision for a batched invariant-critical check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProductListingCurrentRevisionRef {
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub expected_event_id: EventId,
 }
 
@@ -34,7 +34,7 @@ pub enum ProductListingCurrentRevisionCheckError {
 pub trait ProductListingCurrentRevisionGuard: Send {
     async fn lock_and_check(
         &mut self,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         expected_event_id: EventId,
     ) -> Result<ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError>;
 
@@ -50,7 +50,7 @@ pub trait ProductListingCurrentRevisionGuard: Send {
         for reference in refs {
             checks.insert(
                 *reference,
-                self.lock_and_check(reference.product_id, reference.expected_event_id)
+                self.lock_and_check(reference.product_listing_id, reference.expected_event_id)
                     .await?,
             );
         }

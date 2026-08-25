@@ -1,7 +1,7 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE, INVALID_UUID};
-use crate::products::product_data::product_response;
-use crate::state::ProductsState;
+use crate::product_listings::product_data::product_response;
+use crate::state::ProductListingsState;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
@@ -21,9 +21,9 @@ struct ProductListingDetailsQuery {
 }
 
 pub async fn get_product_by_id(
-    State(state): State<ProductsState>,
+    State(state): State<ProductListingsState>,
     headers: HeaderMap,
-    Path(raw_product_id): Path<String>,
+    Path(raw_product_listing_id): Path<String>,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
     let query: ProductListingDetailsQuery =
@@ -43,12 +43,12 @@ pub async fn get_product_by_id(
         Ok(principal) => principal,
         Err(error) => return ApiError::from(error).into_response(),
     };
-    let product_id = match ProductListingId::try_from(raw_product_id.as_str()) {
-        Ok(product_id) => product_id,
+    let product_listing_id = match ProductListingId::try_from(raw_product_listing_id.as_str()) {
+        Ok(product_listing_id) => product_listing_id,
         Err(_) => {
             return ApiError::bad_request(INVALID_UUID)
-                .with_path_field("productId")
-                .with_detail("Path parameter 'productId' must be a UUID.")
+                .with_path_field("productListingId")
+                .with_detail("Path parameter 'productListingId' must be a UUID.")
                 .into_response();
         }
     };
@@ -59,7 +59,7 @@ pub async fn get_product_by_id(
         .execute(
             &context,
             GetProductListingRequest {
-                lookup: ProductListingLookup::ById(product_id),
+                lookup: ProductListingLookup::ById(product_listing_id),
                 language: query.language,
                 currency: query.currency,
             },
@@ -199,11 +199,14 @@ mod tests {
     async fn should_return_product_details_headers_and_omit_audit_actors()
     -> Result<(), Box<dyn std::error::Error>> {
         let view = product_details_view()?;
-        let product_id = view.item.product_id;
+        let product_listing_id = view.item.product_listing_id;
         let (app, calls) = app(view, false, None);
 
         let response = app
-            .oneshot(Request::get(format!("/api/v1/products/{product_id}")).body(Body::empty())?)
+            .oneshot(
+                Request::get(format!("/api/v1/product-listings/{product_listing_id}"))
+                    .body(Body::empty())?,
+            )
             .await?;
 
         assert_eq!(StatusCode::OK, response.status());
@@ -215,7 +218,10 @@ mod tests {
         assert!(response.headers().get(header::ETAG).is_none());
         assert!(response.headers().get(header::LAST_MODIFIED).is_none());
         let body = body_json(response).await?;
-        assert_eq!(json!(product_id.to_string()), body["item"]["productId"]);
+        assert_eq!(
+            json!(product_listing_id.to_string()),
+            body["item"]["productListingId"]
+        );
         assert!(body["item"].get("createdBy").is_none());
         assert!(body["item"].get("updatedBy").is_none());
         assert_eq!(
@@ -238,7 +244,7 @@ mod tests {
                 lookup: ProductListingLookup::ById(actual),
                 language: Language::En,
                 currency: Currency::Eur,
-            } if actual == product_id
+            } if actual == product_listing_id
         ));
         Ok(())
     }
@@ -247,13 +253,13 @@ mod tests {
     async fn should_pass_requested_language_to_use_case() -> Result<(), Box<dyn std::error::Error>>
     {
         let view = product_details_view()?;
-        let product_id = view.item.product_id;
+        let product_listing_id = view.item.product_listing_id;
         let (app, calls) = app(view, false, None);
 
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/products/{product_id}?language=de&currency=USD"
+                    "/api/v1/product-listings/{product_listing_id}?language=de&currency=USD"
                 ))
                 .body(Body::empty())?,
             )
@@ -266,7 +272,7 @@ mod tests {
                 lookup: ProductListingLookup::ById(actual),
                 language: Language::De,
                 currency: Currency::Usd,
-            } if actual == product_id
+            } if actual == product_listing_id
         ));
         Ok(())
     }
@@ -274,13 +280,15 @@ mod tests {
     #[tokio::test]
     async fn should_reject_invalid_language_before_calling_use_case()
     -> Result<(), Box<dyn std::error::Error>> {
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         let (app, calls) = app(product_details_view()?, false, None);
 
         let response = app
             .oneshot(
-                Request::get(format!("/api/v1/products/{product_id}?language=invalid"))
-                    .body(Body::empty())?,
+                Request::get(format!(
+                    "/api/v1/product-listings/{product_listing_id}?language=invalid"
+                ))
+                .body(Body::empty())?,
             )
             .await?;
 
@@ -294,12 +302,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_reject_invalid_product_id_before_calling_use_case()
+    async fn should_reject_invalid_product_listing_id_before_calling_use_case()
     -> Result<(), Box<dyn std::error::Error>> {
         let (app, calls) = app(product_details_view()?, false, None);
 
         let response = app
-            .oneshot(Request::get("/api/v1/products/not-a-uuid").body(Body::empty())?)
+            .oneshot(Request::get("/api/v1/product-listings/not-a-uuid").body(Body::empty())?)
             .await?;
 
         assert_eq!(StatusCode::BAD_REQUEST, response.status());
@@ -314,7 +322,7 @@ mod tests {
         let notification_id = NotificationId::new();
         let search_filter_id = UserSearchFilterId::new();
         let mut view = product_details_view()?;
-        let product_id = view.item.product_id;
+        let product_listing_id = view.item.product_listing_id;
         view.user_state = Some(ProductListingUserState {
             watchlist: WatchlistUserState {
                 watching: true,
@@ -337,7 +345,7 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get(format!("/api/v1/products/{product_id}"))
+                Request::get(format!("/api/v1/product-listings/{product_listing_id}"))
                     .header(header::AUTHORIZATION, "Bearer valid")
                     .body(Body::empty())?,
             )
@@ -378,12 +386,12 @@ mod tests {
     async fn should_reject_invalid_optional_token_before_calling_use_case()
     -> Result<(), Box<dyn std::error::Error>> {
         let view = product_details_view()?;
-        let product_id = view.item.product_id;
+        let product_listing_id = view.item.product_listing_id;
         let (app, calls) = app(view, true, None);
 
         let response = app
             .oneshot(
-                Request::get(format!("/api/v1/products/{product_id}"))
+                Request::get(format!("/api/v1/product-listings/{product_listing_id}"))
                     .header(header::AUTHORIZATION, "Bearer invalid")
                     .body(Body::empty())?,
             )
@@ -400,7 +408,7 @@ mod tests {
         user_id: Option<UserId>,
     ) -> (Router, GetProductListingCalls) {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        let state = ProductsState::new(
+        let state = ProductListingsState::new(
             Arc::new(FakeGetProductListingUseCase {
                 result: view,
                 calls: Arc::clone(&calls),
@@ -415,7 +423,7 @@ mod tests {
         (
             Router::new()
                 .route(
-                    "/api/v1/products/{product_id}",
+                    "/api/v1/product-listings/{product_listing_id}",
                     axum::routing::get(get_product_by_id),
                 )
                 .with_state(state),
@@ -431,8 +439,8 @@ mod tests {
     fn product_details_view() -> Result<PersonalizedProductListingDetailsView, url::ParseError> {
         Ok(Personalized {
             item: ProductListingDetailsView {
-                product_id: ProductListingId::new(),
-                product_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+                product_listing_id: ProductListingId::new(),
+                product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
                 event_id: EventId::new(),
                 shop_id: ShopId::new(),
                 seller_id: ShopId::new(),
@@ -466,8 +474,8 @@ mod tests {
                 },
                 state: ProductState::Listed,
                 lifecycle: ProductLifecycle::Active,
-                url: Url::parse("https://shop.example/products/1")?,
-                view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
+                url: Url::parse("https://shop.example/product-listings/1")?,
+                view_url: Url::parse("https://aura.example/product-listings/cabinet-abcdef")?,
                 images: Default::default(),
                 auction: ProductListingAuction::default(),
                 created: OffsetDateTime::UNIX_EPOCH,

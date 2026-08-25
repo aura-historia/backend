@@ -44,13 +44,13 @@ impl ProductListingCurrentRevisionGuardFactory<SqlxTransaction>
 impl ProductListingCurrentRevisionGuard for SqlxProductListingCurrentRevisionGuard<'_> {
     async fn lock_and_check(
         &mut self,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         expected_event_id: EventId,
     ) -> Result<ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError> {
         let event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT event_id FROM products WHERE product_id = $1 FOR SHARE",
+            "SELECT event_id FROM product_listings WHERE product_listing_id = $1 FOR SHARE",
         )
-        .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(product_listing_id))
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(
@@ -78,19 +78,19 @@ impl ProductListingCurrentRevisionGuard for SqlxProductListingCurrentRevisionGua
             return Ok(HashMap::new());
         }
 
-        let product_ids = refs
+        let product_listing_ids = refs
             .iter()
-            .map(|reference| uuid::Uuid::from(reference.product_id))
+            .map(|reference| uuid::Uuid::from(reference.product_listing_id))
             .collect::<Vec<_>>();
         let current_event_ids = sqlx::query_as::<_, (uuid::Uuid, uuid::Uuid)>(
             r#"
-            SELECT product_id, event_id
-            FROM products
-            WHERE product_id = ANY($1::uuid[])
+            SELECT product_listing_id, event_id
+            FROM product_listings
+            WHERE product_listing_id = ANY($1::uuid[])
             FOR SHARE
             "#,
         )
-        .bind(product_ids)
+        .bind(product_listing_ids)
         .fetch_all(&mut *self.connection)
         .await
         .map_err(
@@ -105,7 +105,9 @@ impl ProductListingCurrentRevisionGuard for SqlxProductListingCurrentRevisionGua
             .iter()
             .copied()
             .map(|reference| {
-                let check = match current_event_ids.get(&uuid::Uuid::from(reference.product_id)) {
+                let check = match current_event_ids
+                    .get(&uuid::Uuid::from(reference.product_listing_id))
+                {
                     Some(event_id) if EventId::from(*event_id) == reference.expected_event_id => {
                         ProductListingCurrentRevisionCheck::Current
                     }

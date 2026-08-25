@@ -17,7 +17,7 @@ use user_core::user_id::UserId;
 pub struct UpdateSearchFilterMatchFeedbackCommand {
     pub user_id: UserId,
     pub search_filter_id: UserSearchFilterId,
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub feedback: PatchField<bool>,
 }
 
@@ -134,7 +134,7 @@ where
         let mut persisted_search_filter_match = self
             .matches
             .in_transaction(&mut tx)
-            .find_by_filter_and_product(filter.filter.id(), command.product_id)
+            .find_by_filter_and_product(filter.filter.id(), command.product_listing_id)
             .await
             .map_err(search_filter_match_lookup_error)?
             .filter(|persisted| persisted.product_match.user_id == command.user_id)

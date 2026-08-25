@@ -11,7 +11,7 @@ use product_listing_service::ports::{
 use product_listing_service::use_cases::ProductListingSummary;
 use serde_json::json;
 
-const DEFAULT_INDEX: &str = "products";
+const DEFAULT_INDEX: &str = "product-listings";
 const DEFAULT_RESULT_COUNT: u64 = 20;
 
 #[derive(Clone)]
@@ -75,7 +75,7 @@ impl ProductListingSimilarProductListingsReader
                 source: box_error(error),
             }
         })?
-        .into_non_timed_out("similar products")
+        .into_non_timed_out("similar product_listings")
         .map_err(|error| {
             ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
                 source: box_error(error),
@@ -113,7 +113,7 @@ pub(crate) fn build_similar_products_request(
                         "bool": {
                             "must_not": [{
                                 "term": {
-                                    ProductListingDocumentSerdeField::ProductId.as_str(): request.product_id.to_string()
+                                    ProductListingDocumentSerdeField::ProductListingId.as_str(): request.product_listing_id.to_string()
                                 }
                             }]
                         }
@@ -152,9 +152,9 @@ mod tests {
 
     #[test]
     fn should_build_knn_request_that_excludes_source_product_and_embedding() {
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         let request = ProductListingSimilarProductListingsRequest {
-            product_id,
+            product_listing_id,
             embedding: vec![0.1, 0.2],
             language: Language::De,
             price_filter_plan: test_price_filter_plan(),
@@ -174,7 +174,7 @@ mod tests {
         assert_eq!(actual.pointer("/query/knn/embedding/k"), Some(&json!(20)));
         assert_eq!(
             actual.pointer("/query/knn/embedding/filter/bool/must_not/0/term/productId"),
-            Some(&json!(product_id.to_string()))
+            Some(&json!(product_listing_id.to_string()))
         );
         assert!(actual.pointer("/query/bool").is_none());
     }

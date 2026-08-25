@@ -20,7 +20,7 @@ pub struct SqlxProductListingEmbeddingSourceReader {
 
 #[derive(Debug, sqlx::FromRow)]
 struct ProductListingEmbeddingSourceRow {
-    product_id: uuid::Uuid,
+    product_listing_id: uuid::Uuid,
     event_id: uuid::Uuid,
     current_event_id: uuid::Uuid,
     event_type: String,
@@ -58,22 +58,22 @@ impl ProductListingEmbeddingSourceReader for SqlxProductListingEmbeddingSourceRe
     async fn find_source(
         &self,
         event_id: EventId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<Option<ProductListingEmbeddingSource>, ProductListingEmbeddingSourceReadError> {
         let row = sqlx::query_as::<_, ProductListingEmbeddingSourceRow>(
             r#"
-            SELECT event.event_id, event.product_id, event.event_type,
+            SELECT event.event_id, event.product_listing_id, event.event_type,
                    product.event_id AS current_event_id,
                    product.title_text, product.title_language,
                    product.description_text, product.description_language,
                    product.product_images
-            FROM product_events event
-            JOIN products product ON product.product_id = event.product_id
-            WHERE event.event_id = $1 AND event.product_id = $2
+            FROM product_listing_events event
+            JOIN product_listings product ON product.product_listing_id = event.product_listing_id
+            WHERE event.event_id = $1 AND event.product_listing_id = $2
         "#,
         )
         .bind(uuid::Uuid::from(event_id))
-        .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(product_listing_id))
         .fetch_optional(&self.pool)
         .await
         .map_err(
@@ -90,7 +90,7 @@ impl TryFrom<ProductListingEmbeddingSourceRow> for ProductListingEmbeddingSource
 
     fn try_from(row: ProductListingEmbeddingSourceRow) -> Result<Self, Self::Error> {
         Ok(Self {
-            product_id: ProductListingId::from(row.product_id),
+            product_listing_id: ProductListingId::from(row.product_listing_id),
             event_id: EventId::from(row.event_id),
             current_event_id: EventId::from(row.current_event_id),
             event_type: row.event_type,

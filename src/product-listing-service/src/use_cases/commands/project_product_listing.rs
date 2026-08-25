@@ -18,7 +18,7 @@ use product_listing_core::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProjectProductListingCommand {
     pub event_id: EventId,
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,7 +104,7 @@ where
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
     P: ProductListingSearchProjection,
 {
-    #[tracing::instrument(name = "project_product", skip_all, fields(product_id = %command.product_id, event_id = %command.event_id))]
+    #[tracing::instrument(name = "project_product", skip_all, fields(product_listing_id = %command.product_listing_id, event_id = %command.event_id))]
     async fn execute(
         &self,
         command: ProjectProductListingCommand,
@@ -117,7 +117,7 @@ where
         let source = self
             .sources
             .in_transaction(&mut tx)
-            .find_source(command.event_id, command.product_id)
+            .find_source(command.event_id, command.product_listing_id)
             .await
             .map_err(source_read_error)?;
         let Some(source) = source else {
@@ -149,7 +149,7 @@ where
 
         let outcome = if source.lifecycle == ProductLifecycle::Deleted {
             self.projection
-                .delete(source.product_id, source.projection_version)
+                .delete(source.product_listing_id, source.projection_version)
                 .await
         } else {
             self.projection
@@ -368,13 +368,13 @@ mod tests {
         async fn find_source(
             &mut self,
             event_id: EventId,
-            product_id: ProductListingId,
+            product_listing_id: ProductListingId,
         ) -> Result<
             Option<ProductListingSearchFilterMatchSource>,
             ProductListingSearchFilterMatchSourceReadError,
         > {
             let mut state = lock_state(&self.state);
-            state.source_requests.push((event_id, product_id));
+            state.source_requests.push((event_id, product_listing_id));
             match state.source_result.take() {
                 Some(result) => result,
                 None => Ok(None),
@@ -394,7 +394,7 @@ mod tests {
             let mut sources = HashMap::new();
             for reference in refs {
                 if let Some(source) = self
-                    .find_source(reference.event_id, reference.product_id)
+                    .find_source(reference.event_id, reference.product_listing_id)
                     .await?
                 {
                     sources.insert(*reference, source);
@@ -473,7 +473,7 @@ mod tests {
             let commit_count = state.commit_count;
             state
                 .upserts
-                .push((source.product_id, sale_snapshot.cloned()));
+                .push((source.product_listing_id, sale_snapshot.cloned()));
             state.write_commit_counts.push(commit_count);
             match state.projection_result.take() {
                 Some(result) => result,
@@ -483,7 +483,7 @@ mod tests {
 
         async fn delete(
             &self,
-            product_id: ProductListingId,
+            product_listing_id: ProductListingId,
             source_version: i64,
         ) -> Result<
             ProductListingSearchProjectionWriteOutcome,
@@ -491,7 +491,7 @@ mod tests {
         > {
             let mut state = lock_state(&self.state);
             let commit_count = state.commit_count;
-            state.deletes.push((product_id, source_version));
+            state.deletes.push((product_listing_id, source_version));
             state.write_commit_counts.push(commit_count);
             match state.projection_result.take() {
                 Some(result) => result,
@@ -534,8 +534,8 @@ mod tests {
             origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: event_id,
             projection_version: 41,
-            product_id: ProductListingId::new(),
-            product_slug_id: ProductListingSlugId::from("cabinet"),
+            product_listing_id: ProductListingId::new(),
+            product_listing_slug_id: ProductListingSlugId::from("cabinet"),
             shop_id: ShopId::new(),
             shop_slug_id: ShopSlugId::from("shop"),
             shop_name: ShopName::from("Shop"),
@@ -581,7 +581,7 @@ mod tests {
     fn command(source: &ProductListingSearchFilterMatchSource) -> ProjectProductListingCommand {
         ProjectProductListingCommand {
             event_id: source.event_id,
-            product_id: source.product_id,
+            product_listing_id: source.product_listing_id,
         }
     }
 
@@ -598,11 +598,11 @@ mod tests {
         assert_eq!(ProjectProductListingOutcome::Applied, result.outcome);
         let state = lock_state(&state);
         assert_eq!(
-            vec![(command.event_id, command.product_id)],
+            vec![(command.event_id, command.product_listing_id)],
             state.source_requests
         );
         assert!(state.fx_lookup_ids.is_empty());
-        assert_eq!(vec![(source.product_id, None)], state.upserts);
+        assert_eq!(vec![(source.product_listing_id, None)], state.upserts);
         assert_eq!(vec![1], state.write_commit_counts);
         Ok(())
     }
@@ -630,7 +630,10 @@ mod tests {
         assert_eq!(ProjectProductListingOutcome::Applied, result.outcome);
         let state = lock_state(&state);
         assert_eq!(vec![snapshot.id()], state.fx_lookup_ids);
-        assert_eq!(vec![(source.product_id, Some(snapshot))], state.upserts);
+        assert_eq!(
+            vec![(source.product_listing_id, Some(snapshot))],
+            state.upserts
+        );
         assert_eq!(vec![1], state.write_commit_counts);
         Ok(())
     }
@@ -652,7 +655,7 @@ mod tests {
         assert_eq!(ProjectProductListingOutcome::Applied, result.outcome);
         let state = lock_state(&state);
         assert!(state.fx_lookup_ids.is_empty());
-        assert_eq!(vec![(source.product_id, None)], state.upserts);
+        assert_eq!(vec![(source.product_listing_id, None)], state.upserts);
         assert_eq!(vec![1], state.write_commit_counts);
         Ok(())
     }
@@ -748,7 +751,7 @@ mod tests {
         let state = state();
         let command = ProjectProductListingCommand {
             event_id: EventId::new(),
-            product_id: ProductListingId::new(),
+            product_listing_id: ProductListingId::new(),
         };
         lock_state(&state).source_result = Some(Ok(None));
 
@@ -777,7 +780,7 @@ mod tests {
         assert_eq!(ProjectProductListingOutcome::Deleted, result.outcome);
         let state = lock_state(&state);
         assert_eq!(
-            vec![(source.product_id, source.projection_version)],
+            vec![(source.product_listing_id, source.projection_version)],
             state.deletes
         );
         assert!(state.upserts.is_empty());

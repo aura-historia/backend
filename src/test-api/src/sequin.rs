@@ -23,7 +23,7 @@ const SEQUIN_STATE_DB_PREFIX: &str = "sequin";
 const SECRET_KEY_BASE: &str = "wDPLYus0pvD6qJhKJICO4vYl782Zjtpew5qRBDp7CZvbWtQmY0eB13If01234567";
 const VAULT_KEY: &str = "2Sig69bIpuSm2kv0VQfDekET2qy8qUZGI8v3/h3ASiY=";
 const WORKER_WEBHOOK_TABLES: &[&str] = &[
-    "public.product_events",
+    "public.product_listing_events",
     "public.search_filters",
     "public.search_filter_matches",
 ];

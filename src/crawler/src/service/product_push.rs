@@ -506,7 +506,7 @@ mod tests {
 
             Ok(UpsertProductListingResult::Updated(
                 UpdateProductListingResult {
-                    product_id: ProductListingId::new(),
+                    product_listing_id: ProductListingId::new(),
                     event_id: None,
                 },
             ))
@@ -565,7 +565,7 @@ mod tests {
             self.active.fetch_sub(1, Ordering::SeqCst);
             Ok(UpsertProductListingResult::Updated(
                 UpdateProductListingResult {
-                    product_id: ProductListingId::new(),
+                    product_listing_id: ProductListingId::new(),
                     event_id: None,
                 },
             ))
@@ -593,7 +593,7 @@ mod tests {
 
             Ok(UpsertProductListingResult::Updated(
                 UpdateProductListingResult {
-                    product_id: ProductListingId::new(),
+                    product_listing_id: ProductListingId::new(),
                     event_id: None,
                 },
             ))

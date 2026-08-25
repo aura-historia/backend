@@ -42,8 +42,8 @@ struct SqlxProductListingRepository<'tx> {
 
 #[derive(Debug, sqlx::FromRow)]
 struct ProductListingRow {
-    product_id: uuid::Uuid,
-    product_slug_id: String,
+    product_listing_id: uuid::Uuid,
+    product_listing_slug_id: String,
     event_id: uuid::Uuid,
     shop_id: uuid::Uuid,
     seller_id: uuid::Uuid,
@@ -113,7 +113,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         let row = sqlx::query_as::<_, ProductListingRow>(
             r#"
             SELECT
-                product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id AS shop_listing_id,
+                product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id AS shop_listing_id,
                 structured_address_addressline, structured_address_addressline_extra,
                 structured_address_locality, structured_address_region, structured_address_postal_code,
                 structured_address_country, geo_address_lat, geo_address_lon, title_text,
@@ -122,8 +122,8 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_fx_rate_id, sold_at, state, lifecycle, url,
                 product_images, embedding, auction_start, auction_end, created, updated
-            FROM products
-            WHERE product_id = $1
+            FROM product_listings
+            WHERE product_listing_id = $1
             "#,
         )
         .bind(uuid::Uuid::from(id))
@@ -141,7 +141,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         let row = sqlx::query_as::<_, ProductListingRow>(
             r#"
             SELECT
-                product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id AS shop_listing_id,
+                product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id AS shop_listing_id,
                 structured_address_addressline, structured_address_addressline_extra,
                 structured_address_locality, structured_address_region, structured_address_postal_code,
                 structured_address_country, geo_address_lat, geo_address_lon, title_text,
@@ -150,9 +150,9 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_fx_rate_id, sold_at, state, lifecycle, url,
                 product_images, embedding, auction_start, auction_end, created, updated
-            FROM products
+            FROM product_listings
             WHERE shop_id = $1
-              AND shops_product_id = $2
+              AND shop_listing_id = $2
             "#,
         )
         .bind(uuid::Uuid::from(key.shop_id))
@@ -193,8 +193,8 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
             .map_err(|_| ProductListingRepositoryError::ProductListingInsertFailed)?;
         sqlx::query(
             r#"
-            INSERT INTO products (
-                product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id,
+            INSERT INTO product_listings (
+                product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id,
                 structured_address_addressline, structured_address_addressline_extra,
                 structured_address_locality, structured_address_region, structured_address_postal_code,
                 structured_address_country, geo_address_lat, geo_address_lon, title_text,
@@ -286,13 +286,13 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
             .map_err(|_| ProductListingRepositoryError::ProductListingUpdateFailed)?;
         let result = sqlx::query(
             r#"
-            UPDATE products
+            UPDATE product_listings
             SET
-                product_slug_id = $1,
+                product_listing_slug_id = $1,
                 event_id = $2,
                 shop_id = $3,
                 seller_id = $4,
-                shops_product_id = $5,
+                shop_listing_id = $5,
                 structured_address_addressline = $6,
                 structured_address_addressline_extra = $7,
                 structured_address_locality = $8,
@@ -321,7 +321,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 auction_end = $31,
                 projection_version = projection_version + 1,
                 updated = now()
-            WHERE product_id = $32 AND event_id = $33
+            WHERE product_listing_id = $32 AND event_id = $33
             "#,
         )
         .bind(product.slug_id().as_ref().to_owned())
@@ -428,8 +428,8 @@ impl TryFrom<ProductListingRow> for Versioned<ProductListing, EventId> {
         let title = localized_title_from_row(&row)?;
         let description = localized_description_from_row(&row)?;
         let product = ProductListing::rehydrate(RehydratedProductListingState {
-            id: ProductListingId::from(row.product_id),
-            slug_id: ProductListingSlugId::raw(&row.product_slug_id)
+            id: ProductListingId::from(row.product_listing_id),
+            slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
                 .map_err(|_| ProductListingRepositoryError::InvalidProductListingSlugPersisted)?,
             shop_id: ShopId::from(row.shop_id),
             seller_id: ShopId::from(row.seller_id),
@@ -651,16 +651,15 @@ impl From<ProductListingLookupByKeySqlxError> for ProductListingRepositoryError 
 }
 
 impl From<ProductListingInsertSqlxError> for ProductListingRepositoryError {
-    fn from(value: ProductListingInsertSqlxError) -> Self {
-        let ProductListingInsertSqlxError(error) = value;
-        match &error {
+    fn from(error: ProductListingInsertSqlxError) -> Self {
+        match error.0 {
             sqlx::Error::Database(db_error)
-                if db_error.constraint() == Some("products_shop_product_unique") =>
+                if db_error.constraint() == Some("product_listings_shop_product_unique") =>
             {
                 Self::ShopListingAlreadyExists
             }
             sqlx::Error::Database(db_error)
-                if db_error.constraint() == Some("products_slug_unique") =>
+                if db_error.constraint() == Some("product_listings_slug_unique") =>
             {
                 Self::ProductListingSlugAlreadyExists
             }
@@ -674,12 +673,12 @@ impl From<ProductListingUpdateSqlxError> for ProductListingRepositoryError {
         let ProductListingUpdateSqlxError(error) = value;
         match &error {
             sqlx::Error::Database(db_error)
-                if db_error.constraint() == Some("products_shop_product_unique") =>
+                if db_error.constraint() == Some("product_listings_shop_product_unique") =>
             {
                 Self::ShopListingAlreadyExists
             }
             sqlx::Error::Database(db_error)
-                if db_error.constraint() == Some("products_slug_unique") =>
+                if db_error.constraint() == Some("product_listings_slug_unique") =>
             {
                 Self::ProductListingSlugAlreadyExists
             }
@@ -892,8 +891,8 @@ mod tests {
             .as_ref()
             .to_owned();
         ProductListingRow {
-            product_id: uuid::Uuid::new_v4(),
-            product_slug_id: slug,
+            product_listing_id: uuid::Uuid::new_v4(),
+            product_listing_slug_id: slug,
             event_id: uuid::Uuid::new_v4(),
             shop_id: uuid::Uuid::new_v4(),
             seller_id: uuid::Uuid::new_v4(),

@@ -10,7 +10,7 @@ use user_core::user_id::UserId;
 pub struct ProductListingDetailsBatchReadRequest {
     pub user_id: UserId,
     pub language: Language,
-    pub product_ids: Vec<ProductListingId>,
+    pub product_listing_ids: Vec<ProductListingId>,
     pub search_filter_id: UserSearchFilterId,
 }
 

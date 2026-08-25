@@ -373,7 +373,7 @@ fn product_source(
     title: &str,
 ) -> Result<ProductListingSearchFilterMatchSource, Box<dyn std::error::Error>> {
     let title = Title::from(title);
-    let url = url::Url::parse("https://shop.example.test/products/test-product")?;
+    let url = url::Url::parse("https://shop.example.test/product_listings/test-product")?;
     let event_id = EventId::new();
 
     Ok(ProductListingSearchFilterMatchSource {
@@ -383,8 +383,8 @@ fn product_source(
         origin_event_time: time::OffsetDateTime::UNIX_EPOCH,
         current_event_id: event_id,
         projection_version: 1,
-        product_id: ProductListingId::new(),
-        product_slug_id: ProductListingSlugId::from("test-product"),
+        product_listing_id: ProductListingId::new(),
+        product_listing_slug_id: ProductListingSlugId::from("test-product"),
         shop_id: ShopId::new(),
         shop_slug_id: ShopSlugId::from("test-shop"),
         shop_name: ShopName::from("Test shop"),

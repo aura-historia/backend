@@ -25,7 +25,7 @@ use product_listing_core::product_listing_id::ProductListingId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GenerateWatchlistNotificationsCommand {
     pub event_id: EventId,
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,7 +117,7 @@ where
     G: ProductListingCurrentRevisionGuardFactory<U::Tx>,
     N: NotificationCreatorFactory<U::Tx>,
 {
-    #[tracing::instrument(name = "generate_watchlist_notifications", skip_all, fields(event_id = %command.event_id, product_id = %command.product_id))]
+    #[tracing::instrument(name = "generate_watchlist_notifications", skip_all, fields(event_id = %command.event_id, product_listing_id = %command.product_listing_id))]
     async fn execute(
         &self,
         command: GenerateWatchlistNotificationsCommand,
@@ -130,7 +130,7 @@ where
         let Some(source) = self
             .sources
             .in_transaction(&mut tx)
-            .find_source(command.event_id, command.product_id)
+            .find_source(command.event_id, command.product_listing_id)
             .await
             .map_err(
                 |source| GenerateWatchlistNotificationsError::SourceReadFailed {
@@ -149,7 +149,7 @@ where
         let revision = self
             .product_revision_guard
             .in_transaction(&mut tx)
-            .lock_and_check(command.product_id, command.event_id)
+            .lock_and_check(command.product_listing_id, command.event_id)
             .await
             .map_err(|source: ProductListingCurrentRevisionCheckError| {
                 GenerateWatchlistNotificationsError::ProductListingCurrentRevisionCheckFailed {
@@ -168,7 +168,7 @@ where
         let recipients = self
             .recipients
             .in_transaction(&mut tx)
-            .find_eligible_for_product_at(command.product_id, source.event_time)
+            .find_eligible_for_product_at(command.product_listing_id, source.event_time)
             .await
             .map_err(
                 |source| GenerateWatchlistNotificationsError::RecipientReadFailed {
@@ -242,12 +242,12 @@ fn notification_content(
     };
     NotificationContent::Watchlist {
         origin_event_id,
-        product_id: source.product_id,
+        product_listing_id: source.product_listing_id,
         snapshot: ProductListingNotificationSnapshot {
             shop_id: source.shop_id,
             shop_listing_id: source.shop_listing_id,
             shop_slug_id: source.shop_slug_id,
-            product_slug_id: source.product_slug_id,
+            product_listing_slug_id: source.product_listing_slug_id,
             shop_name: source.shop_name,
             title: source.title,
             image: source.image,
@@ -324,14 +324,14 @@ mod tests {
 
     fn source(
         event_id: EventId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         event_time: OffsetDateTime,
     ) -> ProductListingWatchlistNotificationSource {
         ProductListingWatchlistNotificationSource {
             event_id,
             event_time,
-            product_id,
-            product_slug_id: ProductListingSlugId::from("product"),
+            product_listing_id,
+            product_listing_slug_id: ProductListingSlugId::from("product"),
             shop_id: ShopId::new(),
             shop_listing_id: ShopListingId::from("product-1"),
             shop_slug_id: ShopSlugId::from("shop"),
@@ -369,11 +369,11 @@ mod tests {
 
     fn command(
         event_id: EventId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> GenerateWatchlistNotificationsCommand {
         GenerateWatchlistNotificationsCommand {
             event_id,
-            product_id,
+            product_listing_id,
         }
     }
 
@@ -410,7 +410,7 @@ mod tests {
         async fn find_source(
             &mut self,
             event_id: EventId,
-            product_id: ProductListingId,
+            product_listing_id: ProductListingId,
         ) -> Result<
             Option<ProductListingWatchlistNotificationSource>,
             ProductListingWatchlistNotificationSourceReadError,
@@ -418,7 +418,9 @@ mod tests {
             Ok(lock(&self.0)
                 .sources
                 .iter()
-                .find(|source| source.event_id == event_id && source.product_id == product_id)
+                .find(|source| {
+                    source.event_id == event_id && source.product_listing_id == product_listing_id
+                })
                 .cloned())
         }
     }
@@ -436,7 +438,7 @@ mod tests {
     impl ProductListingCurrentRevisionGuard for RevisionGuard {
         async fn lock_and_check(
             &mut self,
-            _product_id: ProductListingId,
+            _product_listing_id: ProductListingId,
             _expected_event_id: EventId,
         ) -> Result<ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError>
         {
@@ -464,7 +466,7 @@ mod tests {
             for reference in refs {
                 checks.insert(
                     *reference,
-                    self.lock_and_check(reference.product_id, reference.expected_event_id)
+                    self.lock_and_check(reference.product_listing_id, reference.expected_event_id)
                         .await?,
                 );
             }
@@ -485,7 +487,7 @@ mod tests {
     impl WatchlistNotificationRecipientReader for RecipientReader {
         async fn find_eligible_for_product_at(
             &mut self,
-            _product_id: ProductListingId,
+            _product_listing_id: ProductListingId,
             _event_time: OffsetDateTime,
         ) -> Result<Vec<WatchlistNotificationRecipient>, WatchlistNotificationRecipientReadError>
         {
@@ -524,16 +526,16 @@ mod tests {
     #[tokio::test]
     async fn should_suppress_and_commit_without_notifications_when_exact_source_is_missing() {
         let state = state();
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         let requested_event_id = EventId::new();
         lock(&state).sources.push(source(
             EventId::new(),
-            product_id,
+            product_listing_id,
             OffsetDateTime::UNIX_EPOCH,
         ));
 
         let result = handler(&state)
-            .execute(command(requested_event_id, product_id))
+            .execute(command(requested_event_id, product_listing_id))
             .await;
 
         assert!(matches!(
@@ -551,12 +553,14 @@ mod tests {
     async fn should_suppress_stale_product_event_without_notifications_or_delivery() {
         let state = state();
         let event_id = EventId::new();
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         {
             let mut state = lock(&state);
-            state
-                .sources
-                .push(source(event_id, product_id, OffsetDateTime::UNIX_EPOCH));
+            state.sources.push(source(
+                event_id,
+                product_listing_id,
+                OffsetDateTime::UNIX_EPOCH,
+            ));
             state.revision_checks.push_back(RevisionOutcome::Stale);
             state.recipients.push(WatchlistNotificationRecipient {
                 user_id: UserId::new(),
@@ -564,7 +568,9 @@ mod tests {
             });
         }
 
-        let result = handler(&state).execute(command(event_id, product_id)).await;
+        let result = handler(&state)
+            .execute(command(event_id, product_listing_id))
+            .await;
 
         assert!(matches!(
             result,
@@ -580,16 +586,20 @@ mod tests {
     async fn should_return_typed_revision_check_failure_without_suppression() {
         let state = state();
         let event_id = EventId::new();
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         {
             let mut state = lock(&state);
-            state
-                .sources
-                .push(source(event_id, product_id, OffsetDateTime::UNIX_EPOCH));
+            state.sources.push(source(
+                event_id,
+                product_listing_id,
+                OffsetDateTime::UNIX_EPOCH,
+            ));
             state.revision_checks.push_back(RevisionOutcome::Failure);
         }
 
-        let result = handler(&state).execute(command(event_id, product_id)).await;
+        let result = handler(&state)
+            .execute(command(event_id, product_listing_id))
+            .await;
 
         assert!(matches!(
             result,
@@ -606,7 +616,7 @@ mod tests {
     #[tokio::test]
     async fn should_create_notification_for_current_event_after_older_event_was_stale() {
         let state = state();
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         let older_event_id = EventId::new();
         let current_event_id = EventId::new();
         let older_event_time = OffsetDateTime::UNIX_EPOCH;
@@ -615,10 +625,12 @@ mod tests {
             let mut state = lock(&state);
             state
                 .sources
-                .push(source(older_event_id, product_id, older_event_time));
-            state
-                .sources
-                .push(source(current_event_id, product_id, current_event_time));
+                .push(source(older_event_id, product_listing_id, older_event_time));
+            state.sources.push(source(
+                current_event_id,
+                product_listing_id,
+                current_event_time,
+            ));
             state.revision_checks.push_back(RevisionOutcome::Stale);
             state.revision_checks.push_back(RevisionOutcome::Current);
             state.recipients.push(WatchlistNotificationRecipient {
@@ -628,10 +640,10 @@ mod tests {
         }
 
         let older_result = handler(&state)
-            .execute(command(older_event_id, product_id))
+            .execute(command(older_event_id, product_listing_id))
             .await;
         let current_result = handler(&state)
-            .execute(command(current_event_id, product_id))
+            .execute(command(current_event_id, product_listing_id))
             .await;
 
         assert!(matches!(

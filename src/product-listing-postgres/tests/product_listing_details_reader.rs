@@ -118,7 +118,7 @@ async fn should_fall_back_to_de_then_deterministic_remaining_translation_for_slu
         ProductListingDetailsReadRequest {
             lookup: ProductListingLookup::BySlug {
                 shop_slug_id: ShopSlugId::from(shop_slug),
-                product_slug_id: product.slug_id().clone(),
+                product_listing_slug_id: product.slug_id().clone(),
             },
             language: Language::It,
             user_id: None,
@@ -240,7 +240,7 @@ async fn should_join_all_postgres_user_state_sections_for_authenticated_user() {
     let notification = sqlx::query(
         r#"
         INSERT INTO notifications (
-            notification_id, user_id, kind, origin_event_id, product_id, payload, seen
+            notification_id, user_id, kind, origin_event_id, product_listing_id, payload, seen
         ) VALUES ($1, $2, 'WATCHLIST_STATE_CHANGED', $3, $4, $5, false)
         "#,
     )
@@ -583,11 +583,11 @@ async fn should_select_earliest_search_filter_match_deterministically() {
 }
 
 fn details_request(
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     user_id: Option<UserId>,
 ) -> ProductListingDetailsReadRequest {
     ProductListingDetailsReadRequest {
-        lookup: ProductListingLookup::ById(product_id),
+        lookup: ProductListingLookup::ById(product_listing_id),
         language: Language::En,
         user_id,
     }
@@ -656,13 +656,13 @@ async fn persist_product_for_shops(
     description: Option<Localized<Language, Description>>,
 ) -> ProductListing {
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let products = SqlxProductListingRepositoryFactory::new();
+    let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
     let product = sample_product(slug, shop_id, seller_id, title, description);
     let event = product.pending_events()[0].clone();
 
     let mut tx = begin(&unit_of_work).await;
-    match products
+    match product_listings
         .in_transaction(&mut tx)
         .insert(&product, event.event_id)
         .await
@@ -681,20 +681,20 @@ async fn persist_product_for_shops(
 
 async fn insert_translation(
     pool: &sqlx::PgPool,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     language: &str,
     title: Option<&str>,
     description: Option<&str>,
 ) {
     let result = sqlx::query(
         r#"
-        INSERT INTO product_translations (product_id, source_event_id, language, title, description)
-        SELECT product_id, event_id, $2, $3, $4
-        FROM products
-        WHERE product_id = $1
+        INSERT INTO product_listing_translations (product_listing_id, source_event_id, language, title, description)
+        SELECT product_listing_id, event_id, $2, $3, $4
+        FROM product_listings
+        WHERE product_listing_id = $1
         "#,
     )
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .bind(language)
     .bind(title)
     .bind(description)
@@ -732,18 +732,18 @@ async fn seed_user(pool: &sqlx::PgPool, tier: &str, prohibited_content_consent: 
 async fn insert_watchlist(
     pool: &sqlx::PgPool,
     user_id: UserId,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     notifications: bool,
     state: &str,
 ) {
     let result = sqlx::query(
         r#"
-        INSERT INTO product_watchlist (user_id, product_id, notifications, state, active_since, notifications_enabled_since)
+        INSERT INTO product_listing_watchlist (user_id, product_listing_id, notifications, state, active_since, notifications_enabled_since)
         VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'ACTIVE' THEN now() ELSE NULL END, CASE WHEN $3 THEN now() ELSE NULL END)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .bind(notifications)
     .bind(state)
     .execute(pool)
@@ -795,7 +795,7 @@ async fn insert_search_filter_match(
     pool: &sqlx::PgPool,
     user_id: UserId,
     filter_id: UserSearchFilterId,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     origin_event_id: EventId,
     name: &str,
     reason: Option<&str>,
@@ -805,14 +805,14 @@ async fn insert_search_filter_match(
     let result = sqlx::query(
         r#"
         INSERT INTO search_filter_matches (
-            user_id, user_search_filter_id, product_id, origin_event_id,
+            user_id, user_search_filter_id, product_listing_id, origin_event_id,
             user_search_filter_name, enhanced_match_reason, feedback, created
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(uuid_from_filter_id(filter_id))
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .bind(uuid::Uuid::from(origin_event_id))
     .bind(name)
     .bind(reason)
@@ -826,12 +826,16 @@ async fn insert_search_filter_match(
     }
 }
 
-async fn event_id_for_product(pool: &sqlx::PgPool, product_id: ProductListingId) -> EventId {
-    let result =
-        sqlx::query_scalar::<_, uuid::Uuid>("SELECT event_id FROM products WHERE product_id = $1")
-            .bind(uuid::Uuid::from(product_id))
-            .fetch_one(pool)
-            .await;
+async fn event_id_for_product(
+    pool: &sqlx::PgPool,
+    product_listing_id: ProductListingId,
+) -> EventId {
+    let result = sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT event_id FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .fetch_one(pool)
+    .await;
 
     match result {
         Ok(event_id) => EventId::from(event_id),
@@ -841,14 +845,16 @@ async fn event_id_for_product(pool: &sqlx::PgPool, product_id: ProductListingId)
 
 async fn set_product_images(
     pool: &sqlx::PgPool,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     images: serde_json::Value,
 ) {
-    let result = sqlx::query("UPDATE products SET product_images = $1 WHERE product_id = $2")
-        .bind(images)
-        .bind(uuid::Uuid::from(product_id))
-        .execute(pool)
-        .await;
+    let result = sqlx::query(
+        "UPDATE product_listings SET product_images = $1 WHERE product_listing_id = $2",
+    )
+    .bind(images)
+    .bind(uuid::Uuid::from(product_listing_id))
+    .execute(pool)
+    .await;
 
     if let Err(error) = result {
         panic!("failed to update product images: {error}");

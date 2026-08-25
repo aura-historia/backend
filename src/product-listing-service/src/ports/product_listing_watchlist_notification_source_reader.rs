@@ -18,8 +18,8 @@ use url::Url;
 pub struct ProductListingWatchlistNotificationSource {
     pub event_id: EventId,
     pub event_time: OffsetDateTime,
-    pub product_id: ProductListingId,
-    pub product_slug_id: ProductListingSlugId,
+    pub product_listing_id: ProductListingId,
+    pub product_listing_slug_id: ProductListingSlugId,
     pub shop_id: ShopId,
     pub shop_listing_id: ShopListingId,
     pub shop_slug_id: ShopSlugId,
@@ -62,7 +62,7 @@ pub trait ProductListingWatchlistNotificationSourceReader: Send {
     async fn find_source(
         &mut self,
         event_id: EventId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<
         Option<ProductListingWatchlistNotificationSource>,
         ProductListingWatchlistNotificationSourceReadError,

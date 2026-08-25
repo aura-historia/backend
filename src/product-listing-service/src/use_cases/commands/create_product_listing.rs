@@ -48,8 +48,8 @@ pub struct CreateProductListingCommand {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateProductListingResult {
-    pub product_id: ProductListingId,
-    pub product_slug_id: ProductListingSlugId,
+    pub product_listing_id: ProductListingId,
+    pub product_listing_slug_id: ProductListingSlugId,
     pub event_id: EventId,
 }
 
@@ -259,7 +259,7 @@ where
             event = "product.created",
             actor_type = context.principal.kind(),
             actor_id = %context.principal.label(),
-            product_id = %product.id(),
+            product_listing_id = %product.id(),
             event_id = %event_id,
             outcome = "success",
         );
@@ -269,9 +269,9 @@ where
 }
 
 impl CreateProductListingCommand {
-    pub fn into_new_product(self, product_id: ProductListingId) -> NewProductListing {
+    pub fn into_new_product(self, product_listing_id: ProductListingId) -> NewProductListing {
         NewProductListing {
-            id: product_id,
+            id: product_listing_id,
             shop_id: self.shop_id,
             seller_id: self.seller_id,
             shop_listing_id: self.shop_listing_id,
@@ -298,8 +298,8 @@ impl TryFrom<&ProductListing> for CreateProductListingResult {
             .map(|event| event.event_id)
             .ok_or(CreateProductListingError::CreatedEventMissing)?;
         Ok(Self {
-            product_id: product.id(),
-            product_slug_id: product.slug_id().clone(),
+            product_listing_id: product.id(),
+            product_listing_slug_id: product.slug_id().clone(),
             event_id,
         })
     }
@@ -846,7 +846,7 @@ mod tests {
 
         async fn find_current_event_id(
             &mut self,
-            _product_id: ProductListingId,
+            _product_listing_id: ProductListingId,
         ) -> Result<Option<EventId>, ProductListingEventStoreError> {
             Ok(None)
         }
@@ -909,9 +909,11 @@ mod tests {
         })
     }
 
-    fn new_product(product_id: ProductListingId) -> Result<NewProductListing, url::ParseError> {
+    fn new_product(
+        product_listing_id: ProductListingId,
+    ) -> Result<NewProductListing, url::ParseError> {
         Ok(NewProductListing {
-            id: product_id,
+            id: product_listing_id,
             shop_id: ShopId::new(),
             seller_id: ShopId::new(),
             shop_listing_id: ShopListingId::new(),

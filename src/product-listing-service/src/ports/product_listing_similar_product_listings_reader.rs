@@ -5,7 +5,7 @@ use product_listing_core::product_listing_id::ProductListingId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingSimilarProductListingsRequest {
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub embedding: Vec<f32>,
     pub language: Language,
     pub price_filter_plan: ProductListingPriceFilterPlan,
@@ -13,13 +13,13 @@ pub struct ProductListingSimilarProductListingsRequest {
 
 impl ProductListingSimilarProductListingsRequest {
     pub fn new(
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         embedding: Vec<f32>,
         language: Language,
         price_filter_plan: ProductListingPriceFilterPlan,
     ) -> Self {
         Self {
-            product_id,
+            product_listing_id,
             embedding,
             language,
             price_filter_plan,

@@ -19,7 +19,7 @@ use watchlist_core::watchlist_state::WatchlistState;
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateWatchlistProductListingCommand {
     pub user_id: UserId,
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub notifications: Option<bool>,
     pub state: Option<WatchlistState>,
 }
@@ -102,7 +102,7 @@ where
     Q: WatchlistQuotaReaderFactory<U::Tx>,
     A: UserTierEntitlementsFactory<U::Tx>,
 {
-    #[tracing::instrument(name = "update_watchlist_product", skip_all, fields(user_id = %command.user_id, product_id = %command.product_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    #[tracing::instrument(name = "update_watchlist_product", skip_all, fields(user_id = %command.user_id, product_listing_id = %command.product_listing_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
         &self,
         context: &OperationContext,
@@ -118,7 +118,7 @@ where
         let loaded = self
             .watchlist
             .in_transaction(&mut tx)
-            .find_by_user_and_product(command.user_id, command.product_id)
+            .find_by_user_and_product(command.user_id, command.product_listing_id)
             .await?
             .ok_or(UpdateWatchlistProductListingError::NotFound)?;
         let expected_version = loaded.version;
@@ -176,7 +176,7 @@ where
                         actor_type = context.principal.kind(),
                         actor_id = ?context.principal.actor_id(),
                         user_id = %command.user_id,
-                        product_id = %command.product_id,
+                        product_listing_id = %command.product_listing_id,
                         outcome = "concurrency_conflict",
                     );
                     return Err(UpdateWatchlistProductListingError::ConcurrencyConflict);
@@ -193,7 +193,7 @@ where
             actor_type = context.principal.kind(),
             actor_id = ?context.principal.actor_id(),
             user_id = %command.user_id,
-            product_id = %command.product_id,
+            product_listing_id = %command.product_listing_id,
             outcome = if changed { "success" } else { "unchanged" },
         );
         Ok(UpdateWatchlistProductListingResult { entry })
@@ -460,7 +460,7 @@ mod tests {
         async fn find_by_user_and_product(
             &mut self,
             user_id: UserId,
-            product_id: ProductListingId,
+            product_listing_id: ProductListingId,
         ) -> Result<Option<VersionedWatchlistProductListing>, WatchlistRepositoryError> {
             self.state
                 .entries
@@ -473,7 +473,7 @@ mod tests {
                         .iter()
                         .find(|entry| {
                             entry.value.user_id() == user_id
-                                && entry.value.product_id() == product_id
+                                && entry.value.product_listing_id() == product_listing_id
                         })
                         .cloned()
                 })
@@ -492,7 +492,7 @@ mod tests {
                     })?;
             if entries.iter().any(|existing| {
                 existing.value.user_id() == entry.user_id()
-                    && existing.value.product_id() == entry.product_id()
+                    && existing.value.product_listing_id() == entry.product_listing_id()
             }) {
                 return Err(WatchlistRepositoryError::AlreadyExists);
             }
@@ -521,7 +521,7 @@ mod tests {
                     })?;
             let Some(existing) = entries.iter_mut().find(|existing| {
                 existing.value.user_id() == entry.user_id()
-                    && existing.value.product_id() == entry.product_id()
+                    && existing.value.product_listing_id() == entry.product_listing_id()
             }) else {
                 return Err(WatchlistRepositoryError::UpdateFailed {
                     source: static_error("watchlist test entry is missing"),
@@ -546,7 +546,7 @@ mod tests {
         async fn delete(
             &mut self,
             user_id: UserId,
-            product_id: ProductListingId,
+            product_listing_id: ProductListingId,
             expected_version: WatchlistStorageVersion,
         ) -> Result<(), WatchlistRepositoryError> {
             let mut entries =
@@ -557,7 +557,8 @@ mod tests {
                         source: static_error("watchlist test delete mutex is poisoned"),
                     })?;
             let Some(index) = entries.iter().position(|entry| {
-                entry.value.user_id() == user_id && entry.value.product_id() == product_id
+                entry.value.user_id() == user_id
+                    && entry.value.product_listing_id() == product_listing_id
             }) else {
                 return Err(WatchlistRepositoryError::ConcurrencyConflict);
             };
@@ -591,7 +592,7 @@ mod tests {
                         .filter(|entry| entry.value.user_id() == user_id)
                         .map(|entry| WatchlistProductListingView {
                             user_id: entry.value.user_id(),
-                            product_id: entry.value.product_id(),
+                            product_listing_id: entry.value.product_listing_id(),
                             notifications: entry.value.notifications(),
                             state: entry.value.state(),
                             created: OffsetDateTime::UNIX_EPOCH,
@@ -603,7 +604,7 @@ mod tests {
 
         async fn find_user_ids_for_product(
             &mut self,
-            product_id: ProductListingId,
+            product_listing_id: ProductListingId,
         ) -> Result<Vec<UserId>, WatchlistReadError> {
             self.state
                 .entries
@@ -612,7 +613,7 @@ mod tests {
                 .map(|entries| {
                     entries
                         .iter()
-                        .filter(|entry| entry.value.product_id() == product_id)
+                        .filter(|entry| entry.value.product_listing_id() == product_listing_id)
                         .map(|entry| entry.value.user_id())
                         .collect()
                 })
@@ -643,12 +644,12 @@ mod tests {
 
     fn entry(
         user_id: UserId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         notifications: bool,
     ) -> WatchlistProductListing {
         WatchlistProductListing::create(NewWatchlistProductListing {
             user_id,
-            product_id,
+            product_listing_id,
             notifications,
             state: WatchlistState::Active,
         })
@@ -657,8 +658,8 @@ mod tests {
     #[tokio::test]
     async fn should_update_notifications_when_entry_exists() -> Result<(), String> {
         let user_id = UserId::new();
-        let product_id = ProductListingId::new();
-        let state = SharedState::with_entry(entry(user_id, product_id, true));
+        let product_listing_id = ProductListingId::new();
+        let state = SharedState::with_entry(entry(user_id, product_listing_id, true));
 
         let result = UpdateWatchlistProductListingHandler::new(
             TestUnitOfWork {
@@ -679,7 +680,7 @@ mod tests {
             &context_for_user(user_id),
             UpdateWatchlistProductListingCommand {
                 user_id,
-                product_id,
+                product_listing_id,
                 notifications: Some(false),
                 state: None,
             },
@@ -696,8 +697,8 @@ mod tests {
     #[tokio::test]
     async fn should_skip_persistence_when_update_command_changes_nothing() -> Result<(), String> {
         let user_id = UserId::new();
-        let product_id = ProductListingId::new();
-        let state = SharedState::with_entry(entry(user_id, product_id, true));
+        let product_listing_id = ProductListingId::new();
+        let state = SharedState::with_entry(entry(user_id, product_listing_id, true));
 
         let result = UpdateWatchlistProductListingHandler::new(
             TestUnitOfWork {
@@ -718,7 +719,7 @@ mod tests {
             &context_for_user(user_id),
             UpdateWatchlistProductListingCommand {
                 user_id,
-                product_id,
+                product_listing_id,
                 notifications: Some(true),
                 state: Some(WatchlistState::Active),
             },
@@ -736,8 +737,8 @@ mod tests {
     #[tokio::test]
     async fn should_return_concurrency_conflict_when_entry_changes_before_update() {
         let user_id = UserId::new();
-        let product_id = ProductListingId::new();
-        let mut state = SharedState::with_entry(entry(user_id, product_id, true));
+        let product_listing_id = ProductListingId::new();
+        let mut state = SharedState::with_entry(entry(user_id, product_listing_id, true));
         state.force_concurrency_conflict = true;
 
         let result = UpdateWatchlistProductListingHandler::new(
@@ -759,7 +760,7 @@ mod tests {
             &context_for_user(user_id),
             UpdateWatchlistProductListingCommand {
                 user_id,
-                product_id,
+                product_listing_id,
                 notifications: Some(false),
                 state: None,
             },
@@ -796,7 +797,7 @@ mod tests {
             &context_for_user(user_id),
             UpdateWatchlistProductListingCommand {
                 user_id,
-                product_id: ProductListingId::new(),
+                product_listing_id: ProductListingId::new(),
                 notifications: Some(false),
                 state: None,
             },
@@ -831,7 +832,7 @@ mod tests {
             &delegated_context(user_id, BTreeSet::new()),
             UpdateWatchlistProductListingCommand {
                 user_id,
-                product_id: ProductListingId::new(),
+                product_listing_id: ProductListingId::new(),
                 notifications: Some(false),
                 state: None,
             },

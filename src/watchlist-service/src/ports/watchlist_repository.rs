@@ -44,7 +44,7 @@ pub trait WatchlistRepository: Send {
     async fn find_by_user_and_product(
         &mut self,
         user_id: UserId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<Option<VersionedWatchlistProductListing>, WatchlistRepositoryError>;
 
     async fn insert(
@@ -61,7 +61,7 @@ pub trait WatchlistRepository: Send {
     async fn delete(
         &mut self,
         user_id: UserId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         expected_version: WatchlistStorageVersion,
     ) -> Result<(), WatchlistRepositoryError>;
 }

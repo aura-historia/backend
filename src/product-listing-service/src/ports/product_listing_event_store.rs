@@ -23,7 +23,7 @@ pub trait ProductListingEventStore: Send {
 
     async fn find_current_event_id(
         &mut self,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<Option<EventId>, ProductListingEventStoreError>;
 }
 

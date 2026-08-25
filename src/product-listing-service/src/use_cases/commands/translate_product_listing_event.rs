@@ -16,7 +16,7 @@ const EMBEDDED_EVENT_TYPE: &str = "ENRICHMENT_EMBEDDED";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TranslateProductListingCommand {
     pub event_id: EventId,
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +107,7 @@ where
         name = "translate_product_event",
         skip_all,
         fields(
-            product_id = %command.product_id,
+            product_listing_id = %command.product_listing_id,
             event_id = %command.event_id,
             principal_type = context.principal.kind(),
             actor_id = tracing::field::Empty,
@@ -130,7 +130,7 @@ where
 
         let Some(source) = self
             .sources
-            .find_source(command.event_id, command.product_id)
+            .find_source(command.event_id, command.product_listing_id)
             .await
             .map_err(
                 |source| TranslateProductListingEventError::SourceReadFailed {
@@ -181,7 +181,7 @@ where
             .translations
             .in_transaction(&mut tx)
             .apply(&ProductListingTranslationWrite {
-                product_id: command.product_id,
+                product_listing_id: command.product_listing_id,
                 source_event_id: command.event_id,
                 enrichment_event_id: EventId::new(),
                 source_language,
@@ -217,7 +217,7 @@ where
             tracing::info!(
                 event = "product.translated",
                 actor_type = context.principal.kind(),
-                product_id = %command.product_id,
+                product_listing_id = %command.product_listing_id,
                 source_event_id = %command.event_id,
                 outcome = "success",
             );
@@ -334,7 +334,7 @@ mod tests {
         async fn find_source(
             &self,
             _event_id: EventId,
-            _product_id: ProductListingId,
+            _product_listing_id: ProductListingId,
         ) -> Result<
             Option<crate::ports::ProductListingTranslationSource>,
             ProductListingTranslationSourceReadError,
@@ -433,11 +433,11 @@ mod tests {
     }
 
     fn state_with_source() -> SharedState {
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         let event_id = EventId::new();
         Arc::new(Mutex::new(State {
             source: Some(crate::ports::ProductListingTranslationSource {
-                product_id,
+                product_listing_id,
                 event_id,
                 current_event_id: event_id,
                 event_type: EMBEDDED_EVENT_TYPE.to_owned(),
@@ -473,7 +473,7 @@ mod tests {
         let source = lock(state).source.clone().expect("source exists");
         TranslateProductListingCommand {
             event_id: source.event_id,
-            product_id: source.product_id,
+            product_listing_id: source.product_listing_id,
         }
     }
 

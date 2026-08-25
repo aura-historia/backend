@@ -59,8 +59,8 @@ pub struct ProductListingSearchCursor {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingSummary {
-    pub product_id: ProductListingId,
-    pub product_slug_id: ProductListingSlugId,
+    pub product_listing_id: ProductListingId,
+    pub product_listing_slug_id: ProductListingSlugId,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub seller_id: ShopId,
@@ -703,8 +703,8 @@ mod tests {
     fn search_result() -> Result<ProductListingSearchReadResult, url::ParseError> {
         Ok(ProductListingSearchReadResult {
             items: vec![ProductListingSummary {
-                product_id: ProductListingId::new(),
-                product_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+                product_listing_id: ProductListingId::new(),
+                product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
                 event_id: EventId::new(),
                 shop_id: ShopId::new(),
                 seller_id: ShopId::new(),
@@ -981,14 +981,15 @@ mod tests {
         let state = state();
         let user_id = UserId::new();
         let expected = search_result()?;
-        let product_id = expected.items[0].product_id;
+        let product_listing_id = expected.items[0].product_listing_id;
         let notification_id = notification_core::notification_id::NotificationId::new();
         let mut user_state = ProductListingUserState::default();
         user_state.watchlist.watching = true;
         user_state.watchlist.notifications = true;
         user_state.notification.unseen_notification_ids = vec![notification_id];
         lock_state(&state).search_result = Some(Ok(expected));
-        lock_state(&state).user_states_result = Some(Ok(HashMap::from([(product_id, user_state)])));
+        lock_state(&state).user_states_result =
+            Some(Ok(HashMap::from([(product_listing_id, user_state)])));
 
         let result = handler(&state)
             .execute(&user_context(user_id), request())
@@ -997,8 +998,11 @@ mod tests {
         let state = lock_state(&state);
         assert_eq!(1, state.user_state_lookups.len());
         assert_eq!(user_id, state.user_state_lookups[0].user_id);
-        assert_eq!(1, state.user_state_lookups[0].product_ids.len());
-        assert_eq!(product_id, state.user_state_lookups[0].product_ids[0]);
+        assert_eq!(1, state.user_state_lookups[0].product_listing_ids.len());
+        assert_eq!(
+            product_listing_id,
+            state.user_state_lookups[0].product_listing_ids[0]
+        );
         let user_state = result.items[0]
             .user_state
             .as_ref()
@@ -1041,11 +1045,12 @@ mod tests {
         let state = state();
         let user_id = UserId::new();
         let expected = search_result()?;
-        let product_id = expected.items[0].product_id;
+        let product_listing_id = expected.items[0].product_listing_id;
         let mut user_state = ProductListingUserState::default();
         user_state.search_filter.hidden = true;
         lock_state(&state).search_result = Some(Ok(expected));
-        lock_state(&state).user_states_result = Some(Ok(HashMap::from([(product_id, user_state)])));
+        lock_state(&state).user_states_result =
+            Some(Ok(HashMap::from([(product_listing_id, user_state)])));
 
         let result = handler(&state)
             .execute(&user_context(user_id), request())
@@ -1053,7 +1058,7 @@ mod tests {
 
         assert_eq!(
             ProductListingId::from(uuid::Uuid::nil()),
-            result.items[0].item.product_id
+            result.items[0].item.product_listing_id
         );
         assert_eq!(
             Some(true),

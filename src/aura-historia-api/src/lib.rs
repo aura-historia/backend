@@ -6,9 +6,9 @@ pub mod notifications;
 pub mod oauth;
 pub(crate) mod pagination_data;
 pub mod partner_applications;
-pub mod partner_products;
+pub mod partner_product_listings;
 pub(crate) mod patch_value;
-pub mod products;
+pub mod product_listings;
 pub mod search_filters;
 pub mod shops;
 pub mod state;
@@ -25,7 +25,7 @@ use crate::auth::{
 };
 use crate::state::{
     AppState, BillingState, NewsletterState, NotificationsState, OAuthState,
-    PartnerApplicationsState, PartnerProductsState, ProductsState, ReadinessCheck,
+    PartnerApplicationsState, PartnerProductListingsState, ProductListingsState, ReadinessCheck,
     SearchFiltersState, ShopsState, UsersState, WatchlistState, WebhooksState,
 };
 use crate::transport::with_transport_middleware;
@@ -377,36 +377,36 @@ pub fn app(state: AppState) -> Router {
         .with_state(state.shops);
     let mut routes = health_routes.merge(shop_routes);
 
-    if let Some(products) = state.products {
+    if let Some(products) = state.product_listings {
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/products",
-                    get(products::search_products::get_products),
+                    "/api/v1/product-listings",
+                    get(product_listings::search_products::get_products),
                 )
                 .route(
-                    "/api/v1/products/{product_id}",
-                    get(products::get_product_by_id::get_product_by_id),
+                    "/api/v1/product-listings/{product_listing_id}",
+                    get(product_listings::get_product_by_id::get_product_by_id),
                 )
                 .route(
-                    "/api/v1/products/{product_id}/history",
-                    get(products::get_product_history::get_product_events_by_id),
+                    "/api/v1/product-listings/{product_listing_id}/history",
+                    get(product_listings::get_product_history::get_product_listing_events_by_id),
                 )
                 .route(
-                    "/api/v1/products/{product_id}/similar",
-                    get(products::get_similar_products::get_similar_products_by_id),
+                    "/api/v1/product-listings/{product_listing_id}/similar",
+                    get(product_listings::get_similar_products::get_similar_products_by_id),
                 )
                 .route(
-                    "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}",
-                    get(products::get_product_by_slug::get_product_by_slug),
+                    "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}",
+                    get(product_listings::get_product_by_slug::get_product_by_slug),
                 )
                 .route(
-                    "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/history",
-                    get(products::get_product_history::get_product_events_by_slug),
+                    "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/history",
+                    get(product_listings::get_product_history::get_product_listing_events_by_slug),
                 )
                 .route(
-                    "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar",
-                    get(products::get_similar_products::get_similar_products_by_slug),
+                    "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar",
+                    get(product_listings::get_similar_products::get_similar_products_by_slug),
                 )
                 .with_state(products),
         );
@@ -423,17 +423,17 @@ pub fn app(state: AppState) -> Router {
         );
     }
 
-    if let Some(partner_products) = state.partner_products {
+    if let Some(partner_product_listings) = state.partner_product_listings {
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/shops/{shop_id}/products",
-                    post(partner_products::create_products::create_products)
-                        .patch(partner_products::update_products::update_products)
-                        .put(partner_products::upsert_products::upsert_products)
-                        .delete(partner_products::delete_products::delete_products),
+                    "/api/v1/shops/{shop_id}/product-listings",
+                    post(partner_product_listings::create_products::create_products)
+                        .patch(partner_product_listings::update_products::update_products)
+                        .put(partner_product_listings::upsert_products::upsert_products)
+                        .delete(partner_product_listings::delete_products::delete_products),
                 )
-                .with_state(partner_products),
+                .with_state(partner_product_listings),
         );
     }
 
@@ -504,7 +504,7 @@ pub fn app(state: AppState) -> Router {
                     get(watchlist::list::list_watchlist).post(watchlist::create::post_watchlist),
                 )
                 .route(
-                    "/api/v1/me/watchlist/{product_id}",
+                    "/api/v1/me/watchlist/{product_listing_id}",
                     patch(watchlist::update::patch_watchlist)
                         .delete(watchlist::delete::delete_watchlist),
                 )
@@ -609,7 +609,7 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
 async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateError> {
     let pool = postgres_pool_from_env().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let get_product_events = GetProductListingEventsHandler::new(
+    let get_product_listing_events = GetProductListingEventsHandler::new(
         unit_of_work.clone(),
         SqlxProductListingEventReaderFactory::new(),
     );
@@ -876,7 +876,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
-    let partner_products_state = PartnerProductsState::new(
+    let partner_product_listings_state = PartnerProductListingsState::new(
         Arc::new(create_product),
         Arc::new(update_product),
         Arc::new(upsert_product),
@@ -1034,15 +1034,15 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         partner_state,
     )
     .with_products(
-        ProductsState::new(
+        ProductListingsState::new(
             Arc::new(get_product),
             Arc::new(get_similar_products),
             Arc::new(search_products),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         )
-        .with_product_events(Arc::new(get_product_events)),
+        .with_product_listing_events(Arc::new(get_product_listing_events)),
     )
-    .with_partner_products(partner_products_state)
+    .with_partner_product_listings(partner_product_listings_state)
     .with_webhooks(WebhooksState::new(
         Arc::new(ingest_woocommerce_product),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,

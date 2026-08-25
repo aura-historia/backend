@@ -138,7 +138,7 @@ pub struct SearchFilterProductListingMatch {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub user_search_filter_name: Option<UserSearchFilterName>,
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub origin_event_id: EventId,
     /// Immutable valuation used only when this filter had a price condition.
     pub price_match_valuation: Option<PriceMatchValuation>,
@@ -228,7 +228,7 @@ mod tests {
             user_id: UserId::new(),
             user_search_filter_id: UserSearchFilterId::new(),
             user_search_filter_name: None,
-            product_id: ProductListingId::new(),
+            product_listing_id: ProductListingId::new(),
             origin_event_id: EventId::new(),
             price_match_valuation: None,
             enhanced_match_reason: None,

@@ -22,7 +22,7 @@ pub enum WatchlistNotificationRecipientReadError {
 pub trait WatchlistNotificationRecipientReader: Send {
     async fn find_eligible_for_product_at(
         &mut self,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         event_time: OffsetDateTime,
     ) -> Result<Vec<WatchlistNotificationRecipient>, WatchlistNotificationRecipientReadError>;
 }

@@ -8,7 +8,7 @@ use user_core::user_id::UserId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProductListingWatchlistDetailsCursor {
     pub watchlist_created: OffsetDateTime,
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

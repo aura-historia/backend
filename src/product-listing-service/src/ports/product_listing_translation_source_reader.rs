@@ -5,7 +5,7 @@ use product_listing_core::{product_listing_id::ProductListingId, title::Title};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingTranslationSource {
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub event_id: EventId,
     pub current_event_id: EventId,
     pub event_type: String,
@@ -32,6 +32,6 @@ pub trait ProductListingTranslationSourceReader: Send + Sync {
     async fn find_source(
         &self,
         event_id: EventId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<Option<ProductListingTranslationSource>, ProductListingTranslationSourceReadError>;
 }

@@ -35,8 +35,8 @@ pub struct ProductListingDetailsReadRequest {
 /// Factual relational product detail. The use case owns currency presentation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingDetailsReadModel {
-    pub product_id: ProductListingId,
-    pub product_slug_id: ProductListingSlugId,
+    pub product_listing_id: ProductListingId,
+    pub product_listing_slug_id: ProductListingSlugId,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub seller_id: ShopId,

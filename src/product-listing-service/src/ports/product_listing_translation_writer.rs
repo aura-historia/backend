@@ -6,7 +6,7 @@ use product_listing_core::{product_listing_id::ProductListingId, title::Title};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingTranslationWrite {
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub source_event_id: EventId,
     pub enrichment_event_id: EventId,
     pub source_language: Language,

@@ -22,9 +22,9 @@ static AURA_API_WITH_FAILED_EMBEDDING: AuraHistoriaApi =
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_product_details_by_id() {
-    let product_id = seed_product().await;
+    let product_listing_id = seed_product().await;
 
-    let response = get_json(format!("/api/v1/products/{product_id}")).await;
+    let response = get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
     let cache_control = response
         .0
         .headers()
@@ -34,7 +34,10 @@ async fn should_get_product_details_by_id() {
     let (status, body) = json_response(response.0).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(json!(product_id.to_string()), body["item"]["productId"]);
+    assert_eq!(
+        json!(product_listing_id.to_string()),
+        body["item"]["productListingId"]
+    );
     assert_eq!("CURRENT", body["item"]["pricing"]["valuation"]["type"]);
     assert!(body["item"]["pricing"].get("source").is_some());
     assert!(body["item"]["pricing"].get("display").is_some());
@@ -51,24 +54,30 @@ async fn should_get_product_details_by_id() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_product_details_by_slug() {
-    let product_id = seed_product().await;
-    let (shop_slug_id, product_slug_id) = product_route_slugs(product_id).await;
+    let product_listing_id = seed_product().await;
+    let (shop_slug_id, product_listing_slug_id) = product_route_slugs(product_listing_id).await;
 
     let (response, _) = get_json(format!(
-        "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}"
+        "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}"
     ))
     .await;
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(json!(product_id.to_string()), body["item"]["productId"]);
+    assert_eq!(
+        json!(product_listing_id.to_string()),
+        body["item"]["productListingId"]
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_product_history_by_id() {
-    let product_id = seed_product().await;
+    let product_listing_id = seed_product().await;
 
-    let (response, _) = get_json(format!("/api/v1/products/{product_id}/history")).await;
+    let (response, _) = get_json(format!(
+        "/api/v1/product-listings/{product_listing_id}/history"
+    ))
+    .await;
     let cache_control = response
         .headers()
         .get(reqwest::header::CACHE_CONTROL)
@@ -78,7 +87,10 @@ async fn should_get_product_history_by_id() {
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert!(body.as_array().is_some_and(|events| !events.is_empty()));
-    assert_eq!(json!(product_id.to_string()), body[0]["productId"]);
+    assert_eq!(
+        json!(product_listing_id.to_string()),
+        body[0]["productListingId"]
+    );
     assert_eq!(
         Some("public, max-age=180, s-maxage=900".to_owned()),
         cache_control
@@ -87,28 +99,36 @@ async fn should_get_product_history_by_id() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_product_history_by_slug() {
-    let product_id = seed_product().await;
-    let (shop_slug_id, product_slug_id) = product_route_slugs(product_id).await;
+    let product_listing_id = seed_product().await;
+    let (shop_slug_id, product_listing_slug_id) = product_route_slugs(product_listing_id).await;
 
     let (response, _) = get_json(format!(
-        "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/history"
+        "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/history"
     ))
     .await;
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(json!(product_id.to_string()), body[0]["productId"]);
+    assert_eq!(
+        json!(product_listing_id.to_string()),
+        body[0]["productListingId"]
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_pending_similar_products_by_id() {
-    let product_id = seed_product().await;
+    let product_listing_id = seed_product().await;
 
-    let (response, _) = get_json(format!("/api/v1/products/{product_id}/similar")).await;
+    let (response, _) = get_json(format!(
+        "/api/v1/product-listings/{product_listing_id}/similar"
+    ))
+    .await;
 
     assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
     assert_eq!(
-        Some(format!("/api/v1/products/{product_id}/similar")),
+        Some(format!(
+            "/api/v1/product-listings/{product_listing_id}/similar"
+        )),
         response
             .headers()
             .get(reqwest::header::LOCATION)
@@ -126,18 +146,18 @@ async fn should_return_pending_similar_products_by_id() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_pending_similar_products_by_slug() {
-    let product_id = seed_product().await;
-    let (shop_slug_id, product_slug_id) = product_route_slugs(product_id).await;
+    let product_listing_id = seed_product().await;
+    let (shop_slug_id, product_listing_slug_id) = product_route_slugs(product_listing_id).await;
 
     let (response, _) = get_json(format!(
-        "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar"
+        "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar"
     ))
     .await;
 
     assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
     assert_eq!(
         Some(format!(
-            "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar"
+            "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar"
         )),
         response
             .headers()
@@ -186,7 +206,7 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
     index_search_documents(products.iter().map(|(_, document)| document.clone())).await;
 
     let (first_response, _) = get_json(
-        "/api/v1/products?language=en&currency=USD&productQuery[0]=Price%20page%20cabinet&sort=created&order=asc&size=2".to_owned(),
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Price%20page%20cabinet&sort=created&order=asc&size=2".to_owned(),
     )
     .await;
     let cache_control = first_response
@@ -201,7 +221,7 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
     assert_eq!(json!(2), first_body["size"]);
     assert_eq!(
         vec![products[0].0.clone(), products[1].0.clone()],
-        product_ids(&first_body)
+        product_listing_ids(&first_body)
     );
     assert!(first_body["searchAfter"].is_object());
     assert!(first_body["searchAfter"]["fxRateId"].is_string());
@@ -214,7 +234,7 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
     let search_after = serde_json::to_string(&first_body["searchAfter"])
         .unwrap_or_else(|error| panic!("failed to encode search cursor: {error}"));
     let (second_response, _) = get_json(format!(
-        "/api/v1/products?language=en&currency=USD&productQuery[0]=Price%20page%20cabinet&sort=created&order=asc&size=2&searchAfter={}",
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Price%20page%20cabinet&sort=created&order=asc&size=2&searchAfter={}",
         url_encode(&search_after)
     ))
     .await;
@@ -223,12 +243,12 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
     assert_eq!(reqwest::StatusCode::OK, second_status);
     assert_eq!(
         vec![products[2].0.clone(), products[3].0.clone()],
-        product_ids(&second_body)
+        product_listing_ids(&second_body)
     );
     assert!(
-        product_ids(&first_body)
+        product_listing_ids(&first_body)
             .iter()
-            .all(|id| !product_ids(&second_body).contains(id))
+            .all(|id| !product_listing_ids(&second_body).contains(id))
     );
 }
 
@@ -257,12 +277,15 @@ async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_s
 
     let captured_at = OffsetDateTime::now_utc();
     let original_fx_rate_id = capture_fx_snapshot(captured_at, 2_000_000).await;
-    let first_page_path = "/api/v1/products?language=en&currency=EUR&productQuery[0]=Pinned%20FX%20cursor&price[min]=50&price[max]=50&sort=created&order=asc&size=1".to_owned();
+    let first_page_path = "/api/v1/product-listings?language=en&currency=EUR&productQuery[0]=Pinned%20FX%20cursor&price[min]=50&price[max]=50&sort=created&order=asc&size=1".to_owned();
     let (first_response, _) = get_json(first_page_path.clone()).await;
     let (first_status, first_body) = json_response(first_response).await;
 
     assert_eq!(reqwest::StatusCode::OK, first_status);
-    assert_eq!(vec![products[0].0.clone()], product_ids(&first_body));
+    assert_eq!(
+        vec![products[0].0.clone()],
+        product_listing_ids(&first_body)
+    );
     assert_eq!(
         json!({ "amount": 50, "currency": "EUR" }),
         first_body["items"][0]["item"]["displayPrice"]
@@ -285,7 +308,10 @@ async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_s
     let (second_status, second_body) = json_response(second_response).await;
 
     assert_eq!(reqwest::StatusCode::OK, second_status);
-    assert_eq!(vec![products[1].0.clone()], product_ids(&second_body));
+    assert_eq!(
+        vec![products[1].0.clone()],
+        product_listing_ids(&second_body)
+    );
     assert_eq!(
         json!({ "amount": 50, "currency": "EUR" }),
         second_body["items"][0]["item"]["displayPrice"]
@@ -299,14 +325,14 @@ async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_s
     let (fresh_status, fresh_body) = json_response(fresh_response).await;
 
     assert_eq!(reqwest::StatusCode::OK, fresh_status);
-    assert!(product_ids(&fresh_body).is_empty());
+    assert!(product_listing_ids(&fresh_body).is_empty());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_keep_sold_display_when_fx_snapshot_changes() {
     let captured_at = OffsetDateTime::now_utc() + Duration::days(730);
     let sale_fx_rate_id = capture_fx_snapshot(captured_at, 2_000_000).await;
-    let (product_id, mut document) = search_document(
+    let (product_listing_id, mut document) = search_document(
         "Immutable sold cabinet",
         1_000,
         "SOLD",
@@ -326,12 +352,15 @@ async fn should_keep_sold_display_when_fx_snapshot_changes() {
     document["soldAt"] = json!("2025-01-01T00:00:00Z");
     index_search_documents([document]).await;
 
-    let path = "/api/v1/products?language=en&currency=EUR&productQuery[0]=Immutable%20sold%20cabinet&price[min]=40&price[max]=40&sort=created&order=asc".to_owned();
+    let path = "/api/v1/product-listings?language=en&currency=EUR&productQuery[0]=Immutable%20sold%20cabinet&price[min]=40&price[max]=40&sort=created&order=asc".to_owned();
     let (before_response, _) = get_json(path.clone()).await;
     let (before_status, before_body) = json_response(before_response).await;
 
     assert_eq!(reqwest::StatusCode::OK, before_status);
-    assert_eq!(vec![product_id.clone()], product_ids(&before_body));
+    assert_eq!(
+        vec![product_listing_id.clone()],
+        product_listing_ids(&before_body)
+    );
     assert_eq!(json!("SOLD"), before_body["items"][0]["item"]["state"]);
     assert_eq!(
         json!({ "amount": 40, "currency": "EUR" }),
@@ -343,7 +372,7 @@ async fn should_keep_sold_display_when_fx_snapshot_changes() {
     let (after_status, after_body) = json_response(after_response).await;
 
     assert_eq!(reqwest::StatusCode::OK, after_status);
-    assert_eq!(vec![product_id], product_ids(&after_body));
+    assert_eq!(vec![product_listing_id], product_listing_ids(&after_body));
     assert_eq!(
         json!({ "amount": 40, "currency": "EUR" }),
         after_body["items"][0]["item"]["displayPrice"]
@@ -371,14 +400,15 @@ async fn should_return_matching_product_search_summary() {
     index_search_documents([target.1.clone(), unrelated.1]).await;
 
     let (response, _) = get_json(
-        "/api/v1/products?language=en&currency=USD&productQuery[0]=Renaissance%20walnut".to_owned(),
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Renaissance%20walnut"
+            .to_owned(),
     )
     .await;
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert!(body["total"].is_null());
-    assert_eq!(vec![target.0], product_ids(&body));
+    assert_eq!(vec![target.0], product_listing_ids(&body));
     assert_eq!(
         json!("Renaissance walnut cabinet"),
         body["items"][0]["item"]["title"]["text"]
@@ -427,14 +457,14 @@ async fn should_hybrid_search_products_when_mock_embedding_succeeds() {
     .await;
 
     let (response, _) = get_json(
-        "/api/v1/products?language=en&currency=USD&productQuery[0]=vintage%20brass%20lamp"
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=vintage%20brass%20lamp"
             .to_owned(),
     )
     .await;
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(Some(&target.0), product_ids(&body).first());
+    assert_eq!(Some(&target.0), product_listing_ids(&body).first());
     assert!(body["total"].is_null());
 }
 
@@ -452,14 +482,14 @@ async fn should_fall_back_to_bm25_when_mock_embedding_fails() {
 
     let (response, _) = get_json_from(
         AURA_API_WITH_FAILED_EMBEDDING.base_url(),
-        "/api/v1/products?language=en&currency=USD&productQuery[0]=Vintage%20brass%20lamp",
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Vintage%20brass%20lamp",
     )
     .await;
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(json!(1), body["total"]);
-    assert_eq!(vec![target.0], product_ids(&body));
+    assert_eq!(vec![target.0], product_listing_ids(&body));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -503,14 +533,14 @@ async fn should_intersect_product_search_filters() {
     index_search_documents([target.1.clone(), wrong_shop.1, wrong_state.1, wrong_price.1]).await;
 
     let (response, _) = get_json(
-        "/api/v1/products?language=en&currency=USD&productQuery[0]=Filter%20cabinet&shopName[0]=Imperial%20Antiques&state[0]=LISTED&price[min]=500&price[max]=600".to_owned(),
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Filter%20cabinet&shopName[0]=Imperial%20Antiques&state[0]=LISTED&price[min]=500&price[max]=600".to_owned(),
     )
     .await;
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert!(body["total"].is_null());
-    assert_eq!(vec![target.0], product_ids(&body));
+    assert_eq!(vec![target.0], product_listing_ids(&body));
     assert_eq!(
         json!("Imperial Antiques"),
         body["items"][0]["item"]["shopName"]
@@ -543,13 +573,14 @@ async fn should_hide_deleted_products_from_default_search() {
     index_search_documents([active.1.clone(), deleted.1]).await;
 
     let (response, _) = get_json(
-        "/api/v1/products?language=en&currency=USD&productQuery[0]=Lifecycle%20fixture".to_owned(),
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Lifecycle%20fixture"
+            .to_owned(),
     )
     .await;
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(vec![active.0], product_ids(&body));
+    assert_eq!(vec![active.0], product_listing_ids(&body));
     assert_eq!(json!("ACTIVE"), body["items"][0]["item"]["lifecycle"]);
 }
 
@@ -574,13 +605,13 @@ async fn should_return_deleted_products_when_lifecycle_filter_requests_them() {
     index_search_documents([active.1, deleted.1.clone()]).await;
 
     let (response, _) = get_json(
-        "/api/v1/products?language=en&currency=USD&productQuery[0]=Deleted%20fixture&lifecycle[0]=DELETED".to_owned(),
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Deleted%20fixture&lifecycle[0]=DELETED".to_owned(),
     )
     .await;
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(vec![deleted.0], product_ids(&body));
+    assert_eq!(vec![deleted.0], product_listing_ids(&body));
     assert_eq!(json!("DELETED"), body["items"][0]["item"]["lifecycle"]);
 }
 
@@ -605,18 +636,18 @@ async fn should_filter_product_search_by_created_date_range() {
     index_search_documents([january.1.clone(), june.1]).await;
 
     let (response, _) = get_json(
-        "/api/v1/products?language=en&currency=USD&productQuery[0]=Date%20fixture&created[min]=2025-01-01T00%3A00%3A00Z&created[max]=2025-01-31T23%3A59%3A59Z".to_owned(),
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Date%20fixture&created[min]=2025-01-01T00%3A00%3A00Z&created[max]=2025-01-31T23%3A59%3A59Z".to_owned(),
     )
     .await;
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(vec![january.0], product_ids(&body));
+    assert_eq!(vec![january.0], product_listing_ids(&body));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_reject_invalid_product_id() {
-    let (response, _) = get_json("/api/v1/products/not-a-uuid".to_owned()).await;
+async fn should_reject_invalid_product_listing_id() {
+    let (response, _) = get_json("/api/v1/product-listings/not-a-uuid".to_owned()).await;
     let (status, body) = json_response(response).await;
 
     assert_problem(
@@ -630,7 +661,7 @@ async fn should_reject_invalid_product_id() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_product_slug() {
     let (response, _) =
-        get_json("/api/v1/by-slug/shops/Invalid/products/product-a1b2c3".to_owned()).await;
+        get_json("/api/v1/by-slug/shops/Invalid/product-listings/product-a1b2c3".to_owned()).await;
     let (status, body) = json_response(response).await;
 
     assert_problem(
@@ -645,7 +676,7 @@ async fn should_reject_invalid_product_slug() {
 async fn should_reject_invalid_optional_product_authentication() {
     let response = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/products/{}",
+            "{}/api/v1/product-listings/{}",
             AURA_API.base_url(),
             product_listing_core::product_listing_id::ProductListingId::new()
         ))
@@ -665,9 +696,10 @@ async fn should_reject_invalid_optional_product_authentication() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_invalid_product_search_sort() {
-    let (response, _) =
-        get_json("/api/v1/products?language=en&currency=USD&sort=invalid&order=asc".to_owned())
-            .await;
+    let (response, _) = get_json(
+        "/api/v1/product-listings?language=en&currency=USD&sort=invalid&order=asc".to_owned(),
+    )
+    .await;
     let (status, body) = json_response(response).await;
 
     assert_problem(
@@ -734,12 +766,12 @@ async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
     seed_current_fx_snapshot(&pool).await;
     let client = get_opensearch_client().await;
     for document in documents {
-        let product_id = document["productId"]
+        let product_listing_id = document["productListingId"]
             .as_str()
-            .unwrap_or_else(|| panic!("search fixture has no productId"))
+            .unwrap_or_else(|| panic!("search fixture has no productListingId"))
             .to_owned();
         let response = client
-            .index(IndexParts::IndexId(PRODUCTS_INDEX, &product_id))
+            .index(IndexParts::IndexId(PRODUCTS_INDEX, &product_listing_id))
             .body(document)
             .send()
             .await
@@ -784,22 +816,22 @@ fn search_document_with_shop(
     shop_slug_id: &str,
     created: &str,
 ) -> (String, Value) {
-    let product_id = uuid::Uuid::new_v4().to_string();
+    let product_listing_id = uuid::Uuid::new_v4().to_string();
     let event_id = uuid::Uuid::new_v4().to_string();
     let shop_id = uuid::Uuid::new_v4().to_string();
     let seller_id = uuid::Uuid::new_v4().to_string();
-    let product_slug_id = format!("search-{}", &product_id[..6]);
+    let product_listing_slug_id = format!("search-{}", &product_listing_id[..6]);
     (
-        product_id.clone(),
+        product_listing_id.clone(),
         json!({
-            "productId": product_id,
-            "productSlugId": product_slug_id,
+            "productListingId": product_listing_id,
+            "productListingSlugId": product_listing_slug_id,
             "shopSlugId": shop_slug_id,
             "sellerSlugId": "search-seller",
             "eventId": event_id,
             "shopId": shop_id,
             "sellerId": seller_id,
-            "shopsProductId": product_slug_id,
+            "shopListingId": product_listing_slug_id,
             "shopName": shop_name,
             "sellerName": shop_name,
             "shopType": "COMMERCIAL_DEALER",
@@ -837,13 +869,13 @@ fn with_embedding(mut document: Value, embedding: Vec<f32>) -> Value {
     document
 }
 
-fn product_ids(body: &Value) -> Vec<String> {
+fn product_listing_ids(body: &Value) -> Vec<String> {
     body["items"]
         .as_array()
         .unwrap_or_else(|| panic!("search response has no items array"))
         .iter()
         .map(|item| {
-            item["item"]["productId"]
+            item["item"]["productListingId"]
                 .as_str()
                 .unwrap_or_else(|| panic!("search item has no product ID"))
                 .to_owned()

@@ -662,7 +662,7 @@ async fn insert_delivery_in_transaction_with_language(
     let notification_id = uuid::Uuid::new_v4();
     let delivery_id = uuid::Uuid::new_v4();
     let origin_event_id = uuid::Uuid::new_v4();
-    let product_id = uuid::Uuid::new_v4();
+    let product_listing_id = uuid::Uuid::new_v4();
     let recipient_email = format!("notification-delivery-{delivery_id}@example.test");
 
     sqlx::query(
@@ -674,12 +674,12 @@ async fn insert_delivery_in_transaction_with_language(
     .execute(&mut **transaction)
     .await?;
     sqlx::query(
-        "INSERT INTO notifications (notification_id, user_id, kind, origin_event_id, product_id, payload_version, payload, seen) VALUES ($1, $2, 'WATCHLIST_STATE_CHANGED', $3, $4, 1, $5, false)",
+        "INSERT INTO notifications (notification_id, user_id, kind, origin_event_id, product_listing_id, payload_version, payload, seen) VALUES ($1, $2, 'WATCHLIST_STATE_CHANGED', $3, $4, 1, $5, false)",
     )
     .bind(notification_id)
     .bind(user_id)
     .bind(origin_event_id)
-    .bind(product_id)
+    .bind(product_listing_id)
     .bind(notification_payload())
     .execute(&mut **transaction)
     .await?;
@@ -729,15 +729,15 @@ fn notification_payload() -> serde_json::Value {
             "shop_id": uuid::Uuid::new_v4(),
             "shop_listing_id": "worker-notification-delivery-product",
             "shop_slug_id": "worker-delivery-shop",
-            "product_slug_id": "worker-delivery-product-abcdef",
+            "product_listing_slug_id": "worker-delivery-product-abcdef",
             "shop_name": "Delivery test shop",
             "title": null,
             "image": {
                 "url": UNSAFE_IMAGE_URL,
                 "prohibited_content": "NaziGermany"
             },
-            "url": "https://example.test/products/delivery",
-            "view_url": "https://aura-historia.test/products/delivery"
+            "url": "https://example.test/product_listings/delivery",
+            "view_url": "https://aura-historia.test/product_listings/delivery"
         },
         "change": {
             "type": "STATE_CHANGE",

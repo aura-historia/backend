@@ -269,8 +269,8 @@ pub(crate) enum ProductListingDocumentValidationError {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductListingDocument {
-    pub product_id: ProductListingId,
-    pub product_slug_id: ProductListingSlugId,
+    pub product_listing_id: ProductListingId,
+    pub product_listing_slug_id: ProductListingSlugId,
     pub shop_slug_id: ShopSlugId,
     pub seller_slug_id: SellerSlugId,
     pub event_id: EventId,
@@ -355,7 +355,7 @@ pub(crate) struct ProductListingDocument {
 
 impl ProductListingDocument {
     pub(crate) fn _id(&self) -> ProductListingId {
-        self.product_id
+        self.product_listing_id
     }
 
     pub(crate) fn validate(&self) -> Result<(), ProductListingDocumentValidationError> {
@@ -390,8 +390,8 @@ mod tests {
 
     fn document() -> Result<ProductListingDocument, url::ParseError> {
         Ok(ProductListingDocument {
-            product_id: ProductListingId::new(),
-            product_slug_id: ProductListingSlugId::from("vase-abcdef"),
+            product_listing_id: ProductListingId::new(),
+            product_listing_slug_id: ProductListingSlugId::from("vase-abcdef"),
             shop_slug_id: ShopSlugId::from("shop"),
             seller_slug_id: SellerSlugId::from("seller"),
             event_id: EventId::new(),
@@ -424,8 +424,8 @@ mod tests {
             sold_at: None,
             state: ProductState::Available,
             lifecycle: ProductLifecycle::Active,
-            url: Url::parse("https://shop.example/products/sku-1")?,
-            view_url: Url::parse("https://aura.example/products/vase-abcdef")?,
+            url: Url::parse("https://shop.example/product_listings/sku-1")?,
+            view_url: Url::parse("https://aura.example/product_listings/vase-abcdef")?,
             images: IndexSet::new(),
             embedding: None,
             auction_start: None,

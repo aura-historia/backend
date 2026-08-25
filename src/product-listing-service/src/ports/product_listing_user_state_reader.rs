@@ -7,7 +7,7 @@ use user_core::user_id::UserId;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductListingUserStateLookup {
     pub user_id: UserId,
-    pub product_ids: Vec<ProductListingId>,
+    pub product_listing_ids: Vec<ProductListingId>,
 }
 
 #[derive(Debug, thiserror::Error)]

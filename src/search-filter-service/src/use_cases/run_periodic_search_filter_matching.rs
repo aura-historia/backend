@@ -237,7 +237,7 @@ pub struct RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, 
     run_lock: L,
     candidates: C,
     fx_rates: F,
-    products: P,
+    product_listings: P,
     existing_matches: X,
     sources: S,
     evaluator: E,
@@ -256,7 +256,7 @@ impl<U, L, C, F, P, X, S, E, G, W, Q>
         run_lock: L,
         candidates: C,
         fx_rates: F,
-        products: P,
+        product_listings: P,
         existing_matches: X,
         sources: S,
         evaluator: E,
@@ -276,7 +276,7 @@ impl<U, L, C, F, P, X, S, E, G, W, Q>
             run_lock,
             candidates,
             fx_rates,
-            products,
+            product_listings,
             existing_matches,
             sources,
             evaluator,
@@ -547,7 +547,7 @@ where
             }),
         };
         let result = self
-            .products
+            .product_listings
             .search_hybrid(&request, embedding)
             .await
             .map_err(product_search_error)?;
@@ -555,11 +555,11 @@ where
         let ids = result
             .items
             .iter()
-            .map(|item| item.product_id)
+            .map(|item| item.product_listing_id)
             .collect::<Vec<_>>();
         let existing = self
             .existing_matches
-            .find_existing_product_ids(filter.search_filter_id, &ids)
+            .find_existing_product_listing_ids(filter.search_filter_id, &ids)
             .await
             .map_err(
                 |source| RunPeriodicSearchFilterMatchingError::ExistingMatchReadFailed {
@@ -570,10 +570,10 @@ where
         let refs = result
             .items
             .into_iter()
-            .filter(|item| !existing.contains(&item.product_id))
+            .filter(|item| !existing.contains(&item.product_listing_id))
             .take(self.policy.evaluation_limit.get())
             .map(|item| ProductListingSearchFilterMatchSourceRef {
-                product_id: item.product_id,
+                product_listing_id: item.product_listing_id,
                 event_id: item.event_id,
             })
             .collect::<Vec<_>>();
@@ -583,7 +583,7 @@ where
             match sources.get(&reference) {
                 None => report.candidates_missing_source += 1,
                 Some(source)
-                    if source.product_id != reference.product_id
+                    if source.product_listing_id != reference.product_listing_id
                         || source.event_id != reference.event_id =>
                 {
                     return Err(RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch);
@@ -631,7 +631,7 @@ where
                         user_id: filter.user_id,
                         user_search_filter_id: filter.search_filter_id,
                         user_search_filter_name: Some(filter.name.clone()),
-                        product_id: source.product_id,
+                        product_listing_id: source.product_listing_id,
                         origin_event_id: source.event_id,
                         price_match_valuation: valuation,
                         enhanced_match_reason: Some(reason),
@@ -731,7 +731,7 @@ where
         let refs = matches
             .iter()
             .map(|item| ProductListingCurrentRevisionRef {
-                product_id: item.product_id,
+                product_listing_id: item.product_listing_id,
                 expected_event_id: item.origin_event_id,
             })
             .collect::<Vec<_>>();
@@ -749,7 +749,7 @@ where
             .into_iter()
             .filter(|item| {
                 checks.get(&ProductListingCurrentRevisionRef {
-                    product_id: item.product_id,
+                    product_listing_id: item.product_listing_id,
                     expected_event_id: item.origin_event_id,
                 }) == Some(&ProductListingCurrentRevisionCheck::Current)
             })
@@ -1188,10 +1188,10 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ExistingSearchFilterMatchReader for NoopExistingMatches {
-        async fn find_existing_product_ids(
+        async fn find_existing_product_listing_ids(
             &self,
             _search_filter_id: search_filter_core::user_search_filter_id::UserSearchFilterId,
-            _product_ids: &[ProductListingId],
+            _product_listing_ids: &[ProductListingId],
         ) -> Result<HashSet<ProductListingId>, ExistingSearchFilterMatchReadError> {
             Ok(HashSet::new())
         }
@@ -1205,7 +1205,7 @@ mod tests {
         async fn find_source(
             &mut self,
             _event_id: EventId,
-            _product_id: ProductListingId,
+            _product_listing_id: ProductListingId,
         ) -> Result<
             Option<ProductListingSearchFilterMatchSource>,
             ProductListingSearchFilterMatchSourceReadError,
@@ -1249,7 +1249,7 @@ mod tests {
     impl ProductListingCurrentRevisionGuard for CheckingRevisions<'_> {
         async fn lock_and_check(
             &mut self,
-            _product_id: ProductListingId,
+            _product_listing_id: ProductListingId,
             _expected_event_id: EventId,
         ) -> Result<
             ProductListingCurrentRevisionCheck,
@@ -1485,7 +1485,7 @@ mod tests {
             user_id: filter.user_id,
             user_search_filter_id: filter.search_filter_id,
             user_search_filter_name: Some(filter.name.clone()),
-            product_id: ProductListingId::new(),
+            product_listing_id: ProductListingId::new(),
             origin_event_id: EventId::new(),
             price_match_valuation: None,
             enhanced_match_reason: None,

@@ -11,7 +11,7 @@ pub struct SearchFilterMatchNotificationSource {
     pub user_id: UserId,
     pub search_filter_id: UserSearchFilterId,
     pub search_filter_name: UserSearchFilterName,
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub origin_event_id: EventId,
     /// Database-assigned match time used for stable monthly notification ranking.
     pub matched_at: OffsetDateTime,
@@ -38,7 +38,7 @@ pub trait SearchFilterMatchNotificationSourceReader: Send {
         &mut self,
         user_id: UserId,
         search_filter_id: UserSearchFilterId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         origin_event_id: EventId,
     ) -> Result<
         Option<SearchFilterMatchNotificationSource>,

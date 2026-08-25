@@ -98,15 +98,16 @@ async fn generate_watchlist_notifications(
             source: box_error(source),
         }
     })?;
-    let product_id = ProductListingId::try_from(event.product_id.as_str()).map_err(|source| {
-        WatchlistNotificationWorkerError::InvalidProductListingId {
-            source: box_error(source),
-        }
-    })?;
+    let product_listing_id = ProductListingId::try_from(event.product_listing_id.as_str())
+        .map_err(
+            |source| WatchlistNotificationWorkerError::InvalidProductListingId {
+                source: box_error(source),
+            },
+        )?;
     handler
         .execute(GenerateWatchlistNotificationsCommand {
             event_id,
-            product_id,
+            product_listing_id,
         })
         .await
         .map(|result| match result {
@@ -239,15 +240,15 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = in_memory_queue(QueueConfig::new(1))?;
         let event_id = EventId::new();
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         sender
             .enqueue(DomainJob {
                 target_queue: WorkerQueue::WatchlistNotification,
                 idempotency_key: IdempotencyKey::new(format!("product-event:{event_id}")),
-                ordering_key: OrderingKey::new(format!("product:{product_id}")),
+                ordering_key: OrderingKey::new(format!("product:{product_listing_id}")),
                 payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
                     event_id: event_id.to_string(),
-                    product_id: product_id.to_string(),
+                    product_listing_id: product_listing_id.to_string(),
                     event_type: "PRODUCT_PRICE_CHANGED".to_owned(),
                     event_group: "DOMAIN".to_owned(),
                 }),
@@ -283,15 +284,15 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = in_memory_queue(QueueConfig::new(1))?;
         let event_id = EventId::new();
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         sender
             .enqueue(DomainJob {
                 target_queue: WorkerQueue::WatchlistNotification,
                 idempotency_key: IdempotencyKey::new(format!("product-event:{event_id}")),
-                ordering_key: OrderingKey::new(format!("product:{product_id}")),
+                ordering_key: OrderingKey::new(format!("product:{product_listing_id}")),
                 payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
                     event_id: event_id.to_string(),
-                    product_id: product_id.to_string(),
+                    product_listing_id: product_listing_id.to_string(),
                     event_type: "PRODUCT_PRICE_CHANGED".to_owned(),
                     event_group: "DOMAIN".to_owned(),
                 }),
@@ -327,15 +328,15 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = in_memory_queue(QueueConfig::new(1))?;
         let event_id = EventId::new();
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         sender
             .enqueue(DomainJob {
                 target_queue: WorkerQueue::WatchlistNotification,
                 idempotency_key: IdempotencyKey::new(format!("product-event:{event_id}")),
-                ordering_key: OrderingKey::new(format!("product:{product_id}")),
+                ordering_key: OrderingKey::new(format!("product:{product_listing_id}")),
                 payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
                     event_id: event_id.to_string(),
-                    product_id: product_id.to_string(),
+                    product_listing_id: product_listing_id.to_string(),
                     event_type: "PRODUCT_PRICE_CHANGED".to_owned(),
                     event_group: "DOMAIN".to_owned(),
                 }),
@@ -349,7 +350,7 @@ mod tests {
         assert_eq!(
             vec![GenerateWatchlistNotificationsCommand {
                 event_id,
-                product_id
+                product_listing_id
             }],
             handler
                 .commands

@@ -46,7 +46,7 @@ async fn create_oauth_client(client: &reqwest::Client, token: &str) -> OAuthClie
             "client_uri": "https://client.example",
             "logo_uri": "https://client.example/logo.png",
             "redirect_uris": ["https://client.example/callback"],
-            "scope": ["products:write"]
+            "scope": ["product_listings:write"]
         }))
         .send()
         .await
@@ -80,7 +80,7 @@ async fn authorize_code(
             ("response_type", "code"),
             ("client_id", credentials.client_id.as_str()),
             ("redirect_uri", "https://client.example/callback"),
-            ("scope", "products:write"),
+            ("scope", "product_listings:write"),
             ("state", "acceptance-state"),
             (
                 "code_challenge",

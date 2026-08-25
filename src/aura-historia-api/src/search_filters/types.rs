@@ -505,7 +505,7 @@ pub(super) struct SearchFilterMatchData {
     user_search_filter_id: UserSearchFilterId,
     #[serde(skip_serializing_if = "Option::is_none")]
     user_search_filter_name: Option<UserSearchFilterName>,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     origin_event_id: EventId,
     #[serde(skip_serializing_if = "Option::is_none")]
     enhanced_match_reason: Option<String>,
@@ -523,7 +523,7 @@ impl From<SearchFilterMatchView> for SearchFilterMatchData {
             user_id: view.user_id,
             user_search_filter_id: view.search_filter_id,
             user_search_filter_name: view.search_filter_name,
-            product_id: view.product_id,
+            product_listing_id: view.product_listing_id,
             origin_event_id: view.origin_event_id,
             enhanced_match_reason: view.enhanced_match_reason.map(String::from),
             feedback: view.feedback,

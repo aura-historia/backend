@@ -67,11 +67,11 @@ fn command_from_job(
                 source: box_error(source),
             }
         })?,
-        product_id: ProductListingId::try_from(event.product_id.as_str()).map_err(|source| {
-            ProductListingOpenSearchWorkerError::InvalidProductListingId {
+        product_listing_id: ProductListingId::try_from(event.product_listing_id.as_str()).map_err(
+            |source| ProductListingOpenSearchWorkerError::InvalidProductListingId {
                 source: box_error(source),
-            }
-        })?,
+            },
+        )?,
     })
 }
 

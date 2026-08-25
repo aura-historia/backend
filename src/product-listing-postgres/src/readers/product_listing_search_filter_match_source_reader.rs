@@ -52,8 +52,8 @@ struct SourceRow {
     origin_event_time: OffsetDateTime,
     current_event_id: uuid::Uuid,
     projection_version: i64,
-    product_id: uuid::Uuid,
-    product_slug_id: String,
+    product_listing_id: uuid::Uuid,
+    product_listing_slug_id: String,
     shop_id: uuid::Uuid,
     shop_slug_id: String,
     shop_name: String,
@@ -157,13 +157,13 @@ impl ProductListingSearchFilterMatchSourceReader
     async fn find_source(
         &mut self,
         event_id: EventId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<
         Option<ProductListingSearchFilterMatchSource>,
         ProductListingSearchFilterMatchSourceReadError,
     > {
         let reference = ProductListingSearchFilterMatchSourceRef {
-            product_id,
+            product_listing_id,
             event_id,
         };
         Ok(self.find_sources(&[reference]).await?.remove(&reference))
@@ -180,9 +180,9 @@ impl ProductListingSearchFilterMatchSourceReader
             return Ok(HashMap::new());
         }
 
-        let product_ids = refs
+        let product_listing_ids = refs
             .iter()
-            .map(|reference| uuid::Uuid::from(reference.product_id))
+            .map(|reference| uuid::Uuid::from(reference.product_listing_id))
             .collect::<Vec<_>>();
         let event_ids = refs
             .iter()
@@ -191,8 +191,8 @@ impl ProductListingSearchFilterMatchSourceReader
         let rows = sqlx::query_as::<_, SourceRow>(
             r#"
             WITH requested_events AS (
-                SELECT DISTINCT product_id, event_id
-                FROM UNNEST($1::uuid[], $2::uuid[]) AS requested(product_id, event_id)
+                SELECT DISTINCT product_listing_id, event_id
+                FROM UNNEST($1::uuid[], $2::uuid[]) AS requested(product_listing_id, event_id)
             )
             SELECT
                 event.event_id,
@@ -200,8 +200,8 @@ impl ProductListingSearchFilterMatchSourceReader
                 event.event_time AS origin_event_time,
                 product.event_id AS current_event_id,
                 product.projection_version,
-                product.product_id,
-                product.product_slug_id,
+                product.product_listing_id,
+                product.product_listing_slug_id,
                 shop.shop_id,
                 shop.shop_slug_id,
                 shop.name AS shop_name,
@@ -209,7 +209,7 @@ impl ProductListingSearchFilterMatchSourceReader
                 seller.shop_id AS seller_id,
                 seller.shop_slug_id AS seller_slug_id,
                 seller.name AS seller_name,
-                product.shops_product_id AS shop_listing_id,
+                product.shop_listing_id AS shop_listing_id,
                 product.structured_address_addressline,
                 product.structured_address_addressline_extra,
                 product.structured_address_locality,
@@ -243,17 +243,17 @@ impl ProductListingSearchFilterMatchSourceReader
                 translation.title AS translation_title,
                 translation.description AS translation_description
             FROM requested_events requested
-            JOIN product_events event
-              ON event.product_id = requested.product_id
+            JOIN product_listing_events event
+              ON event.product_listing_id = requested.product_listing_id
              AND event.event_id = requested.event_id
-            JOIN products product ON product.product_id = event.product_id
+            JOIN product_listings product ON product.product_listing_id = event.product_listing_id
             JOIN shops shop ON shop.shop_id = product.shop_id
             JOIN shops seller ON seller.shop_id = product.seller_id
-            LEFT JOIN product_translations translation ON translation.product_id = product.product_id
-            ORDER BY event.product_id ASC, event.event_id ASC, translation.language ASC
+            LEFT JOIN product_listing_translations translation ON translation.product_listing_id = product.product_listing_id
+            ORDER BY event.product_listing_id ASC, event.event_id ASC, translation.language ASC
             "#,
         )
-        .bind(product_ids)
+        .bind(product_listing_ids)
         .bind(event_ids)
         .fetch_all(&mut *self.connection)
         .await
@@ -279,7 +279,7 @@ fn sources_from_rows(
         HashMap::<ProductListingSearchFilterMatchSourceRef, Vec<SourceRow>>::new();
     for row in rows {
         let reference = ProductListingSearchFilterMatchSourceRef {
-            product_id: ProductListingId::from(row.product_id),
+            product_listing_id: ProductListingId::from(row.product_listing_id),
             event_id: EventId::from(row.event_id),
         };
         grouped_rows.entry(reference).or_default().push(row);
@@ -333,8 +333,9 @@ fn source_from_rows(
         origin_event_time: row.origin_event_time,
         current_event_id: EventId::from(row.current_event_id),
         projection_version: row.projection_version,
-        product_id: ProductListingId::from(row.product_id),
-        product_slug_id: ProductListingSlugId::raw(&row.product_slug_id).map_err(|_| ())?,
+        product_listing_id: ProductListingId::from(row.product_listing_id),
+        product_listing_slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
+            .map_err(|_| ())?,
         shop_id: ShopId::from(row.shop_id),
         shop_slug_id,
         shop_name: ShopName::from(row.shop_name.clone()),

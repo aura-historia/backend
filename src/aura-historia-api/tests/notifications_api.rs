@@ -284,9 +284,13 @@ async fn should_return_localized_reason_specific_notification_payloads() {
         price_change["payload"]["image"]["prohibitedContent"]
     );
     assert!(price_change["payload"]["shopId"].as_str().is_some());
-    assert!(price_change["payload"]["shopsProductId"].as_str().is_some());
+    assert!(price_change["payload"]["shopListingId"].as_str().is_some());
     assert!(price_change["payload"]["shopSlugId"].as_str().is_some());
-    assert!(price_change["payload"]["productSlugId"].as_str().is_some());
+    assert!(
+        price_change["payload"]["productListingSlugId"]
+            .as_str()
+            .is_some()
+    );
     assert!(price_change["payload"]["url"].as_str().is_some());
     assert!(price_change["payload"]["viewUrl"].as_str().is_some());
 
@@ -673,7 +677,7 @@ async fn seed_unsafe_image_notification(user_id: UserId) {
                 "shop_id": Uuid::new_v4(),
                 "shop_listing_id": "unsafe-product",
                 "shop_slug_id": "unsafe-shop",
-                "product_slug_id": "unsafe-product-abcdef",
+                "product_listing_slug_id": "unsafe-product-abcdef",
                 "shop_name": "Unsafe Shop",
                 "title": null,
                 "image": {
@@ -755,13 +759,13 @@ async fn seed_price_notification(
     old_amount: Option<u64>,
     new_amount: Option<u64>,
 ) {
-    let product_id = Uuid::new_v4();
+    let product_listing_id = Uuid::new_v4();
     let price = |amount| serde_json::json!({ "currency": currency, "amount": amount });
     seed_notification_with_payload(
         user_id,
         "WATCHLIST_PRICE_CHANGED",
         Some(Uuid::new_v4()),
-        Some(product_id),
+        Some(product_listing_id),
         None,
         None,
         serde_json::json!({
@@ -770,7 +774,7 @@ async fn seed_price_notification(
                 "shop_id": Uuid::new_v4(),
                 "shop_listing_id": "source-currency-product",
                 "shop_slug_id": "source-currency-shop",
-                "product_slug_id": "source-currency-product-a1b2c3",
+                "product_listing_slug_id": "source-currency-product-a1b2c3",
                 "shop_name": "Source Currency Shop",
                 "title": null,
                 "image": null,
@@ -788,13 +792,13 @@ async fn seed_price_notification(
 }
 
 async fn seed_notification_payloads(user_id: UserId) {
-    let product_id = Uuid::new_v4();
+    let product_listing_id = Uuid::new_v4();
     let product_snapshot = |title: serde_json::Value, image: serde_json::Value| {
         serde_json::json!({
             "shop_id": Uuid::new_v4(),
             "shop_listing_id": "shop-product-123",
             "shop_slug_id": "test-shop",
-            "product_slug_id": "test-product-a1b2c3",
+            "product_listing_slug_id": "test-product-a1b2c3",
             "shop_name": "Snapshot Shop",
             "title": title,
             "image": image,
@@ -815,7 +819,7 @@ async fn seed_notification_payloads(user_id: UserId) {
         user_id,
         "WATCHLIST_PRICE_CHANGED",
         Some(Uuid::new_v4()),
-        Some(product_id),
+        Some(product_listing_id),
         None,
         None,
         serde_json::json!({
@@ -833,7 +837,7 @@ async fn seed_notification_payloads(user_id: UserId) {
         user_id,
         "WATCHLIST_STATE_CHANGED",
         Some(Uuid::new_v4()),
-        Some(product_id),
+        Some(product_listing_id),
         None,
         None,
         serde_json::json!({
@@ -848,7 +852,7 @@ async fn seed_notification_payloads(user_id: UserId) {
         user_id,
         "SEARCH_FILTER_MATCH",
         Some(Uuid::new_v4()),
-        Some(product_id),
+        Some(product_listing_id),
         Some(filter_id),
         None,
         serde_json::json!({
@@ -890,7 +894,7 @@ async fn seed_notification_with_payload(
     user_id: UserId,
     kind: &str,
     origin_event_id: Option<Uuid>,
-    product_id: Option<Uuid>,
+    product_listing_id: Option<Uuid>,
     user_search_filter_id: Option<Uuid>,
     partner_shop_application_id: Option<Uuid>,
     payload: serde_json::Value,
@@ -899,7 +903,7 @@ async fn seed_notification_with_payload(
     if let Err(error) = sqlx::query(
         r#"
         INSERT INTO notifications (
-            notification_id, user_id, kind, origin_event_id, product_id,
+            notification_id, user_id, kind, origin_event_id, product_listing_id,
             user_search_filter_id, partner_shop_application_id, payload, seen
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
         "#,
@@ -908,7 +912,7 @@ async fn seed_notification_with_payload(
     .bind(Uuid::from(user_id))
     .bind(kind)
     .bind(origin_event_id)
-    .bind(product_id)
+    .bind(product_listing_id)
     .bind(user_search_filter_id)
     .bind(partner_shop_application_id)
     .bind(payload)

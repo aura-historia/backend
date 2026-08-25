@@ -42,7 +42,7 @@ impl ProductListingSearchFilterMatchSourceEventKind {
 /// Exact immutable ProductListing event reference for batched source reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProductListingSearchFilterMatchSourceRef {
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub event_id: EventId,
 }
 
@@ -52,14 +52,14 @@ pub struct ProductListingSearchFilterMatchSource {
     pub event_id: EventId,
     /// Whether this event type is routed to search-filter percolation.
     pub event_kind: ProductListingSearchFilterMatchSourceEventKind,
-    /// Immutable occurrence time from `product_events.event_time`.
+    /// Immutable occurrence time from `product_listing_events.event_time`.
     pub origin_event_time: OffsetDateTime,
     /// Current ProductListing event identity. This rejects stale CDC triggers.
     pub current_event_id: EventId,
     /// Monotonic authoritative version for external OpenSearch writes.
     pub projection_version: i64,
-    pub product_id: ProductListingId,
-    pub product_slug_id: ProductListingSlugId,
+    pub product_listing_id: ProductListingId,
+    pub product_listing_slug_id: ProductListingSlugId,
     pub shop_id: ShopId,
     pub shop_slug_id: ShopSlugId,
     pub shop_name: ShopName,
@@ -111,7 +111,7 @@ pub trait ProductListingSearchFilterMatchSourceReader: Send {
     async fn find_source(
         &mut self,
         event_id: EventId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<
         Option<ProductListingSearchFilterMatchSource>,
         ProductListingSearchFilterMatchSourceReadError,
@@ -128,7 +128,7 @@ pub trait ProductListingSearchFilterMatchSourceReader: Send {
         let mut sources = HashMap::new();
         for reference in refs {
             if let Some(source) = self
-                .find_source(reference.event_id, reference.product_id)
+                .find_source(reference.event_id, reference.product_listing_id)
                 .await?
             {
                 sources.insert(*reference, source);

@@ -1,5 +1,5 @@
 use super::types::{SearchFilterMatchData, UpdateSearchFilterMatchFeedbackData};
-use super::util::{last_modified, no_store, parse_product_id, parse_search_filter_id};
+use super::util::{last_modified, no_store, parse_product_listing_id, parse_search_filter_id};
 use crate::auth::protected_context;
 use crate::error::ApiError;
 use crate::state::SearchFiltersState;
@@ -12,14 +12,14 @@ use search_filter_service::use_cases::UpdateSearchFilterMatchFeedbackCommand;
 pub(super) async fn update_search_filter_match_feedback(
     State(state): State<SearchFiltersState>,
     headers: HeaderMap,
-    Path((raw_search_filter_id, raw_product_id)): Path<(String, String)>,
+    Path((raw_search_filter_id, raw_product_listing_id)): Path<(String, String)>,
     body: String,
 ) -> Response {
     let search_filter_id = match parse_search_filter_id(&raw_search_filter_id) {
         Ok(value) => value,
         Err(response) => return response,
     };
-    let product_id = match parse_product_id(&raw_product_id) {
+    let product_listing_id = match parse_product_listing_id(&raw_product_listing_id) {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -38,7 +38,7 @@ pub(super) async fn update_search_filter_match_feedback(
             UpdateSearchFilterMatchFeedbackCommand {
                 user_id,
                 search_filter_id,
-                product_id,
+                product_listing_id,
                 feedback: data.feedback(),
             },
         )

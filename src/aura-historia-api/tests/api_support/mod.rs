@@ -7,8 +7,8 @@ use aura_historia_api::auth::{
 };
 use aura_historia_api::state::{
     AppState, BillingState, NewsletterState, NotificationsState, OAuthState,
-    PartnerApplicationsState, PartnerProductsState, ProductsState, SearchFiltersState, ShopsState,
-    UsersState, WatchlistState, WebhooksState,
+    PartnerApplicationsState, PartnerProductListingsState, ProductListingsState,
+    SearchFiltersState, ShopsState, UsersState, WatchlistState, WebhooksState,
 };
 use aura_historia_api::{app, state};
 use billing_service::ports::{
@@ -327,24 +327,28 @@ async fn seed_user_with_tier_and_consent(
 
 pub async fn seed_active_watchlist_entries(user_id: UserId, count: usize) {
     for _ in 0..count {
-        let product_id = seed_product().await;
-        seed_watchlist_entry(user_id, product_id, "ACTIVE").await;
+        let product_listing_id = seed_product().await;
+        seed_watchlist_entry(user_id, product_listing_id, "ACTIVE").await;
     }
 }
 
 pub async fn seed_inactive_watchlist_entry(user_id: UserId) -> ProductListingId {
-    let product_id = seed_product().await;
-    seed_watchlist_entry(user_id, product_id, "INACTIVE_BY_USER").await;
-    product_id
+    let product_listing_id = seed_product().await;
+    seed_watchlist_entry(user_id, product_listing_id, "INACTIVE_BY_USER").await;
+    product_listing_id
 }
 
-async fn seed_watchlist_entry(user_id: UserId, product_id: ProductListingId, state: &'static str) {
+async fn seed_watchlist_entry(
+    user_id: UserId,
+    product_listing_id: ProductListingId,
+    state: &'static str,
+) {
     let pool = get_postgres_client().await;
     if let Err(error) = sqlx::query(
-        "INSERT INTO product_watchlist (user_id, product_id, notifications, state, active_since, notifications_enabled_since) VALUES ($1, $2, true, $3, CASE WHEN $3 = 'ACTIVE' THEN now() ELSE NULL END, now())",
+        "INSERT INTO product_listing_watchlist (user_id, product_listing_id, notifications, state, active_since, notifications_enabled_since) VALUES ($1, $2, true, $3, CASE WHEN $3 = 'ACTIVE' THEN now() ELSE NULL END, now())",
     )
     .bind(uuid::Uuid::from(user_id))
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .bind(state)
     .execute(&pool)
     .await
@@ -433,12 +437,12 @@ pub async fn seed_shop() -> Shop {
     shop
 }
 
-pub async fn product_route_slugs(product_id: ProductListingId) -> (String, String) {
+pub async fn product_route_slugs(product_listing_id: ProductListingId) -> (String, String) {
     let pool = get_postgres_client().await;
     sqlx::query_as(
-        "SELECT shops.shop_slug_id, products.product_slug_id FROM products JOIN shops ON shops.shop_id = products.shop_id WHERE products.product_id = $1",
+        "SELECT shops.shop_slug_id, product_listings.product_listing_slug_id FROM product_listings JOIN shops ON shops.shop_id = product_listings.shop_id WHERE product_listings.product_listing_id = $1",
     )
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .fetch_one(&pool)
     .await
     .unwrap_or_else(|error| panic!("failed to read seeded product slugs: {error}"))
@@ -446,10 +450,11 @@ pub async fn product_route_slugs(product_id: ProductListingId) -> (String, Strin
 
 pub async fn seed_product() -> ProductListingId {
     let shop = seed_shop().await;
-    let product_id = ProductListingId::new();
-    let product_slug_id = product_listing_core::product_listing_slug_id::ProductListingSlugId::from(
-        "acceptance-product",
-    );
+    let product_listing_id = ProductListingId::new();
+    let product_listing_slug_id =
+        product_listing_core::product_listing_slug_id::ProductListingSlugId::from(
+            "acceptance-product",
+        );
     let event_id = uuid::Uuid::new_v4();
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;
@@ -465,17 +470,17 @@ pub async fn seed_product() -> ProductListingId {
     }
     if let Err(error) = sqlx::query(
         r#"
-        INSERT INTO products (
-            product_id, product_slug_id, event_id, shop_id, seller_id, shop_listing_id,
+        INSERT INTO product_listings (
+            product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id,
             state, lifecycle, url
         ) VALUES ($1, $2, $3, $4, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
         "#,
     )
-    .bind(uuid::Uuid::from(product_id))
-    .bind(product_slug_id.as_ref())
+    .bind(uuid::Uuid::from(product_listing_id))
+    .bind(product_listing_slug_id.as_ref())
     .bind(event_id)
     .bind(uuid::Uuid::from(shop.id()))
-    .bind(format!("shops-product-{product_id}"))
+    .bind(format!("shops-product-{product_listing_id}"))
     .bind("https://api-acceptance.example/product")
     .execute(&mut *tx)
     .await
@@ -484,7 +489,7 @@ pub async fn seed_product() -> ProductListingId {
     }
     if let Err(error) = sqlx::query(
         r#"
-        INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time)
+        INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time)
         VALUES (
             $1,
             $2,
@@ -496,7 +501,7 @@ pub async fn seed_product() -> ProductListingId {
         "#,
     )
     .bind(event_id)
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .execute(&mut *tx)
     .await
     {
@@ -505,7 +510,7 @@ pub async fn seed_product() -> ProductListingId {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit product seed transaction: {error}");
     }
-    product_id
+    product_listing_id
 }
 
 pub(super) async fn seed_current_fx_snapshot(pool: &sqlx::PgPool) {
@@ -571,7 +576,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     ));
     let opensearch_client = get_opensearch_client().await;
 
-    let products_state = ProductsState::new(
+    let products_state = ProductListingsState::new(
         Arc::new(GetProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingDetailsReaderFactory::new(),
@@ -593,12 +598,12 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )
-    .with_product_events(Arc::new(GetProductListingEventsHandler::new(
+    .with_product_listing_events(Arc::new(GetProductListingEventsHandler::new(
         unit_of_work.clone(),
         SqlxProductListingEventReaderFactory::new(),
     )));
 
-    let partner_products_state = PartnerProductsState::new(
+    let partner_product_listings_state = PartnerProductListingsState::new(
         Arc::new(CreateProductListingHandler::new_with_fx_rates(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
@@ -972,7 +977,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_products(products_state)
-        .with_partner_products(partner_products_state)
+        .with_partner_product_listings(partner_product_listings_state)
         .with_webhooks(webhooks_state)
         .with_oauth(oauth_state)
         .with_search_filters(search_filters_state)

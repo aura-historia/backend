@@ -35,7 +35,7 @@ use std::hash::Hash;
 use strum::EnumCount;
 use time::format_description::well_known;
 
-const DEFAULT_INDEX: &str = "products";
+const DEFAULT_INDEX: &str = "product-listings";
 const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
 const DEFAULT_HYBRID_PAGE_SIZE: u64 = 20;
 const HYBRID_K: u16 = 100;
@@ -182,8 +182,8 @@ fn map_summary_fields(
     let title = resolve_title(&document, preferred_language);
 
     Ok(ProductListingSummary {
-        product_id: document.product_id,
-        product_slug_id: document.product_slug_id,
+        product_listing_id: document.product_listing_id,
+        product_listing_slug_id: document.product_listing_slug_id,
         event_id: document.event_id,
         shop_id: document.shop_id,
         seller_id: document.seller_id,
@@ -338,7 +338,7 @@ pub(crate) fn build_search_request(
     };
     body["sort"] = json!([
         primary_sort,
-        { ProductListingDocumentSerdeField::ProductId.as_str(): { "order": "asc" } }
+        { ProductListingDocumentSerdeField::ProductListingId.as_str(): { "order": "asc" } }
     ]);
 
     Ok(body)
@@ -418,7 +418,7 @@ pub(crate) fn build_hybrid_search_request(
                 "script": {
                     "source": format!(
                         "return _score + (Math.abs(doc['{}'].value.hashCode()) * 1.0e-15);",
-                        ProductListingDocumentSerdeField::ProductId.as_str()
+                        ProductListingDocumentSerdeField::ProductListingId.as_str()
                     )
                 },
                 "order": "desc"
@@ -576,7 +576,7 @@ pub(crate) fn build_common_filter_clauses(
     if !search.exclude_product_listing_id_query.is_empty() {
         must_not.push(json!({
             "terms": {
-                ProductListingDocumentSerdeField::ProductId.as_str(): search.exclude_product_listing_id_query.iter().map(ToString::to_string).collect::<Vec<_>>()
+                ProductListingDocumentSerdeField::ProductListingId.as_str(): search.exclude_product_listing_id_query.iter().map(ToString::to_string).collect::<Vec<_>>()
             }
         }));
     }
@@ -905,8 +905,8 @@ mod tests {
 
     fn document() -> Result<ProductListingDocument, url::ParseError> {
         Ok(ProductListingDocument {
-            product_id: ProductListingId::new(),
-            product_slug_id: ProductListingSlugId::from("vase-abcdef"),
+            product_listing_id: ProductListingId::new(),
+            product_listing_slug_id: ProductListingSlugId::from("vase-abcdef"),
             shop_slug_id: ShopSlugId::from("shop"),
             seller_slug_id: shop_core::seller_slug_id::SellerSlugId::from("seller"),
             event_id: EventId::new(),
@@ -939,8 +939,8 @@ mod tests {
             sold_at: None,
             state: ProductState::Available,
             lifecycle: ProductLifecycle::Active,
-            url: Url::parse("https://shop.example/products/sku-1")?,
-            view_url: Url::parse("https://aura.example/products/vase-abcdef")?,
+            url: Url::parse("https://shop.example/product_listings/sku-1")?,
+            view_url: Url::parse("https://aura.example/product_listings/vase-abcdef")?,
             images: IndexSet::new(),
             embedding: None,
             auction_start: None,

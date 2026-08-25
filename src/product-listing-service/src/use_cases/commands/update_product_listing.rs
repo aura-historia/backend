@@ -59,7 +59,7 @@ impl UpdateProductListingCommand {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateProductListingResult {
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub event_id: Option<EventId>,
 }
 
@@ -167,7 +167,7 @@ pub trait UpdateProductListingUseCase: Send + Sync {
     async fn execute(
         &self,
         context: &OperationContext,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         command: UpdateProductListingCommand,
     ) -> Result<UpdateProductListingResult, UpdateProductListingError>;
 
@@ -235,11 +235,11 @@ where
         );
 
         let loaded = match target {
-            UpdateProductListingTarget::Id(product_id) => {
+            UpdateProductListingTarget::Id(product_listing_id) => {
                 let loaded = self
                     .products
                     .in_transaction(tx)
-                    .find_by_id(product_id)
+                    .find_by_id(product_listing_id)
                     .await?
                     .ok_or(UpdateProductListingError::ProductListingNotFound)?;
 
@@ -294,7 +294,7 @@ where
         }
 
         Ok(UpdateProductListingResult {
-            product_id: product.id(),
+            product_listing_id: product.id(),
             event_id,
         })
     }
@@ -313,7 +313,7 @@ where
         name = "update_product",
         skip_all,
         fields(
-            product_id = %product_id,
+            product_listing_id = %product_listing_id,
             principal_type = context.principal.kind(),
             actor_id = tracing::field::Empty,
             request_id = %context.request_id,
@@ -323,7 +323,7 @@ where
     async fn execute(
         &self,
         context: &OperationContext,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         command: UpdateProductListingCommand,
     ) -> Result<UpdateProductListingResult, UpdateProductListingError> {
         let mut tx = self
@@ -335,7 +335,7 @@ where
             .persist_for_target(
                 &mut tx,
                 context,
-                UpdateProductListingTarget::Id(product_id),
+                UpdateProductListingTarget::Id(product_listing_id),
                 command,
             )
             .await?;
@@ -1010,7 +1010,7 @@ mod tests {
 
         async fn find_current_event_id(
             &mut self,
-            _product_id: ProductListingId,
+            _product_listing_id: ProductListingId,
         ) -> Result<Option<EventId>, ProductListingEventStoreError> {
             Ok(None)
         }
@@ -1060,9 +1060,11 @@ mod tests {
         Ok(product)
     }
 
-    fn new_product(product_id: ProductListingId) -> Result<NewProductListing, url::ParseError> {
+    fn new_product(
+        product_listing_id: ProductListingId,
+    ) -> Result<NewProductListing, url::ParseError> {
         Ok(NewProductListing {
-            id: product_id,
+            id: product_listing_id,
             shop_id: ShopId::new(),
             seller_id: ShopId::new(),
             shop_listing_id: ShopListingId::new(),
@@ -1105,7 +1107,7 @@ mod tests {
     -> Result<(), url::ParseError> {
         let state = state();
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
         let command = UpdateProductListingCommand {
             state: PatchField::Set(ProductState::Sold),
@@ -1113,7 +1115,7 @@ mod tests {
         };
 
         let result = handler(&state)
-            .execute(&context(), product_id, command)
+            .execute(&context(), product_listing_id, command)
             .await;
 
         assert!(matches!(
@@ -1131,7 +1133,7 @@ mod tests {
     async fn should_update_product_when_field_set() -> Result<(), url::ParseError> {
         let state = state();
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
         let command = UpdateProductListingCommand {
             state: PatchField::Set(ProductState::Available),
@@ -1139,7 +1141,7 @@ mod tests {
         };
 
         let result = handler(&state)
-            .execute(&context(), product_id, command)
+            .execute(&context(), product_listing_id, command)
             .await;
 
         assert!(matches!(
@@ -1161,7 +1163,7 @@ mod tests {
     -> Result<(), url::ParseError> {
         let state = state();
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
         let command = UpdateProductListingCommand {
             state: PatchField::Set(ProductState::Available),
@@ -1175,7 +1177,7 @@ mod tests {
         );
 
         let result = handler
-            .execute(&partner_context(), product_id, command)
+            .execute(&partner_context(), product_listing_id, command)
             .await;
 
         assert!(matches!(result, Err(UpdateProductListingError::Forbidden)));
@@ -1216,14 +1218,14 @@ mod tests {
     async fn should_commit_no_op_when_update_empty() -> Result<(), url::ParseError> {
         let state = state();
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
         let command = UpdateProductListingCommand {
             ..Default::default()
         };
 
         let result = handler(&state)
-            .execute(&context(), product_id, command)
+            .execute(&context(), product_listing_id, command)
             .await;
 
         assert!(matches!(
@@ -1240,14 +1242,14 @@ mod tests {
     #[tokio::test]
     async fn should_return_not_found_when_update_product_missing() {
         let state = state();
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         let command = UpdateProductListingCommand {
             state: PatchField::Set(ProductState::Available),
             ..Default::default()
         };
 
         let result = handler(&state)
-            .execute(&context(), product_id, command)
+            .execute(&context(), product_listing_id, command)
             .await;
 
         assert!(matches!(
@@ -1260,7 +1262,7 @@ mod tests {
     #[tokio::test]
     async fn should_map_begin_error_when_update_begin_fails() {
         let state = state();
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         lock_state(&state).begin_error = true;
         let command = UpdateProductListingCommand {
             state: PatchField::Set(ProductState::Available),
@@ -1268,7 +1270,7 @@ mod tests {
         };
 
         let result = handler(&state)
-            .execute(&context(), product_id, command)
+            .execute(&context(), product_listing_id, command)
             .await;
 
         assert!(matches!(
@@ -1282,7 +1284,7 @@ mod tests {
         let state = state();
         lock_state(&state).commit_error = true;
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
         let command = UpdateProductListingCommand {
             state: PatchField::Set(ProductState::Available),
@@ -1290,7 +1292,7 @@ mod tests {
         };
 
         let result = handler(&state)
-            .execute(&context(), product_id, command)
+            .execute(&context(), product_listing_id, command)
             .await;
 
         assert!(matches!(
@@ -1303,7 +1305,7 @@ mod tests {
     #[tokio::test]
     async fn should_not_commit_when_update_find_fails() {
         let state = state();
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         lock_state(&state).find_by_id_result = Some(Err(
             ProductListingRepositoryError::ProductListingLookupByIdFailed,
         ));
@@ -1313,7 +1315,7 @@ mod tests {
         };
 
         let result = handler(&state)
-            .execute(&context(), product_id, command)
+            .execute(&context(), product_listing_id, command)
             .await;
 
         assert!(matches!(
@@ -1327,7 +1329,7 @@ mod tests {
     async fn should_not_commit_when_update_repository_fails() -> Result<(), url::ParseError> {
         let state = state();
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         {
             let mut state = lock_state(&state);
             state.find_by_id_result = Some(Ok(Some(versioned_product(product))));
@@ -1341,7 +1343,7 @@ mod tests {
         };
 
         let result = handler(&state)
-            .execute(&context(), product_id, command)
+            .execute(&context(), product_listing_id, command)
             .await;
 
         assert!(matches!(
@@ -1356,7 +1358,7 @@ mod tests {
     async fn should_not_commit_when_update_event_append_fails() -> Result<(), url::ParseError> {
         let state = state();
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         {
             let mut state = lock_state(&state);
             state.find_by_id_result = Some(Ok(Some(versioned_product(product))));
@@ -1370,7 +1372,7 @@ mod tests {
         };
 
         let result = handler(&state)
-            .execute(&context(), product_id, command)
+            .execute(&context(), product_listing_id, command)
             .await;
 
         assert!(matches!(
@@ -1385,7 +1387,7 @@ mod tests {
     async fn should_apply_all_set_patch_fields_when_update() -> Result<(), url::ParseError> {
         let state = state();
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
         let command = UpdateProductListingCommand {
             address: PatchField::Set(ProductListingAddress::default()),
@@ -1401,7 +1403,7 @@ mod tests {
         };
 
         let result = handler(&state)
-            .execute(&context(), product_id, command)
+            .execute(&context(), product_listing_id, command)
             .await;
 
         assert!(result.is_ok());
@@ -1413,7 +1415,7 @@ mod tests {
     async fn should_apply_clear_patch_fields_when_allowed() -> Result<(), url::ParseError> {
         let state = state();
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
         let command = UpdateProductListingCommand {
             address: PatchField::Clear,
@@ -1424,7 +1426,7 @@ mod tests {
         };
 
         let result = handler(&state)
-            .execute(&context(), product_id, command)
+            .execute(&context(), product_listing_id, command)
             .await;
 
         assert!(result.is_ok());
@@ -1436,7 +1438,7 @@ mod tests {
     async fn should_reject_clear_state_when_update() -> Result<(), url::ParseError> {
         let state = state();
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
         let command = UpdateProductListingCommand {
             state: PatchField::Clear,
@@ -1444,7 +1446,7 @@ mod tests {
         };
 
         let result = handler(&state)
-            .execute(&context(), product_id, command)
+            .execute(&context(), product_listing_id, command)
             .await;
 
         assert!(matches!(
@@ -1459,7 +1461,7 @@ mod tests {
     async fn should_reject_clear_url_when_update() -> Result<(), url::ParseError> {
         let state = state();
         let product = product()?;
-        let product_id = product.id();
+        let product_listing_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
         let command = UpdateProductListingCommand {
             url: PatchField::Clear,
@@ -1467,7 +1469,7 @@ mod tests {
         };
 
         let result = handler(&state)
-            .execute(&context(), product_id, command)
+            .execute(&context(), product_listing_id, command)
             .await;
 
         assert!(matches!(

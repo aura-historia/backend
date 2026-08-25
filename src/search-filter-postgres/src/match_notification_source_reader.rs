@@ -35,7 +35,7 @@ impl SearchFilterMatchNotificationSourceReaderFactory<SqlxTransaction>
 struct SearchFilterMatchNotificationSourceRow {
     user_id: uuid::Uuid,
     user_search_filter_id: uuid::Uuid,
-    product_id: uuid::Uuid,
+    product_listing_id: uuid::Uuid,
     origin_event_id: uuid::Uuid,
     created: OffsetDateTime,
     user_search_filter_name: String,
@@ -50,7 +50,7 @@ impl SearchFilterMatchNotificationSourceReader
         &mut self,
         user_id: UserId,
         search_filter_id: UserSearchFilterId,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
         origin_event_id: EventId,
     ) -> Result<
         Option<SearchFilterMatchNotificationSource>,
@@ -66,7 +66,7 @@ impl SearchFilterMatchNotificationSourceReader
             SELECT
                 matched.user_id,
                 matched.user_search_filter_id,
-                matched.product_id,
+                matched.product_listing_id,
                 matched.origin_event_id,
                 matched.created,
                 COALESCE(matched.user_search_filter_name, filter.name) AS user_search_filter_name,
@@ -76,13 +76,13 @@ impl SearchFilterMatchNotificationSourceReader
                 ON filter.user_search_filter_id = matched.user_search_filter_id
             WHERE matched.user_id = $1
                 AND matched.user_search_filter_id = $2
-                AND matched.product_id = $3
+                AND matched.product_listing_id = $3
                 AND matched.origin_event_id = $4
             "#,
         )
         .bind(uuid::Uuid::from(user_id))
         .bind(search_filter_id)
-        .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(product_listing_id))
         .bind(uuid::Uuid::from(origin_event_id))
         .fetch_optional(self.tx.connection())
         .await
@@ -101,7 +101,7 @@ impl SearchFilterMatchNotificationSourceReader
                         source: box_error(source),
                     }
                 })?,
-                product_id: ProductListingId::from(row.product_id),
+                product_listing_id: ProductListingId::from(row.product_listing_id),
                 origin_event_id: row.origin_event_id.into(),
                 matched_at: row.created,
                 external_delivery_requested: row.external_delivery_requested,

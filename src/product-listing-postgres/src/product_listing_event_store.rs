@@ -47,8 +47,8 @@ impl ProductListingEventStore for SqlxProductListingEventStore<'_> {
     ) -> Result<(), ProductListingEventStoreError> {
         sqlx::query(
             r#"
-            INSERT INTO product_events (
-                event_id, product_id, event_type, event_group, payload, event_time
+            INSERT INTO product_listing_events (
+                event_id, product_listing_id, event_type, event_group, payload, event_time
             ) VALUES ($1, $2, $3, 'DOMAIN', $4, $5)
             "#,
         )
@@ -66,12 +66,12 @@ impl ProductListingEventStore for SqlxProductListingEventStore<'_> {
 
     async fn find_current_event_id(
         &mut self,
-        product_id: ProductListingId,
+        product_listing_id: ProductListingId,
     ) -> Result<Option<EventId>, ProductListingEventStoreError> {
         let event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT event_id FROM product_events WHERE product_id = $1 ORDER BY event_time DESC, event_id DESC LIMIT 1",
+            "SELECT event_id FROM product_listing_events WHERE product_listing_id = $1 ORDER BY event_time DESC, event_id DESC LIMIT 1",
         )
-        .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(product_listing_id))
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(ProductListingCurrentEventLookupSqlxError)?;
@@ -303,7 +303,7 @@ mod tests {
             pricing: pricing(),
             sale_valuation: None,
             state: ProductState::Listed,
-            url: url("https://shop.example/products/1"),
+            url: url("https://shop.example/product_listings/1"),
             images: images(),
             auction: ProductListingAuction {
                 start: Some(OffsetDateTime::UNIX_EPOCH),
@@ -376,8 +376,8 @@ mod tests {
                 address: ProductListingAddress::default(),
             }),
             ProductListingDomainEventPayload::UrlChanged(ProductListingUrlChanged {
-                old_url: url("https://shop.example/products/1"),
-                new_url: url("https://shop.example/products/2"),
+                old_url: url("https://shop.example/product_listings/1"),
+                new_url: url("https://shop.example/product_listings/2"),
             }),
             ProductListingDomainEventPayload::ImagesChanged(Box::new(
                 ProductListingImagesChanged { images: images() },

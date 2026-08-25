@@ -6,7 +6,7 @@ use shop_core::shop_slug_id::ShopSlugId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingEmbedding {
-    pub product_id: ProductListingId,
+    pub product_listing_id: ProductListingId,
     pub embedding: Option<Vec<f32>>,
 }
 
@@ -15,7 +15,7 @@ pub enum ProductListingEmbeddingLookup {
     ById(ProductListingId),
     BySlug {
         shop_slug_id: ShopSlugId,
-        product_slug_id: ProductListingSlugId,
+        product_listing_slug_id: ProductListingSlugId,
     },
 }
 

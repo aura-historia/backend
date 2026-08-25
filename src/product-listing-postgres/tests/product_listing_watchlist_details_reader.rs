@@ -68,12 +68,12 @@ async fn should_join_watchlisted_product_localization_and_user_state() {
     )
     .await;
 
-    let products = find_for_user(&pool, user_id, Language::De).await;
-    let [view] = products.as_slice() else {
+    let product_listings = find_for_user(&pool, user_id, Language::De).await;
+    let [view] = product_listings.as_slice() else {
         panic!("expected one watchlisted product");
     };
 
-    assert_eq!(view.item.product_id, product.id());
+    assert_eq!(view.item.product_listing_id, product.id());
     assert_eq!(view.item.shop_listing_id.as_ref(), "watchlist-joined");
     assert_eq!(view.item.shop_name.as_ref(), "watchlist-joined-shop");
     assert_eq!(view.item.seller_name.as_ref(), "watchlist-joined-seller");
@@ -105,7 +105,7 @@ async fn should_join_watchlisted_product_localization_and_user_state() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_order_watchlisted_products_by_created_desc_then_product_id_asc() {
+async fn should_order_watchlisted_products_by_created_desc_then_product_listing_id_asc() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, "FREE", false).await;
     let first_tied = persist_product(&pool, "watchlist-order-first", None, None).await;
@@ -124,19 +124,22 @@ async fn should_order_watchlisted_products_by_created_desc_then_product_id_asc()
     )
     .await;
 
-    let products = find_for_user(&pool, user_id, Language::En).await;
+    let product_listings = find_for_user(&pool, user_id, Language::En).await;
     let mut tied_ids = [first_tied.id(), second_tied.id()];
-    tied_ids.sort_by_key(|product_id| uuid::Uuid::from(*product_id));
-    let product_ids = products
+    tied_ids.sort_by_key(|product_listing_id| uuid::Uuid::from(*product_listing_id));
+    let product_listing_ids = product_listings
         .into_iter()
-        .map(|product| product.item.product_id)
+        .map(|product| product.item.product_listing_id)
         .collect::<Vec<_>>();
 
-    assert_eq!(product_ids, vec![newest.id(), tied_ids[0], tied_ids[1]]);
+    assert_eq!(
+        product_listing_ids,
+        vec![newest.id(), tied_ids[0], tied_ids[1]]
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_page_watchlisted_products_by_created_desc_then_product_id_asc() {
+async fn should_page_watchlisted_products_by_created_desc_then_product_listing_id_asc() {
     let pool = get_postgres_client().await;
     let user_id = seed_user(&pool, "FREE", false).await;
     let first_tied = persist_product(&pool, "watchlist-page-first", None, None).await;
@@ -145,8 +148,8 @@ async fn should_page_watchlisted_products_by_created_desc_then_product_id_asc() 
     let newest = persist_product(&pool, "watchlist-page-newest", None, None).await;
     let tied_created = OffsetDateTime::UNIX_EPOCH + Duration::days(1);
 
-    for product_id in [first_tied.id(), second_tied.id(), third_tied.id()] {
-        insert_watchlist(&pool, user_id, product_id, true, tied_created).await;
+    for product_listing_id in [first_tied.id(), second_tied.id(), third_tied.id()] {
+        insert_watchlist(&pool, user_id, product_listing_id, true, tied_created).await;
     }
     insert_watchlist(
         &pool,
@@ -158,7 +161,7 @@ async fn should_page_watchlisted_products_by_created_desc_then_product_id_asc() 
     .await;
 
     let mut tied_ids = [first_tied.id(), second_tied.id(), third_tied.id()];
-    tied_ids.sort_by_key(|product_id| uuid::Uuid::from(*product_id));
+    tied_ids.sort_by_key(|product_listing_id| uuid::Uuid::from(*product_listing_id));
     let first_page = find_for_user_page(
         &pool,
         &ProductListingWatchlistDetailsRequest {
@@ -173,14 +176,14 @@ async fn should_page_watchlisted_products_by_created_desc_then_product_id_asc() 
     .await;
     let expected_cursor = ProductListingWatchlistDetailsCursor {
         watchlist_created: tied_created,
-        product_id: tied_ids[0],
+        product_listing_id: tied_ids[0],
     };
 
     assert_eq!(
         first_page
             .items
             .iter()
-            .map(|product| product.item.product_id)
+            .map(|product| product.item.product_listing_id)
             .collect::<Vec<_>>(),
         vec![newest.id(), tied_ids[0]]
     );
@@ -203,7 +206,7 @@ async fn should_page_watchlisted_products_by_created_desc_then_product_id_asc() 
         second_page
             .items
             .iter()
-            .map(|product| product.item.product_id)
+            .map(|product| product.item.product_listing_id)
             .collect::<Vec<_>>(),
         vec![tied_ids[1], tied_ids[2]]
     );
@@ -216,7 +219,7 @@ async fn find_for_user(
     language: Language,
 ) -> Vec<PersonalizedProductListingDetailsReadModel> {
     match find_for_user_result(pool, user_id, language).await {
-        Ok(products) => products,
+        Ok(product_listings) => product_listings,
         Err(error) => panic!("failed to read product watchlist details: {error:?}"),
     }
 }
@@ -280,13 +283,13 @@ async fn persist_product(
     let shop_id = seed_shop(pool, &format!("{slug}-shop")).await;
     let seller_id = seed_shop(pool, &format!("{slug}-seller")).await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let products = SqlxProductListingRepositoryFactory::new();
+    let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
     let product = sample_product(slug, shop_id, seller_id, title, description);
     let event = product.pending_events()[0].clone();
 
     let mut tx = begin(&unit_of_work).await;
-    match products
+    match product_listings
         .in_transaction(&mut tx)
         .insert(&product, event.event_id)
         .await
@@ -305,20 +308,20 @@ async fn persist_product(
 
 async fn insert_translation(
     pool: &sqlx::PgPool,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     language: &str,
     title: Option<&str>,
     description: Option<&str>,
 ) {
     let result = sqlx::query(
         r#"
-        INSERT INTO product_translations (product_id, source_event_id, language, title, description)
-        SELECT product_id, event_id, $2, $3, $4
-        FROM products
-        WHERE product_id = $1
+        INSERT INTO product_listing_translations (product_listing_id, source_event_id, language, title, description)
+        SELECT product_listing_id, event_id, $2, $3, $4
+        FROM product_listings
+        WHERE product_listing_id = $1
         "#,
     )
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .bind(language)
     .bind(title)
     .bind(description)
@@ -356,18 +359,18 @@ async fn seed_user(pool: &sqlx::PgPool, tier: &str, prohibited_content_consent: 
 async fn insert_watchlist(
     pool: &sqlx::PgPool,
     user_id: UserId,
-    product_id: ProductListingId,
+    product_listing_id: ProductListingId,
     notifications: bool,
     created: OffsetDateTime,
 ) {
     let result = sqlx::query(
         r#"
-        INSERT INTO product_watchlist (user_id, product_id, notifications, state, active_since, notifications_enabled_since, created, updated)
+        INSERT INTO product_listing_watchlist (user_id, product_listing_id, notifications, state, active_since, notifications_enabled_since, created, updated)
         VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'ACTIVE' THEN $5 ELSE NULL END, CASE WHEN $3 THEN $5 ELSE NULL END, $5, $5)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .bind(notifications)
     .bind("ACTIVE")
     .bind(created)

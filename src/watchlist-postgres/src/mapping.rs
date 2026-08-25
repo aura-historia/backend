@@ -12,7 +12,7 @@ use watchlist_service::ports::{
 #[derive(FromRow)]
 pub(crate) struct WatchlistRepositoryRow {
     pub user_id: uuid::Uuid,
-    pub product_id: uuid::Uuid,
+    pub product_listing_id: uuid::Uuid,
     pub notifications: bool,
     pub state: String,
     pub version: i64,
@@ -21,7 +21,7 @@ pub(crate) struct WatchlistRepositoryRow {
 #[derive(FromRow)]
 pub(crate) struct WatchlistViewRow {
     pub user_id: uuid::Uuid,
-    pub product_id: uuid::Uuid,
+    pub product_listing_id: uuid::Uuid,
     pub notifications: bool,
     pub state: String,
     pub created: time::OffsetDateTime,
@@ -36,7 +36,7 @@ impl TryFrom<WatchlistRepositoryRow> for VersionedWatchlistProductListing {
             .map_err(|_| WatchlistRepositoryError::InvalidPersistedState)?;
         let entry = WatchlistProductListing::rehydrate(
             UserId::from(row.user_id),
-            ProductListingId::from(row.product_id),
+            ProductListingId::from(row.product_listing_id),
             row.notifications,
             parse_state_repository(&row.state)?,
         );
@@ -50,7 +50,7 @@ impl TryFrom<WatchlistViewRow> for WatchlistProductListingView {
     fn try_from(row: WatchlistViewRow) -> Result<Self, Self::Error> {
         Ok(Self {
             user_id: UserId::from(row.user_id),
-            product_id: ProductListingId::from(row.product_id),
+            product_listing_id: ProductListingId::from(row.product_listing_id),
             notifications: row.notifications,
             state: parse_state_read(&row.state)?,
             created: row.created,
@@ -102,7 +102,7 @@ mod tests {
         for version in [0, -1] {
             let row = WatchlistRepositoryRow {
                 user_id: uuid::Uuid::new_v4(),
-                product_id: uuid::Uuid::new_v4(),
+                product_listing_id: uuid::Uuid::new_v4(),
                 notifications: true,
                 state: "ACTIVE".to_owned(),
                 version,

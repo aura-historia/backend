@@ -91,14 +91,15 @@ fn command_from_job(
             source: box_error(source),
         }
     })?;
-    let product_id = ProductListingId::try_from(event.product_id.as_str()).map_err(|source| {
-        ProductListingTranslationWorkerError::InvalidProductListingId {
-            source: box_error(source),
-        }
-    })?;
+    let product_listing_id = ProductListingId::try_from(event.product_listing_id.as_str())
+        .map_err(
+            |source| ProductListingTranslationWorkerError::InvalidProductListingId {
+                source: box_error(source),
+            },
+        )?;
     Ok(TranslateProductListingCommand {
         event_id,
-        product_id,
+        product_listing_id,
     })
 }
 
@@ -123,14 +124,14 @@ mod tests {
     use super::*;
     use crate::cdc::{IdempotencyKey, OrderingKey, ProductListingEventJob, WorkerQueue};
 
-    fn job(event_id: &str, product_id: &str) -> DomainJob {
+    fn job(event_id: &str, product_listing_id: &str) -> DomainJob {
         DomainJob {
             target_queue: WorkerQueue::ProductListingTranslate,
             idempotency_key: IdempotencyKey::new("product-event:test"),
             ordering_key: OrderingKey::new("product:test"),
             payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
                 event_id: event_id.to_owned(),
-                product_id: product_id.to_owned(),
+                product_listing_id: product_listing_id.to_owned(),
                 event_type: "ENRICHMENT_EMBEDDED".to_owned(),
                 event_group: "ENRICHMENT".to_owned(),
             }),
@@ -139,15 +140,15 @@ mod tests {
 
     #[test]
     fn should_map_product_event_job_to_translation_command() {
-        let product_id = ProductListingId::new();
+        let product_listing_id = ProductListingId::new();
         let event_id = EventId::new();
 
-        let command = command_from_job(job(&event_id.to_string(), &product_id.to_string()));
+        let command = command_from_job(job(&event_id.to_string(), &product_listing_id.to_string()));
 
         assert!(matches!(
             command,
-            Ok(TranslateProductListingCommand { event_id: actual_event_id, product_id: actual_product_id })
-                if actual_event_id == event_id && actual_product_id == product_id
+            Ok(TranslateProductListingCommand { event_id: actual_event_id, product_listing_id: actual_product_listing_id })
+                if actual_event_id == event_id && actual_product_listing_id == product_listing_id
         ));
     }
 }
