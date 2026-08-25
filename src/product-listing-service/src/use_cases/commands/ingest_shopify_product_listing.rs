@@ -7,9 +7,9 @@ use indexmap::IndexSet;
 use localization::Localized;
 use money::{MonetaryAmount, Price};
 use product_listing_core::description::Description;
+use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::ProductListingAddress;
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::product_state::ProductState;
 use product_listing_core::prohibited_content::ProhibitedContent;
 use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_core::title::Title;
@@ -26,7 +26,7 @@ pub struct IngestShopifyProductListingCommand {
     pub description: Option<String>,
     pub handle: String,
     pub price: Option<String>,
-    pub state: ProductState,
+    pub availability: Option<ListingAvailability>,
     pub image_urls: IndexSet<Url>,
 }
 
@@ -168,7 +168,7 @@ where
                     price,
                     price_estimate_min: None,
                     price_estimate_max: None,
-                    state: Some(command.state),
+                    availability: command.availability,
                     url: Some(url),
                     images,
                     auction_start: None,

@@ -6,10 +6,10 @@ use indexmap::IndexSet;
 use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
-use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::product_state::ProductState;
 
 use product_listing_core::shop_listing_id::ShopListingId;
 use serde::{Deserialize, Serialize};
@@ -119,21 +119,39 @@ pub(crate) mod shop_type {
     }
 }
 
-pub(crate) mod product_state {
+pub(crate) mod listing_availability {
     use super::*;
 
-    pub(crate) fn serialize<S>(value: &ProductState, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serialize_code(value, serializer, ProductState::as_str)
-    }
+    pub(crate) mod option {
+        use super::*;
 
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ProductState, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserialize_code(deserializer, ProductState::from_code)
+        pub(crate) fn serialize<S>(
+            value: &Option<ListingAvailability>,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            match value {
+                Some(value) => serializer.serialize_some(value.as_str()),
+                None => serializer.serialize_none(),
+            }
+        }
+
+        pub(crate) fn deserialize<'de, D>(
+            deserializer: D,
+        ) -> Result<Option<ListingAvailability>, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            Option::<String>::deserialize(deserializer)?
+                .map(|value| {
+                    ListingAvailability::from_code(&value).ok_or_else(|| {
+                        serde::de::Error::custom(format!("unsupported code `{value}`"))
+                    })
+                })
+                .transpose()
+        }
     }
 }
 
@@ -171,21 +189,21 @@ pub(crate) mod continent {
     }
 }
 
-pub(crate) mod product_lifecycle {
+pub(crate) mod listing_lifecycle {
     use super::*;
 
-    pub(crate) fn serialize<S>(value: &ProductLifecycle, serializer: S) -> Result<S::Ok, S::Error>
+    pub(crate) fn serialize<S>(value: &ListingLifecycle, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serialize_code(value, serializer, ProductLifecycle::as_str)
+        serialize_code(value, serializer, ListingLifecycle::as_str)
     }
 
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ProductLifecycle, D::Error>
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ListingLifecycle, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        deserialize_code(deserializer, ProductLifecycle::from_code)
+        deserialize_code(deserializer, ListingLifecycle::from_code)
     }
 }
 
@@ -325,10 +343,14 @@ pub(crate) struct ProductListingDocument {
         default
     )]
     pub(crate) sold_at: Option<OffsetDateTime>,
-    #[serde(with = "product_state")]
-    pub state: ProductState,
-    #[serde(with = "product_lifecycle")]
-    pub lifecycle: ProductLifecycle,
+    #[serde(
+        with = "listing_availability::option",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub availability: Option<ListingAvailability>,
+    #[serde(with = "listing_lifecycle")]
+    pub lifecycle: ListingLifecycle,
     pub url: Url,
     pub view_url: Url,
     #[serde(skip_serializing_if = "IndexSet::is_empty", default)]
@@ -422,8 +444,8 @@ mod tests {
             sale_prices: None,
             sale_fx_rate_id: None,
             sold_at: None,
-            state: ProductState::Available,
-            lifecycle: ProductLifecycle::Active,
+            availability: Some(ListingAvailability::Available),
+            lifecycle: ListingLifecycle::Active,
             url: Url::parse("https://shop.example/product_listings/sku-1")?,
             view_url: Url::parse("https://aura.example/product_listings/vase-abcdef")?,
             images: IndexSet::new(),
@@ -455,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn should_serialize_only_source_price_for_active_product()
+    fn should_serialize_source_price_and_availability_for_active_product()
     -> Result<(), Box<dyn std::error::Error>> {
         let value = serde_json::to_value(document()?)?;
 
@@ -467,6 +489,10 @@ mod tests {
             Some(&serde_json::json!("EUR")),
             value.pointer("/sourcePrice/currency")
         );
+        assert_eq!(
+            Some(&serde_json::json!("AVAILABLE")),
+            value.get("availability")
+        );
         assert!(value.get("salePrices").is_none());
         assert!(value.get("priceEur").is_none());
         assert!(value.get("priceUsd").is_none());
@@ -477,6 +503,19 @@ mod tests {
                 !field.starts_with("priceEstimate") && field != "priceEur" && field != "priceUsd"
             })
         }));
+        Ok(())
+    }
+
+    #[test]
+    fn should_omit_absent_availability() -> Result<(), Box<dyn std::error::Error>> {
+        let mut document = document()?;
+        document.availability = None;
+
+        assert!(
+            serde_json::to_value(document)?
+                .get("availability")
+                .is_none()
+        );
         Ok(())
     }
 

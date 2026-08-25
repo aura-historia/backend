@@ -58,6 +58,7 @@ pub use product_listing_event_reader::{
 };
 pub use product_listing_event_store::{
     ProductListingEventStore, ProductListingEventStoreError, ProductListingEventStoreFactory,
+    stamp_product_listing_events,
 };
 pub use product_listing_percolation::{
     ProductListingPercolationInput, ProductListingPercolationValuation,

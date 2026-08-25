@@ -10,11 +10,12 @@ use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use notification_core::{
     notification_id::NotificationId, presentation::NotificationImagePresentation,
 };
-use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::ProductListingPricing;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::product_state::ProductState;
+
 use product_listing_core::prohibited_content::ProhibitedContent;
 use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_service::use_cases::{
@@ -69,10 +70,13 @@ pub(crate) struct ProductListingDetailsData {
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<LocalizedTextData>,
     pricing: ProductListingPricingPresentationData,
-    #[serde(with = "crate::wire::product_state")]
-    state: ProductState,
-    #[serde(with = "crate::wire::product_lifecycle")]
-    lifecycle: ProductLifecycle,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::listing_availability::option"
+    )]
+    availability: Option<ListingAvailability>,
+    #[serde(with = "crate::wire::listing_lifecycle")]
+    lifecycle: ListingLifecycle,
     url: Url,
     view_url: Url,
     images: Vec<ProductListingImageData>,
@@ -142,10 +146,13 @@ pub(crate) struct ProductListingSummaryData {
     #[serde(skip_serializing_if = "Option::is_none")]
     display_price: Option<PriceData>,
     price_valuation: ProductListingSummaryPriceValuationData,
-    #[serde(with = "crate::wire::product_state")]
-    state: ProductState,
-    #[serde(with = "crate::wire::product_lifecycle")]
-    lifecycle: ProductLifecycle,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::listing_availability::option"
+    )]
+    availability: Option<ListingAvailability>,
+    #[serde(with = "crate::wire::listing_lifecycle")]
+    lifecycle: ListingLifecycle,
     url: Url,
     view_url: Url,
     images: Vec<ProductListingImageData>,
@@ -246,7 +253,7 @@ impl ProductListingDetailsData {
             title: view.title.map(Into::into),
             description: view.description.map(Into::into),
             pricing: view.pricing.into(),
-            state: view.state,
+            availability: view.availability,
             lifecycle: view.lifecycle,
             url: view.url,
             view_url: view.view_url,
@@ -410,7 +417,7 @@ impl ProductListingSummaryData {
             title: summary.title.map(Into::into),
             display_price: summary.display_price.map(Into::into),
             price_valuation: summary.price_valuation.into(),
-            state: summary.state,
+            availability: summary.availability,
             lifecycle: summary.lifecycle,
             url: summary.url,
             view_url: summary.view_url,
@@ -495,7 +502,7 @@ pub(crate) fn product_response(
     view: PersonalizedProductListingDetailsView,
     principal: &Principal,
 ) -> Response {
-    let state = view.item.state;
+    let lifecycle = view.item.lifecycle;
     let content_language = view
         .item
         .title
@@ -503,7 +510,7 @@ pub(crate) fn product_response(
         .map(|title| title.localization.as_str());
     let mut response = Json(personalized_product_details_data(view)).into_response();
     let cache_control = match principal {
-        Principal::Anonymous if matches!(state, ProductState::Sold | ProductState::Removed) => {
+        Principal::Anonymous if matches!(lifecycle, ListingLifecycle::Withdrawn) => {
             "public, max-age=180, s-maxage=86400"
         }
         Principal::Anonymous => "public, max-age=180, s-maxage=900",

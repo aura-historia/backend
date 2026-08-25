@@ -4,12 +4,12 @@ use crate::values::{LocalizedTextData, PriceData};
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use money::Price;
 use product_listing_core::description::Description;
+use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::{
     ProductListingAddress, ProductListingAuction, ProductListingPricing,
 };
 use product_listing_core::product_listing_id::ProductListingKey;
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::product_state::ProductState;
 use product_listing_core::prohibited_content::ProhibitedContent;
 use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_core::title::Title;
@@ -36,8 +36,8 @@ pub(super) struct CreateProductListingData {
     pub(super) price_estimate_min: Option<PriceData>,
     #[serde(default)]
     pub(super) price_estimate_max: Option<PriceData>,
-    #[serde(with = "crate::wire::product_state")]
-    pub(super) state: ProductState,
+    #[serde(with = "crate::wire::listing_availability")]
+    pub(super) availability: ListingAvailability,
     pub(super) url: Url,
     pub(super) images: Vec<Url>,
     #[serde(default, with = "time::serde::rfc3339::option")]
@@ -62,8 +62,8 @@ pub(super) struct UpdateProductListingData {
     #[serde(default)]
     pub(super) price_estimate_max: PatchValue<PriceData>,
     #[serde(default)]
-    #[serde(deserialize_with = "crate::wire::product_state::patch::deserialize")]
-    pub(super) state: PatchValue<ProductState>,
+    #[serde(deserialize_with = "crate::wire::listing_availability::patch::deserialize")]
+    pub(super) availability: PatchValue<ListingAvailability>,
     #[serde(default)]
     pub(super) url: PatchValue<Url>,
     #[serde(default)]
@@ -90,8 +90,8 @@ pub(super) struct UpsertProductListingData {
     #[serde(default)]
     pub(super) price_estimate_max: Option<PriceData>,
     #[serde(default)]
-    #[serde(with = "crate::wire::product_state::option")]
-    pub(super) state: Option<ProductState>,
+    #[serde(with = "crate::wire::listing_availability::option")]
+    pub(super) availability: Option<ListingAvailability>,
     #[serde(default)]
     pub(super) url: Option<Url>,
     #[serde(default)]
@@ -154,7 +154,7 @@ impl CreateProductListingData {
                 price_estimate_min: self.price_estimate_min.map(price),
                 price_estimate_max: self.price_estimate_max.map(price),
             },
-            state: self.state,
+            availability: Some(self.availability),
             url: self.url,
             images: product_images(self.images),
             auction: ProductListingAuction {
@@ -175,7 +175,7 @@ impl UpdateProductListingData {
             price: clearable(self.price.map(price)),
             price_estimate_min: clearable(self.price_estimate_min.map(price)),
             price_estimate_max: clearable(self.price_estimate_max.map(price)),
-            state: non_nullable_patch(self.state, "state")?,
+            availability: non_nullable_patch(self.availability, "availability")?,
             url: non_nullable_patch(self.url, "url")?,
             images: non_nullable_patch(self.images.map(product_images), "images")?,
             auction_start: clearable(self.auction_start.map(Some)),
@@ -198,7 +198,7 @@ impl UpsertProductListingData {
             price: self.price.map(price),
             price_estimate_min: self.price_estimate_min.map(price),
             price_estimate_max: self.price_estimate_max.map(price),
-            state: self.state,
+            availability: self.availability,
             url: self.url,
             images: product_images(self.images.unwrap_or_default()),
             auction_start: self.auction_start,

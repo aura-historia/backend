@@ -1,4 +1,4 @@
-use product_listing_core::product_state::ProductState;
+use product_listing_core::listing_availability::ListingAvailability;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -12,16 +12,13 @@ pub enum StateMappingType {
     Regex,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ProductStateMappingRecord {
     /// Primary key — either a lowercased exact value or a regex pattern string.
     pub raw: String,
-    pub normalized: ProductState,
+    pub normalized: Option<ListingAvailability>,
     pub mapping_type: StateMappingType,
 
-    #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
-
-    #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
 }

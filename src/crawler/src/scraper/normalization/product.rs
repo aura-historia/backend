@@ -3,7 +3,9 @@ use money::Price;
 use product_listing_core::{
     description::Description, product_listing_image::ProductListingImage, title::Title,
 };
-use product_listing_core::{product_state::ProductState, shop_listing_id::ShopListingId};
+use product_listing_core::{
+    listing_availability::ListingAvailability, shop_listing_id::ShopListingId,
+};
 use std::collections::BTreeMap;
 use time::OffsetDateTime;
 use url::Url;
@@ -17,7 +19,7 @@ pub struct NormalizedProduct {
     pub price_estimate_min: Option<Price>,
     pub price_estimate_max: Option<Price>,
     pub seller_name: Option<String>,
-    pub state: ProductState,
+    pub availability: Option<ListingAvailability>,
     pub url: Url,
     pub images: Vec<ProductListingImage>,
     pub auction_start: Option<OffsetDateTime>,

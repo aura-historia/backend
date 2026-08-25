@@ -288,7 +288,7 @@ fn product_listing_document(
         "salePrices": sale_prices,
         "saleFxRateId": seed.has_sale_valuation.then(FxRateId::new),
         "soldAt": sold_at,
-        "state": if seed.has_sale_valuation { "SOLD" } else { "AVAILABLE" },
+        "availability": "AVAILABLE",
         "lifecycle": "ACTIVE",
         "url": format!("https://shop.example/product_listings/{}", seed.product_listing_slug_id),
         "viewUrl": format!("https://aura.example/product_listings/{}", seed.product_listing_slug_id),

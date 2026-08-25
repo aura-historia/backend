@@ -232,8 +232,12 @@ impl ScraperService for ScraperServiceImpl {
         };
 
         // 4. Bookkeeping ------------------------------------------------
-        self.persist_scraped_state_best_effort(shop_id, url, UrlState::from(final_product.state))
-            .await;
+        self.persist_scraped_state_best_effort(
+            shop_id,
+            url,
+            UrlState::from(final_product.availability),
+        )
+        .await;
 
         // `mark_as_scraped` is intentionally NOT called here.  The caller
         // (cron pipeline) must call it only after the push to the product

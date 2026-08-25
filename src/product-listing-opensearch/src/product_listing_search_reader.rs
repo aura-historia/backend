@@ -15,9 +15,8 @@ use opensearch::http::Method;
 use opensearch::http::headers::HeaderMap;
 use opensearch::http::request::JsonBody;
 use opensearch::{OpenSearch, SearchParts};
-use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing_search::ProductListingSearch;
-use product_listing_core::product_state::ProductState;
 use product_listing_core::sort_product_listing_field::SortProductListingField;
 use product_listing_core::title::Title;
 use product_listing_service::ports::{
@@ -32,7 +31,7 @@ use serde_json::json;
 use shop_core::shop_type::ShopType;
 use std::collections::HashMap;
 use std::hash::Hash;
-use strum::EnumCount;
+use strum::{EnumCount, IntoEnumIterator};
 use time::format_description::well_known;
 
 const DEFAULT_INDEX: &str = "product-listings";
@@ -193,7 +192,7 @@ fn map_summary_fields(
         title,
         display_price,
         price_valuation,
-        state: document.state,
+        availability: document.availability,
         lifecycle: document.lifecycle,
         url: document.url,
         view_url: document.view_url,
@@ -558,21 +557,6 @@ pub(crate) fn build_common_filter_clauses(
     let mut must_not = Vec::new();
     let mut filter = Vec::new();
 
-    let lifecycle_terms = if search.lifecycle_query.is_empty() {
-        vec![ProductLifecycle::Active.as_str().to_owned()]
-    } else {
-        search
-            .lifecycle_query
-            .iter()
-            .map(|value| value.as_str().to_owned())
-            .collect()
-    };
-    filter.push(json!({
-        "terms": {
-            ProductListingDocumentSerdeField::Lifecycle.as_str(): lifecycle_terms
-        }
-    }));
-
     if !search.exclude_product_listing_id_query.is_empty() {
         must_not.push(json!({
             "terms": {
@@ -662,12 +646,7 @@ pub(crate) fn build_common_filter_clauses(
         }));
     }
 
-    apply_any_of_filter(
-        &mut filter,
-        &search.state_query,
-        ProductListingDocumentSerdeField::State,
-        |value: &ProductState| value.as_str(),
-    );
+    apply_availability_filter(&mut filter, &search.availability_query);
     apply_any_of_filter(
         &mut filter,
         &search.shop_type_query,
@@ -829,6 +808,21 @@ fn sale_price_field_for(currency: Currency) -> &'static str {
     }
 }
 
+fn apply_availability_filter(
+    filter: &mut Vec<serde_json::Value>,
+    query: &AnyOfQuery<ListingAvailability>,
+) {
+    let values = query
+        .iter()
+        .map(|availability| availability.as_str())
+        .collect::<Vec<_>>();
+    if !values.is_empty() && values.len() != ListingAvailability::iter().count() {
+        filter.push(json!({
+            "terms": { ProductListingDocumentSerdeField::Availability.as_str(): values }
+        }));
+    }
+}
+
 fn apply_any_of_filter<T: Hash + Eq + EnumCount>(
     filter: &mut Vec<serde_json::Value>,
     query: &AnyOfQuery<T>,
@@ -851,8 +845,8 @@ mod tests {
     use indexmap::IndexSet;
     use money::MonetaryAmount;
     use product_listing_core::{
-        product_lifecycle::ProductLifecycle, product_listing_id::ProductListingId,
-        product_listing_slug_id::ProductListingSlugId, product_state::ProductState,
+        listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
+        product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
         shop_listing_id::ShopListingId,
     };
     use shop_core::shop_id::ShopId;
@@ -937,8 +931,8 @@ mod tests {
             sale_prices: None,
             sale_fx_rate_id: None,
             sold_at: None,
-            state: ProductState::Available,
-            lifecycle: ProductLifecycle::Active,
+            availability: Some(ListingAvailability::Available),
+            lifecycle: ListingLifecycle::Active,
             url: Url::parse("https://shop.example/product_listings/sku-1")?,
             view_url: Url::parse("https://aura.example/product_listings/vase-abcdef")?,
             images: IndexSet::new(),
@@ -976,6 +970,32 @@ mod tests {
         assert_eq!(
             Some(&json!(52.52)),
             distance_filter.pointer("/geo_distance/geoAddress/lat")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_filter_by_exact_availability_without_a_lifecycle_clause()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let search = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_availability_query(
+                std::collections::HashSet::from([ListingAvailability::InStock]).into(),
+            );
+
+        let (_, filters) = build_common_filter_clauses(&search)?;
+        let availability_filter = filters
+            .iter()
+            .find(|filter| filter.get("terms").is_some())
+            .ok_or("missing availability filter")?;
+
+        assert_eq!(
+            Some(&json!(["IN_STOCK"])),
+            availability_filter.pointer("/terms/availability")
+        );
+        assert!(
+            !filters
+                .iter()
+                .any(|filter| filter.to_string().contains("lifecycle"))
         );
         Ok(())
     }

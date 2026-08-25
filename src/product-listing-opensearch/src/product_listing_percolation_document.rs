@@ -1,7 +1,7 @@
 use crate::{
     product_listing_document::{
         ProductListingDocument, SalePricesDocument, SourcePriceDocument, TextDocument, continent,
-        product_lifecycle, product_state, shop_type,
+        listing_availability, listing_lifecycle, shop_type,
     },
     product_listing_image_document::ProductListingImageDocument,
 };
@@ -13,8 +13,8 @@ use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
 use product_listing_core::{
-    product_lifecycle::ProductLifecycle, product_listing_id::ProductListingId,
-    product_listing_slug_id::ProductListingSlugId, product_state::ProductState,
+    listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
+    product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
     shop_listing_id::ShopListingId,
 };
 use product_listing_service::ports::{
@@ -103,10 +103,13 @@ struct ProductListingPercolationDocument {
     title_it: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     price_by_currency: Option<ProductListingPercolationPricesDocument>,
-    #[serde(with = "product_state")]
-    state: ProductState,
-    #[serde(with = "product_lifecycle")]
-    lifecycle: ProductLifecycle,
+    #[serde(
+        with = "listing_availability::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    availability: Option<ListingAvailability>,
+    #[serde(with = "listing_lifecycle")]
+    lifecycle: ListingLifecycle,
     url: Url,
     view_url: Url,
     #[serde(skip_serializing_if = "IndexSet::is_empty")]
@@ -129,8 +132,6 @@ struct ProductListingPercolationDocument {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingPercolationDocumentError {
-    #[error("sold product source is missing immutable sale valuation")]
-    MissingSaleValuation,
     #[error("sale valuation is missing its immutable FX snapshot")]
     MissingSaleSnapshot,
     #[error("active product source must not receive a sale FX snapshot")]
@@ -208,7 +209,7 @@ fn build_product_listing_percolation_document(
             .valuation
             .as_ref()
             .map(|valuation| percolation_prices(valuation.prices)),
-        state: product.state,
+        availability: product.availability,
         lifecycle: product.lifecycle,
         url: product.url.clone(),
         view_url: product.view_url.clone(),
@@ -299,7 +300,7 @@ pub(crate) fn product_listing_document(
         sale_prices,
         sale_fx_rate_id,
         sold_at,
-        state: product.state,
+        availability: product.availability,
         lifecycle: product.lifecycle,
         url: product.url.clone(),
         view_url: product.view_url.clone(),
@@ -328,8 +329,7 @@ fn sale_projection(
     sale_snapshot: Option<&FxRateSnapshot>,
 ) -> Result<SaleProjection, ProductListingPercolationDocumentError> {
     match (product.sale_valuation, sale_snapshot) {
-        (None, None) if product.state != ProductState::Sold => Ok((None, None, None)),
-        (None, None) => Err(ProductListingPercolationDocumentError::MissingSaleValuation),
+        (None, None) => Ok((None, None, None)),
         (None, Some(_)) => Err(ProductListingPercolationDocumentError::UnexpectedSaleSnapshot),
         (Some(valuation), None) if product.pricing.price.is_none() => {
             Ok((None, Some(valuation.fx_rate_id), Some(valuation.sold_at)))
@@ -431,13 +431,13 @@ mod tests {
     use localization::Localized;
     use product_listing_core::product_listing_search::ProductListingSearch;
     use product_listing_core::{
-        product_lifecycle::ProductLifecycle,
+        listing_availability::ListingAvailability,
+        listing_lifecycle::ListingLifecycle,
         product_listing::{
             ProductListingAddress, ProductListingAuction, ProductListingPriceValuationBasis,
             ProductListingPricing, ProductSaleValuation,
         },
         product_listing_slug_id::ProductListingSlugId,
-        product_state::ProductState,
         shop_listing_id::ShopListingId,
         title::Title,
     };
@@ -480,8 +480,8 @@ mod tests {
             descriptions: HashMap::new(),
             pricing: ProductListingPricing::default(),
             sale_valuation: None,
-            state: ProductState::Available,
-            lifecycle: ProductLifecycle::Active,
+            availability: Some(ListingAvailability::Available),
+            lifecycle: ListingLifecycle::Active,
             url: url.clone(),
             view_url: url,
             image: None,
@@ -644,7 +644,6 @@ mod tests {
             fx_rate_id: snapshot.id(),
             sold_at: OffsetDateTime::UNIX_EPOCH,
         });
-        product.state = ProductState::Sold;
         let prices = ProductListingPricesByCurrency::convert_all(&snapshot, source_price)?;
 
         let persistent =
@@ -670,7 +669,6 @@ mod tests {
     fn should_project_sold_product_without_main_price_or_sale_prices()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut product = source()?;
-        product.state = ProductState::Sold;
         product.sale_valuation = Some(ProductSaleValuation {
             fx_rate_id: FxRateId::new(),
             sold_at: OffsetDateTime::UNIX_EPOCH,

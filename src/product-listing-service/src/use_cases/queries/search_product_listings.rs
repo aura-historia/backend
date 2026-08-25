@@ -20,10 +20,11 @@ use fxrate_service::ports::{
 use localization::Language;
 use localization::Localized;
 use money::Price;
-use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::product_state::ProductState;
+
 use product_listing_core::shop_listing_id::ShopListingId;
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
@@ -70,8 +71,8 @@ pub struct ProductListingSummary {
     pub title: Option<Localized<Language, Title>>,
     pub display_price: Option<Price>,
     pub price_valuation: ProductListingSummaryPriceValuation,
-    pub state: ProductState,
-    pub lifecycle: ProductLifecycle,
+    pub availability: Option<ListingAvailability>,
+    pub lifecycle: ListingLifecycle,
     pub url: Url,
     pub view_url: Url,
     pub images: IndexSet<ProductListingImage>,

@@ -82,10 +82,10 @@ use product_listing_postgres::{
     SqlxProductListingWatchlistDetailsReaderFactory,
 };
 use product_listing_service::use_cases::{
-    CreateProductListingHandler, DeleteProductListingHandler, GetProductListingEventsHandler,
-    GetProductListingHandler, GetSimilarProductListingsHandler,
-    IngestWoocommerceProductListingHandler, SearchProductListingsHandler,
-    UpdateProductListingHandler, UpsertProductListingHandler,
+    CreateProductListingHandler, GetProductListingEventsHandler, GetProductListingHandler,
+    GetSimilarProductListingsHandler, IngestWoocommerceProductListingHandler,
+    SearchProductListingsHandler, UpdateProductListingHandler, UpsertProductListingHandler,
+    WithdrawProductListingHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -771,42 +771,47 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxProductListingDetailsReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
     );
-    let create_product = CreateProductListingHandler::new_with_fx_rates(
-        unit_of_work.clone(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventStoreFactory::new(),
-        SqlxPartnerProductListingAuthorizerFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-    );
-    let update_product = UpdateProductListingHandler::new_with_fx_rates(
-        unit_of_work.clone(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventStoreFactory::new(),
-        SqlxPartnerProductListingAuthorizerFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-    );
-    let upsert_product = UpsertProductListingHandler::new_with_fx_rates(
-        unit_of_work.clone(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventStoreFactory::new(),
-        SqlxPartnerProductListingAuthorizerFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-    );
-    let delete_product = DeleteProductListingHandler::new(
+    let create_product = CreateProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingRepositoryFactory::new(),
         SqlxProductListingEventStoreFactory::new(),
         SqlxPartnerProductListingAuthorizerFactory::new(),
     );
-    let ingest_woocommerce_product = IngestWoocommerceProductListingHandler::new_with_fx_rates(
+    let update_product = UpdateProductListingHandler::new(
+        unit_of_work.clone(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventStoreFactory::new(),
+        SqlxPartnerProductListingAuthorizerFactory::new(),
+    );
+    let upsert_product = UpsertProductListingHandler::new(
+        unit_of_work.clone(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventStoreFactory::new(),
+        SqlxPartnerProductListingAuthorizerFactory::new(),
+    );
+    let withdraw_product = WithdrawProductListingHandler::new(
+        unit_of_work.clone(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventStoreFactory::new(),
+        SqlxPartnerProductListingAuthorizerFactory::new(),
+    );
+    let ingest_woocommerce_product = IngestWoocommerceProductListingHandler::new(
         unit_of_work.clone(),
         SqlxPartnerShopReaderFactory::new(),
         SqlxWoocommerceWebhookShopReaderFactory::new(),
         SqlxWoocommerceWebhookSignatureVerifierFactory::new(),
-        SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventStoreFactory::new(),
-        SqlxPartnerProductListingAuthorizerFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
+        UpsertProductListingHandler::new(
+            unit_of_work.clone(),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventStoreFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
+        ),
+        WithdrawProductListingHandler::new(
+            unit_of_work.clone(),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventStoreFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
+        ),
     );
     let list_watchlist = ListWatchlistHandler::new(
         unit_of_work.clone(),
@@ -880,7 +885,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         Arc::new(create_product),
         Arc::new(update_product),
         Arc::new(upsert_product),
-        Arc::new(delete_product),
+        Arc::new(withdraw_product),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let users_state = UsersState {

@@ -16,10 +16,10 @@ use oauth_service::use_cases::{
     TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
 };
 use product_listing_service::use_cases::{
-    CreateProductListingUseCase, DeleteProductListingUseCase, GetProductListingEventsUseCase,
-    GetProductListingUseCase, GetSimilarProductListingsUseCase,
-    IngestWoocommerceProductListingUseCase, SearchProductListingsUseCase,
-    UpdateProductListingUseCase, UpsertProductListingUseCase,
+    CreateProductListingUseCase, GetProductListingEventsUseCase, GetProductListingUseCase,
+    GetSimilarProductListingsUseCase, IngestWoocommerceProductListingUseCase,
+    SearchProductListingsUseCase, UpdateProductListingUseCase, UpsertProductListingUseCase,
+    WithdrawProductListingUseCase,
 };
 use search_filter_service::use_cases::{
     CreateSearchFilterUseCase, DeleteOwnedSearchFilterUseCase, GetOwnedSearchFilterUseCase,
@@ -425,7 +425,7 @@ pub struct PartnerProductListingsState {
     pub(crate) create: Arc<dyn CreateProductListingUseCase>,
     pub(crate) update: Arc<dyn UpdateProductListingUseCase>,
     pub(crate) upsert: Arc<dyn UpsertProductListingUseCase>,
-    pub(crate) delete: Arc<dyn DeleteProductListingUseCase>,
+    pub(crate) withdraw: Arc<dyn WithdrawProductListingUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
@@ -434,14 +434,14 @@ impl PartnerProductListingsState {
         create: Arc<dyn CreateProductListingUseCase>,
         update: Arc<dyn UpdateProductListingUseCase>,
         upsert: Arc<dyn UpsertProductListingUseCase>,
-        delete: Arc<dyn DeleteProductListingUseCase>,
+        withdraw: Arc<dyn WithdrawProductListingUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
             create,
             update,
             upsert,
-            delete,
+            withdraw,
             authenticator,
         }
     }

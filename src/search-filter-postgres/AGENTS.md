@@ -8,6 +8,7 @@
 ## Core Design
 
 - Implements `search-filter-service` repositories for `platform_postgres::SqlxTransaction`; structural JSON storage types own persisted shape while local codecs map ProductListingSearch semantic leaves to canonical domain types and preserve their values.
+- Product search JSON stores `availability_query` with canonical `ListingAvailability` codes; state and lifecycle query fields are absent.
 - Implements ordinary `SqlxSearchFilterReader` for read models, `SqlxSearchFilterIndexReader` for complete versioned index reads, and focused transaction-scoped active-candidate, monthly notification-rank quota, match-write, and typed match-notification source reader factories.
 - Maps `search_filters` and `search_filter_matches` rows, including nullable paired `CURRENT`/`EVENT`/`SALE` price-match FX provenance. Invalid partial or unknown persisted provenance fails mapping.
 - Owns focused periodic-match candidate, existing-match, progress, and dedicated-session advisory-lock adapters. Candidates use the closed window end; progress SQL can only advance a checkpoint. The final progress lock holds the `search_filters` row and revalidates its `ACTIVE` state, selected version, and selected progress before match writes or checkpoint advancement. Periodic state remains separate from ordinary Search Filter views.

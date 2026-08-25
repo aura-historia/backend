@@ -3,8 +3,8 @@ use domain_primitives::event_id::EventId;
 use localization::Language;
 use money::Price;
 use product_listing_core::{
-    product_listing_id::ProductListingId, product_listing_image::ProductListingImage,
-    product_listing_slug_id::ProductListingSlugId, product_state::ProductState,
+    listing_availability::ListingAvailability, product_listing_id::ProductListingId,
+    product_listing_image::ProductListingImage, product_listing_slug_id::ProductListingSlugId,
     shop_listing_id::ShopListingId, title::Title,
 };
 use shop_core::shop_id::ShopId;
@@ -37,9 +37,9 @@ pub enum ProductListingWatchlistNotificationChange {
         old_price: Option<Price>,
         new_price: Option<Price>,
     },
-    StateChanged {
-        old_state: ProductState,
-        new_state: ProductState,
+    AvailabilityChanged {
+        old_availability: ListingAvailability,
+        new_availability: ListingAvailability,
     },
 }
 

@@ -5,10 +5,10 @@ use crate::use_cases::queries::search_product_listings::PersonalizedProductListi
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
 use localization::{Language, Localized};
-use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::product_state::ProductState;
+
 use product_listing_core::shop_listing_id::ShopListingId;
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
@@ -116,8 +116,8 @@ fn redact_hidden_product_summary(
     product.shop_slug_id = ShopSlugId::from("Hidden");
     product.title = Some(Localized::new(language, hidden_title(language)));
     product.display_price = None;
-    product.state = ProductState::Unknown;
-    product.lifecycle = ProductLifecycle::Active;
+    product.availability = None;
+    product.lifecycle = ListingLifecycle::Active;
     product.url = hidden_url.clone();
     product.view_url = hidden_url;
     product.images.clear();

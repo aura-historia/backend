@@ -9,8 +9,8 @@ use localization::Language;
 use money::Currency;
 
 use money::MonetaryAmount;
+use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing_id::ProductListingId;
-use product_listing_core::product_state::ProductState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use shop_core::seller_slug_id::SellerSlugId;
@@ -134,9 +134,9 @@ pub(super) struct ProductListingSearchPatchData {
     geo_address_distance_query: PatchValue<GeoDistanceQueryData>,
     #[serde(rename = "price", default)]
     price_query: PatchValue<RangeQuery<u64>>,
-    #[serde(rename = "state", default)]
-    #[serde(deserialize_with = "crate::wire::product_state::patch_set::deserialize")]
-    state_query: PatchValue<HashSet<ProductState>>,
+    #[serde(rename = "availability", default)]
+    #[serde(deserialize_with = "crate::wire::listing_availability::patch_set::deserialize")]
+    availability_query: PatchValue<HashSet<ListingAvailability>>,
     #[serde(
         rename = "created",
         default,
@@ -232,9 +232,9 @@ impl ProductListingSearchPatchData {
                 self.price_query
                     .map(|query| query.map(MonetaryAmount::from)),
             ),
-            state_query: non_nullable_patch(
-                self.state_query.map(AnyOfQuery::from),
-                "search.state",
+            availability_query: non_nullable_patch(
+                self.availability_query.map(AnyOfQuery::from),
+                "search.availability",
             )?,
             created_query: clearable(self.created_query),
             updated_query: clearable(self.updated_query),
@@ -353,9 +353,13 @@ pub(super) struct ProductListingSearchData {
     geo_address_distance_query: Option<GeoDistanceQueryData>,
     #[serde(rename = "price", skip_serializing_if = "Option::is_none", default)]
     price_query: Option<RangeQuery<u64>>,
-    #[serde(rename = "state", skip_serializing_if = "HashSet::is_empty", default)]
-    #[serde(with = "crate::wire::product_state::set")]
-    state_query: HashSet<ProductState>,
+    #[serde(
+        rename = "availability",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    #[serde(with = "crate::wire::listing_availability::set")]
+    availability_query: HashSet<ListingAvailability>,
     #[serde(
         rename = "created",
         with = "domain_primitives::query::range_query::range_rfc3339::option",
@@ -414,8 +418,7 @@ impl TryFrom<ProductListingSearchData> for ProductListingSearch {
             price_query: data
                 .price_query
                 .map(|query| query.map(MonetaryAmount::from)),
-            state_query: data.state_query.into(),
-            lifecycle_query: Default::default(),
+            availability_query: data.availability_query.into(),
             created_query: data.created_query,
             updated_query: data.updated_query,
             auction_start_query: data.auction_start_query,
@@ -445,7 +448,7 @@ impl From<ProductListingSearch> for ProductListingSearchData {
             continent_query: search.continent_query.into_iter().map(Into::into).collect(),
             geo_address_distance_query: search.geo_address_distance_query.map(Into::into),
             price_query: search.price_query.map(|query| query.map(u64::from)),
-            state_query: search.state_query.into(),
+            availability_query: search.availability_query.into(),
             created_query: search.created_query,
             updated_query: search.updated_query,
             auction_start_query: search.auction_start_query,

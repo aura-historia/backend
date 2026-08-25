@@ -1,5 +1,5 @@
 use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
-use product_listing_core::product_state::ProductState;
+use product_listing_core::listing_availability::ListingAvailability;
 use sqlx::{PgPool, Row};
 
 use time::OffsetDateTime;
@@ -24,7 +24,7 @@ pub trait ProductStateMappingRepository {
     async fn update_mapping(
         &self,
         raw: &str,
-        normalized: &ProductState,
+        normalized: &Option<ListingAvailability>,
         mapping_type: &StateMappingType,
     ) -> Result<ProductStateMappingRecord, sqlx::Error>;
 }
@@ -39,13 +39,23 @@ impl<'a> ProductStateMappingRepositoryImpl<'a> {
     }
 }
 
-fn product_state_from_db_str(value: &str) -> Result<ProductState, sqlx::Error> {
-    ProductState::from_code(value).ok_or_else(|| {
-        sqlx::Error::Decode(Box::new(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("Unknown ProductState: {value}"),
-        )))
-    })
+fn availability_from_db_str(value: &str) -> Result<Option<ListingAvailability>, sqlx::Error> {
+    match value {
+        "LISTED" | "UNKNOWN" | "REMOVED" => Ok(None),
+        "SOLD" => Ok(Some(ListingAvailability::SoldOut)),
+        _ => ListingAvailability::from_code(value)
+            .map(Some)
+            .ok_or_else(|| {
+                sqlx::Error::Decode(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Unknown crawler availability: {value}"),
+                )))
+            }),
+    }
+}
+
+fn availability_to_db_str(value: Option<ListingAvailability>) -> &'static str {
+    value.map_or("UNKNOWN", ListingAvailability::as_str)
 }
 
 fn mapping_type_to_db_str(t: &StateMappingType) -> &'static str {
@@ -73,7 +83,7 @@ fn row_to_record(row: sqlx::postgres::PgRow) -> Result<ProductStateMappingRecord
     let created: OffsetDateTime = row.try_get("created")?;
     let updated: OffsetDateTime = row.try_get("updated")?;
 
-    let normalized = product_state_from_db_str(&normalized_str)?;
+    let normalized = availability_from_db_str(&normalized_str)?;
     let mapping_type = mapping_type_from_db_str(&mapping_type_str)?;
 
     Ok(ProductStateMappingRecord {
@@ -113,7 +123,7 @@ impl<'a> ProductStateMappingRepository for ProductStateMappingRepositoryImpl<'a>
              RETURNING raw, normalized, mapping_type, created, updated",
         )
         .bind(&record.raw)
-        .bind(record.normalized.as_str())
+        .bind(availability_to_db_str(record.normalized))
         .bind(mapping_type_to_db_str(&record.mapping_type))
         .bind(record.created)
         .bind(record.updated)
@@ -138,7 +148,7 @@ impl<'a> ProductStateMappingRepository for ProductStateMappingRepositoryImpl<'a>
     async fn update_mapping(
         &self,
         raw: &str,
-        normalized: &ProductState,
+        normalized: &Option<ListingAvailability>,
         mapping_type: &StateMappingType,
     ) -> Result<ProductStateMappingRecord, sqlx::Error> {
         sqlx::query(
@@ -148,7 +158,7 @@ impl<'a> ProductStateMappingRepository for ProductStateMappingRepositoryImpl<'a>
              RETURNING raw, normalized, mapping_type, created, updated",
         )
         .bind(raw)
-        .bind(normalized.as_str())
+        .bind(availability_to_db_str(*normalized))
         .bind(mapping_type_to_db_str(mapping_type))
         .fetch_one(self.pool)
         .await

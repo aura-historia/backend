@@ -8,14 +8,15 @@ use indexmap::IndexSet;
 use localization::Language;
 use localization::Localized;
 use product_listing_core::description::Description;
-use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{
     ProductListingAddress, ProductListingAuction, ProductListingPricing, ProductSaleValuation,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::product_state::ProductState;
+
 use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_core::title::Title;
 use shop_core::shop_id::ShopId;
@@ -52,8 +53,8 @@ pub struct ProductListingDetailsReadModel {
     pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductListingPricing,
     pub sale_valuation: Option<ProductSaleValuation>,
-    pub state: ProductState,
-    pub lifecycle: ProductLifecycle,
+    pub availability: Option<ListingAvailability>,
+    pub lifecycle: ListingLifecycle,
     pub url: Url,
     pub view_url: Url,
     pub images: IndexSet<ProductListingImage>,

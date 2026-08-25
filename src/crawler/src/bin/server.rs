@@ -80,7 +80,6 @@ use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
 use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
-use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
     SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventStoreFactory,
@@ -549,12 +548,11 @@ async fn main() {
         let shop_registration = ShopRegistrationService::new(shop_source, shop_repo);
 
         // 6. Wire product push through authoritative Postgres.
-        let upsert_product = UpsertProductListingHandler::new_with_fx_rates(
+        let upsert_product = UpsertProductListingHandler::new(
             business_unit_of_work,
             SqlxProductListingRepositoryFactory::new(),
             SqlxProductListingEventStoreFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
         );
         let product_push = Box::new(ProductListingPushServiceImpl::new(
             Arc::new(upsert_product),

@@ -1,34 +1,31 @@
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
-use localization::Language;
-use localization::Localized;
-use money::Currency;
-use money::{MonetaryAmount, Price};
-use product_listing_core::product_lifecycle::ProductLifecycle;
-use product_listing_core::product_listing_id::ProductListingId;
-use product_listing_core::product_state::ProductState;
-
 use indexmap::IndexSet;
-use product_listing_core::description::Description;
-use product_listing_core::product_listing::{
-    ProductListingAddress, ProductListingAuction, ProductListingPricing, ProductSaleValuation,
+use localization::{Language, Localized};
+use money::{Currency, MonetaryAmount, Price};
+use product_listing_core::{
+    description::Description,
+    listing_availability::ListingAvailability,
+    product_listing::{
+        ListingAvailabilityChanged, ProductListingAddress, ProductListingAddressChanged,
+        ProductListingAuction, ProductListingAuctionChanged, ProductListingCreated,
+        ProductListingEventPayload, ProductListingImagesChanged, ProductListingPriceChanged,
+        ProductListingPricing, ProductListingRestored, ProductListingUrlChanged,
+        ProductListingWithdrawn, ProductSaleValuation,
+    },
+    product_listing_id::ProductListingId,
+    product_listing_image::ProductListingImage,
+    prohibited_content::ProhibitedContent,
+    title::Title,
 };
-use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::prohibited_content::ProhibitedContent;
-use product_listing_core::title::Title;
-use product_listing_service::ports::{
-    ProductListingEventReadError, ProductListingEventReader, ProductListingEventReaderFactory,
-};
-use product_listing_service::use_cases::{
-    ProductListingAddressChangedEventPayload, ProductListingAuctionChangedEventPayload,
-    ProductListingCreatedEventPayload, ProductListingDeletedEventPayload, ProductListingEvent,
-    ProductListingEventLookup, ProductListingEventPayload, ProductListingEventType,
-    ProductListingImagesChangedEventPayload, ProductListingPriceChangedEventPayload,
-    ProductListingStateChangedEventPayload, ProductListingUrlChangedEventPayload,
+use product_listing_service::{
+    ports::{
+        ProductListingEventReadError, ProductListingEventReader, ProductListingEventReaderFactory,
+    },
+    use_cases::{ProductListingEvent, ProductListingEventLookup},
 };
 use serde_json::Value;
 use sqlx::PgConnection;
-
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use url::Url;
 
@@ -74,13 +71,18 @@ impl ProductListingEventReader for SqlxProductListingEventReader<'_> {
         lookup: &ProductListingEventLookup,
     ) -> Result<Option<Vec<ProductListingEvent>>, ProductListingEventReadError> {
         let product_listing_id = match lookup {
-            ProductListingEventLookup::ById(product_listing_id) => sqlx::query_scalar::<_, uuid::Uuid>(
-                "SELECT product_listing_id FROM product_listings WHERE product_listing_id = $1",
-            )
-            .bind(uuid::Uuid::from(*product_listing_id))
-            .fetch_optional(&mut *self.connection)
-            .await,
-            ProductListingEventLookup::BySlug { shop_slug_id, product_listing_slug_id } => sqlx::query_scalar::<_, uuid::Uuid>(
+            ProductListingEventLookup::ById(product_listing_id) => {
+                sqlx::query_scalar::<_, uuid::Uuid>(
+                    "SELECT product_listing_id FROM product_listings WHERE product_listing_id = $1",
+                )
+                .bind(uuid::Uuid::from(*product_listing_id))
+                .fetch_optional(&mut *self.connection)
+                .await
+            }
+            ProductListingEventLookup::BySlug {
+                shop_slug_id,
+                product_listing_slug_id,
+            } => sqlx::query_scalar::<_, uuid::Uuid>(
                 "SELECT p.product_listing_id FROM product_listings p JOIN shops s ON s.shop_id = p.shop_id WHERE s.shop_slug_id = $1 AND p.product_listing_slug_id = $2",
             )
             .bind(shop_slug_id.as_ref())
@@ -119,12 +121,10 @@ impl TryFrom<ProductListingEventRow> for ProductListingEvent {
     type Error = ProductListingEventReadError;
 
     fn try_from(row: ProductListingEventRow) -> Result<Self, Self::Error> {
-        let (event_type, payload) = parse_payload(&row.event_type, &row.payload)?;
         Ok(ProductListingEvent {
             product_listing_id: ProductListingId::from(row.product_listing_id),
             event_id: EventId::from(row.event_id),
-            event_type,
-            payload,
+            payload: parse_payload(&row.event_type, &row.payload)?,
             timestamp: row.event_time,
         })
     }
@@ -133,69 +133,62 @@ impl TryFrom<ProductListingEventRow> for ProductListingEvent {
 pub(crate) fn parse_payload(
     event_type: &str,
     payload: &Value,
-) -> Result<(ProductListingEventType, ProductListingEventPayload), ProductListingEventReadError> {
+) -> Result<ProductListingEventPayload, ProductListingEventReadError> {
     match event_type {
-        "PRODUCT_CREATED" => Ok((
-            ProductListingEventType::Created,
-            ProductListingEventPayload::Created(ProductListingCreatedEventPayload {
+        "PRODUCT_LISTING_CREATED" => Ok(ProductListingEventPayload::Created(Box::new(
+            ProductListingCreated {
                 title: localized_title(payload.get("title"))?,
                 description: localized_description(payload.get("description"))?,
                 address: address(payload.get("address"))?,
                 pricing: pricing(payload.get("pricing"))?,
                 sale_valuation: sale_valuation(payload.get("saleValuation"))?,
-                state: state(string(payload, "state")?)?,
+                availability: availability(payload.get("availability"))?,
                 url: url(string(payload, "url")?)?,
                 images: images(payload.get("images"))?,
                 auction: auction(payload.get("auction"))?,
+            },
+        ))),
+        "PRODUCT_LISTING_AVAILABILITY_CHANGED" => Ok(
+            ProductListingEventPayload::AvailabilityChanged(ListingAvailabilityChanged {
+                previous: availability(payload.get("previousAvailability"))?,
+                current: availability(payload.get("currentAvailability"))?,
             }),
-        )),
-        "PRODUCT_STATE_CHANGED" => Ok((
-            ProductListingEventType::StateChanged,
-            ProductListingEventPayload::StateChanged(ProductListingStateChangedEventPayload {
-                old_state: state(string(payload, "oldState")?)?,
-                new_state: state(string(payload, "newState")?)?,
-                sale_valuation: sale_valuation(payload.get("saleValuation"))?,
-            }),
-        )),
-        "PRODUCT_ADDRESS_CHANGED" => Ok((
-            ProductListingEventType::AddressChanged,
-            ProductListingEventPayload::AddressChanged(ProductListingAddressChangedEventPayload {
+        ),
+        "PRODUCT_LISTING_ADDRESS_CHANGED" => Ok(ProductListingEventPayload::AddressChanged(
+            ProductListingAddressChanged {
                 address: address(payload.get("address"))?,
-            }),
+            },
         )),
-        "PRODUCT_PRICE_CHANGED" => Ok((
-            ProductListingEventType::PriceChanged,
-            ProductListingEventPayload::PriceChanged(ProductListingPriceChangedEventPayload {
+        "PRODUCT_LISTING_PRICE_CHANGED" => Ok(ProductListingEventPayload::PriceChanged(
+            ProductListingPriceChanged {
                 old_pricing: pricing(payload.get("oldPricing"))?,
                 new_pricing: pricing(payload.get("newPricing"))?,
-            }),
+            },
         )),
-        "PRODUCT_URL_CHANGED" => Ok((
-            ProductListingEventType::UrlChanged,
-            ProductListingEventPayload::UrlChanged(ProductListingUrlChangedEventPayload {
+        "PRODUCT_LISTING_URL_CHANGED" => Ok(ProductListingEventPayload::UrlChanged(
+            ProductListingUrlChanged {
                 old_url: url(string(payload, "oldUrl")?)?,
                 new_url: url(string(payload, "newUrl")?)?,
-            }),
+            },
         )),
-        "PRODUCT_IMAGES_CHANGED" => Ok((
-            ProductListingEventType::ImagesChanged,
-            ProductListingEventPayload::ImagesChanged(ProductListingImagesChangedEventPayload {
+        "PRODUCT_LISTING_IMAGES_CHANGED" => Ok(ProductListingEventPayload::ImagesChanged(
+            Box::new(ProductListingImagesChanged {
                 images: images(payload.get("images"))?,
             }),
         )),
-        "PRODUCT_AUCTION_CHANGED" => Ok((
-            ProductListingEventType::AuctionChanged,
-            ProductListingEventPayload::AuctionChanged(ProductListingAuctionChangedEventPayload {
+        "PRODUCT_LISTING_AUCTION_CHANGED" => Ok(ProductListingEventPayload::AuctionChanged(
+            ProductListingAuctionChanged {
                 auction: auction(payload.get("auction"))?,
-            }),
+            },
         )),
-        "PRODUCT_DELETED" => Ok((
-            ProductListingEventType::Deleted,
-            ProductListingEventPayload::Deleted(ProductListingDeletedEventPayload {
-                old_lifecycle: lifecycle(string(payload, "oldLifecycle")?)?,
-                new_lifecycle: lifecycle(string(payload, "newLifecycle")?)?,
-            }),
+        "PRODUCT_LISTING_WITHDRAWN" => Ok(ProductListingEventPayload::Withdrawn(
+            ProductListingWithdrawn {
+                previous_availability: availability(payload.get("previousAvailability"))?,
+            },
         )),
+        "PRODUCT_LISTING_RESTORED" => {
+            Ok(ProductListingEventPayload::Restored(ProductListingRestored))
+        }
         _ => Err(ProductListingEventReadError::ProductListingEventReadModelInvalid),
     }
 }
@@ -303,6 +296,22 @@ fn sale_valuation(
     }))
 }
 
+fn availability(
+    value: Option<&Value>,
+) -> Result<Option<ListingAvailability>, ProductListingEventReadError> {
+    let Some(value) = value else {
+        return Err(ProductListingEventReadError::ProductListingEventReadModelInvalid);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    value
+        .as_str()
+        .and_then(ListingAvailability::from_code)
+        .map(Some)
+        .ok_or(ProductListingEventReadError::ProductListingEventReadModelInvalid)
+}
+
 fn price(value: Option<&Value>) -> Result<Option<Price>, ProductListingEventReadError> {
     let Some(value) = value else {
         return Ok(None);
@@ -404,67 +413,13 @@ fn url(value: &str) -> Result<Url, ProductListingEventReadError> {
 }
 
 fn language(value: &str) -> Result<Language, ProductListingEventReadError> {
-    match value.to_ascii_lowercase().as_str() {
-        "de" => Ok(Language::De),
-        "en" => Ok(Language::En),
-        "fr" => Ok(Language::Fr),
-        "es" => Ok(Language::Es),
-        "it" => Ok(Language::It),
-        "zh" => Ok(Language::Zh),
-        "pt" => Ok(Language::Pt),
-        "pl" => Ok(Language::Pl),
-        "tr" => Ok(Language::Tr),
-        "nl" => Ok(Language::Nl),
-        "cs" => Ok(Language::Cs),
-        "ja" => Ok(Language::Ja),
-        "ru" => Ok(Language::Ru),
-        "ar" => Ok(Language::Ar),
-        _ => Err(ProductListingEventReadError::ProductListingEventReadModelInvalid),
-    }
+    Language::from_code(value)
+        .ok_or(ProductListingEventReadError::ProductListingEventReadModelInvalid)
 }
 
 fn currency(value: &str) -> Result<Currency, ProductListingEventReadError> {
-    match value.to_ascii_uppercase().as_str() {
-        "EUR" => Ok(Currency::Eur),
-        "GBP" => Ok(Currency::Gbp),
-        "USD" => Ok(Currency::Usd),
-        "AUD" => Ok(Currency::Aud),
-        "CAD" => Ok(Currency::Cad),
-        "NZD" => Ok(Currency::Nzd),
-        "CNY" => Ok(Currency::Cny),
-        "BRL" => Ok(Currency::Brl),
-        "PLN" => Ok(Currency::Pln),
-        "TRY" => Ok(Currency::Try),
-        "JPY" => Ok(Currency::Jpy),
-        "CZK" => Ok(Currency::Czk),
-        "RUB" => Ok(Currency::Rub),
-        "AED" => Ok(Currency::Aed),
-        "SAR" => Ok(Currency::Sar),
-        "HKD" => Ok(Currency::Hkd),
-        "SGD" => Ok(Currency::Sgd),
-        "CHF" => Ok(Currency::Chf),
-        _ => Err(ProductListingEventReadError::ProductListingEventReadModelInvalid),
-    }
-}
-
-fn state(value: &str) -> Result<ProductState, ProductListingEventReadError> {
-    match value {
-        "Listed" => Ok(ProductState::Listed),
-        "Available" => Ok(ProductState::Available),
-        "Reserved" => Ok(ProductState::Reserved),
-        "Sold" => Ok(ProductState::Sold),
-        "Removed" => Ok(ProductState::Removed),
-        "Unknown" => Ok(ProductState::Unknown),
-        _ => Err(ProductListingEventReadError::ProductListingEventReadModelInvalid),
-    }
-}
-
-fn lifecycle(value: &str) -> Result<ProductLifecycle, ProductListingEventReadError> {
-    match value {
-        "Active" => Ok(ProductLifecycle::Active),
-        "Deleted" => Ok(ProductLifecycle::Deleted),
-        _ => Err(ProductListingEventReadError::ProductListingEventReadModelInvalid),
-    }
+    Currency::from_code(value)
+        .ok_or(ProductListingEventReadError::ProductListingEventReadModelInvalid)
 }
 
 fn prohibited_content(value: &str) -> Result<ProhibitedContent, ProductListingEventReadError> {

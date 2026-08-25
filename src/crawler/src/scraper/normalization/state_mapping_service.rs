@@ -7,7 +7,7 @@ use large_language_model::{
     GenerationOptions, LargeLanguageModel, LargeLanguageModelError, LlmOperation,
     StructuredGenerationRequest,
 };
-use product_listing_core::product_state::ProductState;
+use product_listing_core::listing_availability::ListingAvailability;
 use regex::Regex;
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
@@ -77,15 +77,13 @@ enum LlmProductState {
     Unknown,
 }
 
-impl From<LlmProductState> for ProductState {
-    fn from(value: LlmProductState) -> Self {
-        match value {
-            LlmProductState::Listed => Self::Listed,
-            LlmProductState::Available => Self::Available,
-            LlmProductState::Reserved => Self::Reserved,
-            LlmProductState::Sold => Self::Sold,
-            LlmProductState::Removed => Self::Removed,
-            LlmProductState::Unknown => Self::Unknown,
+impl LlmProductState {
+    const fn availability(self) -> Option<ListingAvailability> {
+        match self {
+            Self::Listed | Self::Removed | Self::Unknown => None,
+            Self::Available => Some(ListingAvailability::Available),
+            Self::Reserved => Some(ListingAvailability::Reserved),
+            Self::Sold => Some(ListingAvailability::SoldOut),
         }
     }
 }
@@ -105,10 +103,10 @@ enum LlmMappingResponse {
 
 #[derive(Debug, PartialEq)]
 enum ParsedLlmMappingResponse {
-    State(ProductState),
+    State(Option<ListingAvailability>),
     Regex {
         pattern: String,
-        state: ProductState,
+        state: Option<ListingAvailability>,
     },
 }
 
@@ -131,14 +129,16 @@ fn validate_llm_response(
     response: LlmMappingResponse,
 ) -> Result<ParsedLlmMappingResponse, StateMappingResponseValidationError> {
     match response {
-        LlmMappingResponse::State { state } => Ok(ParsedLlmMappingResponse::State(state.into())),
+        LlmMappingResponse::State { state } => {
+            Ok(ParsedLlmMappingResponse::State(state.availability()))
+        }
         LlmMappingResponse::Regex { pattern, state } => {
             if pattern.trim().is_empty() || Regex::new(&pattern).is_err() {
                 return Err(StateMappingResponseValidationError::InvalidRegex);
             }
             Ok(ParsedLlmMappingResponse::Regex {
                 pattern,
-                state: state.into(),
+                state: state.availability(),
             })
         }
     }
@@ -203,7 +203,7 @@ pub trait ProductStateMappingService: Send + Sync {
     async fn save_state_mapping(
         &self,
         raw: &str,
-        normalized: ProductState,
+        normalized: Option<ListingAvailability>,
         mapping_type: StateMappingType,
     ) -> Result<ProductStateMappingRecord, StateMappingServiceError>;
 
@@ -325,7 +325,7 @@ where
     async fn save_state_mapping(
         &self,
         raw: &str,
-        normalized: ProductState,
+        normalized: Option<ListingAvailability>,
         mapping_type: StateMappingType,
     ) -> Result<ProductStateMappingRecord, StateMappingServiceError> {
         let key = raw.trim().to_lowercase();

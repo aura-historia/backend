@@ -1,4 +1,4 @@
-use product_listing_core::product_state::ProductState;
+use product_listing_core::listing_availability::ListingAvailability;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -112,15 +112,21 @@ impl UrlState {
     }
 }
 
-impl From<ProductState> for UrlState {
-    fn from(value: ProductState) -> Self {
+impl From<Option<ListingAvailability>> for UrlState {
+    fn from(value: Option<ListingAvailability>) -> Self {
         match value {
-            ProductState::Listed => UrlState::Listed,
-            ProductState::Available => UrlState::Available,
-            ProductState::Reserved => UrlState::Reserved,
-            ProductState::Sold => UrlState::Sold,
-            ProductState::Removed => UrlState::Removed,
-            ProductState::Unknown => UrlState::Unknown,
+            Some(ListingAvailability::Available) => Self::Available,
+            Some(ListingAvailability::Reserved) => Self::Reserved,
+            Some(ListingAvailability::SoldOut) => Self::Sold,
+            Some(ListingAvailability::InStock)
+            | Some(ListingAvailability::LimitedAvailability)
+            | Some(ListingAvailability::BackOrder)
+            | Some(ListingAvailability::MadeToOrder)
+            | Some(ListingAvailability::PreOrder)
+            | Some(ListingAvailability::PreSale)
+            | Some(ListingAvailability::Unavailable)
+            | Some(ListingAvailability::OutOfStock)
+            | None => Self::Unknown,
         }
     }
 }

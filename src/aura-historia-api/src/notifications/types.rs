@@ -15,7 +15,7 @@ use notification_core::{
 };
 use notification_service::presentation::NotificationPresentationPreferences;
 use notification_service::use_cases::queries::list_notifications::ListedNotification;
-use product_listing_core::{product_state::ProductState, title::Title};
+use product_listing_core::{listing_availability::ListingAvailability, title::Title};
 use serde::{Deserialize, Serialize, Serializer};
 use time::OffsetDateTime;
 use url::Url;
@@ -113,11 +113,11 @@ enum WatchlistNotificationChangeData {
         old_price: Option<PriceData>,
         new_price: Option<PriceData>,
     },
-    StateChange {
-        #[serde(with = "crate::wire::product_state")]
-        old_state: ProductState,
-        #[serde(with = "crate::wire::product_state")]
-        new_state: ProductState,
+    AvailabilityChange {
+        #[serde(with = "crate::wire::listing_availability")]
+        old_availability: ListingAvailability,
+        #[serde(with = "crate::wire::listing_availability")]
+        new_availability: ListingAvailability,
     },
 }
 
@@ -274,12 +274,12 @@ impl From<LocalizedNotificationWatchlistChange> for WatchlistNotificationChangeD
                 old_price: old_price.map(price_data),
                 new_price: new_price.map(price_data),
             },
-            LocalizedNotificationWatchlistChange::StateChange {
-                old_state,
-                new_state,
-            } => Self::StateChange {
-                old_state,
-                new_state,
+            LocalizedNotificationWatchlistChange::AvailabilityChange {
+                old_availability,
+                new_availability,
+            } => Self::AvailabilityChange {
+                old_availability,
+                new_availability,
             },
         }
     }

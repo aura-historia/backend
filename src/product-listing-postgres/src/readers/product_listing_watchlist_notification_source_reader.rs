@@ -4,10 +4,11 @@ use std::collections::HashMap;
 use crate::url::append_utm_params;
 use application::error::{BoxError, box_error, static_error};
 use domain_primitives::event_id::EventId;
+use money::{Currency, MonetaryAmount, Price};
 use platform_postgres::SqlxTransaction;
 use product_listing_core::{
-    product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
-    shop_listing_id::ShopListingId, title::Title,
+    listing_availability::ListingAvailability, product_listing_id::ProductListingId,
+    product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId, title::Title,
 };
 use product_listing_service::ports::{
     ProductListingWatchlistNotificationChange, ProductListingWatchlistNotificationSource,
@@ -15,14 +16,12 @@ use product_listing_service::ports::{
     ProductListingWatchlistNotificationSourceReader,
     ProductListingWatchlistNotificationSourceReaderFactory,
 };
-use product_listing_service::use_cases::ProductListingEventPayload;
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;
 use sqlx::PgConnection;
 
 use super::product_listing_details_reader::images;
-use super::product_listing_event_reader::parse_payload;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxProductListingWatchlistNotificationSourceReaderFactory;
@@ -152,22 +151,10 @@ impl ProductListingWatchlistNotificationSourceReader
         let Some(row) = row else {
             return Ok(None);
         };
-        let (_, payload) = parse_payload(&row.event_type, &row.payload)
-            .map_err(WatchlistNotificationSourceMappingError::with_source)?;
-        let change = match payload {
-            ProductListingEventPayload::PriceChanged(change) => {
-                ProductListingWatchlistNotificationChange::PriceChanged {
-                    old_price: change.old_pricing.price,
-                    new_price: change.new_pricing.price,
-                }
-            }
-            ProductListingEventPayload::StateChanged(change) => {
-                ProductListingWatchlistNotificationChange::StateChanged {
-                    old_state: change.old_state,
-                    new_state: change.new_state,
-                }
-            }
-            _ => return Ok(None),
+        let Some(change) = notification_change(&row.event_type, &row.payload)
+            .map_err(WatchlistNotificationSourceMappingError::with_source)?
+        else {
+            return Ok(None);
         };
         let translations = sqlx::query_as::<_, TitleRow>(
             "SELECT language, title FROM product_listing_translations WHERE product_listing_id = $1 AND title IS NOT NULL",
@@ -214,6 +201,76 @@ impl ProductListingWatchlistNotificationSourceReader
             change,
         }))
     }
+}
+
+fn notification_change(
+    event_type: &str,
+    payload: &serde_json::Value,
+) -> Result<Option<ProductListingWatchlistNotificationChange>, NotificationPayloadError> {
+    match event_type {
+        "PRODUCT_LISTING_PRICE_CHANGED" => Ok(Some(
+            ProductListingWatchlistNotificationChange::PriceChanged {
+                old_price: price(payload.get("oldPricing"))?,
+                new_price: price(payload.get("newPricing"))?,
+            },
+        )),
+        "PRODUCT_LISTING_AVAILABILITY_CHANGED" => {
+            let old_availability = availability(payload.get("previousAvailability"))?;
+            let new_availability = availability(payload.get("currentAvailability"))?;
+            Ok(match (old_availability, new_availability) {
+                (Some(old_availability), Some(new_availability)) => Some(
+                    ProductListingWatchlistNotificationChange::AvailabilityChanged {
+                        old_availability,
+                        new_availability,
+                    },
+                ),
+                _ => None,
+            })
+        }
+        _ => Ok(None),
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum NotificationPayloadError {
+    #[error("notification event payload is invalid")]
+    Invalid,
+}
+
+fn price(value: Option<&serde_json::Value>) -> Result<Option<Price>, NotificationPayloadError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let object = value.as_object().ok_or(NotificationPayloadError::Invalid)?;
+    let amount = object
+        .get("amount")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or(NotificationPayloadError::Invalid)?;
+    let currency = object
+        .get("currency")
+        .and_then(serde_json::Value::as_str)
+        .and_then(Currency::from_code)
+        .ok_or(NotificationPayloadError::Invalid)?;
+    Ok(Some(Price::new(MonetaryAmount::from(amount), currency)))
+}
+
+fn availability(
+    value: Option<&serde_json::Value>,
+) -> Result<Option<ListingAvailability>, NotificationPayloadError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    value
+        .as_str()
+        .and_then(ListingAvailability::from_code)
+        .map(Some)
+        .ok_or(NotificationPayloadError::Invalid)
 }
 
 fn parse_language(

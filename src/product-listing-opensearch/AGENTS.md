@@ -9,7 +9,7 @@
 
 - Depends on `product-listing-core`, `product-listing-service`, `shop-core`, `geo`, `money`/`localization` canonical values, and `platform-opensearch` generic response envelopes.
 - Exports public OpenSearch reader factory/type, external-versioned Product Listing projection writer, saved-filter percolator JSON builder, and typed-source-to-percolation JSON mapper.
-- Keeps OpenSearch documents and mappings private; structural documents use canonical semantic leaves through local codecs, and public percolation helpers expose no document type. Product Listing language keeps the historical uppercase OpenSearch vocabulary through its local codec. Persistent Product Listing pricing stays native or immutable sale-time: a sold no-main-price document has complete sale metadata but no `salePrices`; temporary percolation prices use the closed-world `priceByCurrency` shape.
+- Keeps OpenSearch documents and mappings private; structural documents use canonical semantic leaves through local codecs, and public percolation helpers expose no document type. Product Listing language keeps the historical uppercase OpenSearch vocabulary through its local codec. Withdrawn listings delete their projection; active documents retain `ListingLifecycle::Active` and an optional `availability`. Persistent Product Listing pricing stays native or immutable sale-time: a sold no-main-price document has complete sale metadata but no `salePrices`; temporary percolation prices use the closed-world `priceByCurrency` shape.
 - OpenSearch reads are ordinary readers. No transaction or unit of work.
 
 ## Ownership
@@ -30,7 +30,7 @@
 - Search documents do not escape this adapter.
 - Map OpenSearch payloads into `product-listing-service` read models.
 - Preserve query-building tests for filters, cursors, canonical percolator semantics, pinned price conversion, and invalid sale documents.
-- Price sorting is unsupported. Product Listing search and similar readers consume one compiled request. Active summary prices use its pinned plan and sold summaries use exact indexed target values; summary valuation metadata names that current or sale basis. Product Listing projection writes use `product_listings.projection_version` with OpenSearch external versioning; conflicts are stale no-ops.
+- Price sorting is unsupported. Product Listing search and similar readers consume one compiled request. Search filters use exact optional-availability fields and never lifecycle clauses. Active summary prices use its pinned plan and sold summaries use exact indexed target values; summary valuation metadata names that current or sale basis. Product Listing projection writes use `product_listings.projection_version` with OpenSearch external versioning; conflicts are stale no-ops.
 
 ## Verification
 

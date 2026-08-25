@@ -352,22 +352,25 @@ pub(crate) mod shop_partner_status {
     }
 }
 
-pub(crate) mod product_state {
+pub(crate) mod listing_availability {
     use super::*;
-    use product_listing_core::product_state::ProductState;
+    use product_listing_core::listing_availability::ListingAvailability;
 
-    fn parse(value: &str) -> Option<ProductState> {
-        ProductState::from_code(value)
+    fn parse(value: &str) -> Option<ListingAvailability> {
+        ListingAvailability::from_code(value)
     }
 
-    pub(crate) fn serialize<S>(value: &ProductState, serializer: S) -> Result<S::Ok, S::Error>
+    pub(crate) fn serialize<S>(
+        value: &ListingAvailability,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serialize_code(value, serializer, ProductState::as_str)
+        serialize_code(value, serializer, ListingAvailability::as_str)
     }
 
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ProductState, D::Error>
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ListingAvailability, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -377,7 +380,19 @@ pub(crate) mod product_state {
     pub(crate) mod option {
         use super::*;
 
-        pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Option<ProductState>, D::Error>
+        pub(crate) fn serialize<S>(
+            value: &Option<ListingAvailability>,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serialize_option_code(value, serializer, ListingAvailability::as_str)
+        }
+
+        pub(crate) fn deserialize<'de, D>(
+            deserializer: D,
+        ) -> Result<Option<ListingAvailability>, D::Error>
         where
             D: Deserializer<'de>,
         {
@@ -389,22 +404,18 @@ pub(crate) mod product_state {
         use super::*;
 
         pub(crate) fn serialize<S>(
-            values: &HashSet<ProductState>,
+            values: &HashSet<ListingAvailability>,
             serializer: S,
         ) -> Result<S::Ok, S::Error>
         where
             S: Serializer,
         {
-            serialize_set_code(values, serializer, parse_code)
-        }
-
-        fn parse_code(value: ProductState) -> &'static str {
-            value.as_str()
+            serialize_set_code(values, serializer, ListingAvailability::as_str)
         }
 
         pub(crate) fn deserialize<'de, D>(
             deserializer: D,
-        ) -> Result<HashSet<ProductState>, D::Error>
+        ) -> Result<HashSet<ListingAvailability>, D::Error>
         where
             D: Deserializer<'de>,
         {
@@ -417,7 +428,7 @@ pub(crate) mod product_state {
 
         pub(crate) fn deserialize<'de, D>(
             deserializer: D,
-        ) -> Result<PatchValue<HashSet<ProductState>>, D::Error>
+        ) -> Result<PatchValue<HashSet<ListingAvailability>>, D::Error>
         where
             D: Deserializer<'de>,
         {
@@ -430,7 +441,7 @@ pub(crate) mod product_state {
 
         pub(crate) fn deserialize<'de, D>(
             deserializer: D,
-        ) -> Result<PatchValue<ProductState>, D::Error>
+        ) -> Result<PatchValue<ListingAvailability>, D::Error>
         where
             D: Deserializer<'de>,
         {
@@ -439,32 +450,15 @@ pub(crate) mod product_state {
     }
 }
 
-pub(crate) mod product_lifecycle {
+pub(crate) mod listing_lifecycle {
     use super::*;
-    use product_listing_core::product_lifecycle::ProductLifecycle;
+    use product_listing_core::listing_lifecycle::ListingLifecycle;
 
-    fn parse(value: &str) -> Option<ProductLifecycle> {
-        ProductLifecycle::from_code(value)
-    }
-
-    pub(crate) fn serialize<S>(value: &ProductLifecycle, serializer: S) -> Result<S::Ok, S::Error>
+    pub(crate) fn serialize<S>(value: &ListingLifecycle, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serialize_code(value, serializer, ProductLifecycle::as_str)
-    }
-
-    pub(crate) mod set {
-        use super::*;
-
-        pub(crate) fn deserialize<'de, D>(
-            deserializer: D,
-        ) -> Result<HashSet<ProductLifecycle>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_set_code(deserializer, parse, None)
-        }
+        serialize_code(value, serializer, ListingLifecycle::as_str)
     }
 }
 
@@ -613,34 +607,6 @@ pub(crate) mod partner_shop_application_state {
         S: Serializer,
     {
         serialize_code(value, serializer, PartnerShopApplicationState::as_str)
-    }
-}
-
-pub(crate) mod product_event_type {
-    use super::*;
-    use product_listing_service::use_cases::ProductListingEventType;
-
-    fn code(value: ProductListingEventType) -> &'static str {
-        match value {
-            ProductListingEventType::Created => "CREATED",
-            ProductListingEventType::StateChanged => "STATE_CHANGED",
-            ProductListingEventType::AddressChanged => "ADDRESS_CHANGED",
-            ProductListingEventType::PriceChanged => "PRICE_CHANGED",
-            ProductListingEventType::UrlChanged => "URL_CHANGED",
-            ProductListingEventType::ImagesChanged => "IMAGES_CHANGED",
-            ProductListingEventType::AuctionChanged => "AUCTION_CHANGED",
-            ProductListingEventType::Deleted => "DELETED",
-        }
-    }
-
-    pub(crate) fn serialize<S>(
-        value: &ProductListingEventType,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, code)
     }
 }
 

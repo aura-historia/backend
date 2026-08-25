@@ -8,7 +8,7 @@ use notification_core::{
     presentation::present_image,
 };
 use notification_service::ports::notification_delivery_repository::NotificationDeliverySource;
-use product_listing_core::product_state::ProductState;
+use product_listing_core::listing_availability::ListingAvailability;
 use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -226,12 +226,18 @@ pub(crate) fn template_data(
                     data["new_price"] = json!(price_text(new_price));
                     data["notification_type"] = json!("price_change");
                 }
-                LocalizedNotificationWatchlistChange::StateChange {
-                    old_state,
-                    new_state,
+                LocalizedNotificationWatchlistChange::AvailabilityChange {
+                    old_availability,
+                    new_availability,
                 } => {
-                    data["old_state"] = json!(state_text(old_state, email_language.as_language()));
-                    data["new_state"] = json!(state_text(new_state, email_language.as_language()));
+                    data["old_state"] = json!(availability_text(
+                        old_availability,
+                        email_language.as_language()
+                    ));
+                    data["new_state"] = json!(availability_text(
+                        new_availability,
+                        email_language.as_language()
+                    ));
                     data["notification_type"] = json!("state_change");
                 }
             }
@@ -290,49 +296,84 @@ fn price_text(price: Option<Price>) -> Option<String> {
     price.map(|price| price.format_human_readable())
 }
 
-fn state_text(state: ProductState, language: Language) -> &'static str {
-    match state {
-        ProductState::Listed => match language {
-            Language::De => "Gelistet",
-            Language::Fr => "Listé",
-            Language::Es => "Listado",
-            Language::It => "Inserito",
-            _ => "Listed",
-        },
-        ProductState::Available => match language {
+fn availability_text(availability: ListingAvailability, language: Language) -> &'static str {
+    match availability {
+        ListingAvailability::Available => match language {
             Language::De => "Verfügbar",
             Language::Fr => "Disponible",
             Language::Es => "Disponible",
             Language::It => "Disponibile",
             _ => "Available",
         },
-        ProductState::Reserved => match language {
+        ListingAvailability::InStock => match language {
+            Language::De => "Auf Lager",
+            Language::Fr => "En stock",
+            Language::Es => "En stock",
+            Language::It => "Disponibile",
+            _ => "In stock",
+        },
+        ListingAvailability::LimitedAvailability => match language {
+            Language::De => "Begrenzt verfügbar",
+            Language::Fr => "Disponibilité limitée",
+            Language::Es => "Disponibilidad limitada",
+            Language::It => "Disponibilità limitata",
+            _ => "Limited availability",
+        },
+        ListingAvailability::BackOrder => match language {
+            Language::De => "Nachbestellung",
+            Language::Fr => "Sur commande",
+            Language::Es => "Bajo pedido",
+            Language::It => "Su ordinazione",
+            _ => "Backorder",
+        },
+        ListingAvailability::MadeToOrder => match language {
+            Language::De => "Auf Bestellung gefertigt",
+            Language::Fr => "Fabriqué sur commande",
+            Language::Es => "Fabricado por encargo",
+            Language::It => "Realizzato su ordinazione",
+            _ => "Made to order",
+        },
+        ListingAvailability::PreOrder => match language {
+            Language::De => "Vorbestellung",
+            Language::Fr => "Précommande",
+            Language::Es => "Preventa",
+            Language::It => "Preordine",
+            _ => "Pre-order",
+        },
+        ListingAvailability::PreSale => match language {
+            Language::De => "Vorverkauf",
+            Language::Fr => "Vente anticipée",
+            Language::Es => "Venta anticipada",
+            Language::It => "Vendita anticipata",
+            _ => "Presale",
+        },
+        ListingAvailability::Unavailable => match language {
+            Language::De => "Nicht verfügbar",
+            Language::Fr => "Indisponible",
+            Language::Es => "No disponible",
+            Language::It => "Non disponibile",
+            _ => "Unavailable",
+        },
+        ListingAvailability::Reserved => match language {
             Language::De => "Reserviert",
             Language::Fr => "Réservé",
             Language::Es => "Reservado",
             Language::It => "Riservato",
             _ => "Reserved",
         },
-        ProductState::Sold => match language {
-            Language::De => "Verkauft",
-            Language::Fr => "Vendu",
-            Language::Es => "Vendido",
-            Language::It => "Venduto",
-            _ => "Sold",
+        ListingAvailability::OutOfStock => match language {
+            Language::De => "Nicht auf Lager",
+            Language::Fr => "Rupture de stock",
+            Language::Es => "Agotado",
+            Language::It => "Esaurito",
+            _ => "Out of stock",
         },
-        ProductState::Removed => match language {
-            Language::De => "Gelöscht",
-            Language::Fr => "Supprimé",
-            Language::Es => "Eliminado",
-            Language::It => "Rimosso",
-            _ => "Removed",
-        },
-        ProductState::Unknown => match language {
-            Language::De => "Unbekannt",
-            Language::Fr => "Inconnu",
-            Language::Es => "Desconocido",
-            Language::It => "Sconosciuto",
-            _ => "Unknown",
+        ListingAvailability::SoldOut => match language {
+            Language::De => "Ausverkauft",
+            Language::Fr => "Épuisé",
+            Language::Es => "Agotado",
+            Language::It => "Esaurito",
+            _ => "Sold out",
         },
     }
 }
@@ -356,8 +397,8 @@ mod tests {
         presentation::NotificationPresentationPreferences,
     };
     use product_listing_core::{
-        product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
-        product_state::ProductState, shop_listing_id::ShopListingId,
+        listing_availability::ListingAvailability, product_listing_id::ProductListingId,
+        product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
     };
     use rstest::rstest;
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
@@ -462,20 +503,20 @@ mod tests {
     }
 
     #[rstest]
-    #[case(Language::En, "Listed", "Available")]
-    #[case(Language::De, "Gelistet", "Verfügbar")]
-    fn should_localize_watchlist_state_change_for_recipient_language(
+    #[case(Language::En, "Available", "In stock")]
+    #[case(Language::De, "Verfügbar", "Auf Lager")]
+    fn should_localize_watchlist_availability_change_for_recipient_language(
         #[case] language: Language,
-        #[case] expected_old_state: &str,
-        #[case] expected_new_state: &str,
+        #[case] expected_old_availability: &str,
+        #[case] expected_new_availability: &str,
     ) {
         assert_eq!(
-            expected_old_state,
-            state_text(ProductState::Listed, language)
+            expected_old_availability,
+            availability_text(ListingAvailability::Available, language)
         );
         assert_eq!(
-            expected_new_state,
-            state_text(ProductState::Available, language)
+            expected_new_availability,
+            availability_text(ListingAvailability::InStock, language)
         );
     }
 
@@ -504,8 +545,8 @@ mod tests {
         let email_language = EmailLanguage::resolve(source.presentation_preferences.language);
         let data = template_data(&source, email_language, None);
 
-        assert_eq!(Some("Listed"), data["old_state"].as_str());
-        assert_eq!(Some("Available"), data["new_state"].as_str());
+        assert_eq!(Some("Available"), data["old_state"].as_str());
+        assert_eq!(Some("In stock"), data["new_state"].as_str());
         Ok(())
     }
 
@@ -615,9 +656,9 @@ mod tests {
                     url: Url::parse("https://shop.example/product")?,
                     view_url: Url::parse("https://aura-historia.example/product")?,
                 },
-                change: NotificationWatchlistChange::StateChange {
-                    old_state: ProductState::Listed,
-                    new_state: ProductState::Available,
+                change: NotificationWatchlistChange::AvailabilityChange {
+                    old_availability: ListingAvailability::Available,
+                    new_availability: ListingAvailability::InStock,
                 },
             },
             presentation_preferences: NotificationPresentationPreferences {

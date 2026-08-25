@@ -9,7 +9,6 @@ aws_lambda_events = { workspace = true, features = ["eventbridge", "sqs"] }
 application = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
-fxrate-postgres = { workspace = true }
 indexmap = { workspace = true }
 lambda_runtime = { workspace = true }
 product-listing-core = { workspace = true }
@@ -28,6 +27,7 @@ html-to-markdown-rs = { workspace = true }
 
 [dev-dependencies]
 fxrate-core = { workspace = true }
+fxrate-postgres = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 fxrate-service = { workspace = true }

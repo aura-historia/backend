@@ -232,12 +232,12 @@ fn notification_content(
             old_price,
             new_price,
         },
-        ProductListingWatchlistNotificationChange::StateChanged {
-            old_state,
-            new_state,
-        } => NotificationWatchlistChange::StateChange {
-            old_state,
-            new_state,
+        ProductListingWatchlistNotificationChange::AvailabilityChanged {
+            old_availability,
+            new_availability,
+        } => NotificationWatchlistChange::AvailabilityChange {
+            old_availability,
+            new_availability,
         },
     };
     NotificationContent::Watchlist {

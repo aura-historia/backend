@@ -233,7 +233,7 @@ impl ProductListingNormalizationService for ProductListingNormalizationServiceIm
                     other => NormalizationError::StateMappingError(other),
                 },
             })?;
-        let state = state_record.normalized;
+        let availability = state_record.normalized;
         let llm_calls_used = u32::from(state_llm_called);
 
         Ok(NormalizationSuccess {
@@ -245,7 +245,7 @@ impl ProductListingNormalizationService for ProductListingNormalizationServiceIm
                 price_estimate_min: prepared.price_estimate_min,
                 price_estimate_max: prepared.price_estimate_max,
                 seller_name: prepared.seller_name,
-                state,
+                availability,
                 url: prepared.url,
                 images: prepared.images,
                 auction_start: prepared.auction_start,

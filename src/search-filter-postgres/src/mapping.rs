@@ -3,10 +3,9 @@ use domain_primitives::event_id::EventId;
 use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use fxrate_core::FxRateId;
-use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::ProductListingPriceValuationBasis;
 use product_listing_core::product_listing_id::ProductListingId;
-use product_listing_core::product_state::ProductState;
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
@@ -410,47 +409,26 @@ mod shop_type {
     }
 }
 
-mod product_state {
+mod listing_availability {
     use super::*;
 
     pub(crate) fn serialize<S>(
-        values: &HashSet<ProductState>,
+        values: &HashSet<ListingAvailability>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serialize_set_code(values, serializer, ProductState::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<HashSet<ProductState>, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserialize_set_code(deserializer, ProductState::from_code)
-    }
-}
-
-mod product_lifecycle {
-    use super::*;
-
-    pub(crate) fn serialize<S>(
-        values: &HashSet<ProductLifecycle>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serialize_set_code(values, serializer, ProductLifecycle::as_str)
+        serialize_set_code(values, serializer, ListingAvailability::as_str)
     }
 
     pub(crate) fn deserialize<'de, D>(
         deserializer: D,
-    ) -> Result<HashSet<ProductLifecycle>, D::Error>
+    ) -> Result<HashSet<ListingAvailability>, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        deserialize_set_code(deserializer, ProductLifecycle::from_code)
+        deserialize_set_code(deserializer, ListingAvailability::from_code)
     }
 }
 
@@ -530,10 +508,8 @@ struct ProductListingSearchJson {
     continent_query: HashSet<ContinentData>,
     geo_address_distance_query: Option<GeoDistanceQueryJson>,
     price_query: Option<RangeQuery<u64>>,
-    #[serde(with = "product_state")]
-    state_query: HashSet<ProductState>,
-    #[serde(with = "product_lifecycle")]
-    lifecycle_query: HashSet<ProductLifecycle>,
+    #[serde(with = "listing_availability")]
+    availability_query: HashSet<ListingAvailability>,
     created_query: Option<TimeRangeJson>,
     updated_query: Option<TimeRangeJson>,
     auction_start_query: Option<TimeRangeJson>,
@@ -610,8 +586,7 @@ impl TryFrom<&ProductListingSearch> for ProductListingSearchJson {
             continent_query: v.continent_query.iter().copied().map(Into::into).collect(),
             geo_address_distance_query: v.geo_address_distance_query.map(Into::into),
             price_query: v.price_query.map(|v| v.map(u64::from)),
-            state_query: v.state_query.iter().copied().collect(),
-            lifecycle_query: v.lifecycle_query.iter().copied().collect(),
+            availability_query: v.availability_query.iter().copied().collect(),
             created_query: v.created_query.map(TimeRangeJson::try_from).transpose()?,
             updated_query: v.updated_query.map(TimeRangeJson::try_from).transpose()?,
             auction_start_query: v
@@ -657,8 +632,7 @@ pub(crate) fn product_search_from_json(
             .collect::<AnyOfQuery<_>>(),
         geo_address_distance_query: j.geo_address_distance_query.map(Into::into),
         price_query: j.price_query.map(|v| v.map(Into::into)),
-        state_query: j.state_query.into(),
-        lifecycle_query: j.lifecycle_query.into(),
+        availability_query: j.availability_query.into(),
         created_query: j.created_query.map(TryInto::try_into).transpose()?,
         updated_query: j.updated_query.map(TryInto::try_into).transpose()?,
         auction_start_query: j.auction_start_query.map(TryInto::try_into).transpose()?,
@@ -720,12 +694,11 @@ mod tests {
     }
 
     #[test]
-    fn should_preserve_legacy_product_search_leaf_codes() -> Result<(), Box<dyn Error>> {
+    fn should_preserve_canonical_product_search_leaf_codes() -> Result<(), Box<dyn Error>> {
         let mut persisted =
             product_search_to_json(&ProductListingSearch::new(Language::En, Currency::Eur))?;
         persisted["shop_type_query"] = serde_json::json!(["COMMERCIAL_DEALER"]);
-        persisted["state_query"] = serde_json::json!(["AVAILABLE"]);
-        persisted["lifecycle_query"] = serde_json::json!(["ACTIVE"]);
+        persisted["availability_query"] = serde_json::json!(["IN_STOCK"]);
         persisted["geo_address_distance_query"] = serde_json::json!({
             "lat": 52.52,
             "lon": 13.405,
@@ -739,12 +712,8 @@ mod tests {
             persisted.pointer("/shop_type_query/0")
         );
         assert_eq!(
-            Some(&serde_json::json!("AVAILABLE")),
-            persisted.pointer("/state_query/0")
-        );
-        assert_eq!(
-            Some(&serde_json::json!("ACTIVE")),
-            persisted.pointer("/lifecycle_query/0")
+            Some(&serde_json::json!("IN_STOCK")),
+            persisted.pointer("/availability_query/0")
         );
         assert_eq!(
             Some(&serde_json::json!("KILOMETERS")),
@@ -759,8 +728,11 @@ mod tests {
                 .shop_type_query
                 .contains(&ShopType::CommercialDealer)
         );
-        assert!(decoded.state_query.contains(&ProductState::Available));
-        assert!(decoded.lifecycle_query.contains(&ProductLifecycle::Active));
+        assert!(
+            decoded
+                .availability_query
+                .contains(&ListingAvailability::InStock)
+        );
         assert_eq!(
             Some(DistanceUnit::Kilometers),
             decoded
@@ -781,7 +753,7 @@ mod tests {
             None => panic!("product search JSON must be an object"),
         };
 
-        assert_eq!(24, object.len());
+        assert_eq!(23, object.len());
         assert!(object.contains_key("auction_end_query"));
         assert!(object.contains_key("exclude_seller_slug_id_query"));
         assert!(object.contains_key("geo_address_distance_query"));

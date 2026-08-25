@@ -9,14 +9,14 @@ use money::{Currency, MonetaryAmount, Price};
 use platform_postgres::SqlxTransaction;
 use product_listing_core::{
     description::Description,
-    product_lifecycle::ProductLifecycle,
+    listing_availability::ListingAvailability,
+    listing_lifecycle::ListingLifecycle,
     product_listing::{
         ProductListingAddress, ProductListingAuction, ProductListingPricing, ProductSaleValuation,
     },
     product_listing_id::ProductListingId,
     product_listing_image::ProductListingImage,
     product_listing_slug_id::ProductListingSlugId,
-    product_state::ProductState,
     prohibited_content::ProhibitedContent,
     shop_listing_id::ShopListingId,
     title::Title,
@@ -82,7 +82,7 @@ struct SourceRow {
     price_estimate_max_currency: Option<String>,
     sale_fx_rate_id: Option<uuid::Uuid>,
     sold_at: Option<OffsetDateTime>,
-    state: String,
+    availability: Option<String>,
     lifecycle: String,
     url: String,
     product_images: serde_json::Value,
@@ -230,7 +230,7 @@ impl ProductListingSearchFilterMatchSourceReader
                 product.price_estimate_max_currency,
                 product.sale_fx_rate_id,
                 product.sold_at,
-                product.state,
+                product.availability,
                 product.lifecycle,
                 product.url,
                 product.product_images,
@@ -351,7 +351,7 @@ fn source_from_rows(
         descriptions,
         pricing,
         sale_valuation,
-        state: product_state(&row.state)?,
+        availability: availability(row.availability.as_deref())?,
         lifecycle: lifecycle(&row.lifecycle)?,
         view_url: append_utm_params(url.clone()),
         url,
@@ -549,12 +549,14 @@ fn currency(value: &str) -> Result<Currency, ()> {
     Currency::from_code(value).ok_or(())
 }
 
-fn product_state(value: &str) -> Result<ProductState, ()> {
-    ProductState::from_code(value).ok_or(())
+fn availability(value: Option<&str>) -> Result<Option<ListingAvailability>, ()> {
+    value
+        .map(|value| ListingAvailability::from_code(value).ok_or(()))
+        .transpose()
 }
 
-fn lifecycle(value: &str) -> Result<ProductLifecycle, ()> {
-    ProductLifecycle::from_code(value).ok_or(())
+fn lifecycle(value: &str) -> Result<ListingLifecycle, ()> {
+    ListingLifecycle::from_code(value).ok_or(())
 }
 
 fn event_kind(value: &str) -> ProductListingSearchFilterMatchSourceEventKind {
@@ -639,7 +641,7 @@ mod tests {
     fn should_reject_noncanonical_persisted_values() {
         assert!(language("EN").is_err());
         assert!(currency("eur").is_err());
-        assert!(product_state("available").is_err());
+        assert!(availability(Some("available")).is_err());
         assert!(lifecycle("active").is_err());
         assert!(shop_type("commercial_dealer").is_err());
     }

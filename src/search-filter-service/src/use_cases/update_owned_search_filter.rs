@@ -21,10 +21,10 @@ use geo::core::{continent::Continent, distance::GeoDistanceQuery};
 use isocountry::CountryCode;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
-use product_listing_core::product_listing_search::{
-    EnhancedSearchDescription, ProductListingSearch,
+use product_listing_core::{
+    listing_availability::ListingAvailability,
+    product_listing_search::{EnhancedSearchDescription, ProductListingSearch},
 };
-use product_listing_core::product_state::ProductState;
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
@@ -55,7 +55,7 @@ pub struct ProductListingSearchPatch {
     pub continent_query: PatchField<AnyOfQuery<Continent>>,
     pub geo_address_distance_query: PatchField<GeoDistanceQuery>,
     pub price_query: PatchField<RangeQuery<MonetaryAmount>>,
-    pub state_query: PatchField<AnyOfQuery<ProductState>>,
+    pub availability_query: PatchField<AnyOfQuery<ListingAvailability>>,
     pub created_query: PatchField<RangeQuery<OffsetDateTime>>,
     pub updated_query: PatchField<RangeQuery<OffsetDateTime>>,
     pub auction_start_query: PatchField<RangeQuery<OffsetDateTime>>,
@@ -389,7 +389,7 @@ fn apply_product_search_patch(
         &mut search.geo_address_distance_query,
     );
     changed |= apply_optional_patch(&patch.price_query, &mut search.price_query);
-    changed |= apply_default_patch(&patch.state_query, &mut search.state_query);
+    changed |= apply_default_patch(&patch.availability_query, &mut search.availability_query);
     changed |= apply_optional_patch(&patch.created_query, &mut search.created_query);
     changed |= apply_optional_patch(&patch.updated_query, &mut search.updated_query);
     changed |= apply_optional_patch(&patch.auction_start_query, &mut search.auction_start_query);

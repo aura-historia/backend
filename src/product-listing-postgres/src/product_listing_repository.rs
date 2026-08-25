@@ -11,7 +11,8 @@ use localization::Localized;
 use money::Currency;
 use money::{MonetaryAmount, Price};
 use product_listing_core::description::Description;
-use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{
     ProductListing, ProductListingAddress, ProductListingAuction, ProductListingPricing,
     ProductSaleValuation, RehydratedProductListingState,
@@ -19,7 +20,6 @@ use product_listing_core::product_listing::{
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::product_state::ProductState;
 use product_listing_core::prohibited_content::ProhibitedContent;
 use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_core::title::Title;
@@ -68,7 +68,7 @@ struct ProductListingRow {
     price_estimate_max_currency: Option<String>,
     sale_fx_rate_id: Option<uuid::Uuid>,
     sold_at: Option<OffsetDateTime>,
-    state: String,
+    availability: Option<String>,
     lifecycle: String,
     url: String,
     product_images: serde_json::Value,
@@ -120,7 +120,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
-                price_estimate_max_currency, sale_fx_rate_id, sold_at, state, lifecycle, url,
+                price_estimate_max_currency, sale_fx_rate_id, sold_at, availability, lifecycle, url,
                 product_images, embedding, auction_start, auction_end, created, updated
             FROM product_listings
             WHERE product_listing_id = $1
@@ -148,7 +148,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
-                price_estimate_max_currency, sale_fx_rate_id, sold_at, state, lifecycle, url,
+                price_estimate_max_currency, sale_fx_rate_id, sold_at, availability, lifecycle, url,
                 product_images, embedding, auction_start, auction_end, created, updated
             FROM product_listings
             WHERE shop_id = $1
@@ -201,7 +201,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
-                price_estimate_max_currency, sale_fx_rate_id, sold_at, state, lifecycle, url,
+                price_estimate_max_currency, sale_fx_rate_id, sold_at, availability, lifecycle, url,
                 product_images, auction_start, auction_end
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
@@ -243,7 +243,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         )
         .bind(product.sale_valuation().map(|value| uuid::Uuid::from(value.fx_rate_id)))
         .bind(product.sale_valuation().map(|value| value.sold_at))
-        .bind(product.state().as_str())
+        .bind(product.availability().map(ListingAvailability::as_str))
         .bind(product.lifecycle().as_str())
         .bind(product.url().to_string())
         .bind(product_images)
@@ -313,7 +313,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 price_estimate_max_currency = $23,
                 sale_fx_rate_id = $24,
                 sold_at = $25,
-                state = $26,
+                availability = $26,
                 lifecycle = $27,
                 url = $28,
                 product_images = $29,
@@ -395,7 +395,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 .map(|value| uuid::Uuid::from(value.fx_rate_id)),
         )
         .bind(product.sale_valuation().map(|value| value.sold_at))
-        .bind(product.state().as_str())
+        .bind(product.availability().map(ListingAvailability::as_str))
         .bind(product.lifecycle().as_str())
         .bind(product.url().to_string())
         .bind(product_images)
@@ -449,8 +449,8 @@ impl TryFrom<ProductListingRow> for Versioned<ProductListing, EventId> {
                 )?,
             },
             sale_valuation: sale_valuation_from_parts(row.sold_at, row.sale_fx_rate_id)?,
-            state: parse_product_state(&row.state)?,
-            lifecycle: parse_product_lifecycle(&row.lifecycle)?,
+            availability: parse_listing_availability(row.availability.as_deref())?,
+            lifecycle: parse_listing_lifecycle(&row.lifecycle)?,
             url: Url::parse(&row.url)
                 .map_err(|_| ProductListingRepositoryError::InvalidProductListingUrlPersisted)?,
             images: images_from_json(row.product_images)?,
@@ -611,14 +611,20 @@ fn parse_currency(value: &str) -> Result<Currency, ProductListingRepositoryError
     Currency::from_code(value).ok_or(ProductListingRepositoryError::InvalidPriceCurrencyPersisted)
 }
 
-fn parse_product_state(value: &str) -> Result<ProductState, ProductListingRepositoryError> {
-    ProductState::from_code(value)
-        .ok_or(ProductListingRepositoryError::InvalidProductStatePersisted)
+fn parse_listing_availability(
+    value: Option<&str>,
+) -> Result<Option<ListingAvailability>, ProductListingRepositoryError> {
+    value
+        .map(|value| {
+            ListingAvailability::from_code(value)
+                .ok_or(ProductListingRepositoryError::InvalidListingAvailabilityPersisted)
+        })
+        .transpose()
 }
 
-fn parse_product_lifecycle(value: &str) -> Result<ProductLifecycle, ProductListingRepositoryError> {
-    ProductLifecycle::from_code(value)
-        .ok_or(ProductListingRepositoryError::InvalidProductLifecyclePersisted)
+fn parse_listing_lifecycle(value: &str) -> Result<ListingLifecycle, ProductListingRepositoryError> {
+    ListingLifecycle::from_code(value)
+        .ok_or(ProductListingRepositoryError::InvalidListingLifecyclePersisted)
 }
 
 fn parse_prohibited_content(
@@ -833,11 +839,15 @@ mod tests {
     }
 
     #[test]
-    fn should_map_all_canonical_product_enum_values() {
-        for state in ProductState::iter() {
-            assert_eq!(state, parse_state(state.as_str()));
+    fn should_map_all_canonical_listing_enum_values() {
+        for availability in ListingAvailability::iter() {
+            assert_eq!(
+                Some(availability),
+                parse_availability(Some(availability.as_str()))
+            );
         }
-        for lifecycle in ProductLifecycle::iter() {
+        assert_eq!(None, parse_availability(None));
+        for lifecycle in ListingLifecycle::iter() {
             assert_eq!(lifecycle, parse_lifecycle(lifecycle.as_str()));
         }
         for content in ProhibitedContent::iter() {
@@ -846,14 +856,14 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_invalid_state_lifecycle_and_product_row_values() {
+    fn should_reject_invalid_availability_lifecycle_and_product_row_values() {
         assert!(matches!(
-            parse_product_state("BAD"),
-            Err(ProductListingRepositoryError::InvalidProductStatePersisted)
+            parse_listing_availability(Some("BAD")),
+            Err(ProductListingRepositoryError::InvalidListingAvailabilityPersisted)
         ));
         assert!(matches!(
-            parse_product_lifecycle("BAD"),
-            Err(ProductListingRepositoryError::InvalidProductLifecyclePersisted)
+            parse_listing_lifecycle("BAD"),
+            Err(ProductListingRepositoryError::InvalidListingLifecyclePersisted)
         ));
 
         let mut row = product_row();
@@ -864,15 +874,15 @@ mod tests {
         ));
     }
 
-    fn parse_state(value: &str) -> ProductState {
-        match parse_product_state(value) {
-            Ok(state) => state,
-            Err(error) => panic!("failed to parse product state: {error:?}"),
+    fn parse_availability(value: Option<&str>) -> Option<ListingAvailability> {
+        match parse_listing_availability(value) {
+            Ok(availability) => availability,
+            Err(error) => panic!("failed to parse listing availability: {error:?}"),
         }
     }
 
-    fn parse_lifecycle(value: &str) -> ProductLifecycle {
-        match parse_product_lifecycle(value) {
+    fn parse_lifecycle(value: &str) -> ListingLifecycle {
+        match parse_listing_lifecycle(value) {
             Ok(lifecycle) => lifecycle,
             Err(error) => panic!("failed to parse lifecycle: {error:?}"),
         }
@@ -917,7 +927,7 @@ mod tests {
             price_estimate_max_currency: None,
             sale_fx_rate_id: None,
             sold_at: None,
-            state: "LISTED".to_owned(),
+            availability: Some("AVAILABLE".to_owned()),
             lifecycle: "ACTIVE".to_owned(),
             url: "https://example.com/unit-product".to_owned(),
             product_images: json!([{ "url": "https://example.com/unit-product.jpg", "prohibited_content": "NONE" }]),

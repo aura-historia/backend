@@ -3,16 +3,14 @@ use crate::values::{LocalizedTextData, PriceData};
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
-use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::{
-    ProductListingAddress, ProductListingAuction, ProductListingPricing, ProductSaleValuation,
+    ProductListingAddress, ProductListingAuction, ProductListingEventPayload,
+    ProductListingPricing, ProductSaleValuation,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::product_state::ProductState;
-use product_listing_service::use_cases::{
-    ProductListingEvent, ProductListingEventPayload, ProductListingEventType,
-};
+use product_listing_service::use_cases::ProductListingEvent;
 use serde::Serialize;
 use time::OffsetDateTime;
 use url::Url;
@@ -20,8 +18,7 @@ use url::Url;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductListingEventData {
-    #[serde(with = "crate::wire::product_event_type")]
-    event_type: ProductListingEventType,
+    event_type: &'static str,
     product_listing_id: ProductListingId,
     event_id: EventId,
     payload: ProductListingEventPayloadData,
@@ -34,13 +31,14 @@ pub(crate) struct ProductListingEventData {
 #[allow(clippy::large_enum_variant)]
 enum ProductListingEventPayloadData {
     Created(ProductListingCreatedHistoryPayloadData),
-    StateChanged(ProductStateChangedHistoryPayloadData),
+    AvailabilityChanged(ListingAvailabilityChangedHistoryPayloadData),
     AddressChanged(ProductListingAddressChangedHistoryPayloadData),
     PriceChanged(ProductListingPriceChangedHistoryPayloadData),
     UrlChanged(ProductListingUrlChangedHistoryPayloadData),
     ImagesChanged(ProductListingImagesChangedHistoryPayloadData),
     AuctionChanged(ProductListingAuctionChangedHistoryPayloadData),
-    Deleted(ProductListingDeletedHistoryPayloadData),
+    Withdrawn(ProductListingWithdrawnHistoryPayloadData),
+    Restored(ProductListingRestoredHistoryPayloadData),
 }
 
 #[derive(Debug, Serialize)]
@@ -57,8 +55,11 @@ struct ProductListingCreatedHistoryPayloadData {
     pricing: ProductListingPricingData,
     #[serde(skip_serializing_if = "Option::is_none")]
     sale_valuation: Option<ProductSaleValuationData>,
-    #[serde(with = "crate::wire::product_state")]
-    state: ProductState,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::listing_availability::option"
+    )]
+    availability: Option<ListingAvailability>,
     url: Url,
     images: Vec<ProductListingImageData>,
     auction: ProductListingAuctionData,
@@ -66,13 +67,17 @@ struct ProductListingCreatedHistoryPayloadData {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ProductStateChangedHistoryPayloadData {
-    #[serde(with = "crate::wire::product_state")]
-    old_state: ProductState,
-    #[serde(with = "crate::wire::product_state")]
-    new_state: ProductState,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sale_valuation: Option<ProductSaleValuationData>,
+struct ListingAvailabilityChangedHistoryPayloadData {
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::listing_availability::option"
+    )]
+    previous: Option<ListingAvailability>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::listing_availability::option"
+    )]
+    current: Option<ListingAvailability>,
 }
 
 #[derive(Debug, Serialize)]
@@ -110,12 +115,16 @@ struct ProductListingAuctionChangedHistoryPayloadData {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ProductListingDeletedHistoryPayloadData {
-    #[serde(with = "crate::wire::product_lifecycle")]
-    old_lifecycle: ProductLifecycle,
-    #[serde(with = "crate::wire::product_lifecycle")]
-    new_lifecycle: ProductLifecycle,
+struct ProductListingWithdrawnHistoryPayloadData {
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "crate::wire::listing_availability::option"
+    )]
+    previous_availability: Option<ListingAvailability>,
 }
+
+#[derive(Debug, Serialize)]
+struct ProductListingRestoredHistoryPayloadData {}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -148,7 +157,7 @@ struct ProductListingAuctionData {
 impl From<ProductListingEvent> for ProductListingEventData {
     fn from(event: ProductListingEvent) -> Self {
         Self {
-            event_type: event.event_type,
+            event_type: event.event_type(),
             product_listing_id: event.product_listing_id,
             event_id: event.event_id,
             payload: event.payload.into(),
@@ -168,17 +177,16 @@ impl From<ProductListingEventPayload> for ProductListingEventPayloadData {
                     geo_address: value.address.geo.map(Into::into),
                     pricing: value.pricing.into(),
                     sale_valuation: value.sale_valuation.map(Into::into),
-                    state: value.state,
+                    availability: value.availability,
                     url: value.url,
                     images: images(value.images),
                     auction: value.auction.into(),
                 })
             }
-            ProductListingEventPayload::StateChanged(value) => {
-                Self::StateChanged(ProductStateChangedHistoryPayloadData {
-                    old_state: value.old_state,
-                    new_state: value.new_state,
-                    sale_valuation: value.sale_valuation.map(Into::into),
+            ProductListingEventPayload::AvailabilityChanged(value) => {
+                Self::AvailabilityChanged(ListingAvailabilityChangedHistoryPayloadData {
+                    previous: value.previous,
+                    current: value.current,
                 })
             }
             ProductListingEventPayload::AddressChanged(value) => Self::AddressChanged(
@@ -206,11 +214,13 @@ impl From<ProductListingEventPayload> for ProductListingEventPayloadData {
                     auction: value.auction.into(),
                 })
             }
-            ProductListingEventPayload::Deleted(value) => {
-                Self::Deleted(ProductListingDeletedHistoryPayloadData {
-                    old_lifecycle: value.old_lifecycle,
-                    new_lifecycle: value.new_lifecycle,
+            ProductListingEventPayload::Withdrawn(value) => {
+                Self::Withdrawn(ProductListingWithdrawnHistoryPayloadData {
+                    previous_availability: value.previous_availability,
                 })
+            }
+            ProductListingEventPayload::Restored(_) => {
+                Self::Restored(ProductListingRestoredHistoryPayloadData {})
             }
         }
     }

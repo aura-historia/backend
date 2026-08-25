@@ -12,7 +12,7 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use product_listing_core::{
-    product_lifecycle::ProductLifecycle, product_listing_id::ProductListingId,
+    listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,7 +147,7 @@ where
                 source: box_error(source),
             })?;
 
-        let outcome = if source.lifecycle == ProductLifecycle::Deleted {
+        let outcome = if source.lifecycle == ListingLifecycle::Withdrawn {
             self.projection
                 .delete(source.product_listing_id, source.projection_version)
                 .await
@@ -162,7 +162,7 @@ where
         Ok(ProjectProductListingResult {
             outcome: match (source.lifecycle, outcome) {
                 (
-                    ProductLifecycle::Deleted,
+                    ListingLifecycle::Withdrawn,
                     ProductListingSearchProjectionWriteOutcome::Applied,
                 ) => ProjectProductListingOutcome::Deleted,
                 (_, ProductListingSearchProjectionWriteOutcome::Applied) => {

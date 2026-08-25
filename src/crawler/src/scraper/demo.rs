@@ -67,7 +67,7 @@ use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
 use localization::{Language, Localized};
 use money::Price;
 use product_listing_core::{
-    product_listing_image::ProductListingImage, product_state::ProductState,
+    listing_availability::ListingAvailability, product_listing_image::ProductListingImage,
     shop_listing_id::ShopListingId,
 };
 
@@ -129,11 +129,17 @@ impl From<Price> for PriceData {
     }
 }
 
-fn serialize_product_state<S>(value: &ProductState, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_availability<S>(
+    value: &Option<ListingAvailability>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
-    serializer.serialize_str(value.as_str())
+    match value {
+        Some(availability) => serializer.serialize_str(availability.as_str()),
+        None => serializer.serialize_none(),
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -163,8 +169,8 @@ pub struct DemoProduct {
     pub price: Option<PriceData>,
     pub price_estimate_min: Option<PriceData>,
     pub price_estimate_max: Option<PriceData>,
-    #[serde(serialize_with = "serialize_product_state")]
-    pub state: ProductState,
+    #[serde(serialize_with = "serialize_availability")]
+    pub availability: Option<ListingAvailability>,
     pub url: Url,
     pub images: Vec<ProductListingImageData>,
     pub auction_start: Option<OffsetDateTime>,
@@ -181,7 +187,7 @@ impl From<NormalizedProduct> for DemoProduct {
             price: p.price.map(Into::into),
             price_estimate_min: p.price_estimate_min.map(Into::into),
             price_estimate_max: p.price_estimate_max.map(Into::into),
-            state: p.state,
+            availability: p.availability,
             url: p.url,
             images: p.images.into_iter().map(Into::into).collect(),
             auction_start: p.auction_start,

@@ -11,8 +11,8 @@ use notification_core::{
     notification_kind::NotificationKind,
 };
 use product_listing_core::{
-    product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
-    product_state::ProductState, shop_listing_id::ShopListingId,
+    listing_availability::ListingAvailability, product_listing_id::ProductListingId,
+    product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
 };
 use product_listing_core::{product_listing_image::ProductListingImage, title::Title};
 use search_filter_core::{
@@ -140,9 +140,20 @@ enum NotificationWatchlistChangeV1 {
         old_price: Option<PersistedPrice>,
         new_price: Option<PersistedPrice>,
     },
-    StateChange {
-        old_state: ProductState,
-        new_state: ProductState,
+    #[serde(rename = "STATE_CHANGE")]
+    AvailabilityChange {
+        #[serde(
+            rename = "old_state",
+            serialize_with = "serialize_listing_availability",
+            deserialize_with = "deserialize_listing_availability"
+        )]
+        old_availability: ListingAvailability,
+        #[serde(
+            rename = "new_state",
+            serialize_with = "serialize_listing_availability",
+            deserialize_with = "deserialize_listing_availability"
+        )]
+        new_availability: ListingAvailability,
     },
 }
 
@@ -223,12 +234,12 @@ impl From<&NotificationWatchlistChange> for NotificationWatchlistChangeV1 {
                 old_price: old_price.map(price_data_from_price),
                 new_price: new_price.map(price_data_from_price),
             },
-            NotificationWatchlistChange::StateChange {
-                old_state,
-                new_state,
-            } => Self::StateChange {
-                old_state: *old_state,
-                new_state: *new_state,
+            NotificationWatchlistChange::AvailabilityChange {
+                old_availability,
+                new_availability,
+            } => Self::AvailabilityChange {
+                old_availability: *old_availability,
+                new_availability: *new_availability,
             },
         }
     }
@@ -244,12 +255,12 @@ impl From<NotificationWatchlistChangeV1> for NotificationWatchlistChange {
                 old_price: old_price.map(price_from_data),
                 new_price: new_price.map(price_from_data),
             },
-            NotificationWatchlistChangeV1::StateChange {
-                old_state,
-                new_state,
-            } => Self::StateChange {
-                old_state,
-                new_state,
+            NotificationWatchlistChangeV1::AvailabilityChange {
+                old_availability,
+                new_availability,
+            } => Self::AvailabilityChange {
+                old_availability,
+                new_availability,
             },
         }
     }
@@ -497,6 +508,28 @@ fn price_from_data(price: PersistedPrice) -> Price {
     Price::new(MonetaryAmount::from(price.amount), currency)
 }
 
+fn serialize_listing_availability<S>(
+    availability: &ListingAvailability,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(availability.as_str())
+}
+
+fn deserialize_listing_availability<'de, D>(
+    deserializer: D,
+) -> Result<ListingAvailability, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    ListingAvailability::from_code(&value).ok_or_else(|| {
+        <D::Error as serde::de::Error>::custom(format!("unknown listing availability {value}"))
+    })
+}
+
 fn parse_language(value: &str) -> Result<localization::Language, NotificationMappingError> {
     localization::Language::from_code(value)
         .ok_or_else(|| NotificationMappingError::UnknownLanguage(value.to_owned()))
@@ -511,7 +544,9 @@ fn parse_kind(value: &str) -> Result<NotificationKind, NotificationMappingError>
 fn change_kind(change: &NotificationWatchlistChange) -> NotificationKind {
     match change {
         NotificationWatchlistChange::PriceChange { .. } => NotificationKind::WatchlistPriceChanged,
-        NotificationWatchlistChange::StateChange { .. } => NotificationKind::WatchlistStateChanged,
+        NotificationWatchlistChange::AvailabilityChange { .. } => {
+            NotificationKind::WatchlistStateChanged
+        }
     }
 }
 
@@ -540,6 +575,38 @@ mod tests {
             parse_kind("watchlist_price_changed"),
             Err(NotificationMappingError::UnknownKind(value)) if value == "watchlist_price_changed"
         ));
+    }
+
+    #[test]
+    fn should_serialize_canonical_listing_availability_in_legacy_v1_shape()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let change = NotificationWatchlistChange::AvailabilityChange {
+            old_availability: ListingAvailability::Available,
+            new_availability: ListingAvailability::InStock,
+        };
+        let persisted = NotificationWatchlistChangeV1::from(&change);
+
+        assert_eq!(
+            serde_json::json!({
+                "type": "STATE_CHANGE",
+                "old_state": "AVAILABLE",
+                "new_state": "IN_STOCK",
+            }),
+            serde_json::to_value(persisted)?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_unknown_listing_availability_in_legacy_v1_shape() {
+        assert!(
+            serde_json::from_value::<NotificationWatchlistChangeV1>(serde_json::json!({
+                "type": "STATE_CHANGE",
+                "old_state": "UNKNOWN",
+                "new_state": "IN_STOCK",
+            }))
+            .is_err()
+        );
     }
 
     #[test]

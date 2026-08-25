@@ -35,7 +35,7 @@ pub async fn delete_products(
     for product in products {
         let shop_listing_id = product.shop_listing_id.clone();
         match state
-            .delete
+            .withdraw
             .execute_by_key(&context, product.into_product_key(shop_id))
             .await
         {

@@ -5,6 +5,7 @@ use indexmap::IndexSet;
 use localization::Language;
 use money::Currency;
 use product_listing_core::{
+    listing_availability::ListingAvailability,
     product_listing::{ProductListingAddress, ProductListingAuction, ProductListingPricing},
     product_listing_image::ProductListingImage,
     product_listing_search::ProductListingSearch,
@@ -232,8 +233,8 @@ fn product_source(title: &str) -> ProductListingSearchFilterMatchSource {
         descriptions: HashMap::new(),
         pricing: ProductListingPricing::default(),
         sale_valuation: None,
-        state: product_listing_core::product_state::ProductState::Available,
-        lifecycle: product_listing_core::product_lifecycle::ProductLifecycle::Active,
+        availability: Some(ListingAvailability::Available),
+        lifecycle: product_listing_core::listing_lifecycle::ListingLifecycle::Active,
         url: Url::parse("https://shop.example.test/product_listings/sku-1")
             .unwrap_or_else(|error| panic!("test URL must be valid: {error}")),
         view_url: Url::parse("https://aura.example.test/product_listings/product")

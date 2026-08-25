@@ -355,12 +355,11 @@ async fn invoke(
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let ingestion = IngestShopifyProductListingHandler::new(
         GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
-        UpsertProductListingHandler::new_with_fx_rates(
+        UpsertProductListingHandler::new(
             unit_of_work,
             SqlxProductListingRepositoryFactory::new(),
             SqlxProductListingEventStoreFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
         ),
     );
     invoke_with_ingestion(
@@ -375,12 +374,11 @@ async fn invoke_event(event: LambdaEvent<SqsEvent>) -> aws_lambda_events::sqs::S
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let ingestion = IngestShopifyProductListingHandler::new(
         GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
-        UpsertProductListingHandler::new_with_fx_rates(
+        UpsertProductListingHandler::new(
             unit_of_work,
             SqlxProductListingRepositoryFactory::new(),
             SqlxProductListingEventStoreFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
         ),
     );
     invoke_with_ingestion(event, &ingestion).await

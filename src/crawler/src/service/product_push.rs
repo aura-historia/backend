@@ -7,8 +7,8 @@ use indexmap::IndexSet;
 use localization::{Language, Localized};
 use money::Price;
 use product_listing_core::{
-    description::Description, product_listing::ProductListingAddress,
-    product_listing_id::ProductListingKey, product_state::ProductState, title::Title,
+    description::Description, listing_availability::ListingAvailability,
+    product_listing::ProductListingAddress, product_listing_id::ProductListingKey, title::Title,
 };
 use product_listing_service::use_cases::commands::upsert_product_listing::{
     UpsertProductListingCommand, UpsertProductListingUseCase,
@@ -92,7 +92,7 @@ fn merge_upsert_command(
         price,
         price_estimate_min,
         price_estimate_max,
-        state,
+        availability,
         url,
         images,
         auction_start,
@@ -121,8 +121,8 @@ fn merge_upsert_command(
     if let Some(value) = price_estimate_max {
         current.price_estimate_max = Some(value);
     }
-    if let Some(value) = state {
-        current.state = Some(value);
+    if let Some(value) = availability {
+        current.availability = Some(value);
     }
     if let Some(value) = url {
         current.url = Some(value);
@@ -316,7 +316,10 @@ impl From<&ProductListingPushItem> for UpsertCommandSnapshot {
             price: command.price.map(snapshot_price),
             price_estimate_min: command.price_estimate_min.map(snapshot_price),
             price_estimate_max: command.price_estimate_max.map(snapshot_price),
-            state: command.state.map(product_state_name).map(str::to_owned),
+            state: command
+                .availability
+                .map(availability_name)
+                .map(str::to_owned),
             url: command.url.as_ref().map(ToString::to_string),
             images: command
                 .images
@@ -440,7 +443,7 @@ pub fn normalize_to_upsert(
         price: product.price,
         price_estimate_min: product.price_estimate_min,
         price_estimate_max: product.price_estimate_max,
-        state: Some(product.state),
+        availability: product.availability,
         url: Some(product.url),
         images: product.images.into_iter().collect::<IndexSet<_>>(),
         auction_start: product.auction_start,
@@ -448,15 +451,8 @@ pub fn normalize_to_upsert(
     })
 }
 
-fn product_state_name(value: ProductState) -> &'static str {
-    match value {
-        ProductState::Listed => "LISTED",
-        ProductState::Available => "AVAILABLE",
-        ProductState::Reserved => "RESERVED",
-        ProductState::Sold => "SOLD",
-        ProductState::Removed => "REMOVED",
-        ProductState::Unknown => "UNKNOWN",
-    }
+fn availability_name(value: ListingAvailability) -> &'static str {
+    value.as_str()
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 use crate::use_cases::{
-    CreateProductListingUseCase, DeleteProductListingUseCase, GetProductListingEventsUseCase,
-    GetProductListingUseCase, GetSimilarProductListingsUseCase, SearchProductListingsUseCase,
-    UpdateProductListingUseCase, UpsertProductListingUseCase,
+    CreateProductListingUseCase, GetProductListingEventsUseCase, GetProductListingUseCase,
+    GetSimilarProductListingsUseCase, SearchProductListingsUseCase, UpdateProductListingUseCase,
+    UpsertProductListingUseCase, WithdrawProductListingUseCase,
 };
 use std::sync::Arc;
 
@@ -9,7 +9,7 @@ pub struct ProductListingUseCases {
     pub create: Arc<dyn CreateProductListingUseCase>,
     pub update: Arc<dyn UpdateProductListingUseCase>,
     pub upsert: Arc<dyn UpsertProductListingUseCase>,
-    pub delete: Arc<dyn DeleteProductListingUseCase>,
+    pub withdraw: Arc<dyn WithdrawProductListingUseCase>,
     pub get: Arc<dyn GetProductListingUseCase>,
     pub get_history: Arc<dyn GetProductListingEventsUseCase>,
     pub get_similar: Arc<dyn GetSimilarProductListingsUseCase>,
@@ -20,7 +20,7 @@ pub struct ProductListingUseCasesInput {
     pub create: Arc<dyn CreateProductListingUseCase>,
     pub update: Arc<dyn UpdateProductListingUseCase>,
     pub upsert: Arc<dyn UpsertProductListingUseCase>,
-    pub delete: Arc<dyn DeleteProductListingUseCase>,
+    pub withdraw: Arc<dyn WithdrawProductListingUseCase>,
     pub get: Arc<dyn GetProductListingUseCase>,
     pub get_history: Arc<dyn GetProductListingEventsUseCase>,
     pub get_similar: Arc<dyn GetSimilarProductListingsUseCase>,
@@ -33,7 +33,7 @@ impl ProductListingUseCases {
             create: input.create,
             update: input.update,
             upsert: input.upsert,
-            delete: input.delete,
+            withdraw: input.withdraw,
             get: input.get,
             get_history: input.get_history,
             get_similar: input.get_similar,

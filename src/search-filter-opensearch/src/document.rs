@@ -9,12 +9,11 @@ use geo::{
 use isocountry::CountryCode;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
-use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_search::{
     EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductListingSearch,
 };
-use product_listing_core::product_state::ProductState;
 use product_listing_opensearch::build_percolator_query;
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -29,7 +28,7 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use user_core::user_id::UserId;
 
-const PRODUCT_SEARCH_FIELDS: [&str; 24] = [
+const PRODUCT_SEARCH_FIELDS: [&str; 23] = [
     "language",
     "currency",
     "productQuery",
@@ -48,8 +47,7 @@ const PRODUCT_SEARCH_FIELDS: [&str; 24] = [
     "continent",
     "geoAddress",
     "price",
-    "state",
-    "lifecycle",
+    "availability",
     "created",
     "updated",
     "auctionStart",
@@ -195,47 +193,26 @@ mod shop_type {
     }
 }
 
-mod product_state {
+mod listing_availability {
     use super::*;
 
     pub(crate) fn serialize<S>(
-        values: &HashSet<ProductState>,
+        values: &HashSet<ListingAvailability>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serialize_set_code(values, serializer, ProductState::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<HashSet<ProductState>, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserialize_set_code(deserializer, ProductState::from_code)
-    }
-}
-
-mod product_lifecycle {
-    use super::*;
-
-    pub(crate) fn serialize<S>(
-        values: &HashSet<ProductLifecycle>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serialize_set_code(values, serializer, ProductLifecycle::as_str)
+        serialize_set_code(values, serializer, ListingAvailability::as_str)
     }
 
     pub(crate) fn deserialize<'de, D>(
         deserializer: D,
-    ) -> Result<HashSet<ProductLifecycle>, D::Error>
+    ) -> Result<HashSet<ListingAvailability>, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        deserialize_set_code(deserializer, ProductLifecycle::from_code)
+        deserialize_set_code(deserializer, ListingAvailability::from_code)
     }
 }
 
@@ -406,10 +383,8 @@ struct ProductListingSearchDocument {
     geo_address_distance_query: Option<GeoDistanceQueryDocument>,
     #[serde(rename = "price")]
     price_query: Option<RangeQuery<u64>>,
-    #[serde(rename = "state", with = "product_state")]
-    state_query: HashSet<ProductState>,
-    #[serde(rename = "lifecycle", with = "product_lifecycle")]
-    lifecycle_query: HashSet<ProductLifecycle>,
+    #[serde(rename = "availability", with = "listing_availability")]
+    availability_query: HashSet<ListingAvailability>,
     #[serde(rename = "created")]
     created_query: Option<TimeRangeDocument>,
     #[serde(rename = "updated")]
@@ -504,8 +479,7 @@ impl TryFrom<&ProductListingSearch> for ProductListingSearchDocument {
                 .collect(),
             geo_address_distance_query: search.geo_address_distance_query.map(Into::into),
             price_query: search.price_query.map(|range| range.map(u64::from)),
-            state_query: search.state_query.iter().copied().collect(),
-            lifecycle_query: search.lifecycle_query.iter().copied().collect(),
+            availability_query: search.availability_query.iter().copied().collect(),
             created_query: search.created_query.map(TryInto::try_into).transpose()?,
             updated_query: search.updated_query.map(TryInto::try_into).transpose()?,
             auction_start_query: search
@@ -557,8 +531,7 @@ impl TryFrom<ProductListingSearchDocument> for ProductListingSearch {
             price_query: document
                 .price_query
                 .map(|range| range.map(MonetaryAmount::from)),
-            state_query: document.state_query.into(),
-            lifecycle_query: document.lifecycle_query.into(),
+            availability_query: document.availability_query.into(),
             created_query: document.created_query.map(parse_time_range).transpose()?,
             updated_query: document.updated_query.map(parse_time_range).transpose()?,
             auction_start_query: document
@@ -689,9 +662,8 @@ mod tests {
                 .with_shop_type_query(
                     std::collections::HashSet::from([ShopType::CommercialDealer]).into(),
                 )
-                .with_state_query(std::collections::HashSet::from([ProductState::Available]).into())
-                .with_lifecycle_query(
-                    std::collections::HashSet::from([ProductLifecycle::Active]).into(),
+                .with_availability_query(
+                    std::collections::HashSet::from([ListingAvailability::InStock]).into(),
                 ),
         );
         let document = SearchFilterDocument::try_from(&expected)?;
@@ -711,12 +683,8 @@ mod tests {
             value.pointer("/search/shopType/0")
         );
         assert_eq!(
-            Some(&serde_json::json!("AVAILABLE")),
-            value.pointer("/search/state/0")
-        );
-        assert_eq!(
-            Some(&serde_json::json!("ACTIVE")),
-            value.pointer("/search/lifecycle/0")
+            Some(&serde_json::json!("IN_STOCK")),
+            value.pointer("/search/availability/0")
         );
         assert_eq!(expected.view, SearchFilterView::try_from(document)?);
         Ok(())

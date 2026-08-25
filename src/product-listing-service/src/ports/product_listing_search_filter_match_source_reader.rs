@@ -4,14 +4,14 @@ use localization::Language;
 use localization::Localized;
 use product_listing_core::{
     description::Description,
-    product_lifecycle::ProductLifecycle,
+    listing_availability::ListingAvailability,
+    listing_lifecycle::ListingLifecycle,
     product_listing::{
         ProductListingAddress, ProductListingAuction, ProductListingPricing, ProductSaleValuation,
     },
     product_listing_id::ProductListingId,
     product_listing_image::ProductListingImage,
     product_listing_slug_id::ProductListingSlugId,
-    product_state::ProductState,
     shop_listing_id::ShopListingId,
     title::Title,
 };
@@ -79,8 +79,8 @@ pub struct ProductListingSearchFilterMatchSource {
     pub pricing: ProductListingPricing,
     /// Immutable valuation captured when the ProductListing was sold.
     pub sale_valuation: Option<ProductSaleValuation>,
-    pub state: ProductState,
-    pub lifecycle: ProductLifecycle,
+    pub availability: Option<ListingAvailability>,
+    pub lifecycle: ListingLifecycle,
     pub url: Url,
     pub view_url: Url,
     pub image: Option<ProductListingImage>,

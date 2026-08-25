@@ -1,5 +1,5 @@
 use indexmap::IndexSet;
-use product_listing_core::product_state::ProductState;
+use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_service::use_cases::IngestShopifyProductListingCommand;
 use serde::Deserialize;
 use url::Url;
@@ -71,9 +71,9 @@ impl ShopifyProductEventKind {
         shop_domain: shop_core::domain::Domain,
         payload: ShopifyProductPayload,
     ) -> Result<IngestShopifyProductListingCommand, ShopifyProductEventError> {
-        let state = match self {
-            Self::Delete => ProductState::Removed,
-            Self::Create | Self::Update => product_state(&payload),
+        let availability = match self {
+            Self::Delete => None,
+            Self::Create | Self::Update => product_availability(&payload),
         };
         let title = payload
             .title
@@ -100,7 +100,7 @@ impl ShopifyProductEventKind {
                 .variants
                 .first()
                 .and_then(|variant| variant.price.clone()),
-            state,
+            availability,
             image_urls: payload
                 .images
                 .into_iter()
@@ -117,20 +117,26 @@ pub fn fallbacked_html_to_markdown(html: &str) -> String {
     }
 }
 
-pub fn product_state(payload: &ShopifyProductPayload) -> ProductState {
-    match payload.status.as_deref() {
-        Some("active")
-            if payload
-                .variants
-                .iter()
-                .any(|variant| variant.inventory_quantity.unwrap_or_default() > 0) =>
-        {
-            ProductState::Available
-        }
-        Some("active") => ProductState::Sold,
-        Some("draft") => ProductState::Listed,
-        Some("archived") => ProductState::Removed,
-        _ => ProductState::Unknown,
+pub fn product_availability(payload: &ShopifyProductPayload) -> Option<ListingAvailability> {
+    if payload.variants.iter().any(|variant| {
+        variant
+            .inventory_quantity
+            .is_some_and(|quantity| quantity > 0)
+    }) {
+        Some(ListingAvailability::InStock)
+    } else if payload
+        .variants
+        .iter()
+        .any(|variant| variant.inventory_quantity == Some(0))
+        && payload.variants.iter().all(|variant| {
+            variant
+                .inventory_quantity
+                .is_some_and(|quantity| quantity >= 0)
+        })
+    {
+        Some(ListingAvailability::OutOfStock)
+    } else {
+        None
     }
 }
 
@@ -139,7 +145,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_map_delete_to_removed_product_command() {
+    fn should_clear_availability_for_delete_product_command() {
         let payload = ShopifyProductPayload {
             id: 42,
             title: Some("Cabinet".to_owned()),
@@ -158,13 +164,33 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("failed mapping payload: {error}"));
 
-        assert_eq!(ProductState::Removed, command.state);
+        assert_eq!(None, command.availability);
         assert_eq!("42", command.shop_listing_id.to_string());
     }
 
     #[test]
-    fn should_map_active_in_stock_product_to_available() {
-        let state = product_state(&ShopifyProductPayload {
+    fn should_map_positive_inventory_to_in_stock() {
+        assert_eq!(
+            Some(ListingAvailability::InStock),
+            product_availability(&payload_with_inventory(Some(1)))
+        );
+    }
+
+    #[test]
+    fn should_map_zero_inventory_to_out_of_stock() {
+        assert_eq!(
+            Some(ListingAvailability::OutOfStock),
+            product_availability(&payload_with_inventory(Some(0)))
+        );
+    }
+
+    #[test]
+    fn should_clear_availability_when_inventory_is_missing() {
+        assert_eq!(None, product_availability(&payload_with_inventory(None)));
+    }
+
+    fn payload_with_inventory(inventory_quantity: Option<i64>) -> ShopifyProductPayload {
+        ShopifyProductPayload {
             id: 42,
             title: None,
             body_html: None,
@@ -172,11 +198,9 @@ mod tests {
             status: Some("active".to_owned()),
             variants: vec![ShopifyVariantPayload {
                 price: None,
-                inventory_quantity: Some(1),
+                inventory_quantity,
             }],
             images: Vec::new(),
-        });
-
-        assert_eq!(ProductState::Available, state);
+        }
     }
 }

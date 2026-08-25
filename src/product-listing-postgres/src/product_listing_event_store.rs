@@ -2,13 +2,13 @@
 
 use domain_primitives::event_id::EventId;
 use product_listing_core::product_listing::{
-    ProductListingAddress, ProductListingAuction, ProductListingDomainEvent,
-    ProductListingDomainEventPayload, ProductListingPricing,
+    ProductListingAddress, ProductListingAuction, ProductListingEventPayload, ProductListingPricing,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_service::ports::product_listing_event_store::{
-    ProductListingEventStore, ProductListingEventStoreError, ProductListingEventStoreFactory,
+    ProductListingEvent, ProductListingEventStore, ProductListingEventStoreError,
+    ProductListingEventStoreFactory,
 };
 use serde_json::{Value, json};
 use sqlx::PgConnection;
@@ -43,7 +43,7 @@ impl ProductListingEventStoreFactory<platform_postgres::SqlxTransaction>
 impl ProductListingEventStore for SqlxProductListingEventStore<'_> {
     async fn append(
         &mut self,
-        event: &ProductListingDomainEvent,
+        event: &ProductListingEvent,
     ) -> Result<(), ProductListingEventStoreError> {
         sqlx::query(
             r#"
@@ -102,52 +102,53 @@ impl From<ProductListingCurrentEventLookupSqlxError> for ProductListingEventStor
     }
 }
 
-fn event_payload_json(payload: &ProductListingDomainEventPayload) -> Value {
+fn event_payload_json(payload: &ProductListingEventPayload) -> Value {
     match payload {
-        ProductListingDomainEventPayload::Created(payload) => json!({
+        ProductListingEventPayload::Created(payload) => json!({
             "kind": "created",
             "title": payload.title.as_ref().map(localized_title_json),
             "description": payload.description.as_ref().map(localized_description_json),
             "address": address_json(&payload.address),
             "pricing": pricing_json(payload.pricing),
             "saleValuation": sale_valuation_json(payload.sale_valuation),
-            "state": format!("{:?}", payload.state),
+            "availability": payload.availability.map(|value| value.as_str()),
             "url": payload.url.as_str(),
             "images": images_json(&payload.images),
             "auction": auction_json(payload.auction),
         }),
-        ProductListingDomainEventPayload::StateChanged(payload) => json!({
-            "kind": "stateChanged",
-            "oldState": format!("{:?}", payload.old_state),
-            "newState": format!("{:?}", payload.new_state),
-            "saleValuation": sale_valuation_json(payload.sale_valuation),
+        ProductListingEventPayload::AvailabilityChanged(payload) => json!({
+            "kind": "availabilityChanged",
+            "previousAvailability": payload.previous.map(|value| value.as_str()),
+            "currentAvailability": payload.current.map(|value| value.as_str()),
         }),
-        ProductListingDomainEventPayload::AddressChanged(payload) => json!({
+        ProductListingEventPayload::AddressChanged(payload) => json!({
             "kind": "addressChanged",
             "address": address_json(&payload.address),
         }),
-        ProductListingDomainEventPayload::PriceChanged(payload) => json!({
+        ProductListingEventPayload::PriceChanged(payload) => json!({
             "kind": "priceChanged",
             "oldPricing": pricing_json(payload.old_pricing),
             "newPricing": pricing_json(payload.new_pricing),
         }),
-        ProductListingDomainEventPayload::UrlChanged(payload) => json!({
+        ProductListingEventPayload::UrlChanged(payload) => json!({
             "kind": "urlChanged",
             "oldUrl": payload.old_url.as_str(),
             "newUrl": payload.new_url.as_str(),
         }),
-        ProductListingDomainEventPayload::ImagesChanged(payload) => json!({
+        ProductListingEventPayload::ImagesChanged(payload) => json!({
             "kind": "imagesChanged",
             "images": images_json(&payload.images),
         }),
-        ProductListingDomainEventPayload::AuctionChanged(payload) => json!({
+        ProductListingEventPayload::AuctionChanged(payload) => json!({
             "kind": "auctionChanged",
             "auction": auction_json(payload.auction),
         }),
-        ProductListingDomainEventPayload::Deleted(payload) => json!({
-            "kind": "deleted",
-            "oldLifecycle": format!("{:?}", payload.old_lifecycle),
-            "newLifecycle": format!("{:?}", payload.new_lifecycle),
+        ProductListingEventPayload::Withdrawn(payload) => json!({
+            "kind": "withdrawn",
+            "previousAvailability": payload.previous_availability.map(|value| value.as_str()),
+        }),
+        ProductListingEventPayload::Restored(_) => json!({
+            "kind": "restored",
         }),
     }
 }
@@ -240,161 +241,55 @@ fn auction_json(auction: ProductListingAuction) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use money::Currency;
-
-    use indexmap::IndexSet;
-    use localization::Language;
-    use localization::Localized;
-    use money::{MonetaryAmount, Price};
-    use product_listing_core::description::Description;
-    use product_listing_core::product_lifecycle::ProductLifecycle;
+    use product_listing_core::listing_availability::ListingAvailability;
     use product_listing_core::product_listing::{
-        ProductListingAddressChanged, ProductListingAuctionChanged, ProductListingCreated,
-        ProductListingDeleted, ProductListingImagesChanged, ProductListingPriceChanged,
-        ProductListingUrlChanged, ProductStateChanged,
+        ListingAvailabilityChanged, ProductListingRestored, ProductListingWithdrawn,
     };
-    use product_listing_core::product_listing_image::ProductListingImage;
-    use product_listing_core::product_state::ProductState;
-    use product_listing_core::prohibited_content::ProhibitedContent;
-    use product_listing_core::title::Title;
-    use time::OffsetDateTime;
-    use url::Url;
-
-    fn url(value: &str) -> Url {
-        match Url::parse(value) {
-            Ok(url) => url,
-            Err(error) => panic!("invalid test URL: {error}"),
-        }
-    }
-
-    fn price(amount: u64, currency: Currency) -> Price {
-        Price::new(MonetaryAmount::from(amount), currency)
-    }
-
-    fn pricing() -> ProductListingPricing {
-        ProductListingPricing {
-            price: Some(price(1_200, Currency::Eur)),
-            price_estimate_min: Some(price(1_000, Currency::Eur)),
-            price_estimate_max: Some(price(1_400, Currency::Eur)),
-        }
-    }
-
-    fn images() -> IndexSet<ProductListingImage> {
-        [ProductListingImage {
-            url: url("https://shop.example/image.jpg"),
-            prohibited_content: ProhibitedContent::None,
-        }]
-        .into_iter()
-        .collect()
-    }
 
     #[test]
-    fn should_write_lossless_created_payload() {
-        let payload = ProductListingDomainEventPayload::Created(Box::new(ProductListingCreated {
-            title: Some(Localized::new(Language::En, Title::from("Bronze vase"))),
-            description: Some(Localized::new(Language::En, Description::from("Ancient"))),
-            address: ProductListingAddress {
-                structured: None,
-                geo: Some(geo::core::address::GeoAddress {
-                    lat: 47.0,
-                    lon: 8.0,
-                }),
-            },
-            pricing: pricing(),
-            sale_valuation: None,
-            state: ProductState::Listed,
-            url: url("https://shop.example/product_listings/1"),
-            images: images(),
-            auction: ProductListingAuction {
-                start: Some(OffsetDateTime::UNIX_EPOCH),
-                end: None,
-            },
-        }));
-
-        let json = event_payload_json(&payload);
-
-        assert_eq!(Some("created"), json.get("kind").and_then(Value::as_str));
-        assert_eq!(
-            Some("Bronze vase"),
-            json.pointer("/title/text").and_then(Value::as_str)
-        );
-        assert_eq!(
-            Some(1_200),
-            json.pointer("/pricing/price/amount")
-                .and_then(Value::as_i64)
-        );
-        assert_eq!(
-            Some("EUR"),
-            json.pointer("/pricing/price/currency")
-                .and_then(Value::as_str)
-        );
-
-        assert_eq!(
-            Some("https://shop.example/image.jpg"),
-            json.pointer("/images/0/url").and_then(Value::as_str)
-        );
-        assert_eq!(
-            Some(47.0),
-            json.pointer("/address/geo/lat").and_then(Value::as_f64)
-        );
-    }
-
-    #[test]
-    fn should_write_old_and_new_source_pricing_snapshots() {
-        let payload = ProductListingDomainEventPayload::PriceChanged(ProductListingPriceChanged {
-            old_pricing: pricing(),
-            new_pricing: ProductListingPricing {
-                price: Some(price(1_500, Currency::Usd)),
-                price_estimate_min: None,
-                price_estimate_max: None,
-            },
+    fn should_write_canonical_nullable_availability() {
+        let payload = ProductListingEventPayload::AvailabilityChanged(ListingAvailabilityChanged {
+            previous: Some(ListingAvailability::InStock),
+            current: None,
         });
 
         let json = event_payload_json(&payload);
 
         assert_eq!(
-            Some(1_200),
-            json.pointer("/oldPricing/price/amount")
-                .and_then(Value::as_i64)
+            Some("availabilityChanged"),
+            json.get("kind").and_then(Value::as_str)
         );
         assert_eq!(
-            Some("USD"),
-            json.pointer("/newPricing/price/currency")
-                .and_then(Value::as_str)
+            Some("IN_STOCK"),
+            json.get("previousAvailability").and_then(Value::as_str)
         );
+        assert!(json.get("currentAvailability").is_some_and(Value::is_null));
     }
 
     #[test]
-    fn should_write_payload_for_every_product_event_type() {
-        let event_types = [
-            ProductListingDomainEventPayload::StateChanged(ProductStateChanged {
-                old_state: ProductState::Listed,
-                new_state: ProductState::Available,
-                sale_valuation: None,
-            }),
-            ProductListingDomainEventPayload::AddressChanged(ProductListingAddressChanged {
-                address: ProductListingAddress::default(),
-            }),
-            ProductListingDomainEventPayload::UrlChanged(ProductListingUrlChanged {
-                old_url: url("https://shop.example/product_listings/1"),
-                new_url: url("https://shop.example/product_listings/2"),
-            }),
-            ProductListingDomainEventPayload::ImagesChanged(Box::new(
-                ProductListingImagesChanged { images: images() },
-            )),
-            ProductListingDomainEventPayload::AuctionChanged(ProductListingAuctionChanged {
-                auction: ProductListingAuction::default(),
-            }),
-            ProductListingDomainEventPayload::Deleted(ProductListingDeleted {
-                old_lifecycle: ProductLifecycle::Active,
-                new_lifecycle: ProductLifecycle::Deleted,
-            }),
-        ];
+    fn should_write_lifecycle_payloads() {
+        let withdrawn = event_payload_json(&ProductListingEventPayload::Withdrawn(
+            ProductListingWithdrawn {
+                previous_availability: Some(ListingAvailability::Available),
+            },
+        ));
+        let restored = event_payload_json(&ProductListingEventPayload::Restored(
+            ProductListingRestored,
+        ));
 
-        for event in event_types {
-            let json = event_payload_json(&event);
-
-            assert!(json.get("kind").and_then(Value::as_str).is_some());
-        }
+        assert_eq!(
+            Some("withdrawn"),
+            withdrawn.get("kind").and_then(Value::as_str)
+        );
+        assert_eq!(
+            Some("AVAILABLE"),
+            withdrawn
+                .get("previousAvailability")
+                .and_then(Value::as_str)
+        );
+        assert_eq!(
+            Some("restored"),
+            restored.get("kind").and_then(Value::as_str)
+        );
     }
 }

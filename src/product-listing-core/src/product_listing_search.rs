@@ -1,6 +1,6 @@
-use crate::product_lifecycle::ProductLifecycle;
+use crate::listing_availability::ListingAvailability;
 use crate::product_listing_id::ProductListingId;
-use crate::product_state::ProductState;
+
 use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
@@ -105,8 +105,7 @@ pub struct ProductListingSearch {
     pub continent_query: AnyOfQuery<Continent>,
     pub geo_address_distance_query: Option<GeoDistanceQuery>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
-    pub state_query: AnyOfQuery<ProductState>,
-    pub lifecycle_query: AnyOfQuery<ProductLifecycle>,
+    pub availability_query: AnyOfQuery<ListingAvailability>,
     pub created_query: Option<RangeQuery<OffsetDateTime>>,
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
     pub auction_start_query: Option<RangeQuery<OffsetDateTime>>,
@@ -134,8 +133,7 @@ impl ProductListingSearch {
             continent_query: AnyOfQuery::default(),
             geo_address_distance_query: None,
             price_query: None,
-            state_query: AnyOfQuery::default(),
-            lifecycle_query: AnyOfQuery::default(),
+            availability_query: AnyOfQuery::default(),
             created_query: None,
             updated_query: None,
             auction_start_query: None,
@@ -247,13 +245,11 @@ impl ProductListingSearch {
         self
     }
 
-    pub fn with_state_query(mut self, state_query: AnyOfQuery<ProductState>) -> Self {
-        self.state_query = state_query;
-        self
-    }
-
-    pub fn with_lifecycle_query(mut self, lifecycle_query: AnyOfQuery<ProductLifecycle>) -> Self {
-        self.lifecycle_query = lifecycle_query;
+    pub fn with_availability_query(
+        mut self,
+        availability_query: AnyOfQuery<ListingAvailability>,
+    ) -> Self {
+        self.availability_query = availability_query;
         self
     }
 
@@ -305,8 +301,7 @@ mod tests {
                 EnhancedSearchDescription::try_from("bronze").unwrap(),
             )
             .with_exclude_product_listing_id_query(HashSet::from([product_listing_id]).into())
-            .with_state_query(HashSet::from([ProductState::Listed]).into())
-            .with_lifecycle_query(HashSet::from([ProductLifecycle::Active]).into())
+            .with_availability_query(HashSet::from([ListingAvailability::Available]).into())
             .with_price_query(RangeQuery {
                 min: Some(MonetaryAmount::from(10_u64)),
                 max: Some(MonetaryAmount::from(20_u64)),
@@ -319,8 +314,11 @@ mod tests {
                 .exclude_product_listing_id_query
                 .contains(&product_listing_id)
         );
-        assert!(search.state_query.contains(&ProductState::Listed));
-        assert!(search.lifecycle_query.contains(&ProductLifecycle::Active));
+        assert!(
+            search
+                .availability_query
+                .contains(&ListingAvailability::Available)
+        );
         assert!(search.price_query.is_some());
     }
 
@@ -371,8 +369,7 @@ pub mod faker {
                 continent_query: config.fake_with_rng(rng),
                 geo_address_distance_query: None,
                 price_query: config.fake_with_rng(rng),
-                state_query: config.fake_with_rng(rng),
-                lifecycle_query: Default::default(),
+                availability_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
                 updated_query: fake_range_query_datetime(config, rng),
                 auction_start_query: fake_range_query_datetime(config, rng),
@@ -408,10 +405,8 @@ pub mod faker {
         use fake::{Fake, Faker};
 
         #[test]
-        fn should_fake_product_listing_search_without_lifecycle_query() {
-            let search = Faker.fake::<ProductListingSearch>();
-
-            assert!(search.lifecycle_query.is_empty());
+        fn should_fake_product_listing_search_with_availability_query() {
+            let _search = Faker.fake::<ProductListingSearch>();
         }
     }
 }

@@ -20,12 +20,12 @@ use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
 use money::MonetaryAmount;
-use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_search::{
     EnhancedSearchDescription, ProductListingSearch,
 };
-use product_listing_core::product_state::ProductState;
+
 use product_listing_core::sort_product_listing_field::SortProductListingField;
 use product_listing_service::use_cases::{
     ProductListingSearchCursor, SearchProductListingsRequest,
@@ -81,11 +81,8 @@ struct ProductListingSearchData {
     #[serde(default)]
     price: Option<RangeQuery<u64>>,
     #[serde(default)]
-    #[serde(with = "crate::wire::product_state::set")]
-    state: HashSet<ProductState>,
-    #[serde(default)]
-    #[serde(with = "crate::wire::product_lifecycle::set")]
-    lifecycle: HashSet<ProductLifecycle>,
+    #[serde(with = "crate::wire::listing_availability::set")]
+    availability: HashSet<ListingAvailability>,
     #[serde(
         with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
@@ -164,8 +161,7 @@ impl TryFrom<ProductListingSearchData> for ProductListingSearch {
             continent_query: data.continent.into_iter().map(Into::into).collect(),
             geo_address_distance_query: data.geo_address.map(Into::into),
             price_query: data.price.map(|range| range.map(MonetaryAmount::from)),
-            state_query: data.state.into(),
-            lifecycle_query: data.lifecycle.into(),
+            availability_query: data.availability.into(),
             created_query: data.created,
             updated_query: data.updated,
             auction_start_query: data.auction_start,

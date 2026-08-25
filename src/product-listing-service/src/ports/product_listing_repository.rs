@@ -41,10 +41,10 @@ pub enum ProductListingRepositoryError {
     NegativePriceAmountPersisted,
     #[error("persisted price currency is invalid")]
     InvalidPriceCurrencyPersisted,
-    #[error("persisted product state is invalid")]
-    InvalidProductStatePersisted,
-    #[error("persisted product lifecycle is invalid")]
-    InvalidProductLifecyclePersisted,
+    #[error("persisted listing availability is invalid")]
+    InvalidListingAvailabilityPersisted,
+    #[error("persisted listing lifecycle is invalid")]
+    InvalidListingLifecyclePersisted,
     #[error("persisted product URL is invalid")]
     InvalidProductListingUrlPersisted,
     #[error("persisted product images value is invalid")]

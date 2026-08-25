@@ -3,8 +3,8 @@ use domain_primitives::event_id::EventId;
 use localization::Localized;
 use money::Price;
 use product_listing_core::{
-    product_listing_id::ProductListingId, product_listing_image::ProductListingImage,
-    product_listing_slug_id::ProductListingSlugId, product_state::ProductState,
+    listing_availability::ListingAvailability, product_listing_id::ProductListingId,
+    product_listing_image::ProductListingImage, product_listing_slug_id::ProductListingSlugId,
     shop_listing_id::ShopListingId, title::Title,
 };
 use search_filter_core::{
@@ -119,7 +119,7 @@ impl NotificationContent {
                 ..
             } => NotificationKind::WatchlistPriceChanged,
             Self::Watchlist {
-                change: NotificationWatchlistChange::StateChange { .. },
+                change: NotificationWatchlistChange::AvailabilityChange { .. },
                 ..
             } => NotificationKind::WatchlistStateChanged,
             Self::SearchFilter { .. } => NotificationKind::SearchFilterMatch,
@@ -250,9 +250,9 @@ pub enum NotificationWatchlistChange {
         old_price: Option<Price>,
         new_price: Option<Price>,
     },
-    StateChange {
-        old_state: ProductState,
-        new_state: ProductState,
+    AvailabilityChange {
+        old_availability: ListingAvailability,
+        new_availability: ListingAvailability,
     },
 }
 
@@ -266,12 +266,12 @@ impl NotificationWatchlistChange {
                 old_price,
                 new_price,
             },
-            Self::StateChange {
-                old_state,
-                new_state,
-            } => LocalizedNotificationWatchlistChange::StateChange {
-                old_state,
-                new_state,
+            Self::AvailabilityChange {
+                old_availability,
+                new_availability,
+            } => LocalizedNotificationWatchlistChange::AvailabilityChange {
+                old_availability,
+                new_availability,
             },
         }
     }
@@ -316,8 +316,8 @@ pub enum LocalizedNotificationWatchlistChange {
         old_price: Option<Price>,
         new_price: Option<Price>,
     },
-    StateChange {
-        old_state: ProductState,
-        new_state: ProductState,
+    AvailabilityChange {
+        old_availability: ListingAvailability,
+        new_availability: ListingAvailability,
     },
 }

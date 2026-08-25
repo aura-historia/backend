@@ -15,10 +15,11 @@ use fxrate_service::ports::{
 use indexmap::IndexSet;
 use localization::{Language, Localized};
 use money::Currency;
-use product_listing_core::product_lifecycle::ProductLifecycle;
+use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::product_state::ProductState;
+
 use product_listing_core::shop_listing_id::ShopListingId;
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
@@ -160,8 +161,8 @@ pub struct ProductListingDetailsView {
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductListingPricingPresentation,
-    pub state: ProductState,
-    pub lifecycle: ProductLifecycle,
+    pub availability: Option<ListingAvailability>,
+    pub lifecycle: ListingLifecycle,
     pub url: Url,
     pub view_url: Url,
     pub images: IndexSet<ProductListingImage>,
@@ -343,7 +344,7 @@ pub fn present_product_details(
             title: item.title,
             description: item.description,
             pricing,
-            state: item.state,
+            availability: item.availability,
             lifecycle: item.lifecycle,
             url: item.url,
             view_url: item.view_url,
@@ -402,7 +403,7 @@ pub fn redact_hidden_product(
             captured_at: OffsetDateTime::UNIX_EPOCH,
         },
     };
-    details.state = ProductState::Unknown;
+    details.availability = None;
     details.url = hidden_url.clone();
     details.view_url = hidden_url;
     details.images = IndexSet::new();

@@ -116,7 +116,10 @@ impl ProductListingSnapshot {
                 dt.format(&time::format_description::well_known::Rfc3339)
                     .unwrap()
             }),
-            state: format!("{:?}", product.state).to_uppercase(),
+            state: product
+                .availability
+                .map_or("UNKNOWN", |availability| availability.as_str())
+                .to_owned(),
         }
     }
 }
