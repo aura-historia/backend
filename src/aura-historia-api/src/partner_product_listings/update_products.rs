@@ -202,23 +202,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_reject_null_for_non_nullable_batch_member_before_any_write()
+    async fn should_clear_availability_when_batch_member_is_null()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut update = MockUpdateUseCase::new();
-        update.expect_execute_by_key().never();
+        update
+            .expect_execute_by_key()
+            .times(1)
+            .withf(|_, _, command| {
+                matches!(
+                    command.availability,
+                    application::patch_field::PatchField::Clear
+                )
+            })
+            .returning(|_, _, _| Ok(updated()));
         let app = app(update);
         let shop_id = ShopId::new();
 
         let response = request(
             &app,
             &format!("/api/v1/shops/{shop_id}/product-listings"),
-            r#"[{"shopListingId":"valid","availability":"AVAILABLE"},{"shopListingId":"invalid","availability":null}]"#,
+            r#"[{"shopListingId":"listing","availability":null}]"#,
             true,
         )
         .await?;
 
-        assert_eq!(StatusCode::BAD_REQUEST, response.status());
-        assert_eq!("BAD_BODY_VALUE", body_json(response).await?["error"]);
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(json!([]), body_json(response).await?);
         Ok(())
     }
 
@@ -264,7 +273,7 @@ mod tests {
             Ok(TransportPrincipal::User {
                 user_id: UserId::new(),
                 auth_method: AuthMethod::AuraAccessToken,
-                capabilities: BTreeSet::from([CredentialCapability::ProductsWrite]),
+                capabilities: BTreeSet::from([CredentialCapability::ProductListingsWrite]),
             })
         });
         authenticator

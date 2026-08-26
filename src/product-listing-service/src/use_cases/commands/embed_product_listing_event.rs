@@ -482,7 +482,7 @@ mod tests {
                         .source
                         .as_mut()
                         .unwrap_or_else(|| panic!("test source missing"))
-                        .event_type = "DOMAIN_STATE_CHANGED".to_owned()
+                        .event_type = "UNSUPPORTED_EVENT".to_owned()
                 }
                 _ => {
                     lock(&state)

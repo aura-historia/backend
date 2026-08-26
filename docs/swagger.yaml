@@ -99,7 +99,7 @@ paths:
         Aura Historia access tokens on this endpoint must include the `product-listings:write` scope.
         Allowed callers are Aura Historia admins and users partnered with the target shop.
 
-        The request body is an array of `PostProductData` objects. Each entry is created
+        The request body is an array of `CreateProductListingData` objects. Each entry is created
         synchronously in its own PostgreSQL transaction.
 
         The response returns HTTP 200 with failures as `{ shopId, shopListingId, error }` objects when
@@ -129,7 +129,7 @@ paths:
               type: array
               maxItems: 100
               items:
-                $ref: "#/components/schemas/PostProductData"
+                $ref: "#/components/schemas/CreateProductListingData"
             example:
               - shopListingId: "baroque-violin-001"
                 title:
@@ -141,7 +141,7 @@ paths:
                 price:
                   currency: "EUR"
                   amount: 4500
-                state: "AVAILABLE"
+                availability: "IN_STOCK"
                 url: "https://my-shop.com/product-listings/baroque-violin"
                 images:
                   - "https://my-shop.com/images/violin-1.jpg"
@@ -160,7 +160,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PartnerProductBatchFailuresResponse"
+                $ref: "#/components/schemas/PartnerProductListingBatchFailuresResponse"
               examples:
                 all_succeeded:
                   summary: All product-listings were created
@@ -267,8 +267,8 @@ paths:
         Aura Historia access tokens on this endpoint must include the `product-listings:write` scope.
         Allowed callers are Aura Historia admins and users partnered with the target shop.
 
-        The request body is an array of `PatchProductData` objects. Omitted fields are unchanged;
-        `null` clears price and auction fields only. `null` for `state`, `url`, or `images` returns
+        The request body is an array of `UpdateProductListingData` objects. Omitted fields are unchanged;
+        `null` clears availability, price, and auction fields. `null` for `url` or `images` returns
         `400 BAD_BODY_VALUE`; send `[]` to remove all images. The complete batch contract is
         validated before any entry is applied synchronously in its own PostgreSQL transaction.
 
@@ -299,15 +299,15 @@ paths:
               type: array
               maxItems: 100
               items:
-                $ref: "#/components/schemas/PatchProductData"
+                $ref: "#/components/schemas/UpdateProductListingData"
             example:
               - shopListingId: "baroque-violin-001"
-                state: "SOLD"
+                availability: null
               - shopListingId: "baroque-violin-002"
                 price:
                   currency: "EUR"
                   amount: 5000
-                state: "AVAILABLE"
+                availability: "IN_STOCK"
       responses:
         "200":
           description: |
@@ -322,7 +322,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PartnerProductBatchFailuresResponse"
+                $ref: "#/components/schemas/PartnerProductListingBatchFailuresResponse"
               examples:
                 all_succeeded:
                   summary: All product-listings were updated
@@ -429,21 +429,15 @@ paths:
         Aura Historia access tokens on this endpoint must include the `product-listings:write` scope.
         Allowed callers are Aura Historia admins and users partnered with the target shop.
 
-        The request body is an array of `PutProductData` objects. Each entry is upserted
+        The request body is an array of `UpsertProductListingData` objects. Each entry is upserted
         synchronously in its own PostgreSQL transaction. For each entry:
-        - **New product** — a full product is created using all provided fields. Omitting
-          `title`, `url`, or `state` causes the backend to fall back to an empty title,
-          a placeholder URL, and `LISTED` respectively.
-        - **Existing product** — the backend applies `price`, `priceEstimateMin`,
-          `priceEstimateMax`, `state`, `url`, `images`, `auctionStart`, and `auctionEnd`.
-          `title`, `description`, `sellerName`, `structuredAddress`, and `geoAddress`
-          are ignored on the update path.
-        - On the update path, omitting or sending `null` for `price`, `priceEstimateMin`,
-          `priceEstimateMax`, `url`, `auctionStart`, or `auctionEnd` leaves the stored value
-          unchanged.
-        - On the update path, `images` always replaces the stored image set; omitting
-          `images` or sending `null` is treated as an empty list and therefore clears all
-          stored images.
+        - **New listing** — omitted or `null` availability creates a listing with no reliable
+          current availability assertion; a concrete value sets that assertion.
+        - **Existing listing** — omitted availability is unchanged, `null` clears it, and a
+          concrete value replaces it. A withdrawn listing is restored before current facts apply.
+        - `title`, `description`, `structuredAddress`, and `geoAddress` apply only on creation.
+        - On the update path, other omitted or `null` optional fields preserve their existing
+          values; provided images replace the stored image set.
 
         The response returns HTTP 200 with failures as `{ shopId, shopListingId, error }` objects when
         one or more entries succeed. `error` is the stable API error key for that entry. If every non-empty entry fails, the first failure is returned
@@ -473,7 +467,7 @@ paths:
               type: array
               maxItems: 100
               items:
-                $ref: "#/components/schemas/PutProductData"
+                $ref: "#/components/schemas/UpsertProductListingData"
             examples:
               create_new:
                 summary: Create a new product
@@ -488,7 +482,7 @@ paths:
                     price:
                       currency: "EUR"
                       amount: 4500
-                    state: "AVAILABLE"
+                    availability: "IN_STOCK"
                     url: "https://my-shop.com/product-listings/baroque-violin"
                     images:
                       - "https://my-shop.com/images/violin-1.jpg"
@@ -496,7 +490,7 @@ paths:
                 summary: Update an existing product while leaving the current price unchanged
                 value:
                   - shopListingId: "baroque-violin-001"
-                    state: "SOLD"
+                    availability: "SOLD_OUT"
                     priceEstimateMin:
                       currency: "EUR"
                       amount: 4200
@@ -527,7 +521,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PartnerProductBatchFailuresResponse"
+                $ref: "#/components/schemas/PartnerProductListingBatchFailuresResponse"
               examples:
                 all_succeeded:
                   summary: All product-listings were upserted
@@ -660,7 +654,7 @@ paths:
               type: array
               maxItems: 100
               items:
-                $ref: "#/components/schemas/PartnerProductDeleteData"
+                $ref: "#/components/schemas/WithdrawProductListingData"
             example:
               - shopListingId: "baroque-violin-001"
       responses:
@@ -671,7 +665,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PartnerProductBatchFailuresResponse"
+                $ref: "#/components/schemas/PartnerProductListingBatchFailuresResponse"
               examples:
                 all_succeeded:
                   value: []
@@ -978,14 +972,14 @@ paths:
         Responses always contain `item`, the product data. A valid user or delegated-user bearer token
         adds optional top-level `userState`; authenticated responses are not cached.
 
-      operationId: getProduct
+      operationId: getProductListing
       tags:
         - ProductListings
       parameters:
         - name: productListingId
           in: path
           required: true
-          description: Unique identifier of the product
+          description: Unique identifier of the ProductListing
           schema:
             type: string
             format: uuid
@@ -1007,11 +1001,11 @@ paths:
         - {}
       responses:
         "200":
-          description: Product found and returned successfully
+          description: ProductListing found and returned successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PersonalizedProductDetailsData"
+                $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
           headers:
             Content-Language:
               description: The language of the returned content
@@ -1127,7 +1121,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PersonalizedProductDetailsData"
+                $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
           headers:
             Content-Language:
               description: The language of the returned content
@@ -1214,7 +1208,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/GetProductEventData"
+                  $ref: "#/components/schemas/ProductListingEventData"
               examples:
                 product_history:
                   summary: Example product history
@@ -1227,7 +1221,7 @@ paths:
                           price:
                             currency: "EUR"
                             amount: 3000
-                        state: "LISTED"
+                        availability: null
                         url: "https://shop.example/product-listings/6ba7b810"
                         images: []
                         auction: {}
@@ -1320,7 +1314,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/PersonalizedProductSummaryData"
+                  $ref: "#/components/schemas/PersonalizedProductListingSummaryData"
 
         "202":
           description: Product embedding is not available yet. Poll the Location URL for KNN results.
@@ -1385,13 +1379,13 @@ paths:
         - {}
       responses:
         "200":
-          description: Product history retrieved successfully
+          description: ProductListing history retrieved successfully
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/GetProductEventData"
+                  $ref: "#/components/schemas/ProductListingEventData"
 
   /api/v1/by-slug/shops/{shopSlugId}/product-listings/{productListingSlugId}/similar:
     get:
@@ -1436,7 +1430,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/PersonalizedProductSummaryData"
+                  $ref: "#/components/schemas/PersonalizedProductListingSummaryData"
 
         "202":
           description: Product embedding is not available yet. Poll the Location URL for KNN results.
@@ -1842,7 +1836,7 @@ paths:
           required: false
           description: Field to sort results by
           schema:
-            $ref: "#/components/schemas/SortProductFieldData"
+            $ref: "#/components/schemas/SortProductListingFieldData"
           example: created
         - name: order
           in: query
@@ -1856,11 +1850,11 @@ paths:
           in: query
           required: false
           description: |
-            Opaque Product cursor for pagination. Pass the complete JSON object returned as
+            Opaque ProductListing cursor for pagination. Pass the complete JSON object returned as
             `searchAfter` in the previous response as one query value. It pins the FX snapshot
             for the full cursor chain.
           schema:
-            $ref: "#/components/schemas/ProductSearchCursorData"
+            $ref: "#/components/schemas/ProductListingSearchCursorData"
           example: '{"fxRateId":"6ba7b810-9dad-11d1-80b4-00c04fd430c8","searchAfter":[2999,"550e8400-e29b-41d4-a716-446655440000"]}'
         - name: size
           in: query
@@ -1892,7 +1886,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProductSearchResultData"
+                $ref: "#/components/schemas/ProductListingSearchResultData"
         "400":
           description: Bad request - invalid query parameters
           content:
@@ -1988,7 +1982,7 @@ paths:
                       price:
                         min: 1000
                         max: 5000
-                      state: ["AVAILABLE"]
+                      availability: ["IN_STOCK"]
                     created: "2024-01-01T10:00:00Z"
                     updated: "2024-01-01T12:00:00Z"
                 from: 0
@@ -2059,7 +2053,7 @@ paths:
                 price:
                   min: 1000
                   max: 5000
-                state: ["AVAILABLE"]
+                availability: ["IN_STOCK"]
                 created:
                   min: "2024-01-01T00:00:00Z"
                   max: "2024-12-31T23:59:59Z"
@@ -2107,7 +2101,7 @@ paths:
                   price:
                     min: 1000
                     max: 5000
-                  state: ["AVAILABLE"]
+                  availability: ["IN_STOCK"]
                 created: "2024-01-01T12:00:00Z"
                 updated: "2024-01-01T12:00:00Z"
         "400":
@@ -2253,7 +2247,7 @@ paths:
                   price:
                     min: 1000
                     max: 5000
-                  state: ["AVAILABLE"]
+                  availability: ["IN_STOCK"]
                 created: "2024-01-01T10:00:00Z"
                 updated: "2024-01-01T12:00:00Z"
         "400":
@@ -2531,7 +2525,7 @@ paths:
                   price:
                     min: 2000
                     max: 8000
-                  state: ["AVAILABLE"]
+                  availability: ["IN_STOCK"]
                 created: "2024-01-01T10:00:00Z"
                 updated: "2024-01-01T12:30:00Z"
         "400":
@@ -2708,7 +2702,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PersonalizedProductSearchResultData"
+                $ref: "#/components/schemas/PersonalizedProductListingSearchResultData"
               example:
                 items:
                   - item:
@@ -2727,7 +2721,7 @@ paths:
                       price:
                         currency: "EUR"
                         amount: 2999
-                      state: "AVAILABLE"
+                      availability: "IN_STOCK"
                       url: "https://curated-antiques.example/product-listings/golden-cufflinks"
                       viewUrl: "https://curated-antiques.example/product-listings/golden-cufflinks?utm_source=aura_historia&utm_medium=referral"
                       images:
@@ -2919,7 +2913,7 @@ paths:
                           type: CURRENT
                           fxRateId: "550e8400-e29b-41d4-a716-446655440444"
                           capturedAt: "2026-08-15T10:00:00Z"
-                      state: AVAILABLE
+                      availability: IN_STOCK
                       lifecycle: ACTIVE
                       url: "https://example.test/accessory-1"
                       viewUrl: "https://example.test/accessory-1"
@@ -3283,7 +3277,7 @@ paths:
                   items:
                     type: array
                     items:
-                      $ref: "#/components/schemas/PersonalizedProductDetailsData"
+                      $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
                   size:
                     type: integer
                     minimum: 1
@@ -3307,7 +3301,7 @@ paths:
                       title:
                         text: "Smartphone Case"
                         language: "en"
-                      state: "AVAILABLE"
+                      availability: "IN_STOCK"
                       lifecycle: "ACTIVE"
                       url: "https://tech-store.com/smartphone-case"
                       viewUrl: "https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral"
@@ -5345,7 +5339,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PersonalizedGetProductData"
+                $ref: "#/components/schemas/PersonalizedProductListingData"
               example:
                 item:
                   productListingId: "550e8400-e29b-41d4-a716-446655440000"
@@ -5370,7 +5364,7 @@ paths:
                       max:
                         currency: "EUR"
                         amount: 3300
-                  state: "AVAILABLE"
+                  availability: "IN_STOCK"
                   url: "https://tech-store.com/smartphone-case"
                   viewUrl: "https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral"
                   images:
@@ -9631,7 +9625,7 @@ components:
         Values are either the literal `SYSTEM` or the UUID of the acting user.
       example: "SYSTEM"
 
-    GetProductData:
+    ProductListingData:
       type: object
       description: Complete product information including metadata and localized content
       required:
@@ -9645,7 +9639,7 @@ components:
         - sellerName
         - shopType
         - title
-        - state
+        - availability
         - lifecycle
         - url
         - viewUrl
@@ -9714,11 +9708,14 @@ components:
           nullable: true
           description: |
             Complete pricing information including offer price and optional estimates.
-            When null, no pricing information is available for this product.
-        state:
-          $ref: "#/components/schemas/ProductStateData"
+            When null, no pricing information is available for this listing.
+        availability:
+          allOf:
+            - $ref: "#/components/schemas/ListingAvailabilityData"
+          nullable: true
+          description: Current reliable availability assertion. `null` means Aura has no reliable current assertion.
         lifecycle:
-          $ref: "#/components/schemas/ProductLifecycleData"
+          $ref: "#/components/schemas/ListingLifecycleData"
         url:
           type: string
           format: uri
@@ -9730,7 +9727,7 @@ components:
         images:
           type: array
           items:
-            $ref: "#/components/schemas/ProductImageData"
+            $ref: "#/components/schemas/ProductListingImageData"
           description: Array of product images with prohibited content classification
           default: []
         auction:
@@ -9750,7 +9747,7 @@ components:
           format: date-time
           description: When the product was last updated (RFC3339 format)
 
-    GetProductSummaryData:
+    ProductListingSummaryData:
       type: object
       description: Lightweight product summary for search and similar-product results.
       required:
@@ -9762,7 +9759,7 @@ components:
         - shopListingId
         - shopName
         - shopSlugId
-        - state
+        - availability
         - lifecycle
         - url
         - viewUrl
@@ -9810,11 +9807,14 @@ components:
           nullable: true
           description: Main Product price converted into the requested display currency.
         priceValuation:
-          $ref: "#/components/schemas/ProductSummaryPriceValuationData"
-        state:
-          $ref: "#/components/schemas/ProductStateData"
+          $ref: "#/components/schemas/ProductListingSummaryPriceValuationData"
+        availability:
+          allOf:
+            - $ref: "#/components/schemas/ListingAvailabilityData"
+          nullable: true
+          description: Current reliable availability assertion. `null` means Aura has no reliable current assertion.
         lifecycle:
-          $ref: "#/components/schemas/ProductLifecycleData"
+          $ref: "#/components/schemas/ListingLifecycleData"
         url:
           type: string
           format: uri
@@ -9826,13 +9826,13 @@ components:
         images:
           type: array
           items:
-            $ref: "#/components/schemas/ProductImageData"
+            $ref: "#/components/schemas/ProductListingImageData"
           description: Array of product image URLs.
         updated:
           type: string
           format: date-time
           description: When the product was last updated (RFC3339 format).
-    ProductSummaryPriceValuationData:
+    ProductListingSummaryPriceValuationData:
       oneOf:
         - type: object
           required: [type, fxRateId, capturedAt]
@@ -9847,19 +9847,19 @@ components:
               type: string
               format: date-time
         - type: object
-          required: [type, fxRateId, soldAt]
+          required: [type, fxRateId, observedAt]
           properties:
             type:
               type: string
-              enum: [SALE]
+              enum: [SALE_OBSERVATION]
             fxRateId:
               type: string
               format: uuid
-            soldAt:
+            observedAt:
               type: string
               format: date-time
 
-    ProductDetailsData:
+    ProductListingDetailsData:
       type: object
       description: Canonical Product detail data inside a personalized response wrapper.
       required:
@@ -9874,7 +9874,7 @@ components:
         - shopSlugId
         - sellerSlugId
         - pricing
-        - state
+        - availability
         - lifecycle
         - url
         - viewUrl
@@ -9937,15 +9937,18 @@ components:
           description: Source pricing, converted display pricing, and the persisted FX snapshot used.
           properties:
             source:
-              $ref: "#/components/schemas/ProductPricingSourceData"
+              $ref: "#/components/schemas/ProductListingPricingData"
             display:
-              $ref: "#/components/schemas/ProductPricingSourceData"
+              $ref: "#/components/schemas/ProductListingPricingData"
             valuation:
-              $ref: "#/components/schemas/ProductPricingValuationData"
-        state:
-          $ref: "#/components/schemas/ProductStateData"
+              $ref: "#/components/schemas/ProductListingPricingValuationData"
+        availability:
+          allOf:
+            - $ref: "#/components/schemas/ListingAvailabilityData"
+          nullable: true
+          description: Current reliable availability assertion. `null` means Aura has no reliable current assertion.
         lifecycle:
-          $ref: "#/components/schemas/ProductLifecycleData"
+          $ref: "#/components/schemas/ListingLifecycleData"
         url:
           type: string
           format: uri
@@ -9955,7 +9958,7 @@ components:
         images:
           type: array
           items:
-            $ref: "#/components/schemas/ProductImageData"
+            $ref: "#/components/schemas/ProductListingImageData"
         auction:
           type: object
           properties:
@@ -9974,7 +9977,7 @@ components:
           type: string
           format: date-time
 
-    ProductPricingSourceData:
+    ProductListingPricingData:
       type: object
       properties:
         price:
@@ -9990,7 +9993,7 @@ components:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
 
-    ProductPricingValuationData:
+    ProductListingPricingValuationData:
       oneOf:
         - type: object
           required: [type, fxRateId, capturedAt]
@@ -10005,48 +10008,48 @@ components:
               type: string
               format: date-time
         - type: object
-          required: [type, fxRateId, capturedAt, soldAt]
+          required: [type, fxRateId, capturedAt, observedAt]
           properties:
             type:
               type: string
-              enum: [SALE]
+              enum: [SALE_OBSERVATION]
             fxRateId:
               type: string
               format: uuid
             capturedAt:
               type: string
               format: date-time
-            soldAt:
+            observedAt:
               type: string
               format: date-time
 
-    PersonalizedProductDetailsData:
+    PersonalizedProductListingDetailsData:
       type: object
       description: Canonical Product detail with optional user-specific state.
       required: [item]
       properties:
         item:
-          $ref: "#/components/schemas/ProductDetailsData"
+          $ref: "#/components/schemas/ProductListingDetailsData"
         userState:
           allOf:
-            - $ref: "#/components/schemas/ProductUserStateData"
+            - $ref: "#/components/schemas/ProductListingUserStateData"
           nullable: true
           description: Present only for a valid user or delegated-user bearer token.
 
-    PersonalizedProductSummaryData:
+    PersonalizedProductListingSummaryData:
       type: object
       description: Canonical Product summary with optional user-specific state.
       required: [item]
       properties:
         item:
-          $ref: "#/components/schemas/GetProductSummaryData"
+          $ref: "#/components/schemas/ProductListingSummaryData"
         userState:
           allOf:
-            - $ref: "#/components/schemas/ProductUserStateData"
+            - $ref: "#/components/schemas/ProductListingUserStateData"
           nullable: true
           description: Present only for a valid user or delegated-user bearer token.
 
-    PersonalizedGetProductData:
+    PersonalizedProductListingData:
       type: object
       description: |
         Wrapper for product data with optional user-specific state.
@@ -10056,14 +10059,14 @@ components:
         - item
       properties:
         item:
-          $ref: "#/components/schemas/GetProductData"
+          $ref: "#/components/schemas/ProductListingData"
         userState:
           allOf:
-            - $ref: "#/components/schemas/ProductUserStateData"
+            - $ref: "#/components/schemas/ProductListingUserStateData"
           nullable: true
           description: Optional user-specific state for this product (only present when authenticated)
 
-    PersonalizedGetProductSummaryData:
+    PersonalizedProductListingSummaryResponseData:
       type: object
       description: |
         Wrapper for lightweight product summary data with optional user-specific state.
@@ -10074,14 +10077,14 @@ components:
         - item
       properties:
         item:
-          $ref: "#/components/schemas/GetProductSummaryData"
+          $ref: "#/components/schemas/ProductListingSummaryData"
         userState:
           allOf:
-            - $ref: "#/components/schemas/ProductUserStateData"
+            - $ref: "#/components/schemas/ProductListingUserStateData"
           nullable: true
           description: Optional user-specific state for this product (only present when authenticated)
 
-    ProductSearchResultData:
+    ProductListingSearchResultData:
       type: object
       description: Cursor-paged canonical Product search response.
       required:
@@ -10091,7 +10094,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/PersonalizedProductSummaryData"
+            $ref: "#/components/schemas/PersonalizedProductListingSummaryData"
           description: Personalized Product summaries in OpenSearch result order.
         size:
           type: integer
@@ -10107,11 +10110,11 @@ components:
           example: 127
         searchAfter:
           allOf:
-            - $ref: "#/components/schemas/ProductSearchCursorData"
+            - $ref: "#/components/schemas/ProductListingSearchCursorData"
           nullable: true
           description: Opaque cursor for the next page. It must be sent back as one JSON-encoded `searchAfter` query value.
 
-    ProductSearchCursorData:
+    ProductListingSearchCursorData:
       type: object
       required:
         - fxRateId
@@ -10129,7 +10132,7 @@ components:
         fxRateId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
         searchAfter: [2999, "550e8400-e29b-41d4-a716-446655440000"]
 
-    PersonalizedProductSearchResultData:
+    PersonalizedProductListingSearchResultData:
       type: object
       description: |
         Paginated collection of personalized product-listings using cursor-based pagination (search-after pattern).
@@ -10141,7 +10144,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/PersonalizedGetProductSummaryData"
+            $ref: "#/components/schemas/PersonalizedProductListingSummaryResponseData"
           description: Array of personalized product summaries in the current page
         size:
           type: integer
@@ -10164,7 +10167,7 @@ components:
           nullable: true
           example: '[2999, "550e8400-e29b-41d4-a716-446655440000"]'
 
-    ProductUserStateData:
+    ProductListingUserStateData:
       type: object
       description: User-specific state information for a product
       required:
@@ -10314,30 +10317,34 @@ components:
           minimum: 0
           example: 2999
 
-    ProductCreatedEventPayloadData:
+    ProductListingCreatedEventPayloadData:
       type: object
-      description: Minimal information about an product when it was created
-      required:
-        - state
+      description: Immutable ProductListing facts at creation.
+      required: [pricing, availability, url, images, auction]
       properties:
-        state:
-          $ref: "#/components/schemas/ProductStateData"
-        price:
-          $ref: "#/components/schemas/PriceData"
+        pricing: { $ref: "#/components/schemas/ProductListingPricingData" }
+        availability:
+          allOf: [{ $ref: "#/components/schemas/ListingAvailabilityData" }]
+          nullable: true
+        url: { type: string, format: uri }
+        images:
+          type: array
+          items: { $ref: "#/components/schemas/ProductListingImageData" }
+        auction: { $ref: "#/components/schemas/AuctionData" }
 
-    ProductEventStateChangedPayloadData:
+    ProductListingAvailabilityChangedEventPayloadData:
       type: object
-      description: Payload for state change events, containing both old and new state
-      required:
-        - oldState
-        - newState
+      description: Changed reliable availability assertion. `null` means no current assertion.
+      required: [previous, current]
       properties:
-        oldState:
-          $ref: "#/components/schemas/ProductStateData"
-        newState:
-          $ref: "#/components/schemas/ProductStateData"
+        previous:
+          allOf: [{ $ref: "#/components/schemas/ListingAvailabilityData" }]
+          nullable: true
+        current:
+          allOf: [{ $ref: "#/components/schemas/ListingAvailabilityData" }]
+          nullable: true
 
-    ProductEventPriceChangedPayloadData:
+    ProductListingPriceChangedEventPayloadData:
       type: object
       description: |
         Payload for price change events. Both `oldPrice` and `newPrice` are optional:
@@ -10356,7 +10363,7 @@ components:
           nullable: true
           description: The new price. Absent when the price is removed.
 
-    ProductEventEstimatePriceChangedPayloadData:
+    ProductListingEstimatePriceChangedEventPayloadData:
       type: object
       description: |
         Payload for estimate price change events. Both `priceEstimateMin` and `priceEstimateMax` are optional:
@@ -10373,7 +10380,7 @@ components:
           nullable: true
           description: The updated upper bound of the estimated price range. Absent if this field was not changed.
 
-    ProductEventUrlChangedPayloadData:
+    ProductListingUrlChangedEventPayloadData:
       type: object
       description: Payload for URL change events, containing the new product URL.
       required:
@@ -10385,7 +10392,7 @@ components:
           description: The new URL of the product on the shop's website.
           example: "https://my-shop.com/product-listings/baroque-violin-updated"
 
-    ProductEventImagesChangedPayloadData:
+    ProductListingImagesChangedEventPayloadData:
       type: object
       description: Payload for image list change events, containing the complete updated image list.
       required:
@@ -10394,10 +10401,10 @@ components:
         images:
           type: array
           items:
-            $ref: "#/components/schemas/ProductImageData"
+            $ref: "#/components/schemas/ProductListingImageData"
           description: The complete updated list of product images.
 
-    ProductEventAuctionTimeChangedPayloadData:
+    ProductListingAuctionChangedEventPayloadData:
       type: object
       description: |
         Payload for auction time change events. Both `auctionStart` and `auctionEnd` are optional:
@@ -10416,7 +10423,7 @@ components:
           description: Updated RFC3339 auction end timestamp. Absent if this field was not changed.
           example: "2026-04-10T12:00:00Z"
 
-    GetProductEventData:
+    ProductListingEventData:
       type: object
       description: Historical event for a product
       required:
@@ -10428,18 +10435,7 @@ components:
         - timestamp
       properties:
         eventType:
-          type: string
-          enum:
-            [
-              CREATED,
-              STATE_CHANGED,
-              ADDRESS_CHANGED,
-              PRICE_CHANGED,
-              URL_CHANGED,
-              IMAGES_CHANGED,
-              AUCTION_CHANGED,
-              DELETED,
-            ]
+          $ref: "#/components/schemas/ProductListingEventTypeData"
         productListingId:
           type: string
           format: uuid
@@ -10449,8 +10445,7 @@ components:
           format: uuid
           description: Unique identifier for this event
         payload:
-          type: object
-          description: Immutable event snapshot. Created and price-change snapshots expose `pricing` / `oldPricing` / `newPricing` with stored source price and estimate bounds; sale events expose immutable `saleValuation`; no conversion is applied.
+          $ref: "#/components/schemas/ProductListingEventPayloadData"
         timestamp:
           type: string
           format: date-time
@@ -10564,26 +10559,13 @@ components:
       description: Broad classification derived from a concrete availability assertion; it is not independently stored.
       example: ORDERABLE_NOW
 
-    ProductStateData:
+    ListingLifecycleData:
       type: string
-      enum: [LISTED, AVAILABLE, RESERVED, SOLD, REMOVED, UNKNOWN]
+      enum: [ACTIVE, WITHDRAWN]
       description: |
-        Current state of the product:
-        - LISTED: Product has been listed
-        - AVAILABLE: Product is available for purchase
-        - RESERVED: Product is reserved by a buyer
-        - SOLD: Product has been sold
-        - REMOVED: Product has been removed and can no longer be tracked
-        - UNKNOWN: Product has an unknown state
-      example: AVAILABLE
-
-    ProductLifecycleData:
-      type: string
-      enum: [ACTIVE, DELETED]
-      description: |
-        Lifecycle state of the product:
-        - ACTIVE: Product is visible in normal discovery flows
-        - DELETED: Product has been soft-deleted
+        Source-catalog membership of a ProductListing:
+        - ACTIVE: The listing is currently offered by its authoritative source.
+        - WITHDRAWN: The listing is retained for history but is no longer offered.
       example: ACTIVE
 
     AuctionData:
@@ -10681,7 +10663,7 @@ components:
         - PARTNERED: Shop is linked to a partner user
       example: PARTNERED
 
-    ProductImageData:
+    ProductListingImageData:
       type: object
       description: Product image classification. Unsafe image URLs are omitted unless effective prohibited-content consent is true.
       required:
@@ -10698,7 +10680,7 @@ components:
           description: Safety classification of the image.
           example: NONE
 
-    SortProductFieldData:
+    SortProductListingFieldData:
       type: string
       enum: [score, updated, created]
       description: |
@@ -10709,47 +10691,28 @@ components:
       default: score
       example: updated
 
-    ProductEventTypeData:
+    ProductListingEventTypeData:
       type: string
       enum:
         [
-          CREATED,
-          STATE_CHANGED,
-          PRICE_CHANGED,
-          ESTIMATE_PRICE_CHANGED,
-          URL_CHANGED,
-          IMAGES_CHANGED,
-          AUCTION_TIME_CHANGED,
+          PRODUCT_LISTING_CREATED,
+          PRODUCT_LISTING_AVAILABILITY_CHANGED,
+          PRODUCT_LISTING_ADDRESS_CHANGED,
+          PRODUCT_LISTING_PRICE_CHANGED,
+          PRODUCT_LISTING_URL_CHANGED,
+          PRODUCT_LISTING_IMAGES_CHANGED,
+          PRODUCT_LISTING_AUCTION_CHANGED,
+          PRODUCT_LISTING_WITHDRAWN,
+          PRODUCT_LISTING_RESTORED,
+          PRODUCT_LISTING_SALE_OBSERVED,
+          PRODUCT_LISTING_SALE_OBSERVATION_RETRACTED,
         ]
-      description: |
-        Types of events that can occur for a product:
-        - CREATED: Product was created
-        - STATE_CHANGED: Product state transitioned (e.g. listed → available, available → sold)
-        - PRICE_CHANGED: Product price was discovered, updated, or removed
-        - ESTIMATE_PRICE_CHANGED: Product estimated price range was updated
-        - URL_CHANGED: Product URL was updated
-        - IMAGES_CHANGED: Product image list was updated
-        - AUCTION_TIME_CHANGED: Product auction start or end time was updated
-      example: STATE_CHANGED
+      description: Canonical ProductListing domain event type.
+      example: PRODUCT_LISTING_AVAILABILITY_CHANGED
 
-    ProductEventPayloadData:
-      oneOf:
-        - $ref: "#/components/schemas/ProductCreatedEventPayloadData"
-        - $ref: "#/components/schemas/ProductEventStateChangedPayloadData"
-        - $ref: "#/components/schemas/ProductEventPriceChangedPayloadData"
-        - $ref: "#/components/schemas/ProductEventEstimatePriceChangedPayloadData"
-        - $ref: "#/components/schemas/ProductEventUrlChangedPayloadData"
-        - $ref: "#/components/schemas/ProductEventImagesChangedPayloadData"
-        - $ref: "#/components/schemas/ProductEventAuctionTimeChangedPayloadData"
-      description: |
-        Event-specific payload data. The structure varies depending on the event type:
-        - CREATED: ProductCreatedEventPayloadData (initial product state and optional price)
-        - STATE_CHANGED: ProductEventStateChangedPayloadData (old and new state)
-        - PRICE_CHANGED: ProductEventPriceChangedPayloadData (old and/or new price; see schema for semantics)
-        - ESTIMATE_PRICE_CHANGED: ProductEventEstimatePriceChangedPayloadData (updated min/max estimate prices)
-        - URL_CHANGED: ProductEventUrlChangedPayloadData (new URL)
-        - IMAGES_CHANGED: ProductEventImagesChangedPayloadData (new image list)
-        - AUCTION_TIME_CHANGED: ProductEventAuctionTimeChangedPayloadData (new auction start/end times)
+    ProductListingEventPayloadData:
+      type: object
+      description: Event-specific immutable payload. Optional availability fields serialize as `null`.
 
     ApiError:
       type: object
@@ -13003,7 +12966,7 @@ components:
           description: When the period was last updated (RFC3339 format)
           example: "2024-06-01T00:00:00Z"
 
-    ProductKeyData:
+    ProductListingKeyData:
       type: object
       description: Identifier for a product using shop ID and shop's product ID
       required:
@@ -13124,7 +13087,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/PersonalizedProductDetailsData"
+            $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
           description: Matched product-listings in persisted-match order.
         size:
           type: integer
@@ -13540,7 +13503,7 @@ components:
           enum:
             [
               WATCHLIST_PRICE_CHANGED,
-              WATCHLIST_STATE_CHANGED,
+              WATCHLIST_AVAILABILITY_CHANGED,
               SEARCH_FILTER_MATCH,
               PARTNER_APPLICATION_APPROVED,
               PARTNER_APPLICATION_REJECTED,
@@ -13584,7 +13547,7 @@ components:
           allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
           nullable: true
         image:
-          allOf: [{ $ref: "#/components/schemas/ProductImageData" }]
+          allOf: [{ $ref: "#/components/schemas/ProductListingImageData" }]
           nullable: true
         url: { type: string, format: uri }
         viewUrl: { type: string, format: uri }
@@ -13593,7 +13556,7 @@ components:
     WatchlistNotificationChangeData:
       oneOf:
         - $ref: "#/components/schemas/WatchlistNotificationPriceChangeData"
-        - $ref: "#/components/schemas/WatchlistNotificationStateChangeData"
+        - $ref: "#/components/schemas/WatchlistNotificationAvailabilityChangeData"
 
     WatchlistNotificationPriceChangeData:
       type: object
@@ -13609,13 +13572,17 @@ components:
           nullable: true
           description: New event price, preserving its source currency. Null when unavailable.
 
-    WatchlistNotificationStateChangeData:
+    WatchlistNotificationAvailabilityChangeData:
       type: object
-      required: [type, oldState, newState]
+      required: [type, oldAvailability, newAvailability]
       properties:
-        type: { type: string, enum: [STATE_CHANGE] }
-        oldState: { $ref: "#/components/schemas/ProductStateData" }
-        newState: { $ref: "#/components/schemas/ProductStateData" }
+        type: { type: string, enum: [AVAILABILITY_CHANGE] }
+        oldAvailability:
+          allOf: [{ $ref: "#/components/schemas/ListingAvailabilityData" }]
+          nullable: true
+        newAvailability:
+          allOf: [{ $ref: "#/components/schemas/ListingAvailabilityData" }]
+          nullable: true
 
     SearchFilterNotificationPayloadData:
       type: object
@@ -13647,7 +13614,7 @@ components:
           allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
           nullable: true
         image:
-          allOf: [{ $ref: "#/components/schemas/ProductImageData" }]
+          allOf: [{ $ref: "#/components/schemas/ProductListingImageData" }]
           nullable: true
         url: { type: string, format: uri }
         viewUrl: { type: string, format: uri }
@@ -13696,7 +13663,7 @@ components:
           items: { type: string }
           description: Opaque `[created RFC3339 timestamp, notification UUID]` cursor for the next page; omitted when no further page exists.
 
-    PostProductData:
+    CreateProductListingData:
       type: object
       description: |
         Data for creating a single product via the partner batch-create endpoint.
@@ -13704,7 +13671,6 @@ components:
         - shopListingId
         - title
         - description
-        - state
         - url
         - images
       properties:
@@ -13731,8 +13697,11 @@ components:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
           description: Optional upper bound of the estimated price range
-        state:
-          $ref: "#/components/schemas/ProductStateData"
+        availability:
+          allOf:
+            - $ref: "#/components/schemas/ListingAvailabilityData"
+          nullable: true
+          description: Omit or send `null` when Aura has no reliable current availability assertion.
         url:
           type: string
           format: uri
@@ -13782,7 +13751,7 @@ components:
             - $ref: "#/components/schemas/GeoAddressData"
           nullable: true
           description: Optional coordinates to attach to the product for geo-aware indexing and search.
-    PartnerProductBatchFailuresResponse:
+    PartnerProductListingBatchFailuresResponse:
       type: array
       description: |
         Failed entries from a synchronous partner-product batch. This response body is returned
@@ -13810,22 +13779,22 @@ components:
           shopListingId: "baroque-violin-002"
           error: "PRODUCT_LISTING_NOT_FOUND"
 
-    PartnerProductDeleteData:
+    WithdrawProductListingData:
       type: object
       required:
         - shopListingId
       properties:
         shopListingId:
           type: string
-          description: Partner-controlled identifier of the product to soft-delete.
+          description: Partner-controlled identifier of the ProductListing to withdraw.
           example: "baroque-violin-001"
 
-    PatchProductData:
+    UpdateProductListingData:
       type: object
       description: |
-        Data for synchronously updating a single product via the partner batch-update endpoint.
-        Omitted fields remain unchanged. `null` clears price and auction fields only; `state`,
-        `url`, and `images` reject null. Send `images: []` to remove all images.
+        Data for synchronously updating one ProductListing. Omitted fields remain unchanged.
+        `availability: null` clears the current assertion. `null` clears price and auction fields;
+        `url` and `images` reject null. Send `images: []` to remove all images.
       required:
         - shopListingId
       properties:
@@ -13838,10 +13807,11 @@ components:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
           description: Omit to leave unchanged. Send null to clear the current asking price.
-        state:
+        availability:
           allOf:
-            - $ref: "#/components/schemas/ProductStateData"
-          description: Omit to leave unchanged. Null is invalid.
+            - $ref: "#/components/schemas/ListingAvailabilityData"
+          nullable: true
+          description: Omit to leave unchanged. Send null to clear the current assertion.
         priceEstimateMin:
           allOf:
             - $ref: "#/components/schemas/PriceData"
@@ -13877,24 +13847,13 @@ components:
           nullable: true
           description: Omit to leave unchanged. Send null to clear the auction end.
           example: "2026-04-10T12:00:00Z"
-    PutProductData:
+    UpsertProductListingData:
       type: object
       description: |
-        Data for synchronously upserting a single product via the partner batch-upsert endpoint.
-        Only `shopListingId` is required. All other fields are optional.
-
-        During the synchronous upsert:
-        - If the product **does not yet exist**, it is created using all provided fields.
-          Omitting `title`, `url`, or `state` will result in placeholder defaults being applied
-          internally (empty title, a placeholder URL, and `LISTED` state respectively).
-        - If the product **already exists**, `price`, `priceEstimateMin`,
-          `priceEstimateMax`, `state`, `url`, `images`, `auctionStart`, and `auctionEnd`
-          participate in the update path.
-        - On the update path, omitting or sending `null` for `price`, `priceEstimateMin`,
-          `priceEstimateMax`, `url`, `auctionStart`, or `auctionEnd` leaves the stored value
-          unchanged.
-        - On the update path, omitting `images` or sending `null` is treated as an empty list
-          and therefore clears all stored images.
+        Data for synchronously upserting one ProductListing. Only `shopListingId` is required.
+        For availability, omitted preserves an existing assertion; `null` clears it; and a concrete
+        canonical value sets it. On creation, omitted and `null` both mean no reliable assertion.
+        Upsert restores a withdrawn listing before current listing facts apply.
       required:
         - shopListingId
       properties:
@@ -13927,11 +13886,11 @@ components:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
           description: Optional upper bound of the estimated price range. Applied on both create and update paths. Omit or send `null` to leave the current stored upper bound unchanged.
-        state:
+        availability:
           allOf:
-            - $ref: "#/components/schemas/ProductStateData"
+            - $ref: "#/components/schemas/ListingAvailabilityData"
           nullable: true
-          description: Optional product state. Applied on both create and update paths.
+          description: Omit to preserve an existing assertion; send null to clear it; send a code to set it.
         url:
           type: string
           format: uri
@@ -14047,15 +14006,16 @@ components:
           nullable: true
           description: |
             Optional WooCommerce product status string.
-            Recognized mappings are: `publish` -> `AVAILABLE` unless `stock_status` is `outofstock`,
-            `draft` / `pending` / `private` -> `LISTED`, `trash` -> `REMOVED`, and any other value -> `UNKNOWN`.
+            `publish` may restore or upsert a listing. `draft`, `pending`, `private`, and `trash`
+            withdraw an existing listing and never create one. Unsupported or missing status causes no destructive write.
           example: "publish"
         stock_status:
           type: string
           nullable: true
           description: |
             Optional WooCommerce stock-status string.
-            When `status` is `publish`, `outofstock` maps to `SOLD`; all other values map to `AVAILABLE`.
+            For `publish`, `instock` maps to `IN_STOCK`, `outofstock` to `OUT_OF_STOCK`, and
+            `onbackorder` to `BACK_ORDER`. Missing or unsupported stock status never implies a sale.
           example: "instock"
         images:
           type: array

@@ -274,6 +274,9 @@ where
             })
             .await?
             .ok_or(GetProductListingError::NotFound)?;
+        if factual_details.item.lifecycle == ListingLifecycle::Withdrawn {
+            return Err(GetProductListingError::NotFound);
+        }
         let snapshot = pricing_snapshot(
             &self.fx_rates,
             &mut tx,
@@ -1078,6 +1081,29 @@ mod tests {
             Err(GetProductListingError::PricingFxSnapshotUnavailable { .. })
         ));
         assert_eq!(0, lock_state(&state).commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_return_not_found_for_withdrawn_listing_without_snapshot_lookup_or_commit()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state();
+        let mut details = factual_details()?;
+        details.item.lifecycle = ListingLifecycle::Withdrawn;
+        lock_state(&state).find_details_result = Some(Ok(Some(details)));
+
+        let result = handler(&state)
+            .execute(
+                &context(Principal::Anonymous),
+                request(Language::En, Currency::Eur),
+            )
+            .await;
+
+        assert!(matches!(result, Err(GetProductListingError::NotFound)));
+        let state = lock_state(&state);
+        assert_eq!(0, state.commit_count);
+        assert_eq!(0, state.latest_snapshot_count);
+        assert!(state.fx_rate_id_requests.is_empty());
         Ok(())
     }
 

@@ -80,7 +80,7 @@ async fn insert_notifications(
     let mut inserted = Vec::new();
     for kind in [
         "WATCHLIST_PRICE_CHANGED",
-        "WATCHLIST_STATE_CHANGED",
+        "WATCHLIST_AVAILABILITY_CHANGED",
         "SEARCH_FILTER_MATCH",
         "PARTNER_APPLICATION_APPROVED",
         "PARTNER_APPLICATION_REJECTED",
@@ -108,7 +108,7 @@ async fn insert_notifications(
                 .push_bind(false);
         });
         match kind {
-            "WATCHLIST_PRICE_CHANGED" | "WATCHLIST_STATE_CHANGED" => query.push(" ON CONFLICT (user_id, origin_event_id, kind) WHERE kind IN ('WATCHLIST_PRICE_CHANGED', 'WATCHLIST_STATE_CHANGED') DO NOTHING"),
+            "WATCHLIST_PRICE_CHANGED" | "WATCHLIST_AVAILABILITY_CHANGED" => query.push(" ON CONFLICT (user_id, origin_event_id, kind) WHERE kind IN ('WATCHLIST_PRICE_CHANGED', 'WATCHLIST_AVAILABILITY_CHANGED') DO NOTHING"),
             "SEARCH_FILTER_MATCH" => query.push(" ON CONFLICT (user_id, user_search_filter_id, product_listing_id, origin_event_id) WHERE kind = 'SEARCH_FILTER_MATCH' DO NOTHING"),
             "PARTNER_APPLICATION_APPROVED" | "PARTNER_APPLICATION_REJECTED" => query.push(" ON CONFLICT (user_id, partner_shop_application_id) WHERE kind IN ('PARTNER_APPLICATION_APPROVED', 'PARTNER_APPLICATION_REJECTED') DO NOTHING"),
             _ => unreachable!(),

@@ -447,15 +447,15 @@ async fn seed_watchlist_entries(
         let product_listing_id = uuid::Uuid::new_v4();
         let event_id = uuid::Uuid::new_v4();
         sqlx::query(
-            "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'Created', 'DOMAIN', '{}', now())",
+            "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())",
         )
         .bind(event_id)
         .bind(product_listing_id)
         .execute(&mut *tx)
         .await
-        .unwrap_or_else(|error| panic!("failed to seed product event: {error:?}"));
+        .unwrap_or_else(|error| panic!("failed to seed product-listing event: {error:?}"));
         sqlx::query(
-            "INSERT INTO products (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, state, lifecycle, url) VALUES ($1, $2, $3, $4, $4, $5, 'LISTED', 'ACTIVE', 'https://example.com/product')",
+            "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, availability, lifecycle, url) VALUES ($1, $2, $3, $4, $4, $5, 'AVAILABLE', 'ACTIVE', 'https://example.com/product-listings')",
         )
         .bind(product_listing_id)
         .bind(format!("tier-entitlements-product-{product_listing_id}"))
@@ -464,12 +464,12 @@ async fn seed_watchlist_entries(
         .bind(format!("tier-entitlements-{index}"))
         .execute(&mut *tx)
         .await
-        .unwrap_or_else(|error| panic!("failed to seed product: {error:?}"));
+        .unwrap_or_else(|error| panic!("failed to seed product listing: {error:?}"));
         product_listing_ids.push(product_listing_id);
     }
-    tx.commit()
-        .await
-        .unwrap_or_else(|error| panic!("failed to commit product seed transaction: {error:?}"));
+    tx.commit().await.unwrap_or_else(|error| {
+        panic!("failed to commit product-listing seed transaction: {error:?}")
+    });
 
     for (index, product_listing_id) in product_listing_ids.iter().enumerate() {
         let created = start - Duration::seconds((count - index) as i64);

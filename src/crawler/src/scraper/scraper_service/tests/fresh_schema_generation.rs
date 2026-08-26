@@ -260,7 +260,7 @@ async fn should_not_consume_second_budget_call_when_fresh_schema_does_not_apply(
 }
 
 #[tokio::test]
-async fn should_mark_removed_when_fresh_generation_classifies_removed() {
+async fn should_mark_withdrawn_when_fresh_generation_classifies_removed() {
     let id = shop_id();
     let url = product_url();
     let removed_html =

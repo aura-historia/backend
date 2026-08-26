@@ -47,7 +47,7 @@ async fn should_persist_woocommerce_created_webhook_after_signature_validation()
 
     let pool = get_postgres_client().await;
     let row = sqlx::query_as::<_, (String, i64, String, String)>(
-        "SELECT title_text, price_amount, state, shop_listing_id FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
+        "SELECT title_text, price_amount, availability, shop_listing_id FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
     )
     .bind(uuid::Uuid::parse_str(&shop_id)?)
     .bind("17")
@@ -55,7 +55,7 @@ async fn should_persist_woocommerce_created_webhook_after_signature_validation()
     .await?;
     assert_eq!("Woo Cabinet", row.0);
     assert_eq!(4_269, row.1);
-    assert_eq!("AVAILABLE", row.2);
+    assert_eq!("IN_STOCK", row.2);
     assert_eq!("17", row.3);
     Ok::<(), Box<dyn std::error::Error>>(())
     }.await;
@@ -63,7 +63,7 @@ async fn should_persist_woocommerce_created_webhook_after_signature_validation()
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_mark_existing_product_removed_when_woocommerce_deleted_webhook_arrives() {
+async fn should_withdraw_existing_product_listing_when_woocommerce_deleted_webhook_arrives() {
     let result: TestResult = async {
         let (shop_id, token) = webhook_auth().await?;
         let created = json!({
@@ -91,14 +91,14 @@ async fn should_mark_existing_product_removed_when_woocommerce_deleted_webhook_a
         );
 
         let pool = get_postgres_client().await;
-        let state: (String,) = sqlx::query_as(
-            "SELECT state FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
+        let lifecycle: (String,) = sqlx::query_as(
+            "SELECT lifecycle FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
         )
         .bind(uuid::Uuid::parse_str(&shop_id)?)
         .bind("18")
         .fetch_one(&pool)
         .await?;
-        assert_eq!("REMOVED", state.0);
+        assert_eq!("WITHDRAWN", lifecycle.0);
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;
@@ -134,8 +134,8 @@ async fn should_update_existing_product_and_not_append_event_for_redelivery() {
             send(&shop_id, &token, "product.updated", &updated).await?.status()
         );
 
-        let product: (uuid::Uuid, i64, String) = sqlx::query_as(
-            "SELECT product_listing_id, price_amount, state FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
+        let product_listing: (uuid::Uuid, i64, String) = sqlx::query_as(
+            "SELECT product_listing_id, price_amount, availability FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
         )
         .bind(uuid::Uuid::parse_str(&shop_id)?)
         .bind("20")
@@ -144,11 +144,11 @@ async fn should_update_existing_product_and_not_append_event_for_redelivery() {
         let event_count: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = $1",
         )
-        .bind(product.0)
+        .bind(product_listing.0)
         .fetch_one(&pool)
         .await?;
-        assert_eq!(12_345, product.1);
-        assert_eq!("SOLD", product.2);
+        assert_eq!(12_345, product_listing.1);
+        assert_eq!("OUT_OF_STOCK", product_listing.2);
         assert_eq!(event_count_after_update.0, event_count.0);
         Ok::<(), Box<dyn std::error::Error>>(())
     }
@@ -213,7 +213,7 @@ async fn should_reject_woocommerce_webhook_from_user_not_linked_to_shop() {
         configure_webhook_shop(shop.id()).await?;
         let user_id = seed_user("USER").await;
         let token = String::from(
-            seed_access_token_for(user_id, HashSet::from([Scope::ProductsWrite])).await,
+            seed_access_token_for(user_id, HashSet::from([Scope::ProductListingsWrite])).await,
         );
         let body = json!({ "id": 22 }).to_string();
 
@@ -332,7 +332,7 @@ async fn webhook_auth() -> Result<(String, String), Box<dyn std::error::Error>> 
     configure_webhook_shop(shop.id()).await?;
     let user_id = seed_user("USER").await;
     seed_partner_shop(user_id, shop.id()).await;
-    let token = seed_access_token_for(user_id, HashSet::from([Scope::ProductsWrite])).await;
+    let token = seed_access_token_for(user_id, HashSet::from([Scope::ProductListingsWrite])).await;
     Ok((shop_id, String::from(token)))
 }
 

@@ -294,16 +294,16 @@ async fn should_return_localized_reason_specific_notification_payloads() {
     assert!(price_change["payload"]["url"].as_str().is_some());
     assert!(price_change["payload"]["viewUrl"].as_str().is_some());
 
-    let state_change = notification_with_kind(items, "WATCHLIST_STATE_CHANGED");
-    assert!(state_change["payload"]["title"].is_null());
-    assert!(state_change["payload"]["image"].is_null());
+    let availability_change = notification_with_kind(items, "WATCHLIST_AVAILABILITY_CHANGED");
+    assert!(availability_change["payload"]["title"].is_null());
+    assert!(availability_change["payload"]["image"].is_null());
     assert_eq!(
         serde_json::json!("AVAILABLE"),
-        state_change["payload"]["change"]["oldAvailability"]
+        availability_change["payload"]["change"]["oldAvailability"]
     );
     assert_eq!(
         serde_json::json!("SOLD_OUT"),
-        state_change["payload"]["change"]["newAvailability"]
+        availability_change["payload"]["change"]["newAvailability"]
     );
 
     let search_filter = notification_with_kind(items, "SEARCH_FILTER_MATCH");
@@ -380,6 +380,10 @@ async fn should_filter_notification_image_urls_by_current_prohibited_content_con
         denied_image["prohibitedContent"]
     );
     assert!(denied_image.get("url").is_none());
+    assert_eq!(
+        serde_json::Value::Null,
+        denied["items"][0]["payload"]["change"]["newAvailability"]
+    );
 
     let allowed = list_notification_page(&allowed_token, 1, None).await;
     assert_eq!(
@@ -389,6 +393,10 @@ async fn should_filter_notification_image_urls_by_current_prohibited_content_con
     assert_eq!(
         serde_json::json!("UNKNOWN"),
         allowed["items"][0]["payload"]["image"]["prohibitedContent"]
+    );
+    assert_eq!(
+        serde_json::Value::Null,
+        allowed["items"][0]["payload"]["change"]["newAvailability"]
     );
 }
 
@@ -666,7 +674,7 @@ async fn seed_notification(user_id: UserId, seen: bool) -> Uuid {
 async fn seed_unsafe_image_notification(user_id: UserId) {
     seed_notification_with_payload(
         user_id,
-        "WATCHLIST_STATE_CHANGED",
+        "WATCHLIST_AVAILABILITY_CHANGED",
         Some(Uuid::new_v4()),
         Some(Uuid::new_v4()),
         None,
@@ -688,9 +696,9 @@ async fn seed_unsafe_image_notification(user_id: UserId) {
                 "view_url": "https://aura-historia.example/product"
             },
             "change": {
-                "type": "STATE_CHANGE",
-                "old_state": "AVAILABLE",
-                "new_state": "AVAILABLE"
+                "type": "AVAILABILITY_CHANGE",
+                "old_availability": "AVAILABLE",
+                "new_availability": null
             }
         }),
     )
@@ -835,7 +843,7 @@ async fn seed_notification_payloads(user_id: UserId) {
     .await;
     seed_notification_with_payload(
         user_id,
-        "WATCHLIST_STATE_CHANGED",
+        "WATCHLIST_AVAILABILITY_CHANGED",
         Some(Uuid::new_v4()),
         Some(product_listing_id),
         None,
@@ -843,7 +851,7 @@ async fn seed_notification_payloads(user_id: UserId) {
         serde_json::json!({
             "type": "WATCHLIST",
             "snapshot": product_snapshot(serde_json::Value::Null, serde_json::Value::Null),
-            "change": { "type": "STATE_CHANGE", "old_state": "AVAILABLE", "new_state": "SOLD_OUT" }
+            "change": { "type": "AVAILABILITY_CHANGE", "old_availability": "AVAILABLE", "new_availability": "SOLD_OUT" }
         }),
     )
     .await;

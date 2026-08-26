@@ -1,6 +1,6 @@
 use super::util::{no_store, parse_json};
 use crate::auth::protected_context;
-use crate::error::{ApiError, INVALID_UUID};
+use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
 use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
 use crate::state::UsersState;
 use axum::Json;
@@ -99,10 +99,14 @@ pub async fn post_access_token(
         Ok(v) => v,
         Err(r) => return r,
     };
+    let scopes = match parse_scopes(data.scopes) {
+        Ok(scopes) => scopes,
+        Err(error) => return error.into_response(),
+    };
     let command = CreateAccessTokenCommand {
         user_id,
         name: AccessTokenName::from(data.name.as_str()),
-        scopes: parse_scopes(data.scopes),
+        scopes,
         expires: data.expires,
         origin: AccessTokenOrigin::User,
     };
@@ -224,30 +228,63 @@ impl PatchTokenData {
                 self.name.map(|name| AccessTokenName::from(name.as_str())),
                 "name",
             )?,
-            scopes: non_nullable_patch(self.scopes.map(parse_scopes), "scopes")?,
+            scopes: non_nullable_patch(parse_scope_patch(self.scopes)?, "scopes")?,
             expires: clearable(self.expires),
         })
     }
 }
 
-fn parse_scopes(values: HashSet<String>) -> HashSet<Scope> {
+fn parse_scope_patch(
+    values: PatchValue<HashSet<String>>,
+) -> Result<PatchValue<HashSet<Scope>>, ApiError> {
+    match values {
+        PatchValue::Omitted => Ok(PatchValue::Omitted),
+        PatchValue::Null => Ok(PatchValue::Null),
+        PatchValue::Value(values) => Ok(PatchValue::Value(parse_scopes(values)?)),
+    }
+}
+
+fn parse_scopes(values: HashSet<String>) -> Result<HashSet<Scope>, ApiError> {
     values
         .into_iter()
-        .filter_map(|v| match v.as_str() {
-            "products:write" => Some(Scope::ProductsWrite),
-            "shops:read" => Some(Scope::ShopsRead),
-            "shops:write" => Some(Scope::ShopsWrite),
-            "partner-shop-applications:write" => Some(Scope::PartnerShopApplicationsWrite),
-            "partner-shops:read" => Some(Scope::PartnerShopsRead),
-            "partner-shops:write" => Some(Scope::PartnerShopsWrite),
-            "users:read" => Some(Scope::UsersRead),
-            "users:write" => Some(Scope::UsersWrite),
-            "access-tokens:read" => Some(Scope::AccessTokensRead),
-            "access-tokens:write" => Some(Scope::AccessTokensWrite),
-            "search-filters:write" => Some(Scope::SearchFiltersWrite),
-            "watchlist:read" => Some(Scope::WatchlistRead),
-            "watchlist:write" => Some(Scope::WatchlistWrite),
-            _ => None,
+        .map(|value| match value.as_str() {
+            "product-listings:write" => Ok(Scope::ProductListingsWrite),
+            "shops:read" => Ok(Scope::ShopsRead),
+            "shops:write" => Ok(Scope::ShopsWrite),
+            "partner-shop-applications:write" => Ok(Scope::PartnerShopApplicationsWrite),
+            "partner-shops:read" => Ok(Scope::PartnerShopsRead),
+            "partner-shops:write" => Ok(Scope::PartnerShopsWrite),
+            "users:read" => Ok(Scope::UsersRead),
+            "users:write" => Ok(Scope::UsersWrite),
+            "access-tokens:read" => Ok(Scope::AccessTokensRead),
+            "access-tokens:write" => Ok(Scope::AccessTokensWrite),
+            "search-filters:write" => Ok(Scope::SearchFiltersWrite),
+            "watchlist:read" => Ok(Scope::WatchlistRead),
+            "watchlist:write" => Ok(Scope::WatchlistWrite),
+            _ => Err(ApiError::bad_request(BAD_BODY_VALUE)
+                .with_detail(format!("Unsupported scope '{}'.", value))),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_accept_canonical_product_listings_write_scope() {
+        let scopes = parse_scopes(HashSet::from(["product-listings:write".to_owned()]));
+
+        assert!(matches!(
+            scopes,
+            Ok(scopes) if scopes == HashSet::from([Scope::ProductListingsWrite])
+        ));
+    }
+
+    #[test]
+    fn should_reject_unsupported_access_token_scope() {
+        let scopes = parse_scopes(HashSet::from(["unsupported:scope".to_owned()]));
+
+        assert!(scopes.is_err());
+    }
 }

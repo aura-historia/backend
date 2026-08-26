@@ -226,7 +226,7 @@ mod tests {
             Ok(TransportPrincipal::User {
                 user_id: UserId::new(),
                 auth_method: AuthMethod::AuraAccessToken,
-                capabilities: BTreeSet::from([CredentialCapability::ProductsWrite]),
+                capabilities: BTreeSet::from([CredentialCapability::ProductListingsWrite]),
             })
         });
         authenticator

@@ -416,7 +416,10 @@ mod tests {
     #[test]
     fn should_render_all_capabilities_as_oauth_scope_strings() {
         for (capability, scope) in [
-            (CredentialCapability::ProductsWrite, "products:write"),
+            (
+                CredentialCapability::ProductListingsWrite,
+                "product-listings:write",
+            ),
             (CredentialCapability::ShopsRead, "shops:read"),
             (CredentialCapability::ShopsWrite, "shops:write"),
             (
@@ -453,7 +456,7 @@ mod tests {
 
         assert_eq!(
             Ok(&principal),
-            principal.require_credential_capability(CredentialCapability::ProductsWrite)
+            principal.require_credential_capability(CredentialCapability::ProductListingsWrite)
         );
     }
 
@@ -462,12 +465,12 @@ mod tests {
         let user_id = UserId::new();
         let principal = Principal::DelegatedUser {
             user_id,
-            capabilities: BTreeSet::from([CredentialCapability::ProductsWrite]),
+            capabilities: BTreeSet::from([CredentialCapability::ProductListingsWrite]),
         };
 
         assert_eq!(
             Ok(&principal),
-            principal.require_credential_capability(CredentialCapability::ProductsWrite)
+            principal.require_credential_capability(CredentialCapability::ProductListingsWrite)
         );
         assert_eq!(
             Err(CredentialAuthorizationError::InsufficientCapability {
@@ -483,7 +486,8 @@ mod tests {
             Err(CredentialAuthorizationError::AuthenticationRequired(
                 AuthenticationRequired
             )),
-            Principal::Anonymous.require_credential_capability(CredentialCapability::ProductsWrite)
+            Principal::Anonymous
+                .require_credential_capability(CredentialCapability::ProductListingsWrite)
         );
     }
 

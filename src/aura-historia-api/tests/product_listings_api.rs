@@ -174,7 +174,6 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
             "Price page cabinet",
             100,
             "AVAILABLE",
-            "ACTIVE",
             "Price Shop",
             "2025-01-01T00:00:00Z",
         ),
@@ -182,7 +181,6 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
             "Price page cabinet",
             200,
             "AVAILABLE",
-            "ACTIVE",
             "Price Shop",
             "2025-01-02T00:00:00Z",
         ),
@@ -190,7 +188,6 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
             "Price page cabinet",
             300,
             "AVAILABLE",
-            "ACTIVE",
             "Price Shop",
             "2025-01-03T00:00:00Z",
         ),
@@ -198,7 +195,6 @@ async fn should_page_product_search_without_duplicates_when_using_cursor() {
             "Price page cabinet",
             400,
             "AVAILABLE",
-            "ACTIVE",
             "Price Shop",
             "2025-01-04T00:00:00Z",
         ),
@@ -260,7 +256,6 @@ async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_s
             "Pinned FX cursor cabinet",
             100,
             "AVAILABLE",
-            "ACTIVE",
             "Pinned FX Shop",
             "2025-01-01T00:00:00Z",
         ),
@@ -268,7 +263,6 @@ async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_s
             "Pinned FX cursor cabinet",
             100,
             "AVAILABLE",
-            "ACTIVE",
             "Pinned FX Shop",
             "2025-01-02T00:00:00Z",
         ),
@@ -336,7 +330,6 @@ async fn should_keep_sold_display_when_fx_snapshot_changes() {
         "Immutable sold cabinet",
         1_000,
         "SOLD_OUT",
-        "ACTIVE",
         "Sold FX Shop",
         "2025-01-01T00:00:00Z",
     );
@@ -388,7 +381,6 @@ async fn should_return_matching_product_search_summary() {
         "Renaissance walnut cabinet",
         125,
         "AVAILABLE",
-        "ACTIVE",
         "Cabinet Shop",
         "2025-01-01T00:00:00Z",
     );
@@ -396,7 +388,6 @@ async fn should_return_matching_product_search_summary() {
         "Bronze garden sculpture",
         130,
         "AVAILABLE",
-        "ACTIVE",
         "Cabinet Shop",
         "2025-01-01T00:00:00Z",
     );
@@ -425,7 +416,6 @@ async fn should_return_matching_product_search_summary() {
         body["items"][0]["item"]["displayPrice"]["amount"]
     );
     assert_eq!(json!("AVAILABLE"), body["items"][0]["item"]["availability"]);
-    assert_eq!(json!("ACTIVE"), body["items"][0]["item"]["lifecycle"]);
     assert!(body["items"][0].get("userState").is_none());
 }
 
@@ -435,7 +425,6 @@ async fn should_hybrid_search_products_when_mock_embedding_succeeds() {
         "Ornate candle holder",
         125,
         "AVAILABLE",
-        "ACTIVE",
         "Semantic Shop",
         "2025-01-01T00:00:00Z",
     );
@@ -443,7 +432,6 @@ async fn should_hybrid_search_products_when_mock_embedding_succeeds() {
         "Bronze garden sculpture",
         130,
         "AVAILABLE",
-        "ACTIVE",
         "Semantic Shop",
         "2025-01-01T00:00:00Z",
     );
@@ -477,7 +465,6 @@ async fn should_fall_back_to_bm25_when_mock_embedding_fails() {
         "Vintage brass lamp",
         125,
         "AVAILABLE",
-        "ACTIVE",
         "Fallback Shop",
         "2025-01-01T00:00:00Z",
     );
@@ -501,7 +488,6 @@ async fn should_intersect_product_search_filters() {
         "Filter cabinet",
         550,
         "AVAILABLE",
-        "ACTIVE",
         "Imperial Antiques",
         "imperial-antiques",
         "2025-01-01T00:00:00Z",
@@ -510,7 +496,6 @@ async fn should_intersect_product_search_filters() {
         "Filter cabinet",
         550,
         "AVAILABLE",
-        "ACTIVE",
         "Other Antiques",
         "other-antiques",
         "2025-01-01T00:00:00Z",
@@ -519,7 +504,6 @@ async fn should_intersect_product_search_filters() {
         "Filter cabinet",
         550,
         "OUT_OF_STOCK",
-        "ACTIVE",
         "Imperial Antiques",
         "imperial-antiques",
         "2025-01-01T00:00:00Z",
@@ -528,7 +512,6 @@ async fn should_intersect_product_search_filters() {
         "Filter cabinet",
         2_000,
         "AVAILABLE",
-        "ACTIVE",
         "Imperial Antiques",
         "imperial-antiques",
         "2025-01-01T00:00:00Z",
@@ -562,12 +545,11 @@ async fn should_intersect_product_search_filters() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_return_active_projected_products_from_default_search() {
+async fn should_return_projected_product_listings_from_default_search() {
     let active = search_document(
         "Lifecycle fixture",
         100,
         "AVAILABLE",
-        "ACTIVE",
         "Lifecycle Shop",
         "2025-01-01T00:00:00Z",
     );
@@ -583,7 +565,6 @@ async fn should_return_active_projected_products_from_default_search() {
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(vec![active.0], product_listing_ids(&body));
-    assert_eq!(json!("ACTIVE"), body["items"][0]["item"]["lifecycle"]);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -592,7 +573,6 @@ async fn should_filter_product_search_by_availability() {
         "Availability fixture",
         100,
         "AVAILABLE",
-        "ACTIVE",
         "Availability Shop",
         "2025-01-01T00:00:00Z",
     );
@@ -600,7 +580,6 @@ async fn should_filter_product_search_by_availability() {
         "Availability fixture",
         200,
         "SOLD_OUT",
-        "ACTIVE",
         "Availability Shop",
         "2025-01-01T00:00:00Z",
     );
@@ -623,7 +602,6 @@ async fn should_filter_product_search_by_created_date_range() {
         "Date fixture",
         100,
         "AVAILABLE",
-        "ACTIVE",
         "Date Shop",
         "2025-01-15T12:00:00Z",
     );
@@ -631,7 +609,6 @@ async fn should_filter_product_search_by_created_date_range() {
         "Date fixture",
         200,
         "AVAILABLE",
-        "ACTIVE",
         "Date Shop",
         "2025-06-15T12:00:00Z",
     );
@@ -817,7 +794,6 @@ fn search_document(
     title: &str,
     price_usd: u64,
     availability: &str,
-    lifecycle: &str,
     shop_name: &str,
     created: &str,
 ) -> (String, Value) {
@@ -825,7 +801,6 @@ fn search_document(
         title,
         price_usd,
         availability,
-        lifecycle,
         shop_name,
         "search-shop",
         created,
@@ -836,7 +811,6 @@ fn search_document_with_shop(
     title: &str,
     price_usd: u64,
     availability: &str,
-    lifecycle: &str,
     shop_name: &str,
     shop_slug_id: &str,
     created: &str,
@@ -876,7 +850,6 @@ fn search_document_with_shop(
             "titleIt": null,
             "sourcePrice": { "amount": price_usd, "currency": "USD" },
             "availability": availability,
-            "lifecycle": lifecycle,
             "url": "https://shop.example/product",
             "viewUrl": "https://aura.example/product",
             "images": [],

@@ -196,7 +196,7 @@ async fn should_support_core_business_relations() {
             shop_listing_id,
             title_text,
             title_language,
-            state,
+            availability,
             lifecycle,
             url,
             product_images
@@ -210,7 +210,7 @@ async fn should_support_core_business_relations() {
             'external-1',
             'A vase',
             'en',
-            'LISTED',
+            NULL,
             'ACTIVE',
             'https://shop.example.com/product_listings/external-1',
             '[{"url": "https://cdn.example.com/image.jpg", "prohibited_content": "NONE"}]'
@@ -227,7 +227,7 @@ async fn should_support_core_business_relations() {
         VALUES (
             '40000000-0000-0000-0000-000000000001',
             '30000000-0000-0000-0000-000000000001',
-            'PRODUCT_CREATED',
+            'PRODUCT_LISTING_CREATED',
             'DOMAIN',
             '{"kind": "created"}',
             now()

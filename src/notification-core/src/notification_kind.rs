@@ -2,7 +2,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum_macros::EnumIter)]
 pub enum NotificationKind {
     WatchlistPriceChanged,
-    WatchlistStateChanged,
+    WatchlistAvailabilityChanged,
     SearchFilterMatch,
     PartnerApplicationApproved,
     PartnerApplicationRejected,
@@ -12,7 +12,7 @@ impl NotificationKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::WatchlistPriceChanged => "WATCHLIST_PRICE_CHANGED",
-            Self::WatchlistStateChanged => "WATCHLIST_STATE_CHANGED",
+            Self::WatchlistAvailabilityChanged => "WATCHLIST_AVAILABILITY_CHANGED",
             Self::SearchFilterMatch => "SEARCH_FILTER_MATCH",
             Self::PartnerApplicationApproved => "PARTNER_APPLICATION_APPROVED",
             Self::PartnerApplicationRejected => "PARTNER_APPLICATION_REJECTED",
@@ -38,7 +38,7 @@ mod tests {
         assert_eq!(
             vec![
                 "WATCHLIST_PRICE_CHANGED",
-                "WATCHLIST_STATE_CHANGED",
+                "WATCHLIST_AVAILABILITY_CHANGED",
                 "SEARCH_FILTER_MATCH",
                 "PARTNER_APPLICATION_APPROVED",
                 "PARTNER_APPLICATION_REJECTED",

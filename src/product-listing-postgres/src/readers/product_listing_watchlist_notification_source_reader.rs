@@ -210,22 +210,19 @@ fn notification_change(
     match event_type {
         "PRODUCT_LISTING_PRICE_CHANGED" => Ok(Some(
             ProductListingWatchlistNotificationChange::PriceChanged {
-                old_price: price(payload.get("oldPricing"))?,
-                new_price: price(payload.get("newPricing"))?,
+                old_price: pricing_price(payload.get("oldPricing"))?,
+                new_price: pricing_price(payload.get("newPricing"))?,
             },
         )),
         "PRODUCT_LISTING_AVAILABILITY_CHANGED" => {
             let old_availability = availability(payload.get("previousAvailability"))?;
             let new_availability = availability(payload.get("currentAvailability"))?;
-            Ok(match (old_availability, new_availability) {
-                (Some(old_availability), Some(new_availability)) => Some(
-                    ProductListingWatchlistNotificationChange::AvailabilityChanged {
-                        old_availability,
-                        new_availability,
-                    },
-                ),
-                _ => None,
-            })
+            Ok(Some(
+                ProductListingWatchlistNotificationChange::AvailabilityChanged {
+                    old_availability,
+                    new_availability,
+                },
+            ))
         }
         _ => Ok(None),
     }
@@ -235,6 +232,19 @@ fn notification_change(
 enum NotificationPayloadError {
     #[error("notification event payload is invalid")]
     Invalid,
+}
+
+fn pricing_price(
+    value: Option<&serde_json::Value>,
+) -> Result<Option<Price>, NotificationPayloadError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let object = value.as_object().ok_or(NotificationPayloadError::Invalid)?;
+    price(object.get("price"))
 }
 
 fn price(value: Option<&serde_json::Value>) -> Result<Option<Price>, NotificationPayloadError> {
@@ -287,6 +297,30 @@ fn parse_language(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_read_primary_prices_from_canonical_price_change_payload()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let change = notification_change(
+            "PRODUCT_LISTING_PRICE_CHANGED",
+            &serde_json::json!({
+                "oldPricing": { "price": { "amount": 1200, "currency": "USD" } },
+                "newPricing": { "price": { "amount": 900, "currency": "USD" } },
+            }),
+        )?;
+
+        assert!(matches!(
+            change,
+            Some(ProductListingWatchlistNotificationChange::PriceChanged {
+                old_price: Some(old_price),
+                new_price: Some(new_price),
+            }) if u64::from(old_price.monetary_amount) == 1200
+                && old_price.currency == Currency::Usd
+                && u64::from(new_price.monetary_amount) == 900
+                && new_price.currency == Currency::Usd
+        ));
+        Ok(())
+    }
 
     #[test]
     fn should_preserve_sqlx_query_source() {

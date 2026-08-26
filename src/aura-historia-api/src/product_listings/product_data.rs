@@ -70,10 +70,7 @@ pub(crate) struct ProductListingDetailsData {
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<LocalizedTextData>,
     pricing: ProductListingPricingPresentationData,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        with = "crate::wire::listing_availability::option"
-    )]
+    #[serde(with = "crate::wire::listing_availability::option")]
     availability: Option<ListingAvailability>,
     #[serde(with = "crate::wire::listing_lifecycle")]
     lifecycle: ListingLifecycle,
@@ -146,10 +143,7 @@ pub(crate) struct ProductListingSummaryData {
     #[serde(skip_serializing_if = "Option::is_none")]
     display_price: Option<PriceData>,
     price_valuation: ProductListingSummaryPriceValuationData,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        with = "crate::wire::listing_availability::option"
-    )]
+    #[serde(with = "crate::wire::listing_availability::option")]
     availability: Option<ListingAvailability>,
     #[serde(with = "crate::wire::listing_lifecycle")]
     lifecycle: ListingLifecycle,

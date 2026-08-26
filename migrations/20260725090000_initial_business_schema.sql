@@ -249,7 +249,7 @@ ALTER TABLE product_listing_translations
     REFERENCES product_listing_events(product_listing_id, event_id)
     DEFERRABLE INITIALLY DEFERRED;
 
-CREATE INDEX product_listing_events_product_time_event_idx
+CREATE INDEX product_listing_events_product_listing_time_event_idx
     ON product_listing_events (product_listing_id, event_time ASC, event_id ASC);
 CREATE INDEX product_listing_translations_source_event_idx
     ON product_listing_translations (product_listing_id, source_event_id);
@@ -360,7 +360,7 @@ CREATE INDEX search_filter_matches_filter_created_product_listing_idx
     ON search_filter_matches (user_search_filter_id, created ASC, product_listing_id ASC);
 CREATE INDEX search_filter_matches_filter_created_desc_product_listing_idx
     ON search_filter_matches (user_search_filter_id, created DESC, product_listing_id ASC);
-CREATE INDEX search_filter_matches_user_product_created_idx ON search_filter_matches (user_id, product_listing_id, created ASC, user_search_filter_id ASC);
+CREATE INDEX search_filter_matches_user_product_listing_created_idx ON search_filter_matches (user_id, product_listing_id, created ASC, user_search_filter_id ASC);
 CREATE INDEX search_filter_matches_user_created_rank_idx ON search_filter_matches (user_id, created ASC, user_search_filter_id ASC, product_listing_id ASC);
 CREATE INDEX search_filter_matches_product_listing_id_idx ON search_filter_matches (product_listing_id);
 CREATE INDEX search_filter_matches_origin_event_id_idx ON search_filter_matches (origin_event_id);
@@ -387,7 +387,7 @@ CREATE TABLE notifications (
     CONSTRAINT notifications_kind_check CHECK (
         kind IN (
             'WATCHLIST_PRICE_CHANGED',
-            'WATCHLIST_STATE_CHANGED',
+            'WATCHLIST_AVAILABILITY_CHANGED',
             'SEARCH_FILTER_MATCH',
             'PARTNER_APPLICATION_APPROVED',
             'PARTNER_APPLICATION_REJECTED'
@@ -406,7 +406,7 @@ CREATE TABLE notifications (
         (
             kind IN (
                 'WATCHLIST_PRICE_CHANGED',
-                'WATCHLIST_STATE_CHANGED'
+                'WATCHLIST_AVAILABILITY_CHANGED'
             )
             AND origin_event_id IS NOT NULL
             AND product_listing_id IS NOT NULL
@@ -439,7 +439,7 @@ CREATE UNIQUE INDEX notifications_watchlist_identity_idx
     ON notifications (user_id, origin_event_id, kind)
     WHERE kind IN (
         'WATCHLIST_PRICE_CHANGED',
-        'WATCHLIST_STATE_CHANGED'
+        'WATCHLIST_AVAILABILITY_CHANGED'
     );
 
 CREATE UNIQUE INDEX notifications_search_filter_identity_idx
@@ -468,7 +468,7 @@ CREATE INDEX notifications_user_created_idx
         notification_id DESC
     );
 
-CREATE INDEX notifications_user_product_unseen_idx
+CREATE INDEX notifications_user_product_listing_unseen_idx
     ON notifications (
         user_id,
         product_listing_id,
@@ -596,7 +596,7 @@ CREATE TABLE access_tokens (
     ),
     CONSTRAINT access_tokens_scopes_check CHECK (
         scopes <@ ARRAY[
-            'product_listings:write',
+            'product-listings:write',
             'shops:read',
             'shops:write',
             'partner-shop-applications:write',
@@ -636,7 +636,7 @@ CREATE TABLE oauth_clients (
     CONSTRAINT oauth_clients_redirect_uris_no_nulls CHECK (array_position(redirect_uris, NULL) IS NULL),
     CONSTRAINT oauth_clients_scopes_check CHECK (
         scopes <@ ARRAY[
-            'product_listings:write',
+            'product-listings:write',
             'shops:read',
             'shops:write',
             'partner-shop-applications:write',
@@ -667,7 +667,7 @@ CREATE TABLE oauth_authorization_codes (
         CHECK (code_challenge_method IN ('S256')),
     CONSTRAINT oauth_authorization_codes_scopes_check CHECK (
         scopes <@ ARRAY[
-            'product_listings:write',
+            'product-listings:write',
             'shops:read',
             'shops:write',
             'partner-shop-applications:write',
@@ -693,7 +693,7 @@ CREATE TABLE oauth_third_party_exchange_codes (
     created timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT oauth_third_party_exchange_codes_scopes_check CHECK (
         scopes <@ ARRAY[
-            'product_listings:write',
+            'product-listings:write',
             'shops:read',
             'shops:write',
             'partner-shop-applications:write',

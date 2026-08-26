@@ -638,7 +638,7 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
             Ok(Vec::new())
         }
         (
-            CdcTable::Products
+            CdcTable::ProductListings
             | CdcTable::ProductListingWatchlist
             | CdcTable::UserPartnerShops
             | CdcTable::PartnerShopApplications,
@@ -650,7 +650,7 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CdcTable {
     ProductListingEvents,
-    Products,
+    ProductListings,
     Shops,
     SearchFilters,
     SearchFilterMatches,
@@ -666,7 +666,7 @@ impl From<&str> for CdcTable {
     fn from(value: &str) -> Self {
         match value {
             "product_listing_events" => Self::ProductListingEvents,
-            "product_listings" => Self::Products,
+            "product_listings" => Self::ProductListings,
             "shops" => Self::Shops,
             "search_filters" => Self::SearchFilters,
             "search_filter_matches" => Self::SearchFilterMatches,
@@ -1016,8 +1016,8 @@ mod tests {
     }
 
     #[test]
-    fn should_ignore_products_table_to_avoid_double_fire() -> Result<(), Box<dyn std::error::Error>>
-    {
+    fn should_ignore_product_listings_table_to_avoid_double_fire()
+    -> Result<(), Box<dyn std::error::Error>> {
         let jobs = route_change(&CdcChange {
             schema: Some("public".to_owned()),
             table: "product_listings".to_owned(),

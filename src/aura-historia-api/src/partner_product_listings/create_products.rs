@@ -164,6 +164,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_create_without_availability_assertion_when_it_is_omitted_or_null()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut create = MockCreateUseCase::new();
+        create
+            .expect_execute()
+            .times(2)
+            .withf(|_, command| command.availability.is_none())
+            .returning(|_, _| Ok(created()));
+        let app = app(create);
+        let shop_id = ShopId::new();
+        let omitted = product("omitted").replace(",\"availability\":\"AVAILABLE\"", "");
+        let explicit_null = product("null").replace("\"AVAILABLE\"", "null");
+
+        let response = request(
+            &app,
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            format!("[{omitted},{explicit_null}]"),
+            true,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(json!([]), body_json(response).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_return_failed_key_when_create_batch_partially_succeeds()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut create = MockCreateUseCase::new();
@@ -299,7 +326,7 @@ mod tests {
             Ok(TransportPrincipal::User {
                 user_id: UserId::new(),
                 auth_method: AuthMethod::AuraAccessToken,
-                capabilities: BTreeSet::from([CredentialCapability::ProductsWrite]),
+                capabilities: BTreeSet::from([CredentialCapability::ProductListingsWrite]),
             })
         });
         authenticator

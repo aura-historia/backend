@@ -38,8 +38,8 @@ pub enum ProductListingWatchlistNotificationChange {
         new_price: Option<Price>,
     },
     AvailabilityChanged {
-        old_availability: ListingAvailability,
-        new_availability: ListingAvailability,
+        old_availability: Option<ListingAvailability>,
+        new_availability: Option<ListingAvailability>,
     },
 }
 

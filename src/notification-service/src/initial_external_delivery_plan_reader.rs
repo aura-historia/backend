@@ -39,12 +39,15 @@ mod tests {
     use crate::ports::external_delivery_plan_reader::ExternalDeliveryPlanReaderFactory;
 
     #[tokio::test]
-    async fn should_plan_email_primary_for_external_delivery()
+    async fn should_plan_email_primary_for_availability_change_delivery()
     -> Result<(), ExternalDeliveryPlanReadError> {
         let mut tx = ();
         let plans = InitialExternalDeliveryPlanReaderFactory
             .in_transaction(&mut tx)
-            .plans_for(UserId::new(), NotificationKind::WatchlistPriceChanged)
+            .plans_for(
+                UserId::new(),
+                NotificationKind::WatchlistAvailabilityChanged,
+            )
             .await?;
 
         assert_eq!(

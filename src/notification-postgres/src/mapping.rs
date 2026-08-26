@@ -140,20 +140,18 @@ enum NotificationWatchlistChangeV1 {
         old_price: Option<PersistedPrice>,
         new_price: Option<PersistedPrice>,
     },
-    #[serde(rename = "STATE_CHANGE")]
+    #[serde(rename = "AVAILABILITY_CHANGE")]
     AvailabilityChange {
         #[serde(
-            rename = "old_state",
-            serialize_with = "serialize_listing_availability",
-            deserialize_with = "deserialize_listing_availability"
+            serialize_with = "serialize_optional_listing_availability",
+            deserialize_with = "deserialize_optional_listing_availability"
         )]
-        old_availability: ListingAvailability,
+        old_availability: Option<ListingAvailability>,
         #[serde(
-            rename = "new_state",
-            serialize_with = "serialize_listing_availability",
-            deserialize_with = "deserialize_listing_availability"
+            serialize_with = "serialize_optional_listing_availability",
+            deserialize_with = "deserialize_optional_listing_availability"
         )]
-        new_availability: ListingAvailability,
+        new_availability: Option<ListingAvailability>,
     },
 }
 
@@ -387,7 +385,8 @@ impl TryFrom<NotificationRow> for Notification {
             row.partner_shop_application_id,
         ) {
             (
-                NotificationKind::WatchlistPriceChanged | NotificationKind::WatchlistStateChanged,
+                NotificationKind::WatchlistPriceChanged
+                | NotificationKind::WatchlistAvailabilityChanged,
                 NotificationPayloadV1::Watchlist { snapshot, change },
                 Some(origin_event_id),
                 Some(product_listing_id),
@@ -508,25 +507,33 @@ fn price_from_data(price: PersistedPrice) -> Price {
     Price::new(MonetaryAmount::from(price.amount), currency)
 }
 
-fn serialize_listing_availability<S>(
-    availability: &ListingAvailability,
+fn serialize_optional_listing_availability<S>(
+    availability: &Option<ListingAvailability>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
-    serializer.serialize_str(availability.as_str())
+    match availability {
+        Some(availability) => serializer.serialize_some(availability.as_str()),
+        None => serializer.serialize_none(),
+    }
 }
 
-fn deserialize_listing_availability<'de, D>(
+fn deserialize_optional_listing_availability<'de, D>(
     deserializer: D,
-) -> Result<ListingAvailability, D::Error>
+) -> Result<Option<ListingAvailability>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let value = String::deserialize(deserializer)?;
-    ListingAvailability::from_code(&value).ok_or_else(|| {
-        <D::Error as serde::de::Error>::custom(format!("unknown listing availability {value}"))
+    Option::<String>::deserialize(deserializer)?.map_or(Ok(None), |value| {
+        ListingAvailability::from_code(&value)
+            .map(Some)
+            .ok_or_else(|| {
+                <D::Error as serde::de::Error>::custom(format!(
+                    "unknown listing availability {value}"
+                ))
+            })
     })
 }
 
@@ -545,7 +552,7 @@ fn change_kind(change: &NotificationWatchlistChange) -> NotificationKind {
     match change {
         NotificationWatchlistChange::PriceChange { .. } => NotificationKind::WatchlistPriceChanged,
         NotificationWatchlistChange::AvailabilityChange { .. } => {
-            NotificationKind::WatchlistStateChanged
+            NotificationKind::WatchlistAvailabilityChanged
         }
     }
 }
@@ -578,19 +585,19 @@ mod tests {
     }
 
     #[test]
-    fn should_serialize_canonical_listing_availability_in_legacy_v1_shape()
+    fn should_serialize_canonical_nullable_listing_availability()
     -> Result<(), Box<dyn std::error::Error>> {
         let change = NotificationWatchlistChange::AvailabilityChange {
-            old_availability: ListingAvailability::Available,
-            new_availability: ListingAvailability::InStock,
+            old_availability: Some(ListingAvailability::Available),
+            new_availability: None,
         };
         let persisted = NotificationWatchlistChangeV1::from(&change);
 
         assert_eq!(
             serde_json::json!({
-                "type": "STATE_CHANGE",
-                "old_state": "AVAILABLE",
-                "new_state": "IN_STOCK",
+                "type": "AVAILABILITY_CHANGE",
+                "old_availability": "AVAILABLE",
+                "new_availability": null,
             }),
             serde_json::to_value(persisted)?
         );
@@ -598,12 +605,30 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_unknown_listing_availability_in_legacy_v1_shape() {
+    fn should_deserialize_nullable_listing_availability() -> Result<(), serde_json::Error> {
+        let change = serde_json::from_value::<NotificationWatchlistChangeV1>(serde_json::json!({
+            "type": "AVAILABILITY_CHANGE",
+            "old_availability": null,
+            "new_availability": "IN_STOCK",
+        }))?;
+
+        assert!(matches!(
+            change,
+            NotificationWatchlistChangeV1::AvailabilityChange {
+                old_availability: None,
+                new_availability: Some(ListingAvailability::InStock),
+            }
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_unknown_listing_availability() {
         assert!(
             serde_json::from_value::<NotificationWatchlistChangeV1>(serde_json::json!({
-                "type": "STATE_CHANGE",
-                "old_state": "UNKNOWN",
-                "new_state": "IN_STOCK",
+                "type": "AVAILABILITY_CHANGE",
+                "old_availability": null,
+                "new_availability": "UNKNOWN",
             }))
             .is_err()
         );

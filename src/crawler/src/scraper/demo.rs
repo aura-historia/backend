@@ -271,7 +271,7 @@ async fn main() {
                 Ok(Some(scraped)) => {
                     info!(
                         title = %scraped.product.title.payload,
-                        shopsProductId = %scraped.product.shop_listing_id,
+                        shop_listing_id = %scraped.product.shop_listing_id,
                         "Scrape succeeded"
                     );
                     products.push(scraped.product.into());

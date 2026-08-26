@@ -242,7 +242,7 @@ async fn should_join_all_postgres_user_state_sections_for_authenticated_user() {
         r#"
         INSERT INTO notifications (
             notification_id, user_id, kind, origin_event_id, product_listing_id, payload, seen
-        ) VALUES ($1, $2, 'WATCHLIST_STATE_CHANGED', $3, $4, $5, false)
+        ) VALUES ($1, $2, 'WATCHLIST_AVAILABILITY_CHANGED', $3, $4, $5, false)
         "#,
     )
     .bind(uuid::Uuid::from(notification_id))

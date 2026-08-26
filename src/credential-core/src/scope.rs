@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Scope {
-    ProductsWrite,
+    ProductListingsWrite,
     ShopsRead,
     ShopsWrite,
     PartnerShopApplicationsWrite,
@@ -20,7 +20,7 @@ pub enum Scope {
 impl Scope {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::ProductsWrite => "products:write",
+            Self::ProductListingsWrite => "product-listings:write",
             Self::ShopsRead => "shops:read",
             Self::ShopsWrite => "shops:write",
             Self::PartnerShopApplicationsWrite => "partner-shop-applications:write",
@@ -53,7 +53,10 @@ mod tests {
 
     #[test]
     fn should_preserve_oauth_scope_strings() {
-        assert_eq!("products:write", Scope::ProductsWrite.as_str());
+        assert_eq!(
+            "product-listings:write",
+            Scope::ProductListingsWrite.as_str()
+        );
         assert_eq!("access-tokens:read", Scope::AccessTokensRead.to_string());
     }
 }

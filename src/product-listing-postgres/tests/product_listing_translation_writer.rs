@@ -122,7 +122,7 @@ async fn should_report_stale_without_writing_when_product_revision_advanced() {
         let newer_event_id = insert_event_and_advance_product(
             &pool,
             product_listing_id,
-            "PRODUCT_STATE_CHANGED",
+            "PRODUCT_LISTING_PRICE_CHANGED",
             "DOMAIN",
         )
         .await?;

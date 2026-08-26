@@ -533,7 +533,7 @@ mod tests {
             .source
             .as_mut()
             .expect("source exists")
-            .event_type = "PRODUCT_CREATED".to_owned();
+            .event_type = "PRODUCT_LISTING_CREATED".to_owned();
 
         let result = handler(&state)
             .execute(&context(Principal::System), command(&state))

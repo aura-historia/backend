@@ -360,23 +360,6 @@ pub(crate) mod listing_availability {
         ListingAvailability::from_code(value)
     }
 
-    pub(crate) fn serialize<S>(
-        value: &ListingAvailability,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, ListingAvailability::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ListingAvailability, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserialize_code(deserializer, parse, None)
-    }
-
     pub(crate) mod option {
         use super::*;
 

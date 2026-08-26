@@ -1,7 +1,7 @@
 use crate::error::{ApiError, ApiErrorCode, BAD_BODY_VALUE};
 use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
 use crate::values::{LocalizedTextData, PriceData};
-use application::patch_field::PatchField;
+
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use money::Price;
 use product_listing_core::description::Description;
@@ -37,8 +37,8 @@ pub(super) struct CreateProductListingData {
     pub(super) price_estimate_min: Option<PriceData>,
     #[serde(default)]
     pub(super) price_estimate_max: Option<PriceData>,
-    #[serde(with = "crate::wire::listing_availability")]
-    pub(super) availability: ListingAvailability,
+    #[serde(default, with = "crate::wire::listing_availability::option")]
+    pub(super) availability: Option<ListingAvailability>,
     pub(super) url: Url,
     pub(super) images: Vec<Url>,
     #[serde(default, with = "time::serde::rfc3339::option")]
@@ -91,8 +91,8 @@ pub(super) struct UpsertProductListingData {
     #[serde(default)]
     pub(super) price_estimate_max: Option<PriceData>,
     #[serde(default)]
-    #[serde(with = "crate::wire::listing_availability::option")]
-    pub(super) availability: Option<ListingAvailability>,
+    #[serde(deserialize_with = "crate::wire::listing_availability::patch::deserialize")]
+    pub(super) availability: PatchValue<ListingAvailability>,
     #[serde(default)]
     pub(super) url: Option<Url>,
     #[serde(default)]
@@ -155,7 +155,7 @@ impl CreateProductListingData {
                 price_estimate_min: self.price_estimate_min.map(price),
                 price_estimate_max: self.price_estimate_max.map(price),
             },
-            availability: Some(self.availability),
+            availability: self.availability,
             url: self.url,
             images: product_images(self.images),
             auction: ProductListingAuction {
@@ -176,7 +176,7 @@ impl UpdateProductListingData {
             price: clearable(self.price.map(price)),
             price_estimate_min: clearable(self.price_estimate_min.map(price)),
             price_estimate_max: clearable(self.price_estimate_max.map(price)),
-            availability: non_nullable_patch(self.availability, "availability")?,
+            availability: clearable(self.availability),
             url: non_nullable_patch(self.url, "url")?,
             images: non_nullable_patch(self.images.map(product_images), "images")?,
             auction_start: clearable(self.auction_start.map(Some)),
@@ -199,10 +199,7 @@ impl UpsertProductListingData {
             price: self.price.map(price),
             price_estimate_min: self.price_estimate_min.map(price),
             price_estimate_max: self.price_estimate_max.map(price),
-            availability: self
-                .availability
-                .map(PatchField::Set)
-                .unwrap_or(PatchField::Unchanged),
+            availability: clearable(self.availability),
             url: self.url,
             images: product_images(self.images.unwrap_or_default()),
             auction_start: self.auction_start,

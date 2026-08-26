@@ -45,12 +45,12 @@ const POLL_ATTEMPTS: usize = 80;
 const NO_NOTIFICATION_OBSERVATION: Duration = Duration::from_secs(2);
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, WORKER_SEQUIN])]
-async fn should_create_state_notification_from_committed_product_event() {
-    let result = create_state_notification_from_committed_product_event().await;
+async fn should_create_availability_notification_from_committed_product_event() {
+    let result = create_availability_notification_from_committed_product_event().await;
 
     assert!(
         result.is_ok(),
-        "state notification acceptance test failed: {result:?}"
+        "availability notification acceptance test failed: {result:?}"
     );
 }
 
@@ -104,11 +104,11 @@ async fn should_not_notify_for_rolled_back_or_unrouted_product_listing_events() 
     );
 }
 
-async fn create_state_notification_from_committed_product_event()
+async fn create_availability_notification_from_committed_product_event()
 -> Result<(), Box<dyn std::error::Error>> {
     let worker = WatchlistWorker::start().await?;
     let result = async {
-        let user_id = seed_user(&worker.pool, "state-recipient").await?;
+        let user_id = seed_user(&worker.pool, "availability-recipient").await?;
         let event_id = EventId::new();
         let mut transaction = worker.pool.begin().await?;
         let product_listing_id = seed_product(&mut transaction, event_id).await?;
@@ -125,14 +125,21 @@ async fn create_state_notification_from_committed_product_event()
             event_id,
             product_listing_id,
             "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-            json!({"oldState": "Available", "newState": "Sold"}),
+            json!({"previousAvailability": "AVAILABLE", "currentAvailability": null}),
         )
         .await?;
         transaction.commit().await?;
 
         let notifications = wait_for_notifications(&worker.pool, user_id, 1).await?;
         assert_eq!(uuid::Uuid::from(event_id), notifications[0].origin_event_id);
-        assert_state_change(&notifications[0], "Available", "Sold")
+        assert_availability_change(&notifications[0], Some("AVAILABLE"), None)?;
+        assert!(
+            notifications[0]
+                .payload
+                .pointer("/change/new_availability")
+                .is_some_and(serde_json::Value::is_null)
+        );
+        Ok(())
     }
     .await;
 
@@ -220,7 +227,7 @@ async fn no_notification_for_watcher_created_after_product_event()
             event_id,
             product_listing_id,
             "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-            json!({"oldState": "Available", "newState": "Sold"}),
+            json!({"previousAvailability": "AVAILABLE", "currentAvailability": "SOLD_OUT"}),
             event_time,
         )
         .await?;
@@ -273,7 +280,7 @@ async fn hold_product_revision_lock_until_watchlist_notification_commit()
         event_id,
         product_listing_id,
         "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-        json!({"oldState": "Available", "newState": "Sold"}),
+        json!({"previousAvailability": "AVAILABLE", "currentAvailability": "SOLD_OUT"}),
         event_time,
     )
     .await?;
@@ -388,7 +395,7 @@ async fn preserve_one_notification_when_product_event_delivery_is_retried()
             event_id,
             product_listing_id,
             "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-            json!({"oldState": "Listed", "newState": "Available"}),
+            json!({"previousAvailability": null, "currentAvailability": "AVAILABLE"}),
         )
         .await?;
         transaction.commit().await?;
@@ -442,7 +449,7 @@ async fn not_notify_for_rolled_back_or_unrouted_product_listing_events()
             rolled_back_event_id,
             rolled_back_product_listing_id,
             "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-            json!({"oldState": "Available", "newState": "Sold"}),
+            json!({"previousAvailability": "AVAILABLE", "currentAvailability": "SOLD_OUT"}),
         )
         .await?;
         drop(rolled_back_transaction);
@@ -772,24 +779,24 @@ async fn assert_no_more_than_notifications(
     }
 }
 
-fn assert_state_change(
+fn assert_availability_change(
     notification: &WatchlistNotificationRow,
-    old_state: &str,
-    new_state: &str,
+    old_availability: Option<&str>,
+    new_availability: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    assert_eq!("WATCHLIST_STATE_CHANGED", notification.kind);
+    assert_eq!("WATCHLIST_AVAILABILITY_CHANGED", notification.kind);
     assert_eq!(
-        Some(old_state),
+        old_availability,
         notification
             .payload
-            .pointer("/change/old_state")
+            .pointer("/change/old_availability")
             .and_then(serde_json::Value::as_str)
     );
     assert_eq!(
-        Some(new_state),
+        new_availability,
         notification
             .payload
-            .pointer("/change/new_state")
+            .pointer("/change/new_availability")
             .and_then(serde_json::Value::as_str)
     );
     Ok(())

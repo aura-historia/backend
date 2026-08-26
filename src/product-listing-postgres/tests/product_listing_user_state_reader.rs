@@ -464,7 +464,7 @@ async fn insert_watchlist_notification(
         r#"
         INSERT INTO notifications (
             notification_id, user_id, kind, origin_event_id, product_listing_id, payload, seen, created
-        ) VALUES ($1, $2, 'WATCHLIST_STATE_CHANGED', $3, $4, $5, $6, $7)
+        ) VALUES ($1, $2, 'WATCHLIST_AVAILABILITY_CHANGED', $3, $4, $5, $6, $7)
         "#,
     )
     .bind(uuid::Uuid::from(notification_id))

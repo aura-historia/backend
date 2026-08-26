@@ -202,7 +202,7 @@ mod tests {
             policy_uri: url("https://client.example/policy"),
             client_uri: url("https://client.example"),
             logo_uri: url("https://client.example/logo.png"),
-            scopes: HashSet::from([Scope::ProductsWrite]),
+            scopes: HashSet::from([Scope::ProductListingsWrite]),
         })
     }
 

@@ -55,10 +55,7 @@ struct ProductListingCreatedHistoryPayloadData {
     #[serde(skip_serializing_if = "Option::is_none")]
     geo_address: Option<GeoAddressData>,
     pricing: ProductListingPricingData,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        with = "crate::wire::listing_availability::option"
-    )]
+    #[serde(with = "crate::wire::listing_availability::option")]
     availability: Option<ListingAvailability>,
     url: Url,
     images: Vec<ProductListingImageData>,
@@ -68,15 +65,9 @@ struct ProductListingCreatedHistoryPayloadData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ListingAvailabilityChangedHistoryPayloadData {
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        with = "crate::wire::listing_availability::option"
-    )]
+    #[serde(with = "crate::wire::listing_availability::option")]
     previous: Option<ListingAvailability>,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        with = "crate::wire::listing_availability::option"
-    )]
+    #[serde(with = "crate::wire::listing_availability::option")]
     current: Option<ListingAvailability>,
 }
 
@@ -116,10 +107,7 @@ struct ProductListingAuctionChangedHistoryPayloadData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProductListingWithdrawnHistoryPayloadData {
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        with = "crate::wire::listing_availability::option"
-    )]
+    #[serde(with = "crate::wire::listing_availability::option")]
     previous_availability: Option<ListingAvailability>,
 }
 

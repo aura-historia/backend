@@ -109,8 +109,11 @@ mod tests {
             .expect_execute()
             .times(2)
             .withf(|_, command| {
-                command.shop_listing_id.as_ref() == "first"
-                    || command.shop_listing_id.as_ref() == "second"
+                matches!(
+                    (command.shop_listing_id.as_ref(), &command.availability),
+                    ("first", application::patch_field::PatchField::Unchanged)
+                        | ("second", application::patch_field::PatchField::Clear)
+                )
             })
             .returning(|_, _| Ok(created()));
         let app = app(upsert);
@@ -119,7 +122,7 @@ mod tests {
         let response = request(
             &app,
             &format!("/api/v1/shops/{shop_id}/product-listings"),
-            r#"[{"shopListingId":"first"},{"shopListingId":"second"}]"#,
+            r#"[{"shopListingId":"first"},{"shopListingId":"second","availability":null}]"#,
             true,
         )
         .await?;
@@ -211,7 +214,7 @@ mod tests {
             Ok(TransportPrincipal::User {
                 user_id: UserId::new(),
                 auth_method: AuthMethod::AuraAccessToken,
-                capabilities: BTreeSet::from([CredentialCapability::ProductsWrite]),
+                capabilities: BTreeSet::from([CredentialCapability::ProductListingsWrite]),
             })
         });
         authenticator

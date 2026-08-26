@@ -173,7 +173,7 @@ fn ctx() -> OperationContext {
         capabilities: BTreeSet::from([
             CredentialCapability::AccessTokensRead,
             CredentialCapability::AccessTokensWrite,
-            CredentialCapability::ProductsWrite,
+            CredentialCapability::ProductListingsWrite,
         ]),
     })
 }
@@ -191,7 +191,7 @@ fn authorization_code(client_id: OAuthClientId, expires: OffsetDateTime) -> Auth
         client_id,
         user_id: UserId::new(),
         redirect_uri: url("https://client.example/callback"),
-        scopes: HashSet::from([Scope::ProductsWrite]),
+        scopes: HashSet::from([Scope::ProductListingsWrite]),
         code_challenge: OAuthCodeChallenge::from("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"),
         code_challenge_method: CodeChallengeMethod::S256,
         expires,
@@ -211,7 +211,7 @@ fn client_with_secret(raw: &RawOAuthClientSecret) -> OAuthClient {
         policy_uri: url("https://client.example/policy"),
         client_uri: url("https://client.example"),
         logo_uri: url("https://client.example/logo.png"),
-        scopes: HashSet::from([Scope::ProductsWrite]),
+        scopes: HashSet::from([Scope::ProductListingsWrite]),
     })
 }
 
@@ -547,7 +547,7 @@ async fn should_cover_client_crud_use_cases() {
                 policy_uri: url("https://client.example/policy"),
                 client_uri: url("https://client.example"),
                 logo_uri: url("https://client.example/logo.png"),
-                scopes: HashSet::from([Scope::ProductsWrite]),
+                scopes: HashSet::from([Scope::ProductListingsWrite]),
             },
         )
         .await
@@ -756,7 +756,7 @@ async fn should_commit_authorization_code_exchange_when_valid() {
                 response_type: OAuthResponseType::Code,
                 client_id: client.client_id(),
                 redirect_uri: url("https://client.example/callback"),
-                scope: HashSet::from([Scope::ProductsWrite]),
+                scope: HashSet::from([Scope::ProductListingsWrite]),
                 state: Some(OAuthState::from("state-1")),
                 code_challenge: OAuthCodeChallenge::from(
                     "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
@@ -1057,7 +1057,10 @@ async fn should_allow_authorize_for_a_direct_user_principal() {
     let result = AuthorizeHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
         .execute(
             &context(Principal::User(UserId::new())),
-            authorize_request(client.client_id(), HashSet::from([Scope::ProductsWrite])),
+            authorize_request(
+                client.client_id(),
+                HashSet::from([Scope::ProductListingsWrite]),
+            ),
         )
         .await;
 
@@ -1088,7 +1091,7 @@ async fn should_reject_authorize_for_delegated_principal_without_write_capabilit
         .execute(
             &context(Principal::DelegatedUser {
                 user_id: UserId::new(),
-                capabilities: BTreeSet::from([Scope::ProductsWrite]),
+                capabilities: BTreeSet::from([Scope::ProductListingsWrite]),
             }),
             authorize_request(OAuthClientId::new(), HashSet::new()),
         )
@@ -1111,7 +1114,10 @@ async fn should_reject_delegated_authorize_scope_outside_caller_capabilities() {
                 user_id: UserId::new(),
                 capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
             }),
-            authorize_request(client.client_id(), HashSet::from([Scope::ProductsWrite])),
+            authorize_request(
+                client.client_id(),
+                HashSet::from([Scope::ProductListingsWrite]),
+            ),
         )
         .await;
 
@@ -1126,7 +1132,7 @@ async fn should_exchange_third_party_code_once() {
         code: ThirdPartyExchangeCode::new(),
         access_token: RawAccessToken::new(),
         access_token_expires: None,
-        scopes: HashSet::from([Scope::ProductsWrite]),
+        scopes: HashSet::from([Scope::ProductListingsWrite]),
         expires: OffsetDateTime::now_utc() + time::Duration::minutes(1),
     });
     lock(&ports.0).exchange = Some(grant.clone());
@@ -1147,7 +1153,7 @@ async fn should_commit_consumed_third_party_exchange_code_when_expired() {
         code: ThirdPartyExchangeCode::new(),
         access_token: RawAccessToken::new(),
         access_token_expires: None,
-        scopes: HashSet::from([Scope::ProductsWrite]),
+        scopes: HashSet::from([Scope::ProductListingsWrite]),
         expires: OffsetDateTime::now_utc() - time::Duration::minutes(1),
     });
     lock(&ports.0).exchange = Some(grant.clone());
@@ -1179,7 +1185,7 @@ async fn should_revoke_and_introspect_tokens() {
         hashed_token: raw_access_token.clone().into(),
         user_id: UserId::new(),
         name: AccessTokenName::from("OAuth test token"),
-        scopes: HashSet::from([Scope::ProductsWrite]),
+        scopes: HashSet::from([Scope::ProductListingsWrite]),
         origin: AccessTokenOrigin::OAuth {
             client_id: client.client_id(),
         },

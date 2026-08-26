@@ -121,7 +121,7 @@ impl NotificationContent {
             Self::Watchlist {
                 change: NotificationWatchlistChange::AvailabilityChange { .. },
                 ..
-            } => NotificationKind::WatchlistStateChanged,
+            } => NotificationKind::WatchlistAvailabilityChanged,
             Self::SearchFilter { .. } => NotificationKind::SearchFilterMatch,
             Self::PartnerApplication {
                 decision: PartnerApplicationDecision::Approved,
@@ -251,8 +251,8 @@ pub enum NotificationWatchlistChange {
         new_price: Option<Price>,
     },
     AvailabilityChange {
-        old_availability: ListingAvailability,
-        new_availability: ListingAvailability,
+        old_availability: Option<ListingAvailability>,
+        new_availability: Option<ListingAvailability>,
     },
 }
 
@@ -317,7 +317,7 @@ pub enum LocalizedNotificationWatchlistChange {
         new_price: Option<Price>,
     },
     AvailabilityChange {
-        old_availability: ListingAvailability,
-        new_availability: ListingAvailability,
+        old_availability: Option<ListingAvailability>,
+        new_availability: Option<ListingAvailability>,
     },
 }

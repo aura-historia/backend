@@ -98,7 +98,7 @@ mod tests {
                 "total": {"value": 1, "relation": "eq"},
                 "max_score": 1.0,
                 "hits": [{
-                    "_index": "products",
+                    "_index": "product-listings",
                     "_id": "product-1",
                     "_score": 1.0,
                     "sort": ["product-1"],

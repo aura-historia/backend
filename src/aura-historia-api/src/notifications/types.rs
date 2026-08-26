@@ -114,10 +114,10 @@ enum WatchlistNotificationChangeData {
         new_price: Option<PriceData>,
     },
     AvailabilityChange {
-        #[serde(with = "crate::wire::listing_availability")]
-        old_availability: ListingAvailability,
-        #[serde(with = "crate::wire::listing_availability")]
-        new_availability: ListingAvailability,
+        #[serde(with = "crate::wire::listing_availability::option")]
+        old_availability: Option<ListingAvailability>,
+        #[serde(with = "crate::wire::listing_availability::option")]
+        new_availability: Option<ListingAvailability>,
     },
 }
 

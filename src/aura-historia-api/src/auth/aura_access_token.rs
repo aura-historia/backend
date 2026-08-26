@@ -70,7 +70,7 @@ fn capabilities_from_scopes(scopes: &HashSet<Scope>) -> BTreeSet<CredentialCapab
 
 fn credential_capability(scope: Scope) -> CredentialCapability {
     match scope {
-        Scope::ProductsWrite => CredentialCapability::ProductsWrite,
+        Scope::ProductListingsWrite => CredentialCapability::ProductListingsWrite,
         Scope::ShopsRead => CredentialCapability::ShopsRead,
         Scope::ShopsWrite => CredentialCapability::ShopsWrite,
         Scope::PartnerShopApplicationsWrite => CredentialCapability::PartnerShopApplicationsWrite,
@@ -169,8 +169,8 @@ mod tests {
         RequestMetadata::new("req-1", "corr-1")
     }
 
-    fn products_write_scope() -> HashSet<Scope> {
-        HashSet::from([Scope::ProductsWrite])
+    fn product_listings_write_scope() -> HashSet<Scope> {
+        HashSet::from([Scope::ProductListingsWrite])
     }
 
     fn use_case(outcome: FakeTokenOutcome) -> (FakeAccessTokenUseCase, AccessTokenCalls) {
@@ -192,7 +192,7 @@ mod tests {
         let token = String::from(raw_token.clone());
         let (use_case, calls) = use_case(FakeTokenOutcome::Success {
             user_id,
-            scopes: products_write_scope(),
+            scopes: product_listings_write_scope(),
         });
         let authenticator = AuraAccessTokenAuthenticator::new(use_case);
 
@@ -207,7 +207,7 @@ mod tests {
                 auth_method: AuthMethod::AuraAccessToken,
                 capabilities,
             } if actual == user_id
-                && capabilities == BTreeSet::from([CredentialCapability::ProductsWrite])
+                && capabilities == BTreeSet::from([CredentialCapability::ProductListingsWrite])
         ));
         assert_eq!(1, recorded.len());
         assert_eq!(Principal::Anonymous, recorded[0].0.principal);
@@ -258,7 +258,10 @@ mod tests {
     #[test]
     fn should_map_all_token_scopes_to_credential_capabilities() {
         let cases = [
-            (Scope::ProductsWrite, CredentialCapability::ProductsWrite),
+            (
+                Scope::ProductListingsWrite,
+                CredentialCapability::ProductListingsWrite,
+            ),
             (Scope::ShopsRead, CredentialCapability::ShopsRead),
             (Scope::ShopsWrite, CredentialCapability::ShopsWrite),
             (

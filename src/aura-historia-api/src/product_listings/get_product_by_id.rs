@@ -198,7 +198,8 @@ mod tests {
     #[tokio::test]
     async fn should_return_product_details_headers_and_omit_audit_actors()
     -> Result<(), Box<dyn std::error::Error>> {
-        let view = product_details_view()?;
+        let mut view = product_details_view()?;
+        view.item.availability = None;
         let product_listing_id = view.item.product_listing_id;
         let (app, calls) = app(view, false, None);
 
@@ -237,6 +238,8 @@ mod tests {
         assert!(body["item"].get("priceEstimateMin").is_none());
         assert!(body["item"].get("priceEstimateMax").is_none());
         assert!(body["item"].get("currency").is_none());
+        assert!(body["item"].get("availability").is_some());
+        assert!(body["item"]["availability"].is_null());
         assert!(body.get("userState").is_none());
         assert!(matches!(
             lock(&calls)[0].1,
