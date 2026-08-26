@@ -1,4 +1,4 @@
-mod api_support;
+use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
     seed_access_token_for, seed_current_fx_snapshot, seed_partner_shop, seed_shop, seed_user,
@@ -7,16 +7,9 @@ use base64::Engine;
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
 use serde_json::json;
 use std::collections::HashSet;
-use test_api::{
-    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
-    get_postgres_client,
-};
+use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
 use user_core::access_token::Scope;
 
-const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-
-const OPENSEARCH: OpenSearch = OpenSearch();
-static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 const SECRET: &str = "woocommerce-webhook-test-secret";
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;

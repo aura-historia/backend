@@ -1,0 +1,56 @@
+name: Publish test images
+
+on:
+  push:
+    branches: [develop, prod]
+    paths:
+      - src/test-api/postgres/Dockerfile
+      - src/test-api/postgres/image-ref.txt
+      - .github/workflows/test-images.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  postgres-pgttl:
+    name: Publish Postgres pg-ttl test image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Read image reference
+        id: image
+        run: echo "ref=$(cat src/test-api/postgres/image-ref.txt)" >> "$GITHUB_OUTPUT"
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: src/test-api/postgres
+          file: src/test-api/postgres/Dockerfile
+          push: true
+          tags: ${{ steps.image.outputs.ref }}
+      - name: Smoke test pg-ttl
+        run: |
+          set -euo pipefail
+          docker run --detach --rm --name aura-test-postgres-smoke \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_DB=postgres \
+            "${{ steps.image.outputs.ref }}" \
+            -c shared_preload_libraries=pg_ttl_index
+          for attempt in $(seq 1 30); do
+            if docker exec aura-test-postgres-smoke pg_isready -U postgres -d postgres; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec aura-test-postgres-smoke psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -c 'CREATE EXTENSION IF NOT EXISTS pg_ttl_index' \
+            -c 'SELECT ttl_start_worker()'
+          docker stop aura-test-postgres-smoke

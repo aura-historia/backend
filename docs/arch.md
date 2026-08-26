@@ -2691,7 +2691,7 @@ async fn should_get_shop_by_id_with_aura_access_token() {
 }
 ```
 
-Acceptance tests for authenticated routes SHOULD use Aura Historia access tokens when the public contract supports them. Seed credentials through the same storage adapter used by the runtime, then call the real HTTP endpoint with a bearer token. Keep one test file per API unit, for example `tests/shop_api.rs`.
+Acceptance tests for authenticated routes SHOULD use Aura Historia access tokens when the public contract supports them. Seed credentials through the same storage adapter used by the runtime, then call the real HTTP endpoint with a bearer token. Keep one source module per API unit, but compatible modules SHOULD be declared by a small number of explicit integration-suite binaries so process-lived real infrastructure is amortized. Mutable application and projection data MUST reset between tests.
 
 ## 21. Naming conventions
 

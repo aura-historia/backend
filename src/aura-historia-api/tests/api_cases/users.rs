@@ -1,16 +1,9 @@
-mod api_support;
+use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{assert_problem, json_response, seed_access_token_for, seed_user};
 
-use test_api::{
-    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
-};
+use test_api::{IntegrationTestService, aura_integration_test};
 use user_core::access_token::Scope;
-
-const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const OPENSEARCH: OpenSearch = OpenSearch();
-
-static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_current_user_account_when_authenticated() {

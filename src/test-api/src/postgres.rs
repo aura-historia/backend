@@ -9,6 +9,7 @@ use std::process::Command;
 use std::process::Stdio;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 use tokio::sync::OnceCell;
 use tracing::debug;
 
@@ -17,9 +18,10 @@ const POSTGRES_PASSWORD: &str = "postgres";
 const POSTGRES_DB: &str = "postgres";
 const POSTGRES_CONTAINER_PORT: u16 = 5432;
 const POSTGRES_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-postgres-test";
-const POSTGRES_PG_TTL_IMAGE_TAG: &str = "16-pg-ttl-index-v3.0.0";
-const POSTGRES_PG_TTL_DOCKERFILE: &str = "src/test-api/postgres/Dockerfile";
-const POSTGRES_PG_TTL_CONTEXT: &str = "src/test-api/postgres";
+const POSTGRES_PG_TTL_IMAGE: &str = include_str!(concat!(
+    env!("CARGO_WORKSPACE_DIR"),
+    "src/test-api/postgres/image-ref.txt"
+));
 const HOST_GATEWAY: &str = "host.docker.internal";
 
 type MigrationInitializers = Mutex<HashMap<&'static str, Arc<OnceCell<()>>>>;
@@ -87,6 +89,22 @@ async fn open_connection() -> PgConnection {
         .expect("shouldn't fail connecting to Postgres test container")
 }
 
+async fn wait_for_postgres_connection() -> PgConnection {
+    let deadline = Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let options = PgConnectOptions::from_str(&connection_string())
+            .expect("shouldn't fail parsing Postgres connection string");
+        match options.connect().await {
+            Ok(connection) => return connection,
+            Err(error) if Instant::now() < deadline => {
+                debug!(%error, "Postgres is not accepting connections yet.");
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+            Err(error) => panic!("Postgres did not become ready before deadline: {error}"),
+        }
+    }
+}
+
 /// Ensures the Postgres container is running, starting it at most once per process.
 ///
 /// All concurrent callers await the same [`OnceCell`] initialisation future, so only one
@@ -104,18 +122,25 @@ async fn ensure_container_started() {
 
             // Remove any container left over from a previous aborted run of this process id.
             let _ = docker_remove(&name);
-            ensure_pg_ttl_image();
+            let started = Instant::now();
 
+            use testcontainers::GenericImage;
             use testcontainers::ImageExt;
-            use testcontainers::core::IntoContainerPort;
+            use testcontainers::core::{IntoContainerPort, WaitFor};
             use testcontainers::runners::AsyncRunner;
-            use testcontainers_modules::postgres::Postgres as PgImage;
 
-            let container = PgImage::default()
-                .with_user(POSTGRES_USER)
-                .with_password(POSTGRES_PASSWORD)
-                .with_db_name(POSTGRES_DB)
-                .with_tag(POSTGRES_PG_TTL_IMAGE_TAG)
+            let image = std::env::var("AURA_TEST_POSTGRES_IMAGE")
+                .unwrap_or_else(|_| POSTGRES_PG_TTL_IMAGE.trim().to_owned());
+            let (repository, tag) = image.rsplit_once(':').unwrap_or_else(|| {
+                panic!("invalid Postgres test image reference '{image}'; expected repository:tag")
+            });
+            let container = GenericImage::new(repository, tag)
+                .with_wait_for(WaitFor::message_on_stdout(
+                    "database system is ready to accept connections",
+                ))
+                .with_env_var("POSTGRES_USER", POSTGRES_USER)
+                .with_env_var("POSTGRES_PASSWORD", POSTGRES_PASSWORD)
+                .with_env_var("POSTGRES_DB", POSTGRES_DB)
                 .with_cmd([
                     "-c",
                     "fsync=off",
@@ -130,7 +155,7 @@ async fn ensure_container_started() {
                 .await
                 .expect("shouldn't fail starting Postgres test container");
 
-            let mut connection = open_connection().await;
+            let mut connection = wait_for_postgres_connection().await;
             connection
                 .execute(AssertSqlSafe("CREATE EXTENSION pg_ttl_index"))
                 .await
@@ -140,29 +165,18 @@ async fn ensure_container_started() {
                 .await
                 .expect("should start pg_ttl_index worker in test database");
 
-            debug!("Successfully started Postgres test container with pg_ttl_index.");
+            debug!(
+                image,
+                elapsed_ms = started.elapsed().as_millis(),
+                pid = std::process::id(),
+                "Postgres container started with pg_ttl_index."
+            );
 
             // Leak the handle intentionally: the container must stay alive for the whole
             // test-suite. The atexit handler takes care of removing it on process exit.
             std::mem::forget(container);
         })
         .await;
-}
-
-fn ensure_pg_ttl_image() {
-    static IMAGE_BUILT: OnceLock<()> = OnceLock::new();
-    IMAGE_BUILT.get_or_init(|| {
-        let workspace_root = env!("CARGO_WORKSPACE_DIR");
-        let image = format!("postgres:{POSTGRES_PG_TTL_IMAGE_TAG}");
-        let status = Command::new("docker")
-            .current_dir(workspace_root)
-            .args(["build", "--file", POSTGRES_PG_TTL_DOCKERFILE, "--tag"])
-            .arg(image)
-            .arg(POSTGRES_PG_TTL_CONTEXT)
-            .status()
-            .unwrap_or_else(|error| panic!("failed to build pg-ttl test image: {error}"));
-        assert!(status.success(), "failed to build pinned pg-ttl test image");
-    });
 }
 
 fn docker_remove(name: &str) -> std::io::Result<std::process::ExitStatus> {
@@ -275,6 +289,7 @@ pub struct Postgres {
 }
 
 async fn apply_migrations(migrations_dir: &'static str) {
+    let started = Instant::now();
     let workspace_root = env!("CARGO_WORKSPACE_DIR");
     let dir_path = Path::new(workspace_root).join(migrations_dir);
     let mut entries: Vec<_> = std::fs::read_dir(&dir_path)
@@ -316,6 +331,7 @@ async fn apply_migrations(migrations_dir: &'static str) {
     debug!(
         migrations_dir,
         count = entries.len(),
+        elapsed_ms = started.elapsed().as_millis(),
         "Applied Postgres migrations."
     );
 }
@@ -422,6 +438,7 @@ impl IntegrationTestService for Postgres {
     /// Table definitions (DDL) are intentionally kept intact so that the next test's
     /// `set_up` can rely on `CREATE TABLE IF NOT EXISTS` being a no-op.
     async fn tear_down(&self) {
+        let started = Instant::now();
         let mut conn = open_connection().await;
 
         // Exclude relations owned by installed extensions. Extension metadata must survive
@@ -463,6 +480,7 @@ impl IntegrationTestService for Postgres {
 
         debug!(
             tables = ?tables,
+            elapsed_ms = started.elapsed().as_millis(),
             "Truncated application-owned public tables for test isolation."
         );
     }
