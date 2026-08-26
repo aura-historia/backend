@@ -113,29 +113,23 @@ fn merge_upsert_command(
     if let Some(value) = description {
         current.description = Some(value);
     }
-    if !matches!(price, PatchField::Unchanged) {
-        current.price = price;
-    }
-    if let Some(value) = price_estimate_min {
-        current.price_estimate_min = Some(value);
-    }
-    if let Some(value) = price_estimate_max {
-        current.price_estimate_max = Some(value);
-    }
-    if !matches!(availability, PatchField::Unchanged) {
-        current.availability = availability;
-    }
+    merge_latest_explicit_patch(&mut current.price, price);
+    merge_latest_explicit_patch(&mut current.price_estimate_min, price_estimate_min);
+    merge_latest_explicit_patch(&mut current.price_estimate_max, price_estimate_max);
+    merge_latest_explicit_patch(&mut current.availability, availability);
     if let Some(value) = url {
         current.url = Some(value);
     }
-    current.images = images;
-    if let Some(value) = auction_start {
-        current.auction_start = Some(value);
-    }
-    if let Some(value) = auction_end {
-        current.auction_end = Some(value);
-    }
+    merge_latest_explicit_patch(&mut current.images, images);
+    merge_latest_explicit_patch(&mut current.auction_start, auction_start);
+    merge_latest_explicit_patch(&mut current.auction_end, auction_end);
     Ok(())
+}
+
+fn merge_latest_explicit_patch<T>(current: &mut PatchField<T>, newer: PatchField<T>) {
+    if !matches!(newer, PatchField::Unchanged) {
+        *current = newer;
+    }
 }
 
 #[async_trait]
@@ -246,8 +240,8 @@ fn crawler_operation_context(command: &UpsertProductListingCommand) -> Operation
 
 /// Writes display-only upsert snapshots to a configured output file.
 ///
-/// These snapshots are not command replay input. They retain availability patch intent only
-/// for inspection, using an explicit tagged representation.
+/// These snapshots are not command replay input. They retain every patch field's intent using
+/// an explicit tagged representation.
 pub struct FileProductListingPushService {
     output_path: std::path::PathBuf,
 }
@@ -270,14 +264,14 @@ struct UpsertCommandSnapshot {
     address: ProductListingAddressSnapshot,
     title: Option<LocalizedTextSnapshot>,
     description: Option<LocalizedTextSnapshot>,
-    price: Option<PriceSnapshot>,
-    price_estimate_min: Option<PriceSnapshot>,
-    price_estimate_max: Option<PriceSnapshot>,
+    price: PricePatchSnapshot,
+    price_estimate_min: PricePatchSnapshot,
+    price_estimate_max: PricePatchSnapshot,
     availability: AvailabilityPatchSnapshot,
     url: Option<String>,
-    images: Vec<ProductListingImageSnapshot>,
-    auction_start: Option<String>,
-    auction_end: Option<String>,
+    images: ImagesPatchSnapshot,
+    auction_start: TimestampPatchSnapshot,
+    auction_end: TimestampPatchSnapshot,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     raw_attributes: BTreeMap<String, Vec<String>>,
 }
@@ -285,6 +279,32 @@ struct UpsertCommandSnapshot {
 #[derive(Debug, serde::Serialize)]
 #[serde(tag = "state", rename_all = "SCREAMING_SNAKE_CASE")]
 enum AvailabilityPatchSnapshot {
+    Set { value: String },
+    Clear,
+    Unchanged,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(tag = "state", rename_all = "SCREAMING_SNAKE_CASE")]
+enum PricePatchSnapshot {
+    Set { value: PriceSnapshot },
+    Clear,
+    Unchanged,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(tag = "state", rename_all = "SCREAMING_SNAKE_CASE")]
+enum ImagesPatchSnapshot {
+    Set {
+        value: Vec<ProductListingImageSnapshot>,
+    },
+    Clear,
+    Unchanged,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(tag = "state", rename_all = "SCREAMING_SNAKE_CASE")]
+enum TimestampPatchSnapshot {
     Set { value: String },
     Clear,
     Unchanged,
@@ -327,12 +347,9 @@ impl From<&ProductListingPushItem> for UpsertCommandSnapshot {
                 .description
                 .as_ref()
                 .map(snapshot_localized_description),
-            price: match command.price {
-                PatchField::Set(price) => Some(snapshot_price(price)),
-                PatchField::Clear | PatchField::Unchanged => None,
-            },
-            price_estimate_min: command.price_estimate_min.map(snapshot_price),
-            price_estimate_max: command.price_estimate_max.map(snapshot_price),
+            price: snapshot_price_patch(&command.price),
+            price_estimate_min: snapshot_price_patch(&command.price_estimate_min),
+            price_estimate_max: snapshot_price_patch(&command.price_estimate_max),
             availability: match command.availability {
                 PatchField::Set(availability) => AvailabilityPatchSnapshot::Set {
                     value: availability_name(availability).to_owned(),
@@ -341,16 +358,9 @@ impl From<&ProductListingPushItem> for UpsertCommandSnapshot {
                 PatchField::Unchanged => AvailabilityPatchSnapshot::Unchanged,
             },
             url: command.url.as_ref().map(ToString::to_string),
-            images: command
-                .images
-                .iter()
-                .map(|image| ProductListingImageSnapshot {
-                    url: image.url.to_string(),
-                    prohibited_content: image.prohibited_content.as_str().to_owned(),
-                })
-                .collect(),
-            auction_start: command.auction_start.map(|value| value.to_string()),
-            auction_end: command.auction_end.map(|value| value.to_string()),
+            images: snapshot_images_patch(&command.images),
+            auction_start: snapshot_timestamp_patch(&command.auction_start),
+            auction_end: snapshot_timestamp_patch(&command.auction_end),
             raw_attributes: product.raw_attributes.clone(),
         }
     }
@@ -369,6 +379,44 @@ fn snapshot_localized_description(
     LocalizedTextSnapshot {
         language: value.localization.as_str().to_owned(),
         text: value.payload.as_ref().to_owned(),
+    }
+}
+
+fn snapshot_price_patch(value: &PatchField<Price>) -> PricePatchSnapshot {
+    match value {
+        PatchField::Set(price) => PricePatchSnapshot::Set {
+            value: snapshot_price(*price),
+        },
+        PatchField::Clear => PricePatchSnapshot::Clear,
+        PatchField::Unchanged => PricePatchSnapshot::Unchanged,
+    }
+}
+
+fn snapshot_images_patch(
+    value: &PatchField<IndexSet<product_listing_core::product_listing_image::ProductListingImage>>,
+) -> ImagesPatchSnapshot {
+    match value {
+        PatchField::Set(images) => ImagesPatchSnapshot::Set {
+            value: images
+                .iter()
+                .map(|image| ProductListingImageSnapshot {
+                    url: image.url.to_string(),
+                    prohibited_content: image.prohibited_content.as_str().to_owned(),
+                })
+                .collect(),
+        },
+        PatchField::Clear => ImagesPatchSnapshot::Clear,
+        PatchField::Unchanged => ImagesPatchSnapshot::Unchanged,
+    }
+}
+
+fn snapshot_timestamp_patch(value: &PatchField<time::OffsetDateTime>) -> TimestampPatchSnapshot {
+    match value {
+        PatchField::Set(value) => TimestampPatchSnapshot::Set {
+            value: value.to_string(),
+        },
+        PatchField::Clear => TimestampPatchSnapshot::Clear,
+        PatchField::Unchanged => TimestampPatchSnapshot::Unchanged,
     }
 }
 
@@ -478,18 +526,25 @@ pub fn normalize_to_upsert(
             Some(price) => PatchField::Set(price),
             None => PatchField::Clear,
         },
-        price_estimate_min: product.price_estimate_min,
-        price_estimate_max: product.price_estimate_max,
+        price_estimate_min: option_to_patch(product.price_estimate_min),
+        price_estimate_max: option_to_patch(product.price_estimate_max),
         availability: match product.availability {
             crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping::Availability(availability) => PatchField::Set(availability),
             crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping::NoAssertion => PatchField::Clear,
             crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping::Ignore => PatchField::Unchanged,
         },
         url: Some(product.url),
-        images: product.images.into_iter().collect::<IndexSet<_>>(),
-        auction_start: product.auction_start,
-        auction_end: product.auction_end,
+        images: PatchField::Set(product.images.into_iter().collect::<IndexSet<_>>()),
+        auction_start: option_to_patch(product.auction_start),
+        auction_end: option_to_patch(product.auction_end),
     })
+}
+
+fn option_to_patch<T>(value: Option<T>) -> PatchField<T> {
+    match value {
+        Some(value) => PatchField::Set(value),
+        None => PatchField::Clear,
+    }
 }
 
 fn availability_name(value: ListingAvailability) -> &'static str {
@@ -559,13 +614,13 @@ mod tests {
             title: Some(Localized::new(Language::De, Title::from("Ein Schrank"))),
             description: None,
             price: PatchField::Unchanged,
-            price_estimate_min: None,
-            price_estimate_max: None,
+            price_estimate_min: PatchField::Unchanged,
+            price_estimate_max: PatchField::Unchanged,
             availability: PatchField::Set(ListingAvailability::Available),
             url: Some(Url::parse("https://example.com/product/1")?),
-            images: Default::default(),
-            auction_start: None,
-            auction_end: None,
+            images: PatchField::Unchanged,
+            auction_start: PatchField::Unchanged,
+            auction_end: PatchField::Unchanged,
         })
     }
 
@@ -763,22 +818,25 @@ mod tests {
         let commands = Arc::clone(&use_case.commands);
         let service = ProductListingPushServiceImpl::new(use_case, 1);
         let mut first = push_item()?;
-        first.command.images.insert(
+        first.command.images = PatchField::Set(IndexSet::from([
             product_listing_core::product_listing_image::ProductListingImage {
                 url: Url::parse("https://example.com/image.jpg")?,
                 prohibited_content:
                     product_listing_core::prohibited_content::ProhibitedContent::None,
             },
-        );
+        ]));
         let mut second = first.clone();
-        second.command.images.clear();
+        second.command.images = PatchField::Set(IndexSet::new());
 
         assert_eq!(service.push(vec![first, second]).await, vec![true, true]);
         let executed = commands
             .lock()
             .map(|commands| commands.clone())
             .unwrap_or_else(|error| error.into_inner().clone());
-        assert!(executed[0].images.is_empty());
+        assert!(matches!(
+            &executed[0].images,
+            PatchField::Set(images) if images.is_empty()
+        ));
         Ok(())
     }
 
@@ -815,38 +873,74 @@ mod tests {
     }
 
     #[test]
-    fn should_keep_latest_explicit_price_assertion_when_coalescing() -> Result<(), url::ParseError>
-    {
-        let mut set_then_clear = command()?;
-        set_then_clear.price = PatchField::Set(Price::new(
-            money::MonetaryAmount::from(100_u64),
-            money::Currency::Eur,
-        ));
-        let mut clear = set_then_clear.clone();
-        clear.price = PatchField::Clear;
-        assert!(merge_upsert_command(&mut set_then_clear, clear).is_ok());
-        assert_eq!(PatchField::Clear, set_then_clear.price);
-
-        let mut clear_then_set = command()?;
-        clear_then_set.price = PatchField::Clear;
-        let mut set = clear_then_set.clone();
+    fn should_keep_latest_explicit_patch_when_coalescing() -> Result<(), url::ParseError> {
         let price = Price::new(money::MonetaryAmount::from(120_u64), money::Currency::Eur);
-        set.price = PatchField::Set(price);
-        assert!(merge_upsert_command(&mut clear_then_set, set).is_ok());
-        assert_eq!(PatchField::Set(price), clear_then_set.price);
+        let mut current = command()?;
+        let auction_at = time::OffsetDateTime::UNIX_EPOCH;
+        current.price = PatchField::Set(price);
+        current.price_estimate_min = PatchField::Set(price);
+        current.price_estimate_max = PatchField::Set(price);
+        current.availability = PatchField::Set(ListingAvailability::Available);
+        current.images = PatchField::Set(IndexSet::new());
+        current.auction_start = PatchField::Set(auction_at);
+        current.auction_end = PatchField::Set(auction_at);
 
-        let mut set_then_unchanged = command()?;
-        set_then_unchanged.price = PatchField::Set(price);
-        let mut unchanged = set_then_unchanged.clone();
-        unchanged.price = PatchField::Unchanged;
-        assert!(merge_upsert_command(&mut set_then_unchanged, unchanged).is_ok());
-        assert_eq!(PatchField::Set(price), set_then_unchanged.price);
-
-        let mut unchanged_then_clear = command()?;
-        let mut clear = unchanged_then_clear.clone();
+        let mut clear = current.clone();
         clear.price = PatchField::Clear;
-        assert!(merge_upsert_command(&mut unchanged_then_clear, clear).is_ok());
-        assert_eq!(PatchField::Clear, unchanged_then_clear.price);
+        clear.price_estimate_min = PatchField::Clear;
+        clear.price_estimate_max = PatchField::Clear;
+        clear.availability = PatchField::Clear;
+        clear.images = PatchField::Clear;
+        clear.auction_start = PatchField::Clear;
+        clear.auction_end = PatchField::Clear;
+        assert!(merge_upsert_command(&mut current, clear).is_ok());
+        assert!(matches!(current.price, PatchField::Clear));
+        assert!(matches!(current.price_estimate_min, PatchField::Clear));
+        assert!(matches!(current.price_estimate_max, PatchField::Clear));
+        assert!(matches!(current.availability, PatchField::Clear));
+        assert!(matches!(current.images, PatchField::Clear));
+        assert!(matches!(current.auction_start, PatchField::Clear));
+        assert!(matches!(current.auction_end, PatchField::Clear));
+
+        let mut set = current.clone();
+        set.price = PatchField::Set(price);
+        set.price_estimate_min = PatchField::Set(price);
+        set.price_estimate_max = PatchField::Set(price);
+        set.availability = PatchField::Set(ListingAvailability::OutOfStock);
+        set.images = PatchField::Set(IndexSet::new());
+        set.auction_start = PatchField::Set(auction_at);
+        set.auction_end = PatchField::Set(auction_at);
+        assert!(merge_upsert_command(&mut current, set).is_ok());
+        assert!(matches!(current.price, PatchField::Set(value) if value == price));
+        assert!(matches!(current.price_estimate_min, PatchField::Set(value) if value == price));
+        assert!(matches!(current.price_estimate_max, PatchField::Set(value) if value == price));
+        assert!(matches!(
+            current.availability,
+            PatchField::Set(ListingAvailability::OutOfStock)
+        ));
+        assert!(matches!(current.images, PatchField::Set(ref images) if images.is_empty()));
+        assert!(matches!(current.auction_start, PatchField::Set(value) if value == auction_at));
+        assert!(matches!(current.auction_end, PatchField::Set(value) if value == auction_at));
+
+        let mut unchanged = current.clone();
+        unchanged.price = PatchField::Unchanged;
+        unchanged.price_estimate_min = PatchField::Unchanged;
+        unchanged.price_estimate_max = PatchField::Unchanged;
+        unchanged.availability = PatchField::Unchanged;
+        unchanged.images = PatchField::Unchanged;
+        unchanged.auction_start = PatchField::Unchanged;
+        unchanged.auction_end = PatchField::Unchanged;
+        assert!(merge_upsert_command(&mut current, unchanged).is_ok());
+        assert!(matches!(current.price, PatchField::Set(value) if value == price));
+        assert!(matches!(current.price_estimate_min, PatchField::Set(value) if value == price));
+        assert!(matches!(current.price_estimate_max, PatchField::Set(value) if value == price));
+        assert!(matches!(
+            current.availability,
+            PatchField::Set(ListingAvailability::OutOfStock)
+        ));
+        assert!(matches!(current.images, PatchField::Set(ref images) if images.is_empty()));
+        assert!(matches!(current.auction_start, PatchField::Set(value) if value == auction_at));
+        assert!(matches!(current.auction_end, PatchField::Set(value) if value == auction_at));
         Ok(())
     }
 
@@ -901,7 +995,7 @@ mod tests {
             raw_attributes: BTreeMap::new(),
         };
 
-        let command = normalize_to_upsert(product, &candidate);
+        let command = normalize_to_upsert(product.clone(), &candidate);
 
         assert_eq!(
             command.as_ref().map(|command| command.shop_id),
@@ -917,6 +1011,44 @@ mod tests {
         );
         assert!(matches!(
             command.as_ref().map(|command| &command.price),
+            Some(PatchField::Clear)
+        ));
+        assert!(matches!(
+            command.as_ref().map(|command| &command.price_estimate_min),
+            Some(PatchField::Clear)
+        ));
+        assert!(matches!(
+            command.as_ref().map(|command| &command.price_estimate_max),
+            Some(PatchField::Clear)
+        ));
+        assert!(matches!(
+            command.as_ref().map(|command| &command.availability),
+            Some(PatchField::Set(ListingAvailability::Available))
+        ));
+        assert!(matches!(
+            command.as_ref().map(|command| &command.images),
+            Some(PatchField::Set(images)) if images.is_empty()
+        ));
+        assert!(matches!(
+            command.as_ref().map(|command| &command.auction_start),
+            Some(PatchField::Clear)
+        ));
+        assert!(matches!(
+            command.as_ref().map(|command| &command.auction_end),
+            Some(PatchField::Clear)
+        ));
+
+        let no_assertion_command = normalize_to_upsert(
+            NormalizedProduct {
+                availability: crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping::NoAssertion,
+                ..product
+            },
+            &candidate,
+        );
+        assert!(matches!(
+            no_assertion_command
+                .as_ref()
+                .map(|command| &command.availability),
             Some(PatchField::Clear)
         ));
         Ok(())
@@ -935,24 +1067,81 @@ mod tests {
     }
 
     #[test]
-    fn should_serialize_availability_patch_state_without_aliasing()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let set = push_item()?;
-        let mut clear = set.clone();
-        clear.command.availability = PatchField::Clear;
-        let mut unchanged = set.clone();
-        unchanged.command.availability = PatchField::Unchanged;
+    fn should_serialize_all_patch_states_without_aliasing() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let price = Price::new(money::MonetaryAmount::from(100_u64), money::Currency::Eur);
+        let auction_at = time::OffsetDateTime::UNIX_EPOCH;
+        let mut set = push_item()?;
+        set.command.price = PatchField::Set(price);
+        set.command.price_estimate_min = PatchField::Set(price);
+        set.command.price_estimate_max = PatchField::Set(price);
+        set.command.images = PatchField::Set(IndexSet::new());
+        set.command.auction_start = PatchField::Set(auction_at);
+        set.command.auction_end = PatchField::Set(auction_at);
 
-        for (item, expected) in [
-            (
-                set,
-                serde_json::json!({ "state": "SET", "value": "AVAILABLE" }),
-            ),
-            (clear, serde_json::json!({ "state": "CLEAR" })),
-            (unchanged, serde_json::json!({ "state": "UNCHANGED" })),
-        ] {
-            let snapshot = serde_json::to_value(UpsertCommandSnapshot::from(&item))?;
-            assert_eq!(snapshot["availability"], expected);
+        let mut clear = set.clone();
+        clear.command.price = PatchField::Clear;
+        clear.command.price_estimate_min = PatchField::Clear;
+        clear.command.price_estimate_max = PatchField::Clear;
+        clear.command.availability = PatchField::Clear;
+        clear.command.images = PatchField::Clear;
+        clear.command.auction_start = PatchField::Clear;
+        clear.command.auction_end = PatchField::Clear;
+
+        let mut unchanged = set.clone();
+        unchanged.command.price = PatchField::Unchanged;
+        unchanged.command.price_estimate_min = PatchField::Unchanged;
+        unchanged.command.price_estimate_max = PatchField::Unchanged;
+        unchanged.command.availability = PatchField::Unchanged;
+        unchanged.command.images = PatchField::Unchanged;
+        unchanged.command.auction_start = PatchField::Unchanged;
+        unchanged.command.auction_end = PatchField::Unchanged;
+
+        let set_snapshot = serde_json::to_value(UpsertCommandSnapshot::from(&set))?;
+        assert_eq!(
+            set_snapshot["price"],
+            serde_json::json!({
+                "state": "SET",
+                "value": { "amount": 100, "currency": "EUR" }
+            })
+        );
+        assert_eq!(set_snapshot["price_estimate_min"], set_snapshot["price"]);
+        assert_eq!(set_snapshot["price_estimate_max"], set_snapshot["price"]);
+        assert_eq!(
+            set_snapshot["availability"],
+            serde_json::json!({ "state": "SET", "value": "AVAILABLE" })
+        );
+        assert_eq!(
+            set_snapshot["images"],
+            serde_json::json!({ "state": "SET", "value": [] })
+        );
+        assert_eq!(
+            set_snapshot["auction_start"],
+            serde_json::json!({ "state": "SET", "value": auction_at.to_string() })
+        );
+        assert_eq!(set_snapshot["auction_end"], set_snapshot["auction_start"]);
+
+        for item in [&clear, &unchanged] {
+            let expected_state = if std::ptr::eq(item, &clear) {
+                "CLEAR"
+            } else {
+                "UNCHANGED"
+            };
+            let snapshot = serde_json::to_value(UpsertCommandSnapshot::from(item))?;
+            for field in [
+                "price",
+                "price_estimate_min",
+                "price_estimate_max",
+                "availability",
+                "images",
+                "auction_start",
+                "auction_end",
+            ] {
+                assert_eq!(
+                    snapshot[field],
+                    serde_json::json!({ "state": expected_state })
+                );
+            }
         }
 
         Ok(())

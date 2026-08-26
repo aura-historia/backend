@@ -170,13 +170,13 @@ where
                         Some(price) => PatchField::Set(price),
                         None => PatchField::Clear,
                     },
-                    price_estimate_min: None,
-                    price_estimate_max: None,
+                    price_estimate_min: PatchField::Unchanged,
+                    price_estimate_max: PatchField::Unchanged,
                     availability: command.availability,
                     url: Some(url),
-                    images,
-                    auction_start: None,
-                    auction_end: None,
+                    images: PatchField::Set(images),
+                    auction_start: PatchField::Unchanged,
+                    auction_end: PatchField::Unchanged,
                 },
             )
             .await

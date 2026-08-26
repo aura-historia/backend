@@ -150,11 +150,11 @@ Availability-change events contain optional previous/current availability. Withd
 
 ## Application, API, and search contracts
 
-Create accepts `Option<ListingAvailability>`; omitted and JSON `null` create an active listing without an assertion. Update and upsert use `PatchField<ListingAvailability>` and main-price `PatchField<Price>`: omitted is unchanged, `null` clears, and a value sets. Existing withdrawn listings are restored by explicit upsert intent before current facts are applied.
+Create accepts `Option<ListingAvailability>`; omitted and JSON `null` create an active listing without an assertion. Update and upsert use tri-state patches for availability, main price, each price estimate, and each auction timestamp: omitted is unchanged, `null` clears, and a value sets. On creation, omitted and `null` both create no value. Upsert images are separate: omitted preserves existing images, `[]` clears them, and `null` is invalid. URL is non-clearable: omitted or `null` preserves it; a URL value sets it. Existing withdrawn listings are restored by explicit upsert intent before current facts are applied.
 
 Withdrawal replaces normal deletion. The HTTP partner route may remain `DELETE`, but invokes `WithdrawProductListingUseCase`. Recording a sale observation is a dedicated, authorized PostgreSQL transaction that loads the aggregate and the latest FX snapshot at or before `observed_at`.
 
-Responses always emit `"availability": null` when absent. Requests parse availability tri-state. Aura route and identifier vocabulary uses `product-listings`, `productListingId`, `productListingSlugId`, and `shopListingId`.
+`title`, `description`, and listing address are creation-only upsert inputs. For an existing listing, they preserve current state and emit no current-state history event. Responses always emit `"availability": null` when absent. Requests parse availability tri-state. Aura route and identifier vocabulary uses `product-listings`, `productListingId`, `productListingSlugId`, and `shopListingId`.
 
 Public listing discovery contains active listings only. Withdrawn listings are not found by public detail and are deleted from the OpenSearch projection; restore rebuilds the projection. Public discovery does not expose a lifecycle filter.
 
