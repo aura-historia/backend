@@ -24,7 +24,7 @@ user-service = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-product-core = { workspace = true }
+product-listing-core = { workspace = true }
 rstest = { workspace = true }
 watchlist-core = { workspace = true }
 watchlist-postgres = { workspace = true }

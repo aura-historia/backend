@@ -14,17 +14,20 @@ use fxrate_service::ports::{
 };
 use localization::Language;
 use money::Currency;
-use product_core::product_id::ProductId;
+use product_listing_core::{
+    listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
+    product_listing_id::ProductListingId,
+};
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use user_core::user_id::UserId;
 
-use product_service::ports::{
-    PersonalizedProductDetailsReadModel, ProductDetailsBatchReadError,
-    ProductDetailsBatchReadRequest, ProductDetailsBatchReader,
+use product_listing_service::ports::{
+    PersonalizedProductListingDetailsReadModel, ProductListingDetailsBatchReadError,
+    ProductListingDetailsBatchReadRequest, ProductListingDetailsBatchReader,
 };
-use product_service::use_cases::{
-    PersonalizedProductDetailsView, ProductPricingPresentationError, present_product_details,
-    redact_hidden_product,
+use product_listing_service::use_cases::{
+    PersonalizedProductListingDetailsView, ProductListingPricingPresentationError,
+    present_product_details, redact_hidden_product,
 };
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
@@ -40,7 +43,7 @@ pub struct ListSearchFilterMatchesRequest {
 }
 
 pub type ListSearchFilterMatchesResult =
-    CursoredResult<PersonalizedProductDetailsView, crate::ports::SearchFilterMatchCursor>;
+    CursoredResult<PersonalizedProductListingDetailsView, crate::ports::SearchFilterMatchCursor>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ListSearchFilterMatchesError {
@@ -56,17 +59,19 @@ pub enum ListSearchFilterMatchesError {
         source: BoxError,
     },
     #[error("matched product details read failed")]
-    ProductDetailsReadFailed {
+    ProductListingDetailsReadFailed {
         #[source]
         source: BoxError,
     },
     #[error("matched product details are invalid")]
-    ProductDetailsInvalid {
+    ProductListingDetailsInvalid {
         #[source]
         source: BoxError,
     },
     #[error("matched product is missing from the product details read")]
-    MatchedProductMissing { product_id: ProductId },
+    MatchedProductListingMissing {
+        product_listing_id: ProductListingId,
+    },
     #[error("no persisted FX snapshot is available for current matched-product pricing")]
     CurrentPricingFxSnapshotMissing,
     #[error("sale valuation FX snapshot is missing")]
@@ -87,7 +92,7 @@ pub enum ListSearchFilterMatchesError {
         actual: FxRateId,
     },
     #[error("matched product price conversion failed")]
-    ProductPriceConversionFailed {
+    ProductListingPriceConversionFailed {
         #[source]
         source: FxRateSnapshotError,
     },
@@ -97,7 +102,7 @@ pub enum ListSearchFilterMatchesError {
     CommitPricingTransactionFailed,
 
     #[error("matched product could not be redacted")]
-    HiddenProductRedactionFailed {
+    HiddenProductListingRedactionFailed {
         #[source]
         source: BoxError,
     },
@@ -115,16 +120,16 @@ pub trait ListSearchFilterMatchesUseCase: Send + Sync {
 pub struct ListSearchFilterMatchesHandler<U, M, P, F> {
     unit_of_work: U,
     matches: M,
-    products: P,
+    product_listings: P,
     fx_rates: F,
 }
 
 impl<U, M, P, F> ListSearchFilterMatchesHandler<U, M, P, F> {
-    pub fn new(unit_of_work: U, matches: M, products: P, fx_rates: F) -> Self {
+    pub fn new(unit_of_work: U, matches: M, product_listings: P, fx_rates: F) -> Self {
         Self {
             unit_of_work,
             matches,
-            products,
+            product_listings,
             fx_rates,
         }
     }
@@ -135,7 +140,7 @@ impl<U, M, P, F> ListSearchFilterMatchesUseCase for ListSearchFilterMatchesHandl
 where
     U: UnitOfWork,
     M: SearchFilterMatchReader,
-    P: ProductDetailsBatchReader,
+    P: ProductListingDetailsBatchReader,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
 {
     #[tracing::instrument(
@@ -174,19 +179,19 @@ where
             });
         }
 
-        let product_ids = matches
+        let product_listing_ids = matches
             .items
             .iter()
-            .map(|matched| matched.product_id)
+            .map(|matched| matched.product_listing_id)
             .collect::<HashSet<_>>()
             .into_iter()
             .collect::<Vec<_>>();
         let details = self
-            .products
-            .find_for_user(&ProductDetailsBatchReadRequest {
+            .product_listings
+            .find_for_user(&ProductListingDetailsBatchReadRequest {
                 user_id: request.user_id,
                 language: request.language,
-                product_ids,
+                product_listing_ids,
                 search_filter_id: request.search_filter_id,
             })
             .await
@@ -195,9 +200,9 @@ where
             .items
             .iter()
             .map(|matched| {
-                details.get(&matched.product_id).cloned().ok_or(
-                    ListSearchFilterMatchesError::MatchedProductMissing {
-                        product_id: matched.product_id,
+                details.get(&matched.product_listing_id).cloned().ok_or(
+                    ListSearchFilterMatchesError::MatchedProductListingMissing {
+                        product_listing_id: matched.product_listing_id,
                     },
                 )
             })
@@ -211,7 +216,7 @@ where
             .map_err(|_| ListSearchFilterMatchesError::BeginPricingTransactionFailed)?;
         let pricing_snapshots =
             pricing_snapshots(&self.fx_rates, &mut tx, &factual_details, valuation_at).await?;
-        let mut products = factual_details
+        let mut product_listings = factual_details
             .into_iter()
             .map(|factual_details| {
                 present_with_pricing_snapshot(factual_details, &pricing_snapshots, request.currency)
@@ -221,18 +226,18 @@ where
             .await
             .map_err(|_| ListSearchFilterMatchesError::CommitPricingTransactionFailed)?;
 
-        for product in &mut products {
+        for product in &mut product_listings {
             let is_hidden = product
                 .user_state
                 .as_ref()
-                .ok_or(ListSearchFilterMatchesError::ProductDetailsInvalid {
+                .ok_or(ListSearchFilterMatchesError::ProductListingDetailsInvalid {
                     source: static_error("matched product is missing user state"),
                 })?
                 .search_filter
                 .hidden;
             if is_hidden {
                 redact_hidden_product(&mut product.item).map_err(|error| {
-                    ListSearchFilterMatchesError::HiddenProductRedactionFailed {
+                    ListSearchFilterMatchesError::HiddenProductListingRedactionFailed {
                         source: box_error(error),
                     }
                 })?;
@@ -240,7 +245,7 @@ where
         }
 
         Ok(CursoredResult {
-            items: products,
+            items: product_listings,
             cursor: matches.cursor,
             total: matches.total,
         })
@@ -255,7 +260,7 @@ struct PricingSnapshots {
 async fn pricing_snapshots<Tx, F>(
     fx_rates: &F,
     tx: &mut Tx,
-    factual_details: &[PersonalizedProductDetailsReadModel],
+    factual_details: &[PersonalizedProductListingDetailsReadModel],
     valuation_at: OffsetDateTime,
 ) -> Result<PricingSnapshots, ListSearchFilterMatchesError>
 where
@@ -266,14 +271,19 @@ where
         .filter_map(|details| {
             details
                 .item
-                .sale_valuation
-                .map(|valuation| valuation.fx_rate_id)
+                .sale_observation
+                .filter(|_| {
+                    details.item.availability == Some(ListingAvailability::SoldOut)
+                        || details.item.lifecycle == ListingLifecycle::Withdrawn
+                })
+                .map(|observation| observation.fx_rate_id())
         })
         .collect::<HashSet<_>>();
-    let current = if factual_details
-        .iter()
-        .any(|details| details.item.sale_valuation.is_none())
-    {
+    let current = if factual_details.iter().any(|details| {
+        details.item.sale_observation.is_none()
+            || (details.item.availability != Some(ListingAvailability::SoldOut)
+                && details.item.lifecycle != ListingLifecycle::Withdrawn)
+    }) {
         Some(
             fx_rates
                 .in_transaction(tx)
@@ -301,16 +311,20 @@ where
 }
 
 fn present_with_pricing_snapshot(
-    factual_details: PersonalizedProductDetailsReadModel,
+    factual_details: PersonalizedProductListingDetailsReadModel,
     pricing_snapshots: &PricingSnapshots,
     currency: Currency,
-) -> Result<PersonalizedProductDetailsView, ListSearchFilterMatchesError> {
-    let snapshot = match factual_details.item.sale_valuation {
-        Some(valuation) => pricing_snapshots.sale.get(&valuation.fx_rate_id).ok_or(
-            ListSearchFilterMatchesError::SalePricingFxSnapshotMissing {
-                fx_rate_id: valuation.fx_rate_id,
-            },
-        )?,
+) -> Result<PersonalizedProductListingDetailsView, ListSearchFilterMatchesError> {
+    let snapshot = match factual_details.item.sale_observation.filter(|_| {
+        factual_details.item.availability == Some(ListingAvailability::SoldOut)
+            || factual_details.item.lifecycle == ListingLifecycle::Withdrawn
+    }) {
+        Some(observation) => pricing_snapshots
+            .sale
+            .get(&observation.fx_rate_id())
+            .ok_or(ListSearchFilterMatchesError::SalePricingFxSnapshotMissing {
+                fx_rate_id: observation.fx_rate_id(),
+            })?,
         None => pricing_snapshots
             .current
             .as_ref()
@@ -341,13 +355,15 @@ fn read_error(error: SearchFilterMatchReadError) -> ListSearchFilterMatchesError
     }
 }
 
-fn product_details_read_error(error: ProductDetailsBatchReadError) -> ListSearchFilterMatchesError {
+fn product_details_read_error(
+    error: ProductListingDetailsBatchReadError,
+) -> ListSearchFilterMatchesError {
     match error {
-        ProductDetailsBatchReadError::QueryFailed { source } => {
-            ListSearchFilterMatchesError::ProductDetailsReadFailed { source }
+        ProductListingDetailsBatchReadError::QueryFailed { source } => {
+            ListSearchFilterMatchesError::ProductListingDetailsReadFailed { source }
         }
-        ProductDetailsBatchReadError::InvalidReadModel { source } => {
-            ListSearchFilterMatchesError::ProductDetailsInvalid { source }
+        ProductListingDetailsBatchReadError::InvalidReadModel { source } => {
+            ListSearchFilterMatchesError::ProductListingDetailsInvalid { source }
         }
     }
 }
@@ -369,14 +385,15 @@ impl From<FxRateSnapshotRepositoryError> for ListSearchFilterMatchesError {
     }
 }
 
-impl From<ProductPricingPresentationError> for ListSearchFilterMatchesError {
-    fn from(error: ProductPricingPresentationError) -> Self {
+impl From<ProductListingPricingPresentationError> for ListSearchFilterMatchesError {
+    fn from(error: ProductListingPricingPresentationError) -> Self {
         match error {
-            ProductPricingPresentationError::SaleFxSnapshotMismatch { expected, actual } => {
-                Self::SaleFxSnapshotMismatch { expected, actual }
-            }
-            ProductPricingPresentationError::PriceConversionFailed { source } => {
-                Self::ProductPriceConversionFailed { source }
+            ProductListingPricingPresentationError::SaleObservationFxSnapshotMismatch {
+                expected,
+                actual,
+            } => Self::SaleFxSnapshotMismatch { expected, actual },
+            ProductListingPricingPresentationError::PriceConversionFailed { source } => {
+                Self::ProductListingPriceConversionFailed { source }
             }
         }
     }
@@ -412,18 +429,18 @@ mod tests {
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
-    use product_core::{
-        product_lifecycle::ProductLifecycle, product_slug_id::ProductSlugId,
-        product_state::ProductState, shops_product_id::ShopsProductId,
+    use product_listing_core::{
+        listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
+        product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
     };
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 
-    use product_core::product::{
-        ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
+    use product_listing_core::product_listing::{
+        ListingSaleObservation, ProductListingAddress, ProductListingAuction, ProductListingPricing,
     };
-    use product_service::ports::ProductDetailsReadModel;
-    use product_service::use_cases::ProductPricingValuation;
-    use product_service::user_state::{NotificationUserState, ProductUserState};
+    use product_listing_service::ports::ProductListingDetailsReadModel;
+    use product_listing_service::use_cases::ProductListingPricingValuation;
+    use product_listing_service::user_state::{NotificationUserState, ProductListingUserState};
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;
@@ -431,7 +448,7 @@ mod tests {
 
     #[derive(Default)]
     struct State {
-        product_requests: Vec<ProductDetailsBatchReadRequest>,
+        product_requests: Vec<ProductListingDetailsBatchReadRequest>,
 
         begin_count: usize,
         commit_count: usize,
@@ -479,22 +496,22 @@ mod tests {
         }
     }
 
-    struct ProductsReader {
+    struct ProductListingsReader {
         state: SharedState,
-        products: HashMap<ProductId, PersonalizedProductDetailsReadModel>,
+        product_listings: HashMap<ProductListingId, PersonalizedProductListingDetailsReadModel>,
     }
 
     #[async_trait::async_trait]
-    impl ProductDetailsBatchReader for ProductsReader {
+    impl ProductListingDetailsBatchReader for ProductListingsReader {
         async fn find_for_user(
             &self,
-            request: &ProductDetailsBatchReadRequest,
+            request: &ProductListingDetailsBatchReadRequest,
         ) -> Result<
-            HashMap<ProductId, PersonalizedProductDetailsReadModel>,
-            ProductDetailsBatchReadError,
+            HashMap<ProductListingId, PersonalizedProductListingDetailsReadModel>,
+            ProductListingDetailsBatchReadError,
         > {
             lock(&self.state).product_requests.push(request.clone());
-            Ok(self.products.clone())
+            Ok(self.product_listings.clone())
         }
     }
 
@@ -574,38 +591,38 @@ mod tests {
     }
 
     fn product(
-        product_id: ProductId,
-    ) -> Result<PersonalizedProductDetailsReadModel, url::ParseError> {
+        product_listing_id: ProductListingId,
+    ) -> Result<PersonalizedProductListingDetailsReadModel, url::ParseError> {
         let url = Url::parse("https://example.test/product")?;
         Ok(Personalized {
-            item: ProductDetailsReadModel {
-                product_id,
-                product_slug_id: ProductSlugId::from("product"),
+            item: ProductListingDetailsReadModel {
+                product_listing_id,
+                product_listing_slug_id: ProductListingSlugId::from("product"),
                 event_id: EventId::new(),
                 shop_id: ShopId::new(),
                 seller_id: ShopId::new(),
-                shops_product_id: ShopsProductId::from("product"),
+                shop_listing_id: ShopListingId::from("product"),
                 shop_name: ShopName::from("Shop"),
                 seller_name: ShopName::from("Seller"),
                 shop_slug_id: ShopSlugId::from("shop"),
                 seller_slug_id: ShopSlugId::from("seller"),
-                address: ProductAddress::default(),
+                address: ProductListingAddress::default(),
                 product_title: None,
                 product_description: None,
                 title: None,
                 description: None,
-                pricing: ProductPricing::default(),
-                sale_valuation: None,
-                state: ProductState::Available,
-                lifecycle: ProductLifecycle::Active,
+                pricing: ProductListingPricing::default(),
+                sale_observation: None,
+                availability: Some(ListingAvailability::Available),
+                lifecycle: ListingLifecycle::Active,
                 url: url.clone(),
                 view_url: url,
                 images: IndexSet::new(),
-                auction: ProductAuction::default(),
+                auction: ProductListingAuction::default(),
                 created: OffsetDateTime::UNIX_EPOCH,
                 updated: OffsetDateTime::UNIX_EPOCH,
             },
-            user_state: Some(ProductUserState::default()),
+            user_state: Some(ProductListingUserState::default()),
         })
     }
 
@@ -651,27 +668,27 @@ mod tests {
     fn handler(
         state: &SharedState,
         matches: Vec<SearchFilterMatchListItem>,
-        products: HashMap<ProductId, PersonalizedProductDetailsReadModel>,
+        product_listings: HashMap<ProductListingId, PersonalizedProductListingDetailsReadModel>,
     ) -> ListSearchFilterMatchesHandler<
         UnitOfWorkFake,
         MatchesReader,
-        ProductsReader,
+        ProductListingsReader,
         FxRateSnapshotFactoryFake,
     > {
         ListSearchFilterMatchesHandler::new(
             UnitOfWorkFake(Arc::clone(state)),
             MatchesReader { matches },
-            ProductsReader {
+            ProductListingsReader {
                 state: Arc::clone(state),
-                products,
+                product_listings,
             },
             FxRateSnapshotFactoryFake(Arc::clone(state)),
         )
     }
 
-    fn match_item(product_id: ProductId) -> SearchFilterMatchListItem {
+    fn match_item(product_listing_id: ProductListingId) -> SearchFilterMatchListItem {
         SearchFilterMatchListItem {
-            product_id,
+            product_listing_id,
             created: OffsetDateTime::UNIX_EPOCH,
         }
     }
@@ -680,29 +697,31 @@ mod tests {
     async fn should_batch_fx_snapshot_reads_present_products_and_retain_canonical_user_state()
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
-        let current_product_id = ProductId::new();
-        let first_sale_product_id = ProductId::new();
-        let second_sale_product_id = ProductId::new();
+        let current_product_listing_id = ProductListingId::new();
+        let first_sale_product_listing_id = ProductListingId::new();
+        let second_sale_product_listing_id = ProductListingId::new();
         let current_snapshot = snapshot(FxRateId::new())?;
         let sale_snapshot = snapshot(FxRateId::new())?;
-        let expected_user_state = ProductUserState {
+        let expected_user_state = ProductListingUserState {
             notification: NotificationUserState {
                 unseen_notification_ids: vec![Default::default()],
             },
             ..Default::default()
         };
-        let mut current = product(current_product_id)?;
+        let mut current = product(current_product_listing_id)?;
         current.user_state = Some(expected_user_state.clone());
-        let mut first_sale = product(first_sale_product_id)?;
-        first_sale.item.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: sale_snapshot.id(),
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
-        let mut second_sale = product(second_sale_product_id)?;
-        second_sale.item.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: sale_snapshot.id(),
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
+        let mut first_sale = product(first_sale_product_listing_id)?;
+        first_sale.item.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            sale_snapshot.id(),
+        ));
+        first_sale.item.availability = Some(ListingAvailability::SoldOut);
+        let mut second_sale = product(second_sale_product_listing_id)?;
+        second_sale.item.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            sale_snapshot.id(),
+        ));
+        second_sale.item.availability = Some(ListingAvailability::SoldOut);
         let state = Arc::new(Mutex::new(State {
             latest_snapshot: Some(current_snapshot.clone()),
             sale_snapshots: vec![sale_snapshot.clone()],
@@ -712,14 +731,14 @@ mod tests {
         let result = handler(
             &state,
             vec![
-                match_item(current_product_id),
-                match_item(first_sale_product_id),
-                match_item(second_sale_product_id),
+                match_item(current_product_listing_id),
+                match_item(first_sale_product_listing_id),
+                match_item(second_sale_product_listing_id),
             ],
             HashMap::from([
-                (second_sale_product_id, second_sale),
-                (current_product_id, current),
-                (first_sale_product_id, first_sale),
+                (second_sale_product_listing_id, second_sale),
+                (current_product_listing_id, current),
+                (first_sale_product_listing_id, first_sale),
             ]),
         )
         .execute(&context(), request(user_id))
@@ -727,19 +746,19 @@ mod tests {
 
         assert_eq!(
             vec![
-                current_product_id,
-                first_sale_product_id,
-                second_sale_product_id
+                current_product_listing_id,
+                first_sale_product_listing_id,
+                second_sale_product_listing_id
             ],
             result
                 .items
                 .iter()
-                .map(|item| item.item.product_id)
+                .map(|item| item.item.product_listing_id)
                 .collect::<Vec<_>>()
         );
         assert!(matches!(
             result.items[0].item.pricing.valuation,
-            ProductPricingValuation::Current { fx_rate_id, .. } if fx_rate_id == current_snapshot.id()
+            ProductListingPricingValuation::Current { fx_rate_id, .. } if fx_rate_id == current_snapshot.id()
         ));
         assert_eq!(
             Some(&expected_user_state),
@@ -747,7 +766,7 @@ mod tests {
         );
         assert!(result.items[1..].iter().all(|item| matches!(
             item.item.pricing.valuation,
-            ProductPricingValuation::Sale { fx_rate_id, .. } if fx_rate_id == sale_snapshot.id()
+            ProductListingPricingValuation::SaleObservation { fx_rate_id, .. } if fx_rate_id == sale_snapshot.id()
         )));
         let state = lock(&state);
         assert_eq!(1, state.product_requests.len());
@@ -767,19 +786,20 @@ mod tests {
     async fn should_fail_without_fallback_when_a_sale_snapshot_is_missing()
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
-        let product_id = ProductId::new();
+        let product_listing_id = ProductListingId::new();
         let missing_snapshot_id = FxRateId::new();
-        let mut sale = product(product_id)?;
-        sale.item.sale_valuation = Some(ProductSaleValuation {
-            fx_rate_id: missing_snapshot_id,
-            sold_at: OffsetDateTime::UNIX_EPOCH,
-        });
+        let mut sale = product(product_listing_id)?;
+        sale.item.sale_observation = Some(ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH,
+            missing_snapshot_id,
+        ));
+        sale.item.availability = Some(ListingAvailability::SoldOut);
         let state = Arc::new(Mutex::new(State::default()));
 
         let result = handler(
             &state,
-            vec![match_item(product_id)],
-            HashMap::from([(product_id, sale)]),
+            vec![match_item(product_listing_id)],
+            HashMap::from([(product_listing_id, sale)]),
         )
         .execute(&context(), request(user_id))
         .await;

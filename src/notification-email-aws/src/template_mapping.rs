@@ -8,7 +8,7 @@ use notification_core::{
     presentation::present_image,
 };
 use notification_service::ports::notification_delivery_repository::NotificationDeliverySource;
-use product_core::product_state::ProductState;
+use product_listing_core::listing_availability::ListingAvailability;
 use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,7 +64,7 @@ impl EmailLanguage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EmailTemplateType {
     WatchlistUpdatePrice,
-    WatchlistUpdateState,
+    WatchlistUpdateAvailability,
     SearchFilterMatch,
     PartnerApplicationApproval,
     PartnerApplicationRejection,
@@ -76,7 +76,7 @@ pub(crate) const fn template_type(content: &NotificationContent) -> EmailTemplat
             change: NotificationWatchlistChange::PriceChange { .. },
             ..
         } => EmailTemplateType::WatchlistUpdatePrice,
-        NotificationContent::Watchlist { .. } => EmailTemplateType::WatchlistUpdateState,
+        NotificationContent::Watchlist { .. } => EmailTemplateType::WatchlistUpdateAvailability,
         NotificationContent::SearchFilter { .. } => EmailTemplateType::SearchFilterMatch,
         NotificationContent::PartnerApplication {
             decision: PartnerApplicationDecision::Approved,
@@ -91,7 +91,9 @@ pub(crate) const fn template_type(content: &NotificationContent) -> EmailTemplat
 pub(crate) const fn template_directory(template_type: EmailTemplateType) -> &'static str {
     match template_type {
         EmailTemplateType::WatchlistUpdatePrice => "mjml/watchlist/product-update/price",
-        EmailTemplateType::WatchlistUpdateState => "mjml/watchlist/product-update/state",
+        EmailTemplateType::WatchlistUpdateAvailability => {
+            "mjml/watchlist/product-update/availability"
+        }
         EmailTemplateType::SearchFilterMatch => "mjml/search-filter/match",
         EmailTemplateType::PartnerApplicationApproval => "mjml/partner-application/approval",
         EmailTemplateType::PartnerApplicationRejection => "mjml/partner-application/rejection",
@@ -114,7 +116,7 @@ pub(crate) fn s3_template_key(
 pub(crate) const fn ses_template_tag_value(template_type: EmailTemplateType) -> &'static str {
     match template_type {
         EmailTemplateType::WatchlistUpdatePrice => "WATCHLIST_UPDATE_PRICE",
-        EmailTemplateType::WatchlistUpdateState => "WATCHLIST_UPDATE_STATE",
+        EmailTemplateType::WatchlistUpdateAvailability => "WATCHLIST_UPDATE_AVAILABILITY",
         EmailTemplateType::SearchFilterMatch => "SEARCH_FILTER_MATCH",
         EmailTemplateType::PartnerApplicationApproval => "PARTNER_APPLICATION_APPROVAL",
         EmailTemplateType::PartnerApplicationRejection => "PARTNER_APPLICATION_REJECTION",
@@ -130,8 +132,8 @@ pub(crate) const fn subject(
             EmailTemplateType::WatchlistUpdatePrice => {
                 "Der Preis auf deiner Merkliste hat sich geändert"
             }
-            EmailTemplateType::WatchlistUpdateState => {
-                "Ein Artikel auf deiner Merkliste hat sich geändert"
+            EmailTemplateType::WatchlistUpdateAvailability => {
+                "Die Verfügbarkeit eines Artikels auf deiner Merkliste hat sich geändert"
             }
             EmailTemplateType::SearchFilterMatch => "Neuer Treffer für deinen Suchfilter",
             EmailTemplateType::PartnerApplicationApproval => "Partnerantrag genehmigt",
@@ -141,8 +143,8 @@ pub(crate) const fn subject(
             EmailTemplateType::WatchlistUpdatePrice => {
                 "Le prix de votre liste de souhaits a changé"
             }
-            EmailTemplateType::WatchlistUpdateState => {
-                "Un article de votre liste de souhaits a changé"
+            EmailTemplateType::WatchlistUpdateAvailability => {
+                "La disponibilité d’un article de votre liste de souhaits a changé"
             }
             EmailTemplateType::SearchFilterMatch => {
                 "Nouveau résultat pour votre filtre de recherche"
@@ -156,8 +158,8 @@ pub(crate) const fn subject(
             EmailTemplateType::WatchlistUpdatePrice => {
                 "El precio de tu lista de deseos ha cambiado"
             }
-            EmailTemplateType::WatchlistUpdateState => {
-                "Un artículo de tu lista de deseos ha cambiado"
+            EmailTemplateType::WatchlistUpdateAvailability => {
+                "La disponibilidad de un artículo de tu lista de deseos ha cambiado"
             }
             EmailTemplateType::SearchFilterMatch => "Nuevo resultado para tu filtro de búsqueda",
             EmailTemplateType::PartnerApplicationApproval => "Solicitud de asociación aprobada",
@@ -169,8 +171,8 @@ pub(crate) const fn subject(
             EmailTemplateType::WatchlistUpdatePrice => {
                 "Il prezzo della tua lista dei desideri è cambiato"
             }
-            EmailTemplateType::WatchlistUpdateState => {
-                "Un articolo nella tua lista dei desideri è cambiato"
+            EmailTemplateType::WatchlistUpdateAvailability => {
+                "La disponibilità di un articolo nella tua lista dei desideri è cambiata"
             }
             EmailTemplateType::SearchFilterMatch => "Nuovo risultato per il tuo filtro di ricerca",
             EmailTemplateType::PartnerApplicationApproval => "Richiesta di partnership approvata",
@@ -180,7 +182,9 @@ pub(crate) const fn subject(
         },
         EmailLanguage::En => match template_type {
             EmailTemplateType::WatchlistUpdatePrice => "Your watchlist price changed",
-            EmailTemplateType::WatchlistUpdateState => "Your watchlist item changed",
+            EmailTemplateType::WatchlistUpdateAvailability => {
+                "Your watchlist item's availability changed"
+            }
             EmailTemplateType::SearchFilterMatch => "New search filter match",
             EmailTemplateType::PartnerApplicationApproval => "Partner application approved",
             EmailTemplateType::PartnerApplicationRejection => "Partner application update",
@@ -212,7 +216,7 @@ pub(crate) fn template_data(
             let mut data = product_template_data(
                 snapshot.shop_name.to_string(),
                 snapshot.shop_slug_id.to_string(),
-                snapshot.product_slug_id.to_string(),
+                snapshot.product_listing_slug_id.to_string(),
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image),
                 snapshot.view_url.to_string(),
@@ -226,13 +230,17 @@ pub(crate) fn template_data(
                     data["new_price"] = json!(price_text(new_price));
                     data["notification_type"] = json!("price_change");
                 }
-                LocalizedNotificationWatchlistChange::StateChange {
-                    old_state,
-                    new_state,
+                LocalizedNotificationWatchlistChange::AvailabilityChange {
+                    old_availability,
+                    new_availability,
                 } => {
-                    data["old_state"] = json!(state_text(old_state, email_language.as_language()));
-                    data["new_state"] = json!(state_text(new_state, email_language.as_language()));
-                    data["notification_type"] = json!("state_change");
+                    data["old_availability"] = json!(old_availability.map(|availability| {
+                        availability_text(availability, email_language.as_language())
+                    }));
+                    data["new_availability"] = json!(new_availability.map(|availability| {
+                        availability_text(availability, email_language.as_language())
+                    }));
+                    data["notification_type"] = json!("availability_change");
                 }
             }
             add_recipient_data(data, first_name)
@@ -246,7 +254,7 @@ pub(crate) fn template_data(
             let mut data = product_template_data(
                 snapshot.shop_name.to_string(),
                 snapshot.shop_slug_id.to_string(),
-                snapshot.product_slug_id.to_string(),
+                snapshot.product_listing_slug_id.to_string(),
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image),
                 snapshot.view_url.to_string(),
@@ -279,60 +287,95 @@ fn add_recipient_data(mut data: Value, first_name: Option<&str>) -> Value {
 fn product_template_data(
     shop_name: String,
     shop_slug_id: String,
-    product_slug_id: String,
+    product_listing_slug_id: String,
     title: Option<String>,
     image_url: Option<String>,
     view_url: String,
 ) -> Value {
-    json!({ "shop_name": shop_name, "shop_slug_id": shop_slug_id, "product_slug_id": product_slug_id, "title": title, "image_url": image_url, "view_url": view_url })
+    json!({ "shop_name": shop_name, "shop_slug_id": shop_slug_id, "product_listing_slug_id": product_listing_slug_id, "title": title, "image_url": image_url, "view_url": view_url })
 }
 fn price_text(price: Option<Price>) -> Option<String> {
     price.map(|price| price.format_human_readable())
 }
 
-fn state_text(state: ProductState, language: Language) -> &'static str {
-    match state {
-        ProductState::Listed => match language {
-            Language::De => "Gelistet",
-            Language::Fr => "Listé",
-            Language::Es => "Listado",
-            Language::It => "Inserito",
-            _ => "Listed",
-        },
-        ProductState::Available => match language {
+fn availability_text(availability: ListingAvailability, language: Language) -> &'static str {
+    match availability {
+        ListingAvailability::Available => match language {
             Language::De => "Verfügbar",
             Language::Fr => "Disponible",
             Language::Es => "Disponible",
             Language::It => "Disponibile",
             _ => "Available",
         },
-        ProductState::Reserved => match language {
+        ListingAvailability::InStock => match language {
+            Language::De => "Auf Lager",
+            Language::Fr => "En stock",
+            Language::Es => "En stock",
+            Language::It => "Disponibile",
+            _ => "In stock",
+        },
+        ListingAvailability::LimitedAvailability => match language {
+            Language::De => "Begrenzt verfügbar",
+            Language::Fr => "Disponibilité limitée",
+            Language::Es => "Disponibilidad limitada",
+            Language::It => "Disponibilità limitata",
+            _ => "Limited availability",
+        },
+        ListingAvailability::BackOrder => match language {
+            Language::De => "Nachbestellung",
+            Language::Fr => "Sur commande",
+            Language::Es => "Bajo pedido",
+            Language::It => "Su ordinazione",
+            _ => "Backorder",
+        },
+        ListingAvailability::MadeToOrder => match language {
+            Language::De => "Auf Bestellung gefertigt",
+            Language::Fr => "Fabriqué sur commande",
+            Language::Es => "Fabricado por encargo",
+            Language::It => "Realizzato su ordinazione",
+            _ => "Made to order",
+        },
+        ListingAvailability::PreOrder => match language {
+            Language::De => "Vorbestellung",
+            Language::Fr => "Précommande",
+            Language::Es => "Preventa",
+            Language::It => "Preordine",
+            _ => "Pre-order",
+        },
+        ListingAvailability::PreSale => match language {
+            Language::De => "Vorverkauf",
+            Language::Fr => "Vente anticipée",
+            Language::Es => "Venta anticipada",
+            Language::It => "Vendita anticipata",
+            _ => "Presale",
+        },
+        ListingAvailability::Unavailable => match language {
+            Language::De => "Nicht verfügbar",
+            Language::Fr => "Indisponible",
+            Language::Es => "No disponible",
+            Language::It => "Non disponibile",
+            _ => "Unavailable",
+        },
+        ListingAvailability::Reserved => match language {
             Language::De => "Reserviert",
             Language::Fr => "Réservé",
             Language::Es => "Reservado",
             Language::It => "Riservato",
             _ => "Reserved",
         },
-        ProductState::Sold => match language {
-            Language::De => "Verkauft",
-            Language::Fr => "Vendu",
-            Language::Es => "Vendido",
-            Language::It => "Venduto",
-            _ => "Sold",
+        ListingAvailability::OutOfStock => match language {
+            Language::De => "Nicht auf Lager",
+            Language::Fr => "Rupture de stock",
+            Language::Es => "Agotado",
+            Language::It => "Esaurito",
+            _ => "Out of stock",
         },
-        ProductState::Removed => match language {
-            Language::De => "Gelöscht",
-            Language::Fr => "Supprimé",
-            Language::Es => "Eliminado",
-            Language::It => "Rimosso",
-            _ => "Removed",
-        },
-        ProductState::Unknown => match language {
-            Language::De => "Unbekannt",
-            Language::Fr => "Inconnu",
-            Language::Es => "Desconocido",
-            Language::It => "Sconosciuto",
-            _ => "Unknown",
+        ListingAvailability::SoldOut => match language {
+            Language::De => "Ausverkauft",
+            Language::Fr => "Épuisé",
+            Language::Es => "Agotado",
+            Language::It => "Esaurito",
+            _ => "Sold out",
         },
     }
 }
@@ -346,7 +389,7 @@ mod tests {
     use notification_core::notification_id::NotificationId;
     use notification_core::{
         notification::{
-            NotificationContent, NotificationWatchlistChange, ProductNotificationSnapshot,
+            NotificationContent, NotificationWatchlistChange, ProductListingNotificationSnapshot,
         },
         notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
         notification_delivery_id::NotificationDeliveryId,
@@ -355,9 +398,9 @@ mod tests {
         ports::notification_delivery_repository::NotificationDeliverySource,
         presentation::NotificationPresentationPreferences,
     };
-    use product_core::{
-        product_id::ProductId, product_slug_id::ProductSlugId, product_state::ProductState,
-        shops_product_id::ShopsProductId,
+    use product_listing_core::{
+        listing_availability::ListingAvailability, product_listing_id::ProductListingId,
+        product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
     };
     use rstest::rstest;
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
@@ -395,12 +438,12 @@ mod tests {
         let key = s3_template_key(
             "test",
             "commit",
-            EmailTemplateType::WatchlistUpdateState,
+            EmailTemplateType::WatchlistUpdateAvailability,
             EmailLanguage::resolve(Language::Zh),
         );
 
         assert_eq!(
-            "test/commit/mjml/watchlist/product-update/state/en.html",
+            "test/commit/mjml/watchlist/product-update/availability/en.html",
             key
         );
     }
@@ -415,12 +458,12 @@ mod tests {
         "Il prezzo della tua lista dei desideri è cambiato"
     )]
     #[case(
-        EmailTemplateType::WatchlistUpdateState,
-        "Ein Artikel auf deiner Merkliste hat sich geändert",
-        "Your watchlist item changed",
-        "Un article de votre liste de souhaits a changé",
-        "Un artículo de tu lista de deseos ha cambiado",
-        "Un articolo nella tua lista dei desideri è cambiato"
+        EmailTemplateType::WatchlistUpdateAvailability,
+        "Die Verfügbarkeit eines Artikels auf deiner Merkliste hat sich geändert",
+        "Your watchlist item's availability changed",
+        "La disponibilité d’un article de votre liste de souhaits a changé",
+        "La disponibilidad de un artículo de tu lista de deseos ha cambiado",
+        "La disponibilità di un articolo nella tua lista dei desideri è cambiata"
     )]
     #[case(
         EmailTemplateType::SearchFilterMatch,
@@ -462,20 +505,20 @@ mod tests {
     }
 
     #[rstest]
-    #[case(Language::En, "Listed", "Available")]
-    #[case(Language::De, "Gelistet", "Verfügbar")]
-    fn should_localize_watchlist_state_change_for_recipient_language(
+    #[case(Language::En, "Available", "In stock")]
+    #[case(Language::De, "Verfügbar", "Auf Lager")]
+    fn should_localize_watchlist_availability_change_for_recipient_language(
         #[case] language: Language,
-        #[case] expected_old_state: &str,
-        #[case] expected_new_state: &str,
+        #[case] expected_old_availability: &str,
+        #[case] expected_new_availability: &str,
     ) {
         assert_eq!(
-            expected_old_state,
-            state_text(ProductState::Listed, language)
+            expected_old_availability,
+            availability_text(ListingAvailability::Available, language)
         );
         assert_eq!(
-            expected_new_state,
-            state_text(ProductState::Available, language)
+            expected_new_availability,
+            availability_text(ListingAvailability::InStock, language)
         );
     }
 
@@ -504,8 +547,33 @@ mod tests {
         let email_language = EmailLanguage::resolve(source.presentation_preferences.language);
         let data = template_data(&source, email_language, None);
 
-        assert_eq!(Some("Listed"), data["old_state"].as_str());
-        assert_eq!(Some("Available"), data["new_state"].as_str());
+        assert_eq!(Some("Available"), data["old_availability"].as_str());
+        assert_eq!(Some("In stock"), data["new_availability"].as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn should_render_null_for_absent_watchlist_availability()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source(false, None)?;
+        let NotificationContent::Watchlist { change, .. } = &mut source.content else {
+            return Err(
+                std::io::Error::other("test source is not a watchlist notification").into(),
+            );
+        };
+        *change = NotificationWatchlistChange::AvailabilityChange {
+            old_availability: None,
+            new_availability: Some(ListingAvailability::InStock),
+        };
+
+        let data = template_data(&source, EmailLanguage::En, None);
+
+        assert!(data["old_availability"].is_null());
+        assert_eq!(Some("In stock"), data["new_availability"].as_str());
+        assert_eq!(
+            Some("availability_change"),
+            data["notification_type"].as_str()
+        );
         Ok(())
     }
 
@@ -596,12 +664,12 @@ mod tests {
             target_key: NotificationDeliveryTargetKey::primary(),
             content: NotificationContent::Watchlist {
                 origin_event_id: EventId::new(),
-                product_id: ProductId::new(),
-                snapshot: ProductNotificationSnapshot {
+                product_listing_id: ProductListingId::new(),
+                snapshot: ProductListingNotificationSnapshot {
                     shop_id: ShopId::new(),
-                    shops_product_id: ShopsProductId::from("shop-product"),
+                    shop_listing_id: ShopListingId::from("shop-product"),
                     shop_slug_id: ShopSlugId::from("shop"),
-                    product_slug_id: ProductSlugId::from("product"),
+                    product_listing_slug_id: ProductListingSlugId::from("product"),
                     shop_name: ShopName::from("Test Shop"),
                     title: None,
                     image: prohibited_content
@@ -615,9 +683,9 @@ mod tests {
                     url: Url::parse("https://shop.example/product")?,
                     view_url: Url::parse("https://aura-historia.example/product")?,
                 },
-                change: NotificationWatchlistChange::StateChange {
-                    old_state: ProductState::Listed,
-                    new_state: ProductState::Available,
+                change: NotificationWatchlistChange::AvailabilityChange {
+                    old_availability: Some(ListingAvailability::Available),
+                    new_availability: Some(ListingAvailability::InStock),
                 },
             },
             presentation_preferences: NotificationPresentationPreferences {

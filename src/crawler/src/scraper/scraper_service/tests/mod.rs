@@ -18,27 +18,28 @@ mod seed_pages;
 use crate::scraper::candidate_service::MockScraperCandidateService;
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
 use crate::scraper::css_selector::product_schema_service::{
-    GeneratedProductSchemas, GeneratedSingleSchema, MockProductSchemaService, SchemaLlmEvaluation,
-    SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision,
+    GeneratedProductSchemas, GeneratedSingleSchema, MockProductListingSchemaService,
+    SchemaLlmEvaluation, SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision,
 };
 use crate::scraper::css_selector::rule::{
     CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
 };
 use crate::scraper::normalization::error::NormalizationError;
+use crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping;
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::normalization::product_normalization_service::{
-    MockProductNormalizationService, NormalizationFailure, NormalizationSuccess,
+    MockProductListingNormalizationService, NormalizationFailure, NormalizationSuccess,
 };
 use crate::scraper::scraper_service::ScraperService;
 use crate::scraper::scraper_service::service::{
     DEFAULT_MAX_LLM_CALLS_PER_SHOP, FetchedHtml, MockHtmlFetcher, ScraperServiceImpl,
 };
-use crate::spider::classification::url_metadata::UrlState;
+use crate::spider::classification::url_metadata::UrlPresence;
 use localization::Language;
 use localization::Localized;
-use product_core::product_state::ProductState;
-use product_core::shops_product_id::ShopsProductId;
-use product_core::title::Title;
+use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::title::Title;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use url::Url;
@@ -89,7 +90,7 @@ pub(super) fn minimal_schema() -> ProductCssSelectorSchema {
     };
 
     ProductCssSelectorSchema {
-        shops_product_id: Some(text_rule("#product-id")),
+        shop_listing_id: Some(text_rule("#product-id")),
         title: text_rule("h1"),
         description: None,
         price: None,
@@ -153,7 +154,7 @@ pub(super) fn generated_single_product(
     schema: ProductCssSelectorSchema,
     confidence: SchemaLlmEvaluationConfidence,
 ) -> GeneratedSingleSchema {
-    GeneratedSingleSchema::Product {
+    GeneratedSingleSchema::ProductListing {
         schema: Box::new(schema),
         evaluation: schema_evaluation(confidence),
     }
@@ -162,14 +163,14 @@ pub(super) fn generated_single_product(
 pub(super) fn normalized_product(url: Url) -> NormalizedProduct {
     let title: Title = "Biedermeier Chair".into();
     NormalizedProduct {
-        shops_product_id: ShopsProductId::from("SKU-42"),
+        shop_listing_id: ShopListingId::from("SKU-42"),
         title: Localized::new(Language::De, title),
         description: None,
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
         seller_name: None,
-        state: ProductState::Available,
+        availability: ListingAvailabilityMapping::Availability(ListingAvailability::Available),
         url,
         images: vec![],
         auction_start: None,
@@ -202,15 +203,15 @@ pub(super) fn expect_successful_bookkeeping(
     cand_svc: &mut MockScraperCandidateService,
     shop_id: ShopId,
     url: Url,
-    state: UrlState,
+    state: UrlPresence,
 ) {
-    let url_for_set_state = url.clone();
+    let url_for_set_presence = url.clone();
     cand_svc
-        .expect_set_state()
+        .expect_set_presence()
         .once()
         .withf(move |received_shop_id, received_url, received_state| {
             *received_shop_id == shop_id
-                && received_url == &url_for_set_state
+                && received_url == &url_for_set_presence
                 && *received_state == state
         })
         .returning(|_, _, _| Box::pin(async { Ok(()) }));

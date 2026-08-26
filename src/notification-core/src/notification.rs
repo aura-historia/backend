@@ -2,9 +2,10 @@ use crate::{notification_id::NotificationId, notification_kind::NotificationKind
 use domain_primitives::event_id::EventId;
 use localization::Localized;
 use money::Price;
-use product_core::{
-    product_id::ProductId, product_image::ProductImage, product_slug_id::ProductSlugId,
-    product_state::ProductState, shops_product_id::ShopsProductId, title::Title,
+use product_listing_core::{
+    listing_availability::ListingAvailability, product_listing_id::ProductListingId,
+    product_listing_image::ProductListingImage, product_listing_slug_id::ProductListingSlugId,
+    shop_listing_id::ShopListingId, title::Title,
 };
 use search_filter_core::{
     user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
@@ -67,8 +68,8 @@ impl Notification {
     pub fn origin_event_id(&self) -> Option<EventId> {
         self.content.origin_event_id()
     }
-    pub fn product_id(&self) -> Option<ProductId> {
-        self.content.product_id()
+    pub fn product_listing_id(&self) -> Option<ProductListingId> {
+        self.content.product_listing_id()
     }
     pub fn mark_seen(&mut self, seen: bool) {
         self.seen = seen;
@@ -92,15 +93,15 @@ pub struct RehydratedNotificationState {
 pub enum NotificationContent {
     Watchlist {
         origin_event_id: EventId,
-        product_id: ProductId,
-        snapshot: ProductNotificationSnapshot,
+        product_listing_id: ProductListingId,
+        snapshot: ProductListingNotificationSnapshot,
         change: NotificationWatchlistChange,
     },
     SearchFilter {
         origin_event_id: EventId,
-        product_id: ProductId,
+        product_listing_id: ProductListingId,
         user_search_filter_id: UserSearchFilterId,
-        snapshot: ProductNotificationSnapshot,
+        snapshot: ProductListingNotificationSnapshot,
         user_search_filter_name: UserSearchFilterName,
     },
     PartnerApplication {
@@ -118,9 +119,9 @@ impl NotificationContent {
                 ..
             } => NotificationKind::WatchlistPriceChanged,
             Self::Watchlist {
-                change: NotificationWatchlistChange::StateChange { .. },
+                change: NotificationWatchlistChange::AvailabilityChange { .. },
                 ..
-            } => NotificationKind::WatchlistStateChanged,
+            } => NotificationKind::WatchlistAvailabilityChanged,
             Self::SearchFilter { .. } => NotificationKind::SearchFilterMatch,
             Self::PartnerApplication {
                 decision: PartnerApplicationDecision::Approved,
@@ -145,11 +146,14 @@ impl NotificationContent {
         }
     }
 
-    pub fn product_id(&self) -> Option<ProductId> {
+    pub fn product_listing_id(&self) -> Option<ProductListingId> {
         match self {
-            Self::Watchlist { product_id, .. } | Self::SearchFilter { product_id, .. } => {
-                Some(*product_id)
+            Self::Watchlist {
+                product_listing_id, ..
             }
+            | Self::SearchFilter {
+                product_listing_id, ..
+            } => Some(*product_listing_id),
             Self::PartnerApplication { .. } => None,
         }
     }
@@ -160,23 +164,23 @@ impl NotificationContent {
     ) -> LocalizedNotificationContent {
         match self {
             Self::Watchlist {
-                product_id,
+                product_listing_id,
                 snapshot,
                 change,
                 ..
             } => LocalizedNotificationContent::Watchlist {
-                product_id,
+                product_listing_id,
                 snapshot: snapshot.localized(preferred_languages),
                 change: change.localized(),
             },
             Self::SearchFilter {
-                product_id,
+                product_listing_id,
                 snapshot,
                 user_search_filter_id,
                 user_search_filter_name,
                 ..
             } => LocalizedNotificationContent::SearchFilter {
-                product_id,
+                product_listing_id,
                 snapshot: snapshot.localized(preferred_languages),
                 user_search_filter_id,
                 user_search_filter_name,
@@ -195,28 +199,28 @@ impl NotificationContent {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProductNotificationSnapshot {
+pub struct ProductListingNotificationSnapshot {
     pub shop_id: ShopId,
-    pub shops_product_id: ShopsProductId,
+    pub shop_listing_id: ShopListingId,
     pub shop_slug_id: ShopSlugId,
-    pub product_slug_id: ProductSlugId,
+    pub product_listing_slug_id: ProductListingSlugId,
     pub shop_name: ShopName,
     pub title: Option<HashMap<localization::Language, Title>>,
-    pub image: Option<ProductImage>,
+    pub image: Option<ProductListingImage>,
     pub url: Url,
     pub view_url: Url,
 }
 
-impl ProductNotificationSnapshot {
+impl ProductListingNotificationSnapshot {
     fn localized(
         self,
         preferred_languages: &[localization::Language],
-    ) -> LocalizedProductNotificationSnapshot {
-        LocalizedProductNotificationSnapshot {
+    ) -> LocalizedProductListingNotificationSnapshot {
+        LocalizedProductListingNotificationSnapshot {
             shop_id: self.shop_id,
-            shops_product_id: self.shops_product_id,
+            shop_listing_id: self.shop_listing_id,
             shop_slug_id: self.shop_slug_id,
-            product_slug_id: self.product_slug_id,
+            product_listing_slug_id: self.product_listing_slug_id,
             shop_name: self.shop_name,
             title: self
                 .title
@@ -246,9 +250,9 @@ pub enum NotificationWatchlistChange {
         old_price: Option<Price>,
         new_price: Option<Price>,
     },
-    StateChange {
-        old_state: ProductState,
-        new_state: ProductState,
+    AvailabilityChange {
+        old_availability: Option<ListingAvailability>,
+        new_availability: Option<ListingAvailability>,
     },
 }
 
@@ -262,12 +266,12 @@ impl NotificationWatchlistChange {
                 old_price,
                 new_price,
             },
-            Self::StateChange {
-                old_state,
-                new_state,
-            } => LocalizedNotificationWatchlistChange::StateChange {
-                old_state,
-                new_state,
+            Self::AvailabilityChange {
+                old_availability,
+                new_availability,
+            } => LocalizedNotificationWatchlistChange::AvailabilityChange {
+                old_availability,
+                new_availability,
             },
         }
     }
@@ -276,13 +280,13 @@ impl NotificationWatchlistChange {
 #[derive(Debug, Clone, PartialEq)]
 pub enum LocalizedNotificationContent {
     Watchlist {
-        product_id: ProductId,
-        snapshot: LocalizedProductNotificationSnapshot,
+        product_listing_id: ProductListingId,
+        snapshot: LocalizedProductListingNotificationSnapshot,
         change: LocalizedNotificationWatchlistChange,
     },
     SearchFilter {
-        product_id: ProductId,
-        snapshot: LocalizedProductNotificationSnapshot,
+        product_listing_id: ProductListingId,
+        snapshot: LocalizedProductListingNotificationSnapshot,
         user_search_filter_id: UserSearchFilterId,
         user_search_filter_name: UserSearchFilterName,
     },
@@ -294,14 +298,14 @@ pub enum LocalizedNotificationContent {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct LocalizedProductNotificationSnapshot {
+pub struct LocalizedProductListingNotificationSnapshot {
     pub shop_id: ShopId,
-    pub shops_product_id: ShopsProductId,
+    pub shop_listing_id: ShopListingId,
     pub shop_slug_id: ShopSlugId,
-    pub product_slug_id: ProductSlugId,
+    pub product_listing_slug_id: ProductListingSlugId,
     pub shop_name: ShopName,
     pub title: Option<Localized<localization::Language, Title>>,
-    pub image: Option<ProductImage>,
+    pub image: Option<ProductListingImage>,
     pub url: Url,
     pub view_url: Url,
 }
@@ -312,8 +316,8 @@ pub enum LocalizedNotificationWatchlistChange {
         old_price: Option<Price>,
         new_price: Option<Price>,
     },
-    StateChange {
-        old_state: ProductState,
-        new_state: ProductState,
+    AvailabilityChange {
+        old_availability: Option<ListingAvailability>,
+        new_availability: Option<ListingAvailability>,
     },
 }

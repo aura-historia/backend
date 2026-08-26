@@ -9,12 +9,11 @@ aws_lambda_events = { workspace = true, features = ["eventbridge", "sqs"] }
 application = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
-fxrate-postgres = { workspace = true }
 indexmap = { workspace = true }
 lambda_runtime = { workspace = true }
-product-core = { workspace = true }
-product-postgres = { workspace = true }
-product-service = { workspace = true }
+product-listing-core = { workspace = true }
+product-listing-postgres = { workspace = true }
+product-listing-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 shop-core = { workspace = true }
@@ -28,6 +27,7 @@ html-to-markdown-rs = { workspace = true }
 
 [dev-dependencies]
 fxrate-core = { workspace = true }
+fxrate-postgres = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 fxrate-service = { workspace = true }

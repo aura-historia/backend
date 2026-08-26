@@ -1,9 +1,9 @@
 use crate::mapping::WatchlistViewRow;
 use platform_postgres::SqlxTransaction;
-use product_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use user_core::user_id::UserId;
 use watchlist_service::ports::{
-    WatchlistProductView, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
+    WatchlistProductListingView, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -24,28 +24,28 @@ impl WatchlistReader for SqlxWatchlistReader<'_> {
     async fn find_for_user(
         &mut self,
         user_id: UserId,
-    ) -> Result<Vec<WatchlistProductView>, WatchlistReadError> {
+    ) -> Result<Vec<WatchlistProductListingView>, WatchlistReadError> {
         sqlx::query_as::<_, WatchlistViewRow>(
-            "SELECT user_id, product_id, notifications, state, created, updated \
-             FROM product_watchlist WHERE user_id = $1 ORDER BY created DESC, product_id ASC",
+            "SELECT user_id, product_listing_id, notifications, state, created, updated \
+             FROM product_listing_watchlist WHERE user_id = $1 ORDER BY created DESC, product_listing_id ASC",
         )
         .bind(uuid::Uuid::from(user_id))
         .fetch_all(self.tx.connection())
         .await
         .map_err(|_| WatchlistReadError::ReadFailed)?
         .into_iter()
-        .map(WatchlistProductView::try_from)
+        .map(WatchlistProductListingView::try_from)
         .collect()
     }
 
     async fn find_user_ids_for_product(
         &mut self,
-        product_id: ProductId,
+        product_listing_id: ProductListingId,
     ) -> Result<Vec<UserId>, WatchlistReadError> {
         sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT user_id FROM product_watchlist WHERE product_id = $1 ORDER BY user_id ASC",
+            "SELECT user_id FROM product_listing_watchlist WHERE product_listing_id = $1 ORDER BY user_id ASC",
         )
-        .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(product_listing_id))
         .fetch_all(self.tx.connection())
         .await
         .map_err(|_| WatchlistReadError::ReadFailed)

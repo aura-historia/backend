@@ -1,10 +1,10 @@
 use money::Price;
-use product_core::product_state::ProductState;
+use product_listing_core::listing_availability::ListingAvailability;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawExpectation {
-    pub shops_product_id: String,
+    pub shop_listing_id: String,
     pub title: String,
     pub description: Vec<String>,
     pub price: Option<String>,
@@ -19,14 +19,14 @@ pub struct RawExpectation {
 
 #[derive(Debug, Clone)]
 pub struct NormalizedExpectation {
-    pub shops_product_id: String,
+    pub shop_listing_id: String,
     pub title: String,
     pub description: Option<String>,
     pub price: Option<Price>,
     pub price_estimate_min: Option<Price>,
     pub price_estimate_max: Option<Price>,
     pub seller_name: Option<String>,
-    pub state: ProductState,
+    pub availability: Option<ListingAvailability>,
     pub url: String,
     pub images: Vec<String>,
     pub auction_start: Option<time::OffsetDateTime>,
@@ -35,7 +35,7 @@ pub struct NormalizedExpectation {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct NormalizedExpectationJson {
-    pub shops_product_id: String,
+    pub shop_listing_id: String,
     pub title: String,
     pub description: Option<String>,
     pub price: Option<u64>,
@@ -45,7 +45,7 @@ pub struct NormalizedExpectationJson {
     pub price_estimate_max: Option<u64>,
     pub price_estimate_max_currency: Option<String>,
     pub seller_name: Option<String>,
-    pub state: String,
+    pub availability: Option<String>,
     pub url: String,
     pub images: Vec<String>,
     pub auction_start: Option<String>,

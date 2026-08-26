@@ -2,9 +2,8 @@
   {
     "html": "tests/fixtures/html/weitze_available.html",
     "raw_state": "cart",
-    "state_record": "AVAILABLE",
     "schema": {
-      "shops_product_id": {
+      "shop_listing_id": {
         "selector": ".nr",
         "type": "text"
       },
@@ -41,8 +40,8 @@
       "default_currency": "EUR"
     },
     "raw": {
-      "shops_product_id": "405500",
-      "title": "Reichswehr / Wehrmacht Paar Schulterknöpfe für einen Soldaten der 6. Kompanie",
+      "shop_listing_id": "405500",
+      "title": "Reichswehr / Wehrmacht Paar Schulterkn\u00f6pfe f\u00fcr einen Soldaten der 6. Kompanie",
       "description": [
         "Aluminium 19 mm, getragen, Zustand 2-."
       ],
@@ -58,8 +57,8 @@
       "auction_end": null
     },
     "normalized": {
-      "shops_product_id": "405500",
-      "title": "Reichswehr / Wehrmacht Paar Schulterknöpfe für einen Soldaten der 6. Kompanie",
+      "shop_listing_id": "405500",
+      "title": "Reichswehr / Wehrmacht Paar Schulterkn\u00f6pfe f\u00fcr einen Soldaten der 6. Kompanie",
       "description": "Aluminium 19 mm, getragen, Zustand 2-.",
       "price": 2500,
       "price_currency": "EUR",
@@ -68,19 +67,19 @@
       "price_estimate_max": null,
       "price_estimate_max_currency": null,
       "seller_name": null,
-      "state": "AVAILABLE",
       "url": "https://www.weitze.net/antiquitaeten/auktionen/Reichswehr_Wehrmacht_Paar_Schulterknopfe_fur_einen_Soldaten_der_6_Kompanie/405500/",
       "images": [
         "https://www.weitze.net/onload/shop/gastfotos/00/405500/405500.webp"
       ],
       "auction_start": null,
-      "auction_end": null
-    }
+      "auction_end": null,
+      "availability": "AVAILABLE"
+    },
+    "availability_record": "AVAILABLE"
   },
   {
     "html": "tests/fixtures/html/chairish_available.html",
     "raw_state": "instock",
-    "state_record": "AVAILABLE",
     "schema": {
       "price": {
         "type": "text",
@@ -113,7 +112,7 @@
         "cardinality": "first"
       },
       "default_currency": "USD",
-      "shops_product_id": {
+      "shop_listing_id": {
         "name": "content",
         "type": "attribute",
         "selector": "meta[property='og:product-id']",
@@ -121,10 +120,10 @@
       }
     },
     "raw": {
-      "shops_product_id": "26206792",
+      "shop_listing_id": "26206792",
       "title": "Tall Pair of Palm Beach Style Palm Tree Candle Holders",
       "description": [
-        "Handcrafted ceramic palm tree candleholders. Each candle holder is unique and well crafted. Base is ivory with blue/green fronds.Manufactured …\n          Read more\n          Handcrafted ceramic palm tree candleholders. Each candle holder is unique and well crafted. Base is ivory with blue/green fronds.Manufactured by Chuanlhong Ceramic*no makers mark*made in Thailand on the underside\n          See less"
+        "Handcrafted ceramic palm tree candleholders. Each candle holder is unique and well crafted. Base is ivory with blue/green fronds.Manufactured \u2026\n          Read more\n          Handcrafted ceramic palm tree candleholders. Each candle holder is unique and well crafted. Base is ivory with blue/green fronds.Manufactured by Chuanlhong Ceramic*no makers mark*made in Thailand on the underside\n          See less"
       ],
       "price": "$1,125",
       "price_estimate_min": null,
@@ -145,9 +144,9 @@
       "auction_end": null
     },
     "normalized": {
-      "shops_product_id": "26206792",
+      "shop_listing_id": "26206792",
       "title": "Tall Pair of Palm Beach Style Palm Tree Candle Holders",
-      "description": "Handcrafted ceramic palm tree candleholders. Each candle holder is unique and well crafted. Base is ivory with blue/green fronds.Manufactured …\n          Read more\n          Handcrafted ceramic palm tree candleholders. Each candle holder is unique and well crafted. Base is ivory with blue/green fronds.Manufactured by Chuanlhong Ceramic*no makers mark*made in Thailand on the underside\n          See less",
+      "description": "Handcrafted ceramic palm tree candleholders. Each candle holder is unique and well crafted. Base is ivory with blue/green fronds.Manufactured \u2026\n          Read more\n          Handcrafted ceramic palm tree candleholders. Each candle holder is unique and well crafted. Base is ivory with blue/green fronds.Manufactured by Chuanlhong Ceramic*no makers mark*made in Thailand on the underside\n          See less",
       "price": 112500,
       "price_currency": "USD",
       "price_estimate_min": null,
@@ -155,7 +154,6 @@
       "price_estimate_max": null,
       "price_estimate_max_currency": null,
       "seller_name": null,
-      "state": "AVAILABLE",
       "url": "https://www.chairish.com/product/26206792/tall-pair-of-palm-beach-style-palm-tree-candle-holders",
       "images": [
         "https://chairish-prod.freetls.fastly.net/image/product/sized/058b3ad3-36af-4540-940c-3ce7dcb9ec73/tall-pair-of-palm-beach-style-palm-tree-candle-holders-4107?aspect=fit&width=640&height=640",
@@ -168,15 +166,16 @@
         "https://chairish-prod.freetls.fastly.net/image/product/sized/b216f0dc-8306-44e0-8828-2f51233b77cb/tall-pair-of-palm-beach-style-palm-tree-candle-holders-2378?aspect=fit&width=640&height=640"
       ],
       "auction_start": null,
-      "auction_end": null
-    }
+      "auction_end": null,
+      "availability": "AVAILABLE"
+    },
+    "availability_record": "AVAILABLE"
   },
   {
     "html": "tests/fixtures/html/lot-tissimo_listed.html",
     "raw_state": "true",
-    "state_record": "REMOVED",
     "schema": {
-      "shops_product_id": {
+      "shop_listing_id": {
         "selector": "input#LotId",
         "type": "attribute",
         "name": "value"
@@ -209,15 +208,15 @@
       }
     },
     "raw": {
-      "shops_product_id": "a2850590-e73c-4cce-9386-b3fd00b49bfd",
+      "shop_listing_id": "a2850590-e73c-4cce-9386-b3fd00b49bfd",
       "title": "GABRIEL DAUCHOT ",
       "description": [
-        "GABRIEL DAUCHOT (1927 Livry-Gargan - 2005 Paris)HarlekinÖl auf Leinwand. 133 x 87 cm. Gerahmt. Links unten signiert. Die Leinwand mit zwei mittig gelegenen L..."
+        "GABRIEL DAUCHOT (1927 Livry-Gargan - 2005 Paris)Harlekin\u00d6l auf Leinwand. 133 x 87 cm. Gerahmt. Links unten signiert. Die Leinwand mit zwei mittig gelegenen L..."
       ],
       "price": null,
       "price_estimate_min": null,
       "price_estimate_max": null,
-      "seller_name": "Kunstauktionshaus Leipzig | Schütte Kunstauktionen GmbH",
+      "seller_name": "Kunstauktionshaus Leipzig | Sch\u00fctte Kunstauktionen GmbH",
       "state": "true",
       "images": [
         "https://cdn.globalauctionplatform.com/auctions-2026/leipzig10033/images/910428b0-2c99-4938-87eb-b3fd00b49fbc.jpg?w=540&h=360",
@@ -228,17 +227,16 @@
       "auction_end": null
     },
     "normalized": {
-      "shops_product_id": "a2850590-e73c-4cce-9386-b3fd00b49bfd",
+      "shop_listing_id": "a2850590-e73c-4cce-9386-b3fd00b49bfd",
       "title": "GABRIEL DAUCHOT",
-      "description": "GABRIEL DAUCHOT (1927 Livry-Gargan - 2005 Paris)HarlekinÖl auf Leinwand. 133 x 87 cm. Gerahmt. Links unten signiert. Die Leinwand mit zwei mittig gelegenen L...",
+      "description": "GABRIEL DAUCHOT (1927 Livry-Gargan - 2005 Paris)Harlekin\u00d6l auf Leinwand. 133 x 87 cm. Gerahmt. Links unten signiert. Die Leinwand mit zwei mittig gelegenen L...",
       "price": null,
       "price_currency": null,
       "price_estimate_min": null,
       "price_estimate_min_currency": null,
       "price_estimate_max": null,
       "price_estimate_max_currency": null,
-      "seller_name": "Kunstauktionshaus Leipzig | Schütte Kunstauktionen GmbH",
-      "state": "REMOVED",
+      "seller_name": "Kunstauktionshaus Leipzig | Sch\u00fctte Kunstauktionen GmbH",
       "url": "https://www.lot-tissimo.com/de-de/auction-catalogues/kunstauktionshaus-leipzig/catalogue-id-leipzig10033/lot-a2850590-e73c-4cce-9386-b3fd00b49bfd",
       "images": [
         "https://cdn.globalauctionplatform.com/auctions-2026/leipzig10033/images/910428b0-2c99-4938-87eb-b3fd00b49fbc.jpg?w=540&h=360",
@@ -246,15 +244,16 @@
         "https://cdn.globalauctionplatform.com/auctions-2026/leipzig10033/images/5e0781dc-6d07-479a-a999-b3fd00b4a850.jpg?w=540&h=360"
       ],
       "auction_start": null,
-      "auction_end": null
-    }
+      "auction_end": null,
+      "availability": null
+    },
+    "availability_record": "NO_ASSERTION"
   },
   {
     "html": "tests/fixtures/html/antik-und-stil_available.html",
     "raw_state": "In den Warenkorb",
-    "state_record": "AVAILABLE",
     "schema": {
-      "shops_product_id": {
+      "shop_listing_id": {
         "selector": ".product_meta .sku",
         "type": "text"
       },
@@ -278,10 +277,10 @@
       "default_currency": "EUR"
     },
     "raw": {
-      "shops_product_id": "2025-0219-03",
+      "shop_listing_id": "2025-0219-03",
       "title": "Tisch rund antik Marmorplatte",
       "description": [],
-      "price": "749,00 €",
+      "price": "749,00\u00a0\u20ac",
       "price_estimate_min": null,
       "price_estimate_max": null,
       "state": "In den Warenkorb",
@@ -302,7 +301,7 @@
       "seller_name": null
     },
     "normalized": {
-      "shops_product_id": "2025-0219-03",
+      "shop_listing_id": "2025-0219-03",
       "title": "Tisch rund antik Marmorplatte",
       "description": null,
       "price": 74900,
@@ -311,7 +310,6 @@
       "price_estimate_min_currency": null,
       "price_estimate_max": null,
       "price_estimate_max_currency": null,
-      "state": "AVAILABLE",
       "url": "https://antik-und-stil.com/produkt/runder-esstisch-mit-marmorplatte-biedermeier-ca-1850-antik-stil/",
       "images": [
         "https://antik-und-stil.com/wp-content/uploads/2025/03/Tisch-Marmor1000-x-1000-px-1000-x-1000-px-1.png",
@@ -327,15 +325,16 @@
       ],
       "auction_start": null,
       "auction_end": null,
-      "seller_name": null
-    }
+      "seller_name": null,
+      "availability": "AVAILABLE"
+    },
+    "availability_record": "AVAILABLE"
   },
   {
     "html": "tests/fixtures/html/wandel-antik_available.html",
-    "raw_state": "Sie möchten diesen Artikel erwerben? Kontaktieren Sie uns:",
-    "state_record": "AVAILABLE",
+    "raw_state": "Sie m\u00f6chten diesen Artikel erwerben? Kontaktieren Sie uns:",
     "schema": {
-      "shops_product_id": {
+      "shop_listing_id": {
         "selector": ".elementor-repeater-item-57316fe .elementor-post-info__item--type-custom",
         "type": "text"
       },
@@ -364,17 +363,17 @@
       "default_currency": "EUR"
     },
     "raw": {
-      "shops_product_id": "Artikel-Nr: 02092",
+      "shop_listing_id": "Artikel-Nr:\u00a002092",
       "title": "Franz. Art Deco Deckenlampe, signiert Degue",
       "description": [
-        "Die französische Art Deco Deckenlampe aus Gusseisen ist signiert mit Degue. Die Tulpen und die halbrunde Mittelschale aus gesandstrahltem Glas sind mit floralen Mustern geometrisch stilisiert und wirken sehr plastisch. Die Lampe leuchtet auch im Inneren. Leider ist eines der Außengläser leicht beschädigt. Die äußeren Gläser sind durch eine separate Aufhängung befestigt, die Leuchte wurde neu verkabelt.",
-        "Maße: H60 x D65 cm"
+        "Die franz\u00f6sische Art Deco Deckenlampe aus Gusseisen ist signiert mit Degue. Die Tulpen und die halbrunde Mittelschale aus gesandstrahltem Glas sind mit floralen Mustern geometrisch stilisiert und wirken sehr plastisch. Die Lampe leuchtet auch im Inneren. Leider ist eines der Au\u00dfengl\u00e4ser leicht besch\u00e4digt. Die \u00e4u\u00dferen Gl\u00e4ser sind durch eine separate Aufh\u00e4ngung befestigt, die Leuchte wurde neu verkabelt.",
+        "Ma\u00dfe: H60 x D65 cm"
       ],
-      "price": "Preis: € 680,00 inkl. MwSt.",
+      "price": "Preis:\u00a0\u20ac\u00a0680,00 inkl. MwSt.",
       "price_estimate_min": null,
       "price_estimate_max": null,
       "seller_name": null,
-      "state": "Sie möchten diesen Artikel erwerben? Kontaktieren Sie uns:",
+      "state": "Sie m\u00f6chten diesen Artikel erwerben? Kontaktieren Sie uns:",
       "images": [
         "https://wandel-antik.de/wp-content/uploads/2092_2092_-_Franzoesische__Art_Deco_Deckenlampe_aus_Gusseisen__signiert_Degue_zoom.jpg"
       ],
@@ -382,9 +381,9 @@
       "auction_end": null
     },
     "normalized": {
-      "shops_product_id": "artikel-nr-02092",
+      "shop_listing_id": "artikel-nr-02092",
       "title": "Franz. Art Deco Deckenlampe, signiert Degue",
-      "description": "Die französische Art Deco Deckenlampe aus Gusseisen ist signiert mit Degue. Die Tulpen und die halbrunde Mittelschale aus gesandstrahltem Glas sind mit floralen Mustern geometrisch stilisiert und wirken sehr plastisch. Die Lampe leuchtet auch im Inneren. Leider ist eines der Außengläser leicht beschädigt. Die äußeren Gläser sind durch eine separate Aufhängung befestigt, die Leuchte wurde neu verkabelt.\n\nMaße: H60 x D65 cm",
+      "description": "Die franz\u00f6sische Art Deco Deckenlampe aus Gusseisen ist signiert mit Degue. Die Tulpen und die halbrunde Mittelschale aus gesandstrahltem Glas sind mit floralen Mustern geometrisch stilisiert und wirken sehr plastisch. Die Lampe leuchtet auch im Inneren. Leider ist eines der Au\u00dfengl\u00e4ser leicht besch\u00e4digt. Die \u00e4u\u00dferen Gl\u00e4ser sind durch eine separate Aufh\u00e4ngung befestigt, die Leuchte wurde neu verkabelt.\n\nMa\u00dfe: H60 x D65 cm",
       "price": 68000,
       "price_currency": "EUR",
       "price_estimate_min": null,
@@ -392,19 +391,19 @@
       "price_estimate_max": null,
       "price_estimate_max_currency": null,
       "seller_name": null,
-      "state": "AVAILABLE",
       "url": "https://wandel-antik.de/produkte/02092-franz-art-deco-deckenlampe-signiert-degue/?utm_source=aura_historia&utm_medium=referral",
       "images": [
         "https://wandel-antik.de/wp-content/uploads/2092_2092_-_Franzoesische__Art_Deco_Deckenlampe_aus_Gusseisen__signiert_Degue_zoom.jpg"
       ],
       "auction_start": null,
-      "auction_end": null
-    }
+      "auction_end": null,
+      "availability": "AVAILABLE"
+    },
+    "availability_record": "AVAILABLE"
   },
   {
     "html": "tests/fixtures/html/nicholaswells_available.html",
     "raw_state": "instock",
-    "state_record": "AVAILABLE",
     "schema": {
       "default_currency": "EUR",
       "description": {
@@ -422,7 +421,7 @@
         "selector": ".block-price__regular",
         "type": "text"
       },
-      "shops_product_id": {
+      "shop_listing_id": {
         "cardinality": "first",
         "name": "data-product-id",
         "selector": "variant-sku",
@@ -441,12 +440,12 @@
       }
     },
     "raw": {
-      "shops_product_id": "10166479978833",
+      "shop_listing_id": "10166479978833",
       "title": "Borghese Vase",
       "description": [
-        "This distinguished Borghese Vase, crafted in Italy during the early 19th century, stands as an exceptional example of Grand Tour artistry. Inspired by the celebrated antique vase now housed in the Louvre, this sculptural piece epitomises the elegance and sophistication sought by aristocratic travellers during the Regency period.\nOrigin: Italy, probably Rome\nDate: Circa 1800\nMaterial: Alabaster\nDimensions: Height: 39 cm (15.4 in); Diameter: 23 cm (9 in)\nCondition: Very fine, with a pleasing natural patina and only minor signs of age commensurate with its history.\nThe Borghese Vase remains one of the most iconic forms reproduced for the Grand Tour market. Collectors of 19th-century works of art prize such pieces for their fidelity to classical design and their tangible link to Italy’s rich artistic heritage. Modeled after ancient originals, this vase mirrors the mythological grandeur revered by connoisseurs and is reminiscent of prominent examples found in museum collections. Its presence is both a statement in Regency taste and a testament to the enduring influence of classical antiquity.\nNotable Features:\n\nExquisite hand-carved decoration in alabaster, showcasing intricate mythological motifs inspired by the antique original.\nGraceful lines and harmonious proportions, reflecting the neoclassical ideals that dominated early 19th-century Italian design.\nRare and highly coveted as a Grand Tour souvenir, this Borghese Vase holds significant collecting value due to its quality, scale, and distinguished form.\nPerfectly sized for prominent display on a mantelpiece or entry hall plinth, it would serve as a focal point for interior decoration or as an esteemed addition to any collection of Regency-era vases.\n\nThe allure of this Borghese Vase goes beyond decorative beauty, offering both historic resonance and a touch of Italian grandeur to any setting. Its authentic Grand Tour provenance, coupled with exceptional craftsmanship, makes it a distinctive and desirable piece for collectors of 19th-century works of art."
+        "This distinguished Borghese Vase, crafted in Italy during the early 19th century, stands as an exceptional example of Grand Tour artistry. Inspired by the celebrated antique vase now housed in the Louvre, this sculptural piece epitomises the elegance and sophistication sought by aristocratic travellers during the Regency period.\nOrigin: Italy, probably Rome\nDate: Circa 1800\nMaterial: Alabaster\nDimensions: Height: 39 cm (15.4 in); Diameter: 23 cm (9 in)\nCondition: Very fine, with a pleasing natural patina and only minor signs of age commensurate with its history.\nThe Borghese Vase remains one of the most iconic forms reproduced for the Grand Tour market. Collectors of 19th-century works of art prize such pieces for their fidelity to classical design and their tangible link to Italy\u2019s rich artistic heritage. Modeled after ancient originals, this vase mirrors the mythological grandeur revered by connoisseurs and is reminiscent of prominent examples found in museum collections. Its presence is both a statement in Regency taste and a testament to the enduring influence of classical antiquity.\nNotable Features:\n\nExquisite hand-carved decoration in alabaster, showcasing intricate mythological motifs inspired by the antique original.\nGraceful lines and harmonious proportions, reflecting the neoclassical ideals that dominated early 19th-century Italian design.\nRare and highly coveted as a Grand Tour souvenir, this Borghese Vase holds significant collecting value due to its quality, scale, and distinguished form.\nPerfectly sized for prominent display on a mantelpiece or entry hall plinth, it would serve as a focal point for interior decoration or as an esteemed addition to any collection of Regency-era vases.\n\nThe allure of this Borghese Vase goes beyond decorative beauty, offering both historic resonance and a touch of Italian grandeur to any setting. Its authentic Grand Tour provenance, coupled with exceptional craftsmanship, makes it a distinctive and desirable piece for collectors of 19th-century works of art."
       ],
-      "price": "Regular price\n\n\n      \n         \n    \n€11.32795\n€11.327,95",
+      "price": "Regular price\n\n\n      \n         \n    \n\u20ac11.32795\n\u20ac11.327,95",
       "price_estimate_min": null,
       "price_estimate_max": null,
       "seller_name": null,
@@ -463,9 +462,9 @@
       "auction_end": null
     },
     "normalized": {
-      "shops_product_id": "10166479978833",
+      "shop_listing_id": "10166479978833",
       "title": "Borghese Vase",
-      "description": "This distinguished Borghese Vase, crafted in Italy during the early 19th century, stands as an exceptional example of Grand Tour artistry. Inspired by the celebrated antique vase now housed in the Louvre, this sculptural piece epitomises the elegance and sophistication sought by aristocratic travellers during the Regency period.\nOrigin: Italy, probably Rome\nDate: Circa 1800\nMaterial: Alabaster\nDimensions: Height: 39 cm (15.4 in); Diameter: 23 cm (9 in)\nCondition: Very fine, with a pleasing natural patina and only minor signs of age commensurate with its history.\nThe Borghese Vase remains one of the most iconic forms reproduced for the Grand Tour market. Collectors of 19th-century works of art prize such pieces for their fidelity to classical design and their tangible link to Italy’s rich artistic heritage. Modeled after ancient originals, this vase mirrors the mythological grandeur revered by connoisseurs and is reminiscent of prominent examples found in museum collections. Its presence is both a statement in Regency taste and a testament to the enduring influence of classical antiquity.\nNotable Features:\n\nExquisite hand-carved decoration in alabaster, showcasing intricate mythological motifs inspired by the antique original.\nGraceful lines and harmonious proportions, reflecting the neoclassical ideals that dominated early 19th-century Italian design.\nRare and highly coveted as a Grand Tour souvenir, this Borghese Vase holds significant collecting value due to its quality, scale, and distinguished form.\nPerfectly sized for prominent display on a mantelpiece or entry hall plinth, it would serve as a focal point for interior decoration or as an esteemed addition to any collection of Regency-era vases.\n\nThe allure of this Borghese Vase goes beyond decorative beauty, offering both historic resonance and a touch of Italian grandeur to any setting. Its authentic Grand Tour provenance, coupled with exceptional craftsmanship, makes it a distinctive and desirable piece for collectors of 19th-century works of art.",
+      "description": "This distinguished Borghese Vase, crafted in Italy during the early 19th century, stands as an exceptional example of Grand Tour artistry. Inspired by the celebrated antique vase now housed in the Louvre, this sculptural piece epitomises the elegance and sophistication sought by aristocratic travellers during the Regency period.\nOrigin: Italy, probably Rome\nDate: Circa 1800\nMaterial: Alabaster\nDimensions: Height: 39 cm (15.4 in); Diameter: 23 cm (9 in)\nCondition: Very fine, with a pleasing natural patina and only minor signs of age commensurate with its history.\nThe Borghese Vase remains one of the most iconic forms reproduced for the Grand Tour market. Collectors of 19th-century works of art prize such pieces for their fidelity to classical design and their tangible link to Italy\u2019s rich artistic heritage. Modeled after ancient originals, this vase mirrors the mythological grandeur revered by connoisseurs and is reminiscent of prominent examples found in museum collections. Its presence is both a statement in Regency taste and a testament to the enduring influence of classical antiquity.\nNotable Features:\n\nExquisite hand-carved decoration in alabaster, showcasing intricate mythological motifs inspired by the antique original.\nGraceful lines and harmonious proportions, reflecting the neoclassical ideals that dominated early 19th-century Italian design.\nRare and highly coveted as a Grand Tour souvenir, this Borghese Vase holds significant collecting value due to its quality, scale, and distinguished form.\nPerfectly sized for prominent display on a mantelpiece or entry hall plinth, it would serve as a focal point for interior decoration or as an esteemed addition to any collection of Regency-era vases.\n\nThe allure of this Borghese Vase goes beyond decorative beauty, offering both historic resonance and a touch of Italian grandeur to any setting. Its authentic Grand Tour provenance, coupled with exceptional craftsmanship, makes it a distinctive and desirable piece for collectors of 19th-century works of art.",
       "price": 1132795,
       "price_currency": "EUR",
       "price_estimate_min": null,
@@ -473,7 +472,6 @@
       "price_estimate_max": null,
       "price_estimate_max_currency": null,
       "seller_name": null,
-      "state": "AVAILABLE",
       "url": "https://nicholaswells.com/products/borghese-vase",
       "images": [
         "https://nicholaswells.com/cdn/shop/files/borghese-vase-grand-tour.webp?v=1749114429&width=1080",
@@ -484,15 +482,16 @@
         "https://nicholaswells.com/cdn/shop/files/Fine-Rare-Early-19th-Century-Grand-Tour-Carved-Alabaster-Model-Of-The-Borghese-Vase-1.jpg?v=1749114429&width=1080"
       ],
       "auction_start": null,
-      "auction_end": null
-    }
+      "auction_end": null,
+      "availability": "AVAILABLE"
+    },
+    "availability_record": "AVAILABLE"
   },
   {
     "html": "tests/fixtures/html/proantic_available.html",
     "raw_state": "in stock",
-    "state_record": "AVAILABLE",
     "schema": {
-      "shops_product_id": {
+      "shop_listing_id": {
         "selector": "meta[property='product:retailer_item_id']",
         "type": "attribute",
         "name": "content"
@@ -541,12 +540,12 @@
       }
     },
     "raw": {
-      "shops_product_id": "1186805",
-      "title": "Vue de Gdsank ( Danzig ) , école Hollandaise , 1672 , monogrammé .",
+      "shop_listing_id": "1186805",
+      "title": "Vue de Gdsank ( Danzig ) , \u00e9cole Hollandaise , 1672 , monogramm\u00e9 .",
       "description": [
-        "Vue de Danzig ou Gdsansk , huile sur panneau de chêne , dimensions 27,5 cm x 23,5 cm , avec le cadre 47 cm x 43 cm , daté 1672 , monogrammé W.v.N.y F , école hollandaise .\nAllemande au 17 è siècle , ville portuaire elle fait partie des villes de la Hanse . Après le dernier congrès de la ligue en 1669 , elle reste unie aux trois villes de Lübeck , Hambourg et Brême , c'est l'une des places les plus importantes pour l'échange des marchandises dans le trafic entre l'Est , le nord et l'ouest de l'Europe .\nEn 1919 le traité de Versailles en fait une ville libre , elle est rattachée à la Pologne après la guerre et devient Gdsanck ."
+        "Vue de Danzig ou Gdsansk , huile sur panneau de ch\u00eane , dimensions 27,5 cm x 23,5 cm , avec le cadre 47 cm x 43 cm , dat\u00e9 1672 , monogramm\u00e9 W.v.N.y F , \u00e9cole hollandaise .\nAllemande au 17 \u00e8 si\u00e8cle , ville portuaire elle fait partie des villes de la Hanse . Apr\u00e8s le dernier congr\u00e8s de la ligue en 1669 , elle reste unie aux trois villes de L\u00fcbeck , Hambourg et Br\u00eame , c'est l'une des places les plus importantes pour l'\u00e9change des marchandises dans le trafic entre l'Est , le nord et l'ouest de l'Europe .\nEn 1919 le trait\u00e9 de Versailles en fait une ville libre , elle est rattach\u00e9e \u00e0 la Pologne apr\u00e8s la guerre et devient Gdsanck ."
       ],
-      "price": "6 900 €",
+      "price": "6\u202f900\u00a0\u20ac",
       "price_estimate_min": null,
       "price_estimate_max": null,
       "seller_name": "Galerie Laury-Bailly",
@@ -560,9 +559,9 @@
       "auction_end": null
     },
     "normalized": {
-      "shops_product_id": "1186805",
-      "title": "Vue de Gdsank ( Danzig ) , école Hollandaise , 1672 , monogrammé ",
-      "description": "Vue de Danzig ou Gdsansk , huile sur panneau de chêne , dimensions 27,5 cm x 23,5 cm , avec le cadre 47 cm x 43 cm , daté 1672 , monogrammé W.v.N.y F , école hollandaise .\nAllemande au 17 è siècle , ville portuaire elle fait partie des villes de la Hanse . Après le dernier congrès de la ligue en 1669 , elle reste unie aux trois villes de Lübeck , Hambourg et Brême , c'est l'une des places les plus importantes pour l'échange des marchandises dans le trafic entre l'Est , le nord et l'ouest de l'Europe .\nEn 1919 le traité de Versailles en fait une ville libre , elle est rattachée à la Pologne après la guerre et devient Gdsanck .",
+      "shop_listing_id": "1186805",
+      "title": "Vue de Gdsank ( Danzig ) , \u00e9cole Hollandaise , 1672 , monogramm\u00e9 ",
+      "description": "Vue de Danzig ou Gdsansk , huile sur panneau de ch\u00eane , dimensions 27,5 cm x 23,5 cm , avec le cadre 47 cm x 43 cm , dat\u00e9 1672 , monogramm\u00e9 W.v.N.y F , \u00e9cole hollandaise .\nAllemande au 17 \u00e8 si\u00e8cle , ville portuaire elle fait partie des villes de la Hanse . Apr\u00e8s le dernier congr\u00e8s de la ligue en 1669 , elle reste unie aux trois villes de L\u00fcbeck , Hambourg et Br\u00eame , c'est l'une des places les plus importantes pour l'\u00e9change des marchandises dans le trafic entre l'Est , le nord et l'ouest de l'Europe .\nEn 1919 le trait\u00e9 de Versailles en fait une ville libre , elle est rattach\u00e9e \u00e0 la Pologne apr\u00e8s la guerre et devient Gdsanck .",
       "price": 690000,
       "price_currency": "EUR",
       "price_estimate_min": null,
@@ -570,7 +569,6 @@
       "price_estimate_max": null,
       "price_estimate_max_currency": null,
       "seller_name": "Galerie Laury-Bailly",
-      "state": "AVAILABLE",
       "url": "https://www.proantic.com/1186805-vue-de-gdsank-danzig-ecole-hollandaise-1672-monogramme.html",
       "images": [
         "https://www.proantic.com/galerie/laurybailly/img/1186805-main-64f3401e587f2.jpg",
@@ -578,15 +576,16 @@
         "https://www.proantic.com/galerie/laurybailly/img/1186805-64f3406506557.jpg"
       ],
       "auction_start": null,
-      "auction_end": null
-    }
+      "auction_end": null,
+      "availability": "AVAILABLE"
+    },
+    "availability_record": "AVAILABLE"
   },
   {
     "html": "tests/fixtures/html/georgianantiques_available.html",
     "raw_state": "instock",
-    "state_record": "AVAILABLE",
     "schema": {
-      "shops_product_id": {
+      "shop_listing_id": {
         "selector": ".summary .sku",
         "type": "text"
       },
@@ -617,7 +616,7 @@
       "default_currency": "GBP"
     },
     "raw": {
-      "shops_product_id": "23175",
+      "shop_listing_id": "23175",
       "title": "Pair of Mid-Victorian Figured Mahogany Three-Drawer Jewellery Drawers.",
       "description": [
         "Circa 1870. Pair of Mid-Victorian figured mahogany three-drawer Jewellery drawers. The rectangular tops in figured mahogany with moulded edges above three drawers with original finely turned knobs, mahogany drawer linings and fine dovetails(sign of quality). With column sides and sitting on neat, fluted, moulded bases"
@@ -632,7 +631,7 @@
       "auction_end": null
     },
     "normalized": {
-      "shops_product_id": "23175",
+      "shop_listing_id": "23175",
       "title": "Pair of Mid-Victorian Figured Mahogany Three-Drawer Jewellery Drawers",
       "description": "Circa 1870. Pair of Mid-Victorian figured mahogany three-drawer Jewellery drawers. The rectangular tops in figured mahogany with moulded edges above three drawers with original finely turned knobs, mahogany drawer linings and fine dovetails(sign of quality). With column sides and sitting on neat, fluted, moulded bases",
       "price": 55000,
@@ -642,30 +641,30 @@
       "price_estimate_max": null,
       "price_estimate_max_currency": null,
       "seller_name": null,
-      "state": "AVAILABLE",
       "url": "https://www.georgianantiques.net/product/pair-of-mid-victorian-figured-mahogany-three-drawer-jewellery-drawers/",
       "images": [],
       "auction_start": null,
-      "auction_end": null
-    }
+      "auction_end": null,
+      "availability": "AVAILABLE"
+    },
+    "availability_record": "AVAILABLE"
   },
   {
     "html": "tests/fixtures/html/collingeantiques_listed.html",
-    "raw_state": "Price: £795",
-    "state_record": "LISTED",
+    "raw_state": "Price: \u00a3795",
     "schemas_file": "tests/fixtures/schemas/collingeantiques.json",
     "schema_index": 0,
     "raw": {
-      "shops_product_id": "post-47679",
+      "shop_listing_id": "post-47679",
       "title": "Walnut Dumb Waiter c.1880",
       "description": [
         "Fine quality walnut buffet or dumb waiter c.1880. Three 48\" x 20\" shelves in solid walnut with moulded edges. Shaped apron and brackets below. Joined with slim crisply turned and tapering baluster columns front and rear. Turned feet raised on the original castors. Excellent colour and condition, cleaned and waxed in our workshops."
       ],
-      "price": "Price: £795",
+      "price": "Price: \u00a3795",
       "price_estimate_min": null,
       "price_estimate_max": null,
       "seller_name": null,
-      "state": "Price: £795",
+      "state": "Price: \u00a3795",
       "images": [
         "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2266.jpg",
         "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2273.jpg",
@@ -680,7 +679,7 @@
       "auction_end": null
     },
     "normalized": {
-      "shops_product_id": "post-47679",
+      "shop_listing_id": "post-47679",
       "title": "Walnut Dumb Waiter c.1880",
       "description": "Fine quality walnut buffet or dumb waiter c.1880. Three 48\" x 20\" shelves in solid walnut with moulded edges. Shaped apron and brackets below. Joined with slim crisply turned and tapering baluster columns front and rear. Turned feet raised on the original castors. Excellent colour and condition, cleaned and waxed in our workshops.",
       "price": 79500,
@@ -690,7 +689,6 @@
       "price_estimate_max": null,
       "price_estimate_max_currency": null,
       "seller_name": null,
-      "state": "LISTED",
       "url": "https://www.collingeantiques.com/product/walnut-dumb-waiter-c-1880/",
       "images": [
         "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2266.jpg",
@@ -703,17 +701,18 @@
         "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2277.jpg"
       ],
       "auction_start": null,
-      "auction_end": null
-    }
+      "auction_end": null,
+      "availability": null
+    },
+    "availability_record": "NO_ASSERTION"
   },
   {
     "html": "tests/fixtures/html/collingeantiques_sold.html",
     "raw_state": "SOLD",
-    "state_record": "SOLD",
     "schemas_file": "tests/fixtures/schemas/collingeantiques.json",
     "schema_index": 1,
     "raw": {
-      "shops_product_id": "post-29358",
+      "shop_listing_id": "post-29358",
       "title": "18th.c. Oak Dresser Base c.1740",
       "description": [
         "Early 18th.c. oak dresser base c.1740. Two plank top with a moulded edge. Two drawers with deep raised mouldings to the drawer fronts, decorative pierced brass escutcheons and later brass swan neck handles. Applied moulding to the front and sides above and below the drawers. Raised on turned and block baluster front legs and straight rear stiles. Some obvious old wear, generally very good condition with great character and particularly good original colour and patina. Cleaned and waxed in our workshops."
@@ -742,7 +741,7 @@
       "auction_end": null
     },
     "normalized": {
-      "shops_product_id": "post-29358",
+      "shop_listing_id": "post-29358",
       "title": "18th.c. Oak Dresser Base c.1740",
       "description": "Early 18th.c. oak dresser base c.1740. Two plank top with a moulded edge. Two drawers with deep raised mouldings to the drawer fronts, decorative pierced brass escutcheons and later brass swan neck handles. Applied moulding to the front and sides above and below the drawers. Raised on turned and block baluster front legs and straight rear stiles. Some obvious old wear, generally very good condition with great character and particularly good original colour and patina. Cleaned and waxed in our workshops.",
       "price": null,
@@ -752,7 +751,6 @@
       "price_estimate_max": null,
       "price_estimate_max_currency": null,
       "seller_name": null,
-      "state": "SOLD",
       "url": "https://www.collingeantiques.com/product/18th-c-dresser-base/",
       "images": [
         "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7207.jpg",
@@ -770,22 +768,23 @@
         "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7214.jpg"
       ],
       "auction_start": null,
-      "auction_end": null
-    }
+      "auction_end": null,
+      "availability": "SOLD_OUT"
+    },
+    "availability_record": "SOLD_OUT"
   },
   {
     "html": "tests/fixtures/html/georgianantiques_sale.html",
     "raw_state": "Product Enquiry",
-    "state_record": "AVAILABLE",
     "schemas_file": "tests/fixtures/schemas/georgianantiques.json",
     "schema_index": 0,
     "raw": {
-      "shops_product_id": "088",
+      "shop_listing_id": "088",
       "title": "Cast Brass Tavern (Bell) Lamp",
       "description": [
         "DescriptionCirca 1860. Mid-Victorian cast brass tavern bell candle stick (recently converted to electricity), the top surmounted with a large faux candle resting on the brass nozzle, beneath this there is a small brass wheel in faux wood pattern and a bell supported on a faux beam, when the wheel rotates it rings the bell, contained in a frame in the form of a bell, supported on a simple brass stem on a large dished base.Dimensions:44cm High, 15.5cm Dia.Period 1860-1880: Mid VictorianCategory Table Lamps & Candelabra"
       ],
-      "price": "£400",
+      "price": "\u00a3400",
       "price_estimate_min": null,
       "price_estimate_max": null,
       "seller_name": null,
@@ -811,7 +810,7 @@
       }
     },
     "normalized": {
-      "shops_product_id": "088",
+      "shop_listing_id": "088",
       "title": "Cast Brass Tavern (Bell) Lamp",
       "description": "DescriptionCirca 1860. Mid-Victorian cast brass tavern bell candle stick (recently converted to electricity), the top surmounted with a large faux candle resting on the brass nozzle, beneath this there is a small brass wheel in faux wood pattern and a bell supported on a faux beam, when the wheel rotates it rings the bell, contained in a frame in the form of a bell, supported on a simple brass stem on a large dished base.Dimensions:44cm High, 15.5cm Dia.Period 1860-1880: Mid VictorianCategory Table Lamps & Candelabra",
       "price": 40000,
@@ -821,7 +820,6 @@
       "price_estimate_max": null,
       "price_estimate_max_currency": null,
       "seller_name": null,
-      "state": "AVAILABLE",
       "url": "https://www.georgianantiques.net/product/cast-brass-tavern-bell-lamp/",
       "images": [
         "https://www.georgianantiques.net/wp-content/uploads/2026/01/GAN_2916.jpg",
@@ -832,20 +830,21 @@
         "https://www.georgianantiques.net/wp-content/uploads/2026/01/GAN_2920.jpg"
       ],
       "auction_start": null,
-      "auction_end": null
-    }
+      "auction_end": null,
+      "availability": "AVAILABLE"
+    },
+    "availability_record": "AVAILABLE"
   },
   {
     "html": "tests/fixtures/html/georgianantiques_priceless.html",
     "raw_state": "Product Enquiry",
-    "state_record": "AVAILABLE",
     "schemas_file": "tests/fixtures/schemas/georgianantiques.json",
     "schema_index": 2,
     "raw": {
-      "shops_product_id": "22234-22238",
+      "shop_listing_id": "22234-22238",
       "title": "Collection of Victorian Silver Claret Jugs",
       "description": [
-        "DescriptionA stunning collection of silver claret jugs and a water jug.From left to right:A Victorian silver gilt claret jug, Lawson and Co. Glasgow, 1899. Hallmarked on the foot-rim. With scroll, swag and floral chaste decoration; both cartouches empty; no inscriptions; fluted neck and Rococo spout, with C-scroll cast acanthus handle.\nSize 33cm high x 12cm wide x 14cm deep.\n£2,750An early Victorian silver claret Jug, Marshall and Sons. Edinburgh, 1838. Hallmarked on the neck. With a Neo Classical acanthus body on dome-spreading foot, with applied cast rose and foliate neck, S-scroll acanthus handle with cast flower head finial. Size 35cm x 18cm x 14cm deep.\n£2,750A large Victorian silver claret jug, John Muirhead and Son, Glasgow, 1848. Hallmarked on the neck. Of magnum size with chased floral and scroll body, flat chased decoration, Rococo decoration at the neck, with s-scroll acanthus handle and cast foliate finial. The front of the body is engraved with full armorial.\nSize 34cm high x 17cm wide x 13cm deep.\nNOW SOLD.An early Victorian Neoclassical silver Claret Jug. Sheffield, 1838. Hallmarked on the spout. There is a presentation inscription on the body to Donald MacFarlane Esquire, Callandar – ‘A small tribute of gratitude for his guardianship of the family of the late Peter MacLaren. Middleton, 1842.’ With cast grape and vine neck handle and finial.\nSize 32cm high x 17cm wide x 11cm deep.\nNOW SOLDA Victorian water jug. Sheffield, 1899. Hallmarked on the neck. With applied foliate pendant swags and foliate border, with wicker-wrapped raffia handle; hinged spout with plain finial.\nSize 28cm high x 14cm wide x 9cm deep.\nNOW SOLDPeriod 1837-1901: VictorianCategory Kitchenware & Tableware"
+        "DescriptionA stunning collection of silver claret jugs and a water jug.From left to right:A Victorian silver gilt claret jug, Lawson and Co. Glasgow, 1899. Hallmarked on the foot-rim. With scroll, swag and floral chaste decoration; both cartouches empty; no inscriptions; fluted neck and Rococo spout, with C-scroll cast acanthus handle.\nSize 33cm high x 12cm wide x 14cm deep.\n\u00a32,750An early Victorian silver claret Jug, Marshall and Sons. Edinburgh, 1838. Hallmarked on the neck. With a Neo Classical acanthus body on dome-spreading foot, with applied cast rose and foliate neck, S-scroll acanthus handle with cast flower head finial. Size 35cm x 18cm x 14cm deep.\n\u00a32,750A large Victorian silver claret jug, John Muirhead and Son, Glasgow, 1848. Hallmarked on the neck. Of magnum size with chased floral and scroll body, flat chased decoration, Rococo decoration at the neck, with s-scroll acanthus handle and cast foliate finial. The front of the body is engraved with full armorial.\nSize 34cm high x 17cm wide x 13cm deep.\nNOW SOLD.An early Victorian Neoclassical silver Claret Jug. Sheffield, 1838. Hallmarked on the spout. There is a presentation inscription on the body to Donald MacFarlane Esquire, Callandar \u2013 \u2018A small tribute of gratitude for his guardianship of the family of the late Peter MacLaren. Middleton, 1842.\u2019 With cast grape and vine neck handle and finial.\nSize 32cm high x 17cm wide x 11cm deep.\nNOW SOLDA Victorian water jug. Sheffield, 1899. Hallmarked on the neck. With applied foliate pendant swags and foliate border, with wicker-wrapped raffia handle; hinged spout with plain finial.\nSize 28cm high x 14cm wide x 9cm deep.\nNOW SOLDPeriod 1837-1901: VictorianCategory Kitchenware & Tableware"
       ],
       "price": null,
       "price_estimate_min": null,
@@ -883,9 +882,9 @@
       }
     },
     "normalized": {
-      "shops_product_id": "22234-22238",
+      "shop_listing_id": "22234-22238",
       "title": "Collection of Victorian Silver Claret Jugs",
-      "description": "DescriptionA stunning collection of silver claret jugs and a water jug.From left to right:A Victorian silver gilt claret jug, Lawson and Co. Glasgow, 1899. Hallmarked on the foot-rim. With scroll, swag and floral chaste decoration; both cartouches empty; no inscriptions; fluted neck and Rococo spout, with C-scroll cast acanthus handle.\nSize 33cm high x 12cm wide x 14cm deep.\n£2,750An early Victorian silver claret Jug, Marshall and Sons. Edinburgh, 1838. Hallmarked on the neck. With a Neo Classical acanthus body on dome-spreading foot, with applied cast rose and foliate neck, S-scroll acanthus handle with cast flower head finial. Size 35cm x 18cm x 14cm deep.\n£2,750A large Victorian silver claret jug, John Muirhead and Son, Glasgow, 1848. Hallmarked on the neck. Of magnum size with chased floral and scroll body, flat chased decoration, Rococo decoration at the neck, with s-scroll acanthus handle and cast foliate finial. The front of the body is engraved with full armorial.\nSize 34cm high x 17cm wide x 13cm deep.\nNOW SOLD.An early Victorian Neoclassical silver Claret Jug. Sheffield, 1838. Hallmarked on the spout. There is a presentation inscription on the body to Donald MacFarlane Esquire, Callandar – ‘A small tribute of gratitude for his guardianship of the family of the late Peter MacLaren. Middleton, 1842.’ With cast grape and vine neck handle and finial.\nSize 32cm high x 17cm wide x 11cm deep.\nNOW SOLDA Victorian water jug. Sheffield, 1899. Hallmarked on the neck. With applied foliate pendant swags and foliate border, with wicker-wrapped raffia handle; hinged spout with plain finial.\nSize 28cm high x 14cm wide x 9cm deep.\nNOW SOLDPeriod 1837-1901: VictorianCategory Kitchenware & Tableware",
+      "description": "DescriptionA stunning collection of silver claret jugs and a water jug.From left to right:A Victorian silver gilt claret jug, Lawson and Co. Glasgow, 1899. Hallmarked on the foot-rim. With scroll, swag and floral chaste decoration; both cartouches empty; no inscriptions; fluted neck and Rococo spout, with C-scroll cast acanthus handle.\nSize 33cm high x 12cm wide x 14cm deep.\n\u00a32,750An early Victorian silver claret Jug, Marshall and Sons. Edinburgh, 1838. Hallmarked on the neck. With a Neo Classical acanthus body on dome-spreading foot, with applied cast rose and foliate neck, S-scroll acanthus handle with cast flower head finial. Size 35cm x 18cm x 14cm deep.\n\u00a32,750A large Victorian silver claret jug, John Muirhead and Son, Glasgow, 1848. Hallmarked on the neck. Of magnum size with chased floral and scroll body, flat chased decoration, Rococo decoration at the neck, with s-scroll acanthus handle and cast foliate finial. The front of the body is engraved with full armorial.\nSize 34cm high x 17cm wide x 13cm deep.\nNOW SOLD.An early Victorian Neoclassical silver Claret Jug. Sheffield, 1838. Hallmarked on the spout. There is a presentation inscription on the body to Donald MacFarlane Esquire, Callandar \u2013 \u2018A small tribute of gratitude for his guardianship of the family of the late Peter MacLaren. Middleton, 1842.\u2019 With cast grape and vine neck handle and finial.\nSize 32cm high x 17cm wide x 11cm deep.\nNOW SOLDA Victorian water jug. Sheffield, 1899. Hallmarked on the neck. With applied foliate pendant swags and foliate border, with wicker-wrapped raffia handle; hinged spout with plain finial.\nSize 28cm high x 14cm wide x 9cm deep.\nNOW SOLDPeriod 1837-1901: VictorianCategory Kitchenware & Tableware",
       "price": null,
       "price_currency": null,
       "price_estimate_min": null,
@@ -893,7 +892,6 @@
       "price_estimate_max": null,
       "price_estimate_max_currency": null,
       "seller_name": null,
-      "state": "AVAILABLE",
       "url": "https://www.georgianantiques.net/product/collection-of-victorian-silver-claret-jugs",
       "images": [
         "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jugs-4-scaled-1-600x600.jpg",
@@ -917,22 +915,23 @@
         "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-E-7-scaled-1-600x400.jpg"
       ],
       "auction_start": null,
-      "auction_end": null
-    }
+      "auction_end": null,
+      "availability": "AVAILABLE"
+    },
+    "availability_record": "AVAILABLE"
   },
   {
     "html": "tests/fixtures/html/antik-und-stil_sale.html",
     "raw_state": "In den Warenkorb",
-    "state_record": "AVAILABLE",
     "schemas_file": "tests/fixtures/schemas/antik-und-stil.json",
     "schema_index": 3,
     "raw": {
-      "shops_product_id": "38426",
-      "title": "Couchtisch Glas Vintage – Wohnzimmertisch mit geschnitzten Holzgestell",
+      "shop_listing_id": "38426",
+      "title": "Couchtisch Glas Vintage \u2013 Wohnzimmertisch mit geschnitzten Holzgestell",
       "description": [
-        "Dieser außergewöhnliche Couchtisch Glas Vintage vereint klassische Eleganz mit dekorativer Ausstrahlung und wird zum stilvollen Mittelpunkt jedes Wohnraums. Die großzügige Glasplatte ruht auf zwei kunstvoll gestalteten Holzsockeln und sorgt für eine elegante Kombination aus Transparenz und ornamentaler Gestaltung. Mit seiner Breite von 150 cm bietet der Wohnzimmertisch viel Platz für Bücher, Dekorationen oder stilvolle Accessoires."
+        "Dieser au\u00dfergew\u00f6hnliche Couchtisch Glas Vintage vereint\u00a0klassische Eleganz mit dekorativer Ausstrahlung und wird zum stilvollen Mittelpunkt jedes Wohnraums. Die gro\u00dfz\u00fcgige Glasplatte ruht auf zwei kunstvoll gestalteten Holzsockeln und sorgt f\u00fcr eine elegante Kombination aus Transparenz und ornamentaler Gestaltung. Mit seiner Breite von 150 cm bietet der Wohnzimmertisch viel Platz f\u00fcr B\u00fccher, Dekorationen oder stilvolle Accessoires."
       ],
-      "price": "800,00 €",
+      "price": "800,00\u00a0\u20ac",
       "price_estimate_min": null,
       "price_estimate_max": null,
       "seller_name": null,
@@ -963,9 +962,9 @@
       }
     },
     "normalized": {
-      "shops_product_id": "38426",
-      "title": "Couchtisch Glas Vintage – Wohnzimmertisch mit geschnitzten Holzgestell",
-      "description": "Dieser außergewöhnliche Couchtisch Glas Vintage vereint klassische Eleganz mit dekorativer Ausstrahlung und wird zum stilvollen Mittelpunkt jedes Wohnraums. Die großzügige Glasplatte ruht auf zwei kunstvoll gestalteten Holzsockeln und sorgt für eine elegante Kombination aus Transparenz und ornamentaler Gestaltung. Mit seiner Breite von 150 cm bietet der Wohnzimmertisch viel Platz für Bücher, Dekorationen oder stilvolle Accessoires.",
+      "shop_listing_id": "38426",
+      "title": "Couchtisch Glas Vintage \u2013 Wohnzimmertisch mit geschnitzten Holzgestell",
+      "description": "Dieser au\u00dfergew\u00f6hnliche Couchtisch Glas Vintage vereint\u00a0klassische Eleganz mit dekorativer Ausstrahlung und wird zum stilvollen Mittelpunkt jedes Wohnraums. Die gro\u00dfz\u00fcgige Glasplatte ruht auf zwei kunstvoll gestalteten Holzsockeln und sorgt f\u00fcr eine elegante Kombination aus Transparenz und ornamentaler Gestaltung. Mit seiner Breite von 150 cm bietet der Wohnzimmertisch viel Platz f\u00fcr B\u00fccher, Dekorationen oder stilvolle Accessoires.",
       "price": 80000,
       "price_currency": "EUR",
       "price_estimate_min": null,
@@ -973,7 +972,6 @@
       "price_estimate_max": null,
       "price_estimate_max_currency": null,
       "seller_name": null,
-      "state": "AVAILABLE",
       "url": "https://antik-und-stil.com/produkt/couchtisch-glas-vintage-wohnzimmertisch-mit-geschnitzten-holzgestell/",
       "images": [
         "https://antik-und-stil.com/wp-content/uploads/2026/03/56A8EEE6-078D-496D-8362-FDF3E6170795.webp",
@@ -987,22 +985,23 @@
         "https://antik-und-stil.com/wp-content/uploads/2026/08/116E42D1-38A4-4297-A18E-8E5384B2750E_result.webp"
       ],
       "auction_start": null,
-      "auction_end": null
-    }
+      "auction_end": null,
+      "availability": "AVAILABLE"
+    },
+    "availability_record": "AVAILABLE"
   },
   {
     "html": "tests/fixtures/html/antik-und-stil_priceless.html",
     "raw_state": "In den Warenkorb",
-    "state_record": "AVAILABLE",
     "schemas_file": "tests/fixtures/schemas/antik-und-stil.json",
     "schema_index": 3,
     "raw": {
-      "shops_product_id": "38291",
+      "shop_listing_id": "38291",
       "title": "Antiker Jugendstil Kronleuchter aus Bronze und Alabaster um 1910",
       "description": [
-        "Dieser antike Jugendstil Kronleuchter ist ein beeindruckendes Original aus der Zeit um 1910 und vereint Handwerkskunst mit hochwertigsten Materialien. Gefertigt aus massiver Bronze und einer edlen Schale aus echtemAlabaster, verkörpert dieser Leuchter die elegante Formsprache des Art Nouveau. Die harmonisch geschwungenen Arme, floralen Verzierungen und fein ausgearbeiteten Details spiegeln die typischen Merkmale des Jugendstils wider und machen diesen antiken Jugendstil Kronleuchter zu einem außergewöhnlichen Blickfang in jedem Raum."
+        "Dieser antike Jugendstil Kronleuchter ist ein beeindruckendes Original aus der Zeit um 1910 und vereint Handwerkskunst mit hochwertigsten Materialien. Gefertigt aus massiver Bronze und einer edlen Schale aus echtemAlabaster, verk\u00f6rpert dieser Leuchter die elegante Formsprache des Art Nouveau. Die harmonisch geschwungenen Arme, floralen Verzierungen und fein ausgearbeiteten Details spiegeln die typischen Merkmale des Jugendstils wider und machen diesen antiken Jugendstil Kronleuchter\u00a0zu einem au\u00dfergew\u00f6hnlichen Blickfang in jedem Raum."
       ],
-      "price": "690,00 €",
+      "price": "690,00\u00a0\u20ac",
       "price_estimate_min": null,
       "price_estimate_max": null,
       "seller_name": null,
@@ -1032,9 +1031,9 @@
       }
     },
     "normalized": {
-      "shops_product_id": "38291",
+      "shop_listing_id": "38291",
       "title": "Antiker Jugendstil Kronleuchter aus Bronze und Alabaster um 1910",
-      "description": "Dieser antike Jugendstil Kronleuchter ist ein beeindruckendes Original aus der Zeit um 1910 und vereint Handwerkskunst mit hochwertigsten Materialien. Gefertigt aus massiver Bronze und einer edlen Schale aus echtemAlabaster, verkörpert dieser Leuchter die elegante Formsprache des Art Nouveau. Die harmonisch geschwungenen Arme, floralen Verzierungen und fein ausgearbeiteten Details spiegeln die typischen Merkmale des Jugendstils wider und machen diesen antiken Jugendstil Kronleuchter zu einem außergewöhnlichen Blickfang in jedem Raum.",
+      "description": "Dieser antike Jugendstil Kronleuchter ist ein beeindruckendes Original aus der Zeit um 1910 und vereint Handwerkskunst mit hochwertigsten Materialien. Gefertigt aus massiver Bronze und einer edlen Schale aus echtemAlabaster, verk\u00f6rpert dieser Leuchter die elegante Formsprache des Art Nouveau. Die harmonisch geschwungenen Arme, floralen Verzierungen und fein ausgearbeiteten Details spiegeln die typischen Merkmale des Jugendstils wider und machen diesen antiken Jugendstil Kronleuchter\u00a0zu einem au\u00dfergew\u00f6hnlichen Blickfang in jedem Raum.",
       "price": 69000,
       "price_currency": "EUR",
       "price_estimate_min": null,
@@ -1042,7 +1041,6 @@
       "price_estimate_max": null,
       "price_estimate_max_currency": null,
       "seller_name": null,
-      "state": "AVAILABLE",
       "url": "https://antik-und-stil.com/produkt/antiker-jugendstil-kronleuchter-aus-bronze-und-alabaster-um-1910/",
       "images": [
         "https://antik-und-stil.com/wp-content/uploads/2026/02/Kein-Titel-105-x-105-mm-155-x-105-mm-105-x-105-mm-105-x-105-px-155-x-155-px-155-x-155-px-500-x-500-px-1024-x-1024-px-553.webp",
@@ -1055,7 +1053,9 @@
         "https://antik-und-stil.com/wp-content/uploads/2026/02/Kein-Titel-105-x-105-mm-155-x-105-mm-105-x-105-mm-105-x-105-px-155-x-155-px-155-x-155-px-500-x-500-px-1024-x-1024-px-553.webp"
       ],
       "auction_start": null,
-      "auction_end": null
-    }
+      "auction_end": null,
+      "availability": "AVAILABLE"
+    },
+    "availability_record": "AVAILABLE"
   }
 ]

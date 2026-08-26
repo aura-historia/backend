@@ -9,7 +9,7 @@ struct FixtureJson {
 
 #[derive(Debug, Deserialize)]
 struct RawExpectation {
-    shops_product_id: String,
+    shop_listing_id: String,
     title: String,
     description: Vec<String>,
     price: Option<String>,
@@ -73,7 +73,7 @@ fn assert_no_raw_noise_blocks(fixture_path: &str, dsl: &str) {
 }
 
 fn assert_raw_expectations_are_represented(fixture_path: &str, dsl: &str, raw: &RawExpectation) {
-    assert_value_is_represented(fixture_path, "shops_product_id", &raw.shops_product_id, dsl);
+    assert_value_is_represented(fixture_path, "shop_listing_id", &raw.shop_listing_id, dsl);
     assert_value_is_represented(fixture_path, "title", &raw.title, dsl);
     assert_value_is_represented(fixture_path, "state", &raw.state, dsl);
     assert_optional_value_is_represented(fixture_path, "price", raw.price.as_deref(), dsl);

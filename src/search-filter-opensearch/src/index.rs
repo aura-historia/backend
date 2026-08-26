@@ -121,10 +121,16 @@ impl OpenSearchSearchFilterIndex {
                 ))
                 .send()
                 .await
-                .map_err(percolation_error)?
-                .error_for_status_code()
                 .map_err(percolation_error)?;
+            let status = response.status_code();
             let payload = response.text().await.map_err(percolation_error)?;
+            if !status.is_success() {
+                return Err(SearchFilterIndexError::PercolateFailed {
+                    source: box_error(std::io::Error::other(format!(
+                        "OpenSearch percolation returned {status}: {payload}"
+                    ))),
+                });
+            }
             let response = serde_json::from_str::<SearchResponse<SearchFilterDocument>>(&payload)
                 .map_err(|source| SearchFilterIndexError::InvalidDocument {
                 source: box_error(source),
@@ -294,14 +300,14 @@ impl SearchFilterIndex for OpenSearchSearchFilterIndex {
 
     async fn percolate(
         &self,
-        input: &product_service::ports::ProductPercolationInput,
+        input: &product_listing_service::ports::ProductListingPercolationInput,
     ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
-        let product_document =
-            product_opensearch::product_percolation_document(input).map_err(|source| {
-                SearchFilterIndexError::PercolateFailed {
-                    source: box_error(source),
-                }
-            })?;
+        let product_document = product_listing_opensearch::product_listing_percolation_document(
+            input,
+        )
+        .map_err(|source| SearchFilterIndexError::PercolateFailed {
+            source: box_error(source),
+        })?;
         let pit_id = self.open_point_in_time().await?;
         let percolation_result = self.percolate_all(&product_document, &pit_id).await;
         let close_result = self.close_point_in_time(&pit_id).await;

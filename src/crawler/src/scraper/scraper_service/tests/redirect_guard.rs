@@ -82,7 +82,7 @@ fn should_not_reject_non_homepage_redirect_when_pattern_is_invalid() {
 }
 
 #[tokio::test]
-async fn should_mark_product_removed_when_product_url_redirects_to_homepage() {
+async fn should_withdraw_product_when_product_url_redirects_to_homepage() {
     let id = shop_id();
     let url = product_url();
     let homepage = Url::parse("https://example.com/").unwrap();
@@ -94,18 +94,18 @@ async fn should_mark_product_removed_when_product_url_redirects_to_homepage() {
         Box::pin(async move { Ok(fetch_result_for(sample_html(), final_url)) })
     });
 
-    let schema_svc = MockProductSchemaService::new();
-    let norm_svc = MockProductNormalizationService::new();
+    let schema_svc = MockProductListingSchemaService::new();
+    let norm_svc = MockProductListingNormalizationService::new();
 
     let mut cand_svc = MockScraperCandidateService::new();
-    let url_for_set_state = url.clone();
+    let url_for_set_presence = url.clone();
     cand_svc
-        .expect_set_state()
+        .expect_set_presence()
         .once()
         .withf(move |received_shop_id, received_url, received_state| {
             *received_shop_id == id
-                && received_url == &url_for_set_state
-                && *received_state == UrlState::Removed
+                && received_url == &url_for_set_presence
+                && *received_state == UrlPresence::Withdrawn
         })
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
@@ -120,11 +120,11 @@ async fn should_mark_product_removed_when_product_url_redirects_to_homepage() {
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();
 
-    assert!(matches!(err, ScraperError::ProductRemoved { .. }));
+    assert!(matches!(err, ScraperError::ProductListingRemoved { .. }));
 }
 
 #[tokio::test]
-async fn should_mark_product_removed_when_redirected_url_does_not_match_product_pattern() {
+async fn should_withdraw_product_when_redirected_url_does_not_match_product_pattern() {
     let id = shop_id();
     let url = Url::parse("https://www.ebth.com/items/7055109-digital-print-television-poster-dirt")
         .unwrap();
@@ -140,18 +140,18 @@ async fn should_mark_product_removed_when_redirected_url_does_not_match_product_
         Box::pin(async move { Ok(fetch_result_for(sample_html(), final_url)) })
     });
 
-    let schema_svc = MockProductSchemaService::new();
-    let norm_svc = MockProductNormalizationService::new();
+    let schema_svc = MockProductListingSchemaService::new();
+    let norm_svc = MockProductListingNormalizationService::new();
 
     let mut cand_svc = MockScraperCandidateService::new();
-    let url_for_set_state = url.clone();
+    let url_for_set_presence = url.clone();
     cand_svc
-        .expect_set_state()
+        .expect_set_presence()
         .once()
         .withf(move |received_shop_id, received_url, received_state| {
             *received_shop_id == id
-                && received_url == &url_for_set_state
-                && *received_state == UrlState::Removed
+                && received_url == &url_for_set_presence
+                && *received_state == UrlPresence::Withdrawn
         })
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
@@ -169,5 +169,5 @@ async fn should_mark_product_removed_when_redirected_url_does_not_match_product_
         .await
         .unwrap_err();
 
-    assert!(matches!(err, ScraperError::ProductRemoved { .. }));
+    assert!(matches!(err, ScraperError::ProductListingRemoved { .. }));
 }

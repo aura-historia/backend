@@ -1,0 +1,38 @@
+[package]
+name = "product-listing-opensearch"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+domain-primitives = { workspace = true }
+application = { workspace = true }
+async-trait = { workspace = true }
+geo = { workspace = true }
+fxrate-core = { workspace = true }
+indexmap = { workspace = true }
+isocountry = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
+opensearch = { workspace = true }
+product-listing-core = { workspace = true }
+product-listing-service = { workspace = true }
+platform-opensearch = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_fields = { workspace = true }
+shop-core = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true, features = ["formatting", "serde"] }
+tracing = { workspace = true }
+url = { workspace = true, features = ["serde"] }
+
+[dev-dependencies]
+rstest = { workspace = true }
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["opensearch"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[features]
+default = []

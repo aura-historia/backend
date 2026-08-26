@@ -21,8 +21,8 @@ fn should_classify_title_errors_as_cached_schema_fallback_failures() {
     );
 
     assert_eq!(
-        NormalizationError::StateMappingError(
-            crate::scraper::normalization::state_mapping_service::StateMappingServiceError::DatabaseError(
+        NormalizationError::ListingAvailabilityMappingError(
+            crate::scraper::normalization::listing_availability_mapping_service::ListingAvailabilityMappingServiceError::DatabaseError(
                 sqlx::Error::RowNotFound,
             ),
         )
@@ -70,7 +70,7 @@ async fn should_validate_images_before_ranking_all_cached_candidates() {
                 ))
             })
         });
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -82,7 +82,7 @@ async fn should_validate_images_before_ranking_all_cached_candidates() {
     schema_svc.expect_save_product_schemas().never();
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()
@@ -93,7 +93,7 @@ async fn should_validate_images_before_ranking_all_cached_candidates() {
         });
 
     let mut candidate_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut candidate_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut candidate_svc, id, url.clone(), UrlPresence::Present);
     let image_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -133,7 +133,7 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -152,7 +152,7 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
         .as_ref()
         .expect("first error should be present")
         .failure_scope();
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .times(1..=2)
@@ -173,7 +173,7 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
 
     let mut cand_svc = MockScraperCandidateService::new();
     if expected_scope == NormalizationFailureScope::CandidateData {
-        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
     }
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -190,8 +190,8 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
         NormalizationFailureScope::CandidateData => {
             let product = result.unwrap().unwrap();
             assert_eq!(
-                product.product.shops_product_id,
-                ShopsProductId::from("SKU-42")
+                product.product.shop_listing_id,
+                ShopListingId::from("SKU-42")
             );
         }
         NormalizationFailureScope::External => {
@@ -255,7 +255,7 @@ async fn should_try_all_cached_schemas_before_fresh_generation() {
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -289,7 +289,7 @@ async fn should_try_all_cached_schemas_before_fresh_generation() {
 
     let expected = normalized_product(url.clone());
     let norm_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .times(3)
@@ -307,7 +307,7 @@ async fn should_try_all_cached_schemas_before_fresh_generation() {
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -324,8 +324,8 @@ async fn should_try_all_cached_schemas_before_fresh_generation() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        result.product.shops_product_id,
-        ShopsProductId::from("SKU-42")
+        result.product.shop_listing_id,
+        ShopListingId::from("SKU-42")
     );
 }
 
@@ -347,7 +347,7 @@ async fn should_generate_fresh_schema_when_cached_data_fails() {
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -382,7 +382,7 @@ async fn should_generate_fresh_schema_when_cached_data_fails() {
 
     let expected = normalized_product(url.clone());
     let norm_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .times(2)
@@ -400,7 +400,7 @@ async fn should_generate_fresh_schema_when_cached_data_fails() {
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -417,8 +417,8 @@ async fn should_generate_fresh_schema_when_cached_data_fails() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        result.product.shops_product_id,
-        ShopsProductId::from("SKU-42")
+        result.product.shop_listing_id,
+        ShopListingId::from("SKU-42")
     );
 }
 
@@ -434,7 +434,7 @@ async fn should_abort_without_fresh_schema_when_cached_candidate_has_external_fa
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -445,12 +445,12 @@ async fn should_abort_without_fresh_schema_when_cached_candidate_has_external_fa
     schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
 
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc.expect_normalize().once().returning(|_, _, _| {
         Box::pin(async {
             Err(normalization_failure(
-                NormalizationError::StateMappingError(
-                    crate::scraper::normalization::state_mapping_service::StateMappingServiceError::DatabaseError(
+                NormalizationError::ListingAvailabilityMappingError(
+                    crate::scraper::normalization::listing_availability_mapping_service::ListingAvailabilityMappingServiceError::DatabaseError(
                         sqlx::Error::RowNotFound,
                     ),
                 ),
@@ -499,7 +499,7 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
     });
 
     let schema = shops_product_schema(id);
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -511,7 +511,7 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
     schema_svc.expect_save_product_schemas().never();
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()
@@ -524,7 +524,7 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -575,7 +575,7 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate() {
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -587,7 +587,7 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate() {
     schema_svc.expect_save_product_schemas().never();
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()
@@ -600,7 +600,7 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate() {
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -639,7 +639,7 @@ async fn should_generate_single_schema_without_failed_schema_context() {
         cardinality: ExtractionCardinality::All,
     };
     let make_bad_schema = |title_selector: &str| ProductCssSelectorSchema {
-        shops_product_id: Some(text_rule("non-existent-id")),
+        shop_listing_id: Some(text_rule("non-existent-id")),
         title: text_rule(title_selector),
         description: None,
         price: None,
@@ -657,7 +657,7 @@ async fn should_generate_single_schema_without_failed_schema_context() {
     let bad_existing = make_bad_schema("non-existent-title-1");
     let bad_generated = make_bad_schema("non-existent-title-2");
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     let existing = ShopsProductSchema {
         shop_id: id,
         product_schemas: vec![bad_existing.clone()],
@@ -686,7 +686,7 @@ async fn should_generate_single_schema_without_failed_schema_context() {
         });
     schema_svc.expect_save_product_schemas().never();
 
-    let norm_svc = MockProductNormalizationService::new();
+    let norm_svc = MockProductListingNormalizationService::new();
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
 
@@ -736,7 +736,7 @@ async fn should_fail_when_fresh_schema_normalization_keeps_failing() {
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -759,7 +759,7 @@ async fn should_fail_when_fresh_schema_normalization_keeps_failing() {
     schema_svc.expect_save_product_schemas().never();
 
     // Both normalize calls return candidate-data failures.
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .times(2) // 1 initial + 1 retry attempt

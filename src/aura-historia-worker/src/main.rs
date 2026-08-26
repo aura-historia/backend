@@ -1,6 +1,6 @@
 use aura_historia_worker::notification_delivery::consume_notification_delivery_queue;
 use aura_historia_worker::product_embedding::consume_product_embedding_queue;
-use aura_historia_worker::product_opensearch::consume_product_opensearch_queue;
+use aura_historia_worker::product_listing_opensearch::consume_product_listing_opensearch_queue;
 use aura_historia_worker::product_translation::consume_product_translation_queue;
 use aura_historia_worker::search_filter_match_notifications::consume_search_filter_match_notification_queue;
 use aura_historia_worker::search_filter_percolator::consume_search_filter_percolator_queue;
@@ -44,19 +44,21 @@ use opensearch::{
 };
 use platform_observability::{LogLevel, LoggingConfig, init};
 use platform_postgres::{PostgresConnectError, SqlxUnitOfWork};
-use product_opensearch::OpenSearchProductSearchProjection;
-use product_postgres::{
-    SqlxProductCurrentRevisionGuardFactory, SqlxProductEmbeddingSourceReader,
-    SqlxProductEmbeddingWriterFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
-    SqlxProductTranslationSourceReader, SqlxProductTranslationWriterFactory,
-    SqlxProductWatchlistNotificationSourceReaderFactory,
+use product_listing_opensearch::OpenSearchProductListingSearchProjection;
+use product_listing_postgres::{
+    SqlxProductListingCurrentRevisionGuardFactory, SqlxProductListingEmbeddingSourceReader,
+    SqlxProductListingEmbeddingWriterFactory,
+    SqlxProductListingSearchFilterMatchSourceReaderFactory,
+    SqlxProductListingTranslationSourceReader, SqlxProductListingTranslationWriterFactory,
+    SqlxProductListingWatchlistNotificationSourceReaderFactory,
 };
-use product_service::use_cases::{
-    EmbedProductEventHandler, EmbedProductEventUseCase, GenerateWatchlistNotificationsHandler,
-    GenerateWatchlistNotificationsUseCase, ProjectProductHandler, ProjectProductUseCase,
-    TranslateProductEventHandler, TranslateProductEventUseCase,
+use product_listing_service::use_cases::{
+    EmbedProductListingEventHandler, EmbedProductListingEventUseCase,
+    GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
+    ProjectProductListingHandler, ProjectProductListingUseCase,
+    TranslateProductListingEventHandler, TranslateProductListingEventUseCase,
 };
-use product_translation_llm::LargeLanguageModelProductTitleTranslator;
+use product_listing_translation_llm::LargeLanguageModelProductListingTitleTranslator;
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{
     SqlxActiveSearchFilterMatchCandidateReaderFactory, SqlxSearchFilterIndexReader,
@@ -65,8 +67,8 @@ use search_filter_postgres::{
 };
 use search_filter_service::use_cases::{
     GenerateSearchFilterMatchNotificationHandler, GenerateSearchFilterMatchNotificationUseCase,
-    MatchProductEventHandler, MatchProductEventUseCase, ProjectSearchFilterChangeHandler,
-    ProjectSearchFilterChangeUseCase,
+    MatchProductListingEventHandler, MatchProductListingEventUseCase,
+    ProjectSearchFilterChangeHandler, ProjectSearchFilterChangeUseCase,
 };
 use std::sync::Arc;
 use user_postgres::SqlxUserTierEntitlementsFactory;
@@ -116,19 +118,19 @@ async fn main() -> Result<(), MainError> {
         WorkerScope::WatchlistNotification => {
             run_watchlist_notifications(worker_config, pool, composition).await
         }
-        WorkerScope::ProductTranslation => {
+        WorkerScope::ProductListingTranslation => {
             let vertex_ai = startup
                 .vertex_ai()
                 .ok_or(MainError::MissingScopeConfig { scope })?;
             run_product_translation(worker_config, pool, composition, vertex_ai).await
         }
-        WorkerScope::ProductOpenSearch => {
+        WorkerScope::ProductListingOpenSearch => {
             let opensearch = startup
                 .opensearch()
                 .ok_or(MainError::MissingScopeConfig { scope })?;
-            run_product_opensearch(worker_config, pool, composition, opensearch).await
+            run_product_listing_opensearch(worker_config, pool, composition, opensearch).await
         }
-        WorkerScope::ProductEmbedding => {
+        WorkerScope::ProductListingEmbedding => {
             let vertex_ai = startup
                 .vertex_ai()
                 .ok_or(MainError::MissingScopeConfig { scope })?;
@@ -166,16 +168,17 @@ async fn run_search_filter_percolator(
     opensearch: &WorkerOpenSearchConfig,
     vertex_ai: &WorkerVertexAiConfig,
 ) -> Result<(), MainError> {
-    let handler: Arc<dyn MatchProductEventUseCase> = Arc::new(MatchProductEventHandler::new(
-        SqlxUnitOfWork::new(pool.clone()),
-        SqlxProductSearchFilterMatchSourceReaderFactory::new(),
-        SqlxProductCurrentRevisionGuardFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        OpenSearchSearchFilterIndex::new(opensearch_client(opensearch)?),
-        vertex_ai_large_language_model(vertex_ai)?,
-        SqlxActiveSearchFilterMatchCandidateReaderFactory,
-        SqlxSearchFilterMatchWriterFactory,
-    ));
+    let handler: Arc<dyn MatchProductListingEventUseCase> =
+        Arc::new(MatchProductListingEventHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
+            SqlxProductListingCurrentRevisionGuardFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
+            OpenSearchSearchFilterIndex::new(opensearch_client(opensearch)?),
+            vertex_ai_large_language_model(vertex_ai)?,
+            SqlxActiveSearchFilterMatchCandidateReaderFactory,
+            SqlxSearchFilterMatchWriterFactory,
+        ));
     let (runtime, receiver) = composition.into_parts();
     let task = tokio::spawn(consume_search_filter_percolator_queue(receiver, handler));
     finish_runtime(config, runtime, task).await
@@ -190,10 +193,10 @@ async fn run_search_filter_match_notifications(
         Arc::new(GenerateSearchFilterMatchNotificationHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
             SqlxSearchFilterMatchNotificationSourceReaderFactory,
-            SqlxProductSearchFilterMatchSourceReaderFactory::new(),
+            SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
             SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
             SqlxUserTierEntitlementsFactory::new(),
-            SqlxProductCurrentRevisionGuardFactory::new(),
+            SqlxProductListingCurrentRevisionGuardFactory::new(),
             NotificationCreationCoordinatorFactory::new(
                 SqlxNotificationRepositoryFactory::new(),
                 InitialExternalDeliveryPlanReaderFactory,
@@ -207,20 +210,21 @@ async fn run_search_filter_match_notifications(
     finish_runtime(config, runtime, task).await
 }
 
-async fn run_product_opensearch(
+async fn run_product_listing_opensearch(
     config: aura_historia_worker::WorkerConfig,
     pool: sqlx::PgPool,
     composition: WorkerRuntimeComposition,
     opensearch: &WorkerOpenSearchConfig,
 ) -> Result<(), MainError> {
-    let handler: Arc<dyn ProjectProductUseCase> = Arc::new(ProjectProductHandler::new(
-        SqlxUnitOfWork::new(pool),
-        SqlxProductSearchFilterMatchSourceReaderFactory::new(),
-        SqlxFxRateSnapshotRepositoryFactory,
-        OpenSearchProductSearchProjection::new(opensearch_client(opensearch)?),
-    ));
+    let handler: Arc<dyn ProjectProductListingUseCase> =
+        Arc::new(ProjectProductListingHandler::new(
+            SqlxUnitOfWork::new(pool),
+            SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
+            OpenSearchProductListingSearchProjection::new(opensearch_client(opensearch)?),
+        ));
     let (runtime, receiver) = composition.into_parts();
-    let task = tokio::spawn(consume_product_opensearch_queue(receiver, handler));
+    let task = tokio::spawn(consume_product_listing_opensearch_queue(receiver, handler));
     finish_runtime(config, runtime, task).await
 }
 
@@ -230,15 +234,16 @@ async fn run_product_embedding(
     composition: WorkerRuntimeComposition,
     vertex_ai: &WorkerVertexAiConfig,
 ) -> Result<(), MainError> {
-    let handler: Arc<dyn EmbedProductEventUseCase> = Arc::new(EmbedProductEventHandler::new(
-        SqlxProductEmbeddingSourceReader::new(pool.clone()),
-        VertexAiEmbeddingGenerator::new(
-            VertexAiEmbeddingConfig::new(vertex_ai.project_id(), vertex_ai.location()),
-            vertex_ai_credentials()?,
-        ),
-        SqlxUnitOfWork::new(pool),
-        SqlxProductEmbeddingWriterFactory::new(),
-    ));
+    let handler: Arc<dyn EmbedProductListingEventUseCase> =
+        Arc::new(EmbedProductListingEventHandler::new(
+            SqlxProductListingEmbeddingSourceReader::new(pool.clone()),
+            VertexAiEmbeddingGenerator::new(
+                VertexAiEmbeddingConfig::new(vertex_ai.project_id(), vertex_ai.location()),
+                vertex_ai_credentials()?,
+            ),
+            SqlxUnitOfWork::new(pool),
+            SqlxProductListingEmbeddingWriterFactory::new(),
+        ));
     let (runtime, receiver) = composition.into_parts();
     let task = tokio::spawn(consume_product_embedding_queue(receiver, handler));
     finish_runtime(config, runtime, task).await
@@ -250,14 +255,14 @@ async fn run_product_translation(
     composition: WorkerRuntimeComposition,
     vertex_ai: &WorkerVertexAiConfig,
 ) -> Result<(), MainError> {
-    let handler: Arc<dyn TranslateProductEventUseCase> =
-        Arc::new(TranslateProductEventHandler::new(
-            SqlxProductTranslationSourceReader::new(pool.clone()),
-            LargeLanguageModelProductTitleTranslator::new(vertex_ai_large_language_model(
+    let handler: Arc<dyn TranslateProductListingEventUseCase> =
+        Arc::new(TranslateProductListingEventHandler::new(
+            SqlxProductListingTranslationSourceReader::new(pool.clone()),
+            LargeLanguageModelProductListingTitleTranslator::new(vertex_ai_large_language_model(
                 vertex_ai,
             )?),
             SqlxUnitOfWork::new(pool),
-            SqlxProductTranslationWriterFactory::new(),
+            SqlxProductListingTranslationWriterFactory::new(),
         ));
     let (runtime, receiver) = composition.into_parts();
     let task = tokio::spawn(consume_product_translation_queue(receiver, handler));
@@ -317,9 +322,9 @@ async fn run_watchlist_notifications(
     let handler: Arc<dyn GenerateWatchlistNotificationsUseCase> =
         Arc::new(GenerateWatchlistNotificationsHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
-            SqlxProductWatchlistNotificationSourceReaderFactory::new(),
+            SqlxProductListingWatchlistNotificationSourceReaderFactory::new(),
             SqlxWatchlistNotificationRecipientReaderFactory,
-            SqlxProductCurrentRevisionGuardFactory::new(),
+            SqlxProductListingCurrentRevisionGuardFactory::new(),
             NotificationCreationCoordinatorFactory::new(
                 SqlxNotificationRepositoryFactory::new(),
                 InitialExternalDeliveryPlanReaderFactory,

@@ -7,7 +7,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use watchlist_service::use_cases::WatchProductCommand;
+use watchlist_service::use_cases::WatchProductListingCommand;
 
 pub async fn post_watchlist(
     State(state): State<WatchlistState>,
@@ -26,9 +26,9 @@ pub async fn post_watchlist(
         .watch_product
         .execute(
             &ctx,
-            WatchProductCommand {
+            WatchProductListingCommand {
                 user_id,
-                product_id: data.product_id,
+                product_listing_id: data.product_listing_id,
                 notifications: data.notifications.unwrap_or(true),
             },
         )

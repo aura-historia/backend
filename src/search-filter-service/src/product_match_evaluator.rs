@@ -4,7 +4,7 @@ use large_language_model::{
     StructuredGenerationRequest,
 };
 use localization::Language;
-use product_service::ports::ProductSearchFilterMatchSource;
+use product_listing_service::ports::ProductListingSearchFilterMatchSource;
 use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
 use serde::Deserialize;
 use std::num::NonZeroUsize;
@@ -12,19 +12,19 @@ use std::num::NonZeroUsize;
 const MAX_PRODUCT_MATCH_IMAGES: usize = 5;
 const PRODUCT_MATCH_SYSTEM_INSTRUCTION: &str = "You are a product matching assistant for an antiques marketplace. Decide whether the product actually matches the requested search description using the product title, description, and optional product images. Return only JSON with a boolean `matches` and, when `matches` is true, a compact user-facing `reason` in the search language. Do not include markdown or extra fields.";
 
-pub(crate) struct ProductMatchEvaluationRequest<'a, Key> {
+pub(crate) struct ProductListingMatchEvaluationRequest<'a, Key> {
     pub(crate) key: Key,
-    pub(crate) product: &'a ProductSearchFilterMatchSource,
+    pub(crate) product: &'a ProductListingSearchFilterMatchSource,
     pub(crate) search_description: &'a str,
     pub(crate) search_language: Language,
 }
 
-pub(crate) struct ProductMatchEvaluationResult<Key> {
+pub(crate) struct ProductListingMatchEvaluationResult<Key> {
     pub(crate) key: Key,
-    pub(crate) outcome: ProductMatchEvaluationOutcome,
+    pub(crate) outcome: ProductListingMatchEvaluationOutcome,
 }
 
-pub(crate) enum ProductMatchEvaluationOutcome {
+pub(crate) enum ProductListingMatchEvaluationOutcome {
     Matched(EnhancedMatchReason),
     Rejected,
     RetryableFailure(LargeLanguageModelError),
@@ -32,7 +32,7 @@ pub(crate) enum ProductMatchEvaluationOutcome {
 }
 
 #[derive(Debug, Deserialize)]
-struct ProductMatchDecision {
+struct ProductListingMatchDecision {
     matches: bool,
     #[serde(default)]
     reason: Option<String>,
@@ -40,9 +40,9 @@ struct ProductMatchDecision {
 
 pub(crate) async fn evaluate_product_matches<E, Key>(
     llm: &E,
-    evaluations: Vec<ProductMatchEvaluationRequest<'_, Key>>,
+    evaluations: Vec<ProductListingMatchEvaluationRequest<'_, Key>>,
     max_concurrent_requests: NonZeroUsize,
-) -> Vec<ProductMatchEvaluationResult<Key>>
+) -> Vec<ProductListingMatchEvaluationResult<Key>>
 where
     E: LargeLanguageModel,
 {
@@ -60,7 +60,7 @@ where
         })
         .unzip();
     let results = llm
-        .generate_batch::<ProductMatchDecision>(
+        .generate_batch::<ProductListingMatchDecision>(
             requests,
             BatchGenerationOptions::new(max_concurrent_requests),
         )
@@ -68,22 +68,22 @@ where
 
     keys.into_iter()
         .zip(results)
-        .map(|(key, result)| ProductMatchEvaluationResult {
+        .map(|(key, result)| ProductListingMatchEvaluationResult {
             key,
             outcome: match result.and_then(product_match_reason) {
-                Ok(Some(reason)) => ProductMatchEvaluationOutcome::Matched(reason),
-                Ok(None) => ProductMatchEvaluationOutcome::Rejected,
+                Ok(Some(reason)) => ProductListingMatchEvaluationOutcome::Matched(reason),
+                Ok(None) => ProductListingMatchEvaluationOutcome::Rejected,
                 Err(error) if is_retryable_llm_error(&error) => {
-                    ProductMatchEvaluationOutcome::RetryableFailure(error)
+                    ProductListingMatchEvaluationOutcome::RetryableFailure(error)
                 }
-                Err(error) => ProductMatchEvaluationOutcome::PermanentFailure(error),
+                Err(error) => ProductListingMatchEvaluationOutcome::PermanentFailure(error),
             },
         })
         .collect()
 }
 
 fn product_match_request(
-    product: &ProductSearchFilterMatchSource,
+    product: &ProductListingSearchFilterMatchSource,
     search_description: &str,
     search_language: Language,
 ) -> StructuredGenerationRequest {
@@ -112,7 +112,7 @@ fn product_match_request(
 }
 
 fn product_match_reason(
-    decision: ProductMatchDecision,
+    decision: ProductListingMatchDecision,
 ) -> Result<Option<EnhancedMatchReason>, LargeLanguageModelError> {
     if !decision.matches {
         return Ok(None);
@@ -139,7 +139,7 @@ fn product_match_response_schema() -> serde_json::Value {
 }
 
 fn product_text(
-    product: &ProductSearchFilterMatchSource,
+    product: &ProductListingSearchFilterMatchSource,
     search_language: Language,
 ) -> (&str, &str) {
     let title = product
@@ -177,54 +177,54 @@ mod tests {
     use super::*;
     use domain_primitives::event_id::EventId;
     use indexmap::IndexSet;
-    use product_core::{
-        product::{ProductAddress, ProductAuction, ProductPricing},
-        product_image::ProductImage,
-        product_lifecycle::ProductLifecycle,
-        product_slug_id::ProductSlugId,
-        product_state::ProductState,
-        shops_product_id::ShopsProductId,
+    use product_listing_core::{
+        listing_availability::ListingAvailability,
+        listing_lifecycle::ListingLifecycle,
+        product_listing::{ProductListingAddress, ProductListingAuction, ProductListingPricing},
+        product_listing_image::ProductListingImage,
+        product_listing_slug_id::ProductListingSlugId,
+        shop_listing_id::ShopListingId,
     };
-    use product_service::ports::{
-        ProductSearchFilterMatchShopType, ProductSearchFilterMatchSourceEventKind,
+    use product_listing_service::ports::{
+        ProductListingSearchFilterMatchShopType, ProductListingSearchFilterMatchSourceEventKind,
     };
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
     use url::Url;
 
-    fn product() -> Result<ProductSearchFilterMatchSource, url::ParseError> {
+    fn product() -> Result<ProductListingSearchFilterMatchSource, url::ParseError> {
         let url = Url::parse("https://example.test/product")?;
         let event_id = EventId::new();
-        Ok(ProductSearchFilterMatchSource {
+        Ok(ProductListingSearchFilterMatchSource {
             event_id,
-            event_kind: ProductSearchFilterMatchSourceEventKind::Domain,
+            event_kind: ProductListingSearchFilterMatchSourceEventKind::Domain,
             origin_event_time: time::OffsetDateTime::UNIX_EPOCH,
             current_event_id: event_id,
             projection_version: 1,
-            product_id: product_core::product_id::ProductId::new(),
-            product_slug_id: ProductSlugId::from("product"),
+            product_listing_id: product_listing_core::product_listing_id::ProductListingId::new(),
+            product_listing_slug_id: ProductListingSlugId::from("product"),
             shop_id: ShopId::new(),
             shop_slug_id: ShopSlugId::from("shop"),
             shop_name: ShopName::from("Shop"),
-            shop_type: ProductSearchFilterMatchShopType::Marketplace,
+            shop_type: ProductListingSearchFilterMatchShopType::Marketplace,
             seller_id: ShopId::new(),
             seller_slug_id: shop_core::seller_slug_id::SellerSlugId::from("seller"),
             seller_name: ShopName::from("Seller"),
-            shops_product_id: ShopsProductId::from("product"),
-            address: ProductAddress::default(),
+            shop_listing_id: ShopListingId::from("product"),
+            address: ProductListingAddress::default(),
             product_title: None,
             product_description: None,
             titles: std::collections::HashMap::new(),
             descriptions: std::collections::HashMap::new(),
-            pricing: ProductPricing::default(),
-            sale_valuation: None,
-            state: ProductState::Available,
-            lifecycle: ProductLifecycle::Active,
+            pricing: ProductListingPricing::default(),
+            sale_observation: None,
+            availability: Some(ListingAvailability::Available),
+            lifecycle: ListingLifecycle::Active,
             url: url.clone(),
             view_url: url,
             image: None,
             images: IndexSet::new(),
             embedding: None,
-            auction: ProductAuction::default(),
+            auction: ProductListingAuction::default(),
             created: time::OffsetDateTime::UNIX_EPOCH,
             updated: time::OffsetDateTime::UNIX_EPOCH,
         })
@@ -256,9 +256,10 @@ mod tests {
             .map(|index| Url::parse(&format!("https://example.test/image-{index}.jpg")))
             .collect::<Result<Vec<_>, _>>()?;
         for url in &image_urls {
-            product.images.insert(ProductImage {
+            product.images.insert(ProductListingImage {
                 url: url.clone(),
-                prohibited_content: product_core::prohibited_content::ProhibitedContent::None,
+                prohibited_content:
+                    product_listing_core::prohibited_content::ProhibitedContent::None,
             });
         }
 
@@ -274,7 +275,7 @@ mod tests {
     #[test]
     fn should_reject_non_matching_response() -> Result<(), LargeLanguageModelError> {
         assert!(
-            product_match_reason(ProductMatchDecision {
+            product_match_reason(ProductListingMatchDecision {
                 matches: false,
                 reason: Some("not relevant".to_owned()),
             })?
@@ -285,7 +286,7 @@ mod tests {
 
     #[test]
     fn should_reject_matched_response_without_reason() {
-        let error = product_match_reason(ProductMatchDecision {
+        let error = product_match_reason(ProductListingMatchDecision {
             matches: true,
             reason: None,
         });
@@ -327,13 +328,13 @@ mod tests {
         let results = evaluate_product_matches(
             &OrderedEvaluator,
             vec![
-                ProductMatchEvaluationRequest {
+                ProductListingMatchEvaluationRequest {
                     key: "first",
                     product: &product,
                     search_description: "matching request",
                     search_language: Language::En,
                 },
-                ProductMatchEvaluationRequest {
+                ProductListingMatchEvaluationRequest {
                     key: "second",
                     product: &product,
                     search_description: "rejected request",
@@ -348,12 +349,12 @@ mod tests {
         assert_eq!(results[0].key, "first");
         assert!(matches!(
             results[0].outcome,
-            ProductMatchEvaluationOutcome::Matched(_)
+            ProductListingMatchEvaluationOutcome::Matched(_)
         ));
         assert_eq!(results[1].key, "second");
         assert!(matches!(
             results[1].outcome,
-            ProductMatchEvaluationOutcome::Rejected
+            ProductListingMatchEvaluationOutcome::Rejected
         ));
         Ok(())
     }

@@ -1,4 +1,4 @@
-use crate::scraper::normalization::state_mapping_service::StateMappingServiceError;
+use crate::scraper::normalization::listing_availability_mapping_service::ListingAvailabilityMappingServiceError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NormalizationFailureScope {
@@ -9,18 +9,18 @@ pub(crate) enum NormalizationFailureScope {
 #[derive(Debug, thiserror::Error)]
 pub enum NormalizationError {
     #[error("failed to resolve product state: {0}")]
-    StateMappingError(#[from] StateMappingServiceError),
+    ListingAvailabilityMappingError(#[from] ListingAvailabilityMappingServiceError),
 
-    /// Emitted by the strict (test-only) `normalize_shops_product_id` function
+    /// Emitted by the strict (test-only) `normalize_shop_listing_id` function
     /// when the extracted value is empty after trimming.
     ///
     /// **Unreachable from the main pipeline.**  The production normalization
-    /// path calls `normalize_shops_product_id_with_url_sha_fallback` instead,
+    /// path calls `normalize_shop_listing_id_with_url_sha_fallback` instead,
     /// which substitutes a SHA-256 hash of the product page URL when the
     /// extracted ID is blank.
     /// This variant is retained so that unit tests can exercise the strict
     /// variant.
-    #[error("failed to normalize `shops_product_id`: value is empty after trimming")]
+    #[error("failed to normalize `shop_listing_id`: value is empty after trimming")]
     ShopsProductIdEmpty,
 
     #[error("failed to normalize `title`: value is empty after trimming")]
@@ -81,19 +81,25 @@ pub enum NormalizationError {
 impl NormalizationError {
     pub(crate) const fn failure_reason(&self) -> &'static str {
         match self {
-            Self::StateMappingError(error) => match error {
-                StateMappingServiceError::LargeLanguageModelError(_) => "state_llm_error",
-                StateMappingServiceError::UnparsableResponse => "state_unparsable_response",
-                StateMappingServiceError::ResponseJsonSchemaSerialization(_) => {
+            Self::ListingAvailabilityMappingError(error) => match error {
+                ListingAvailabilityMappingServiceError::LargeLanguageModelError(_) => {
+                    "state_llm_error"
+                }
+                ListingAvailabilityMappingServiceError::UnparsableResponse => {
+                    "state_unparsable_response"
+                }
+                ListingAvailabilityMappingServiceError::ResponseJsonSchemaSerialization(_) => {
                     "state_response_schema_serialization"
                 }
-                StateMappingServiceError::RawStateTooLong { .. } => "state_text_too_long",
-                StateMappingServiceError::DatabaseError(_) => "state_database_error",
-                StateMappingServiceError::DatabaseErrorAfterLlm(_) => {
+                ListingAvailabilityMappingServiceError::RawStateTooLong { .. } => {
+                    "state_text_too_long"
+                }
+                ListingAvailabilityMappingServiceError::DatabaseError(_) => "state_database_error",
+                ListingAvailabilityMappingServiceError::DatabaseErrorAfterLlm(_) => {
                     "state_database_error_after_llm"
                 }
             },
-            Self::ShopsProductIdEmpty => "shops_product_id_empty",
+            Self::ShopsProductIdEmpty => "shop_listing_id_empty",
             Self::TitleEmpty => "title_empty",
             Self::TitleUnknownLanguage { .. } => "title_unknown_language",
             Self::DescriptionUnknownLanguage { .. } => "description_unknown_language",
@@ -113,15 +119,15 @@ impl NormalizationError {
 
     pub(crate) const fn failure_scope(&self) -> NormalizationFailureScope {
         match self {
-            Self::StateMappingError(error) => match error {
-                StateMappingServiceError::LargeLanguageModelError(_)
-                | StateMappingServiceError::UnparsableResponse
-                | StateMappingServiceError::ResponseJsonSchemaSerialization(_)
-                | StateMappingServiceError::DatabaseError(_)
-                | StateMappingServiceError::DatabaseErrorAfterLlm(_) => {
+            Self::ListingAvailabilityMappingError(error) => match error {
+                ListingAvailabilityMappingServiceError::LargeLanguageModelError(_)
+                | ListingAvailabilityMappingServiceError::UnparsableResponse
+                | ListingAvailabilityMappingServiceError::ResponseJsonSchemaSerialization(_)
+                | ListingAvailabilityMappingServiceError::DatabaseError(_)
+                | ListingAvailabilityMappingServiceError::DatabaseErrorAfterLlm(_) => {
                     NormalizationFailureScope::External
                 }
-                StateMappingServiceError::RawStateTooLong { .. } => {
+                ListingAvailabilityMappingServiceError::RawStateTooLong { .. } => {
                     NormalizationFailureScope::CandidateData
                 }
             },

@@ -275,11 +275,19 @@
                             }
                         }
                     },
-                    "state": {
-                        "type": "keyword"
-                    },
-                    "lifecycle": {
-                        "type": "keyword"
+                    "availability": {
+                        "type": "object",
+                        "properties": {
+                            "availability": {
+                                "type": "keyword"
+                            },
+                            "orderability": {
+                                "type": "keyword"
+                            },
+                            "includeUnspecified": {
+                                "type": "boolean"
+                            }
+                        }
                     },
                     "created": {
                         "type": "object",
@@ -371,7 +379,7 @@
             "state": {
                 "type": "keyword"
             },
-            "lifecycle": {
+            "availability": {
                 "type": "keyword"
             },
             "title": {
@@ -464,10 +472,10 @@
             "updatedBy": {
                 "type": "keyword"
             },
-            "productId": {
+            "productListingId": {
                 "type": "keyword"
             },
-            "productSlugId": {
+            "productListingSlugId": {
                 "type": "keyword"
             },
             "shopSlugId": {
@@ -485,7 +493,7 @@
             "sellerId": {
                 "type": "keyword"
             },
-            "shopsProductId": {
+            "shopListingId": {
                 "type": "keyword"
             },
             "url": {

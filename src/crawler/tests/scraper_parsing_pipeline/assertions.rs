@@ -2,60 +2,31 @@ use async_trait::async_trait;
 use crawler::scraper::css_selector::product_schema::{
     ProductCssSelectorSchema, RawExtractedProduct,
 };
-use crawler::scraper::normalization::product_normalization_service::{
-    ProductNormalizationService, ProductNormalizationServiceImpl,
+use crawler::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping;
+use crawler::scraper::normalization::listing_availability_mapping_service::{
+    ListingAvailabilityMappingService, ListingAvailabilityMappingServiceError,
 };
-use crawler::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
-use crawler::scraper::normalization::state_mapping_service::{
-    ProductStateMappingService, StateMappingServiceError,
+use crawler::scraper::normalization::product_normalization_service::{
+    ProductListingNormalizationService, ProductListingNormalizationServiceImpl,
 };
 use crawler::scraper::scraper_service::rank_applicable_schema_indices;
 use money::Currency;
-use product_core::product_state::ProductState;
+use product_listing_core::listing_availability::ListingAvailability;
 use scraper::Html;
-use time::OffsetDateTime;
+
 use url::Url;
 
 use crate::expectation_types::{NormalizedExpectation, RawExpectation};
 
-struct FixedStateMappingService(ProductStateMappingRecord);
+struct FixedListingAvailabilityMappingService(ListingAvailabilityMapping);
 
 #[async_trait]
-impl ProductStateMappingService for FixedStateMappingService {
-    async fn create_state_mapping(
+impl ListingAvailabilityMappingService for FixedListingAvailabilityMappingService {
+    async fn get_listing_availability_mapping(
         &self,
         _raw: &str,
-    ) -> Result<ProductStateMappingRecord, StateMappingServiceError> {
-        unreachable!(
-            "FixedStateMappingService::create_state_mapping should not be called in integration tests"
-        )
-    }
-
-    async fn find_state_mapping(
-        &self,
-        _raw: &str,
-    ) -> Result<Option<ProductStateMappingRecord>, StateMappingServiceError> {
-        unreachable!(
-            "FixedStateMappingService::find_state_mapping should not be called in integration tests"
-        )
-    }
-
-    async fn save_state_mapping(
-        &self,
-        _raw: &str,
-        _normalized: ProductState,
-        _mapping_type: StateMappingType,
-    ) -> Result<ProductStateMappingRecord, StateMappingServiceError> {
-        unreachable!(
-            "FixedStateMappingService::save_state_mapping should not be called in integration tests"
-        )
-    }
-
-    async fn get_state_mapping(
-        &self,
-        _raw: &str,
-    ) -> Result<(ProductStateMappingRecord, bool), StateMappingServiceError> {
-        Ok((self.0.clone(), false))
+    ) -> Result<(ListingAvailabilityMapping, bool), ListingAvailabilityMappingServiceError> {
+        Ok((self.0, false))
     }
 }
 
@@ -76,8 +47,8 @@ pub fn assert_extraction(
         .unwrap_or_else(|e| panic!("schema apply failed: {e}"));
 
     assert_eq!(
-        result.shops_product_id, expected.shops_product_id,
-        "shops_product_id"
+        result.shop_listing_id, expected.shop_listing_id,
+        "shop_listing_id"
     );
     assert_eq!(result.title, expected.title, "title");
     assert_eq!(result.description, expected.description, "description");
@@ -114,8 +85,8 @@ pub fn assert_extraction(
 pub async fn assert_normalized(
     schema: &ProductCssSelectorSchema,
     html_src: &str,
-    raw_state: &str,
-    state_record: ProductState,
+    _raw_state: &str,
+    availability_record: Option<ListingAvailability>,
     url: &str,
     expected: &NormalizedExpectation,
 ) {
@@ -124,15 +95,13 @@ pub async fn assert_normalized(
         .apply(&html)
         .unwrap_or_else(|e| panic!("schema apply failed: {e}"));
 
-    let mapping_record = ProductStateMappingRecord {
-        raw: raw_state.to_string(),
-        normalized: state_record,
-        mapping_type: StateMappingType::Value,
-        created: OffsetDateTime::now_utc(),
-        updated: OffsetDateTime::now_utc(),
+    let mapping = match availability_record {
+        Some(availability) => ListingAvailabilityMapping::Availability(availability),
+        None => ListingAvailabilityMapping::NoAssertion,
     };
-    let norm_svc =
-        ProductNormalizationServiceImpl::new(Box::new(FixedStateMappingService(mapping_record)));
+    let norm_svc = ProductListingNormalizationServiceImpl::new(Box::new(
+        FixedListingAvailabilityMappingService(mapping),
+    ));
 
     let product_url = Url::parse(url).expect("test URL must be valid");
     let default_currency = schema.default_currency.map(Currency::from);
@@ -143,9 +112,9 @@ pub async fn assert_normalized(
         .product;
 
     assert_eq!(
-        result.shops_product_id.to_string(),
-        expected.shops_product_id,
-        "shops_product_id"
+        result.shop_listing_id.to_string(),
+        expected.shop_listing_id,
+        "shop_listing_id"
     );
     assert_eq!(result.title.payload.as_ref(), expected.title, "title");
     assert_eq!(
@@ -167,7 +136,11 @@ pub async fn assert_normalized(
         expected.seller_name.as_deref(),
         "seller_name"
     );
-    assert_eq!(result.state, expected.state, "state");
+    assert_eq!(
+        result.availability.availability(),
+        expected.availability,
+        "availability"
+    );
     assert_eq!(result.url.as_str(), expected.url, "url");
     let result_image_urls: Vec<&str> = result.images.iter().map(|i| i.url.as_str()).collect();
     let expected_images: Vec<&str> = expected.images.iter().map(|i| i.as_str()).collect();

@@ -9,11 +9,11 @@ domain-primitives = { workspace = true }
 user-core = { workspace = true }
 async-trait = { workspace = true }
 platform-postgres = { workspace = true }
-product-core = { workspace = true }
+product-listing-core = { workspace = true }
 sqlx = { workspace = true }
 strum = { workspace = true }
 thiserror = { workspace = true }
-product-service = { workspace = true }
+product-listing-service = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }
 watchlist-core = { workspace = true }

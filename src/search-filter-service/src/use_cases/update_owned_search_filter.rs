@@ -21,8 +21,9 @@ use geo::core::{continent::Continent, distance::GeoDistanceQuery};
 use isocountry::CountryCode;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
-use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
-use product_core::product_state::ProductState;
+use product_listing_core::product_listing_search::{
+    EnhancedSearchDescription, ListingAvailabilityQuery, ProductListingSearch,
+};
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
@@ -35,10 +36,10 @@ use user_service::ports::{
 };
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ProductSearchPatch {
+pub struct ProductListingSearchPatch {
     pub language: PatchField<Language>,
     pub currency: PatchField<Currency>,
-    pub product_query: PatchField<Vec<TextQuery<1>>>,
+    pub product_listing_query: PatchField<Vec<TextQuery<1>>>,
     pub enhanced_search_description: PatchField<EnhancedSearchDescription>,
     pub shop_name_query: PatchField<AnyOfQuery<ShopName>>,
     pub exclude_shop_name_query: PatchField<AnyOfQuery<ShopName>>,
@@ -53,7 +54,7 @@ pub struct ProductSearchPatch {
     pub continent_query: PatchField<AnyOfQuery<Continent>>,
     pub geo_address_distance_query: PatchField<GeoDistanceQuery>,
     pub price_query: PatchField<RangeQuery<MonetaryAmount>>,
-    pub state_query: PatchField<AnyOfQuery<ProductState>>,
+    pub availability_query: PatchField<ListingAvailabilityQuery>,
     pub created_query: PatchField<RangeQuery<OffsetDateTime>>,
     pub updated_query: PatchField<RangeQuery<OffsetDateTime>>,
     pub auction_start_query: PatchField<RangeQuery<OffsetDateTime>>,
@@ -67,7 +68,7 @@ pub struct UpdateOwnedSearchFilterCommand {
     pub name: PatchField<UserSearchFilterName>,
     pub notifications: PatchField<bool>,
     pub state: PatchField<SearchFilterState>,
-    pub search: ProductSearchPatch,
+    pub search: ProductListingSearchPatch,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -342,13 +343,16 @@ fn apply_filter_patch(
 }
 
 fn apply_product_search_patch(
-    search: &mut ProductSearch,
-    patch: &ProductSearchPatch,
+    search: &mut ProductListingSearch,
+    patch: &ProductListingSearchPatch,
 ) -> Result<bool, UpdateOwnedSearchFilterError> {
     let mut changed = false;
     changed |= apply_required_patch(&patch.language, &mut search.language)?;
     changed |= apply_required_patch(&patch.currency, &mut search.currency)?;
-    changed |= apply_default_patch(&patch.product_query, &mut search.product_query);
+    changed |= apply_default_patch(
+        &patch.product_listing_query,
+        &mut search.product_listing_query,
+    );
     changed |= apply_optional_patch(
         &patch.enhanced_search_description,
         &mut search.enhanced_search_description,
@@ -384,7 +388,7 @@ fn apply_product_search_patch(
         &mut search.geo_address_distance_query,
     );
     changed |= apply_optional_patch(&patch.price_query, &mut search.price_query);
-    changed |= apply_default_patch(&patch.state_query, &mut search.state_query);
+    changed |= apply_optional_patch(&patch.availability_query, &mut search.availability_query);
     changed |= apply_optional_patch(&patch.created_query, &mut search.created_query);
     changed |= apply_optional_patch(&patch.updated_query, &mut search.updated_query);
     changed |= apply_optional_patch(&patch.auction_start_query, &mut search.auction_start_query);
@@ -520,10 +524,10 @@ mod tests {
 
     #[test]
     fn should_merge_only_patched_search_fields() -> Result<(), Box<dyn std::error::Error>> {
-        let mut search = ProductSearch::new(Language::En, Currency::Eur);
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
         search.enhanced_search_description =
             Some(EnhancedSearchDescription::try_from("gold ring")?);
-        let patch = ProductSearchPatch {
+        let patch = ProductListingSearchPatch {
             language: PatchField::Set(Language::De),
             ..Default::default()
         };
@@ -541,12 +545,43 @@ mod tests {
     }
 
     #[test]
+    fn should_replace_and_clear_the_optional_availability_query()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use product_listing_core::{
+            listing_availability::ListingAvailability, listing_orderability::ListingOrderability,
+        };
+        use std::collections::HashSet;
+
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
+        let query = ListingAvailabilityQuery {
+            any_of: HashSet::from([ListingAvailability::InStock]).into(),
+            orderability: HashSet::from([ListingOrderability::OrderableNow]).into(),
+            include_unspecified: true,
+        };
+        let patch = ProductListingSearchPatch {
+            availability_query: PatchField::Set(query.clone()),
+            ..Default::default()
+        };
+
+        assert!(apply_product_search_patch(&mut search, &patch)?);
+        assert_eq!(Some(query), search.availability_query);
+
+        let clear = ProductListingSearchPatch {
+            availability_query: PatchField::Clear,
+            ..Default::default()
+        };
+        assert!(apply_product_search_patch(&mut search, &clear)?);
+        assert_eq!(None, search.availability_query);
+        Ok(())
+    }
+
+    #[test]
     fn should_clear_optional_enhanced_search_description() -> Result<(), Box<dyn std::error::Error>>
     {
-        let mut search = ProductSearch::new(Language::En, Currency::Eur);
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
         search.enhanced_search_description =
             Some(EnhancedSearchDescription::try_from("gold ring")?);
-        let patch = ProductSearchPatch {
+        let patch = ProductListingSearchPatch {
             enhanced_search_description: PatchField::Clear,
             ..Default::default()
         };
@@ -560,9 +595,10 @@ mod tests {
 
     #[test]
     fn should_not_change_search_when_patch_is_empty() -> Result<(), UpdateOwnedSearchFilterError> {
-        let mut search = ProductSearch::new(Language::En, Currency::Eur);
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
 
-        let changed = apply_product_search_patch(&mut search, &ProductSearchPatch::default())?;
+        let changed =
+            apply_product_search_patch(&mut search, &ProductListingSearchPatch::default())?;
 
         assert!(!changed);
         Ok(())
@@ -571,8 +607,8 @@ mod tests {
     #[test]
     fn should_not_mark_search_changed_when_patch_repeats_existing_value()
     -> Result<(), UpdateOwnedSearchFilterError> {
-        let mut search = ProductSearch::new(Language::En, Currency::Eur);
-        let patch = ProductSearchPatch {
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
+        let patch = ProductListingSearchPatch {
             language: PatchField::Set(Language::En),
             ..Default::default()
         };
@@ -585,8 +621,8 @@ mod tests {
 
     #[test]
     fn should_reject_clearing_required_search_language() {
-        let mut search = ProductSearch::new(Language::En, Currency::Eur);
-        let patch = ProductSearchPatch {
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
+        let patch = ProductListingSearchPatch {
             language: PatchField::Clear,
             ..Default::default()
         };

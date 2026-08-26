@@ -27,11 +27,11 @@ notification-service = { workspace = true }
 opensearch = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
-product-core = { workspace = true }
-product-opensearch = { workspace = true }
-product-postgres = { workspace = true }
-product-service = { workspace = true }
-product-translation-llm = { workspace = true }
+product-listing-core = { workspace = true }
+product-listing-opensearch = { workspace = true }
+product-listing-postgres = { workspace = true }
+product-listing-service = { workspace = true }
+product-listing-translation-llm = { workspace = true }
 reqwest = { workspace = true }
 search-filter-core = { workspace = true }
 search-filter-opensearch = { workspace = true }

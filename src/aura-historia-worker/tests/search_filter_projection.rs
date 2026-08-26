@@ -5,18 +5,20 @@ use domain_primitives::event_id::EventId;
 use localization::{Language, Localized};
 use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
-use product_core::product_id::ProductId;
-use product_core::product_lifecycle::ProductLifecycle;
-use product_core::product_search::ProductSearch;
-use product_core::product_slug_id::ProductSlugId;
-use product_core::product_state::ProductState;
-use product_core::shops_product_id::ShopsProductId;
-use product_core::{
-    product::{ProductAddress, ProductAuction, ProductPricing},
+use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_lifecycle::ListingLifecycle;
+use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::product_listing_search::ProductListingSearch;
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
+
+use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::{
+    product_listing::{ProductListingAddress, ProductListingAuction, ProductListingPricing},
     title::Title,
 };
-use product_service::ports::{
-    ProductPercolationInput, ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
+use product_listing_service::ports::{
+    ProductListingPercolationInput, ProductListingSearchFilterMatchShopType,
+    ProductListingSearchFilterMatchSource,
 };
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -116,8 +118,8 @@ async fn project_search_filter_update_from_sequin() -> Result<(), Box<dyn std::e
         wait_for_percolation(&worker.index, filter.id(), "Sequin original cabinet", true).await?;
 
         filter.replace_search(
-            ProductSearch::new(Language::En, Currency::Eur)
-                .with_product_query("Sequin replacement cabinet".try_into()?),
+            ProductListingSearch::new(Language::En, Currency::Eur)
+                .with_product_listing_query("Sequin replacement cabinet".try_into()?),
             None,
         );
         let updated_version = update_filter(&worker.pool, &filter, inserted_version).await?;
@@ -319,7 +321,7 @@ async fn assert_not_percolated_for(
 
     loop {
         refresh_index("user_search_filters").await;
-        let product = ProductPercolationInput {
+        let product = ProductListingPercolationInput {
             source: product_source(title)?,
             valuation: None,
         };
@@ -348,7 +350,7 @@ async fn wait_for_percolation(
 ) -> Result<(), Box<dyn std::error::Error>> {
     for _ in 0..POLL_ATTEMPTS {
         refresh_index("user_search_filters").await;
-        let product = ProductPercolationInput {
+        let product = ProductListingPercolationInput {
             source: product_source(title)?,
             valuation: None,
         };
@@ -370,42 +372,43 @@ async fn wait_for_percolation(
 
 fn product_source(
     title: &str,
-) -> Result<ProductSearchFilterMatchSource, Box<dyn std::error::Error>> {
+) -> Result<ProductListingSearchFilterMatchSource, Box<dyn std::error::Error>> {
     let title = Title::from(title);
-    let url = url::Url::parse("https://shop.example.test/products/test-product")?;
+    let url = url::Url::parse("https://shop.example.test/product_listings/test-product")?;
     let event_id = EventId::new();
 
-    Ok(ProductSearchFilterMatchSource {
+    Ok(ProductListingSearchFilterMatchSource {
         event_id,
-        event_kind: product_service::ports::ProductSearchFilterMatchSourceEventKind::Domain,
+        event_kind:
+            product_listing_service::ports::ProductListingSearchFilterMatchSourceEventKind::Domain,
         origin_event_time: time::OffsetDateTime::UNIX_EPOCH,
         current_event_id: event_id,
         projection_version: 1,
-        product_id: ProductId::new(),
-        product_slug_id: ProductSlugId::from("test-product"),
+        product_listing_id: ProductListingId::new(),
+        product_listing_slug_id: ProductListingSlugId::from("test-product"),
         shop_id: ShopId::new(),
         shop_slug_id: ShopSlugId::from("test-shop"),
         shop_name: ShopName::from("Test shop"),
-        shop_type: ProductSearchFilterMatchShopType::Marketplace,
+        shop_type: ProductListingSearchFilterMatchShopType::Marketplace,
         seller_id: ShopId::new(),
         seller_slug_id: SellerSlugId::from(ShopSlugId::from("test-seller")),
         seller_name: ShopName::from("Test seller"),
-        shops_product_id: ShopsProductId::from("test-product-1"),
-        address: ProductAddress::default(),
+        shop_listing_id: ShopListingId::from("test-product-1"),
+        address: ProductListingAddress::default(),
         product_title: Some(Localized::new(Language::En, title.clone())),
         product_description: None,
         titles: std::collections::HashMap::from([(Language::En, title)]),
         descriptions: std::collections::HashMap::new(),
-        pricing: ProductPricing::default(),
-        sale_valuation: None,
-        state: ProductState::Listed,
-        lifecycle: ProductLifecycle::Active,
+        pricing: ProductListingPricing::default(),
+        sale_observation: None,
+        availability: Some(ListingAvailability::Available),
+        lifecycle: ListingLifecycle::Active,
         url: url.clone(),
         view_url: url,
         image: None,
         images: indexmap::IndexSet::new(),
         embedding: None,
-        auction: ProductAuction::default(),
+        auction: ProductListingAuction::default(),
         created: time::OffsetDateTime::UNIX_EPOCH,
         updated: time::OffsetDateTime::UNIX_EPOCH,
     })
@@ -418,8 +421,8 @@ fn search_filter(user_id: UserId, query: &str) -> Result<SearchFilter, Box<dyn s
         name: UserSearchFilterName::from("Sequin acceptance filter"),
         notifications: true,
         state: SearchFilterState::Active,
-        search: ProductSearch::new(Language::En, Currency::Eur)
-            .with_product_query(query.try_into()?),
+        search: ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_product_listing_query(query.try_into()?),
         embedding: None,
     }))
 }

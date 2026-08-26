@@ -4,17 +4,17 @@ use money::{Currency, MonetaryAmount, Price};
 use notification_core::{
     notification::{
         Notification, NotificationContent, NotificationWatchlistChange, PartnerApplicationDecision,
-        PartnerApplicationNotificationSnapshot, ProductNotificationSnapshot,
+        PartnerApplicationNotificationSnapshot, ProductListingNotificationSnapshot,
         RehydratedNotificationState,
     },
     notification_id::NotificationId,
     notification_kind::NotificationKind,
 };
-use product_core::{
-    product_id::ProductId, product_slug_id::ProductSlugId, product_state::ProductState,
-    shops_product_id::ShopsProductId,
+use product_listing_core::{
+    listing_availability::ListingAvailability, product_listing_id::ProductListingId,
+    product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
 };
-use product_core::{product_image::ProductImage, title::Title};
+use product_listing_core::{product_listing_image::ProductListingImage, title::Title};
 use search_filter_core::{
     user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
 };
@@ -35,7 +35,7 @@ pub(crate) struct NotificationRow {
     pub(crate) user_id: uuid::Uuid,
     pub(crate) kind: String,
     pub(crate) origin_event_id: Option<uuid::Uuid>,
-    pub(crate) product_id: Option<uuid::Uuid>,
+    pub(crate) product_listing_id: Option<uuid::Uuid>,
     pub(crate) user_search_filter_id: Option<uuid::Uuid>,
     pub(crate) partner_shop_application_id: Option<uuid::Uuid>,
     pub(crate) payload_version: i16,
@@ -71,11 +71,11 @@ pub(crate) enum NotificationMappingError {
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum NotificationPayloadV1 {
     Watchlist {
-        snapshot: ProductNotificationSnapshotV1,
+        snapshot: ProductListingNotificationSnapshotV1,
         change: NotificationWatchlistChangeV1,
     },
     SearchFilter {
-        snapshot: ProductNotificationSnapshotV1,
+        snapshot: ProductListingNotificationSnapshotV1,
         user_search_filter_name: UserSearchFilterName,
     },
     PartnerApplication {
@@ -121,14 +121,14 @@ struct PersistedPrice {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProductNotificationSnapshotV1 {
+struct ProductListingNotificationSnapshotV1 {
     shop_id: ShopId,
-    shops_product_id: ShopsProductId,
+    shop_listing_id: ShopListingId,
     shop_slug_id: ShopSlugId,
-    product_slug_id: ProductSlugId,
+    product_listing_slug_id: ProductListingSlugId,
     shop_name: ShopName,
     title: Option<Vec<LocalizedTitleV1>>,
-    image: Option<ProductImage>,
+    image: Option<ProductListingImage>,
     url: Url,
     view_url: Url,
 }
@@ -140,9 +140,18 @@ enum NotificationWatchlistChangeV1 {
         old_price: Option<PersistedPrice>,
         new_price: Option<PersistedPrice>,
     },
-    StateChange {
-        old_state: ProductState,
-        new_state: ProductState,
+    #[serde(rename = "AVAILABILITY_CHANGE")]
+    AvailabilityChange {
+        #[serde(
+            serialize_with = "serialize_optional_listing_availability",
+            deserialize_with = "deserialize_optional_listing_availability"
+        )]
+        old_availability: Option<ListingAvailability>,
+        #[serde(
+            serialize_with = "serialize_optional_listing_availability",
+            deserialize_with = "deserialize_optional_listing_availability"
+        )]
+        new_availability: Option<ListingAvailability>,
     },
 }
 
@@ -153,13 +162,13 @@ struct PartnerApplicationNotificationSnapshotV1 {
     image: Option<Url>,
 }
 
-impl From<&ProductNotificationSnapshot> for ProductNotificationSnapshotV1 {
-    fn from(snapshot: &ProductNotificationSnapshot) -> Self {
+impl From<&ProductListingNotificationSnapshot> for ProductListingNotificationSnapshotV1 {
+    fn from(snapshot: &ProductListingNotificationSnapshot) -> Self {
         Self {
             shop_id: snapshot.shop_id,
-            shops_product_id: snapshot.shops_product_id.clone(),
+            shop_listing_id: snapshot.shop_listing_id.clone(),
             shop_slug_id: snapshot.shop_slug_id.clone(),
-            product_slug_id: snapshot.product_slug_id.clone(),
+            product_listing_slug_id: snapshot.product_listing_slug_id.clone(),
             shop_name: snapshot.shop_name.clone(),
             title: snapshot.title.as_ref().map(|titles| {
                 titles
@@ -177,10 +186,10 @@ impl From<&ProductNotificationSnapshot> for ProductNotificationSnapshotV1 {
     }
 }
 
-impl TryFrom<ProductNotificationSnapshotV1> for ProductNotificationSnapshot {
+impl TryFrom<ProductListingNotificationSnapshotV1> for ProductListingNotificationSnapshot {
     type Error = NotificationMappingError;
 
-    fn try_from(snapshot: ProductNotificationSnapshotV1) -> Result<Self, Self::Error> {
+    fn try_from(snapshot: ProductListingNotificationSnapshotV1) -> Result<Self, Self::Error> {
         let title = snapshot
             .title
             .map(|titles| {
@@ -201,9 +210,9 @@ impl TryFrom<ProductNotificationSnapshotV1> for ProductNotificationSnapshot {
             .transpose()?;
         Ok(Self {
             shop_id: snapshot.shop_id,
-            shops_product_id: snapshot.shops_product_id,
+            shop_listing_id: snapshot.shop_listing_id,
             shop_slug_id: snapshot.shop_slug_id,
-            product_slug_id: snapshot.product_slug_id,
+            product_listing_slug_id: snapshot.product_listing_slug_id,
             shop_name: snapshot.shop_name,
             title,
             image: snapshot.image,
@@ -223,12 +232,12 @@ impl From<&NotificationWatchlistChange> for NotificationWatchlistChangeV1 {
                 old_price: old_price.map(price_data_from_price),
                 new_price: new_price.map(price_data_from_price),
             },
-            NotificationWatchlistChange::StateChange {
-                old_state,
-                new_state,
-            } => Self::StateChange {
-                old_state: *old_state,
-                new_state: *new_state,
+            NotificationWatchlistChange::AvailabilityChange {
+                old_availability,
+                new_availability,
+            } => Self::AvailabilityChange {
+                old_availability: *old_availability,
+                new_availability: *new_availability,
             },
         }
     }
@@ -244,12 +253,12 @@ impl From<NotificationWatchlistChangeV1> for NotificationWatchlistChange {
                 old_price: old_price.map(price_from_data),
                 new_price: new_price.map(price_from_data),
             },
-            NotificationWatchlistChangeV1::StateChange {
-                old_state,
-                new_state,
-            } => Self::StateChange {
-                old_state,
-                new_state,
+            NotificationWatchlistChangeV1::AvailabilityChange {
+                old_availability,
+                new_availability,
+            } => Self::AvailabilityChange {
+                old_availability,
+                new_availability,
             },
         }
     }
@@ -278,7 +287,7 @@ pub(crate) struct NotificationWriteValues {
     pub(crate) user_id: uuid::Uuid,
     pub(crate) kind: &'static str,
     pub(crate) origin_event_id: Option<uuid::Uuid>,
-    pub(crate) product_id: Option<uuid::Uuid>,
+    pub(crate) product_listing_id: Option<uuid::Uuid>,
     pub(crate) user_search_filter_id: Option<uuid::Uuid>,
     pub(crate) partner_shop_application_id: Option<uuid::Uuid>,
     pub(crate) payload: serde_json::Value,
@@ -290,19 +299,19 @@ impl TryFrom<&Notification> for NotificationWriteValues {
     fn try_from(notification: &Notification) -> Result<Self, Self::Error> {
         let (
             origin_event_id,
-            product_id,
+            product_listing_id,
             user_search_filter_id,
             partner_shop_application_id,
             payload,
         ) = match notification.content() {
             NotificationContent::Watchlist {
                 origin_event_id,
-                product_id,
+                product_listing_id,
                 snapshot,
                 change,
             } => (
                 Some(uuid::Uuid::from(*origin_event_id)),
-                Some(uuid::Uuid::from(*product_id)),
+                Some(uuid::Uuid::from(*product_listing_id)),
                 None,
                 None,
                 NotificationPayloadV1::Watchlist {
@@ -312,13 +321,13 @@ impl TryFrom<&Notification> for NotificationWriteValues {
             ),
             NotificationContent::SearchFilter {
                 origin_event_id,
-                product_id,
+                product_listing_id,
                 user_search_filter_id,
                 snapshot,
                 user_search_filter_name,
             } => (
                 Some(uuid::Uuid::from(*origin_event_id)),
-                Some(uuid::Uuid::from(*product_id)),
+                Some(uuid::Uuid::from(*product_listing_id)),
                 Some(uuid::Uuid::from(*user_search_filter_id)),
                 None,
                 NotificationPayloadV1::SearchFilter {
@@ -347,7 +356,7 @@ impl TryFrom<&Notification> for NotificationWriteValues {
             user_id: uuid::Uuid::from(notification.user_id()),
             kind: notification.kind().as_str(),
             origin_event_id,
-            product_id,
+            product_listing_id,
             user_search_filter_id,
             partner_shop_application_id,
             payload,
@@ -371,15 +380,16 @@ impl TryFrom<NotificationRow> for Notification {
             kind,
             payload,
             row.origin_event_id,
-            row.product_id,
+            row.product_listing_id,
             row.user_search_filter_id,
             row.partner_shop_application_id,
         ) {
             (
-                NotificationKind::WatchlistPriceChanged | NotificationKind::WatchlistStateChanged,
+                NotificationKind::WatchlistPriceChanged
+                | NotificationKind::WatchlistAvailabilityChanged,
                 NotificationPayloadV1::Watchlist { snapshot, change },
                 Some(origin_event_id),
-                Some(product_id),
+                Some(product_listing_id),
                 None,
                 None,
             ) => {
@@ -389,7 +399,7 @@ impl TryFrom<NotificationRow> for Notification {
                 }
                 NotificationContent::Watchlist {
                     origin_event_id: EventId::from(origin_event_id),
-                    product_id: ProductId::from(product_id),
+                    product_listing_id: ProductListingId::from(product_listing_id),
                     snapshot: snapshot.try_into()?,
                     change,
                 }
@@ -401,12 +411,12 @@ impl TryFrom<NotificationRow> for Notification {
                     user_search_filter_name,
                 },
                 Some(origin_event_id),
-                Some(product_id),
+                Some(product_listing_id),
                 Some(user_search_filter_id),
                 None,
             ) => NotificationContent::SearchFilter {
                 origin_event_id: EventId::from(origin_event_id),
-                product_id: ProductId::from(product_id),
+                product_listing_id: ProductListingId::from(product_listing_id),
                 user_search_filter_id: UserSearchFilterId::from(user_search_filter_id),
                 snapshot: snapshot.try_into()?,
                 user_search_filter_name,
@@ -497,6 +507,36 @@ fn price_from_data(price: PersistedPrice) -> Price {
     Price::new(MonetaryAmount::from(price.amount), currency)
 }
 
+fn serialize_optional_listing_availability<S>(
+    availability: &Option<ListingAvailability>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match availability {
+        Some(availability) => serializer.serialize_some(availability.as_str()),
+        None => serializer.serialize_none(),
+    }
+}
+
+fn deserialize_optional_listing_availability<'de, D>(
+    deserializer: D,
+) -> Result<Option<ListingAvailability>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)?.map_or(Ok(None), |value| {
+        ListingAvailability::from_code(&value)
+            .map(Some)
+            .ok_or_else(|| {
+                <D::Error as serde::de::Error>::custom(format!(
+                    "unknown listing availability {value}"
+                ))
+            })
+    })
+}
+
 fn parse_language(value: &str) -> Result<localization::Language, NotificationMappingError> {
     localization::Language::from_code(value)
         .ok_or_else(|| NotificationMappingError::UnknownLanguage(value.to_owned()))
@@ -511,7 +551,9 @@ fn parse_kind(value: &str) -> Result<NotificationKind, NotificationMappingError>
 fn change_kind(change: &NotificationWatchlistChange) -> NotificationKind {
     match change {
         NotificationWatchlistChange::PriceChange { .. } => NotificationKind::WatchlistPriceChanged,
-        NotificationWatchlistChange::StateChange { .. } => NotificationKind::WatchlistStateChanged,
+        NotificationWatchlistChange::AvailabilityChange { .. } => {
+            NotificationKind::WatchlistAvailabilityChanged
+        }
     }
 }
 
@@ -540,6 +582,56 @@ mod tests {
             parse_kind("watchlist_price_changed"),
             Err(NotificationMappingError::UnknownKind(value)) if value == "watchlist_price_changed"
         ));
+    }
+
+    #[test]
+    fn should_serialize_canonical_nullable_listing_availability()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let change = NotificationWatchlistChange::AvailabilityChange {
+            old_availability: Some(ListingAvailability::Available),
+            new_availability: None,
+        };
+        let persisted = NotificationWatchlistChangeV1::from(&change);
+
+        assert_eq!(
+            serde_json::json!({
+                "type": "AVAILABILITY_CHANGE",
+                "old_availability": "AVAILABLE",
+                "new_availability": null,
+            }),
+            serde_json::to_value(persisted)?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_deserialize_nullable_listing_availability() -> Result<(), serde_json::Error> {
+        let change = serde_json::from_value::<NotificationWatchlistChangeV1>(serde_json::json!({
+            "type": "AVAILABILITY_CHANGE",
+            "old_availability": null,
+            "new_availability": "IN_STOCK",
+        }))?;
+
+        assert!(matches!(
+            change,
+            NotificationWatchlistChangeV1::AvailabilityChange {
+                old_availability: None,
+                new_availability: Some(ListingAvailability::InStock),
+            }
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_unknown_listing_availability() {
+        assert!(
+            serde_json::from_value::<NotificationWatchlistChangeV1>(serde_json::json!({
+                "type": "AVAILABILITY_CHANGE",
+                "old_availability": null,
+                "new_availability": "UNKNOWN",
+            }))
+            .is_err()
+        );
     }
 
     #[test]

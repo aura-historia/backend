@@ -22,8 +22,8 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 fn tier_map() -> StripeProductTierMap {
     StripeProductTierMap {
-        pro_product_id: "prod_pro".to_owned(),
-        ultimate_product_id: "prod_ultimate".to_owned(),
+        pro_product_listing_id: "prod_pro".to_owned(),
+        ultimate_product_listing_id: "prod_ultimate".to_owned(),
     }
 }
 

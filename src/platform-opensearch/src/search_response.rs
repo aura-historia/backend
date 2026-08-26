@@ -98,12 +98,12 @@ mod tests {
                 "total": {"value": 1, "relation": "eq"},
                 "max_score": 1.0,
                 "hits": [{
-                    "_index": "products",
+                    "_index": "product-listings",
                     "_id": "product-1",
                     "_score": 1.0,
                     "sort": ["product-1"],
                     "matched_queries": ["active"],
-                    "_source": {"name": "Product"}
+                    "_source": {"name": "ProductListing"}
                 }]
             }
         }"#;
@@ -115,7 +115,7 @@ mod tests {
         assert_eq!(response.shards.successful, 2);
         assert_eq!(response.hits.total.value, 1);
         assert_eq!(response.hits.hits[0].id, "product-1");
-        assert_eq!(response.hits.hits[0].source.name, "Product");
+        assert_eq!(response.hits.hits[0].source.name, "ProductListing");
         assert_eq!(response.hits.hits[0].matched_queries, ["active"]);
     }
 

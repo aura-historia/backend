@@ -10,7 +10,7 @@ pub use job::CrawlerCronJob;
 #[cfg(test)]
 pub(super) mod test_support {
     use crate::scraper::candidate_service::ScraperCandidate;
-    use crate::service::product_push::MockProductPushService;
+    use crate::service::product_push::MockProductListingPushService;
     use crate::service::shop_registration::{
         MockShopRegistrationRepository, MockShopRegistrationSource, ShopRegistrationService,
     };
@@ -26,8 +26,8 @@ pub(super) mod test_support {
         ShopRegistrationService::new(Box::new(source), Box::new(repository))
     }
 
-    pub(super) fn noop_product_push() -> Box<MockProductPushService> {
-        let mut push = MockProductPushService::new();
+    pub(super) fn noop_product_push() -> Box<MockProductListingPushService> {
+        let mut push = MockProductListingPushService::new();
         push.expect_push()
             .returning(|products| Box::pin(async move { vec![true; products.len()] }));
         Box::new(push)
@@ -52,7 +52,8 @@ pub(super) mod test_support {
             last_scraped_images_hash: None,
             last_scraped_auction_start: None,
             last_scraped_auction_end: None,
-            last_scraped_state: None,
+            last_scraped_presence: "PRESENT".to_owned(),
+            last_scraped_availability: None,
         }
     }
 }

@@ -21,7 +21,7 @@
 //! | `GOOGLE_APPLICATION_CREDENTIALS`| Optional local Application Default Credentials file             |
 //! | `VERTEX_AI_MODEL`               | Schema generation/repair model (default: `gemini-3.1-pro-preview`) |
 //! | `CRAWLER_VERTEX_AI_CHEAP_MODEL` | Default model for low-risk crawler LLM tasks                   |
-//! | `CRAWLER_VERTEX_AI_STATE_MAPPING_MODEL` | Optional state mapping model override                   |
+//! | `CRAWLER_VERTEX_AI_LISTING_AVAILABILITY_MAPPING_MODEL` | Optional state mapping model override                   |
 //! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override       |
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls (default: `1`)          |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between crawler LLM request starts (default: `2000`) |
@@ -57,16 +57,16 @@ use crawler::review::repository::CrawlerReviewRepository;
 use crawler::review::server::{ReviewServer, ReviewServerConfig};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
-use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
+use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
-use crawler::scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
-use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
-use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
+use crawler::scraper::normalization::listing_availability_mapping_repository::ListingAvailabilityMappingRepositoryImpl;
+use crawler::scraper::normalization::listing_availability_mapping_service::ListingAvailabilityMappingServiceImpl;
+use crawler::scraper::normalization::product_normalization_service::ProductListingNormalizationServiceImpl;
 use crawler::scraper::scraper_service::{
     DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
-use crawler::service::product_push::ProductPushServiceImpl;
+use crawler::service::product_push::ProductListingPushServiceImpl;
 use crawler::service::shop_registration::{
     RegisteredShop, ShopRegistrationRepositoryImpl, ShopRegistrationService,
     ShopRegistrationSource, ShopSyncError,
@@ -80,12 +80,12 @@ use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
 use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
-use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use platform_postgres::SqlxUnitOfWork;
-use product_postgres::{
-    SqlxPartnerProductAuthorizerFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
+use product_listing_postgres::{
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventStoreFactory,
+    SqlxProductListingRepositoryFactory,
 };
-use product_service::use_cases::UpsertProductHandler;
+use product_listing_service::use_cases::UpsertProductListingHandler;
 use shop_core::{partner_status::ShopPartnerStatus, shop_id::ShopId};
 use shop_postgres::SqlxShopSearchReaderFactory;
 use shop_service::{
@@ -436,7 +436,7 @@ async fn main() {
         info!(
             llm_provider = "vertex_ai",
             schema_model = %vertex_ai_models.product_schema,
-            state_mapping_model = %vertex_ai_models.product_state_mapping,
+            listing_availability_mapping_model = %vertex_ai_models.listing_availability_mapping,
             url_classification_model = %vertex_ai_models.url_classification,
             max_concurrent_requests = llm_rate_limit_config.max_concurrent_requests,
             min_request_interval_ms = llm_rate_limit_config.min_request_interval.as_millis(),
@@ -444,18 +444,19 @@ async fn main() {
         );
 
         let state_llm = vertex_ai_config
-            .create_model(vertex_ai_models.product_state_mapping.clone())
+            .create_model(vertex_ai_models.listing_availability_mapping.clone())
             .expect("failed to initialize Vertex AI model for state mapping");
-        let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(Box::leak(
-            Box::new(pool.clone()),
-        )));
-        let state_mapping_svc = ProductStateMappingServiceImpl::new(
+        let listing_availability_mapping_repo = Box::new(
+            ListingAvailabilityMappingRepositoryImpl::new(Box::leak(Box::new(pool.clone()))),
+        );
+        let listing_availability_mapping_svc = ListingAvailabilityMappingServiceImpl::new(
             state_llm,
-            state_mapping_repo,
+            listing_availability_mapping_repo,
             Some(Arc::clone(&llm_governor)),
         );
 
-        let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
+        let normalization_svc =
+            ProductListingNormalizationServiceImpl::new(Box::new(listing_availability_mapping_svc));
 
         let create_schema_llm = vertex_ai_config
             .create_model(vertex_ai_models.product_schema.clone())
@@ -467,7 +468,7 @@ async fn main() {
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
-        let schema_svc = ProductSchemaServiceImpl::new(
+        let schema_svc = ProductListingSchemaServiceImpl::new(
             create_schema_llm,
             single_schema_llm,
             schema_repo,
@@ -547,14 +548,13 @@ async fn main() {
         let shop_registration = ShopRegistrationService::new(shop_source, shop_repo);
 
         // 6. Wire product push through authoritative Postgres.
-        let upsert_product = UpsertProductHandler::new_with_fx_rates(
+        let upsert_product = UpsertProductListingHandler::new(
             business_unit_of_work,
-            SqlxProductRepositoryFactory::new(),
-            SqlxProductEventStoreFactory::new(),
-            SqlxPartnerProductAuthorizerFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventStoreFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
         );
-        let product_push = Box::new(ProductPushServiceImpl::new(
+        let product_push = Box::new(ProductListingPushServiceImpl::new(
             Arc::new(upsert_product),
             config.effective_push_max_concurrency(),
         ));
@@ -589,7 +589,7 @@ async fn main() {
             business_db_max_connections,
             llm_provider = "vertex_ai",
             schema_model = %vertex_ai_models.product_schema,
-            state_mapping_model = %vertex_ai_models.product_state_mapping,
+            listing_availability_mapping_model = %vertex_ai_models.listing_availability_mapping,
             url_classification_model = %vertex_ai_models.url_classification,
             review_required,
             url_pattern_review_required,

@@ -32,9 +32,9 @@ fn fetcher_with_sample_html() -> MockHtmlFetcher {
     fetcher
 }
 
-fn normalizer_with_success(url: Url) -> MockProductNormalizationService {
+fn normalizer_with_success(url: Url) -> MockProductListingNormalizationService {
     let expected = normalized_product(url);
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()
@@ -50,7 +50,7 @@ async fn should_use_yaml_only_when_single_schema_applies() {
     let id = shop_id();
     let url = product_url();
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -85,7 +85,7 @@ async fn should_use_yaml_only_when_single_schema_applies() {
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher_with_sample_html()),
@@ -105,7 +105,7 @@ async fn should_fail_when_fresh_schema_does_not_apply_after_initial_schema_failu
     let id = shop_id();
     let url = product_url();
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -133,7 +133,7 @@ async fn should_fail_when_fresh_schema_does_not_apply_after_initial_schema_failu
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher_with_sample_html()),
         Box::new(schema_svc),
-        Box::new(MockProductNormalizationService::new()),
+        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
@@ -160,7 +160,7 @@ async fn should_fail_when_fresh_schema_application_fails() {
     let id = shop_id();
     let url = product_url();
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -181,7 +181,7 @@ async fn should_fail_when_fresh_schema_application_fails() {
         });
     schema_svc.expect_save_product_schemas().never();
 
-    let norm_svc = MockProductNormalizationService::new();
+    let norm_svc = MockProductListingNormalizationService::new();
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
 
@@ -215,7 +215,7 @@ async fn should_not_consume_second_budget_call_when_fresh_schema_does_not_apply(
     let id = shop_id();
     let url = product_url();
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -236,7 +236,7 @@ async fn should_not_consume_second_budget_call_when_fresh_schema_does_not_apply(
         });
     schema_svc.expect_save_product_schemas().never();
 
-    let norm_svc = MockProductNormalizationService::new();
+    let norm_svc = MockProductListingNormalizationService::new();
     let mut cand_svc = MockScraperCandidateService::new();
     cand_svc
         .expect_try_increment_shop_llm_calls_with_limit()
@@ -260,13 +260,14 @@ async fn should_not_consume_second_budget_call_when_fresh_schema_does_not_apply(
 }
 
 #[tokio::test]
-async fn should_mark_removed_when_fresh_generation_classifies_removed() {
+async fn should_mark_withdrawn_when_fresh_generation_classifies_removed() {
     let id = shop_id();
     let url = product_url();
-    let removed_html = r#"<main><h1 id="removed-message">Product no longer available</h1></main>"#;
+    let removed_html =
+        r#"<main><h1 id="removed-message">ProductListing no longer available</h1></main>"#;
     let removed_schema = RemovedPageSchema {
         selector: CssSelector::from("#removed-message"),
-        text: Some("Product no longer available".to_string()),
+        text: Some("ProductListing no longer available".to_string()),
         regex: None,
     };
 
@@ -276,7 +277,7 @@ async fn should_mark_removed_when_fresh_generation_classifies_removed() {
         Box::pin(async move { Ok(fetch_result(html)) })
     });
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -320,19 +321,19 @@ async fn should_mark_removed_when_fresh_generation_classifies_removed() {
     expect_budget_increment(&mut cand_svc, 1);
     let url_for_state = url.clone();
     cand_svc
-        .expect_set_state()
+        .expect_set_presence()
         .once()
         .withf(move |received_shop_id, received_url, received_state| {
             *received_shop_id == id
                 && received_url == &url_for_state
-                && *received_state == UrlState::Removed
+                && *received_state == UrlPresence::Withdrawn
         })
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(MockProductNormalizationService::new()),
+        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
@@ -341,7 +342,7 @@ async fn should_mark_removed_when_fresh_generation_classifies_removed() {
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();
 
-    assert!(matches!(err, ScraperError::ProductRemoved { .. }));
+    assert!(matches!(err, ScraperError::ProductListingRemoved { .. }));
 }
 
 #[tokio::test]
@@ -356,7 +357,7 @@ async fn should_mark_other_when_fresh_generation_classifies_not_product() {
         Box::pin(async move { Ok(fetch_result(html)) })
     });
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -393,7 +394,7 @@ async fn should_mark_other_when_fresh_generation_classifies_not_product() {
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(MockProductNormalizationService::new()),
+        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
@@ -417,7 +418,7 @@ async fn should_reject_low_confidence_fresh_classification(
         .once()
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -458,13 +459,13 @@ async fn should_reject_low_confidence_fresh_classification(
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    cand_svc.expect_set_state().never();
+    cand_svc.expect_set_presence().never();
     cand_svc.expect_set_class().never();
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(MockProductNormalizationService::new()),
+        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
@@ -514,7 +515,7 @@ async fn should_not_change_state_or_class_when_fresh_classification_does_not_mat
         Box::pin(async move { Ok(fetch_result(html)) })
     });
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -530,7 +531,7 @@ async fn should_not_change_state_or_class_when_fresh_classification_does_not_mat
                 Ok(GeneratedSingleSchema::Removed {
                     schema: RemovedPageSchema {
                         selector: CssSelector::from("#missing"),
-                        text: Some("Product no longer available".to_string()),
+                        text: Some("ProductListing no longer available".to_string()),
                         regex: None,
                     },
                     evaluation: schema_evaluation(SchemaLlmEvaluationConfidence::High),
@@ -541,13 +542,13 @@ async fn should_not_change_state_or_class_when_fresh_classification_does_not_mat
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    cand_svc.expect_set_state().never();
+    cand_svc.expect_set_presence().never();
     cand_svc.expect_set_class().never();
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(MockProductNormalizationService::new()),
+        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,

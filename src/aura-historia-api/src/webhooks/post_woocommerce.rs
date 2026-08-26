@@ -7,7 +7,9 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use base64::Engine;
 use indexmap::IndexSet;
-use product_service::use_cases::{IngestWoocommerceProductCommand, WoocommerceProductEventKind};
+use product_listing_service::use_cases::{
+    IngestWoocommerceProductListingCommand, WoocommerceProductEventKind,
+};
 use serde::Deserialize;
 use shop_core::shop_id::ShopId;
 use url::Url;
@@ -85,12 +87,12 @@ pub async fn post_woocommerce(
         .ingest
         .execute(
             &context,
-            IngestWoocommerceProductCommand {
+            IngestWoocommerceProductListingCommand {
                 shop_id,
                 kind,
                 signature,
                 raw_body: body.to_vec(),
-                shops_product_id: product_core::shops_product_id::ShopsProductId::from(
+                shop_listing_id: product_listing_core::shop_listing_id::ShopListingId::from(
                     payload.id.to_string(),
                 ),
                 title: payload.name,

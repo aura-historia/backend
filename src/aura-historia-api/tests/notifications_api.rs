@@ -284,22 +284,26 @@ async fn should_return_localized_reason_specific_notification_payloads() {
         price_change["payload"]["image"]["prohibitedContent"]
     );
     assert!(price_change["payload"]["shopId"].as_str().is_some());
-    assert!(price_change["payload"]["shopsProductId"].as_str().is_some());
+    assert!(price_change["payload"]["shopListingId"].as_str().is_some());
     assert!(price_change["payload"]["shopSlugId"].as_str().is_some());
-    assert!(price_change["payload"]["productSlugId"].as_str().is_some());
+    assert!(
+        price_change["payload"]["productListingSlugId"]
+            .as_str()
+            .is_some()
+    );
     assert!(price_change["payload"]["url"].as_str().is_some());
     assert!(price_change["payload"]["viewUrl"].as_str().is_some());
 
-    let state_change = notification_with_kind(items, "WATCHLIST_STATE_CHANGED");
-    assert!(state_change["payload"]["title"].is_null());
-    assert!(state_change["payload"]["image"].is_null());
+    let availability_change = notification_with_kind(items, "WATCHLIST_AVAILABILITY_CHANGED");
+    assert!(availability_change["payload"]["title"].is_null());
+    assert!(availability_change["payload"]["image"].is_null());
     assert_eq!(
-        serde_json::json!("LISTED"),
-        state_change["payload"]["change"]["oldState"]
+        serde_json::json!("AVAILABLE"),
+        availability_change["payload"]["change"]["oldAvailability"]
     );
     assert_eq!(
-        serde_json::json!("SOLD"),
-        state_change["payload"]["change"]["newState"]
+        serde_json::json!("SOLD_OUT"),
+        availability_change["payload"]["change"]["newAvailability"]
     );
 
     let search_filter = notification_with_kind(items, "SEARCH_FILTER_MATCH");
@@ -376,6 +380,10 @@ async fn should_filter_notification_image_urls_by_current_prohibited_content_con
         denied_image["prohibitedContent"]
     );
     assert!(denied_image.get("url").is_none());
+    assert_eq!(
+        serde_json::Value::Null,
+        denied["items"][0]["payload"]["change"]["newAvailability"]
+    );
 
     let allowed = list_notification_page(&allowed_token, 1, None).await;
     assert_eq!(
@@ -385,6 +393,10 @@ async fn should_filter_notification_image_urls_by_current_prohibited_content_con
     assert_eq!(
         serde_json::json!("UNKNOWN"),
         allowed["items"][0]["payload"]["image"]["prohibitedContent"]
+    );
+    assert_eq!(
+        serde_json::Value::Null,
+        allowed["items"][0]["payload"]["change"]["newAvailability"]
     );
 }
 
@@ -662,7 +674,7 @@ async fn seed_notification(user_id: UserId, seen: bool) -> Uuid {
 async fn seed_unsafe_image_notification(user_id: UserId) {
     seed_notification_with_payload(
         user_id,
-        "WATCHLIST_STATE_CHANGED",
+        "WATCHLIST_AVAILABILITY_CHANGED",
         Some(Uuid::new_v4()),
         Some(Uuid::new_v4()),
         None,
@@ -671,9 +683,9 @@ async fn seed_unsafe_image_notification(user_id: UserId) {
             "type": "WATCHLIST",
             "snapshot": {
                 "shop_id": Uuid::new_v4(),
-                "shops_product_id": "unsafe-product",
+                "shop_listing_id": "unsafe-product",
                 "shop_slug_id": "unsafe-shop",
-                "product_slug_id": "unsafe-product-abcdef",
+                "product_listing_slug_id": "unsafe-product-abcdef",
                 "shop_name": "Unsafe Shop",
                 "title": null,
                 "image": {
@@ -684,9 +696,9 @@ async fn seed_unsafe_image_notification(user_id: UserId) {
                 "view_url": "https://aura-historia.example/product"
             },
             "change": {
-                "type": "STATE_CHANGE",
-                "old_state": "Listed",
-                "new_state": "Available"
+                "type": "AVAILABILITY_CHANGE",
+                "old_availability": "AVAILABLE",
+                "new_availability": null
             }
         }),
     )
@@ -755,22 +767,22 @@ async fn seed_price_notification(
     old_amount: Option<u64>,
     new_amount: Option<u64>,
 ) {
-    let product_id = Uuid::new_v4();
+    let product_listing_id = Uuid::new_v4();
     let price = |amount| serde_json::json!({ "currency": currency, "amount": amount });
     seed_notification_with_payload(
         user_id,
         "WATCHLIST_PRICE_CHANGED",
         Some(Uuid::new_v4()),
-        Some(product_id),
+        Some(product_listing_id),
         None,
         None,
         serde_json::json!({
             "type": "WATCHLIST",
             "snapshot": {
                 "shop_id": Uuid::new_v4(),
-                "shops_product_id": "source-currency-product",
+                "shop_listing_id": "source-currency-product",
                 "shop_slug_id": "source-currency-shop",
-                "product_slug_id": "source-currency-product-a1b2c3",
+                "product_listing_slug_id": "source-currency-product-a1b2c3",
                 "shop_name": "Source Currency Shop",
                 "title": null,
                 "image": null,
@@ -788,13 +800,13 @@ async fn seed_price_notification(
 }
 
 async fn seed_notification_payloads(user_id: UserId) {
-    let product_id = Uuid::new_v4();
+    let product_listing_id = Uuid::new_v4();
     let product_snapshot = |title: serde_json::Value, image: serde_json::Value| {
         serde_json::json!({
             "shop_id": Uuid::new_v4(),
-            "shops_product_id": "shop-product-123",
+            "shop_listing_id": "shop-product-123",
             "shop_slug_id": "test-shop",
-            "product_slug_id": "test-product-a1b2c3",
+            "product_listing_slug_id": "test-product-a1b2c3",
             "shop_name": "Snapshot Shop",
             "title": title,
             "image": image,
@@ -815,7 +827,7 @@ async fn seed_notification_payloads(user_id: UserId) {
         user_id,
         "WATCHLIST_PRICE_CHANGED",
         Some(Uuid::new_v4()),
-        Some(product_id),
+        Some(product_listing_id),
         None,
         None,
         serde_json::json!({
@@ -831,15 +843,15 @@ async fn seed_notification_payloads(user_id: UserId) {
     .await;
     seed_notification_with_payload(
         user_id,
-        "WATCHLIST_STATE_CHANGED",
+        "WATCHLIST_AVAILABILITY_CHANGED",
         Some(Uuid::new_v4()),
-        Some(product_id),
+        Some(product_listing_id),
         None,
         None,
         serde_json::json!({
             "type": "WATCHLIST",
             "snapshot": product_snapshot(serde_json::Value::Null, serde_json::Value::Null),
-            "change": { "type": "STATE_CHANGE", "old_state": "Listed", "new_state": "Sold" }
+            "change": { "type": "AVAILABILITY_CHANGE", "old_availability": "AVAILABLE", "new_availability": "SOLD_OUT" }
         }),
     )
     .await;
@@ -848,7 +860,7 @@ async fn seed_notification_payloads(user_id: UserId) {
         user_id,
         "SEARCH_FILTER_MATCH",
         Some(Uuid::new_v4()),
-        Some(product_id),
+        Some(product_listing_id),
         Some(filter_id),
         None,
         serde_json::json!({
@@ -890,7 +902,7 @@ async fn seed_notification_with_payload(
     user_id: UserId,
     kind: &str,
     origin_event_id: Option<Uuid>,
-    product_id: Option<Uuid>,
+    product_listing_id: Option<Uuid>,
     user_search_filter_id: Option<Uuid>,
     partner_shop_application_id: Option<Uuid>,
     payload: serde_json::Value,
@@ -899,7 +911,7 @@ async fn seed_notification_with_payload(
     if let Err(error) = sqlx::query(
         r#"
         INSERT INTO notifications (
-            notification_id, user_id, kind, origin_event_id, product_id,
+            notification_id, user_id, kind, origin_event_id, product_listing_id,
             user_search_filter_id, partner_shop_application_id, payload, seen
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
         "#,
@@ -908,7 +920,7 @@ async fn seed_notification_with_payload(
     .bind(Uuid::from(user_id))
     .bind(kind)
     .bind(origin_event_id)
-    .bind(product_id)
+    .bind(product_listing_id)
     .bind(user_search_filter_id)
     .bind(partner_shop_application_id)
     .bind(payload)

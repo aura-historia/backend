@@ -561,7 +561,7 @@ mod access_token_state_tests {
     #[test]
     fn should_render_all_scope_strings() {
         for (scope, value) in [
-            (Scope::ProductsWrite, "products:write"),
+            (Scope::ProductListingsWrite, "product-listings:write"),
             (Scope::ShopsRead, "shops:read"),
             (Scope::ShopsWrite, "shops:write"),
             (
@@ -584,9 +584,9 @@ mod access_token_state_tests {
 
     #[test]
     fn should_report_scope_presence() {
-        let token = access_token(None, HashSet::from([Scope::ProductsWrite]));
+        let token = access_token(None, HashSet::from([Scope::ProductListingsWrite]));
 
-        assert!(token.has_scope(Scope::ProductsWrite));
+        assert!(token.has_scope(Scope::ProductListingsWrite));
         assert!(!token.has_scope(Scope::ShopsWrite));
     }
 
@@ -648,7 +648,7 @@ mod faker {
                 hashed_token: config.fake_with_rng(rng),
                 user_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
-                scopes: [Scope::ProductsWrite].into(),
+                scopes: [Scope::ProductListingsWrite].into(),
                 origin: AccessTokenOrigin::User,
                 expires: None,
             }

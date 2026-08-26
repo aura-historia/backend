@@ -1,9 +1,11 @@
 use super::error::NormalizationError;
 use crate::scraper::css_selector::rule::split_image_candidate_group;
-use product_core::{product_image::ProductImage, prohibited_content::ProhibitedContent};
+use product_listing_core::{
+    product_listing_image::ProductListingImage, prohibited_content::ProhibitedContent,
+};
 use url::Url;
 
-/// Converts a list of raw image URL strings into [`ProductImage`] values.
+/// Converts a list of raw image URL strings into [`ProductListingImage`] values.
 ///
 /// Each string is first trimmed. Absolute URLs are parsed directly; relative
 /// paths are resolved against `base_url`. All images start with
@@ -11,7 +13,7 @@ use url::Url;
 pub(super) fn normalize_images(
     raw: Vec<String>,
     base_url: &Url,
-) -> Result<Vec<ProductImage>, NormalizationError> {
+) -> Result<Vec<ProductListingImage>, NormalizationError> {
     raw.into_iter()
         .map(|s| {
             let s = s.trim().to_owned();
@@ -26,7 +28,7 @@ pub(super) fn normalize_images(
                     raw: image_url.clone(),
                     source,
                 })?;
-            Ok(ProductImage {
+            Ok(ProductListingImage {
                 url,
                 prohibited_content: ProhibitedContent::Unknown,
             })
@@ -43,7 +45,7 @@ mod tests {
     use rstest::rstest;
     use url::Url;
 
-    use product_core::prohibited_content::ProhibitedContent;
+    use product_listing_core::prohibited_content::ProhibitedContent;
 
     use super::normalize_images;
     use crate::scraper::normalization::error::NormalizationError;

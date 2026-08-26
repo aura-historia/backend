@@ -1,6 +1,6 @@
 use application::error::BoxError;
 use domain_primitives::event_id::EventId;
-use product_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use time::OffsetDateTime;
@@ -11,7 +11,7 @@ pub struct SearchFilterMatchNotificationSource {
     pub user_id: UserId,
     pub search_filter_id: UserSearchFilterId,
     pub search_filter_name: UserSearchFilterName,
-    pub product_id: ProductId,
+    pub product_listing_id: ProductListingId,
     pub origin_event_id: EventId,
     /// Database-assigned match time used for stable monthly notification ranking.
     pub matched_at: OffsetDateTime,
@@ -38,7 +38,7 @@ pub trait SearchFilterMatchNotificationSourceReader: Send {
         &mut self,
         user_id: UserId,
         search_filter_id: UserSearchFilterId,
-        product_id: ProductId,
+        product_listing_id: ProductListingId,
         origin_event_id: EventId,
     ) -> Result<
         Option<SearchFilterMatchNotificationSource>,

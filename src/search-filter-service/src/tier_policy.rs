@@ -1,4 +1,4 @@
-use product_core::product_search::ProductSearch;
+use product_listing_core::product_listing_search::ProductListingSearch;
 use user_core::tier::UserTier;
 
 pub(crate) fn active_filter_quota(tier: UserTier) -> usize {
@@ -18,15 +18,15 @@ pub(crate) fn monthly_match_quota(tier: UserTier) -> usize {
 
 pub(crate) fn validate_search_features(
     tier: UserTier,
-    search: &ProductSearch,
+    search: &ProductListingSearch,
 ) -> Result<(), &'static str> {
     restricted_feature(tier, search).map_or(Ok(()), Err)
 }
 
 pub(crate) fn validate_search_feature_changes(
     tier: UserTier,
-    before: &ProductSearch,
-    after: &ProductSearch,
+    before: &ProductListingSearch,
+    after: &ProductListingSearch,
 ) -> Result<(), &'static str> {
     for feature in restricted_features(tier) {
         if feature.is_present(after) && !feature.is_present(before) {
@@ -37,7 +37,7 @@ pub(crate) fn validate_search_feature_changes(
     Ok(())
 }
 
-fn restricted_feature(tier: UserTier, search: &ProductSearch) -> Option<&'static str> {
+fn restricted_feature(tier: UserTier, search: &ProductListingSearch) -> Option<&'static str> {
     restricted_features(tier)
         .iter()
         .find(|feature| feature.is_present(search))
@@ -118,7 +118,7 @@ impl RestrictedFeature {
         }
     }
 
-    fn is_present(self, search: &ProductSearch) -> bool {
+    fn is_present(self, search: &ProductListingSearch) -> bool {
         match self {
             Self::EnhancedSearchDescription => search.enhanced_search_description.is_some(),
             Self::ShopNameQuery => !search.shop_name_query.is_empty(),
@@ -150,10 +150,12 @@ mod tests {
     use isocountry::CountryCode;
     use localization::Language;
     use money::Currency;
-    use product_core::{
-        product_id::ProductId,
-        product_lifecycle::ProductLifecycle,
-        product_search::{EnhancedSearchDescription, ProductSearch},
+    use product_listing_core::{
+        listing_availability::ListingAvailability,
+        product_listing_id::ProductListingId,
+        product_listing_search::{
+            EnhancedSearchDescription, ListingAvailabilityQuery, ProductListingSearch,
+        },
     };
     use std::collections::HashSet;
     use user_core::tier::UserTier;
@@ -169,9 +171,9 @@ mod tests {
 
     #[test]
     fn should_reject_tier_restricted_search_features() {
-        let country_search = ProductSearch::new(Language::En, Currency::Eur)
+        let country_search = ProductListingSearch::new(Language::En, Currency::Eur)
             .with_country_query([CountryCode::DEU].into_iter().collect());
-        let enhanced_search = ProductSearch::new(Language::En, Currency::Eur)
+        let enhanced_search = ProductListingSearch::new(Language::En, Currency::Eur)
             .with_enhanced_search_description(
                 EnhancedSearchDescription::try_from("gold ring").unwrap(),
             );
@@ -191,11 +193,15 @@ mod tests {
     }
 
     #[test]
-    fn should_allow_legacy_free_tier_product_exclusions_and_lifecycle_filters() {
-        let with_product_exclusion = ProductSearch::new(Language::En, Currency::Eur)
-            .with_exclude_product_id_query(HashSet::from([ProductId::new()]).into());
-        let with_lifecycle = ProductSearch::new(Language::En, Currency::Eur)
-            .with_lifecycle_query(HashSet::from([ProductLifecycle::Deleted]).into());
+    fn should_allow_free_tier_product_exclusions_and_availability_filters() {
+        let with_product_exclusion = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_exclude_product_listing_id_query(HashSet::from([ProductListingId::new()]).into());
+        let with_availability = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_availability_query(ListingAvailabilityQuery {
+                any_of: HashSet::from([ListingAvailability::SoldOut]).into(),
+                orderability: Default::default(),
+                include_unspecified: false,
+            });
 
         assert_eq!(
             Ok(()),
@@ -203,16 +209,16 @@ mod tests {
         );
         assert_eq!(
             Ok(()),
-            validate_search_features(UserTier::Free, &with_lifecycle)
+            validate_search_features(UserTier::Free, &with_availability)
         );
     }
 
     #[test]
     fn should_allow_edits_to_plan_restricted_filter_until_reactivation() {
-        let restricted = ProductSearch::new(Language::En, Currency::Eur)
+        let restricted = ProductListingSearch::new(Language::En, Currency::Eur)
             .with_country_query([CountryCode::DEU].into_iter().collect());
         let unchanged = restricted.clone();
-        let mut adds_restriction = ProductSearch::new(Language::En, Currency::Eur);
+        let mut adds_restriction = ProductListingSearch::new(Language::En, Currency::Eur);
         adds_restriction.country_query = [CountryCode::DEU].into_iter().collect();
 
         assert_eq!(
@@ -228,7 +234,7 @@ mod tests {
             Err("countryQuery"),
             validate_search_feature_changes(
                 UserTier::Free,
-                &ProductSearch::new(Language::En, Currency::Eur),
+                &ProductListingSearch::new(Language::En, Currency::Eur),
                 &adds_restriction,
             )
         );

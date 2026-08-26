@@ -32,7 +32,7 @@
         "cardinality": "first"
       }
     },
-    "shops_product_id": {
+    "shop_listing_id": {
       "name": "value",
       "type": "attribute",
       "selector": "button[name='add-to-cart']",
@@ -78,7 +78,7 @@
       }
     },
     "default_currency": "EUR",
-    "shops_product_id": {
+    "shop_listing_id": {
       "type": "text",
       "selector": ".sku",
       "cardinality": "first"
@@ -128,7 +128,7 @@
       }
     },
     "default_currency": "EUR",
-    "shops_product_id": {
+    "shop_listing_id": {
       "name": "value",
       "type": "attribute",
       "selector": "button[name='add-to-cart']",
@@ -180,7 +180,7 @@
       }
     },
     "default_currency": "EUR",
-    "shops_product_id": {
+    "shop_listing_id": {
       "name": "value",
       "type": "attribute",
       "selector": "button[name='add-to-cart']",

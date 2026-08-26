@@ -5,12 +5,12 @@ use crate::network::policy::{
 use crate::review::model::ARTIFACT_PRODUCT_SCHEMA;
 use crate::review::repository::CrawlerReviewRepository;
 use crate::scraper::candidate_service::ScraperCandidateService;
-use crate::scraper::css_selector::product_schema_service::ProductSchemaService;
-use crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError;
+use crate::scraper::css_selector::product_schema_service::ProductListingSchemaService;
+use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
 use crate::scraper::css_selector::removed_page_schema_repository::{
     NullRemovedPageSchemaRepository, RemovedPageSchemaRepository,
 };
-use crate::scraper::normalization::product_normalization_service::ProductNormalizationService;
+use crate::scraper::normalization::product_normalization_service::ProductListingNormalizationService;
 use crate::scraper::scraper_service::auto_throttle::{
     ScraperAutoThrottle, ScraperAutoThrottleConfig,
 };
@@ -257,8 +257,8 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
 pub struct ScraperServiceImpl {
     pub(crate) html_fetcher: Box<dyn HtmlFetcher>,
     pub(crate) image_validator: Box<dyn ImageValidator>,
-    pub(crate) schema_service: Box<dyn ProductSchemaService + Send + Sync>,
-    pub(crate) normalization_service: Box<dyn ProductNormalizationService + Send + Sync>,
+    pub(crate) schema_service: Box<dyn ProductListingSchemaService + Send + Sync>,
+    pub(crate) normalization_service: Box<dyn ProductListingNormalizationService + Send + Sync>,
     pub(crate) candidate_service: Arc<dyn ScraperCandidateService>,
     pub(crate) removed_page_schema_repository: Box<dyn RemovedPageSchemaRepository + Send + Sync>,
     /// Number of HTML pages to seed first-time schema generation with.
@@ -316,8 +316,8 @@ impl SchemaLlmReviewMode {
 impl ScraperServiceImpl {
     pub fn new(
         html_fetcher: Box<dyn HtmlFetcher>,
-        schema_service: Box<dyn ProductSchemaService + Send + Sync>,
-        normalization_service: Box<dyn ProductNormalizationService + Send + Sync>,
+        schema_service: Box<dyn ProductListingSchemaService + Send + Sync>,
+        normalization_service: Box<dyn ProductListingNormalizationService + Send + Sync>,
         candidate_service: Arc<dyn ScraperCandidateService>,
     ) -> Self {
         Self::new_with_schema_seed_pages(
@@ -332,8 +332,8 @@ impl ScraperServiceImpl {
 
     pub fn new_with_schema_seed_pages(
         html_fetcher: Box<dyn HtmlFetcher>,
-        schema_service: Box<dyn ProductSchemaService + Send + Sync>,
-        normalization_service: Box<dyn ProductNormalizationService + Send + Sync>,
+        schema_service: Box<dyn ProductListingSchemaService + Send + Sync>,
+        normalization_service: Box<dyn ProductListingNormalizationService + Send + Sync>,
         candidate_service: Arc<dyn ScraperCandidateService>,
         schema_seed_pages: usize,
         max_llm_calls_per_shop: i64,
@@ -380,7 +380,7 @@ impl ScraperServiceImpl {
     pub(crate) async fn pending_product_schema_review_id(
         &self,
         shop_id: &shop_core::shop_id::ShopId,
-    ) -> Result<Option<uuid::Uuid>, ProductSchemaServiceError> {
+    ) -> Result<Option<uuid::Uuid>, ProductListingSchemaServiceError> {
         if !self.review_required {
             return Ok(None);
         }
@@ -392,7 +392,7 @@ impl ScraperServiceImpl {
         review_repository
             .latest_pending_review_id(shop_id, ARTIFACT_PRODUCT_SCHEMA)
             .await
-            .map_err(ProductSchemaServiceError::DatabaseError)
+            .map_err(ProductListingSchemaServiceError::DatabaseError)
     }
 }
 

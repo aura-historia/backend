@@ -1,7 +1,7 @@
 mod api_support;
 
 use api_support::{assert_problem, json_response, seed_access_token_for, seed_product, seed_user};
-use product_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use test_api::{
     AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
     get_postgres_client,
@@ -180,7 +180,7 @@ async fn should_list_search_filter_matches() {
     let token = search_filters_token(user_id).await;
     let client = reqwest::Client::new();
     let filter_id = create_search_filter(&client, &token).await;
-    let (product_id, _, _) = seed_search_filter_match(user_id, &filter_id).await;
+    let (product_listing_id, _, _) = seed_search_filter_match(user_id, &filter_id).await;
 
     let response = client
         .get(format!(
@@ -202,8 +202,8 @@ async fn should_list_search_filter_matches() {
     assert_eq!(Some("no-store"), cache_control.as_deref());
     assert_eq!(serde_json::json!(100), body["size"]);
     assert_eq!(
-        serde_json::json!(product_id.to_string()),
-        body["items"][0]["item"]["productId"]
+        serde_json::json!(product_listing_id.to_string()),
+        body["items"][0]["item"]["productListingId"]
     );
     assert_eq!(
         "CURRENT",
@@ -221,9 +221,10 @@ async fn should_accept_json_string_search_after_for_search_filter_matches() {
     let token = search_filters_token(user_id).await;
     let client = reqwest::Client::new();
     let filter_id = create_search_filter(&client, &token).await;
-    let (product_id, _, _) = seed_search_filter_match(user_id, &filter_id).await;
+    let (product_listing_id, _, _) = seed_search_filter_match(user_id, &filter_id).await;
     let search_after =
-        serde_json::json!(["1970-01-01T00:00:00Z", ProductId::new().to_string(),]).to_string();
+        serde_json::json!(["1970-01-01T00:00:00Z", ProductListingId::new().to_string(),])
+            .to_string();
 
     let response = client
         .get(format!(
@@ -241,8 +242,8 @@ async fn should_accept_json_string_search_after_for_search_filter_matches() {
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(
-        serde_json::json!(product_id.to_string()),
-        body["items"][0]["item"]["productId"]
+        serde_json::json!(product_listing_id.to_string()),
+        body["items"][0]["item"]["productListingId"]
     );
 }
 
@@ -372,11 +373,11 @@ async fn should_update_search_filter_match_feedback() {
     let token = search_filters_token(user_id).await;
     let client = reqwest::Client::new();
     let filter_id = create_search_filter(&client, &token).await;
-    let (product_id, _, _) = seed_search_filter_match(user_id, &filter_id).await;
+    let (product_listing_id, _, _) = seed_search_filter_match(user_id, &filter_id).await;
 
     let response = client
         .patch(format!(
-            "{}/api/v1/me/search-filters/{filter_id}/matches/{product_id}",
+            "{}/api/v1/me/search-filters/{filter_id}/matches/{product_listing_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -397,7 +398,10 @@ async fn should_update_search_filter_match_feedback() {
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(Some("no-store"), cache_control.as_deref());
     assert!(has_last_modified);
-    assert_eq!(serde_json::json!(product_id.to_string()), body["productId"]);
+    assert_eq!(
+        serde_json::json!(product_listing_id.to_string()),
+        body["productListingId"]
+    );
     assert_eq!(serde_json::json!(true), body["feedback"]);
 }
 
@@ -483,14 +487,14 @@ async fn create_search_filter(client: &reqwest::Client, token: &RawAccessToken) 
 async fn seed_search_filter_match(
     user_id: user_core::user_id::UserId,
     filter_id: &str,
-) -> (ProductId, String, String) {
-    let product_id = seed_product().await;
+) -> (ProductListingId, String, String) {
+    let product_listing_id = seed_product().await;
     let pool = get_postgres_client().await;
-    let (shop_id, shops_product_id, origin_event_id) =
+    let (shop_id, shop_listing_id, origin_event_id) =
         sqlx::query_as::<_, (uuid::Uuid, String, uuid::Uuid)>(
-            "SELECT shop_id, shops_product_id, event_id FROM products WHERE product_id = $1",
+            "SELECT shop_id, shop_listing_id, event_id FROM product_listings WHERE product_listing_id = $1",
         )
-        .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(product_listing_id))
         .fetch_one(&pool)
         .await
         .unwrap_or_else(|error| panic!("failed to read product match fixture: {error}"));
@@ -498,11 +502,11 @@ async fn seed_search_filter_match(
         .unwrap_or_else(|error| panic!("invalid search filter fixture ID: {error}"));
 
     sqlx::query(
-        "INSERT INTO search_filter_matches (user_id, user_search_filter_id, product_id, origin_event_id, user_search_filter_name, feedback) VALUES ($1, $2, $3, $4, $5, $6)",
+        "INSERT INTO search_filter_matches (user_id, user_search_filter_id, product_listing_id, origin_event_id, user_search_filter_name, feedback) VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(filter_id)
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .bind(origin_event_id)
     .bind("Desk alerts")
     .bind(false)
@@ -510,7 +514,7 @@ async fn seed_search_filter_match(
     .await
     .unwrap_or_else(|error| panic!("failed to seed search filter match: {error}"));
 
-    (product_id, shop_id.to_string(), shops_product_id)
+    (product_listing_id, shop_id.to_string(), shop_listing_id)
 }
 
 fn search_filter_body() -> serde_json::Value {

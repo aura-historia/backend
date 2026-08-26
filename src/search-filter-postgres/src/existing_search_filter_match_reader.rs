@@ -1,6 +1,6 @@
 use crate::mapping::user_search_filter_uuid;
 use application::error::box_error;
-use product_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
     ExistingSearchFilterMatchReadError, ExistingSearchFilterMatchReader,
@@ -20,12 +20,12 @@ impl SqlxExistingSearchFilterMatchReader {
 
 #[async_trait::async_trait]
 impl ExistingSearchFilterMatchReader for SqlxExistingSearchFilterMatchReader {
-    async fn find_existing_product_ids(
+    async fn find_existing_product_listing_ids(
         &self,
         search_filter_id: UserSearchFilterId,
-        product_ids: &[ProductId],
-    ) -> Result<HashSet<ProductId>, ExistingSearchFilterMatchReadError> {
-        if product_ids.is_empty() {
+        product_listing_ids: &[ProductListingId],
+    ) -> Result<HashSet<ProductListingId>, ExistingSearchFilterMatchReadError> {
+        if product_listing_ids.is_empty() {
             return Ok(HashSet::new());
         }
         let search_filter_id = user_search_filter_uuid(search_filter_id).map_err(|source| {
@@ -33,14 +33,14 @@ impl ExistingSearchFilterMatchReader for SqlxExistingSearchFilterMatchReader {
                 source: box_error(source),
             }
         })?;
-        let ids = product_ids
+        let ids = product_listing_ids
             .iter()
             .copied()
             .map(uuid::Uuid::from)
             .collect::<Vec<_>>();
-        let existing = sqlx::query_scalar::<_, uuid::Uuid>("SELECT product_id FROM search_filter_matches WHERE user_search_filter_id = $1 AND product_id = ANY($2)")
+        let existing = sqlx::query_scalar::<_, uuid::Uuid>("SELECT product_listing_id FROM search_filter_matches WHERE user_search_filter_id = $1 AND product_listing_id = ANY($2)")
             .bind(search_filter_id).bind(ids).fetch_all(&self.pool).await
             .map_err(|source| ExistingSearchFilterMatchReadError::ReadFailed { source: box_error(source) })?;
-        Ok(existing.into_iter().map(ProductId::from).collect())
+        Ok(existing.into_iter().map(ProductListingId::from).collect())
     }
 }

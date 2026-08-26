@@ -1,5 +1,5 @@
 use application::error::BoxError;
-use product_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use std::collections::HashSet;
 
@@ -14,9 +14,9 @@ pub enum ExistingSearchFilterMatchReadError {
 
 #[async_trait::async_trait]
 pub trait ExistingSearchFilterMatchReader: Send + Sync {
-    async fn find_existing_product_ids(
+    async fn find_existing_product_listing_ids(
         &self,
         search_filter_id: UserSearchFilterId,
-        product_ids: &[ProductId],
-    ) -> Result<HashSet<ProductId>, ExistingSearchFilterMatchReadError>;
+        product_listing_ids: &[ProductListingId],
+    ) -> Result<HashSet<ProductListingId>, ExistingSearchFilterMatchReadError>;
 }

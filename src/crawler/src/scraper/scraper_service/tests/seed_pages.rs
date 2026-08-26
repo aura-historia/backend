@@ -29,7 +29,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
             cardinality: ExtractionCardinality::All,
         };
         ProductCssSelectorSchema {
-            shops_product_id: Some(text_rule("non-existent-id")),
+            shop_listing_id: Some(text_rule("non-existent-id")),
             title: text_rule("non-existent-title"),
             description: None,
             price: None,
@@ -48,7 +48,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
     let schema = shops_product_schema(id);
     let final_schema_for_generation = schema.product_schemas.first().cloned().unwrap();
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     let initial_schema_for_find = initial_schema.clone();
     schema_svc
         .expect_find_product_schema()
@@ -84,7 +84,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         });
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()
@@ -95,7 +95,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -112,8 +112,8 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         .unwrap()
         .unwrap();
     assert_eq!(
-        result.product.shops_product_id,
-        ShopsProductId::from("SKU-42")
+        result.product.shop_listing_id,
+        ShopListingId::from("SKU-42")
     );
 }
 
@@ -131,7 +131,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -153,7 +153,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         });
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()
@@ -168,7 +168,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         .expect_get_random_product_urls_for_schema_seed()
         .once()
         .returning(|_, _, _| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -184,7 +184,10 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(result.product.state, ProductState::Available);
+    assert_eq!(
+        result.product.availability,
+        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
+    );
 }
 
 #[tokio::test]
@@ -216,7 +219,7 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -238,7 +241,7 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
         });
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()
@@ -257,7 +260,7 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
             let sampled = vec![sample_seed_url_clone.clone()];
             Box::pin(async move { Ok(sampled) })
         });
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -273,7 +276,10 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(result.product.state, ProductState::Available);
+    assert_eq!(
+        result.product.availability,
+        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
+    );
 }
 
 #[tokio::test]
@@ -304,7 +310,7 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -326,7 +332,7 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
         });
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()
@@ -345,7 +351,7 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
             let sampled = vec![sample_seed_url_clone.clone()];
             Box::pin(async move { Ok(sampled) })
         });
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -361,7 +367,10 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(result.product.state, ProductState::Available);
+    assert_eq!(
+        result.product.availability,
+        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
+    );
 }
 
 #[tokio::test]
@@ -378,7 +387,7 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -400,7 +409,7 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
         });
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()
@@ -411,7 +420,7 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),

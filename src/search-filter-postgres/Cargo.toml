@@ -14,7 +14,7 @@ geo = { workspace = true, features = ["data"] }
 isocountry = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
-product-core = { workspace = true }
+product-listing-core = { workspace = true }
 search-filter-core = { workspace = true }
 search-filter-service = { workspace = true }
 serde = { workspace = true }

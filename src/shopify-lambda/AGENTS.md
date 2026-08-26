@@ -8,8 +8,9 @@
 
 - Worker Lambda for Shopify product ingestion from EventBridge through SQS.
 - Root modules: `types`.
-- Main neighbors: `application`, `platform-observability`, `platform-postgres`, `product-service`, `product-postgres`, `shop-core`, `shop-service`, `shop-postgres`, `fxrate-postgres`.
-- Event/runtime edge crate. It parses SQS/EventBridge payloads and invokes canonical Product service handlers; Postgres product/event writes stay in Product service.
+- Main neighbors: `application`, `platform-observability`, `platform-postgres`, `product-listing-service`, `product-listing-postgres`, `shop-core`, `shop-service`, `shop-postgres`.
+- Event/runtime edge crate. It parses provider-native SQS/EventBridge payloads and invokes canonical ProductListing service handlers; Postgres listing/event writes stay in ProductListing service.
+- Shopify `active` create/update maps tracked positive inventory to `InStock`, tracked non-positive inventory to `OutOfStock`, and missing or untracked inventory to clear. `archived`, `draft`, and delete withdraw the matching listing; missing listing is acknowledged for idempotency. Missing or unsupported status is ignored without destructive write.
 
 ## Ownership
 

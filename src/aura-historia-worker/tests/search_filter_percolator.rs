@@ -23,9 +23,12 @@ use notification_service::{
 };
 use opensearch::GetParts;
 use platform_postgres::SqlxUnitOfWork;
-use product_core::{product_id::ProductId, product_search::ProductSearch};
-use product_postgres::{
-    SqlxProductCurrentRevisionGuardFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
+use product_listing_core::{
+    product_listing_id::ProductListingId, product_listing_search::ProductListingSearch,
+};
+use product_listing_postgres::{
+    SqlxProductListingCurrentRevisionGuardFactory,
+    SqlxProductListingSearchFilterMatchSourceReaderFactory,
 };
 use search_filter_core::{
     NewSearchFilter, SearchFilter, search_filter_state::SearchFilterState,
@@ -42,9 +45,9 @@ use search_filter_postgres::{
 use search_filter_service::ports::{SearchFilterRepository, SearchFilterRepositoryFactory};
 use search_filter_service::use_cases::{
     GenerateSearchFilterMatchNotificationHandler, GenerateSearchFilterMatchNotificationUseCase,
-    MatchProductEventHandler, MatchProductEventUseCase, ProjectSearchFilterChangeCommand,
-    ProjectSearchFilterChangeHandler, ProjectSearchFilterChangeUseCase,
-    SearchFilterProjectionOperation,
+    MatchProductListingEventHandler, MatchProductListingEventUseCase,
+    ProjectSearchFilterChangeCommand, ProjectSearchFilterChangeHandler,
+    ProjectSearchFilterChangeUseCase, SearchFilterProjectionOperation,
 };
 use serde_json::{Value, json};
 use std::{
@@ -125,8 +128,8 @@ async fn should_suppress_notification_after_free_tier_monthly_quota() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
-async fn should_ignore_policy_and_lifecycle_product_events_without_side_effects() {
-    let result = ignored_product_events_flow().await;
+async fn should_ignore_policy_and_lifecycle_product_listing_events_without_side_effects() {
+    let result = ignored_product_listing_events_flow().await;
 
     assert!(
         result.is_ok(),
@@ -178,20 +181,20 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
     let worker = FullFlowWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
-        let product_query = format!("Worker percolator product {user_id}");
+        let product_listing_query = format!("Worker percolator product {user_id}");
         let filter = search_filter(
             user_id,
             UserSearchFilterName::from("Create and update notification filter"),
             SearchFilterState::Active,
-            &product_query,
+            &product_listing_query,
         )?;
         worker.project_filter(&filter).await?;
         refresh_index("user_search_filters").await;
 
-        let (created_product_id, created_event_id) =
-            create_product_with_domain_event(&worker.pool, &product_query).await?;
+        let (created_product_listing_id, created_event_id) =
+            create_product_with_domain_event(&worker.pool, &product_listing_query).await?;
         assert_eq!(
-            "PRODUCT_CREATED",
+            "PRODUCT_LISTING_CREATED",
             product_event_type(&worker.pool, created_event_id).await?
         );
         wait_for_match(&worker.pool, created_event_id, 1).await?;
@@ -200,7 +203,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
             created_event_id,
             user_id,
             filter.id(),
-            created_product_id,
+            created_product_listing_id,
         )
         .await?;
         let created_notifications = wait_for_notifications(&worker.pool, user_id, 1).await?;
@@ -208,7 +211,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
             &created_notifications[0],
             user_id,
             filter.id(),
-            created_product_id,
+            created_product_listing_id,
             created_event_id,
         )?;
 
@@ -216,16 +219,19 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
             user_id,
             UserSearchFilterName::from("Update notification filter"),
             SearchFilterState::Active,
-            &product_query,
+            &product_listing_query,
         )?;
         worker.project_filter(&update_filter).await?;
         refresh_index("user_search_filters").await;
 
-        let updated_event_id =
-            update_product_and_insert_event(&worker.pool, created_product_id, &product_query)
-                .await?;
+        let updated_event_id = update_product_and_insert_event(
+            &worker.pool,
+            created_product_listing_id,
+            &product_listing_query,
+        )
+        .await?;
         assert_eq!(
-            "PRODUCT_STATE_CHANGED",
+            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
             product_event_type(&worker.pool, updated_event_id).await?
         );
         wait_for_match(&worker.pool, updated_event_id, 1).await?;
@@ -234,7 +240,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
             updated_event_id,
             user_id,
             update_filter.id(),
-            created_product_id,
+            created_product_listing_id,
         )
         .await?;
         let notifications = wait_for_notifications(&worker.pool, user_id, 2).await?;
@@ -246,7 +252,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
             created_notification,
             user_id,
             filter.id(),
-            created_product_id,
+            created_product_listing_id,
             created_event_id,
         )?;
         let updated_notification = notifications
@@ -257,7 +263,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
             updated_notification,
             user_id,
             update_filter.id(),
-            created_product_id,
+            created_product_listing_id,
             updated_event_id,
         )?;
         Ok(())
@@ -271,18 +277,18 @@ async fn active_inactive_and_no_match_flow() -> Result<(), Box<dyn std::error::E
     let worker = FullFlowWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
-        let product_query = format!("Worker percolator product {user_id}");
+        let product_listing_query = format!("Worker percolator product {user_id}");
         let active_filter = search_filter(
             user_id,
             UserSearchFilterName::from("Active matching filter"),
             SearchFilterState::Active,
-            &product_query,
+            &product_listing_query,
         )?;
         let inactive_filter = search_filter(
             user_id,
             UserSearchFilterName::from("Inactive matching filter"),
             SearchFilterState::InactiveByUser,
-            &product_query,
+            &product_listing_query,
         )?;
         let no_match_filter = search_filter(
             user_id,
@@ -295,8 +301,8 @@ async fn active_inactive_and_no_match_flow() -> Result<(), Box<dyn std::error::E
         worker.project_filter(&no_match_filter).await?;
         refresh_index("user_search_filters").await;
 
-        let (product_id, event_id) =
-            create_product_with_domain_event(&worker.pool, &product_query).await?;
+        let (product_listing_id, event_id) =
+            create_product_with_domain_event(&worker.pool, &product_listing_query).await?;
 
         wait_for_match(&worker.pool, event_id, 1).await?;
         let matches = matches_for_event(&worker.pool, event_id).await?;
@@ -306,7 +312,7 @@ async fn active_inactive_and_no_match_flow() -> Result<(), Box<dyn std::error::E
             &notifications[0],
             user_id,
             active_filter.id(),
-            product_id,
+            product_listing_id,
             event_id,
         )?;
         Ok(())
@@ -320,14 +326,14 @@ async fn complete_percolation_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = PercolatorWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
-        let product_query = format!("Worker complete percolation product {user_id}");
+        let product_listing_query = format!("Worker complete percolation product {user_id}");
         let active_filters: Vec<_> = (0..25)
             .map(|number| {
                 search_filter(
                     user_id,
                     UserSearchFilterName::from(format!("Active percolation filter {number}")),
                     SearchFilterState::Active,
-                    &product_query,
+                    &product_listing_query,
                 )
             })
             .collect::<Result<_, _>>()?;
@@ -335,7 +341,7 @@ async fn complete_percolation_flow() -> Result<(), Box<dyn std::error::Error>> {
             user_id,
             UserSearchFilterName::from("Inactive percolation filter"),
             SearchFilterState::InactiveByUser,
-            &product_query,
+            &product_listing_query,
         )?;
 
         for filter in &active_filters {
@@ -344,7 +350,8 @@ async fn complete_percolation_flow() -> Result<(), Box<dyn std::error::Error>> {
         worker.project_filter(&inactive_filter).await?;
         refresh_index("user_search_filters").await;
 
-        let (_, event_id) = create_product_with_domain_event(&worker.pool, &product_query).await?;
+        let (_, event_id) =
+            create_product_with_domain_event(&worker.pool, &product_listing_query).await?;
         wait_for_match(&worker.pool, event_id, active_filters.len() as i64).await?;
 
         let mut expected_ids: Vec<_> = active_filters.iter().map(SearchFilter::id).collect();
@@ -363,23 +370,23 @@ async fn quota_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = FullFlowWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "FREE").await?;
-        let product_query = format!("Worker percolator product {user_id}");
+        let product_listing_query = format!("Worker percolator product {user_id}");
         let filter = search_filter(
             user_id,
             UserSearchFilterName::from("Free tier quota filter"),
             SearchFilterState::Active,
-            &product_query,
+            &product_listing_query,
         )?;
         let filter_version = insert_filter(&worker.pool, &filter).await?;
 
         for _ in 0..10 {
-            let (product_id, event_id) =
+            let (product_listing_id, event_id) =
                 create_product_with_domain_event(&worker.pool, "Historical quota product").await?;
             insert_historical_search_filter_match(
                 &worker.pool,
                 user_id,
                 filter.id(),
-                product_id,
+                product_listing_id,
                 event_id,
             )
             .await?;
@@ -391,7 +398,8 @@ async fn quota_flow() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
         refresh_index("user_search_filters").await;
 
-        let (_, event_id) = create_product_with_domain_event(&worker.pool, &product_query).await?;
+        let (_, event_id) =
+            create_product_with_domain_event(&worker.pool, &product_listing_query).await?;
 
         wait_for_match(&worker.pool, event_id, 1).await?;
         assert_no_more_than_notifications(&worker.pool, user_id, 10, NO_SIDE_EFFECT_OBSERVATION)
@@ -402,26 +410,34 @@ async fn quota_flow() -> Result<(), Box<dyn std::error::Error>> {
     worker.finish(result).await
 }
 
-async fn ignored_product_events_flow() -> Result<(), Box<dyn std::error::Error>> {
+async fn ignored_product_listing_events_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = FullFlowWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
-        let product_query = format!("Worker percolator product {user_id}");
+        let product_listing_query = format!("Worker percolator product {user_id}");
         let filter = search_filter(
             user_id,
             UserSearchFilterName::from("Ignored event filter"),
             SearchFilterState::Active,
-            &product_query,
+            &product_listing_query,
         )?;
         worker.project_filter(&filter).await?;
         refresh_index("user_search_filters").await;
 
-        let (product_id, policy_event) =
-            create_product_with_event(&worker.pool, &product_query, "POLICY_ACCEPTED", "POLICY")
-                .await?;
-        let lifecycle_event =
-            insert_product_event(&worker.pool, product_id, "LIFECYCLE_DELETED", "LIFECYCLE")
-                .await?;
+        let (product_listing_id, policy_event) = create_product_with_event(
+            &worker.pool,
+            &product_listing_query,
+            "POLICY_ACCEPTED",
+            "POLICY",
+        )
+        .await?;
+        let lifecycle_event = insert_product_event(
+            &worker.pool,
+            product_listing_id,
+            "PRODUCT_LISTING_WITHDRAWN",
+            "LIFECYCLE",
+        )
+        .await?;
 
         assert_no_matches_for(&worker.pool, policy_event, NO_SIDE_EFFECT_OBSERVATION).await?;
         assert_no_matches_for(&worker.pool, lifecycle_event, NO_SIDE_EFFECT_OBSERVATION).await?;
@@ -437,18 +453,18 @@ async fn rolled_back_product_event_flow() -> Result<(), Box<dyn std::error::Erro
     let worker = FullFlowWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
-        let product_query = format!("Worker percolator product {user_id}");
+        let product_listing_query = format!("Worker percolator product {user_id}");
         let filter = search_filter(
             user_id,
             UserSearchFilterName::from("Rollback filter"),
             SearchFilterState::Active,
-            &product_query,
+            &product_listing_query,
         )?;
         worker.project_filter(&filter).await?;
         refresh_index("user_search_filters").await;
 
         let event_id =
-            create_product_with_event_then_rollback(&worker.pool, &product_query).await?;
+            create_product_with_event_then_rollback(&worker.pool, &product_listing_query).await?;
 
         assert_event_is_not_persisted(&worker.pool, event_id).await?;
         assert_no_matches_for(&worker.pool, event_id, NO_SIDE_EFFECT_OBSERVATION).await?;
@@ -464,22 +480,22 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = PercolatorWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
-        let product_query = format!("Worker stale event product {user_id}");
+        let product_listing_query = format!("Worker stale event product {user_id}");
         let filter = search_filter(
             user_id,
             UserSearchFilterName::from("Stale event ordering filter"),
             SearchFilterState::Active,
-            &product_query,
+            &product_listing_query,
         )?;
         worker.project_filter(&filter).await?;
         refresh_index("user_search_filters").await;
 
-        let (product_id, event_a) =
-            create_product_with_domain_event(&worker.pool, &product_query).await?;
+        let (product_listing_id, event_a) =
+            create_product_with_domain_event(&worker.pool, &product_listing_query).await?;
         let event_b = update_product_and_insert_event_with_group(
             &worker.pool,
-            product_id,
-            &product_query,
+            product_listing_id,
+            &product_listing_query,
             "PRODUCT_ENRICHED",
             "ENRICHMENT",
         )
@@ -487,15 +503,15 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
 
         redeliver_product_event(
             &worker.server,
-            product_id,
+            product_listing_id,
             event_a,
-            "PRODUCT_CREATED",
+            "PRODUCT_LISTING_CREATED",
             "DOMAIN",
         )
         .await?;
         redeliver_product_event(
             &worker.server,
-            product_id,
+            product_listing_id,
             event_b,
             "PRODUCT_ENRICHED",
             "ENRICHMENT",
@@ -506,7 +522,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
 
         redeliver_product_event(
             &worker.server,
-            product_id,
+            product_listing_id,
             event_b,
             "PRODUCT_ENRICHED",
             "ENRICHMENT",
@@ -514,9 +530,9 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
         redeliver_product_event(
             &worker.server,
-            product_id,
+            product_listing_id,
             event_a,
-            "PRODUCT_CREATED",
+            "PRODUCT_LISTING_CREATED",
             "DOMAIN",
         )
         .await?;
@@ -534,11 +550,11 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
     let worker = PercolatorWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
-        let product_query = format!("Cross currency saved-filter product {user_id}");
+        let product_listing_query = format!("Cross currency saved-filter product {user_id}");
         let eur_filter = price_search_filter(
             user_id,
             UserSearchFilterName::from("EUR saved-filter bounds"),
-            &product_query,
+            &product_listing_query,
             Currency::Eur,
             9_000,
             13_000,
@@ -546,7 +562,7 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
         let usd_filter = price_search_filter(
             user_id,
             UserSearchFilterName::from("USD saved-filter bounds"),
-            &product_query,
+            &product_listing_query,
             Currency::Usd,
             8_500,
             16_000,
@@ -554,7 +570,7 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
         let jpy_filter = price_search_filter(
             user_id,
             UserSearchFilterName::from("JPY saved-filter bounds"),
-            &product_query,
+            &product_listing_query,
             Currency::Jpy,
             10_000,
             21_000,
@@ -563,7 +579,7 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
             user_id,
             UserSearchFilterName::from("Saved-filter without price bounds"),
             SearchFilterState::Active,
-            &product_query,
+            &product_listing_query,
         )?;
         let price_filters = [&eur_filter, &usd_filter, &jpy_filter];
         let all_filters = [&eur_filter, &usd_filter, &jpy_filter, &no_price_filter];
@@ -590,18 +606,19 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
         let event_one_time = snapshot_a_time + time::Duration::hours(1);
         let event_one = insert_cross_currency_product_with_event(
             &worker.pool,
-            CrossCurrencyProductInput {
-                title: &product_query,
+            CrossCurrencyProductListingInput {
+                title: &product_listing_query,
                 event_time: event_one_time,
                 price: Some((10_000, "GBP")),
                 price_estimate_min: None,
                 price_estimate_max: None,
-                state: "LISTED",
-                sale_fx_rate_id: None,
+                availability: "AVAILABLE",
+                sale_observation_fx_rate_id: None,
             },
         )
         .await?;
-        assert_product_source_price(&worker.pool, event_one.product_id, 10_000, "GBP").await?;
+        assert_product_source_price(&worker.pool, event_one.product_listing_id, 10_000, "GBP")
+            .await?;
         wait_for_match(&worker.pool, event_one.event_id, all_filters.len() as i64).await?;
         assert_matches_for_event(
             &worker.pool,
@@ -639,9 +656,9 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
 
         redeliver_product_event(
             &worker.server,
-            event_one.product_id,
+            event_one.product_listing_id,
             event_one.event_id,
-            "PRODUCT_CREATED",
+            "PRODUCT_LISTING_CREATED",
             "DOMAIN",
         )
         .await?;
@@ -663,14 +680,14 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
 
         let event_two = insert_cross_currency_product_with_event(
             &worker.pool,
-            CrossCurrencyProductInput {
-                title: &product_query,
+            CrossCurrencyProductListingInput {
+                title: &product_listing_query,
                 event_time: event_one_time + time::Duration::hours(2),
                 price: Some((10_000, "GBP")),
                 price_estimate_min: None,
                 price_estimate_max: None,
-                state: "LISTED",
-                sale_fx_rate_id: None,
+                availability: "AVAILABLE",
+                sale_observation_fx_rate_id: None,
             },
         )
         .await?;
@@ -711,14 +728,14 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
 
         let sale_event = insert_cross_currency_product_with_event(
             &worker.pool,
-            CrossCurrencyProductInput {
-                title: &product_query,
+            CrossCurrencyProductListingInput {
+                title: &product_listing_query,
                 event_time: event_one_time + time::Duration::hours(4),
                 price: Some((10_000, "GBP")),
                 price_estimate_min: None,
                 price_estimate_max: None,
-                state: "SOLD",
-                sale_fx_rate_id: Some(snapshot_b),
+                availability: "SOLD_OUT",
+                sale_observation_fx_rate_id: Some(snapshot_b),
             },
         )
         .await?;
@@ -733,7 +750,7 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
             &worker.pool,
             sale_event.event_id,
             price_filters,
-            "SALE",
+            "SALE_OBSERVATION",
             snapshot_b,
         )
         .await?;
@@ -748,14 +765,14 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
 
         let no_price_event = insert_cross_currency_product_with_event(
             &worker.pool,
-            CrossCurrencyProductInput {
-                title: &product_query,
+            CrossCurrencyProductListingInput {
+                title: &product_listing_query,
                 event_time: event_one_time + time::Duration::hours(4),
                 price: None,
                 price_estimate_min: Some((10_000, "GBP")),
                 price_estimate_max: Some((10_000, "GBP")),
-                state: "LISTED",
-                sale_fx_rate_id: None,
+                availability: "AVAILABLE",
+                sale_observation_fx_rate_id: None,
             },
         )
         .await?;
@@ -786,25 +803,25 @@ async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std
     let worker = FullFlowWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
-        let product_query = format!("Worker percolator product {user_id}");
+        let product_listing_query = format!("Worker percolator product {user_id}");
         let first_filter = search_filter(
             user_id,
             UserSearchFilterName::from("First deterministic filter"),
             SearchFilterState::Active,
-            &product_query,
+            &product_listing_query,
         )?;
         let second_filter = search_filter(
             user_id,
             UserSearchFilterName::from("Second deterministic filter"),
             SearchFilterState::Active,
-            &product_query,
+            &product_listing_query,
         )?;
         worker.project_filter(&first_filter).await?;
         worker.project_filter(&second_filter).await?;
         refresh_index("user_search_filters").await;
 
-        let (product_id, event_id) =
-            create_product_with_domain_event(&worker.pool, &product_query).await?;
+        let (product_listing_id, event_id) =
+            create_product_with_domain_event(&worker.pool, &product_listing_query).await?;
         wait_for_match(&worker.pool, event_id, 2).await?;
         let notifications = wait_for_notifications(&worker.pool, user_id, 2).await?;
         for filter_id in [first_filter.id(), second_filter.id()] {
@@ -818,16 +835,16 @@ async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std
                 notification,
                 user_id,
                 filter_id,
-                product_id,
+                product_listing_id,
                 event_id,
             )?;
         }
 
         redeliver_product_event(
             &worker.server,
-            product_id,
+            product_listing_id,
             event_id,
-            "PRODUCT_CREATED",
+            "PRODUCT_LISTING_CREATED",
             "DOMAIN",
         )
         .await?;
@@ -837,7 +854,7 @@ async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std
             &worker.server,
             user_id,
             first_filter.id(),
-            product_id,
+            product_listing_id,
             event_id,
         )
         .await?;
@@ -863,11 +880,11 @@ impl FullFlowWorker {
         let pool = get_postgres_client().await;
         seed_current_fx_snapshot(&pool).await?;
         let index = OpenSearchSearchFilterIndex::new(get_opensearch_client().await.clone());
-        let percolator_handler: Arc<dyn MatchProductEventUseCase> =
-            Arc::new(MatchProductEventHandler::new(
+        let percolator_handler: Arc<dyn MatchProductListingEventUseCase> =
+            Arc::new(MatchProductListingEventHandler::new(
                 SqlxUnitOfWork::new(pool.clone()),
-                SqlxProductSearchFilterMatchSourceReaderFactory::new(),
-                SqlxProductCurrentRevisionGuardFactory::new(),
+                SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
+                SqlxProductListingCurrentRevisionGuardFactory::new(),
                 SqlxFxRateSnapshotRepositoryFactory,
                 index.clone(),
                 NonMatchingLargeLanguageModel,
@@ -878,10 +895,10 @@ impl FullFlowWorker {
             Arc::new(GenerateSearchFilterMatchNotificationHandler::new(
                 SqlxUnitOfWork::new(pool.clone()),
                 SqlxSearchFilterMatchNotificationSourceReaderFactory,
-                SqlxProductSearchFilterMatchSourceReaderFactory::new(),
+                SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
                 SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
                 SqlxUserTierEntitlementsFactory::new(),
-                SqlxProductCurrentRevisionGuardFactory::new(),
+                SqlxProductListingCurrentRevisionGuardFactory::new(),
                 NotificationCreationCoordinatorFactory::new(
                     SqlxNotificationRepositoryFactory::new(),
                     InitialExternalDeliveryPlanReaderFactory,
@@ -985,16 +1002,17 @@ impl PercolatorWorker {
         let pool = get_postgres_client().await;
         seed_current_fx_snapshot(&pool).await?;
         let index = OpenSearchSearchFilterIndex::new(get_opensearch_client().await.clone());
-        let handler: Arc<dyn MatchProductEventUseCase> = Arc::new(MatchProductEventHandler::new(
-            SqlxUnitOfWork::new(pool.clone()),
-            SqlxProductSearchFilterMatchSourceReaderFactory::new(),
-            SqlxProductCurrentRevisionGuardFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
-            index.clone(),
-            NonMatchingLargeLanguageModel,
-            SqlxActiveSearchFilterMatchCandidateReaderFactory,
-            SqlxSearchFilterMatchWriterFactory,
-        ));
+        let handler: Arc<dyn MatchProductListingEventUseCase> =
+            Arc::new(MatchProductListingEventHandler::new(
+                SqlxUnitOfWork::new(pool.clone()),
+                SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
+                SqlxProductListingCurrentRevisionGuardFactory::new(),
+                SqlxFxRateSnapshotRepositoryFactory,
+                index.clone(),
+                NonMatchingLargeLanguageModel,
+                SqlxActiveSearchFilterMatchCandidateReaderFactory,
+                SqlxSearchFilterMatchWriterFactory,
+            ));
         let (runtime, mut receivers) = WorkerRuntime::with_all_queues(QueueConfig::new(64))?;
         let receiver = receivers
             .take(WorkerQueue::SearchFilterPercolator)
@@ -1134,8 +1152,8 @@ async fn seed_user(pool: &sqlx::PgPool, tier: &str) -> Result<UserId, sqlx::Erro
 async fn create_product_with_domain_event(
     pool: &sqlx::PgPool,
     title: &str,
-) -> Result<(ProductId, EventId), sqlx::Error> {
-    create_product_with_event(pool, title, "PRODUCT_CREATED", "DOMAIN").await
+) -> Result<(ProductListingId, EventId), sqlx::Error> {
+    create_product_with_event(pool, title, "PRODUCT_LISTING_CREATED", "DOMAIN").await
 }
 
 async fn create_product_with_event(
@@ -1143,9 +1161,9 @@ async fn create_product_with_event(
     title: &str,
     event_type: &str,
     event_group: &str,
-) -> Result<(ProductId, EventId), sqlx::Error> {
-    let product_id = ProductId::new();
-    let product_uuid = uuid::Uuid::from(product_id);
+) -> Result<(ProductListingId, EventId), sqlx::Error> {
+    let product_listing_id = ProductListingId::new();
+    let product_uuid = uuid::Uuid::from(product_listing_id);
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
     let product_slug_suffix = product_uuid.simple().to_string()[..6].to_owned();
@@ -1156,7 +1174,7 @@ async fn create_product_with_event(
         .bind("Worker percolator shop")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, description_text, description_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-percolator-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))
@@ -1165,7 +1183,7 @@ async fn create_product_with_event(
         .bind(title)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(product_uuid)
         .bind(event_type)
@@ -1173,39 +1191,39 @@ async fn create_product_with_event(
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
-    Ok((product_id, event_id))
+    Ok((product_listing_id, event_id))
 }
 
-struct CrossCurrencyProductEvent {
-    product_id: ProductId,
+struct CrossCurrencyProductListingEvent {
+    product_listing_id: ProductListingId,
     event_id: EventId,
 }
 
-struct CrossCurrencyProductInput<'a> {
+struct CrossCurrencyProductListingInput<'a> {
     title: &'a str,
     event_time: time::OffsetDateTime,
     price: Option<(i64, &'a str)>,
     price_estimate_min: Option<(i64, &'a str)>,
     price_estimate_max: Option<(i64, &'a str)>,
-    state: &'a str,
-    sale_fx_rate_id: Option<FxRateId>,
+    availability: &'a str,
+    sale_observation_fx_rate_id: Option<FxRateId>,
 }
 
 async fn insert_cross_currency_product_with_event(
     pool: &sqlx::PgPool,
-    input: CrossCurrencyProductInput<'_>,
-) -> Result<CrossCurrencyProductEvent, sqlx::Error> {
-    let CrossCurrencyProductInput {
+    input: CrossCurrencyProductListingInput<'_>,
+) -> Result<CrossCurrencyProductListingEvent, sqlx::Error> {
+    let CrossCurrencyProductListingInput {
         title,
         event_time,
         price,
         price_estimate_min,
         price_estimate_max,
-        state,
-        sale_fx_rate_id,
+        availability,
+        sale_observation_fx_rate_id,
     } = input;
-    let product_id = ProductId::new();
-    let product_uuid = uuid::Uuid::from(product_id);
+    let product_listing_id = ProductListingId::new();
+    let product_uuid = uuid::Uuid::from(product_listing_id);
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
     let product_slug_suffix = product_uuid.simple().to_string()[..6].to_owned();
@@ -1216,7 +1234,7 @@ async fn insert_cross_currency_product_with_event(
         .execute(&mut *tx)
         .await?;
     sqlx::query(
-        "INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_fx_rate_id, sold_at, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Cross currency worker description', 'en', $7, $8, $9, $10, $11, $12, $13, CASE WHEN $13 IS NULL THEN NULL ELSE $14 END, $15, 'ACTIVE', 'https://example.test/cross-currency-product', '[]')",
+        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Cross currency worker description', 'en', $7, $8, $9, $10, $11, $12, $13, CASE WHEN $13 IS NULL THEN NULL ELSE $14 END, $15, 'ACTIVE', 'https://example.test/cross-currency-product', '[]')",
     )
     .bind(product_uuid)
     .bind(format!("cross-currency-worker-product-{product_slug_suffix}"))
@@ -1230,20 +1248,20 @@ async fn insert_cross_currency_product_with_event(
     .bind(price_estimate_min.map(|(_, currency)| currency))
     .bind(price_estimate_max.map(|(amount, _)| amount))
     .bind(price_estimate_max.map(|(_, currency)| currency))
-    .bind(sale_fx_rate_id.map(uuid::Uuid::from))
+    .bind(sale_observation_fx_rate_id.map(uuid::Uuid::from))
     .bind(event_time)
-    .bind(state)
+    .bind(availability)
     .execute(&mut *tx)
     .await?;
-    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', $3)")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', $3)")
         .bind(uuid::Uuid::from(event_id))
         .bind(product_uuid)
         .bind(event_time)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
-    Ok(CrossCurrencyProductEvent {
-        product_id,
+    Ok(CrossCurrencyProductListingEvent {
+        product_listing_id,
         event_id,
     })
 }
@@ -1291,7 +1309,7 @@ fn search_filter(
     user_id: UserId,
     name: UserSearchFilterName,
     state: SearchFilterState,
-    product_query: &str,
+    product_listing_query: &str,
 ) -> Result<SearchFilter, Box<dyn std::error::Error>> {
     Ok(SearchFilter::create(NewSearchFilter {
         user_search_filter_id: UserSearchFilterId::new(),
@@ -1299,8 +1317,8 @@ fn search_filter(
         name,
         notifications: true,
         state,
-        search: ProductSearch::new(Language::En, Currency::Eur)
-            .with_product_query(product_query.try_into()?),
+        search: ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_product_listing_query(product_listing_query.try_into()?),
         embedding: None,
     }))
 }
@@ -1308,7 +1326,7 @@ fn search_filter(
 fn price_search_filter(
     user_id: UserId,
     name: UserSearchFilterName,
-    product_query: &str,
+    product_listing_query: &str,
     currency: Currency,
     minimum: u64,
     maximum: u64,
@@ -1319,8 +1337,8 @@ fn price_search_filter(
         name,
         notifications: true,
         state: SearchFilterState::Active,
-        search: ProductSearch::new(Language::En, currency)
-            .with_product_query(product_query.try_into()?)
+        search: ProductListingSearch::new(Language::En, currency)
+            .with_product_listing_query(product_listing_query.try_into()?)
             .with_price_query(RangeQuery {
                 min: Some(MonetaryAmount::from(minimum)),
                 max: Some(MonetaryAmount::from(maximum)),
@@ -1344,14 +1362,14 @@ async fn insert_filter(
 
 async fn insert_product_event(
     pool: &sqlx::PgPool,
-    product_id: ProductId,
+    product_listing_id: ProductListingId,
     event_type: &str,
     event_group: &str,
 ) -> Result<EventId, sqlx::Error> {
     let event_id = EventId::new();
-    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
         .bind(uuid::Uuid::from(event_id))
-        .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(product_listing_id))
         .bind(event_type)
         .bind(event_group)
         .execute(pool)
@@ -1361,14 +1379,14 @@ async fn insert_product_event(
 
 async fn update_product_and_insert_event(
     pool: &sqlx::PgPool,
-    product_id: ProductId,
+    product_listing_id: ProductListingId,
     title: &str,
 ) -> Result<EventId, sqlx::Error> {
     update_product_and_insert_event_with_group(
         pool,
-        product_id,
+        product_listing_id,
         title,
-        "PRODUCT_STATE_CHANGED",
+        "PRODUCT_LISTING_AVAILABILITY_CHANGED",
         "DOMAIN",
     )
     .await
@@ -1376,26 +1394,26 @@ async fn update_product_and_insert_event(
 
 async fn update_product_and_insert_event_with_group(
     pool: &sqlx::PgPool,
-    product_id: ProductId,
+    product_listing_id: ProductListingId,
     title: &str,
     event_type: &str,
     event_group: &str,
 ) -> Result<EventId, sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
         .bind(uuid::Uuid::from(event_id))
-        .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(product_listing_id))
         .bind(event_type)
         .bind(event_group)
         .execute(&mut *tx)
         .await?;
     sqlx::query(
-        "UPDATE products SET event_id = $1, title_text = $2, updated = now() WHERE product_id = $3",
+        "UPDATE product_listings SET event_id = $1, title_text = $2, updated = now() WHERE product_listing_id = $3",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(title)
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -1406,8 +1424,8 @@ async fn create_product_with_event_then_rollback(
     pool: &sqlx::PgPool,
     title: &str,
 ) -> Result<EventId, sqlx::Error> {
-    let product_id = ProductId::new();
-    let product_uuid = uuid::Uuid::from(product_id);
+    let product_listing_id = ProductListingId::new();
+    let product_uuid = uuid::Uuid::from(product_listing_id);
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
     let product_slug_suffix = product_uuid.simple().to_string()[..6].to_owned();
@@ -1418,7 +1436,7 @@ async fn create_product_with_event_then_rollback(
         .bind("Worker percolator shop")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, description_text, description_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-percolator-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))
@@ -1427,7 +1445,7 @@ async fn create_product_with_event_then_rollback(
         .bind(title)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(product_uuid)
         .execute(&mut *tx)
@@ -1440,15 +1458,15 @@ async fn insert_historical_search_filter_match(
     pool: &sqlx::PgPool,
     user_id: UserId,
     search_filter_id: UserSearchFilterId,
-    product_id: ProductId,
+    product_listing_id: ProductListingId,
     origin_event_id: EventId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     sqlx::query(
-        "INSERT INTO search_filter_matches (user_id, user_search_filter_id, product_id, origin_event_id, user_search_filter_name, created, updated) VALUES ($1, $2, $3, $4, $5, now() - INTERVAL '1 day', now() - INTERVAL '1 day')",
+        "INSERT INTO search_filter_matches (user_id, user_search_filter_id, product_listing_id, origin_event_id, user_search_filter_name, created, updated) VALUES ($1, $2, $3, $4, $5, now() - INTERVAL '1 day', now() - INTERVAL '1 day')",
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(uuid::Uuid::parse_str(&search_filter_id.to_string())?)
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .bind(uuid::Uuid::from(origin_event_id))
     .bind("Free tier quota filter")
     .execute(pool)
@@ -1457,7 +1475,7 @@ async fn insert_historical_search_filter_match(
 }
 
 async fn product_event_type(pool: &sqlx::PgPool, event_id: EventId) -> Result<String, sqlx::Error> {
-    sqlx::query_scalar("SELECT event_type FROM product_events WHERE event_id = $1")
+    sqlx::query_scalar("SELECT event_type FROM product_listing_events WHERE event_id = $1")
         .bind(uuid::Uuid::from(event_id))
         .fetch_one(pool)
         .await
@@ -1465,15 +1483,16 @@ async fn product_event_type(pool: &sqlx::PgPool, event_id: EventId) -> Result<St
 
 async fn assert_product_source_price(
     pool: &sqlx::PgPool,
-    product_id: ProductId,
+    product_listing_id: ProductListingId,
     expected_amount: i64,
     expected_currency: &str,
 ) -> Result<(), sqlx::Error> {
-    let (amount, currency): (i64, String) =
-        sqlx::query_as("SELECT price_amount, price_currency FROM products WHERE product_id = $1")
-            .bind(uuid::Uuid::from(product_id))
-            .fetch_one(pool)
-            .await?;
+    let (amount, currency): (i64, String) = sqlx::query_as(
+        "SELECT price_amount, price_currency FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .fetch_one(pool)
+    .await?;
     assert_eq!(expected_amount, amount);
     assert_eq!(expected_currency, currency);
     Ok(())
@@ -1572,14 +1591,14 @@ async fn assert_match_for_event(
     event_id: EventId,
     user_id: UserId,
     search_filter_id: UserSearchFilterId,
-    product_id: ProductId,
+    product_listing_id: ProductListingId,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (matched_user_id, matched_search_filter_id, matched_product_id): (
+    let (matched_user_id, matched_search_filter_id, matched_product_listing_id): (
         uuid::Uuid,
         uuid::Uuid,
         uuid::Uuid,
     ) = sqlx::query_as(
-        "SELECT user_id, user_search_filter_id, product_id FROM search_filter_matches WHERE origin_event_id = $1",
+        "SELECT user_id, user_search_filter_id, product_listing_id FROM search_filter_matches WHERE origin_event_id = $1",
     )
     .bind(uuid::Uuid::from(event_id))
     .fetch_one(pool)
@@ -1590,7 +1609,10 @@ async fn assert_match_for_event(
         uuid::Uuid::parse_str(&search_filter_id.to_string())?,
         matched_search_filter_id
     );
-    assert_eq!(uuid::Uuid::from(product_id), matched_product_id);
+    assert_eq!(
+        uuid::Uuid::from(product_listing_id),
+        matched_product_listing_id
+    );
     Ok(())
 }
 
@@ -1653,11 +1675,12 @@ async fn assert_event_is_not_persisted(
     pool: &sqlx::PgPool,
     event_id: EventId,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM product_events WHERE event_id = $1)")
-            .bind(uuid::Uuid::from(event_id))
-            .fetch_one(pool)
-            .await?;
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM product_listing_events WHERE event_id = $1)",
+    )
+    .bind(uuid::Uuid::from(event_id))
+    .fetch_one(pool)
+    .await?;
     assert!(
         !exists,
         "rolled-back product event {event_id} was persisted"
@@ -1669,7 +1692,7 @@ async fn assert_event_is_not_persisted(
 struct SearchFilterNotificationRow {
     user_id: uuid::Uuid,
     origin_event_id: uuid::Uuid,
-    product_id: uuid::Uuid,
+    product_listing_id: uuid::Uuid,
     user_search_filter_id: uuid::Uuid,
     kind: String,
 }
@@ -1679,7 +1702,7 @@ async fn notifications_for_user(
     user_id: UserId,
 ) -> Result<Vec<SearchFilterNotificationRow>, sqlx::Error> {
     sqlx::query_as(
-        "SELECT user_id, origin_event_id, product_id, user_search_filter_id, kind \
+        "SELECT user_id, origin_event_id, product_listing_id, user_search_filter_id, kind \
          FROM notifications WHERE user_id = $1 ORDER BY created, notification_id",
     )
     .bind(uuid::Uuid::from(user_id))
@@ -1732,7 +1755,7 @@ fn assert_search_filter_notification(
     notification: &SearchFilterNotificationRow,
     user_id: UserId,
     search_filter_id: UserSearchFilterId,
-    product_id: ProductId,
+    product_listing_id: ProductListingId,
     origin_event_id: EventId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(uuid::Uuid::from(user_id), notification.user_id);
@@ -1740,7 +1763,10 @@ fn assert_search_filter_notification(
         uuid::Uuid::from(origin_event_id),
         notification.origin_event_id
     );
-    assert_eq!(uuid::Uuid::from(product_id), notification.product_id);
+    assert_eq!(
+        uuid::Uuid::from(product_listing_id),
+        notification.product_listing_id
+    );
     assert_eq!(
         uuid::Uuid::parse_str(&search_filter_id.to_string())?,
         notification.user_search_filter_id
@@ -1815,7 +1841,7 @@ async fn assert_price_filter_document(
 
 async fn redeliver_product_event(
     server: &ScopedWorkerServer,
-    product_id: ProductId,
+    product_listing_id: ProductListingId,
     event_id: EventId,
     event_type: &str,
     event_group: &str,
@@ -1825,12 +1851,12 @@ async fn redeliver_product_event(
         json!({
             "record": {
                 "event_id": event_id.to_string(),
-                "product_id": product_id.to_string(),
+                "product_listing_id": product_listing_id.to_string(),
                 "event_type": event_type,
                 "event_group": event_group
             },
             "action": "insert",
-            "metadata": {"table_schema": "public", "table_name": "product_events"}
+            "metadata": {"table_schema": "public", "table_name": "product_listing_events"}
         }),
     )
     .await
@@ -1840,7 +1866,7 @@ async fn redeliver_search_filter_match(
     server: &ScopedWorkerServer,
     user_id: UserId,
     search_filter_id: UserSearchFilterId,
-    product_id: ProductId,
+    product_listing_id: ProductListingId,
     origin_event_id: EventId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     post_sequin_change(
@@ -1849,7 +1875,7 @@ async fn redeliver_search_filter_match(
             "record": {
                 "user_id": user_id.to_string(),
                 "user_search_filter_id": search_filter_id.to_string(),
-                "product_id": product_id.to_string(),
+                "product_listing_id": product_listing_id.to_string(),
                 "origin_event_id": origin_event_id.to_string()
             },
             "action": "insert",

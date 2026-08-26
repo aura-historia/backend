@@ -72,7 +72,7 @@ fn parse_scope_with_field(
     query: bool,
 ) -> Result<Scope, Response> {
     let scope = match value {
-        "products:write" => Scope::ProductsWrite,
+        "product-listings:write" => Scope::ProductListingsWrite,
         "shops:read" => Scope::ShopsRead,
         "shops:write" => Scope::ShopsWrite,
         "partner-shop-applications:write" => Scope::PartnerShopApplicationsWrite,

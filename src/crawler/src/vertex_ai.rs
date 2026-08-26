@@ -9,7 +9,7 @@ const DEFAULT_CHEAP_MODEL: &str = "gemini-3.1-flash-lite";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CrawlerVertexAiModels {
     pub product_schema: String,
-    pub product_state_mapping: String,
+    pub listing_availability_mapping: String,
     pub url_classification: String,
 }
 
@@ -20,8 +20,8 @@ impl CrawlerVertexAiModels {
 
         Self {
             product_schema,
-            product_state_mapping: env_or_default(
-                "CRAWLER_VERTEX_AI_STATE_MAPPING_MODEL",
+            listing_availability_mapping: env_or_default(
+                "CRAWLER_VERTEX_AI_LISTING_AVAILABILITY_MAPPING_MODEL",
                 &cheap_model,
             ),
             url_classification: env_or_default(

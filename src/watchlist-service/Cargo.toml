@@ -12,8 +12,8 @@ fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
-product-core = { workspace = true }
-product-service = { workspace = true }
+product-listing-core = { workspace = true }
+product-listing-service = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }

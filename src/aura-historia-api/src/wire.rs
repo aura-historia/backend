@@ -352,63 +352,34 @@ pub(crate) mod shop_partner_status {
     }
 }
 
-pub(crate) mod product_state {
+pub(crate) mod listing_availability {
     use super::*;
-    use product_core::product_state::ProductState;
+    use product_listing_core::listing_availability::ListingAvailability;
 
-    fn parse(value: &str) -> Option<ProductState> {
-        ProductState::from_code(value)
-    }
-
-    pub(crate) fn serialize<S>(value: &ProductState, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, ProductState::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ProductState, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserialize_code(deserializer, parse, None)
+    fn parse(value: &str) -> Option<ListingAvailability> {
+        ListingAvailability::from_code(value)
     }
 
     pub(crate) mod option {
         use super::*;
 
-        pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Option<ProductState>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_option_code(deserializer, parse, None)
-        }
-    }
-
-    pub(crate) mod set {
-        use super::*;
-
         pub(crate) fn serialize<S>(
-            values: &HashSet<ProductState>,
+            value: &Option<ListingAvailability>,
             serializer: S,
         ) -> Result<S::Ok, S::Error>
         where
             S: Serializer,
         {
-            serialize_set_code(values, serializer, parse_code)
-        }
-
-        fn parse_code(value: ProductState) -> &'static str {
-            value.as_str()
+            serialize_option_code(value, serializer, ListingAvailability::as_str)
         }
 
         pub(crate) fn deserialize<'de, D>(
             deserializer: D,
-        ) -> Result<HashSet<ProductState>, D::Error>
+        ) -> Result<Option<ListingAvailability>, D::Error>
         where
             D: Deserializer<'de>,
         {
-            deserialize_set_code(deserializer, parse, None)
+            deserialize_option_code(deserializer, parse, None)
         }
     }
 
@@ -417,11 +388,30 @@ pub(crate) mod product_state {
 
         pub(crate) fn deserialize<'de, D>(
             deserializer: D,
-        ) -> Result<PatchValue<HashSet<ProductState>>, D::Error>
+        ) -> Result<PatchValue<HashSet<ListingAvailability>>, D::Error>
         where
             D: Deserializer<'de>,
         {
             deserialize_patch_set_code(deserializer, parse, None)
+        }
+    }
+
+    pub(crate) mod set_option {
+        use super::*;
+
+        pub(crate) fn deserialize<'de, D>(
+            deserializer: D,
+        ) -> Result<Option<HashSet<ListingAvailability>>, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            Option::<Vec<String>>::deserialize(deserializer)?.map_or(Ok(None), |values| {
+                values
+                    .into_iter()
+                    .map(|value| parse(&value).ok_or_else(|| invalid_code(&value, None)))
+                    .collect::<Result<HashSet<_>, D::Error>>()
+                    .map(Some)
+            })
         }
     }
 
@@ -430,7 +420,7 @@ pub(crate) mod product_state {
 
         pub(crate) fn deserialize<'de, D>(
             deserializer: D,
-        ) -> Result<PatchValue<ProductState>, D::Error>
+        ) -> Result<PatchValue<ListingAvailability>, D::Error>
         where
             D: Deserializer<'de>,
         {
@@ -439,38 +429,48 @@ pub(crate) mod product_state {
     }
 }
 
-pub(crate) mod product_lifecycle {
+pub(crate) mod listing_orderability {
     use super::*;
-    use product_core::product_lifecycle::ProductLifecycle;
+    use product_listing_core::listing_orderability::ListingOrderability;
 
-    fn parse(value: &str) -> Option<ProductLifecycle> {
-        ProductLifecycle::from_code(value)
-    }
-
-    pub(crate) fn serialize<S>(value: &ProductLifecycle, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, ProductLifecycle::as_str)
-    }
-
-    pub(crate) mod set {
+    pub(crate) mod set_option {
         use super::*;
 
         pub(crate) fn deserialize<'de, D>(
             deserializer: D,
-        ) -> Result<HashSet<ProductLifecycle>, D::Error>
+        ) -> Result<Option<HashSet<ListingOrderability>>, D::Error>
         where
             D: Deserializer<'de>,
         {
-            deserialize_set_code(deserializer, parse, None)
+            Option::<Vec<String>>::deserialize(deserializer)?.map_or(Ok(None), |values| {
+                values
+                    .into_iter()
+                    .map(|value| {
+                        ListingOrderability::from_code(&value)
+                            .ok_or_else(|| invalid_code(&value, None))
+                    })
+                    .collect::<Result<HashSet<_>, D::Error>>()
+                    .map(Some)
+            })
         }
+    }
+}
+
+pub(crate) mod listing_lifecycle {
+    use super::*;
+    use product_listing_core::listing_lifecycle::ListingLifecycle;
+
+    pub(crate) fn serialize<S>(value: &ListingLifecycle, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_code(value, serializer, ListingLifecycle::as_str)
     }
 }
 
 pub(crate) mod prohibited_content {
     use super::*;
-    use product_core::prohibited_content::ProhibitedContent;
+    use product_listing_core::prohibited_content::ProhibitedContent;
 
     pub(crate) fn serialize<S>(value: &ProhibitedContent, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -616,31 +616,6 @@ pub(crate) mod partner_shop_application_state {
     }
 }
 
-pub(crate) mod product_event_type {
-    use super::*;
-    use product_service::use_cases::ProductEventType;
-
-    fn code(value: ProductEventType) -> &'static str {
-        match value {
-            ProductEventType::Created => "CREATED",
-            ProductEventType::StateChanged => "STATE_CHANGED",
-            ProductEventType::AddressChanged => "ADDRESS_CHANGED",
-            ProductEventType::PriceChanged => "PRICE_CHANGED",
-            ProductEventType::UrlChanged => "URL_CHANGED",
-            ProductEventType::ImagesChanged => "IMAGES_CHANGED",
-            ProductEventType::AuctionChanged => "AUCTION_CHANGED",
-            ProductEventType::Deleted => "DELETED",
-        }
-    }
-
-    pub(crate) fn serialize<S>(value: &ProductEventType, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, code)
-    }
-}
-
 pub(crate) mod partner_application_decision {
     use super::*;
     use notification_core::notification::PartnerApplicationDecision;
@@ -710,21 +685,16 @@ pub(crate) mod billing_cycle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use geo::core::distance::DistanceUnit;
     use localization::Language;
     use money::Currency;
-    use product_core::product_lifecycle::ProductLifecycle;
-    use product_core::product_state::ProductState;
-    use product_core::prohibited_content::ProhibitedContent;
     use serde::de::DeserializeOwned;
     use serde_json::json;
     use shop_core::partner_status::ShopPartnerStatus;
     use shop_core::shop_type::ShopType;
     use std::collections::HashSet;
-    use user_core::measurement_unit::MeasurementUnit;
 
     #[test]
-    fn should_preserve_canonical_and_alias_wire_values() -> Result<(), serde_json::Error> {
+    fn should_preserve_canonical_wire_values() -> Result<(), serde_json::Error> {
         assert_eq!(
             json!("EUR"),
             serde_json::to_value(WireCurrency(Currency::Eur))?
@@ -738,10 +708,6 @@ mod tests {
             serde_json::from_value::<WireShopType>(json!("AUCTION_HOUSE"))?.0
         );
         assert_eq!(
-            ProductState::Sold,
-            serde_json::from_value::<WireProductState>(json!("SOLD"))?.0
-        );
-        assert_eq!(
             json!({
                 "shopType": "AUCTION_HOUSE",
                 "partnerStatus": "PARTNERED"
@@ -749,22 +715,6 @@ mod tests {
             serde_json::to_value(ShopCodes {
                 shop_type: ShopType::AuctionHouse,
                 partner_status: ShopPartnerStatus::Partnered,
-            })?
-        );
-        assert_eq!(
-            json!({
-                "productState": "SOLD",
-                "productLifecycle": "DELETED",
-                "distanceUnit": "KILOMETERS",
-                "measurementUnit": "METRIC",
-                "prohibitedContent": "NONE"
-            }),
-            serde_json::to_value(CompatibilityCodes {
-                product_state: ProductState::Sold,
-                product_lifecycle: ProductLifecycle::Deleted,
-                distance_unit: DistanceUnit::Kilometers,
-                measurement_unit: Some(MeasurementUnit::Metric),
-                prohibited_content: ProhibitedContent::None,
             })?
         );
         Ok(())
@@ -865,52 +815,6 @@ mod tests {
     }
 
     #[test]
-    fn should_serialize_rest_product_event_type_codes() -> Result<(), serde_json::Error> {
-        let values = [
-            (
-                product_service::use_cases::ProductEventType::Created,
-                "CREATED",
-            ),
-            (
-                product_service::use_cases::ProductEventType::StateChanged,
-                "STATE_CHANGED",
-            ),
-            (
-                product_service::use_cases::ProductEventType::AddressChanged,
-                "ADDRESS_CHANGED",
-            ),
-            (
-                product_service::use_cases::ProductEventType::PriceChanged,
-                "PRICE_CHANGED",
-            ),
-            (
-                product_service::use_cases::ProductEventType::UrlChanged,
-                "URL_CHANGED",
-            ),
-            (
-                product_service::use_cases::ProductEventType::ImagesChanged,
-                "IMAGES_CHANGED",
-            ),
-            (
-                product_service::use_cases::ProductEventType::AuctionChanged,
-                "AUCTION_CHANGED",
-            ),
-            (
-                product_service::use_cases::ProductEventType::Deleted,
-                "DELETED",
-            ),
-        ];
-
-        for (value, expected) in values {
-            assert_eq!(
-                json!(expected),
-                serde_json::to_value(WireProductEventType(value))?
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
     fn should_decode_code_sets_from_real_query_syntax() -> Result<(), serde_qs::Error> {
         let query: WireShopQuery =
             serde_qs::from_str("shopType[0]=AUCTION_HOUSE&shopType[1]=MARKETPLACE")?;
@@ -939,16 +843,6 @@ mod tests {
     #[derive(serde::Deserialize)]
     #[serde(transparent)]
     struct WireShopType(#[serde(with = "shop_type")] ShopType);
-
-    #[derive(serde::Deserialize)]
-    #[serde(transparent)]
-    struct WireProductState(#[serde(with = "product_state")] ProductState);
-
-    #[derive(serde::Serialize)]
-    #[serde(transparent)]
-    struct WireProductEventType(
-        #[serde(with = "product_event_type")] product_service::use_cases::ProductEventType,
-    );
 
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -998,20 +892,5 @@ mod tests {
         shop_type: ShopType,
         #[serde(with = "shop_partner_status")]
         partner_status: ShopPartnerStatus,
-    }
-
-    #[derive(serde::Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct CompatibilityCodes {
-        #[serde(with = "product_state")]
-        product_state: ProductState,
-        #[serde(with = "product_lifecycle")]
-        product_lifecycle: ProductLifecycle,
-        #[serde(with = "distance_unit")]
-        distance_unit: DistanceUnit,
-        #[serde(with = "measurement_unit::option")]
-        measurement_unit: Option<MeasurementUnit>,
-        #[serde(with = "prohibited_content")]
-        prohibited_content: ProhibitedContent,
     }
 }

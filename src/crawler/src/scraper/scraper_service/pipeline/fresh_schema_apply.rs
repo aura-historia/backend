@@ -14,7 +14,7 @@ use tracing::warn;
 use url::Url;
 
 impl ScraperServiceImpl {
-    /// Product schemas use the normal review gate. Removed and not-product
+    /// ProductListing schemas use the normal review gate. Removed and not-product
     /// classifications are destructive URL mutations, so only HIGH-confidence
     /// structured responses may reach their mutation paths.
     /// Generates a fresh schema for the current page and applies it, **without
@@ -61,7 +61,7 @@ impl ScraperServiceImpl {
             .generate_single_schema_for_page(html)
             .await?;
         let (generated_schema, evaluation) = match generated {
-            GeneratedSingleSchema::Product { schema, evaluation } => (*schema, evaluation),
+            GeneratedSingleSchema::ProductListing { schema, evaluation } => (*schema, evaluation),
             GeneratedSingleSchema::Removed { schema, evaluation } => {
                 if evaluation.confidence != crate::scraper::css_selector::product_schema_service::SchemaLlmEvaluationConfidence::High {
                     return Err(ScraperError::SchemaClassificationRejected {
@@ -79,7 +79,7 @@ impl ScraperServiceImpl {
                 }
                 self.save_removed_page_schema(shop_id, schema).await?;
                 self.mark_product_removed_best_effort(shop_id, url).await;
-                return Err(ScraperError::ProductRemoved {
+                return Err(ScraperError::ProductListingRemoved {
                     url: url.clone(),
                     details: "fresh schema generation classified page as removed".to_string(),
                 });

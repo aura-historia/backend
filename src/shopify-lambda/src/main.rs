@@ -1,16 +1,18 @@
 use aws_lambda_events::sqs::SqsEvent;
-use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_observability::{LogLevel, LoggingConfig, init};
 use platform_postgres::{PostgresPoolConfig, SqlxUnitOfWork};
-use product_postgres::{
-    SqlxPartnerProductAuthorizerFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
+use product_listing_postgres::{
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventStoreFactory,
+    SqlxProductListingRepositoryFactory,
 };
-use product_service::use_cases::{IngestShopifyProductHandler, UpsertProductHandler};
+use product_listing_service::use_cases::{
+    IngestShopifyProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
+};
 use shop_postgres::SqlxShopDetailsReaderFactory;
 use shop_service::use_cases::GetShopHandler;
-use shopify_lambda::handler;
+use shopify_lambda::{ShopifyProductListingProcessor, handler};
 use std::{fmt::Display, str::FromStr};
 
 #[tokio::main]
@@ -19,20 +21,28 @@ async fn main() -> Result<(), Error> {
 
     let pool = postgres_config_from_env()?.connect().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool);
-    let ingestion = IngestShopifyProductHandler::new(
+    let processor = ShopifyProductListingProcessor::new(
         GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
-        UpsertProductHandler::new_with_fx_rates(
+        IngestShopifyProductListingHandler::new(
+            GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
+            UpsertProductListingHandler::new(
+                unit_of_work.clone(),
+                SqlxProductListingRepositoryFactory::new(),
+                SqlxProductListingEventStoreFactory::new(),
+                SqlxPartnerProductListingAuthorizerFactory::new(),
+            ),
+        ),
+        WithdrawProductListingHandler::new(
             unit_of_work,
-            SqlxProductRepositoryFactory::new(),
-            SqlxProductEventStoreFactory::new(),
-            SqlxPartnerProductAuthorizerFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventStoreFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
         ),
     );
 
     debug!("Shopify Lambda initialized");
     run(service_fn(|event: LambdaEvent<SqsEvent>| async {
-        handler(event, &ingestion).await
+        handler(event, &processor).await
     }))
     .await
 }

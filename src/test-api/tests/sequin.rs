@@ -27,7 +27,7 @@ async fn should_deliver_product_event_change_to_worker_queues() {
     let pool = get_postgres_client().await;
     insert_product_event_under_test(&pool).await;
 
-    let product_job = recv_or_fail(&mut receivers, WorkerQueue::ProductOpenSearch).await;
+    let product_job = recv_or_fail(&mut receivers, WorkerQueue::ProductListingOpenSearch).await;
     let percolator_job = recv_or_fail(&mut receivers, WorkerQueue::SearchFilterPercolator).await;
 
     let _send_result = shutdown_tx.send(());
@@ -38,7 +38,7 @@ async fn should_deliver_product_event_change_to_worker_queues() {
 }
 
 async fn insert_product_event_under_test(pool: &sqlx::PgPool) {
-    let product_id = uuid::Uuid::new_v4();
+    let product_listing_id = uuid::Uuid::new_v4();
     let event_id = uuid::Uuid::new_v4();
     let shop_id = uuid::Uuid::new_v4();
     let mut transaction = pool.begin().await.unwrap_or_else(|error| {
@@ -51,18 +51,18 @@ async fn insert_product_event_under_test(pool: &sqlx::PgPool) {
         .execute(&mut *transaction)
         .await
         .unwrap_or_else(|error| panic!("failed to insert Sequin test shop: {error}"));
-    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Sequin test product', 'en', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
-        .bind(product_id)
-        .bind(format!("sequin-test-product-{product_id}"))
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Sequin test product', 'en', NULL, 'ACTIVE', 'https://example.test/product', '[]')")
+        .bind(product_listing_id)
+        .bind(format!("sequin-test-product-{product_listing_id}"))
         .bind(event_id)
         .bind(shop_id)
-        .bind(product_id.to_string())
+        .bind(product_listing_id.to_string())
         .execute(&mut *transaction)
         .await
         .unwrap_or_else(|error| panic!("failed to insert Sequin test product: {error}"));
-    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())")
         .bind(event_id)
-        .bind(product_id)
+        .bind(product_listing_id)
         .execute(&mut *transaction)
         .await
         .unwrap_or_else(|error| panic!("failed to insert Sequin test product event: {error}"));

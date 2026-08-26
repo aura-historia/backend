@@ -1,4 +1,4 @@
-use crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError;
+use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use shop_core::shop_id::ShopId;
@@ -36,7 +36,9 @@ impl ScraperServiceImpl {
             )
             .await
             .map_err(|err| {
-                ScraperError::SchemaServiceError(ProductSchemaServiceError::DatabaseError(err))
+                ScraperError::SchemaServiceError(ProductListingSchemaServiceError::DatabaseError(
+                    err,
+                ))
             })?;
 
         if !incremented {

@@ -1,30 +1,30 @@
 pub use crate::watchlist_state::WatchlistState;
-use product_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use user_core::user_id::UserId;
 
 pub mod watchlist_state;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct WatchlistProduct {
+pub struct WatchlistProductListing {
     user_id: UserId,
-    product_id: ProductId,
+    product_listing_id: ProductListingId,
     notifications: bool,
     state: WatchlistState,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct NewWatchlistProduct {
+pub struct NewWatchlistProductListing {
     pub user_id: UserId,
-    pub product_id: ProductId,
+    pub product_listing_id: ProductListingId,
     pub notifications: bool,
     pub state: WatchlistState,
 }
 
-impl WatchlistProduct {
-    pub fn create(new: NewWatchlistProduct) -> Self {
+impl WatchlistProductListing {
+    pub fn create(new: NewWatchlistProductListing) -> Self {
         Self {
             user_id: new.user_id,
-            product_id: new.product_id,
+            product_listing_id: new.product_listing_id,
             notifications: new.notifications,
             state: new.state,
         }
@@ -32,13 +32,13 @@ impl WatchlistProduct {
 
     pub fn rehydrate(
         user_id: UserId,
-        product_id: ProductId,
+        product_listing_id: ProductListingId,
         notifications: bool,
         state: WatchlistState,
     ) -> Self {
         Self {
             user_id,
-            product_id,
+            product_listing_id,
             notifications,
             state,
         }
@@ -55,8 +55,8 @@ impl WatchlistProduct {
     pub fn user_id(&self) -> UserId {
         self.user_id
     }
-    pub fn product_id(&self) -> ProductId {
-        self.product_id
+    pub fn product_listing_id(&self) -> ProductListingId {
+        self.product_listing_id
     }
     pub fn notifications(&self) -> bool {
         self.notifications
@@ -71,7 +71,7 @@ mod faker {
     use super::*;
     use fake::{Dummy, Fake, Faker, RngExt};
 
-    impl Dummy<Faker> for WatchlistProduct {
+    impl Dummy<Faker> for WatchlistProductListing {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             Self::rehydrate(
                 config.fake_with_rng(rng),
@@ -90,26 +90,26 @@ mod tests {
     #[test]
     fn should_create_active_watchlist_product() {
         let user_id = UserId::new();
-        let product_id = ProductId::new();
+        let product_listing_id = ProductListingId::new();
 
-        let entry = WatchlistProduct::create(NewWatchlistProduct {
+        let entry = WatchlistProductListing::create(NewWatchlistProductListing {
             user_id,
-            product_id,
+            product_listing_id,
             notifications: true,
             state: WatchlistState::Active,
         });
 
         assert_eq!(user_id, entry.user_id());
-        assert_eq!(product_id, entry.product_id());
+        assert_eq!(product_listing_id, entry.product_listing_id());
         assert!(entry.notifications());
         assert_eq!(WatchlistState::Active, entry.state());
     }
 
     #[test]
     fn should_change_notifications() {
-        let mut entry = WatchlistProduct::create(NewWatchlistProduct {
+        let mut entry = WatchlistProductListing::create(NewWatchlistProductListing {
             user_id: UserId::new(),
-            product_id: ProductId::new(),
+            product_listing_id: ProductListingId::new(),
             notifications: true,
             state: WatchlistState::Active,
         });
@@ -121,9 +121,9 @@ mod tests {
 
     #[test]
     fn should_change_state() {
-        let mut entry = WatchlistProduct::create(NewWatchlistProduct {
+        let mut entry = WatchlistProductListing::create(NewWatchlistProductListing {
             user_id: UserId::new(),
-            product_id: ProductId::new(),
+            product_listing_id: ProductListingId::new(),
             notifications: true,
             state: WatchlistState::Active,
         });

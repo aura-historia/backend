@@ -32,7 +32,7 @@ async fn should_persist_woocommerce_created_webhook_after_signature_validation()
     let body = json!({
         "id": 17,
         "name": "Woo Cabinet",
-        "permalink": "https://partner.example/products/woo-cabinet",
+        "permalink": "https://partner.example/product-listings/woo-cabinet",
         "description": "<p>Cabinet description</p>",
         "price": "42.699",
         "status": "publish",
@@ -47,7 +47,7 @@ async fn should_persist_woocommerce_created_webhook_after_signature_validation()
 
     let pool = get_postgres_client().await;
     let row = sqlx::query_as::<_, (String, i64, String, String)>(
-        "SELECT title_text, price_amount, state, shops_product_id FROM products WHERE shop_id = $1 AND shops_product_id = $2",
+        "SELECT title_text, price_amount, availability, shop_listing_id FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
     )
     .bind(uuid::Uuid::parse_str(&shop_id)?)
     .bind("17")
@@ -55,7 +55,7 @@ async fn should_persist_woocommerce_created_webhook_after_signature_validation()
     .await?;
     assert_eq!("Woo Cabinet", row.0);
     assert_eq!(4_269, row.1);
-    assert_eq!("AVAILABLE", row.2);
+    assert_eq!("IN_STOCK", row.2);
     assert_eq!("17", row.3);
     Ok::<(), Box<dyn std::error::Error>>(())
     }.await;
@@ -63,13 +63,13 @@ async fn should_persist_woocommerce_created_webhook_after_signature_validation()
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_mark_existing_product_removed_when_woocommerce_deleted_webhook_arrives() {
+async fn should_withdraw_existing_product_listing_when_woocommerce_deleted_webhook_arrives() {
     let result: TestResult = async {
         let (shop_id, token) = webhook_auth().await?;
         let created = json!({
             "id": 18,
             "name": "Woo Cabinet",
-            "permalink": "https://partner.example/products/woo-cabinet",
+            "permalink": "https://partner.example/product-listings/woo-cabinet",
             "status": "publish",
             "stock_status": "instock",
             "images": []
@@ -91,14 +91,58 @@ async fn should_mark_existing_product_removed_when_woocommerce_deleted_webhook_a
         );
 
         let pool = get_postgres_client().await;
-        let state: (String,) = sqlx::query_as(
-            "SELECT state FROM products WHERE shop_id = $1 AND shops_product_id = $2",
+        let event_count_after_withdrawal: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = (SELECT product_listing_id FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2)",
         )
         .bind(uuid::Uuid::parse_str(&shop_id)?)
         .bind("18")
         .fetch_one(&pool)
         .await?;
-        assert_eq!("REMOVED", state.0);
+        assert_eq!(
+            reqwest::StatusCode::NO_CONTENT,
+            send(&shop_id, &token, "product.deleted", &deleted)
+                .await?
+                .status()
+        );
+        let event_count_after_redelivery: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = (SELECT product_listing_id FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2)",
+        )
+        .bind(uuid::Uuid::parse_str(&shop_id)?)
+        .bind("18")
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(event_count_after_withdrawal, event_count_after_redelivery);
+
+        let lifecycle: (String,) = sqlx::query_as(
+            "SELECT lifecycle FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
+        )
+        .bind(uuid::Uuid::parse_str(&shop_id)?)
+        .bind("18")
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!("WITHDRAWN", lifecycle.0);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_ignore_missing_product_listing_when_woocommerce_deleted_webhook_arrives() {
+    let result: TestResult = async {
+        let (shop_id, token) = webhook_auth().await?;
+        let deleted = json!({ "id": 999 }).to_string();
+
+        assert_eq!(
+            reqwest::StatusCode::NO_CONTENT,
+            send(&shop_id, &token, "product.deleted", &deleted)
+                .await?
+                .status()
+        );
+        assert_eq!(
+            0,
+            product_count(uuid::Uuid::parse_str(&shop_id)?.into()).await?
+        );
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;
@@ -123,7 +167,7 @@ async fn should_update_existing_product_and_not_append_event_for_redelivery() {
 
         let pool = get_postgres_client().await;
         let event_count_after_update: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM product_events WHERE product_id = (SELECT product_id FROM products WHERE shop_id = $1 AND shops_product_id = $2)",
+            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = (SELECT product_listing_id FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2)",
         )
         .bind(uuid::Uuid::parse_str(&shop_id)?)
         .bind("20")
@@ -134,22 +178,120 @@ async fn should_update_existing_product_and_not_append_event_for_redelivery() {
             send(&shop_id, &token, "product.updated", &updated).await?.status()
         );
 
-        let product: (uuid::Uuid, i64, String) = sqlx::query_as(
-            "SELECT product_id, price_amount, state FROM products WHERE shop_id = $1 AND shops_product_id = $2",
+        let product_listing: (uuid::Uuid, i64, String) = sqlx::query_as(
+            "SELECT product_listing_id, price_amount, availability FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
         )
         .bind(uuid::Uuid::parse_str(&shop_id)?)
         .bind("20")
         .fetch_one(&pool)
         .await?;
         let event_count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM product_events WHERE product_id = $1",
+            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = $1",
         )
-        .bind(product.0)
+        .bind(product_listing.0)
         .fetch_one(&pool)
         .await?;
-        assert_eq!(12_345, product.1);
-        assert_eq!("SOLD", product.2);
+        assert_eq!(12_345, product_listing.1);
+        assert_eq!("OUT_OF_STOCK", product_listing.2);
         assert_eq!(event_count_after_update.0, event_count.0);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_preserve_availability_for_woocommerce_updates_without_supported_stock_status() {
+    let result: TestResult = async {
+        let (shop_id, token) = webhook_auth().await?;
+        let created = product_body(25, "42.00", "publish", "instock");
+        assert_eq!(
+            reqwest::StatusCode::NO_CONTENT,
+            send(&shop_id, &token, "product.created", &created)
+                .await?
+                .status()
+        );
+
+        let pool = get_postgres_client().await;
+        let availability_event_count_before_updates: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = (SELECT product_listing_id FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2) AND event_type = 'PRODUCT_LISTING_AVAILABILITY_CHANGED'",
+        )
+        .bind(uuid::Uuid::parse_str(&shop_id)?)
+        .bind("25")
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(0, availability_event_count_before_updates.0);
+
+        let missing_stock_status = json!({
+            "id": 25,
+            "name": "Woo Cabinet",
+            "permalink": "https://partner.example/product-listings/woo-cabinet-25",
+            "description": "<p>Cabinet description</p>",
+            "price": "42.00",
+            "status": "publish",
+            "images": []
+        })
+        .to_string();
+        let unsupported_stock_status = product_body(25, "42.00", "publish", "unsupported");
+        for updated in [&missing_stock_status, &unsupported_stock_status] {
+            assert_eq!(
+                reqwest::StatusCode::NO_CONTENT,
+                send(&shop_id, &token, "product.updated", updated)
+                    .await?
+                    .status()
+            );
+        }
+
+        let existing_listing: (String, String) = sqlx::query_as(
+            "SELECT availability, lifecycle FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
+        )
+        .bind(uuid::Uuid::parse_str(&shop_id)?)
+        .bind("25")
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!("IN_STOCK", existing_listing.0);
+        assert_eq!("ACTIVE", existing_listing.1);
+        let availability_event_count_after_updates: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = (SELECT product_listing_id FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2) AND event_type = 'PRODUCT_LISTING_AVAILABILITY_CHANGED'",
+        )
+        .bind(uuid::Uuid::parse_str(&shop_id)?)
+        .bind("25")
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(
+            availability_event_count_before_updates,
+            availability_event_count_after_updates
+        );
+
+        let missing_status_new_listing = json!({
+            "id": 26,
+            "name": "Woo Cabinet",
+            "permalink": "https://partner.example/product-listings/woo-cabinet-26",
+            "description": "<p>Cabinet description</p>",
+            "price": "42.00",
+            "status": "publish",
+            "images": []
+        })
+        .to_string();
+        assert_eq!(
+            reqwest::StatusCode::NO_CONTENT,
+            send(
+                &shop_id,
+                &token,
+                "product.updated",
+                &missing_status_new_listing,
+            )
+            .await?
+            .status()
+        );
+        let new_listing_availability: Option<String> = sqlx::query_scalar(
+            "SELECT availability FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
+        )
+        .bind(uuid::Uuid::parse_str(&shop_id)?)
+        .bind("26")
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(None, new_listing_availability);
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;
@@ -213,7 +355,7 @@ async fn should_reject_woocommerce_webhook_from_user_not_linked_to_shop() {
         configure_webhook_shop(shop.id()).await?;
         let user_id = seed_user("USER").await;
         let token = String::from(
-            seed_access_token_for(user_id, HashSet::from([Scope::ProductsWrite])).await,
+            seed_access_token_for(user_id, HashSet::from([Scope::ProductListingsWrite])).await,
         );
         let body = json!({ "id": 22 }).to_string();
 
@@ -332,7 +474,7 @@ async fn webhook_auth() -> Result<(String, String), Box<dyn std::error::Error>> 
     configure_webhook_shop(shop.id()).await?;
     let user_id = seed_user("USER").await;
     seed_partner_shop(user_id, shop.id()).await;
-    let token = seed_access_token_for(user_id, HashSet::from([Scope::ProductsWrite])).await;
+    let token = seed_access_token_for(user_id, HashSet::from([Scope::ProductListingsWrite])).await;
     Ok((shop_id, String::from(token)))
 }
 
@@ -350,7 +492,7 @@ async fn configure_webhook_shop(shop_id: shop_core::shop_id::ShopId) -> Result<(
 
 async fn product_count(shop_id: shop_core::shop_id::ShopId) -> Result<i64, sqlx::Error> {
     let pool = get_postgres_client().await;
-    sqlx::query_scalar("SELECT COUNT(*) FROM products WHERE shop_id = $1")
+    sqlx::query_scalar("SELECT COUNT(*) FROM product_listings WHERE shop_id = $1")
         .bind(uuid::Uuid::from(shop_id))
         .fetch_one(&pool)
         .await
@@ -360,7 +502,7 @@ fn product_body(id: u64, price: &str, status: &str, stock_status: &str) -> Strin
     json!({
         "id": id,
         "name": "Woo Cabinet",
-        "permalink": format!("https://partner.example/products/woo-cabinet-{id}"),
+        "permalink": format!("https://partner.example/product-listings/woo-cabinet-{id}"),
         "description": "<p>Cabinet description</p>",
         "price": price,
         "status": status,

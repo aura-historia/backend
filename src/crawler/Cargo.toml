@@ -12,9 +12,9 @@ localization = { workspace = true }
 money = { workspace = true }
 
 platform-postgres = { workspace = true }
-product-core = { workspace = true }
-product-postgres = { workspace = true }
-product-service = { workspace = true }
+product-listing-core = { workspace = true }
+product-listing-postgres = { workspace = true }
+product-listing-service = { workspace = true }
 shop-core = { workspace = true }
 shop-postgres = { workspace = true }
 shop-service = { workspace = true }
@@ -92,7 +92,7 @@ test-data = [
     "domain-primitives/test-data",
     "localization/test-data",
     "money/test-data",
-    "product-core/test-data",
+    "product-listing-core/test-data",
     "shop-core/test-data",
     "fake",
 ]

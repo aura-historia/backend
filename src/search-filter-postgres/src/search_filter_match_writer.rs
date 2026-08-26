@@ -1,7 +1,7 @@
 use crate::mapping::user_search_filter_uuid;
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
-use search_filter_core::SearchFilterProductMatch;
+use search_filter_core::SearchFilterProductListingMatch;
 use search_filter_service::ports::{
     SearchFilterMatchBatchPersistResult, SearchFilterMatchPersistOutcome,
     SearchFilterMatchWriteError, SearchFilterMatchWriter, SearchFilterMatchWriterFactory,
@@ -27,7 +27,7 @@ impl SearchFilterMatchWriterFactory<SqlxTransaction> for SqlxSearchFilterMatchWr
 impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
     async fn insert_if_absent(
         &mut self,
-        product_match: &SearchFilterProductMatch,
+        product_match: &SearchFilterProductListingMatch,
     ) -> Result<SearchFilterMatchPersistOutcome, SearchFilterMatchWriteError> {
         let filter_id =
             user_search_filter_uuid(product_match.user_search_filter_id).map_err(|source| {
@@ -40,7 +40,7 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
             INSERT INTO search_filter_matches (
                 user_id,
                 user_search_filter_id,
-                product_id,
+                product_listing_id,
                 origin_event_id,
                 price_valuation_basis,
                 price_fx_rate_id,
@@ -48,13 +48,13 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
                 enhanced_match_reason,
                 feedback
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (user_search_filter_id, product_id) DO NOTHING
+            ON CONFLICT (user_search_filter_id, product_listing_id) DO NOTHING
             RETURNING 1::bigint
             "#,
         )
         .bind(uuid::Uuid::from(product_match.user_id))
         .bind(filter_id)
-        .bind(uuid::Uuid::from(product_match.product_id))
+        .bind(uuid::Uuid::from(product_match.product_listing_id))
         .bind(uuid::Uuid::from(product_match.origin_event_id))
         .bind(
             product_match
@@ -93,7 +93,7 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
 
     async fn insert_all_if_absent(
         &mut self,
-        product_matches: &[SearchFilterProductMatch],
+        product_matches: &[SearchFilterProductListingMatch],
     ) -> Result<SearchFilterMatchBatchPersistResult, SearchFilterMatchWriteError> {
         if product_matches.is_empty() {
             return Ok(SearchFilterMatchBatchPersistResult::default());
@@ -110,9 +110,9 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
             .map_err(|source| SearchFilterMatchWriteError::WriteFailed {
                 source: box_error(source),
             })?;
-        let product_ids = product_matches
+        let product_listing_ids = product_matches
             .iter()
-            .map(|value| uuid::Uuid::from(value.product_id))
+            .map(|value| uuid::Uuid::from(value.product_listing_id))
             .collect::<Vec<_>>();
         let event_ids = product_matches
             .iter()
@@ -160,7 +160,7 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
         let inserted = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO search_filter_matches (
-                user_id, user_search_filter_id, product_id, origin_event_id,
+                user_id, user_search_filter_id, product_listing_id, origin_event_id,
                 price_valuation_basis, price_fx_rate_id, user_search_filter_name,
                 enhanced_match_reason, feedback
             )
@@ -168,13 +168,13 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
                 $1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::text[],
                 $6::uuid[], $7::text[], $8::text[], $9::bool[]
             )
-            ON CONFLICT (user_search_filter_id, product_id) DO NOTHING
+            ON CONFLICT (user_search_filter_id, product_listing_id) DO NOTHING
             RETURNING 1::bigint
         "#,
         )
         .bind(user_ids)
         .bind(filter_ids)
-        .bind(product_ids)
+        .bind(product_listing_ids)
         .bind(event_ids)
         .bind(bases)
         .bind(fx_rate_ids)

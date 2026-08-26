@@ -1,4 +1,4 @@
-use crawler::spider::classification::url_metadata::{UrlClass, UrlState};
+use crawler::spider::classification::url_metadata::{UrlClass, UrlPresence};
 use crawler::spider::classification::url_metadata_repository::{
     UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
@@ -47,7 +47,7 @@ async fn insert_domain_for_shop(
 
 #[serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_insert_new_url_when_url_does_not_exist() {
+async fn should_insert_new_url_with_present_presence_when_url_does_not_exist() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
 
@@ -56,7 +56,7 @@ async fn should_insert_new_url_when_url_does_not_exist() {
     let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "example.com").await;
 
     let url = Url::parse("https://example.com/product/123").unwrap();
-    let url_class = UrlClass::Product;
+    let url_class = UrlClass::ProductListing;
     let result = repository
         .upsert_link(&shop_id, &domain_id, &url, &url_class)
         .await
@@ -64,7 +64,7 @@ async fn should_insert_new_url_when_url_does_not_exist() {
 
     assert_eq!(result.url, url);
     assert_eq!(result.url_class, url_class);
-    assert_eq!(result.state, UrlState::Unknown);
+    assert_eq!(result.state, UrlPresence::Present);
     assert_eq!(result.domain_id, domain_id);
 }
 
@@ -90,7 +90,7 @@ async fn should_update_existing_url_when_url_already_exists() {
         .await
         .unwrap();
 
-    let new_class = UrlClass::Product;
+    let new_class = UrlClass::ProductListing;
 
     let result2 = repository
         .upsert_link(&shop_id, &domain_id, &url, &new_class)
@@ -99,7 +99,7 @@ async fn should_update_existing_url_when_url_already_exists() {
 
     assert_eq!(result2.url, url);
     assert_eq!(result2.url_class, new_class);
-    assert_eq!(result2.state, UrlState::Unknown);
+    assert_eq!(result2.state, UrlPresence::Present);
     assert_eq!(result2.domain_id, domain_id);
 }
 
@@ -129,7 +129,7 @@ async fn should_update_domain_id_when_url_is_upserted_with_different_domain() {
         insert_shop_with_domain(&pool, shop_b_uuid, "alias.shared-host.example.com").await;
 
     let url = Url::parse("https://shared-host.example.com/product/1").unwrap();
-    let class = UrlClass::Product;
+    let class = UrlClass::ProductListing;
 
     // First upsert — domain_id_a
     let r1 = repository
@@ -172,7 +172,7 @@ async fn should_return_error_when_domain_id_does_not_exist_for_upsert_link() {
 
     let url = Url::parse("https://example.com/product/fk-test").unwrap();
     let result = repository
-        .upsert_link(&shop_id, &bogus_domain_id, &url, &UrlClass::Product)
+        .upsert_link(&shop_id, &bogus_domain_id, &url, &UrlClass::ProductListing)
         .await;
 
     assert!(result.is_err(), "expected FK violation error but got Ok");
@@ -193,7 +193,7 @@ async fn should_update_last_scraped_timestamp_when_marking_as_scraped() {
     let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "example.com").await;
 
     let url = Url::parse("https://example.com/product/123").unwrap();
-    let url_class = UrlClass::Product;
+    let url_class = UrlClass::ProductListing;
     repository
         .upsert_link(&shop_id, &domain_id, &url, &url_class)
         .await
@@ -212,12 +212,12 @@ async fn should_update_last_scraped_timestamp_when_marking_as_scraped() {
 }
 
 // ---------------------------------------------------------------------------
-// set_state — domain_id preserved in returned record
+// set_presence — domain_id preserved in returned record
 // ---------------------------------------------------------------------------
 
 #[serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_update_state_when_setting_new_state() {
+async fn should_update_presence_when_setting_new_presence() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
 
@@ -226,23 +226,23 @@ async fn should_update_state_when_setting_new_state() {
     let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "example.com").await;
 
     let url = Url::parse("https://example.com/product/123").unwrap();
-    let url_class = UrlClass::Product;
+    let url_class = UrlClass::ProductListing;
     let result = repository
         .upsert_link(&shop_id, &domain_id, &url, &url_class)
         .await
         .unwrap();
 
-    assert_eq!(result.state, UrlState::Unknown);
+    assert_eq!(result.state, UrlPresence::Present);
 
     let marked = repository
-        .set_state(&shop_id, &url, &UrlState::Sold)
+        .set_presence(&shop_id, &url, &UrlPresence::Present)
         .await
         .unwrap();
 
-    assert_eq!(marked.state, UrlState::Sold);
+    assert_eq!(marked.state, UrlPresence::Present);
     assert_eq!(
         marked.domain_id, domain_id,
-        "domain_id should be returned by set_state"
+        "domain_id should be returned by set_presence"
     );
 }
 
@@ -264,7 +264,7 @@ async fn should_upsert_multiple_links_when_inserting_batch() {
         Url::parse("https://example.com/product/1").unwrap(),
         Url::parse("https://example.com/product/2").unwrap(),
     ];
-    let classes = vec![UrlClass::Product, UrlClass::Product];
+    let classes = vec![UrlClass::ProductListing, UrlClass::ProductListing];
 
     let inserted = repository
         .upsert_links_batch(&shop_id, &domain_id, &urls, &classes)
@@ -317,7 +317,7 @@ async fn should_update_domain_id_in_batch_when_url_is_upserted_under_different_d
         Url::parse("https://batch-domain-a.example.com/p/1").unwrap(),
         Url::parse("https://batch-domain-a.example.com/p/2").unwrap(),
     ];
-    let classes = vec![UrlClass::Product, UrlClass::Product];
+    let classes = vec![UrlClass::ProductListing, UrlClass::ProductListing];
     // First batch — domain_id_a
     let first = repository
         .upsert_links_batch(&shop_id_a, &domain_id_a, &urls, &classes)
@@ -357,7 +357,7 @@ async fn should_return_error_when_domain_id_does_not_exist_for_upsert_links_batc
     let bogus_domain_id = uuid::Uuid::new_v4();
 
     let urls = vec![Url::parse("https://example.com/product/fk-batch").unwrap()];
-    let classes = vec![UrlClass::Product];
+    let classes = vec![UrlClass::ProductListing];
     let result = repository
         .upsert_links_batch(&shop_id, &bogus_domain_id, &urls, &classes)
         .await;
@@ -389,7 +389,7 @@ async fn should_delete_urls_when_domain_is_deleted() {
     ];
     for url in &urls {
         repository
-            .upsert_link(&shop_id, &domain_id, url, &UrlClass::Product)
+            .upsert_link(&shop_id, &domain_id, url, &UrlClass::ProductListing)
             .await
             .unwrap();
     }
@@ -443,7 +443,7 @@ async fn should_delete_batch_urls_when_domain_is_deleted() {
         Url::parse("https://batch-cascade.example.com/p/2").unwrap(),
         Url::parse("https://batch-cascade.example.com/p/3").unwrap(),
     ];
-    let classes = vec![UrlClass::Product; 3];
+    let classes = vec![UrlClass::ProductListing; 3];
     repository
         .upsert_links_batch(&shop_id, &domain_id, &urls, &classes)
         .await
@@ -498,11 +498,21 @@ async fn should_only_delete_urls_for_deleted_domain_not_sibling_domain() {
     let url_b = Url::parse("https://keep-me.example.com/product/1").unwrap();
 
     repository
-        .upsert_link(&shop_id, &domain_id_to_delete, &url_a, &UrlClass::Product)
+        .upsert_link(
+            &shop_id,
+            &domain_id_to_delete,
+            &url_a,
+            &UrlClass::ProductListing,
+        )
         .await
         .unwrap();
     repository
-        .upsert_link(&shop_id, &domain_id_survivor, &url_b, &UrlClass::Product)
+        .upsert_link(
+            &shop_id,
+            &domain_id_survivor,
+            &url_b,
+            &UrlClass::ProductListing,
+        )
         .await
         .unwrap();
 

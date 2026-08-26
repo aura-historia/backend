@@ -7,6 +7,7 @@
 ## Core Design
 
 - Own OAuth client ID and stable credential scope strings.
+- Aura ProductListing writes use canonical `product-listings:write`.
 - No user aggregate, API, storage, SDK, or runtime code.
 
 ## Ownership

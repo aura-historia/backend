@@ -64,7 +64,7 @@ pub trait ProjectSearchFilterChangeUseCase: Send + Sync {
 }
 
 /// Projects only authoritative SearchFilter state. FX selection belongs to
-/// Product-event percolation, never to the saved-filter projection.
+/// ProductListing-event percolation, never to the saved-filter projection.
 pub struct ProjectSearchFilterChangeHandler<R, I> {
     source: R,
     index: I,
@@ -160,7 +160,7 @@ mod tests {
     use application::pagination::CursoredResult;
     use localization::Language;
     use money::Currency;
-    use product_core::product_search::ProductSearch;
+    use product_listing_core::product_listing_search::ProductListingSearch;
     use search_filter_core::search_filter_state::SearchFilterState;
     use search_filter_core::user_search_filter_name::UserSearchFilterName;
     use std::sync::Mutex;
@@ -232,7 +232,7 @@ mod tests {
 
         async fn percolate(
             &self,
-            _input: &product_service::ports::ProductPercolationInput,
+            _input: &product_listing_service::ports::ProductListingPercolationInput,
         ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
             Ok(Vec::new())
         }
@@ -254,7 +254,7 @@ mod tests {
                 name: UserSearchFilterName::from("daily"),
                 notifications: true,
                 state: SearchFilterState::Active,
-                search: ProductSearch::new(Language::En, Currency::Usd),
+                search: ProductListingSearch::new(Language::En, Currency::Usd),
                 embedding: None,
                 created: datetime!(2026-01-01 0:00 UTC),
                 updated: datetime!(2026-01-01 0:00 UTC),

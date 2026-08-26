@@ -7,8 +7,8 @@ use aura_historia_api::auth::{
 };
 use aura_historia_api::state::{
     AppState, BillingState, NewsletterState, NotificationsState, OAuthState,
-    PartnerApplicationsState, PartnerProductsState, ProductsState, SearchFiltersState, ShopsState,
-    UsersState, WatchlistState, WebhooksState,
+    PartnerApplicationsState, PartnerProductListingsState, ProductListingsState,
+    SearchFiltersState, ShopsState, UsersState, WatchlistState, WebhooksState,
 };
 use aura_historia_api::{app, state};
 use billing_service::ports::{
@@ -51,23 +51,27 @@ use oauth_service::use_cases::{
     TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
 };
 use platform_postgres::SqlxUnitOfWork;
-use product_core::product_id::ProductId;
-use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
-use product_postgres::{
-    SqlxPartnerProductAuthorizerFactory, SqlxProductDetailsBatchReader,
-    SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
-    SqlxProductEventReaderFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
-    SqlxProductUserStateReader, SqlxProductWatchlistDetailsReaderFactory,
+use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_opensearch::{
+    OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
+};
+use product_listing_postgres::{
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingDetailsBatchReader,
+    SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
+    SqlxProductListingEventReaderFactory, SqlxProductListingEventStoreFactory,
+    SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
+    SqlxProductListingWatchlistDetailsReaderFactory,
 };
 use shop_core::domain::Domain;
 use shop_core::shop_id::ShopId;
 use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user_id::UserId;
 
-use product_service::use_cases::{
-    CreateProductHandler, DeleteProductHandler, GetProductEventsHandler, GetProductHandler,
-    GetSimilarProductsHandler, IngestWoocommerceProductHandler, SearchProductsHandler,
-    UpdateProductHandler, UpsertProductHandler,
+use product_listing_service::use_cases::{
+    CreateProductListingHandler, GetProductListingEventsHandler, GetProductListingHandler,
+    GetSimilarProductListingsHandler, IngestWoocommerceProductListingHandler,
+    SearchProductListingsHandler, UpdateProductListingHandler, UpsertProductListingHandler,
+    WithdrawProductListingHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -133,7 +137,8 @@ use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandle
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
 use watchlist_postgres::{SqlxWatchlistQuotaReaderFactory, SqlxWatchlistRepositoryFactory};
 use watchlist_service::use_cases::{
-    ListWatchlistHandler, UnwatchProductHandler, UpdateWatchlistProductHandler, WatchProductHandler,
+    ListWatchlistHandler, UnwatchProductListingHandler, UpdateWatchlistProductListingHandler,
+    WatchProductListingHandler,
 };
 
 #[derive(Clone, Copy)]
@@ -322,24 +327,28 @@ async fn seed_user_with_tier_and_consent(
 
 pub async fn seed_active_watchlist_entries(user_id: UserId, count: usize) {
     for _ in 0..count {
-        let product_id = seed_product().await;
-        seed_watchlist_entry(user_id, product_id, "ACTIVE").await;
+        let product_listing_id = seed_product().await;
+        seed_watchlist_entry(user_id, product_listing_id, "ACTIVE").await;
     }
 }
 
-pub async fn seed_inactive_watchlist_entry(user_id: UserId) -> ProductId {
-    let product_id = seed_product().await;
-    seed_watchlist_entry(user_id, product_id, "INACTIVE_BY_USER").await;
-    product_id
+pub async fn seed_inactive_watchlist_entry(user_id: UserId) -> ProductListingId {
+    let product_listing_id = seed_product().await;
+    seed_watchlist_entry(user_id, product_listing_id, "INACTIVE_BY_USER").await;
+    product_listing_id
 }
 
-async fn seed_watchlist_entry(user_id: UserId, product_id: ProductId, state: &'static str) {
+async fn seed_watchlist_entry(
+    user_id: UserId,
+    product_listing_id: ProductListingId,
+    state: &'static str,
+) {
     let pool = get_postgres_client().await;
     if let Err(error) = sqlx::query(
-        "INSERT INTO product_watchlist (user_id, product_id, notifications, state, active_since, notifications_enabled_since) VALUES ($1, $2, true, $3, CASE WHEN $3 = 'ACTIVE' THEN now() ELSE NULL END, now())",
+        "INSERT INTO product_listing_watchlist (user_id, product_listing_id, notifications, state, active_since, notifications_enabled_since) VALUES ($1, $2, true, $3, CASE WHEN $3 = 'ACTIVE' THEN now() ELSE NULL END, now())",
     )
     .bind(uuid::Uuid::from(user_id))
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .bind(state)
     .execute(&pool)
     .await
@@ -428,21 +437,24 @@ pub async fn seed_shop() -> Shop {
     shop
 }
 
-pub async fn product_route_slugs(product_id: ProductId) -> (String, String) {
+pub async fn product_route_slugs(product_listing_id: ProductListingId) -> (String, String) {
     let pool = get_postgres_client().await;
     sqlx::query_as(
-        "SELECT shops.shop_slug_id, products.product_slug_id FROM products JOIN shops ON shops.shop_id = products.shop_id WHERE products.product_id = $1",
+        "SELECT shops.shop_slug_id, product_listings.product_listing_slug_id FROM product_listings JOIN shops ON shops.shop_id = product_listings.shop_id WHERE product_listings.product_listing_id = $1",
     )
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .fetch_one(&pool)
     .await
     .unwrap_or_else(|error| panic!("failed to read seeded product slugs: {error}"))
 }
 
-pub async fn seed_product() -> ProductId {
+pub async fn seed_product() -> ProductListingId {
     let shop = seed_shop().await;
-    let product_id = ProductId::new();
-    let product_slug_id = product_core::product_slug_id::ProductSlugId::from("acceptance-product");
+    let product_listing_id = ProductListingId::new();
+    let product_listing_slug_id =
+        product_listing_core::product_listing_slug_id::ProductListingSlugId::from(
+            "acceptance-product",
+        );
     let event_id = uuid::Uuid::new_v4();
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;
@@ -458,17 +470,17 @@ pub async fn seed_product() -> ProductId {
     }
     if let Err(error) = sqlx::query(
         r#"
-        INSERT INTO products (
-            product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id,
-            state, lifecycle, url
+        INSERT INTO product_listings (
+            product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id,
+            availability, lifecycle, url
         ) VALUES ($1, $2, $3, $4, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
         "#,
     )
-    .bind(uuid::Uuid::from(product_id))
-    .bind(product_slug_id.as_ref())
+    .bind(uuid::Uuid::from(product_listing_id))
+    .bind(product_listing_slug_id.as_ref())
     .bind(event_id)
     .bind(uuid::Uuid::from(shop.id()))
-    .bind(format!("shops-product-{product_id}"))
+    .bind(format!("shops-product-{product_listing_id}"))
     .bind("https://api-acceptance.example/product")
     .execute(&mut *tx)
     .await
@@ -477,19 +489,19 @@ pub async fn seed_product() -> ProductId {
     }
     if let Err(error) = sqlx::query(
         r#"
-        INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time)
+        INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time)
         VALUES (
             $1,
             $2,
-            'PRODUCT_CREATED',
+            'PRODUCT_LISTING_CREATED',
             'DOMAIN',
-            '{"title":null,"description":null,"address":{},"pricing":{},"state":"Available","url":"https://api-acceptance.example/product","images":[],"auction":{}}',
+            '{"title":null,"description":null,"address":{},"pricing":{},"availability":"AVAILABLE","url":"https://api-acceptance.example/product","images":[],"auction":{}}',
             now()
         )
         "#,
     )
     .bind(event_id)
-    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid::Uuid::from(product_listing_id))
     .execute(&mut *tx)
     .await
     {
@@ -498,7 +510,7 @@ pub async fn seed_product() -> ProductId {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit product seed transaction: {error}");
     }
-    product_id
+    product_listing_id
 }
 
 pub(super) async fn seed_current_fx_snapshot(pool: &sqlx::PgPool) {
@@ -564,74 +576,69 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     ));
     let opensearch_client = get_opensearch_client().await;
 
-    let products_state = ProductsState::new(
-        Arc::new(GetProductHandler::new(
+    let products_state = ProductListingsState::new(
+        Arc::new(GetProductListingHandler::new(
             unit_of_work.clone(),
-            SqlxProductDetailsReaderFactory::new(),
+            SqlxProductListingDetailsReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
         )),
-        Arc::new(GetSimilarProductsHandler::new(
+        Arc::new(GetSimilarProductListingsHandler::new(
             unit_of_work.clone(),
-            SqlxProductEmbeddingReaderFactory::new(),
+            SqlxProductListingEmbeddingReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
-            OpenSearchProductSimilarProductsReader::new(opensearch_client.clone()),
-            SqlxProductUserStateReader::new(pool.clone()),
+            OpenSearchProductListingSimilarProductListingsReader::new(opensearch_client.clone()),
+            SqlxProductListingUserStateReader::new(pool.clone()),
         )),
-        Arc::new(SearchProductsHandler::new(
+        Arc::new(SearchProductListingsHandler::new(
             unit_of_work.clone(),
-            OpenSearchProductSearchReader::new(opensearch_client.clone()),
+            OpenSearchProductListingSearchReader::new(opensearch_client.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
             search_embeddings,
-            SqlxProductUserStateReader::new(pool.clone()),
+            SqlxProductListingUserStateReader::new(pool.clone()),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )
-    .with_product_events(Arc::new(GetProductEventsHandler::new(
+    .with_product_listing_events(Arc::new(GetProductListingEventsHandler::new(
         unit_of_work.clone(),
-        SqlxProductEventReaderFactory::new(),
+        SqlxProductListingEventReaderFactory::new(),
     )));
 
-    let partner_products_state = PartnerProductsState::new(
-        Arc::new(CreateProductHandler::new_with_fx_rates(
+    let partner_product_listings_state = PartnerProductListingsState::new(
+        Arc::new(CreateProductListingHandler::new(
             unit_of_work.clone(),
-            SqlxProductRepositoryFactory::new(),
-            SqlxProductEventStoreFactory::new(),
-            SqlxPartnerProductAuthorizerFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventStoreFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
         )),
-        Arc::new(UpdateProductHandler::new_with_fx_rates(
+        Arc::new(UpdateProductListingHandler::new(
             unit_of_work.clone(),
-            SqlxProductRepositoryFactory::new(),
-            SqlxProductEventStoreFactory::new(),
-            SqlxPartnerProductAuthorizerFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventStoreFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
         )),
-        Arc::new(UpsertProductHandler::new_with_fx_rates(
+        Arc::new(UpsertProductListingHandler::new(
             unit_of_work.clone(),
-            SqlxProductRepositoryFactory::new(),
-            SqlxProductEventStoreFactory::new(),
-            SqlxPartnerProductAuthorizerFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventStoreFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
         )),
-        Arc::new(DeleteProductHandler::new(
+        Arc::new(WithdrawProductListingHandler::new(
             unit_of_work.clone(),
-            SqlxProductRepositoryFactory::new(),
-            SqlxProductEventStoreFactory::new(),
-            SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventStoreFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
     let webhooks_state = WebhooksState::new(
-        Arc::new(IngestWoocommerceProductHandler::new_with_fx_rates(
+        Arc::new(IngestWoocommerceProductListingHandler::new(
             unit_of_work.clone(),
-            SqlxPartnerShopReaderFactory::new(),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventStoreFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
             SqlxWoocommerceWebhookShopReaderFactory::new(),
             SqlxWoocommerceWebhookSignatureVerifierFactory::new(),
-            SqlxProductRepositoryFactory::new(),
-            SqlxProductEventStoreFactory::new(),
-            SqlxPartnerProductAuthorizerFactory::new(),
-            SqlxFxRateSnapshotRepositoryFactory,
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
@@ -758,7 +765,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::new(ListSearchFilterMatchesHandler::new(
             unit_of_work.clone(),
             search_filter_reader.clone(),
-            SqlxProductDetailsBatchReader::new(pool.clone()),
+            SqlxProductListingDetailsBatchReader::new(pool.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
         )),
         Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
@@ -794,22 +801,22 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     let watchlist_state = WatchlistState::new(
         Arc::new(ListWatchlistHandler::new(
             unit_of_work.clone(),
-            SqlxProductWatchlistDetailsReaderFactory::new(),
+            SqlxProductListingWatchlistDetailsReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
         )),
-        Arc::new(WatchProductHandler::new(
+        Arc::new(WatchProductListingHandler::new(
             unit_of_work.clone(),
             SqlxWatchlistRepositoryFactory,
             SqlxWatchlistQuotaReaderFactory,
             user_postgres::SqlxUserTierEntitlementsFactory::new(),
         )),
-        Arc::new(UpdateWatchlistProductHandler::new(
+        Arc::new(UpdateWatchlistProductListingHandler::new(
             unit_of_work.clone(),
             SqlxWatchlistRepositoryFactory,
             SqlxWatchlistQuotaReaderFactory,
             user_postgres::SqlxUserTierEntitlementsFactory::new(),
         )),
-        Arc::new(UnwatchProductHandler::new(
+        Arc::new(UnwatchProductListingHandler::new(
             unit_of_work.clone(),
             SqlxWatchlistRepositoryFactory,
         )),
@@ -965,7 +972,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))
         .with_products(products_state)
-        .with_partner_products(partner_products_state)
+        .with_partner_product_listings(partner_product_listings_state)
         .with_webhooks(webhooks_state)
         .with_oauth(oauth_state)
         .with_search_filters(search_filters_state)

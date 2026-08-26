@@ -1,11 +1,10 @@
-use product_core::product_state::ProductState;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UrlClass {
-    Product,
+    ProductListing,
     Category,
     Imprint,
     Info,
@@ -15,7 +14,7 @@ pub enum UrlClass {
 impl std::fmt::Display for UrlClass {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UrlClass::Product => write!(f, "product"),
+            UrlClass::ProductListing => write!(f, "product"),
             UrlClass::Category => write!(f, "category"),
             UrlClass::Imprint => write!(f, "imprint"),
             UrlClass::Info => write!(f, "info"),
@@ -28,7 +27,7 @@ impl std::str::FromStr for UrlClass {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "product" => Ok(UrlClass::Product),
+            "product" => Ok(UrlClass::ProductListing),
             "category" => Ok(UrlClass::Category),
             "imprint" => Ok(UrlClass::Imprint),
             "info" => Ok(UrlClass::Info),
@@ -41,7 +40,7 @@ impl std::str::FromStr for UrlClass {
 impl UrlClass {
     pub fn as_str(self) -> &'static str {
         match self {
-            UrlClass::Product => "product",
+            UrlClass::ProductListing => "product",
             UrlClass::Category => "category",
             UrlClass::Imprint => "imprint",
             UrlClass::Info => "info",
@@ -51,7 +50,7 @@ impl UrlClass {
 
     pub fn from_db(value: &str) -> Self {
         match value {
-            "product" => UrlClass::Product,
+            "product" => UrlClass::ProductListing,
             "category" => UrlClass::Category,
             "imprint" => UrlClass::Imprint,
             "info" => UrlClass::Info,
@@ -62,65 +61,28 @@ impl UrlClass {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum UrlState {
-    Listed,
-    Available,
-    Reserved,
-    Sold,
-    Removed,
-    Unknown,
+pub enum UrlPresence {
+    Present,
+    Withdrawn,
 }
 
-impl std::fmt::Display for UrlState {
+impl std::fmt::Display for UrlPresence {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            UrlState::Listed => write!(f, "LISTED"),
-            UrlState::Available => write!(f, "AVAILABLE"),
-            UrlState::Reserved => write!(f, "RESERVED"),
-            UrlState::Sold => write!(f, "SOLD"),
-            UrlState::Removed => write!(f, "REMOVED"),
-            UrlState::Unknown => write!(f, "UNKNOWN"),
-        }
+        f.write_str(match self {
+            Self::Present => "PRESENT",
+            Self::Withdrawn => "WITHDRAWN",
+        })
     }
 }
 
-impl std::str::FromStr for UrlState {
+impl std::str::FromStr for UrlPresence {
     type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "LISTED" => Ok(UrlState::Listed),
-            "AVAILABLE" => Ok(UrlState::Available),
-            "RESERVED" => Ok(UrlState::Reserved),
-            "SOLD" => Ok(UrlState::Sold),
-            "REMOVED" => Ok(UrlState::Removed),
-            "UNKNOWN" => Ok(UrlState::Unknown),
-            _ => Err(format!("Invalid URL state: {s}")),
-        }
-    }
-}
 
-impl UrlState {
-    pub fn from_db(value: &str) -> Self {
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "LISTED" => UrlState::Listed,
-            "AVAILABLE" => UrlState::Available,
-            "RESERVED" => UrlState::Reserved,
-            "SOLD" => UrlState::Sold,
-            "REMOVED" => UrlState::Removed,
-            _ => UrlState::Unknown,
-        }
-    }
-}
-
-impl From<ProductState> for UrlState {
-    fn from(value: ProductState) -> Self {
-        match value {
-            ProductState::Listed => UrlState::Listed,
-            ProductState::Available => UrlState::Available,
-            ProductState::Reserved => UrlState::Reserved,
-            ProductState::Sold => UrlState::Sold,
-            ProductState::Removed => UrlState::Removed,
-            ProductState::Unknown => UrlState::Unknown,
+            "PRESENT" => Ok(Self::Present),
+            "WITHDRAWN" => Ok(Self::Withdrawn),
+            _ => Err(format!("Invalid URL presence: {value}")),
         }
     }
 }
@@ -129,7 +91,9 @@ impl From<ProductState> for UrlState {
 pub struct CrawledUrlMetadata {
     pub url: String,
     pub class: UrlClass,
-    pub state: UrlState,
+    pub presence: UrlPresence,
+    /// Canonical crawler-local availability code, if the last scrape asserted one.
+    pub availability: Option<String>,
 
     #[serde(
         with = "time::serde::rfc3339::option",
@@ -147,22 +111,12 @@ pub struct CrawledUrlMetadata {
 
 #[cfg(test)]
 mod tests {
-    use super::UrlState;
-    use product_core::product_state::ProductState;
+    use super::UrlPresence;
 
     #[test]
-    fn should_map_product_states_to_url_states() {
-        let cases = [
-            (ProductState::Listed, UrlState::Listed),
-            (ProductState::Available, UrlState::Available),
-            (ProductState::Reserved, UrlState::Reserved),
-            (ProductState::Sold, UrlState::Sold),
-            (ProductState::Removed, UrlState::Removed),
-            (ProductState::Unknown, UrlState::Unknown),
-        ];
-
-        for (product_state, expected_url_state) in cases {
-            assert_eq!(UrlState::from(product_state), expected_url_state);
-        }
+    fn should_parse_only_presence_values() {
+        assert_eq!("PRESENT".parse(), Ok(UrlPresence::Present));
+        assert_eq!("WITHDRAWN".parse(), Ok(UrlPresence::Withdrawn));
+        assert!("AVAILABLE".parse::<UrlPresence>().is_err());
     }
 }

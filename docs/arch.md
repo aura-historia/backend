@@ -101,10 +101,10 @@ runtime/                # composition root and process startup
 The neutral `record` example corresponds to concrete crate families such as:
 
 ```text
-product-core
-product-service
-product-postgres
-product-opensearch
+product-listing-core
+product-listing-service
+product-listing-postgres
+product-listing-opensearch
 ```
 
 ### 3.1 Core crate
@@ -391,6 +391,9 @@ Access to operational metadata belongs to dedicated readers and read use cases. 
 
 Domain code SHOULD be deterministic and testable without mocks, databases, clocks, networks, or runtimes. Time, identifiers, randomness, and external decisions MUST be supplied as values or through explicit application ports when needed.
 
+### 4.3 Semantic absence and orthogonal dimensions
+
+A valid absence of a semantic assertion MUST use `Option<T>`, not an `Unknown` enum variant. Uncertainty, unsupported external values, and extraction failure belong to the boundary adapter and MUST NOT be persisted as invented core truth. Orthogonal domain dimensions, such as catalog lifecycle and availability, MUST use separate types. A broad classification derived from a concrete domain value MAY be exposed for reads and queries, but MUST NOT be independently mutable or persisted.
 
 ## 5. Type ownership and visibility
 
@@ -1727,11 +1730,11 @@ PostgreSQL owns business truth for:
 * users;
 * shops;
 * partner-shop applications;
-* products;
-* product events;
+* product listings;
+* product-listing events;
 * immutable canonical FX snapshots with generation and EUR-base `units_per_eur` quotes;
-* product translations;
-* product watchlists;
+* product-listing translations;
+* product-listing watchlists;
 * search filters;
 * search-filter matches;
 * notifications and notification delivery state; a Notification is separate from its one-or-more delivery rows, each uniquely identified by `(notification_id, channel, target_key)`. The application planner selects channels, each channel adapter resolves its target, and generic delivery claim/send/finalize stays outside notification producers. EMAIL is the sole production sender.
@@ -1840,8 +1843,8 @@ Handlers MUST tolerate:
 Use stable domain identifiers where possible:
 
 ```text
-product jobs:
-    product_events.event_id
+product-listing jobs:
+    product_listing_events.event_id
 
 shop jobs:
     (shop_id, version, operation)
@@ -1852,7 +1855,7 @@ search-filter jobs:
 match jobs:
     (
         user_search_filter_id,
-        product_id,
+        product_listing_id,
         origin_event_id
     )
 ```
@@ -1863,7 +1866,7 @@ An older or equal version MUST NOT overwrite a newer projection state.
 
 Idempotency SHOULD be enforced in the target write through conditional updates, unique constraints, or version checks rather than through in-memory checks.
 
-Current-state invalidation consumers that rebuild output from an authoritative row MUST compare the trigger's source revision with the row's current revision before processing. When they differ, the trigger is stale and MUST be skipped; the consumer MUST NOT evaluate current state while retaining the stale trigger ID. If a current trigger later persists an idempotent row, it MUST recheck and lock that authoritative revision in its final PostgreSQL write transaction through commit, so a stale trigger cannot claim the unique row across external work. For Product events, `products.event_id` is the current revision and must equal `product_events.event_id`; the PostgreSQL `FOR SHARE` lock remains held through notification and delivery-intent commit. Processed, duplicate, stale, missing-source, and ignored-event outcomes are operationally distinct. Watchlist generation names successful outcomes `Applied`, `SuppressedForMissingSource`, and `SuppressedForStaleProductEvent`; suppression is not a retryable error.
+Current-state invalidation consumers that rebuild output from an authoritative row MUST compare the trigger's source revision with the row's current revision before processing. When they differ, the trigger is stale and MUST be skipped; the consumer MUST NOT evaluate current state while retaining the stale trigger ID. If a current trigger later persists an idempotent row, it MUST recheck and lock that authoritative revision in its final PostgreSQL write transaction through commit, so a stale trigger cannot claim the unique row across external work. For ProductListing events, `product_listings.event_id` is the current revision and must equal `product_listing_events.event_id`; the PostgreSQL `FOR SHARE` lock remains held through notification and delivery-intent commit. Processed, duplicate, stale, missing-source, and ignored-event outcomes are operationally distinct. Watchlist generation names successful outcomes `Applied`, `SuppressedForMissingSource`, and `SuppressedForStaleProductListingEvent`; suppression is not a retryable error.
 
 ### 12.6 Building projections
 
@@ -2021,10 +2024,10 @@ Use-case errors describe outcomes relevant to callers. Variants MUST name the co
 NotFound
 AuthenticatedActorRequired
 PlanDoesNotAllowAction
-ProductCurrentEventIdConflict
-ProductKeyAlreadyExists
-ProductDetailsQueryFailed
-PersistedProductStateInvalid
+ProductListingCurrentEventIdConflict
+ProductListingKeyAlreadyExists
+ProductListingDetailsQueryFailed
+PersistedProductListingAvailabilityInvalid
 ```
 
 They MAY wrap internal errors privately but MUST expose stable semantic variants. Do not use vague variants such as `Forbidden`, `Conflict`, `InvalidPersistedState`, or `Internal` when a narrower cause is known.
@@ -2036,11 +2039,11 @@ When a service or port error represents an adapter/read-model failure, keep the 
 Adapter errors describe semantic persistence or integration failures without leaking infrastructure types:
 
 ```text
-ProductLookupByIdFailed
-ProductInsertFailed
-ProductCurrentEventIdConflict
-ProductSlugAlreadyExists
-InvalidProductUrlPersisted
+ProductListingLookupByIdFailed
+ProductListingInsertFailed
+ProductListingCurrentEventIdConflict
+ProductListingSlugAlreadyExists
+InvalidProductListingUrlPersisted
 ExternalResponseMissingPrice
 ```
 
@@ -2348,7 +2351,7 @@ Aura Historia access tokens use a closed-world assumption: a delegated principal
 Scope names SHOULD use `resource:action` with plural resources and coarse, stable actions:
 
 ```text
-products:write
+product-listings:write
 shops:read
 shops:write
 partner-shops:read

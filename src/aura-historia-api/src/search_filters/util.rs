@@ -1,7 +1,7 @@
 use crate::error::{ApiError, BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE, INVALID_UUID};
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use product_core::product_id::ProductId;
+use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use serde::{Deserialize, de::DeserializeOwned};
 use time::OffsetDateTime;
@@ -56,11 +56,11 @@ pub(super) fn parse_search_filter_id(raw: &str) -> Result<UserSearchFilterId, Re
 }
 
 #[allow(clippy::result_large_err)]
-pub(super) fn parse_product_id(raw: &str) -> Result<ProductId, Response> {
-    ProductId::try_from(raw).map_err(|_| {
+pub(super) fn parse_product_listing_id(raw: &str) -> Result<ProductListingId, Response> {
+    ProductListingId::try_from(raw).map_err(|_| {
         ApiError::bad_request(INVALID_UUID)
-            .with_path_field("productId")
-            .with_detail("Path parameter 'productId' must be a UUID.")
+            .with_path_field("productListingId")
+            .with_detail("Path parameter 'productListingId' must be a UUID.")
             .into_response()
     })
 }

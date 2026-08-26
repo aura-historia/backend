@@ -10,17 +10,18 @@ use application::{
     transaction::{Transaction, TransactionError, UnitOfWork},
 };
 use domain_primitives::event_id::EventId;
-use notification_core::notification::{NotificationContent, ProductNotificationSnapshot};
+use notification_core::notification::{NotificationContent, ProductListingNotificationSnapshot};
 use notification_service::ports::notification_creator::{
     ExternalDeliveryRequest, NewNotification, NotificationCreationError,
     NotificationCreationOutcome, NotificationCreator, NotificationCreatorFactory,
 };
-use product_core::product_id::ProductId;
-use product_service::ports::{
-    ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
-    ProductCurrentRevisionGuardFactory, ProductSearchFilterMatchSource,
-    ProductSearchFilterMatchSourceReadError, ProductSearchFilterMatchSourceReader,
-    ProductSearchFilterMatchSourceReaderFactory,
+use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_service::ports::{
+    ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError,
+    ProductListingCurrentRevisionGuard, ProductListingCurrentRevisionGuardFactory,
+    ProductListingSearchFilterMatchSource, ProductListingSearchFilterMatchSourceReadError,
+    ProductListingSearchFilterMatchSourceReader,
+    ProductListingSearchFilterMatchSourceReaderFactory,
 };
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use user_core::user_id::UserId;
@@ -32,7 +33,7 @@ use user_service::ports::{
 pub struct GenerateSearchFilterMatchNotificationCommand {
     pub user_id: UserId,
     pub search_filter_id: UserSearchFilterId,
-    pub product_id: ProductId,
+    pub product_listing_id: ProductListingId,
     pub origin_event_id: EventId,
 }
 
@@ -45,8 +46,8 @@ pub enum GenerateSearchFilterMatchNotificationResult {
     SuppressedForMissingMatch,
     SuppressedForStaleMatch,
 
-    SuppressedForMissingProduct,
-    SuppressedForStaleProductEvent,
+    SuppressedForMissingProductListing,
+    SuppressedForStaleProductListingEvent,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -68,19 +69,19 @@ pub enum GenerateSearchFilterMatchNotificationError {
     },
 
     #[error("product notification source read failed")]
-    ProductSourceReadFailed {
+    ProductListingSourceReadFailed {
         #[source]
         source: BoxError,
     },
     #[error("product notification source persisted state is invalid")]
-    ProductSourceStateInvalid {
+    ProductListingSourceStateInvalid {
         #[source]
         source: BoxError,
     },
     #[error("product notification source does not match the requested event or product")]
-    ProductSourceMismatch,
+    ProductListingSourceMismatch,
     #[error("product current revision check failed")]
-    ProductCurrentRevisionCheckFailed {
+    ProductListingCurrentRevisionCheckFailed {
         #[source]
         source: BoxError,
     },
@@ -120,7 +121,7 @@ pub trait GenerateSearchFilterMatchNotificationUseCase: Send + Sync {
 pub struct GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, N> {
     unit_of_work: U,
     matches: M,
-    products: P,
+    product_listings: P,
     quotas: Q,
     tier_entitlements: A,
     product_revision_guard: G,
@@ -131,7 +132,7 @@ impl<U, M, P, Q, A, G, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, 
     pub fn new(
         unit_of_work: U,
         matches: M,
-        products: P,
+        product_listings: P,
         quotas: Q,
         tier_entitlements: A,
         product_revision_guard: G,
@@ -140,7 +141,7 @@ impl<U, M, P, Q, A, G, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, 
         Self {
             unit_of_work,
             matches,
-            products,
+            product_listings,
             quotas,
             tier_entitlements,
             product_revision_guard,
@@ -155,10 +156,10 @@ impl<U, M, P, Q, A, G, N> GenerateSearchFilterMatchNotificationUseCase
 where
     U: UnitOfWork,
     M: SearchFilterMatchNotificationSourceReaderFactory<U::Tx>,
-    P: ProductSearchFilterMatchSourceReaderFactory<U::Tx>,
+    P: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
     Q: SearchFilterMonthlyMatchQuotaReaderFactory<U::Tx>,
     A: UserTierEntitlementsFactory<U::Tx>,
-    G: ProductCurrentRevisionGuardFactory<U::Tx>,
+    G: ProductListingCurrentRevisionGuardFactory<U::Tx>,
     N: NotificationCreatorFactory<U::Tx>,
 {
     #[tracing::instrument(
@@ -166,7 +167,7 @@ where
         skip_all,
         fields(
             origin_event_id = %command.origin_event_id,
-            product_id = %command.product_id,
+            product_listing_id = %command.product_listing_id,
             user_id = %command.user_id,
             search_filter_id = %command.search_filter_id,
         )
@@ -190,7 +191,7 @@ where
             .find_source(
                 command.user_id,
                 command.search_filter_id,
-                command.product_id,
+                command.product_listing_id,
                 command.origin_event_id,
             )
             .await
@@ -205,31 +206,37 @@ where
         }
 
         let product = self
-            .products
+            .product_listings
             .in_transaction(&mut tx)
-            .find_source(command.origin_event_id, command.product_id)
+            .find_source(command.origin_event_id, command.product_listing_id)
             .await
             .map_err(product_source_read_error)?;
         let Some(product) = product else {
             tx.commit().await.map_err(commit_error)?;
-            return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedForMissingProduct);
+            return Ok(
+                GenerateSearchFilterMatchNotificationResult::SuppressedForMissingProductListing,
+            );
         };
-        if product.event_id != command.origin_event_id || product.product_id != command.product_id {
-            return Err(GenerateSearchFilterMatchNotificationError::ProductSourceMismatch);
+        if product.event_id != command.origin_event_id
+            || product.product_listing_id != command.product_listing_id
+        {
+            return Err(GenerateSearchFilterMatchNotificationError::ProductListingSourceMismatch);
         }
         let revision = self
             .product_revision_guard
             .in_transaction(&mut tx)
-            .lock_and_check(command.product_id, command.origin_event_id)
+            .lock_and_check(command.product_listing_id, command.origin_event_id)
             .await
-            .map_err(|source: ProductCurrentRevisionCheckError| {
-                GenerateSearchFilterMatchNotificationError::ProductCurrentRevisionCheckFailed {
+            .map_err(|source: ProductListingCurrentRevisionCheckError| {
+                GenerateSearchFilterMatchNotificationError::ProductListingCurrentRevisionCheckFailed {
                     source: box_error(source),
                 }
             })?;
-        if revision == ProductCurrentRevisionCheck::Stale {
+        if revision == ProductListingCurrentRevisionCheck::Stale {
             tx.commit().await.map_err(commit_error)?;
-            return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedForStaleProductEvent);
+            return Ok(
+                GenerateSearchFilterMatchNotificationResult::SuppressedForStaleProductListingEvent,
+            );
         }
 
         let tier = self
@@ -283,14 +290,14 @@ fn match_source_matches_command(
 ) -> bool {
     source.user_id == command.user_id
         && source.search_filter_id == command.search_filter_id
-        && source.product_id == command.product_id
+        && source.product_listing_id == command.product_listing_id
         && source.origin_event_id == command.origin_event_id
 }
 
 async fn create_notification(
     notifications: &mut impl NotificationCreator,
     match_source: SearchFilterMatchNotificationSource,
-    product: ProductSearchFilterMatchSource,
+    product: ProductListingSearchFilterMatchSource,
 ) -> Result<NotificationCreationOutcome, GenerateSearchFilterMatchNotificationError> {
     let notification = NewNotification {
         notification: notification_core::notification::Notification::new(
@@ -298,13 +305,13 @@ async fn create_notification(
             match_source.user_id,
             NotificationContent::SearchFilter {
                 origin_event_id: match_source.origin_event_id,
-                product_id: product.product_id,
+                product_listing_id: product.product_listing_id,
                 user_search_filter_id: match_source.search_filter_id,
-                snapshot: ProductNotificationSnapshot {
+                snapshot: ProductListingNotificationSnapshot {
                     shop_id: product.shop_id,
-                    shops_product_id: product.shops_product_id,
+                    shop_listing_id: product.shop_listing_id,
                     shop_slug_id: product.shop_slug_id,
-                    product_slug_id: product.product_slug_id,
+                    product_listing_slug_id: product.product_listing_slug_id,
                     shop_name: product.shop_name,
                     title: (!product.titles.is_empty()).then_some(product.titles),
                     image: product.image,
@@ -350,13 +357,13 @@ fn match_source_read_error(
 }
 
 fn product_source_read_error(
-    error: ProductSearchFilterMatchSourceReadError,
+    error: ProductListingSearchFilterMatchSourceReadError,
 ) -> GenerateSearchFilterMatchNotificationError {
     match error {
-        ProductSearchFilterMatchSourceReadError::InvalidPersistedState { source } => {
-            GenerateSearchFilterMatchNotificationError::ProductSourceStateInvalid { source }
+        ProductListingSearchFilterMatchSourceReadError::InvalidPersistedState { source } => {
+            GenerateSearchFilterMatchNotificationError::ProductListingSourceStateInvalid { source }
         }
-        error => GenerateSearchFilterMatchNotificationError::ProductSourceReadFailed {
+        error => GenerateSearchFilterMatchNotificationError::ProductListingSourceReadFailed {
             source: box_error(error),
         },
     }
@@ -391,16 +398,16 @@ fn commit_error(source: TransactionError) -> GenerateSearchFilterMatchNotificati
 mod tests {
     use super::*;
     use indexmap::IndexSet;
-    use product_core::{
-        product::{ProductAddress, ProductAuction, ProductPricing},
-        product_image::ProductImage,
-        product_lifecycle::ProductLifecycle,
-        product_slug_id::ProductSlugId,
-        product_state::ProductState,
-        shops_product_id::ShopsProductId,
+    use product_listing_core::{
+        listing_availability::ListingAvailability,
+        listing_lifecycle::ListingLifecycle,
+        product_listing::{ProductListingAddress, ProductListingAuction, ProductListingPricing},
+        product_listing_image::ProductListingImage,
+        product_listing_slug_id::ProductListingSlugId,
+        shop_listing_id::ShopListingId,
     };
-    use product_service::ports::ProductSearchFilterMatchShopType;
-    use product_service::ports::ProductSearchFilterMatchSourceEventKind;
+    use product_listing_service::ports::ProductListingSearchFilterMatchShopType;
+    use product_listing_service::ports::ProductListingSearchFilterMatchSourceEventKind;
     use search_filter_core::user_search_filter_name::UserSearchFilterName;
     use shop_core::{
         seller_slug_id::SellerSlugId, shop_id::ShopId, shop_name::ShopName,
@@ -456,7 +463,7 @@ mod tests {
             &mut self,
             _user_id: UserId,
             _search_filter_id: UserSearchFilterId,
-            _product_id: ProductId,
+            _product_listing_id: ProductListingId,
             _origin_event_id: EventId,
         ) -> Result<
             Option<SearchFilterMatchNotificationSource>,
@@ -482,52 +489,59 @@ mod tests {
         }
     }
 
-    struct ProductSources(Option<ProductSearchFilterMatchSource>);
-    struct ProductReader(Option<ProductSearchFilterMatchSource>);
+    struct ProductListingSources(Option<ProductListingSearchFilterMatchSource>);
+    struct ProductListingReader(Option<ProductListingSearchFilterMatchSource>);
 
     #[async_trait::async_trait]
-    impl ProductSearchFilterMatchSourceReader for ProductReader {
+    impl ProductListingSearchFilterMatchSourceReader for ProductListingReader {
         async fn find_source(
             &mut self,
             _event_id: EventId,
-            _product_id: ProductId,
-        ) -> Result<Option<ProductSearchFilterMatchSource>, ProductSearchFilterMatchSourceReadError>
-        {
+            _product_listing_id: ProductListingId,
+        ) -> Result<
+            Option<ProductListingSearchFilterMatchSource>,
+            ProductListingSearchFilterMatchSourceReadError,
+        > {
             Ok(self.0.clone())
         }
     }
 
-    impl ProductSearchFilterMatchSourceReaderFactory<TestTransaction> for ProductSources {
+    impl ProductListingSearchFilterMatchSourceReaderFactory<TestTransaction> for ProductListingSources {
         fn in_transaction<'tx>(
             &'tx self,
             _tx: &'tx mut TestTransaction,
-        ) -> impl ProductSearchFilterMatchSourceReader + 'tx {
-            ProductReader(self.0.clone())
+        ) -> impl ProductListingSearchFilterMatchSourceReader + 'tx {
+            ProductListingReader(self.0.clone())
         }
     }
 
     #[derive(Clone, Copy)]
-    enum ProductRevisionCheckOutcome {
+    enum ProductListingRevisionCheckOutcome {
         Current,
         Stale,
         Error,
     }
 
-    struct ProductRevisionGuards(ProductRevisionCheckOutcome);
-    struct ProductRevisionGuard(ProductRevisionCheckOutcome);
+    struct ProductListingRevisionGuards(ProductListingRevisionCheckOutcome);
+    struct ProductListingRevisionGuard(ProductListingRevisionCheckOutcome);
 
     #[async_trait::async_trait]
-    impl ProductCurrentRevisionGuard for ProductRevisionGuard {
+    impl ProductListingCurrentRevisionGuard for ProductListingRevisionGuard {
         async fn lock_and_check(
             &mut self,
-            _product_id: ProductId,
+            _product_listing_id: ProductListingId,
             _expected_event_id: EventId,
-        ) -> Result<ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError> {
+        ) -> Result<ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError>
+        {
             match self.0 {
-                ProductRevisionCheckOutcome::Current => Ok(ProductCurrentRevisionCheck::Current),
-                ProductRevisionCheckOutcome::Stale => Ok(ProductCurrentRevisionCheck::Stale),
-                ProductRevisionCheckOutcome::Error => {
-                    Err(ProductCurrentRevisionCheckError::CheckFailed {
+                ProductListingRevisionCheckOutcome::Current => {
+                    Ok(ProductListingCurrentRevisionCheck::Current)
+                }
+                ProductListingRevisionCheckOutcome::Stale => {
+                    Ok(ProductListingCurrentRevisionCheck::Stale)
+                }
+                ProductListingRevisionCheckOutcome::Error => {
+                    Err(ProductListingCurrentRevisionCheckError::CheckFailed {
                         source: box_error(std::io::Error::other("guard read failed")),
                     })
                 }
@@ -535,12 +549,12 @@ mod tests {
         }
     }
 
-    impl ProductCurrentRevisionGuardFactory<TestTransaction> for ProductRevisionGuards {
+    impl ProductListingCurrentRevisionGuardFactory<TestTransaction> for ProductListingRevisionGuards {
         fn in_transaction<'tx>(
             &'tx self,
             _tx: &'tx mut TestTransaction,
-        ) -> impl ProductCurrentRevisionGuard + 'tx {
-            ProductRevisionGuard(self.0)
+        ) -> impl ProductListingCurrentRevisionGuard + 'tx {
+            ProductListingRevisionGuard(self.0)
         }
     }
 
@@ -661,61 +675,61 @@ mod tests {
         (
             GenerateSearchFilterMatchNotificationCommand,
             SearchFilterMatchNotificationSource,
-            ProductSearchFilterMatchSource,
+            ProductListingSearchFilterMatchSource,
         ),
         url::ParseError,
     > {
         let user_id = UserId::new();
         let search_filter_id = UserSearchFilterId::new();
-        let product_id = ProductId::new();
+        let product_listing_id = ProductListingId::new();
         let origin_event_id = EventId::new();
         let command = GenerateSearchFilterMatchNotificationCommand {
             user_id,
             search_filter_id,
-            product_id,
+            product_listing_id,
             origin_event_id,
         };
         let match_source = SearchFilterMatchNotificationSource {
             user_id,
             search_filter_id,
-            product_id,
+            product_listing_id,
             origin_event_id,
             search_filter_name: UserSearchFilterName::from("daily"),
             matched_at: OffsetDateTime::UNIX_EPOCH,
             external_delivery_requested: true,
         };
         let url = Url::parse("https://example.test/product")?;
-        let product = ProductSearchFilterMatchSource {
+        let product = ProductListingSearchFilterMatchSource {
             event_id: origin_event_id,
-            event_kind: ProductSearchFilterMatchSourceEventKind::Domain,
+            event_kind: ProductListingSearchFilterMatchSourceEventKind::Domain,
             origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: origin_event_id,
             projection_version: 1,
-            product_id,
-            product_slug_id: ProductSlugId::from("product"),
+            product_listing_id,
+            product_listing_slug_id: ProductListingSlugId::from("product"),
             shop_id: ShopId::new(),
             shop_slug_id: ShopSlugId::from("shop"),
             shop_name: ShopName::from("Shop"),
-            shop_type: ProductSearchFilterMatchShopType::Marketplace,
+            shop_type: ProductListingSearchFilterMatchShopType::Marketplace,
             seller_id: ShopId::new(),
             seller_slug_id: SellerSlugId::from(ShopSlugId::from("seller")),
             seller_name: ShopName::from("Seller"),
-            shops_product_id: ShopsProductId::from("sku-1"),
-            address: ProductAddress::default(),
+            shop_listing_id: ShopListingId::from("sku-1"),
+            address: ProductListingAddress::default(),
             product_title: None,
             product_description: None,
             titles: Default::default(),
             descriptions: Default::default(),
-            pricing: ProductPricing::default(),
-            sale_valuation: None,
-            state: ProductState::Available,
-            lifecycle: ProductLifecycle::Active,
+            pricing: ProductListingPricing::default(),
+            sale_observation: None,
+            availability: Some(ListingAvailability::Available),
+            lifecycle: ListingLifecycle::Active,
             url: url.clone(),
             view_url: url,
             image: None,
-            images: IndexSet::<ProductImage>::new(),
+            images: IndexSet::<ProductListingImage>::new(),
             embedding: None,
-            auction: ProductAuction::default(),
+            auction: ProductListingAuction::default(),
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,
         };
@@ -730,10 +744,10 @@ mod tests {
         let handler = GenerateSearchFilterMatchNotificationHandler::new(
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::Found(Some(match_source)),
-            ProductSources(Some(product)),
+            ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductRevisionGuards(ProductRevisionCheckOutcome::Current),
+            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
             Notifications(Arc::clone(&state)),
         );
 
@@ -756,10 +770,10 @@ mod tests {
         let handler = GenerateSearchFilterMatchNotificationHandler::new(
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::Found(Some(match_source)),
-            ProductSources(Some(product)),
+            ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductRevisionGuards(ProductRevisionCheckOutcome::Current),
+            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
             DuplicateNotifications,
         );
 
@@ -783,10 +797,10 @@ mod tests {
         let handler = GenerateSearchFilterMatchNotificationHandler::new(
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::Found(Some(match_source)),
-            ProductSources(Some(product)),
+            ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductRevisionGuards(ProductRevisionCheckOutcome::Current),
+            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
             Notifications(Arc::clone(&state)),
         );
 
@@ -810,15 +824,15 @@ mod tests {
         let handler = GenerateSearchFilterMatchNotificationHandler::new(
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::Found(Some(match_source)),
-            ProductSources(Some(product)),
+            ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductRevisionGuards(ProductRevisionCheckOutcome::Stale),
+            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Stale),
             Notifications(Arc::clone(&state)),
         );
 
         assert_eq!(
-            GenerateSearchFilterMatchNotificationResult::SuppressedForStaleProductEvent,
+            GenerateSearchFilterMatchNotificationResult::SuppressedForStaleProductListingEvent,
             handler.execute(command).await?
         );
         let state = state
@@ -838,10 +852,10 @@ mod tests {
         let handler = GenerateSearchFilterMatchNotificationHandler::new(
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::Found(Some(match_source)),
-            ProductSources(Some(product)),
+            ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductRevisionGuards(ProductRevisionCheckOutcome::Error),
+            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Error),
             Notifications(Arc::clone(&state)),
         );
 
@@ -852,12 +866,13 @@ mod tests {
             .ok_or_else(|| std::io::Error::other("expected error"))?;
         assert!(matches!(
             &error,
-            GenerateSearchFilterMatchNotificationError::ProductCurrentRevisionCheckFailed { .. }
+            GenerateSearchFilterMatchNotificationError::ProductListingCurrentRevisionCheckFailed { .. }
         ));
         assert!(matches!(
-            Error::source(&error)
-                .and_then(|source| { source.downcast_ref::<ProductCurrentRevisionCheckError>() }),
-            Some(ProductCurrentRevisionCheckError::CheckFailed { .. })
+            Error::source(&error).and_then(|source| {
+                source.downcast_ref::<ProductListingCurrentRevisionCheckError>()
+            }),
+            Some(ProductListingCurrentRevisionCheckError::CheckFailed { .. })
         ));
         let state = state
             .lock()
@@ -876,10 +891,10 @@ mod tests {
         let handler = GenerateSearchFilterMatchNotificationHandler::new(
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::QueryFailure,
-            ProductSources(Some(product)),
+            ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductRevisionGuards(ProductRevisionCheckOutcome::Current),
+            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
             Notifications(state),
         );
 

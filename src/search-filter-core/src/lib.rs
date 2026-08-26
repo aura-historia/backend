@@ -4,8 +4,8 @@ use crate::{
 };
 use domain_primitives::{change_outcome::ChangeOutcome, event_id::EventId};
 use fxrate_core::FxRateId;
-use product_core::product_id::ProductId;
-use product_core::product_search::ProductSearch;
+use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::product_listing_search::ProductListingSearch;
 use user_core::user_id::UserId;
 pub mod enhanced_match_reason;
 pub mod search_filter_state;
@@ -19,7 +19,7 @@ pub struct SearchFilter {
     name: UserSearchFilterName,
     notifications: bool,
     state: SearchFilterState,
-    search: ProductSearch,
+    search: ProductListingSearch,
     embedding: Option<Vec<f32>>,
 }
 
@@ -30,7 +30,7 @@ pub struct NewSearchFilter {
     pub name: UserSearchFilterName,
     pub notifications: bool,
     pub state: SearchFilterState,
-    pub search: ProductSearch,
+    pub search: ProductListingSearch,
     pub embedding: Option<Vec<f32>>,
 }
 
@@ -53,7 +53,7 @@ impl SearchFilter {
         name: UserSearchFilterName,
         notifications: bool,
         state: SearchFilterState,
-        search: ProductSearch,
+        search: ProductListingSearch,
         embedding: Option<Vec<f32>>,
     ) -> Self {
         Self {
@@ -93,7 +93,7 @@ impl SearchFilter {
 
     pub fn replace_search(
         &mut self,
-        search: ProductSearch,
+        search: ProductListingSearch,
         embedding: Option<Vec<f32>>,
     ) -> ChangeOutcome {
         if self.search == search && self.embedding == embedding {
@@ -119,7 +119,7 @@ impl SearchFilter {
     pub fn state(&self) -> SearchFilterState {
         self.state
     }
-    pub fn search(&self) -> &ProductSearch {
+    pub fn search(&self) -> &ProductListingSearch {
         &self.search
     }
     pub fn embedding(&self) -> Option<&Vec<f32>> {
@@ -129,16 +129,16 @@ impl SearchFilter {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PriceMatchValuation {
-    pub basis: product_core::product::ProductPriceValuationBasis,
+    pub basis: product_listing_core::product_listing::ProductListingPriceValuationBasis,
     pub fx_rate_id: FxRateId,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SearchFilterProductMatch {
+pub struct SearchFilterProductListingMatch {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub user_search_filter_name: Option<UserSearchFilterName>,
-    pub product_id: ProductId,
+    pub product_listing_id: ProductListingId,
     pub origin_event_id: EventId,
     /// Immutable valuation used only when this filter had a price condition.
     pub price_match_valuation: Option<PriceMatchValuation>,
@@ -146,7 +146,7 @@ pub struct SearchFilterProductMatch {
     pub feedback: Option<bool>,
 }
 
-impl SearchFilterProductMatch {
+impl SearchFilterProductListingMatch {
     pub fn change_feedback(&mut self, feedback: Option<bool>) -> ChangeOutcome {
         if self.feedback == feedback {
             return ChangeOutcome::Unchanged;
@@ -169,7 +169,7 @@ mod tests {
             name: UserSearchFilterName::from("daily"),
             notifications: true,
             state: SearchFilterState::Active,
-            search: ProductSearch::new(Language::En, Currency::Eur),
+            search: ProductListingSearch::new(Language::En, Currency::Eur),
             embedding: None,
         })
     }
@@ -214,7 +214,7 @@ mod tests {
         assert_eq!(
             ChangeOutcome::Changed,
             filter.replace_search(
-                ProductSearch::new(Language::De, Currency::Usd),
+                ProductListingSearch::new(Language::De, Currency::Usd),
                 Some(vec![1.0, 2.0]),
             )
         );
@@ -224,11 +224,11 @@ mod tests {
 
     #[test]
     fn should_not_change_match_feedback_when_value_is_unchanged() {
-        let mut product_match = SearchFilterProductMatch {
+        let mut product_match = SearchFilterProductListingMatch {
             user_id: UserId::new(),
             user_search_filter_id: UserSearchFilterId::new(),
             user_search_filter_name: None,
-            product_id: ProductId::new(),
+            product_listing_id: ProductListingId::new(),
             origin_event_id: EventId::new(),
             price_match_valuation: None,
             enhanced_match_reason: None,

@@ -12,14 +12,14 @@ async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_
         .once()
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
         .returning(|_| Box::pin(async { Ok(None) }));
     schema_svc.expect_create_product_schemas().never();
 
-    let norm_svc = MockProductNormalizationService::new();
+    let norm_svc = MockProductListingNormalizationService::new();
     let mut cand_svc = MockScraperCandidateService::new();
     cand_svc
         .expect_try_increment_shop_llm_calls_with_limit()
@@ -50,7 +50,8 @@ async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_
 /// fallback), that call must be charged against the per-shop budget in
 /// addition to the schema-generation call.
 #[tokio::test]
-async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses_llm() {
+async fn should_charge_budget_for_listing_availability_mapping_llm_call_when_normalization_uses_llm()
+ {
     let id = shop_id();
     let url = product_url();
 
@@ -63,7 +64,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -84,7 +85,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses
         });
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()
@@ -97,7 +98,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses
     let mut cand_svc = MockScraperCandidateService::new();
     // Schema generation = 1 call, state mapping LLM = 1 call → 2 total.
     expect_budget_increment(&mut cand_svc, 2);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -113,7 +114,10 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(result.product.state, ProductState::Available);
+    assert_eq!(
+        result.product.availability,
+        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
+    );
 }
 
 /// When the state mapping LLM call would push the shop over budget, the
@@ -132,7 +136,7 @@ async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_c
 
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -156,7 +160,7 @@ async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_c
         });
 
     let expected = normalized_product(url.clone());
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .once()
@@ -198,7 +202,7 @@ async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_c
 }
 
 #[tokio::test]
-async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_fails_and_next_schema_succeeds()
+async fn should_charge_budget_for_listing_availability_mapping_llm_call_when_normalization_fails_and_next_schema_succeeds()
  {
     let id = shop_id();
     let url = product_url();
@@ -215,7 +219,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_fail
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
     };
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -228,7 +232,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_fail
 
     let expected = normalized_product(url.clone());
     let call_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
         .times(2)
@@ -246,7 +250,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_fail
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -262,7 +266,10 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_fail
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(result.product.state, ProductState::Available);
+    assert_eq!(
+        result.product.availability,
+        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
+    );
 }
 
 #[tokio::test]
@@ -277,7 +284,7 @@ async fn should_return_llm_budget_exceeded_when_failed_normalization_usage_excee
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
         .once()
@@ -288,7 +295,7 @@ async fn should_return_llm_budget_exceeded_when_failed_normalization_usage_excee
     schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
 
-    let mut norm_svc = MockProductNormalizationService::new();
+    let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc.expect_normalize().once().returning(|_, _, _| {
         Box::pin(async { Err(normalization_failure(NormalizationError::TitleEmpty, 1)) })
     });

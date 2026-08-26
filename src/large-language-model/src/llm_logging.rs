@@ -12,7 +12,7 @@ pub enum LlmOperation {
     CrawlerProductSchemaFreshGeneration,
     CrawlerProductSchemaRepair,
     CrawlerProductSchemaEvaluation,
-    CrawlerProductStateMapping,
+    CrawlerAvailabilityMapping,
 }
 
 impl LlmOperation {
@@ -30,7 +30,7 @@ impl LlmOperation {
             Self::CrawlerProductSchemaFreshGeneration => "CRAWLER_PRODUCT_SCHEMA_FRESH_GENERATION",
             Self::CrawlerProductSchemaRepair => "CRAWLER_PRODUCT_SCHEMA_REPAIR",
             Self::CrawlerProductSchemaEvaluation => "CRAWLER_PRODUCT_SCHEMA_EVALUATION",
-            Self::CrawlerProductStateMapping => "CRAWLER_PRODUCT_STATE_MAPPING",
+            Self::CrawlerAvailabilityMapping => "CRAWLER_AVAILABILITY_MAPPING",
         }
     }
 }

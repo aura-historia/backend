@@ -14,9 +14,9 @@ isocountry = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 opensearch = { workspace = true }
-product-core = { workspace = true }
-product-opensearch = { workspace = true }
-product-service = { workspace = true }
+product-listing-core = { workspace = true }
+product-listing-opensearch = { workspace = true }
+product-listing-service = { workspace = true }
 platform-opensearch = { workspace = true }
 search-filter-core = { workspace = true }
 search-filter-service = { workspace = true }

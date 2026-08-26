@@ -45,10 +45,10 @@ shop-partner-postgres = { workspace = true }
 shop-partner-service = { workspace = true }
 shop-postgres = { workspace = true }
 shop-service = { workspace = true }
-product-core = { workspace = true }
-product-opensearch = { workspace = true }
-product-postgres = { workspace = true }
-product-service = { workspace = true }
+product-listing-core = { workspace = true }
+product-listing-opensearch = { workspace = true }
+product-listing-postgres = { workspace = true }
+product-listing-service = { workspace = true }
 search-filter-core = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }

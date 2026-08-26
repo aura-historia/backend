@@ -37,7 +37,7 @@
                     We are delighted to inform you that your partner application for <b>{{shop_name}}</b> has been approved. Welcome to Aura Historia!
                 </mj-text>
                 <mj-text>
-                    You can now create an API key and start publishing your products to Aura Historia. Visit your <a href="https://aura-historia.com/partners">partner overview</a> to learn how to get started, or go directly to your <a href="https://aura-historia.com/partners/dashboard">partner dashboard</a> to create your API key.
+                    You can now create an API key and start publishing your product listings to Aura Historia. Visit your <a href="https://aura-historia.com/partners">partner overview</a> to learn how to get started, or go directly to your <a href="https://aura-historia.com/partners/dashboard">partner dashboard</a> to create your API key.
                 </mj-text>
             </mj-column>
         </mj-section>

@@ -71,7 +71,7 @@ impl CrawledUrl {
         if let Some(regex) = pattern
             && self.matches_pattern(regex)
         {
-            return crate::spider::classification::url_metadata::UrlClass::Product;
+            return crate::spider::classification::url_metadata::UrlClass::ProductListing;
         }
 
         let lower = self.0.as_str().to_ascii_lowercase();

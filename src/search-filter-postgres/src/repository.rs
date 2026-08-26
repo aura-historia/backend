@@ -1,5 +1,5 @@
 use crate::mapping::{
-    FILTER_COLUMNS, FilterRow, ProductSearchJsonMappingError, product_search_to_json,
+    FILTER_COLUMNS, FilterRow, ProductListingSearchJsonMappingError, product_search_to_json,
     user_search_filter_uuid,
 };
 use application::error::box_error;
@@ -30,10 +30,10 @@ impl SearchFilterRepositoryFactory<SqlxTransaction> for SqlxSearchFilterReposito
 enum SearchFilterRepositoryAdapterError {
     LookupIdentifier(uuid::Error),
     LookupSqlx(sqlx::Error),
-    InsertSearchSerialization(ProductSearchJsonMappingError),
+    InsertSearchSerialization(ProductListingSearchJsonMappingError),
     InsertIdentifier(uuid::Error),
     InsertSqlx(sqlx::Error),
-    UpdateSearchSerialization(ProductSearchJsonMappingError),
+    UpdateSearchSerialization(ProductListingSearchJsonMappingError),
     UpdateIdentifier(uuid::Error),
     UpdateSqlx(sqlx::Error),
     DeleteIdentifier(uuid::Error),

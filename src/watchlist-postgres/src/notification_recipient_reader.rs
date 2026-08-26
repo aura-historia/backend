@@ -1,7 +1,7 @@
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
-use product_core::product_id::ProductId;
-use product_service::ports::{
+use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_service::ports::{
     WatchlistNotificationRecipient, WatchlistNotificationRecipientReadError,
     WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,
 };
@@ -41,18 +41,18 @@ impl WatchlistNotificationRecipientReaderFactory<SqlxTransaction>
 impl WatchlistNotificationRecipientReader for SqlxWatchlistNotificationRecipientReader<'_> {
     async fn find_eligible_for_product_at(
         &mut self,
-        product_id: ProductId,
+        product_listing_id: ProductListingId,
         event_time: OffsetDateTime,
     ) -> Result<Vec<WatchlistNotificationRecipient>, WatchlistNotificationRecipientReadError> {
         let rows = sqlx::query_as::<_, (uuid::Uuid, bool)>(
             "SELECT user_id, notifications AND notifications_enabled_since <= $2 AS external_delivery_requested \
-             FROM product_watchlist \
-             WHERE product_id = $1 \
+             FROM product_listing_watchlist \
+             WHERE product_listing_id = $1 \
                AND state = 'ACTIVE' \
                AND active_since <= $2 \
              ORDER BY user_id ASC",
         )
-        .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(product_listing_id))
         .bind(event_time)
         .fetch_all(self.tx.connection())
         .await

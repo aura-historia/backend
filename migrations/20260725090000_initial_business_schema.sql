@@ -138,13 +138,13 @@ CREATE TABLE fx_rate_quotes (
     CONSTRAINT fx_rate_quotes_currency_check CHECK (currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF'))
 );
 
-CREATE TABLE products (
-    product_id uuid PRIMARY KEY,
-    product_slug_id text NOT NULL,
+CREATE TABLE product_listings (
+    product_listing_id uuid PRIMARY KEY,
+    product_listing_slug_id text NOT NULL,
     event_id uuid NOT NULL,
     shop_id uuid NOT NULL REFERENCES shops(shop_id),
     seller_id uuid NOT NULL REFERENCES shops(shop_id),
-    shops_product_id text NOT NULL,
+    shop_listing_id text NOT NULL,
     structured_address_addressline text,
     structured_address_addressline_extra text,
     structured_address_locality text,
@@ -163,9 +163,9 @@ CREATE TABLE products (
     price_estimate_min_currency text,
     price_estimate_max_amount bigint,
     price_estimate_max_currency text,
-    sale_fx_rate_id uuid REFERENCES fx_rates(fx_rate_id) ON DELETE RESTRICT,
-    sold_at timestamptz,
-    state text NOT NULL,
+    sale_observation_fx_rate_id uuid REFERENCES fx_rates(fx_rate_id) ON DELETE RESTRICT,
+    sale_observed_at timestamptz,
+    availability text,
     lifecycle text NOT NULL,
     url text NOT NULL,
     product_images jsonb NOT NULL DEFAULT '[]',
@@ -175,90 +175,89 @@ CREATE TABLE products (
     auction_end timestamptz,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT products_shop_product_unique UNIQUE (shop_id, shops_product_id),
-    CONSTRAINT products_slug_unique UNIQUE (product_slug_id),
-    CONSTRAINT products_state_check CHECK (state IN ('LISTED', 'AVAILABLE', 'RESERVED', 'SOLD', 'REMOVED', 'UNKNOWN')),
-    CONSTRAINT products_lifecycle_check CHECK (lifecycle IN ('ACTIVE', 'DELETED')),
-    CONSTRAINT products_title_pair_check CHECK ((title_text IS NULL) = (title_language IS NULL)),
-    CONSTRAINT products_description_pair_check CHECK ((description_text IS NULL) = (description_language IS NULL)),
-    CONSTRAINT products_title_language_check CHECK (title_language IS NULL OR title_language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
-    CONSTRAINT products_description_language_check CHECK (description_language IS NULL OR description_language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
-    CONSTRAINT products_price_pair_check CHECK ((price_amount IS NULL) = (price_currency IS NULL)),
-    CONSTRAINT products_price_estimate_min_pair_check CHECK ((price_estimate_min_amount IS NULL) = (price_estimate_min_currency IS NULL)),
-    CONSTRAINT products_price_estimate_max_pair_check CHECK ((price_estimate_max_amount IS NULL) = (price_estimate_max_currency IS NULL)),
-    CONSTRAINT products_price_amount_nonnegative CHECK (price_amount IS NULL OR price_amount >= 0),
-    CONSTRAINT products_price_estimate_min_amount_nonnegative CHECK (price_estimate_min_amount IS NULL OR price_estimate_min_amount >= 0),
-    CONSTRAINT products_price_estimate_max_amount_nonnegative CHECK (price_estimate_max_amount IS NULL OR price_estimate_max_amount >= 0),
-    CONSTRAINT products_price_currency_check CHECK (price_currency IS NULL OR price_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
-    CONSTRAINT products_price_estimate_min_currency_check CHECK (price_estimate_min_currency IS NULL OR price_estimate_min_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
-    CONSTRAINT products_price_estimate_max_currency_check CHECK (price_estimate_max_currency IS NULL OR price_estimate_max_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
-    CONSTRAINT products_sale_valuation_pair_check CHECK ((sale_fx_rate_id IS NULL) = (sold_at IS NULL)),
-    CONSTRAINT products_sale_valuation_state_check CHECK (sale_fx_rate_id IS NULL OR state IN ('SOLD', 'REMOVED')),
-    CONSTRAINT products_sold_sale_valuation_check CHECK (state <> 'SOLD' OR sale_fx_rate_id IS NOT NULL),
-    CONSTRAINT products_geo_pair_check CHECK ((geo_address_lat IS NULL) = (geo_address_lon IS NULL)),
-    CONSTRAINT products_geo_lat_range CHECK (geo_address_lat IS NULL OR geo_address_lat BETWEEN -90 AND 90),
-    CONSTRAINT products_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180),
-    CONSTRAINT products_images_array CHECK (jsonb_typeof(product_images) = 'array'),
-    CONSTRAINT products_embedding_dimension_check CHECK (embedding IS NULL OR (array_ndims(embedding) = 1 AND cardinality(embedding) = 768)),
-    CONSTRAINT products_projection_version_positive CHECK (projection_version >= 1),
-    CONSTRAINT products_auction_order_check CHECK (auction_start IS NULL OR auction_end IS NULL OR auction_start <= auction_end)
+    CONSTRAINT product_listings_shop_product_unique UNIQUE (shop_id, shop_listing_id),
+    CONSTRAINT product_listings_slug_unique UNIQUE (product_listing_slug_id),
+    CONSTRAINT product_listings_availability_check CHECK (availability IS NULL OR availability IN ('AVAILABLE', 'IN_STOCK', 'LIMITED_AVAILABILITY', 'BACK_ORDER', 'MADE_TO_ORDER', 'PRE_ORDER', 'PRE_SALE', 'UNAVAILABLE', 'RESERVED', 'OUT_OF_STOCK', 'SOLD_OUT')),
+    CONSTRAINT product_listings_lifecycle_check CHECK (lifecycle IN ('ACTIVE', 'WITHDRAWN')),
+    CONSTRAINT product_listings_withdrawn_availability_check CHECK (lifecycle <> 'WITHDRAWN' OR availability IS NULL),
+    CONSTRAINT product_listings_title_pair_check CHECK ((title_text IS NULL) = (title_language IS NULL)),
+    CONSTRAINT product_listings_description_pair_check CHECK ((description_text IS NULL) = (description_language IS NULL)),
+    CONSTRAINT product_listings_title_language_check CHECK (title_language IS NULL OR title_language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
+    CONSTRAINT product_listings_description_language_check CHECK (description_language IS NULL OR description_language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
+    CONSTRAINT product_listings_price_pair_check CHECK ((price_amount IS NULL) = (price_currency IS NULL)),
+    CONSTRAINT product_listings_price_estimate_min_pair_check CHECK ((price_estimate_min_amount IS NULL) = (price_estimate_min_currency IS NULL)),
+    CONSTRAINT product_listings_price_estimate_max_pair_check CHECK ((price_estimate_max_amount IS NULL) = (price_estimate_max_currency IS NULL)),
+    CONSTRAINT product_listings_price_amount_nonnegative CHECK (price_amount IS NULL OR price_amount >= 0),
+    CONSTRAINT product_listings_price_estimate_min_amount_nonnegative CHECK (price_estimate_min_amount IS NULL OR price_estimate_min_amount >= 0),
+    CONSTRAINT product_listings_price_estimate_max_amount_nonnegative CHECK (price_estimate_max_amount IS NULL OR price_estimate_max_amount >= 0),
+    CONSTRAINT product_listings_price_currency_check CHECK (price_currency IS NULL OR price_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT product_listings_price_estimate_min_currency_check CHECK (price_estimate_min_currency IS NULL OR price_estimate_min_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT product_listings_price_estimate_max_currency_check CHECK (price_estimate_max_currency IS NULL OR price_estimate_max_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT product_listings_sale_observation_pair_check CHECK ((sale_observation_fx_rate_id IS NULL) = (sale_observed_at IS NULL)),
+    CONSTRAINT product_listings_geo_pair_check CHECK ((geo_address_lat IS NULL) = (geo_address_lon IS NULL)),
+    CONSTRAINT product_listings_geo_lat_range CHECK (geo_address_lat IS NULL OR geo_address_lat BETWEEN -90 AND 90),
+    CONSTRAINT product_listings_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180),
+    CONSTRAINT product_listings_images_array CHECK (jsonb_typeof(product_images) = 'array'),
+    CONSTRAINT product_listings_embedding_dimension_check CHECK (embedding IS NULL OR (array_ndims(embedding) = 1 AND cardinality(embedding) = 768)),
+    CONSTRAINT product_listings_projection_version_positive CHECK (projection_version >= 1),
+    CONSTRAINT product_listings_auction_order_check CHECK (auction_start IS NULL OR auction_end IS NULL OR auction_start <= auction_end)
 );
 
-CREATE INDEX products_seller_id_idx ON products (seller_id);
-CREATE INDEX products_lifecycle_updated_idx ON products (lifecycle, updated DESC);
-CREATE INDEX products_sale_fx_rate_id_idx ON products (sale_fx_rate_id);
+CREATE INDEX product_listings_seller_id_idx ON product_listings (seller_id);
+CREATE INDEX product_listings_lifecycle_updated_idx ON product_listings (lifecycle, updated DESC);
+CREATE INDEX product_listings_sale_observation_fx_rate_id_idx ON product_listings (sale_observation_fx_rate_id);
 
-CREATE TABLE product_translations (
-    product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
+CREATE TABLE product_listing_translations (
+    product_listing_id uuid NOT NULL REFERENCES product_listings(product_listing_id) ON DELETE CASCADE,
     source_event_id uuid NOT NULL,
     language text NOT NULL,
     title text,
     description text,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (product_id, language),
-    CONSTRAINT product_translations_language_check CHECK (language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
-    CONSTRAINT product_translations_has_content CHECK (title IS NOT NULL OR description IS NOT NULL)
+    PRIMARY KEY (product_listing_id, language),
+    CONSTRAINT product_listing_translations_language_check CHECK (language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
+    CONSTRAINT product_listing_translations_has_content CHECK (title IS NOT NULL OR description IS NOT NULL)
 );
 
-CREATE INDEX product_translations_language_idx ON product_translations (language);
+CREATE INDEX product_listing_translations_language_idx ON product_listing_translations (language);
 
-CREATE TABLE product_events (
+CREATE TABLE product_listing_events (
     event_id uuid PRIMARY KEY,
-    product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    product_listing_id uuid NOT NULL REFERENCES product_listings(product_listing_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
     event_type text NOT NULL,
     event_group text NOT NULL,
     event_type_schema_version int NOT NULL DEFAULT 1,
     payload jsonb NOT NULL,
     event_time timestamptz NOT NULL,
     created timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT product_events_product_event_unique UNIQUE (product_id, event_id),
-    CONSTRAINT product_events_group_check CHECK (event_group IN ('DOMAIN', 'ENRICHMENT', 'POLICY', 'LIFECYCLE')),
-    CONSTRAINT product_events_schema_version_positive CHECK (event_type_schema_version >= 1),
-    CONSTRAINT product_events_payload_object CHECK (jsonb_typeof(payload) = 'object')
+    CONSTRAINT product_listing_events_product_event_unique UNIQUE (product_listing_id, event_id),
+    CONSTRAINT product_listing_events_group_check CHECK (event_group IN ('DOMAIN', 'ENRICHMENT', 'POLICY', 'LIFECYCLE')),
+    CONSTRAINT product_listing_events_schema_version_positive CHECK (event_type_schema_version >= 1),
+    CONSTRAINT product_listing_events_payload_object CHECK (jsonb_typeof(payload) = 'object')
 );
 
-ALTER TABLE products
-    ADD CONSTRAINT products_current_event_same_product_fkey
-    FOREIGN KEY (product_id, event_id)
-    REFERENCES product_events(product_id, event_id)
+ALTER TABLE product_listings
+    ADD CONSTRAINT product_listings_current_event_same_product_fkey
+    FOREIGN KEY (product_listing_id, event_id)
+    REFERENCES product_listing_events(product_listing_id, event_id)
     DEFERRABLE INITIALLY DEFERRED;
 
-ALTER TABLE product_translations
-    ADD CONSTRAINT product_translations_source_event_fkey
-    FOREIGN KEY (product_id, source_event_id)
-    REFERENCES product_events(product_id, event_id)
+ALTER TABLE product_listing_translations
+    ADD CONSTRAINT product_listing_translations_source_event_fkey
+    FOREIGN KEY (product_listing_id, source_event_id)
+    REFERENCES product_listing_events(product_listing_id, event_id)
     DEFERRABLE INITIALLY DEFERRED;
 
-CREATE INDEX product_events_product_time_event_idx
-    ON product_events (product_id, event_time ASC, event_id ASC);
-CREATE INDEX product_translations_source_event_idx
-    ON product_translations (product_id, source_event_id);
-CREATE INDEX product_events_type_time_idx ON product_events (event_type, event_time ASC);
+CREATE INDEX product_listing_events_product_listing_time_event_idx
+    ON product_listing_events (product_listing_id, event_time ASC, event_id ASC);
+CREATE INDEX product_listing_translations_source_event_idx
+    ON product_listing_translations (product_listing_id, source_event_id);
+CREATE INDEX product_listing_events_type_time_idx ON product_listing_events (event_type, event_time ASC);
 
-CREATE TABLE product_watchlist (
+CREATE TABLE product_listing_watchlist (
     user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
+    product_listing_id uuid NOT NULL REFERENCES product_listings(product_listing_id) ON DELETE CASCADE,
     notifications boolean NOT NULL DEFAULT true,
     state text NOT NULL,
     active_since timestamptz,
@@ -266,22 +265,22 @@ CREATE TABLE product_watchlist (
     version bigint NOT NULL DEFAULT 1,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, product_id),
-    CONSTRAINT product_watchlist_state_check CHECK (state IN ('ACTIVE', 'INACTIVE_BY_USER', 'INACTIVE_BY_RESTRICTED_PLAN')),
-    CONSTRAINT product_watchlist_active_since_check
+    PRIMARY KEY (user_id, product_listing_id),
+    CONSTRAINT product_listing_watchlist_state_check CHECK (state IN ('ACTIVE', 'INACTIVE_BY_USER', 'INACTIVE_BY_RESTRICTED_PLAN')),
+    CONSTRAINT product_listing_watchlist_active_since_check
         CHECK ((state = 'ACTIVE') = (active_since IS NOT NULL)),
-    CONSTRAINT product_watchlist_notifications_enabled_since_check
+    CONSTRAINT product_listing_watchlist_notifications_enabled_since_check
         CHECK (notifications = (notifications_enabled_since IS NOT NULL)),
-    CONSTRAINT product_watchlist_version_positive
+    CONSTRAINT product_listing_watchlist_version_positive
         CHECK (version >= 1)
 );
 
-CREATE INDEX product_watchlist_user_created_product_idx
-    ON product_watchlist (user_id, created DESC, product_id ASC);
-CREATE INDEX product_watchlist_product_user_idx
-    ON product_watchlist (product_id, user_id ASC);
-CREATE INDEX product_watchlist_product_active_since_idx
-    ON product_watchlist (product_id, active_since, user_id)
+CREATE INDEX product_listing_watchlist_user_created_product_listing_idx
+    ON product_listing_watchlist (user_id, created DESC, product_listing_id ASC);
+CREATE INDEX product_listing_watchlist_product_user_idx
+    ON product_listing_watchlist (product_listing_id, user_id ASC);
+CREATE INDEX product_listing_watchlist_product_active_since_idx
+    ON product_listing_watchlist (product_listing_id, active_since, user_id)
     WHERE state = 'ACTIVE';
 
 CREATE TABLE search_filters (
@@ -329,7 +328,7 @@ ALTER TABLE search_filters REPLICA IDENTITY FULL;
 CREATE TABLE search_filter_matches (
     user_id uuid NOT NULL,
     user_search_filter_id uuid NOT NULL,
-    product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
+    product_listing_id uuid NOT NULL REFERENCES product_listings(product_listing_id) ON DELETE CASCADE,
     origin_event_id uuid NOT NULL,
     price_valuation_basis text,
     price_fx_rate_id uuid REFERENCES fx_rates(fx_rate_id) ON DELETE RESTRICT,
@@ -338,18 +337,18 @@ CREATE TABLE search_filter_matches (
     feedback boolean,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_search_filter_id, product_id),
+    PRIMARY KEY (user_search_filter_id, product_listing_id),
     CONSTRAINT search_filter_matches_filter_owner_fkey
         FOREIGN KEY (user_search_filter_id, user_id)
         REFERENCES search_filters(user_search_filter_id, user_id)
         ON DELETE CASCADE,
     CONSTRAINT search_filter_matches_origin_event_product_fkey
-        FOREIGN KEY (product_id, origin_event_id)
-        REFERENCES product_events(product_id, event_id),
+        FOREIGN KEY (product_listing_id, origin_event_id)
+        REFERENCES product_listing_events(product_listing_id, event_id),
     CONSTRAINT search_filter_matches_price_valuation_check CHECK (
         (price_valuation_basis IS NULL AND price_fx_rate_id IS NULL)
         OR (
-            price_valuation_basis IN ('CURRENT', 'EVENT', 'SALE')
+            price_valuation_basis IN ('CURRENT', 'EVENT', 'SALE_OBSERVATION')
             AND price_fx_rate_id IS NOT NULL
         )
     )
@@ -357,13 +356,13 @@ CREATE TABLE search_filter_matches (
 
 CREATE INDEX search_filter_matches_user_created_idx ON search_filter_matches (user_id, created DESC);
 CREATE INDEX search_filter_matches_user_filter_created_idx ON search_filter_matches (user_id, user_search_filter_id, created DESC);
-CREATE INDEX search_filter_matches_filter_created_product_idx
-    ON search_filter_matches (user_search_filter_id, created ASC, product_id ASC);
-CREATE INDEX search_filter_matches_filter_created_desc_product_idx
-    ON search_filter_matches (user_search_filter_id, created DESC, product_id ASC);
-CREATE INDEX search_filter_matches_user_product_created_idx ON search_filter_matches (user_id, product_id, created ASC, user_search_filter_id ASC);
-CREATE INDEX search_filter_matches_user_created_rank_idx ON search_filter_matches (user_id, created ASC, user_search_filter_id ASC, product_id ASC);
-CREATE INDEX search_filter_matches_product_id_idx ON search_filter_matches (product_id);
+CREATE INDEX search_filter_matches_filter_created_product_listing_idx
+    ON search_filter_matches (user_search_filter_id, created ASC, product_listing_id ASC);
+CREATE INDEX search_filter_matches_filter_created_desc_product_listing_idx
+    ON search_filter_matches (user_search_filter_id, created DESC, product_listing_id ASC);
+CREATE INDEX search_filter_matches_user_product_listing_created_idx ON search_filter_matches (user_id, product_listing_id, created ASC, user_search_filter_id ASC);
+CREATE INDEX search_filter_matches_user_created_rank_idx ON search_filter_matches (user_id, created ASC, user_search_filter_id ASC, product_listing_id ASC);
+CREATE INDEX search_filter_matches_product_listing_id_idx ON search_filter_matches (product_listing_id);
 CREATE INDEX search_filter_matches_origin_event_id_idx ON search_filter_matches (origin_event_id);
 
 CREATE TABLE notifications (
@@ -373,7 +372,7 @@ CREATE TABLE notifications (
     kind text NOT NULL,
 
     origin_event_id uuid,
-    product_id uuid,
+    product_listing_id uuid,
     user_search_filter_id uuid,
     partner_shop_application_id uuid,
 
@@ -388,7 +387,7 @@ CREATE TABLE notifications (
     CONSTRAINT notifications_kind_check CHECK (
         kind IN (
             'WATCHLIST_PRICE_CHANGED',
-            'WATCHLIST_STATE_CHANGED',
+            'WATCHLIST_AVAILABILITY_CHANGED',
             'SEARCH_FILTER_MATCH',
             'PARTNER_APPLICATION_APPROVED',
             'PARTNER_APPLICATION_REJECTED'
@@ -407,10 +406,10 @@ CREATE TABLE notifications (
         (
             kind IN (
                 'WATCHLIST_PRICE_CHANGED',
-                'WATCHLIST_STATE_CHANGED'
+                'WATCHLIST_AVAILABILITY_CHANGED'
             )
             AND origin_event_id IS NOT NULL
-            AND product_id IS NOT NULL
+            AND product_listing_id IS NOT NULL
             AND user_search_filter_id IS NULL
             AND partner_shop_application_id IS NULL
         )
@@ -418,7 +417,7 @@ CREATE TABLE notifications (
         (
             kind = 'SEARCH_FILTER_MATCH'
             AND origin_event_id IS NOT NULL
-            AND product_id IS NOT NULL
+            AND product_listing_id IS NOT NULL
             AND user_search_filter_id IS NOT NULL
             AND partner_shop_application_id IS NULL
         )
@@ -429,7 +428,7 @@ CREATE TABLE notifications (
                 'PARTNER_APPLICATION_REJECTED'
             )
             AND origin_event_id IS NULL
-            AND product_id IS NULL
+            AND product_listing_id IS NULL
             AND user_search_filter_id IS NULL
             AND partner_shop_application_id IS NOT NULL
         )
@@ -440,14 +439,14 @@ CREATE UNIQUE INDEX notifications_watchlist_identity_idx
     ON notifications (user_id, origin_event_id, kind)
     WHERE kind IN (
         'WATCHLIST_PRICE_CHANGED',
-        'WATCHLIST_STATE_CHANGED'
+        'WATCHLIST_AVAILABILITY_CHANGED'
     );
 
 CREATE UNIQUE INDEX notifications_search_filter_identity_idx
     ON notifications (
         user_id,
         user_search_filter_id,
-        product_id,
+        product_listing_id,
         origin_event_id
     )
     WHERE kind = 'SEARCH_FILTER_MATCH';
@@ -469,15 +468,15 @@ CREATE INDEX notifications_user_created_idx
         notification_id DESC
     );
 
-CREATE INDEX notifications_user_product_unseen_idx
+CREATE INDEX notifications_user_product_listing_unseen_idx
     ON notifications (
         user_id,
-        product_id,
+        product_listing_id,
         created DESC,
         notification_id DESC
     )
     WHERE seen = false
-      AND product_id IS NOT NULL;
+      AND product_listing_id IS NOT NULL;
 
 CREATE TABLE notification_deliveries (
     notification_delivery_id uuid PRIMARY KEY,
@@ -597,7 +596,7 @@ CREATE TABLE access_tokens (
     ),
     CONSTRAINT access_tokens_scopes_check CHECK (
         scopes <@ ARRAY[
-            'products:write',
+            'product-listings:write',
             'shops:read',
             'shops:write',
             'partner-shop-applications:write',
@@ -637,7 +636,7 @@ CREATE TABLE oauth_clients (
     CONSTRAINT oauth_clients_redirect_uris_no_nulls CHECK (array_position(redirect_uris, NULL) IS NULL),
     CONSTRAINT oauth_clients_scopes_check CHECK (
         scopes <@ ARRAY[
-            'products:write',
+            'product-listings:write',
             'shops:read',
             'shops:write',
             'partner-shop-applications:write',
@@ -668,7 +667,7 @@ CREATE TABLE oauth_authorization_codes (
         CHECK (code_challenge_method IN ('S256')),
     CONSTRAINT oauth_authorization_codes_scopes_check CHECK (
         scopes <@ ARRAY[
-            'products:write',
+            'product-listings:write',
             'shops:read',
             'shops:write',
             'partner-shop-applications:write',
@@ -694,7 +693,7 @@ CREATE TABLE oauth_third_party_exchange_codes (
     created timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT oauth_third_party_exchange_codes_scopes_check CHECK (
         scopes <@ ARRAY[
-            'products:write',
+            'product-listings:write',
             'shops:read',
             'shops:write',
             'partner-shop-applications:write',

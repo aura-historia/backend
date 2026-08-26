@@ -24,15 +24,15 @@ pub const STRIPE_EVENT_TYPE_SUBSCRIPTION_DELETED: &str = "customer.subscription.
 
 #[derive(Debug, Clone)]
 pub struct StripeProductTierMap {
-    pub pro_product_id: String,
-    pub ultimate_product_id: String,
+    pub pro_product_listing_id: String,
+    pub ultimate_product_listing_id: String,
 }
 
 impl StripeProductTierMap {
-    pub fn tier_for(&self, product_id: &str) -> Option<UserTier> {
-        if product_id == self.pro_product_id {
+    pub fn tier_for(&self, product_listing_id: &str) -> Option<UserTier> {
+        if product_listing_id == self.pro_product_listing_id {
             Some(UserTier::Pro)
-        } else if product_id == self.ultimate_product_id {
+        } else if product_listing_id == self.ultimate_product_listing_id {
             Some(UserTier::Ultimate)
         } else {
             None
@@ -71,7 +71,7 @@ pub struct StripePrice {
 }
 
 impl StripeSubscription {
-    pub fn first_product_id(&self) -> Option<&str> {
+    pub fn first_product_listing_id(&self) -> Option<&str> {
         self.items
             .as_ref()
             .and_then(|items| items.data.first())
@@ -201,14 +201,14 @@ async fn handle_subscription_created(
         );
         return Ok(());
     };
-    let Some(product_id) = subscription.first_product_id() else {
+    let Some(product_listing_id) = subscription.first_product_listing_id() else {
         error!(
             subscription_id,
             "Stripe subscription creation has no product; ignoring"
         );
         return Ok(());
     };
-    let Some(tier) = tier_map.tier_for(product_id) else {
+    let Some(tier) = tier_map.tier_for(product_listing_id) else {
         warn!(
             subscription_id,
             "Stripe subscription creation has unknown product; ignoring"
@@ -247,14 +247,14 @@ async fn handle_subscription_updated(
         );
         return Ok(());
     };
-    let Some(product_id) = subscription.first_product_id() else {
+    let Some(product_listing_id) = subscription.first_product_listing_id() else {
         error!(
             subscription_id,
             "Stripe subscription update has no product; ignoring"
         );
         return Ok(());
     };
-    let Some(tier) = tier_map.tier_for(product_id) else {
+    let Some(tier) = tier_map.tier_for(product_listing_id) else {
         warn!(
             subscription_id,
             "Stripe subscription update has unknown product; ignoring"
@@ -388,8 +388,8 @@ mod tests {
 
     fn tier_map() -> StripeProductTierMap {
         StripeProductTierMap {
-            pro_product_id: "prod_pro".to_owned(),
-            ultimate_product_id: "prod_ultimate".to_owned(),
+            pro_product_listing_id: "prod_pro".to_owned(),
+            ultimate_product_listing_id: "prod_ultimate".to_owned(),
         }
     }
 
@@ -425,7 +425,7 @@ mod tests {
 
         assert_eq!(Some(user_id), subscription.user_id_from_metadata());
         assert_eq!(Some("cus_1"), subscription.stripe_customer_id().as_deref());
-        assert_eq!(Some("prod_pro"), subscription.first_product_id());
+        assert_eq!(Some("prod_pro"), subscription.first_product_listing_id());
     }
 
     #[tokio::test]

@@ -40,7 +40,7 @@ async fn should_mark_product_removed_when_stored_removed_page_schema_matches() {
             Box::pin(async move { Ok(Some(row)) })
         });
 
-    let mut schema_svc = MockProductSchemaService::new();
+    let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc.expect_find_product_schema().never();
     schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
@@ -48,19 +48,19 @@ async fn should_mark_product_removed_when_stored_removed_page_schema_matches() {
     let mut cand_svc = MockScraperCandidateService::new();
     let url_for_state = url.clone();
     cand_svc
-        .expect_set_state()
+        .expect_set_presence()
         .once()
         .withf(move |received_shop_id, received_url, received_state| {
             *received_shop_id == id
                 && received_url == &url_for_state
-                && *received_state == UrlState::Removed
+                && *received_state == UrlPresence::Withdrawn
         })
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
-        Box::new(MockProductNormalizationService::new()),
+        Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
@@ -69,5 +69,5 @@ async fn should_mark_product_removed_when_stored_removed_page_schema_matches() {
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();
 
-    assert!(matches!(err, ScraperError::ProductRemoved { .. }));
+    assert!(matches!(err, ScraperError::ProductListingRemoved { .. }));
 }

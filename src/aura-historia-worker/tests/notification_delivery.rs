@@ -133,12 +133,12 @@ async fn deliver_committed_notification_delivery() -> Result<(), Box<dyn std::er
             vec![delivery.recipient_email],
             email.destination.to_addresses
         );
-        assert_eq!("Your watchlist item changed", email.subject);
+        assert_eq!("Your watchlist item's availability changed", email.subject);
         assert!(email.body.html_part.as_deref().is_some_and(|body| {
             body.contains("data-template-language=\"en\"")
                 && body.contains("Delivery test shop")
-                && body.contains("Listed")
                 && body.contains("Available")
+                && body.contains("In stock")
         }));
         assert!(
             email
@@ -583,7 +583,7 @@ impl DeliveryTargets {
         s3.put_object()
             .bucket(&bucket)
             .key(format!(
-                "{stage}/{commit_sha}/mjml/watchlist/product-update/state/en.html"
+                "{stage}/{commit_sha}/mjml/watchlist/product-update/availability/en.html"
             ))
             .body(template.bytes().into())
             .send()
@@ -606,7 +606,7 @@ impl Template {
     fn bytes(self) -> Vec<u8> {
         match self {
             Self::Valid => {
-                b"<html><body data-template-language=\"en\">{{shop_name}} {{old_state}} {{new_state}} <img src=\"{{image_url}}\"><a href=\"{{view_url}}\">View</a></body></html>"
+                b"<html><body data-template-language=\"en\">{{shop_name}} {{old_availability}} {{new_availability}} <img src=\"{{image_url}}\"><a href=\"{{view_url}}\">View</a></body></html>"
                     .to_vec()
             }
             Self::InvalidUtf8 => vec![0xff],
@@ -662,7 +662,7 @@ async fn insert_delivery_in_transaction_with_language(
     let notification_id = uuid::Uuid::new_v4();
     let delivery_id = uuid::Uuid::new_v4();
     let origin_event_id = uuid::Uuid::new_v4();
-    let product_id = uuid::Uuid::new_v4();
+    let product_listing_id = uuid::Uuid::new_v4();
     let recipient_email = format!("notification-delivery-{delivery_id}@example.test");
 
     sqlx::query(
@@ -674,12 +674,12 @@ async fn insert_delivery_in_transaction_with_language(
     .execute(&mut **transaction)
     .await?;
     sqlx::query(
-        "INSERT INTO notifications (notification_id, user_id, kind, origin_event_id, product_id, payload_version, payload, seen) VALUES ($1, $2, 'WATCHLIST_STATE_CHANGED', $3, $4, 1, $5, false)",
+        "INSERT INTO notifications (notification_id, user_id, kind, origin_event_id, product_listing_id, payload_version, payload, seen) VALUES ($1, $2, 'WATCHLIST_AVAILABILITY_CHANGED', $3, $4, 1, $5, false)",
     )
     .bind(notification_id)
     .bind(user_id)
     .bind(origin_event_id)
-    .bind(product_id)
+    .bind(product_listing_id)
     .bind(notification_payload())
     .execute(&mut **transaction)
     .await?;
@@ -727,22 +727,22 @@ fn notification_payload() -> serde_json::Value {
         "type": "WATCHLIST",
         "snapshot": {
             "shop_id": uuid::Uuid::new_v4(),
-            "shops_product_id": "worker-notification-delivery-product",
+            "shop_listing_id": "worker-notification-delivery-product",
             "shop_slug_id": "worker-delivery-shop",
-            "product_slug_id": "worker-delivery-product-abcdef",
+            "product_listing_slug_id": "worker-delivery-product-abcdef",
             "shop_name": "Delivery test shop",
             "title": null,
             "image": {
                 "url": UNSAFE_IMAGE_URL,
                 "prohibited_content": "NaziGermany"
             },
-            "url": "https://example.test/products/delivery",
-            "view_url": "https://aura-historia.test/products/delivery"
+            "url": "https://example.test/product_listings/delivery",
+            "view_url": "https://aura-historia.test/product_listings/delivery"
         },
         "change": {
-            "type": "STATE_CHANGE",
-            "old_state": "Listed",
-            "new_state": "Available"
+            "type": "AVAILABILITY_CHANGE",
+            "old_availability": "AVAILABLE",
+            "new_availability": "IN_STOCK"
         }
     })
 }

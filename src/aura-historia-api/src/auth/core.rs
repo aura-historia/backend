@@ -146,7 +146,7 @@ mod tests {
         let principal = TransportPrincipal::User {
             user_id,
             auth_method: AuthMethod::AuraAccessToken,
-            capabilities: BTreeSet::from([CredentialCapability::ProductsWrite]),
+            capabilities: BTreeSet::from([CredentialCapability::ProductListingsWrite]),
         };
 
         let context = principal.operation_context(metadata());
@@ -154,7 +154,7 @@ mod tests {
         assert_eq!(
             Principal::DelegatedUser {
                 user_id,
-                capabilities: BTreeSet::from([CredentialCapability::ProductsWrite])
+                capabilities: BTreeSet::from([CredentialCapability::ProductListingsWrite])
             },
             context.principal
         );

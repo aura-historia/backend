@@ -1,5 +1,5 @@
 use crate::error::{ApiError, BAD_BODY_VALUE};
-use crate::products::product_data::ProductImageData;
+use crate::product_listings::product_data::ProductListingImageData;
 use crate::values::{LocalizedTextData, PriceData};
 use axum::response::{IntoResponse, Response};
 use localization::{Language, Localized};
@@ -7,7 +7,7 @@ use money::Price;
 use notification_core::{
     notification::{
         LocalizedNotificationContent, LocalizedNotificationWatchlistChange,
-        LocalizedProductNotificationSnapshot, PartnerApplicationDecision,
+        LocalizedProductListingNotificationSnapshot, PartnerApplicationDecision,
     },
     notification_id::NotificationId,
     notification_kind::NotificationKind,
@@ -15,7 +15,7 @@ use notification_core::{
 };
 use notification_service::presentation::NotificationPresentationPreferences;
 use notification_service::use_cases::queries::list_notifications::ListedNotification;
-use product_core::{product_state::ProductState, title::Title};
+use product_listing_core::{listing_availability::ListingAvailability, title::Title};
 use serde::{Deserialize, Serialize, Serializer};
 use time::OffsetDateTime;
 use url::Url;
@@ -89,14 +89,14 @@ impl Serialize for NotificationContentData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WatchlistNotificationPayloadData {
-    product_id: Uuid,
+    product_listing_id: Uuid,
     shop_id: Uuid,
-    shops_product_id: String,
+    shop_listing_id: String,
     shop_slug_id: String,
-    product_slug_id: String,
+    product_listing_slug_id: String,
     shop_name: String,
     title: Option<LocalizedTextData>,
-    image: Option<ProductImageData>,
+    image: Option<ProductListingImageData>,
     url: Url,
     view_url: Url,
     change: WatchlistNotificationChangeData,
@@ -113,27 +113,27 @@ enum WatchlistNotificationChangeData {
         old_price: Option<PriceData>,
         new_price: Option<PriceData>,
     },
-    StateChange {
-        #[serde(with = "crate::wire::product_state")]
-        old_state: ProductState,
-        #[serde(with = "crate::wire::product_state")]
-        new_state: ProductState,
+    AvailabilityChange {
+        #[serde(with = "crate::wire::listing_availability::option")]
+        old_availability: Option<ListingAvailability>,
+        #[serde(with = "crate::wire::listing_availability::option")]
+        new_availability: Option<ListingAvailability>,
     },
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SearchFilterNotificationPayloadData {
-    product_id: Uuid,
+    product_listing_id: Uuid,
     user_search_filter_id: Uuid,
     user_search_filter_name: String,
     shop_id: Uuid,
-    shops_product_id: String,
+    shop_listing_id: String,
     shop_slug_id: String,
-    product_slug_id: String,
+    product_listing_slug_id: String,
     shop_name: String,
     title: Option<LocalizedTextData>,
-    image: Option<ProductImageData>,
+    image: Option<ProductListingImageData>,
     url: Url,
     view_url: Url,
 }
@@ -162,17 +162,17 @@ impl
     ) -> Self {
         match value {
             LocalizedNotificationContent::Watchlist {
-                product_id,
+                product_listing_id,
                 snapshot,
                 change,
             } => {
                 let snapshot = notification_product_snapshot(snapshot, presentation_preferences);
                 Self::Watchlist(WatchlistNotificationPayloadData {
-                    product_id: Uuid::from(product_id),
+                    product_listing_id: Uuid::from(product_listing_id),
                     shop_id: snapshot.shop_id,
-                    shops_product_id: snapshot.shops_product_id,
+                    shop_listing_id: snapshot.shop_listing_id,
                     shop_slug_id: snapshot.shop_slug_id,
-                    product_slug_id: snapshot.product_slug_id,
+                    product_listing_slug_id: snapshot.product_listing_slug_id,
                     shop_name: snapshot.shop_name,
                     title: snapshot.title,
                     image: snapshot.image,
@@ -182,20 +182,20 @@ impl
                 })
             }
             LocalizedNotificationContent::SearchFilter {
-                product_id,
+                product_listing_id,
                 snapshot,
                 user_search_filter_id,
                 user_search_filter_name,
             } => {
                 let snapshot = notification_product_snapshot(snapshot, presentation_preferences);
                 Self::SearchFilter(SearchFilterNotificationPayloadData {
-                    product_id: Uuid::from(product_id),
+                    product_listing_id: Uuid::from(product_listing_id),
                     user_search_filter_id: Uuid::from(user_search_filter_id),
                     user_search_filter_name: user_search_filter_name.to_string(),
                     shop_id: snapshot.shop_id,
-                    shops_product_id: snapshot.shops_product_id,
+                    shop_listing_id: snapshot.shop_listing_id,
                     shop_slug_id: snapshot.shop_slug_id,
-                    product_slug_id: snapshot.product_slug_id,
+                    product_listing_slug_id: snapshot.product_listing_slug_id,
                     shop_name: snapshot.shop_name,
                     title: snapshot.title,
                     image: snapshot.image,
@@ -218,21 +218,21 @@ impl
 }
 
 fn notification_product_snapshot(
-    snapshot: LocalizedProductNotificationSnapshot,
+    snapshot: LocalizedProductListingNotificationSnapshot,
     presentation_preferences: NotificationPresentationPreferences,
-) -> NotificationProductSnapshotData {
-    NotificationProductSnapshotData {
+) -> NotificationProductListingSnapshotData {
+    NotificationProductListingSnapshotData {
         shop_id: Uuid::from(snapshot.shop_id),
-        shops_product_id: snapshot.shops_product_id.to_string(),
+        shop_listing_id: snapshot.shop_listing_id.to_string(),
         shop_slug_id: snapshot.shop_slug_id.to_string(),
-        product_slug_id: snapshot.product_slug_id.to_string(),
+        product_listing_slug_id: snapshot.product_listing_slug_id.to_string(),
         shop_name: snapshot.shop_name.to_string(),
         title: snapshot.title.map(localized_text_data),
         image: present_image(
             snapshot.image,
             presentation_preferences.prohibited_content_consent,
         )
-        .map(ProductImageData::from_presented),
+        .map(ProductListingImageData::from_presented),
         url: snapshot.url,
         view_url: snapshot.view_url,
     }
@@ -252,14 +252,14 @@ fn price_data(value: Price) -> PriceData {
     }
 }
 
-struct NotificationProductSnapshotData {
+struct NotificationProductListingSnapshotData {
     shop_id: Uuid,
-    shops_product_id: String,
+    shop_listing_id: String,
     shop_slug_id: String,
-    product_slug_id: String,
+    product_listing_slug_id: String,
     shop_name: String,
     title: Option<LocalizedTextData>,
-    image: Option<ProductImageData>,
+    image: Option<ProductListingImageData>,
     url: Url,
     view_url: Url,
 }
@@ -274,12 +274,12 @@ impl From<LocalizedNotificationWatchlistChange> for WatchlistNotificationChangeD
                 old_price: old_price.map(price_data),
                 new_price: new_price.map(price_data),
             },
-            LocalizedNotificationWatchlistChange::StateChange {
-                old_state,
-                new_state,
-            } => Self::StateChange {
-                old_state,
-                new_state,
+            LocalizedNotificationWatchlistChange::AvailabilityChange {
+                old_availability,
+                new_availability,
+            } => Self::AvailabilityChange {
+                old_availability,
+                new_availability,
             },
         }
     }

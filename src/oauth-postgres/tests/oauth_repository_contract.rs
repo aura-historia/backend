@@ -340,7 +340,7 @@ fn oauth_client(client_id: OAuthClientId, name: &str) -> Result<OAuthClient, url
         policy_uri: Url::parse("https://dummy.example.test/policy")?,
         client_uri: Url::parse("https://dummy.example.test")?,
         logo_uri: Url::parse("https://dummy.example.test/logo.svg")?,
-        scopes: HashSet::from([Scope::ProductsWrite]),
+        scopes: HashSet::from([Scope::ProductListingsWrite]),
     }))
 }
 
@@ -355,7 +355,7 @@ fn authorization_code(
             client_id,
             user_id,
             redirect_uri: Url::parse("https://dummy.example.test/oauth/callback")?,
-            scopes: HashSet::from([Scope::ProductsWrite]),
+            scopes: HashSet::from([Scope::ProductListingsWrite]),
             code_challenge: OAuthCodeChallenge::from("dummy-pkce-code-challenge"),
             code_challenge_method: CodeChallengeMethod::S256,
             expires: now + Duration::minutes(5),
@@ -369,7 +369,7 @@ fn third_party_exchange_code_grant() -> ThirdPartyExchangeCodeGrant {
         code: ThirdPartyExchangeCode::from(Uuid::now_v7()),
         access_token: RawAccessToken::new(),
         access_token_expires: Some(now + Duration::minutes(10)),
-        scopes: HashSet::from([Scope::ProductsWrite]),
+        scopes: HashSet::from([Scope::ProductListingsWrite]),
         expires: now + Duration::minutes(5),
     })
 }

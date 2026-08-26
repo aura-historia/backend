@@ -21,11 +21,7 @@ async fn authenticated_client() -> (reqwest::Client, String) {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([
-            Scope::AccessTokensRead,
-            Scope::AccessTokensWrite,
-            Scope::ProductsWrite,
-        ]),
+        std::collections::HashSet::from([Scope::AccessTokensRead, Scope::AccessTokensWrite]),
     )
     .await;
     let client = reqwest::Client::builder()
@@ -46,7 +42,7 @@ async fn create_oauth_client(client: &reqwest::Client, token: &str) -> OAuthClie
             "client_uri": "https://client.example",
             "logo_uri": "https://client.example/logo.png",
             "redirect_uris": ["https://client.example/callback"],
-            "scope": ["products:write"]
+            "scope": ["access-tokens:read"]
         }))
         .send()
         .await
@@ -80,7 +76,7 @@ async fn authorize_code(
             ("response_type", "code"),
             ("client_id", credentials.client_id.as_str()),
             ("redirect_uri", "https://client.example/callback"),
-            ("scope", "products:write"),
+            ("scope", "access-tokens:read"),
             ("state", "acceptance-state"),
             (
                 "code_challenge",

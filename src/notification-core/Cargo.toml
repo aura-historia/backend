@@ -7,7 +7,7 @@ edition = "2024"
 domain-primitives = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
-product-core = { workspace = true }
+product-listing-core = { workspace = true }
 search-filter-core = { workspace = true }
 serde = { workspace = true }
 shop-core = { workspace = true }
@@ -28,4 +28,4 @@ rstest = { workspace = true }
 
 [features]
 default = []
-test-data = ["fake", "domain-primitives/test-data", "localization/test-data", "money/test-data", "product-core/test-data", "search-filter-core/test-data", "shop-partner-core/test-data", "user-core/test-data"]
+test-data = ["fake", "domain-primitives/test-data", "localization/test-data", "money/test-data", "product-listing-core/test-data", "search-filter-core/test-data", "shop-partner-core/test-data", "user-core/test-data"]

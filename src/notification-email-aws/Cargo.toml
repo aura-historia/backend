@@ -11,7 +11,7 @@ application = { workspace = true }
 domain-primitives = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
-product-core = { workspace = true }
+product-listing-core = { workspace = true }
 shop-core = { workspace = true }
 user-core = { workspace = true }
 handlebars = { workspace = true }

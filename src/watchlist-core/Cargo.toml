@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-product-core = { workspace = true }
+product-listing-core = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 user-core = { workspace = true }
@@ -12,4 +12,4 @@ fake = { workspace = true, optional = true }
 
 [features]
 default = []
-test-data = ["fake", "product-core/test-data", "user-core/test-data"]
+test-data = ["fake", "product-listing-core/test-data", "user-core/test-data"]

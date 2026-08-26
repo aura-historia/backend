@@ -18,8 +18,8 @@ localization = { workspace = true }
 money = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
-product-core = { workspace = true }
-product-service = { workspace = true }
+product-listing-core = { workspace = true }
+product-listing-service = { workspace = true }
 shop-core = { workspace = true }
 search-filter-core = { workspace = true }
 thiserror = { workspace = true }

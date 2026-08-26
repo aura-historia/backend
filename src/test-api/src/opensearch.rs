@@ -277,9 +277,9 @@ async fn wait_until_domain_processed(domain: &'static str) -> Result<(), BoxErro
     Ok(())
 }
 
-static PRODUCTS_INDEX_MAPPING_STR: &str = include_str!(concat!(
+static PRODUCT_LISTINGS_INDEX_MAPPING_STR: &str = include_str!(concat!(
     env!("CARGO_WORKSPACE_DIR"),
-    "opensearch/mappings/products.json"
+    "opensearch/mappings/product_listings.json"
 ));
 
 static ENGLISH_SYNONYMS_STR: &str = include_str!(concat!(
@@ -318,7 +318,7 @@ fn parse_synonym_rules(content: &str) -> Vec<String> {
         .collect()
 }
 
-/// Converts the products mapping from `synonyms_path` to inline `synonyms`
+/// Converts the product-listings mapping from `synonyms_path` to inline `synonyms`
 /// so that LocalStack OpenSearch can create the index without needing
 /// synonym files on the cluster filesystem.
 fn mapping_with_inline_synonyms(mapping: &'static str) -> serde_json::Value {
@@ -486,8 +486,8 @@ async fn set_up_indices() -> Result<(), Error> {
 
     ensure_index_exists(
         client,
-        "products",
-        mapping_with_inline_synonyms(PRODUCTS_INDEX_MAPPING_STR),
+        "product-listings",
+        mapping_with_inline_synonyms(PRODUCT_LISTINGS_INDEX_MAPPING_STR),
     )
     .await?;
     ensure_index_exists(
@@ -535,7 +535,7 @@ async fn wait_until_indices_are_set_up() -> Result<(), Error> {
 /// implementation that needs a full OpenSearch reset, including the
 /// `Cloudformation` service.
 pub(crate) async fn clear_all_indices() {
-    const INDICES: &[&str] = &["products", "shops", "user_search_filters", "users"];
+    const INDICES: &[&str] = &["product-listings", "shops", "user_search_filters", "users"];
     for index in INDICES {
         match clear_index_data(index).await {
             Ok(_) => refresh_index(index).await,
@@ -614,7 +614,7 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case::product(PRODUCTS_INDEX_MAPPING_STR)]
+    #[case::product(PRODUCT_LISTINGS_INDEX_MAPPING_STR)]
     #[case::product(USER_SEARCH_FILTER_INDEX_MAPPING_STR)]
     fn should_build_mapping_with_inline_synonyms_for_all_languages(#[case] mapping: &'static str) {
         let mapping = mapping_with_inline_synonyms(mapping);
@@ -654,7 +654,7 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case::product(PRODUCTS_INDEX_MAPPING_STR)]
+    #[case::product(PRODUCT_LISTINGS_INDEX_MAPPING_STR)]
     #[case::product(USER_SEARCH_FILTER_INDEX_MAPPING_STR)]
     fn should_set_search_analyzer_on_title_fields_in_products_mapping(
         #[case] mapping: &'static str,

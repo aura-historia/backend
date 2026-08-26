@@ -143,7 +143,7 @@ mod tests {
             Ok(TransportPrincipal::User {
                 user_id,
                 auth_method: AuthMethod::AuraAccessToken,
-                capabilities: BTreeSet::from([CredentialCapability::ProductsWrite]),
+                capabilities: BTreeSet::from([CredentialCapability::ProductListingsWrite]),
             }),
         );
 

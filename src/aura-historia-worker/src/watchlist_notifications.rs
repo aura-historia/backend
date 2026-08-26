@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
-use product_core::product_id::ProductId;
-use product_service::use_cases::{
+use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_service::use_cases::{
     GenerateWatchlistNotificationsCommand, GenerateWatchlistNotificationsUseCase,
 };
 use tracing::{error, info};
@@ -71,7 +71,7 @@ async fn consume_watchlist_notification_queue_with_dead_letters(
                     outcome = "suppressed_for_missing_source",
                     "watchlist notification job completed"
                 ),
-                WatchlistNotificationWorkerOutcome::SuppressedForStaleProductEvent => info!(
+                WatchlistNotificationWorkerOutcome::SuppressedForStaleProductListingEvent => info!(
                     job_type = "watchlist_notification",
                     %idempotency_key,
                     %ordering_key,
@@ -90,7 +90,7 @@ async fn generate_watchlist_notifications(
     handler: Arc<dyn GenerateWatchlistNotificationsUseCase>,
     job: DomainJob,
 ) -> Result<WatchlistNotificationWorkerOutcome, WatchlistNotificationWorkerError> {
-    let DomainJobPayload::ProductEvent(event) = job.payload else {
+    let DomainJobPayload::ProductListingEvent(event) = job.payload else {
         return Err(WatchlistNotificationWorkerError::UnexpectedJobPayload);
     };
     let event_id = EventId::try_from(event.event_id.as_str()).map_err(|source| {
@@ -98,19 +98,20 @@ async fn generate_watchlist_notifications(
             source: box_error(source),
         }
     })?;
-    let product_id = ProductId::try_from(event.product_id.as_str()).map_err(|source| {
-        WatchlistNotificationWorkerError::InvalidProductId {
-            source: box_error(source),
-        }
-    })?;
+    let product_listing_id = ProductListingId::try_from(event.product_listing_id.as_str())
+        .map_err(
+            |source| WatchlistNotificationWorkerError::InvalidProductListingId {
+                source: box_error(source),
+            },
+        )?;
     handler
         .execute(GenerateWatchlistNotificationsCommand {
             event_id,
-            product_id,
+            product_listing_id,
         })
         .await
         .map(|result| match result {
-            product_service::use_cases::GenerateWatchlistNotificationsResult::Applied {
+            product_listing_service::use_cases::GenerateWatchlistNotificationsResult::Applied {
                 recipient_count,
                 inserted_count,
                 already_exists_count,
@@ -120,7 +121,7 @@ async fn generate_watchlist_notifications(
                     already_exists_count,
                 }
             }
-            product_service::use_cases::GenerateWatchlistNotificationsResult::Applied {
+            product_listing_service::use_cases::GenerateWatchlistNotificationsResult::Applied {
                 recipient_count,
                 inserted_count,
                 already_exists_count,
@@ -129,11 +130,11 @@ async fn generate_watchlist_notifications(
                 inserted_count,
                 already_exists_count,
             },
-            product_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForMissingSource => {
+            product_listing_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForMissingSource => {
                 WatchlistNotificationWorkerOutcome::SuppressedForMissingSource
             }
-            product_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForStaleProductEvent => {
-                WatchlistNotificationWorkerOutcome::SuppressedForStaleProductEvent
+            product_listing_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForStaleProductListingEvent => {
+                WatchlistNotificationWorkerOutcome::SuppressedForStaleProductListingEvent
             }
         })
         .map_err(|source| WatchlistNotificationWorkerError::Generate {
@@ -153,7 +154,7 @@ enum WatchlistNotificationWorkerOutcome {
         already_exists_count: usize,
     },
     SuppressedForMissingSource,
-    SuppressedForStaleProductEvent,
+    SuppressedForStaleProductListingEvent,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -166,7 +167,7 @@ enum WatchlistNotificationWorkerError {
         source: BoxError,
     },
     #[error("watchlist notification job has an invalid product id")]
-    InvalidProductId {
+    InvalidProductListingId {
         #[source]
         source: BoxError,
     },
@@ -184,10 +185,10 @@ mod tests {
     use super::*;
     use crate::{
         QueueConfig,
-        cdc::{IdempotencyKey, OrderingKey, ProductEventJob, WorkerQueue},
+        cdc::{IdempotencyKey, OrderingKey, ProductListingEventJob, WorkerQueue},
         in_memory_queue,
     };
-    use product_service::use_cases::GenerateWatchlistNotificationsResult;
+    use product_listing_service::use_cases::GenerateWatchlistNotificationsResult;
 
     struct Handler {
         commands: Mutex<Vec<GenerateWatchlistNotificationsCommand>>,
@@ -220,12 +221,12 @@ mod tests {
             command: GenerateWatchlistNotificationsCommand,
         ) -> Result<
             GenerateWatchlistNotificationsResult,
-            product_service::use_cases::GenerateWatchlistNotificationsError,
+            product_listing_service::use_cases::GenerateWatchlistNotificationsError,
         > {
             self.commands
                 .lock()
                 .map_err(|_| {
-                    product_service::use_cases::GenerateWatchlistNotificationsError::NotificationCreateFailed {
+                    product_listing_service::use_cases::GenerateWatchlistNotificationsError::NotificationCreateFailed {
                         source: box_error(std::io::Error::other("test mutex poisoned")),
                     }
                 })?
@@ -239,16 +240,16 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = in_memory_queue(QueueConfig::new(1))?;
         let event_id = EventId::new();
-        let product_id = ProductId::new();
+        let product_listing_id = ProductListingId::new();
         sender
             .enqueue(DomainJob {
                 target_queue: WorkerQueue::WatchlistNotification,
                 idempotency_key: IdempotencyKey::new(format!("product-event:{event_id}")),
-                ordering_key: OrderingKey::new(format!("product:{product_id}")),
-                payload: DomainJobPayload::ProductEvent(ProductEventJob {
+                ordering_key: OrderingKey::new(format!("product:{product_listing_id}")),
+                payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
                     event_id: event_id.to_string(),
-                    product_id: product_id.to_string(),
-                    event_type: "PRODUCT_PRICE_CHANGED".to_owned(),
+                    product_listing_id: product_listing_id.to_string(),
+                    event_type: "PRODUCT_LISTING_PRICE_CHANGED".to_owned(),
                     event_group: "DOMAIN".to_owned(),
                 }),
             })
@@ -283,23 +284,23 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = in_memory_queue(QueueConfig::new(1))?;
         let event_id = EventId::new();
-        let product_id = ProductId::new();
+        let product_listing_id = ProductListingId::new();
         sender
             .enqueue(DomainJob {
                 target_queue: WorkerQueue::WatchlistNotification,
                 idempotency_key: IdempotencyKey::new(format!("product-event:{event_id}")),
-                ordering_key: OrderingKey::new(format!("product:{product_id}")),
-                payload: DomainJobPayload::ProductEvent(ProductEventJob {
+                ordering_key: OrderingKey::new(format!("product:{product_listing_id}")),
+                payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
                     event_id: event_id.to_string(),
-                    product_id: product_id.to_string(),
-                    event_type: "PRODUCT_PRICE_CHANGED".to_owned(),
+                    product_listing_id: product_listing_id.to_string(),
+                    event_type: "PRODUCT_LISTING_PRICE_CHANGED".to_owned(),
                     event_group: "DOMAIN".to_owned(),
                 }),
             })
             .await?;
         drop(sender);
         let handler = Arc::new(Handler::with_result(
-            GenerateWatchlistNotificationsResult::SuppressedForStaleProductEvent,
+            GenerateWatchlistNotificationsResult::SuppressedForStaleProductListingEvent,
         ));
         let dead_letters = InMemoryDeadLetterQueue::new();
 
@@ -327,16 +328,16 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = in_memory_queue(QueueConfig::new(1))?;
         let event_id = EventId::new();
-        let product_id = ProductId::new();
+        let product_listing_id = ProductListingId::new();
         sender
             .enqueue(DomainJob {
                 target_queue: WorkerQueue::WatchlistNotification,
                 idempotency_key: IdempotencyKey::new(format!("product-event:{event_id}")),
-                ordering_key: OrderingKey::new(format!("product:{product_id}")),
-                payload: DomainJobPayload::ProductEvent(ProductEventJob {
+                ordering_key: OrderingKey::new(format!("product:{product_listing_id}")),
+                payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
                     event_id: event_id.to_string(),
-                    product_id: product_id.to_string(),
-                    event_type: "PRODUCT_PRICE_CHANGED".to_owned(),
+                    product_listing_id: product_listing_id.to_string(),
+                    event_type: "PRODUCT_LISTING_PRICE_CHANGED".to_owned(),
                     event_group: "DOMAIN".to_owned(),
                 }),
             })
@@ -349,7 +350,7 @@ mod tests {
         assert_eq!(
             vec![GenerateWatchlistNotificationsCommand {
                 event_id,
-                product_id
+                product_listing_id
             }],
             handler
                 .commands

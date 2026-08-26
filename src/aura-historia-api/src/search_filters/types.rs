@@ -9,8 +9,9 @@ use localization::Language;
 use money::Currency;
 
 use money::MonetaryAmount;
-use product_core::product_id::ProductId;
-use product_core::product_state::ProductState;
+use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::listing_orderability::ListingOrderability;
+use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use shop_core::seller_slug_id::SellerSlugId;
@@ -21,13 +22,14 @@ use user_core::user_id::UserId;
 use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
-use product_core::product_search::{
-    EnhancedSearchDescription, EnhancedSearchDescriptionError, ProductSearch,
+use product_listing_core::product_listing_search::{
+    EnhancedSearchDescription, EnhancedSearchDescriptionError, ListingAvailabilityQuery,
+    ProductListingSearch,
 };
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_service::ports::{SearchFilterMatchView, SearchFilterView};
-use search_filter_service::use_cases::ProductSearchPatch;
-use serde::{Deserialize, Serialize};
+use search_filter_service::use_cases::ProductListingSearchPatch;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use shop_core::shop_type::ShopType;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -45,18 +47,132 @@ pub(super) struct CreateSearchFilterData {
     pub(super) name: UserSearchFilterName,
     #[serde(default = "default_notifications")]
     pub(super) notifications: bool,
-    pub(super) search: ProductSearchData,
+    pub(super) search: ProductListingSearchData,
 }
 
 fn default_notifications() -> bool {
     true
 }
 
+fn serialize_optional_set_code<T, S>(
+    values: &Option<HashSet<T>>,
+    serializer: S,
+    code: fn(T) -> &'static str,
+) -> Result<S::Ok, S::Error>
+where
+    T: Copy + Eq + std::hash::Hash,
+    S: Serializer,
+{
+    match values {
+        Some(values) => serializer.collect_seq(values.iter().map(|value| code(*value))),
+        None => serializer.serialize_none(),
+    }
+}
+
+fn deserialize_optional_set_code<'de, T, D>(
+    deserializer: D,
+    parse: fn(&str) -> Option<T>,
+) -> Result<Option<HashSet<T>>, D::Error>
+where
+    T: Eq + std::hash::Hash,
+    D: Deserializer<'de>,
+{
+    Option::<Vec<String>>::deserialize(deserializer)?.map_or(Ok(None), |values| {
+        values
+            .into_iter()
+            .map(|value| {
+                parse(&value)
+                    .ok_or_else(|| serde::de::Error::custom(format!("unsupported code `{value}`")))
+            })
+            .collect::<Result<HashSet<_>, D::Error>>()
+            .map(Some)
+    })
+}
+
+fn deserialize_patch_set_code<'de, T, D>(
+    deserializer: D,
+    parse: fn(&str) -> Option<T>,
+) -> Result<PatchValue<HashSet<T>>, D::Error>
+where
+    T: Eq + std::hash::Hash,
+    D: Deserializer<'de>,
+{
+    Option::<Vec<String>>::deserialize(deserializer)?.map_or(Ok(PatchValue::Null), |values| {
+        values
+            .into_iter()
+            .map(|value| {
+                parse(&value)
+                    .ok_or_else(|| serde::de::Error::custom(format!("unsupported code `{value}`")))
+            })
+            .collect::<Result<HashSet<_>, D::Error>>()
+            .map(PatchValue::Value)
+    })
+}
+
+mod listing_availability_set_option {
+    use super::*;
+
+    pub(super) fn serialize<S>(
+        values: &Option<HashSet<ListingAvailability>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_optional_set_code(values, serializer, ListingAvailability::as_str)
+    }
+
+    pub(super) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<Option<HashSet<ListingAvailability>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserialize_optional_set_code(deserializer, ListingAvailability::from_code)
+    }
+}
+
+mod listing_orderability_set_option {
+    use super::*;
+
+    pub(super) fn serialize<S>(
+        values: &Option<HashSet<ListingOrderability>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_optional_set_code(values, serializer, ListingOrderability::as_str)
+    }
+
+    pub(super) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<Option<HashSet<ListingOrderability>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserialize_optional_set_code(deserializer, ListingOrderability::from_code)
+    }
+}
+
+mod listing_orderability_patch_set {
+    use super::*;
+
+    pub(super) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<PatchValue<HashSet<ListingOrderability>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserialize_patch_set_code(deserializer, ListingOrderability::from_code)
+    }
+}
+
 type UpdateSearchFilterFields = (
     PatchField<UserSearchFilterName>,
     PatchField<bool>,
     PatchField<SearchFilterState>,
-    ProductSearchPatch,
+    ProductListingSearchPatch,
 );
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -69,14 +185,14 @@ pub(super) struct UpdateSearchFilterData {
     #[serde(default)]
     pub(super) state: PatchValue<PatchSearchFilterStateData>,
     #[serde(default)]
-    pub(super) search: PatchValue<ProductSearchPatchData>,
+    pub(super) search: PatchValue<ProductListingSearchPatchData>,
 }
 
 impl UpdateSearchFilterData {
     pub(super) fn into_fields(self) -> Result<UpdateSearchFilterFields, crate::error::ApiError> {
         let search = match non_nullable_option(self.search, "search")? {
             Some(search) => search.try_into_patch()?,
-            None => ProductSearchPatch::default(),
+            None => ProductListingSearchPatch::default(),
         };
 
         Ok((
@@ -89,14 +205,14 @@ impl UpdateSearchFilterData {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub(super) enum ProductSearchDataMappingError {
+pub(super) enum ProductListingSearchDataMappingError {
     #[error(transparent)]
     EnhancedSearchDescription(#[from] EnhancedSearchDescriptionError),
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct ProductSearchPatchData {
+pub(super) struct ProductListingSearchPatchData {
     #[serde(default)]
     #[serde(deserialize_with = "crate::wire::language::patch::deserialize")]
     language: PatchValue<Language>,
@@ -104,7 +220,7 @@ pub(super) struct ProductSearchPatchData {
     #[serde(deserialize_with = "crate::wire::currency::patch::deserialize")]
     currency: PatchValue<Currency>,
     #[serde(rename = "productQuery", default)]
-    product_query: PatchValue<Vec<TextQuery<1>>>,
+    product_listing_query: PatchValue<Vec<TextQuery<1>>>,
     #[serde(rename = "enhancedSearchDescription", default)]
     enhanced_search_description: PatchValue<String>,
     #[serde(rename = "shopName", default)]
@@ -134,9 +250,14 @@ pub(super) struct ProductSearchPatchData {
     geo_address_distance_query: PatchValue<GeoDistanceQueryData>,
     #[serde(rename = "price", default)]
     price_query: PatchValue<RangeQuery<u64>>,
-    #[serde(rename = "state", default)]
-    #[serde(deserialize_with = "crate::wire::product_state::patch_set::deserialize")]
-    state_query: PatchValue<HashSet<ProductState>>,
+    #[serde(rename = "availability", default)]
+    #[serde(deserialize_with = "crate::wire::listing_availability::patch_set::deserialize")]
+    availability_query: PatchValue<HashSet<ListingAvailability>>,
+    #[serde(rename = "orderability", default)]
+    #[serde(deserialize_with = "listing_orderability_patch_set::deserialize")]
+    orderability_query: PatchValue<HashSet<ListingOrderability>>,
+    #[serde(rename = "includeUnspecifiedAvailability", default)]
+    include_unspecified_availability: PatchValue<bool>,
     #[serde(
         rename = "created",
         default,
@@ -163,12 +284,15 @@ pub(super) struct ProductSearchPatchData {
     auction_end_query: PatchValue<RangeQuery<OffsetDateTime>>,
 }
 
-impl ProductSearchPatchData {
-    fn try_into_patch(self) -> Result<ProductSearchPatch, crate::error::ApiError> {
-        Ok(ProductSearchPatch {
+impl ProductListingSearchPatchData {
+    fn try_into_patch(self) -> Result<ProductListingSearchPatch, crate::error::ApiError> {
+        Ok(ProductListingSearchPatch {
             language: non_nullable_patch(self.language, "search.language")?,
             currency: non_nullable_patch(self.currency, "search.currency")?,
-            product_query: non_nullable_patch(self.product_query, "search.productQuery")?,
+            product_listing_query: non_nullable_patch(
+                self.product_listing_query,
+                "search.productQuery",
+            )?,
             enhanced_search_description: match self.enhanced_search_description {
                 PatchValue::Omitted => PatchField::Unchanged,
                 PatchValue::Null => PatchField::Clear,
@@ -229,15 +353,59 @@ impl ProductSearchPatchData {
                 self.price_query
                     .map(|query| query.map(MonetaryAmount::from)),
             ),
-            state_query: non_nullable_patch(
-                self.state_query.map(AnyOfQuery::from),
-                "search.state",
+            availability_query: availability_query_patch(
+                self.availability_query,
+                self.orderability_query,
+                self.include_unspecified_availability,
             )?,
             created_query: clearable(self.created_query),
             updated_query: clearable(self.updated_query),
             auction_start_query: clearable(self.auction_start_query),
             auction_end_query: clearable(self.auction_end_query),
         })
+    }
+}
+
+fn availability_query_from_parts(
+    availability: Option<HashSet<ListingAvailability>>,
+    orderability: Option<HashSet<ListingOrderability>>,
+    include_unspecified: Option<bool>,
+) -> Option<ListingAvailabilityQuery> {
+    if availability.is_none() && orderability.is_none() && include_unspecified.is_none() {
+        None
+    } else {
+        Some(ListingAvailabilityQuery {
+            any_of: availability.unwrap_or_default().into(),
+            orderability: orderability.unwrap_or_default().into(),
+            include_unspecified: include_unspecified.unwrap_or(false),
+        })
+    }
+}
+
+fn availability_query_patch(
+    availability: PatchValue<HashSet<ListingAvailability>>,
+    orderability: PatchValue<HashSet<ListingOrderability>>,
+    include_unspecified: PatchValue<bool>,
+) -> Result<PatchField<ListingAvailabilityQuery>, crate::error::ApiError> {
+    match (availability, orderability, include_unspecified) {
+        (PatchValue::Omitted, PatchValue::Omitted, PatchValue::Omitted) => {
+            Ok(PatchField::Unchanged)
+        }
+        (PatchValue::Null, PatchValue::Null, PatchValue::Null) => Ok(PatchField::Clear),
+        (
+            PatchValue::Value(availability),
+            PatchValue::Value(orderability),
+            PatchValue::Value(include_unspecified),
+        ) => Ok(PatchField::Set(ListingAvailabilityQuery {
+            any_of: availability.into(),
+            orderability: orderability.into(),
+            include_unspecified,
+        })),
+        _ => Err(
+            crate::error::ApiError::bad_request(crate::error::BAD_BODY_VALUE).with_detail(
+                "Availability query fields must be supplied together, or all null to clear the query.",
+            ),
+        ),
     }
 }
 
@@ -255,7 +423,7 @@ impl UpdateSearchFilterMatchFeedbackData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct ProductSearchData {
+pub(super) struct ProductListingSearchData {
     #[serde(default)]
     #[serde(with = "crate::wire::language")]
     language: Language,
@@ -266,7 +434,7 @@ pub(super) struct ProductSearchData {
         skip_serializing_if = "Vec::is_empty",
         default
     )]
-    product_query: Vec<TextQuery<1>>,
+    product_listing_query: Vec<TextQuery<1>>,
     #[serde(
         rename = "enhancedSearchDescription",
         skip_serializing_if = "Option::is_none",
@@ -278,7 +446,7 @@ pub(super) struct ProductSearchData {
         skip_serializing_if = "HashSet::is_empty",
         default
     )]
-    exclude_product_id_query: HashSet<ProductId>,
+    exclude_product_listing_id_query: HashSet<ProductListingId>,
     #[serde(
         rename = "shopName",
         skip_serializing_if = "HashSet::is_empty",
@@ -350,9 +518,26 @@ pub(super) struct ProductSearchData {
     geo_address_distance_query: Option<GeoDistanceQueryData>,
     #[serde(rename = "price", skip_serializing_if = "Option::is_none", default)]
     price_query: Option<RangeQuery<u64>>,
-    #[serde(rename = "state", skip_serializing_if = "HashSet::is_empty", default)]
-    #[serde(with = "crate::wire::product_state::set")]
-    state_query: HashSet<ProductState>,
+    #[serde(
+        rename = "availability",
+        skip_serializing_if = "Option::is_none",
+        default,
+        with = "listing_availability_set_option"
+    )]
+    availability_query: Option<HashSet<ListingAvailability>>,
+    #[serde(
+        rename = "orderability",
+        skip_serializing_if = "Option::is_none",
+        default,
+        with = "listing_orderability_set_option"
+    )]
+    orderability_query: Option<HashSet<ListingOrderability>>,
+    #[serde(
+        rename = "includeUnspecifiedAvailability",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    include_unspecified_availability: Option<bool>,
     #[serde(
         rename = "created",
         with = "domain_primitives::query::range_query::range_rfc3339::option",
@@ -383,19 +568,19 @@ pub(super) struct ProductSearchData {
     auction_end_query: Option<RangeQuery<OffsetDateTime>>,
 }
 
-impl TryFrom<ProductSearchData> for ProductSearch {
-    type Error = ProductSearchDataMappingError;
+impl TryFrom<ProductListingSearchData> for ProductListingSearch {
+    type Error = ProductListingSearchDataMappingError;
 
-    fn try_from(data: ProductSearchData) -> Result<Self, Self::Error> {
+    fn try_from(data: ProductListingSearchData) -> Result<Self, Self::Error> {
         Ok(Self {
             language: data.language,
             currency: data.currency,
-            product_query: data.product_query,
+            product_listing_query: data.product_listing_query,
             enhanced_search_description: data
                 .enhanced_search_description
                 .map(EnhancedSearchDescription::try_from)
                 .transpose()?,
-            exclude_product_id_query: data.exclude_product_id_query.into(),
+            exclude_product_listing_id_query: data.exclude_product_listing_id_query.into(),
             shop_name_query: data.shop_name_query.into(),
             exclude_shop_name_query: data.exclude_shop_name_query.into(),
             seller_name_query: data.seller_name_query.into(),
@@ -411,8 +596,11 @@ impl TryFrom<ProductSearchData> for ProductSearch {
             price_query: data
                 .price_query
                 .map(|query| query.map(MonetaryAmount::from)),
-            state_query: data.state_query.into(),
-            lifecycle_query: Default::default(),
+            availability_query: availability_query_from_parts(
+                data.availability_query,
+                data.orderability_query,
+                data.include_unspecified_availability,
+            ),
             created_query: data.created_query,
             updated_query: data.updated_query,
             auction_start_query: data.auction_start_query,
@@ -421,14 +609,14 @@ impl TryFrom<ProductSearchData> for ProductSearch {
     }
 }
 
-impl From<ProductSearch> for ProductSearchData {
-    fn from(search: ProductSearch) -> Self {
+impl From<ProductListingSearch> for ProductListingSearchData {
+    fn from(search: ProductListingSearch) -> Self {
         Self {
             language: search.language,
             currency: search.currency,
-            product_query: search.product_query,
+            product_listing_query: search.product_listing_query,
             enhanced_search_description: search.enhanced_search_description.map(Into::into),
-            exclude_product_id_query: search.exclude_product_id_query.into(),
+            exclude_product_listing_id_query: search.exclude_product_listing_id_query.into(),
             shop_name_query: search.shop_name_query.into(),
             exclude_shop_name_query: search.exclude_shop_name_query.into(),
             seller_name_query: search.seller_name_query.into(),
@@ -442,7 +630,18 @@ impl From<ProductSearch> for ProductSearchData {
             continent_query: search.continent_query.into_iter().map(Into::into).collect(),
             geo_address_distance_query: search.geo_address_distance_query.map(Into::into),
             price_query: search.price_query.map(|query| query.map(u64::from)),
-            state_query: search.state_query.into(),
+            availability_query: search
+                .availability_query
+                .as_ref()
+                .map(|query| query.any_of.iter().copied().collect()),
+            orderability_query: search
+                .availability_query
+                .as_ref()
+                .map(|query| query.orderability.iter().copied().collect()),
+            include_unspecified_availability: search
+                .availability_query
+                .as_ref()
+                .map(|query| query.include_unspecified),
             created_query: search.created_query,
             updated_query: search.updated_query,
             auction_start_query: search.auction_start_query,
@@ -460,7 +659,7 @@ pub(super) struct SearchFilterData {
     notifications: bool,
     #[serde(with = "crate::wire::search_filter_state")]
     state: SearchFilterState,
-    search: ProductSearchData,
+    search: ProductListingSearchData,
     #[serde(
         with = "time::serde::rfc3339::option",
         skip_serializing_if = "Option::is_none"
@@ -502,7 +701,7 @@ pub(super) struct SearchFilterMatchData {
     user_search_filter_id: UserSearchFilterId,
     #[serde(skip_serializing_if = "Option::is_none")]
     user_search_filter_name: Option<UserSearchFilterName>,
-    product_id: ProductId,
+    product_listing_id: ProductListingId,
     origin_event_id: EventId,
     #[serde(skip_serializing_if = "Option::is_none")]
     enhanced_match_reason: Option<String>,
@@ -520,7 +719,7 @@ impl From<SearchFilterMatchView> for SearchFilterMatchData {
             user_id: view.user_id,
             user_search_filter_id: view.search_filter_id,
             user_search_filter_name: view.search_filter_name,
-            product_id: view.product_id,
+            product_listing_id: view.product_listing_id,
             origin_event_id: view.origin_event_id,
             enhanced_match_reason: view.enhanced_match_reason.map(String::from),
             feedback: view.feedback,
@@ -553,7 +752,9 @@ mod tests {
                     "language": "de",
                     "productQuery": ["cabinet"],
                     "price": { "min": 10, "max": 20 },
-                    "state": ["AVAILABLE"]
+                    "availability": ["AVAILABLE"],
+                    "orderability": ["ORDERABLE_NOW"],
+                    "includeUnspecifiedAvailability": true
                 }
             }"#,
         )?;
@@ -566,7 +767,7 @@ mod tests {
             patch.enhanced_search_description,
             PatchField::Unchanged
         ));
-        let values = match patch.product_query {
+        let values = match patch.product_listing_query {
             PatchField::Set(values) => values,
             PatchField::Unchanged | PatchField::Clear => {
                 return Err(std::io::Error::other("product query was not set").into());
@@ -574,8 +775,74 @@ mod tests {
         };
         assert_eq!("cabinet", values[0].as_ref());
         assert!(matches!(patch.price_query, PatchField::Set(_)));
-        assert!(matches!(patch.state_query, PatchField::Set(_)));
+        assert_eq!(
+            PatchField::Set(ListingAvailabilityQuery {
+                any_of: HashSet::from([ListingAvailability::Available]).into(),
+                orderability: HashSet::from([ListingOrderability::OrderableNow]).into(),
+                include_unspecified: true,
+            }),
+            patch.availability_query
+        );
         assert!(matches!(patch.shop_name_query, PatchField::Unchanged));
+        Ok(())
+    }
+
+    #[test]
+    fn should_preserve_absent_and_configured_empty_availability_queries()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let absent =
+            ProductListingSearchData::from(ProductListingSearch::new(Language::En, Currency::Eur));
+        let absent_value = serde_json::to_value(absent)?;
+        assert!(absent_value.get("availability").is_none());
+        assert!(absent_value.get("orderability").is_none());
+        assert!(absent_value.get("includeUnspecifiedAvailability").is_none());
+
+        let mut configured_empty = ProductListingSearch::new(Language::En, Currency::Eur);
+        configured_empty.availability_query = Some(ListingAvailabilityQuery {
+            any_of: Default::default(),
+            orderability: Default::default(),
+            include_unspecified: false,
+        });
+        let value = serde_json::to_value(ProductListingSearchData::from(configured_empty))?;
+        assert_eq!(Some(&serde_json::json!([])), value.get("availability"));
+        assert_eq!(Some(&serde_json::json!([])), value.get("orderability"));
+        assert_eq!(
+            Some(&serde_json::json!(false)),
+            value.get("includeUnspecifiedAvailability")
+        );
+        let data: ProductListingSearchData = serde_json::from_value(value)?;
+        let decoded = ProductListingSearch::try_from(data)?;
+        assert_eq!(
+            Some(ListingAvailabilityQuery {
+                any_of: Default::default(),
+                orderability: Default::default(),
+                include_unspecified: false,
+            }),
+            decoded.availability_query
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_require_an_atomic_availability_query_patch() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let clear: UpdateSearchFilterData = serde_json::from_str(
+            r#"{ "search": {
+                "availability": null,
+                "orderability": null,
+                "includeUnspecifiedAvailability": null
+            } }"#,
+        )?;
+        let (_, _, _, patch) = clear.into_fields()?;
+        assert_eq!(PatchField::Clear, patch.availability_query);
+
+        let partial: UpdateSearchFilterData =
+            serde_json::from_str(r#"{ "search": { "orderability": null } }"#)?;
+        assert!(partial.into_fields().is_err());
+
+        let omitted: UpdateSearchFilterData = serde_json::from_str(r#"{ "search": {} }"#)?;
+        let (_, _, _, patch) = omitted.into_fields()?;
+        assert_eq!(PatchField::Unchanged, patch.availability_query);
         Ok(())
     }
 }
