@@ -113,7 +113,7 @@ async fn should_apply_intentional_secondary_index_definitions() {
             "(created DESC, shop_id) WHERE (lifecycle = 'PUBLISHED'::text)",
         ),
         (
-            "product_listing_events_product_time_event_idx",
+            "product_listing_events_product_listing_time_event_idx",
             "(product_listing_id, event_time, event_id)",
         ),
     ] {
