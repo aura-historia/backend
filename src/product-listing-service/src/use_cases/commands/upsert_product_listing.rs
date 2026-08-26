@@ -39,7 +39,7 @@ pub struct UpsertProductListingCommand {
     pub address: ProductListingAddress,
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
-    pub price: Option<Price>,
+    pub price: PatchField<Price>,
     pub price_estimate_min: Option<Price>,
     pub price_estimate_max: Option<Price>,
     pub availability: PatchField<ListingAvailability>,
@@ -331,7 +331,10 @@ impl UpsertProductListingCommand {
                 .or_else(|| Some(Localized::new(Language::En, Title::from("")))),
             description: self.description,
             pricing: ProductListingPricing {
-                price: self.price,
+                price: match self.price {
+                    PatchField::Set(price) => Some(price),
+                    PatchField::Unchanged | PatchField::Clear => None,
+                },
                 price_estimate_min: self.price_estimate_min,
                 price_estimate_max: self.price_estimate_max,
             },
@@ -352,8 +355,17 @@ fn apply_update(
     product: &mut ProductListing,
     command: &UpsertProductListingCommand,
 ) -> Result<(), UpsertProductListingError> {
+    match command.price {
+        PatchField::Unchanged => {}
+        PatchField::Set(price) => {
+            product.set_price(price)?;
+        }
+        PatchField::Clear => {
+            product.clear_price()?;
+        }
+    }
     let pricing = ProductListingPricing {
-        price: command.price.or(product.pricing().price),
+        price: product.pricing().price,
         price_estimate_min: command
             .price_estimate_min
             .or(product.pricing().price_estimate_min),
@@ -450,5 +462,93 @@ impl From<ProductListingRepositoryError> for UpsertProductListingError {
 impl From<ProductListingEventStoreError> for UpsertProductListingError {
     fn from(_: ProductListingEventStoreError) -> Self {
         Self::EventStoreFailed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use money::{Currency, MonetaryAmount};
+
+    fn price(amount: u64) -> Price {
+        Price::new(MonetaryAmount::from(amount), Currency::Eur)
+    }
+
+    fn command(price: PatchField<Price>) -> UpsertProductListingCommand {
+        UpsertProductListingCommand {
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shop_listing_id: ShopListingId::from("listing"),
+            address: ProductListingAddress::default(),
+            title: None,
+            description: None,
+            price,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            availability: PatchField::Unchanged,
+            url: None,
+            images: IndexSet::new(),
+            auction_start: None,
+            auction_end: None,
+        }
+    }
+
+    fn listing_with_price(value: Option<Price>) -> ProductListing {
+        ProductListing::create(NewProductListing {
+            id: ProductListingId::new(),
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shop_listing_id: ShopListingId::from("listing"),
+            address: ProductListingAddress::default(),
+            title: None,
+            description: None,
+            pricing: ProductListingPricing {
+                price: value,
+                ..Default::default()
+            },
+            availability: None,
+            url: Url::parse("https://example.com/listing")
+                .unwrap_or_else(|error| panic!("url: {error}")),
+            images: IndexSet::new(),
+            auction: ProductListingAuction::default(),
+        })
+        .unwrap_or_else(|error| panic!("listing: {error}"))
+    }
+
+    #[test]
+    fn should_apply_main_price_patch_for_existing_listing() {
+        for (patch, expected) in [
+            (PatchField::Unchanged, Some(price(100))),
+            (PatchField::Set(price(120)), Some(price(120))),
+            (PatchField::Clear, None),
+        ] {
+            let mut listing = listing_with_price(Some(price(100)));
+            listing.take_pending_event_payloads();
+            let changed = patch.is_changed();
+            let update = command(patch);
+
+            apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
+
+            assert_eq!(expected, listing.pricing().price);
+            assert_eq!(changed, !listing.pending_event_payloads().is_empty());
+        }
+    }
+
+    #[test]
+    fn should_create_listing_without_price_for_clear_or_unchanged_patch() {
+        for patch in [
+            PatchField::Set(price(100)),
+            PatchField::Clear,
+            PatchField::Unchanged,
+        ] {
+            let expected = match &patch {
+                PatchField::Set(value) => Some(*value),
+                PatchField::Clear | PatchField::Unchanged => None,
+            };
+            let new_listing = command(patch)
+                .into_new_product(ProductListingId::new())
+                .unwrap_or_else(|error| panic!("new listing: {error}"));
+            assert_eq!(expected, new_listing.pricing.price);
+        }
     }
 }

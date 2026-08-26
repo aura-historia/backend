@@ -461,6 +461,18 @@ impl ProductListing {
         Ok(ChangeOutcome::Changed)
     }
 
+    pub fn set_price(&mut self, price: Price) -> Result<ChangeOutcome, ChangeProductListingError> {
+        let mut pricing = self.pricing;
+        pricing.price = Some(price);
+        self.replace_pricing(pricing)
+    }
+
+    pub fn clear_price(&mut self) -> Result<ChangeOutcome, ChangeProductListingError> {
+        let mut pricing = self.pricing;
+        pricing.price = None;
+        self.replace_pricing(pricing)
+    }
+
     pub fn change_url(&mut self, url: Url) -> Result<ChangeOutcome, ChangeProductListingError> {
         self.ensure_active_mutation()?;
         if self.url == url {
@@ -698,6 +710,48 @@ mod tests {
         assert_eq!(ChangeOutcome::Changed, listing.restore());
         assert_eq!(ListingLifecycle::Active, listing.lifecycle());
         assert_eq!(None, listing.availability());
+    }
+
+    #[rstest::rstest]
+    #[case(None, Some(100), ChangeOutcome::Changed)]
+    #[case(Some(100), Some(120), ChangeOutcome::Changed)]
+    #[case(Some(100), Some(100), ChangeOutcome::Unchanged)]
+    #[case(Some(100), None, ChangeOutcome::Changed)]
+    #[case(None, None, ChangeOutcome::Unchanged)]
+    fn should_set_and_clear_current_price_with_expected_events(
+        #[case] current_amount: Option<u64>,
+        #[case] requested_amount: Option<u64>,
+        #[case] expected_outcome: ChangeOutcome,
+    ) {
+        let mut source = input();
+        source.pricing.price = current_amount.map(eur_price);
+        let mut listing =
+            ProductListing::create(source).unwrap_or_else(|error| panic!("create: {error}"));
+        listing.take_pending_event_payloads();
+
+        let outcome = match requested_amount {
+            Some(amount) => listing.set_price(eur_price(amount)),
+            None => listing.clear_price(),
+        };
+
+        assert_eq!(Ok(expected_outcome), outcome);
+        assert_eq!(requested_amount.map(eur_price), listing.pricing().price);
+        match expected_outcome {
+            ChangeOutcome::Changed => assert!(matches!(
+                listing.pending_event_payloads(),
+                [ProductListingEventPayload::PriceChanged(ProductListingPriceChanged {
+                    old_pricing,
+                    new_pricing,
+                })]
+                    if old_pricing.price == current_amount.map(eur_price)
+                        && new_pricing.price == requested_amount.map(eur_price)
+            )),
+            ChangeOutcome::Unchanged => assert!(listing.pending_event_payloads().is_empty()),
+        }
+    }
+
+    fn eur_price(amount: u64) -> Price {
+        Price::new(money::MonetaryAmount::from(amount), money::Currency::Eur)
     }
 
     #[test]

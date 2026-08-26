@@ -773,7 +773,7 @@ mod tests {
                 address: ProductListingAddress::default(),
                 title: None,
                 description: None,
-                price: None,
+                price: application::patch_field::PatchField::Unchanged,
                 price_estimate_min: None,
                 price_estimate_max: None,
                 availability: application::patch_field::PatchField::Unchanged,

@@ -433,8 +433,8 @@ paths:
         synchronously in its own PostgreSQL transaction. For each entry:
         - **New listing** — omitted or `null` availability creates a listing with no reliable
           current availability assertion; a concrete value sets that assertion.
-        - **Existing listing** — omitted availability is unchanged, `null` clears it, and a
-          concrete value replaces it. A withdrawn listing is restored before current facts apply.
+        - **Existing listing** — omitted availability or price is unchanged; `null` clears either;
+          a concrete value replaces it. A withdrawn listing is restored before current facts apply.
         - `title`, `description`, `structuredAddress`, and `geoAddress` apply only on creation.
         - On the update path, other omitted or `null` optional fields preserve their existing
           values; provided images replace the stored image set.
@@ -13851,9 +13851,9 @@ components:
       type: object
       description: |
         Data for synchronously upserting one ProductListing. Only `shopListingId` is required.
-        For availability, omitted preserves an existing assertion; `null` clears it; and a concrete
-        canonical value sets it. On creation, omitted and `null` both mean no reliable assertion.
-        Upsert restores a withdrawn listing before current listing facts apply.
+        For availability and main price, omitted preserves an existing assertion; `null` clears it;
+        and a concrete canonical value sets it. On creation, omitted and `null` both mean no
+        reliable assertion/current price. Upsert restores a withdrawn listing before current facts apply.
       required:
         - shopListingId
       properties:
@@ -13875,7 +13875,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
-          description: Optional asking price for the product. Applied on create and on update when a non-null value is provided. Omit or send `null` to leave the current stored price unchanged.
+          description: Optional current asking price. Omit to leave an existing price unchanged; send null to clear it; send a value to set it. On creation, omitted and null both mean no current price.
         priceEstimateMin:
           allOf:
             - $ref: "#/components/schemas/PriceData"

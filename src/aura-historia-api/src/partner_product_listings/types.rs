@@ -85,7 +85,7 @@ pub(super) struct UpsertProductListingData {
     #[serde(default)]
     pub(super) description: Option<LocalizedTextData>,
     #[serde(default)]
-    pub(super) price: Option<PriceData>,
+    pub(super) price: PatchValue<PriceData>,
     #[serde(default)]
     pub(super) price_estimate_min: Option<PriceData>,
     #[serde(default)]
@@ -196,7 +196,7 @@ impl UpsertProductListingData {
             address: product_address(self.structured_address, self.geo_address),
             title: self.title.map(title),
             description: self.description.map(description),
-            price: self.price.map(price),
+            price: clearable(self.price.map(price)),
             price_estimate_min: self.price_estimate_min.map(price),
             price_estimate_max: self.price_estimate_max.map(price),
             availability: clearable(self.availability),

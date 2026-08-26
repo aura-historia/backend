@@ -281,7 +281,7 @@ fn upsert_command(
         address: ProductListingAddress::default(),
         title: Some(Localized::new(Language::En, Title::from(title))),
         description: None,
-        price: Some(Price::new(
+        price: application::patch_field::PatchField::Set(Price::new(
             MonetaryAmount::from(price_amount),
             Currency::Eur,
         )),

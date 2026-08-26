@@ -107,7 +107,7 @@ pub enum ListingLifecycle {
 
 Codes are `ACTIVE` and `WITHDRAWN`. Withdrawal means retained history for a listing no longer offered/published by its authoritative source. It is reversible. It is not physical purge, legal deletion, or retention cleanup.
 
-`None` for aggregate availability has one meaning only: Aura has no sufficiently reliable current availability assertion for this active listing. It never means unchanged. Application patches use `PatchField::{Unchanged, Set, Clear}` for that separate instruction.
+`None` for aggregate availability has one meaning only: Aura has no sufficiently reliable current availability assertion for this active listing. `None` for `ProductListingPricing.price` means the source currently publishes no numeric price. Neither means unchanged. Application patches use `PatchField::{Unchanged, Set, Clear}` for that separate instruction; a price clear emits the ordinary price-change event with old `Some(price)` and new `None`.
 
 The old canonical `ProductState` vocabulary is deleted. In particular, `LISTED`, `UNKNOWN`, `REMOVED`, and `SOLD` are not Aura listing availability values. Boundary uncertainty remains adapter-local.
 
@@ -128,7 +128,7 @@ Use observation FX for presentation only while currently `SoldOut`, or for a del
 
 ## Behaviors and events
 
-Canonical aggregate behaviors are `set_availability`, `clear_availability`, `withdraw`, `restore`, `record_sale_observation`, and `retract_sale_observation`. Old `mark_*`, generic state transition, and state-machine methods are removed.
+Canonical aggregate behaviors are `set_price`, `clear_price`, `set_availability`, `clear_availability`, `withdraw`, `restore`, `record_sale_observation`, and `retract_sale_observation`. Old `mark_*`, generic state transition, and state-machine methods are removed.
 
 Canonical event codes:
 
@@ -150,7 +150,7 @@ Availability-change events contain optional previous/current availability. Withd
 
 ## Application, API, and search contracts
 
-Create accepts `Option<ListingAvailability>`; omitted and JSON `null` create an active listing without an assertion. Update and upsert use `PatchField<ListingAvailability>`: omitted is unchanged, `null` clears, and a code sets. Existing withdrawn listings are restored by explicit upsert intent before current facts are applied.
+Create accepts `Option<ListingAvailability>`; omitted and JSON `null` create an active listing without an assertion. Update and upsert use `PatchField<ListingAvailability>` and main-price `PatchField<Price>`: omitted is unchanged, `null` clears, and a value sets. Existing withdrawn listings are restored by explicit upsert intent before current facts are applied.
 
 Withdrawal replaces normal deletion. The HTTP partner route may remain `DELETE`, but invokes `WithdrawProductListingUseCase`. Recording a sale observation is a dedicated, authorized PostgreSQL transaction that loads the aggregate and the latest FX snapshot at or before `observed_at`.
 

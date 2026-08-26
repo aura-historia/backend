@@ -166,7 +166,10 @@ where
                         .filter(|value| !value.is_empty())
                         .map(Description::from)
                         .map(|value| Localized::new(language, value)),
-                    price,
+                    price: match price {
+                        Some(price) => PatchField::Set(price),
+                        None => PatchField::Clear,
+                    },
                     price_estimate_min: None,
                     price_estimate_max: None,
                     availability: command.availability,

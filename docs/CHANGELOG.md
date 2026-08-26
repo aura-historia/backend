@@ -37,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- **Breaking:** Partner ProductListing upsert `price` now distinguishes omitted, `null`, and a value. Omitted preserves an existing current price, `null` clears it, and a value sets it. A new listing has no current price for omitted or `null`.
 - **Breaking:** A sale observation is the explicit `SALE_OBSERVATION` fact with `observedAt`. It is recorded only by a dedicated write and is never inferred from `SOLD_OUT`; availability updates do not create, alter, or clear it. There are no sold transitions. Active relisted listings use current FX; `SOLD_OUT` and intentional withdrawn history may use the observed snapshot.
 - **Breaking:** Canonical PATCH endpoints now distinguish omitted members from explicit `null`. Omitted members remain unchanged; `null` clears only documented nullable members and returns `400 BAD_BODY_VALUE` for all other members. Clients must omit members they do not intend to modify, and use empty arrays rather than `null` to clear non-null collections.
 - **Breaking:** Empty HTTP bodies are invalid for object PATCH endpoints; `{}` remains a valid no-op. Partner ProductListing PATCH continues to accept `[]` as an empty batch.

@@ -113,8 +113,8 @@ fn merge_upsert_command(
     if let Some(value) = description {
         current.description = Some(value);
     }
-    if let Some(value) = price {
-        current.price = Some(value);
+    if !matches!(price, PatchField::Unchanged) {
+        current.price = price;
     }
     if let Some(value) = price_estimate_min {
         current.price_estimate_min = Some(value);
@@ -327,7 +327,10 @@ impl From<&ProductListingPushItem> for UpsertCommandSnapshot {
                 .description
                 .as_ref()
                 .map(snapshot_localized_description),
-            price: command.price.map(snapshot_price),
+            price: match command.price {
+                PatchField::Set(price) => Some(snapshot_price(price)),
+                PatchField::Clear | PatchField::Unchanged => None,
+            },
             price_estimate_min: command.price_estimate_min.map(snapshot_price),
             price_estimate_max: command.price_estimate_max.map(snapshot_price),
             availability: match command.availability {
@@ -471,7 +474,10 @@ pub fn normalize_to_upsert(
         address: ProductListingAddress::default(),
         title: Some(product.title),
         description: product.description,
-        price: product.price,
+        price: match product.price {
+            Some(price) => PatchField::Set(price),
+            None => PatchField::Clear,
+        },
         price_estimate_min: product.price_estimate_min,
         price_estimate_max: product.price_estimate_max,
         availability: match product.availability {
@@ -552,7 +558,7 @@ mod tests {
             address: ProductListingAddress::default(),
             title: Some(Localized::new(Language::De, Title::from("Ein Schrank"))),
             description: None,
-            price: None,
+            price: PatchField::Unchanged,
             price_estimate_min: None,
             price_estimate_max: None,
             availability: PatchField::Set(ListingAvailability::Available),
@@ -809,6 +815,42 @@ mod tests {
     }
 
     #[test]
+    fn should_keep_latest_explicit_price_assertion_when_coalescing() -> Result<(), url::ParseError>
+    {
+        let mut set_then_clear = command()?;
+        set_then_clear.price = PatchField::Set(Price::new(
+            money::MonetaryAmount::from(100_u64),
+            money::Currency::Eur,
+        ));
+        let mut clear = set_then_clear.clone();
+        clear.price = PatchField::Clear;
+        assert!(merge_upsert_command(&mut set_then_clear, clear).is_ok());
+        assert_eq!(PatchField::Clear, set_then_clear.price);
+
+        let mut clear_then_set = command()?;
+        clear_then_set.price = PatchField::Clear;
+        let mut set = clear_then_set.clone();
+        let price = Price::new(money::MonetaryAmount::from(120_u64), money::Currency::Eur);
+        set.price = PatchField::Set(price);
+        assert!(merge_upsert_command(&mut clear_then_set, set).is_ok());
+        assert_eq!(PatchField::Set(price), clear_then_set.price);
+
+        let mut set_then_unchanged = command()?;
+        set_then_unchanged.price = PatchField::Set(price);
+        let mut unchanged = set_then_unchanged.clone();
+        unchanged.price = PatchField::Unchanged;
+        assert!(merge_upsert_command(&mut set_then_unchanged, unchanged).is_ok());
+        assert_eq!(PatchField::Set(price), set_then_unchanged.price);
+
+        let mut unchanged_then_clear = command()?;
+        let mut clear = unchanged_then_clear.clone();
+        clear.price = PatchField::Clear;
+        assert!(merge_upsert_command(&mut unchanged_then_clear, clear).is_ok());
+        assert_eq!(PatchField::Clear, unchanged_then_clear.price);
+        Ok(())
+    }
+
+    #[test]
     fn should_merge_matching_product_commands_with_explicit_invariants()
     -> Result<(), url::ParseError> {
         let mut current = command()?;
@@ -873,6 +915,10 @@ mod tests {
             command.as_ref().map(|command| command.address.clone()),
             Some(ProductListingAddress::default())
         );
+        assert!(matches!(
+            command.as_ref().map(|command| &command.price),
+            Some(PatchField::Clear)
+        ));
         Ok(())
     }
 
