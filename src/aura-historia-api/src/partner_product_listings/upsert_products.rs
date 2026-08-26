@@ -216,6 +216,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_map_empty_images_to_explicit_upsert_replacement()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut upsert = MockUpsertUseCase::new();
+        upsert
+            .expect_execute()
+            .times(1)
+            .withf(|_, command| {
+                matches!(&command.images, PatchField::Set(images) if images.is_empty())
+            })
+            .returning(|_, _| Ok(created()));
+        let app = app(upsert);
+        let shop_id = ShopId::new();
+
+        let response = request(
+            &app,
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            r#"[{"shopListingId":"empty-images","images":[]}]"#,
+            true,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(json!([]), body_json(response).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_preserve_omitted_and_null_upsert_patch_values()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut upsert = MockUpsertUseCase::new();
@@ -287,7 +314,7 @@ mod tests {
             &app,
             &format!("/api/v1/shops/{shop_id}/product-listings"),
             r#"[
-                {"shopListingId":"valid","images":[]},
+                {"shopListingId":"valid"},
                 {"shopListingId":"invalid","images":null}
             ]"#,
             true,

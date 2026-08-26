@@ -265,9 +265,17 @@ mod tests {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .clone();
-        assert!(
-            matches!(command, Some(command) if command.shop_id == shop_id && command.seller_id == shop_id)
-        );
+        assert!(matches!(
+            command,
+            Some(command)
+                if command.shop_id == shop_id
+                    && command.seller_id == shop_id
+                    && matches!(&command.price_estimate_min, PatchField::Unchanged)
+                    && matches!(&command.price_estimate_max, PatchField::Unchanged)
+                    && matches!(&command.auction_start, PatchField::Unchanged)
+                    && matches!(&command.auction_end, PatchField::Unchanged)
+                    && matches!(&command.images, PatchField::Set(images) if images.is_empty())
+        ));
     }
 
     #[tokio::test]
