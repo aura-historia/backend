@@ -1,7 +1,6 @@
 use crate::error::{ApiError, ApiErrorCode, BAD_BODY_VALUE};
 use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
 use crate::values::{LocalizedTextData, PriceData};
-
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use money::Price;
 use product_listing_core::description::Description;
