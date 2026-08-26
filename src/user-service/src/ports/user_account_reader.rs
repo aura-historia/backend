@@ -19,7 +19,7 @@ pub struct UserDetailsView {
     pub language: Option<Language>,
     pub currency: Option<Currency>,
     pub measurement_unit: Option<MeasurementUnit>,
-    pub prohibited_content_consent: bool,
+    pub show_unassessed_or_sensitive_content: bool,
     pub tier: UserTier,
     pub role: UserRole,
     pub stripe_customer_id: Option<StripeCustomerId>,

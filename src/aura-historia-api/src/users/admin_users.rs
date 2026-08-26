@@ -111,7 +111,7 @@ async fn admin_patch_user(
         || data.language.is_present()
         || data.currency.is_present()
         || data.measurement_unit.is_present()
-        || data.prohibited_content_consent.is_present()
+        || data.show_unassessed_or_sensitive_content.is_present()
         || data.structured_address.is_present();
     let role_changed = data.role.is_present();
     let tier_changed = data.tier.is_present();
@@ -129,7 +129,7 @@ async fn admin_patch_user(
         language,
         currency,
         measurement_unit,
-        prohibited_content_consent,
+        show_unassessed_or_sensitive_content,
         tier,
         role,
         structured_address,
@@ -173,7 +173,7 @@ async fn admin_patch_user(
             language,
             currency,
             measurement_unit,
-            prohibited_content_consent,
+            show_unassessed_or_sensitive_content,
             structured_address,
         },
         user_id,
@@ -199,9 +199,9 @@ fn profile_command(
         language: clearable(data.language),
         currency: clearable(data.currency),
         measurement_unit: clearable(data.measurement_unit),
-        prohibited_content_consent: non_nullable_patch(
-            data.prohibited_content_consent,
-            "prohibitedContentConsent",
+        show_unassessed_or_sensitive_content: non_nullable_patch(
+            data.show_unassessed_or_sensitive_content,
+            "showUnassessedOrSensitiveContent",
         )?,
         structured_address: clearable(data.structured_address.map(Into::into)),
     })

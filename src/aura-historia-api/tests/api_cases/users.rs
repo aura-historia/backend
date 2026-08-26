@@ -42,7 +42,7 @@ async fn should_update_current_user_profile_when_body_is_valid() {
             "language": "de",
             "currency": "EUR",
             "measurementUnit": "METRIC",
-            "prohibitedContentConsent": true
+            "showUnassessedOrSensitiveContent": true
         }))
         .send()
         .await
@@ -51,7 +51,10 @@ async fn should_update_current_user_profile_when_body_is_valid() {
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(serde_json::json!("Ada"), body["firstName"]);
-    assert_eq!(serde_json::json!(true), body["prohibitedContentConsent"]);
+    assert_eq!(
+        serde_json::json!(true),
+        body["showUnassessedOrSensitiveContent"]
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

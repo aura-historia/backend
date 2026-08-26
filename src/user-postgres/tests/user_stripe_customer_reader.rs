@@ -82,7 +82,7 @@ fn sample_user(slug: &str, role: UserRole, stripe_customer_id: Option<&str>) -> 
             language: Some(Language::En),
             currency: Some(Currency::Gbp),
             measurement_unit: Some(MeasurementUnit::Imperial),
-            prohibited_content_consent: true,
+            show_unassessed_or_sensitive_content: true,
         },
         account: UserAccount {
             tier: UserTier::Pro,

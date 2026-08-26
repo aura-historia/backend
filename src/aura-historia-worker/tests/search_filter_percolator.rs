@@ -27,6 +27,7 @@ use product_listing_core::{
     product_listing_id::ProductListingId, product_listing_search::ProductListingSearch,
 };
 use product_listing_postgres::{
+    SqlxProductListingContentAssessmentSnapshotReaderFactory,
     SqlxProductListingCurrentRevisionGuardFactory,
     SqlxProductListingSearchFilterMatchSourceReaderFactory,
 };
@@ -424,22 +425,14 @@ async fn ignored_product_listing_events_flow() -> Result<(), Box<dyn std::error:
         worker.project_filter(&filter).await?;
         refresh_index("user_search_filters").await;
 
-        let (product_listing_id, policy_event) = create_product_with_event(
+        let (_, lifecycle_event) = create_product_with_event(
             &worker.pool,
             &product_listing_query,
-            "POLICY_ACCEPTED",
-            "POLICY",
-        )
-        .await?;
-        let lifecycle_event = insert_product_event(
-            &worker.pool,
-            product_listing_id,
             "PRODUCT_LISTING_WITHDRAWN",
             "LIFECYCLE",
         )
         .await?;
 
-        assert_no_matches_for(&worker.pool, policy_event, NO_SIDE_EFFECT_OBSERVATION).await?;
         assert_no_matches_for(&worker.pool, lifecycle_event, NO_SIDE_EFFECT_OBSERVATION).await?;
         assert_no_more_than_notifications(&worker.pool, user_id, 0, NO_SIDE_EFFECT_OBSERVATION)
             .await
@@ -899,6 +892,7 @@ impl FullFlowWorker {
                 SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
                 SqlxUserTierEntitlementsFactory::new(),
                 SqlxProductListingCurrentRevisionGuardFactory::new(),
+                SqlxProductListingContentAssessmentSnapshotReaderFactory::new(),
                 NotificationCreationCoordinatorFactory::new(
                     SqlxNotificationRepositoryFactory::new(),
                     InitialExternalDeliveryPlanReaderFactory,
@@ -1358,23 +1352,6 @@ async fn insert_filter(
         .await?;
     transaction.commit().await?;
     Ok(inserted.version)
-}
-
-async fn insert_product_event(
-    pool: &sqlx::PgPool,
-    product_listing_id: ProductListingId,
-    event_type: &str,
-    event_group: &str,
-) -> Result<EventId, sqlx::Error> {
-    let event_id = EventId::new();
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
-        .bind(uuid::Uuid::from(event_id))
-        .bind(uuid::Uuid::from(product_listing_id))
-        .bind(event_type)
-        .bind(event_group)
-        .execute(pool)
-        .await?;
-    Ok(event_id)
 }
 
 async fn update_product_and_insert_event(

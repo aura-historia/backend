@@ -257,7 +257,6 @@ impl From<ProductListingRepositoryError> for WithdrawProductListingError {
             | ProductListingRepositoryError::InvalidProductListingUrlPersisted
             | ProductListingRepositoryError::InvalidProductListingImagesPersisted
             | ProductListingRepositoryError::InvalidProductListingImageUrlPersisted
-            | ProductListingRepositoryError::InvalidProductListingImageProhibitedContentPersisted
             | ProductListingRepositoryError::InvalidAggregateStatePersisted => {
                 Self::PersistenceFailed
             }

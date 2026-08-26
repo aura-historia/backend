@@ -1,9 +1,11 @@
 use crate::ports::{
-    CompiledProductListingSearch, ProductListingPriceFilterPlan, ProductListingSearchReadError,
-    ProductListingSearchReadRequest, ProductListingSearchReader, ProductListingUserStateReader,
+    CompiledProductListingSearch, ProductListingContentAssessmentReadError,
+    ProductListingContentAssessmentReader, ProductListingPriceFilterPlan,
+    ProductListingSearchReadError, ProductListingSearchReadRequest, ProductListingSearchReader,
+    ProductListingUserStateReader,
 };
 use crate::use_cases::queries::product_listing_summary_personalization::{
-    ProductListingSummaryPersonalizationError, hydrate_product_summaries,
+    ProductListingSummaryPersonalizationError, hydrate_product_search_items,
 };
 use application::error::{BoxError, box_error};
 use application::operation_context::{OperationContext, Principal};
@@ -20,6 +22,10 @@ use fxrate_service::ports::{
 use localization::Language;
 use localization::Localized;
 use money::Price;
+
+use product_listing_core::content_policy::{
+    ContentPolicyDecision, may_show_product_listing_images,
+};
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
@@ -58,8 +64,11 @@ pub struct ProductListingSearchCursor {
     pub search_after: Value,
 }
 
+/// Factual search result returned by a ProductListing search reader.
+///
+/// Raw image URLs stay here until the service hydrates user state and applies content policy.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProductListingSummary {
+pub struct ProductListingSearchItem {
     pub product_listing_id: ProductListingId,
     pub product_listing_slug_id: ProductListingSlugId,
     pub event_id: EventId,
@@ -79,6 +88,28 @@ pub struct ProductListingSummary {
     pub updated: OffsetDateTime,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProductListingSummary {
+    pub product_listing_id: ProductListingId,
+    pub product_listing_slug_id: ProductListingSlugId,
+    pub event_id: EventId,
+    pub shop_id: ShopId,
+    pub seller_id: ShopId,
+    pub shop_listing_id: ShopListingId,
+    pub shop_name: ShopName,
+    pub shop_slug_id: ShopSlugId,
+    pub title: Option<Localized<Language, Title>>,
+    pub display_price: Option<Price>,
+    pub price_valuation: ProductListingSummaryPriceValuation,
+    pub availability: Option<ListingAvailability>,
+    pub lifecycle: ListingLifecycle,
+    pub url: Url,
+    pub view_url: Url,
+    pub images: Vec<super::get_product_listing::ProductListingImageView>,
+    pub content_policy: Option<ContentPolicyDecision>,
+    pub updated: OffsetDateTime,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductListingSummaryPriceValuation {
     Current {
@@ -93,7 +124,9 @@ pub enum ProductListingSummaryPriceValuation {
 
 pub type PersonalizedProductListingSummary =
     Personalized<ProductListingSummary, ProductListingUserState>;
-pub type ProductListingSearchReadResult = CursoredResult<ProductListingSummary, Value>;
+pub(crate) type PersonalizedProductListingSearchItem =
+    Personalized<ProductListingSearchItem, ProductListingUserState>;
+pub type ProductListingSearchReadResult = CursoredResult<ProductListingSearchItem, Value>;
 pub type SearchProductListingsResult =
     CursoredResult<PersonalizedProductListingSummary, ProductListingSearchCursor>;
 
@@ -143,6 +176,16 @@ pub enum SearchProductListingsError {
         #[source]
         source: BoxError,
     },
+    #[error("product content assessment query failed")]
+    ContentAssessmentQueryFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("product content assessment state is invalid")]
+    ContentAssessmentStateInvalid {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]
@@ -154,34 +197,45 @@ pub trait SearchProductListingsUseCase: Send + Sync {
     ) -> Result<SearchProductListingsResult, SearchProductListingsError>;
 }
 
-pub struct SearchProductListingsHandler<UoW, R, F, E, U> {
+pub struct SearchProductListingsHandler<UoW, R, F, E, U, A> {
     unit_of_work: UoW,
     reader: R,
     fx_rates: F,
     embeddings: E,
     user_states: U,
+    assessments: A,
 }
 
-impl<UoW, R, F, E, U> SearchProductListingsHandler<UoW, R, F, E, U> {
-    pub fn new(unit_of_work: UoW, reader: R, fx_rates: F, embeddings: E, user_states: U) -> Self {
+impl<UoW, R, F, E, U, A> SearchProductListingsHandler<UoW, R, F, E, U, A> {
+    pub fn new(
+        unit_of_work: UoW,
+        reader: R,
+        fx_rates: F,
+        embeddings: E,
+        user_states: U,
+        assessments: A,
+    ) -> Self {
         Self {
             unit_of_work,
             reader,
             fx_rates,
             embeddings,
             user_states,
+            assessments,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<UoW, R, F, E, U> SearchProductListingsUseCase for SearchProductListingsHandler<UoW, R, F, E, U>
+impl<UoW, R, F, E, U, A> SearchProductListingsUseCase
+    for SearchProductListingsHandler<UoW, R, F, E, U, A>
 where
     UoW: UnitOfWork,
     R: ProductListingSearchReader,
     F: FxRateSnapshotRepositoryFactory<UoW::Tx>,
     E: EmbeddingGenerator,
     U: ProductListingUserStateReader,
+    A: ProductListingContentAssessmentReader,
 {
     #[tracing::instrument(
         name = "search_products",
@@ -236,31 +290,94 @@ where
             },
             None => self.reader.search(&read_request).await?,
         };
-        let mut result = CursoredResult {
-            cursor: Cursor {
-                size: result.cursor.size,
-                search_after: result.cursor.search_after.map(|search_after| {
-                    ProductListingSearchCursor {
-                        fx_rate_id,
-                        search_after,
-                    }
-                }),
-            },
-            items: result
-                .items
-                .into_iter()
-                .map(|item| Personalized {
-                    item,
-                    user_state: None,
-                })
-                .collect(),
-            total: result.total,
+        let cursor = Cursor {
+            size: result.cursor.size,
+            search_after: result.cursor.search_after.map(|search_after| {
+                ProductListingSearchCursor {
+                    fx_rate_id,
+                    search_after,
+                }
+            }),
         };
+        let mut items = result
+            .items
+            .into_iter()
+            .map(|item| Personalized {
+                item,
+                user_state: None,
+            })
+            .collect::<Vec<_>>();
         if let Some(user_id) = personalization_user_id(&context.principal) {
-            hydrate_product_summaries(&mut result.items, user_id, &self.user_states).await?;
+            hydrate_product_search_items(&mut items, user_id, &self.user_states).await?;
         }
-        Ok(result)
+        let items = present_product_summaries(items, &self.assessments).await?;
+        Ok(CursoredResult {
+            cursor,
+            items,
+            total: result.total,
+        })
     }
+}
+
+pub(crate) async fn present_product_summaries<A>(
+    products: Vec<PersonalizedProductListingSearchItem>,
+    assessments: &A,
+) -> Result<Vec<PersonalizedProductListingSummary>, ProductListingContentAssessmentReadError>
+where
+    A: ProductListingContentAssessmentReader,
+{
+    let ids = products
+        .iter()
+        .map(|product| product.item.product_listing_id)
+        .collect::<Vec<_>>();
+    let current = assessments.find_current_assessments(&ids).await?;
+
+    Ok(products
+        .into_iter()
+        .map(|product| {
+            let decision = current
+                .get(&product.item.product_listing_id)
+                .map(|assessment| assessment.decision);
+            let show_all = product.user_state.as_ref().is_some_and(|state| {
+                state
+                    .content_visibility
+                    .show_unassessed_or_sensitive_content
+            });
+            let visible = may_show_product_listing_images(decision, show_all);
+            Personalized {
+                item: ProductListingSummary {
+                    product_listing_id: product.item.product_listing_id,
+                    product_listing_slug_id: product.item.product_listing_slug_id,
+                    event_id: product.item.event_id,
+                    shop_id: product.item.shop_id,
+                    seller_id: product.item.seller_id,
+                    shop_listing_id: product.item.shop_listing_id,
+                    shop_name: product.item.shop_name,
+                    shop_slug_id: product.item.shop_slug_id,
+                    title: product.item.title,
+                    display_price: product.item.display_price,
+                    price_valuation: product.item.price_valuation,
+                    availability: product.item.availability,
+                    lifecycle: product.item.lifecycle,
+                    url: product.item.url,
+                    view_url: product.item.view_url,
+                    images: product
+                        .item
+                        .images
+                        .into_iter()
+                        .map(
+                            |image| super::get_product_listing::ProductListingImageView {
+                                url: visible.then(|| image.url().clone()),
+                            },
+                        )
+                        .collect(),
+                    content_policy: decision,
+                    updated: product.item.updated,
+                },
+                user_state: product.user_state,
+            }
+        })
+        .collect())
 }
 
 async fn load_fx_rate_snapshot<UoW, F>(
@@ -373,6 +490,19 @@ impl From<ProductListingSearchReadError> for SearchProductListingsError {
     }
 }
 
+impl From<ProductListingContentAssessmentReadError> for SearchProductListingsError {
+    fn from(error: ProductListingContentAssessmentReadError) -> Self {
+        match error {
+            ProductListingContentAssessmentReadError::QueryFailed { source } => {
+                Self::ContentAssessmentQueryFailed { source }
+            }
+            ProductListingContentAssessmentReadError::InvalidPersistedState { source } => {
+                Self::ContentAssessmentStateInvalid { source }
+            }
+        }
+    }
+}
+
 impl From<ProductListingSummaryPersonalizationError> for SearchProductListingsError {
     fn from(error: ProductListingSummaryPersonalizationError) -> Self {
         match error {
@@ -410,7 +540,10 @@ mod tests {
     use money::Currency;
     use money::MonetaryAmount;
     use product_listing_core::{
-        listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
+        content_policy::{ContentPolicyDecision, SensitiveContentCategory},
+        listing_availability::ListingAvailability,
+        listing_lifecycle::ListingLifecycle,
+        product_listing_image::ProductListingImage,
     };
     use user_core::user_id::UserId;
 
@@ -473,6 +606,17 @@ mod tests {
     struct FakeUserStatesReader {
         state: SharedState,
     }
+
+    #[derive(Clone, Copy)]
+    struct EmptyAssessmentReader;
+
+    #[derive(Clone)]
+    struct StaticAssessmentReader {
+        assessments: HashMap<ProductListingId, crate::ports::ProductListingContentAssessment>,
+        requests: Arc<Mutex<Vec<Vec<ProductListingId>>>>,
+    }
+
+    struct FailingAssessmentReader;
 
     fn state() -> SharedState {
         Arc::new(Mutex::new(FakeState::default()))
@@ -645,6 +789,51 @@ mod tests {
     }
 
     #[async_trait::async_trait]
+    impl ProductListingContentAssessmentReader for EmptyAssessmentReader {
+        async fn find_current_assessments(
+            &self,
+            _product_listing_ids: &[ProductListingId],
+        ) -> Result<
+            HashMap<ProductListingId, crate::ports::ProductListingContentAssessment>,
+            ProductListingContentAssessmentReadError,
+        > {
+            Ok(HashMap::new())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductListingContentAssessmentReader for StaticAssessmentReader {
+        async fn find_current_assessments(
+            &self,
+            product_listing_ids: &[ProductListingId],
+        ) -> Result<
+            HashMap<ProductListingId, crate::ports::ProductListingContentAssessment>,
+            ProductListingContentAssessmentReadError,
+        > {
+            match self.requests.lock() {
+                Ok(mut requests) => requests.push(product_listing_ids.to_vec()),
+                Err(poisoned) => poisoned.into_inner().push(product_listing_ids.to_vec()),
+            }
+            Ok(self.assessments.clone())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductListingContentAssessmentReader for FailingAssessmentReader {
+        async fn find_current_assessments(
+            &self,
+            _product_listing_ids: &[ProductListingId],
+        ) -> Result<
+            HashMap<ProductListingId, crate::ports::ProductListingContentAssessment>,
+            ProductListingContentAssessmentReadError,
+        > {
+            Err(ProductListingContentAssessmentReadError::QueryFailed {
+                source: box_error(std::io::Error::other("assessment database unavailable")),
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
     impl ProductListingUserStateReader for FakeUserStatesReader {
         async fn find_for_user(
             &self,
@@ -670,6 +859,7 @@ mod tests {
         FakeFxRateSnapshotRepositoryFactory,
         FakeEmbeddingGenerator,
         FakeUserStatesReader,
+        EmptyAssessmentReader,
     > {
         SearchProductListingsHandler::new(
             FakeUnitOfWork {
@@ -685,6 +875,7 @@ mod tests {
             FakeUserStatesReader {
                 state: Arc::clone(state),
             },
+            EmptyAssessmentReader,
         )
     }
 
@@ -706,7 +897,7 @@ mod tests {
 
     fn search_result() -> Result<ProductListingSearchReadResult, url::ParseError> {
         Ok(ProductListingSearchReadResult {
-            items: vec![ProductListingSummary {
+            items: vec![ProductListingSearchItem {
                 product_listing_id: ProductListingId::new(),
                 product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
                 event_id: EventId::new(),
@@ -769,6 +960,105 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_apply_content_policy_to_summary_images_with_one_batched_lookup()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let cases = [
+            (None, false, false),
+            (None, true, true),
+            (Some(ContentPolicyDecision::Allowed), false, true),
+            (Some(ContentPolicyDecision::Allowed), true, true),
+            (
+                Some(ContentPolicyDecision::RequiresConsent(
+                    SensitiveContentCategory::NaziGermany,
+                )),
+                false,
+                false,
+            ),
+            (
+                Some(ContentPolicyDecision::RequiresConsent(
+                    SensitiveContentCategory::NaziGermany,
+                )),
+                true,
+                true,
+            ),
+        ];
+        let image_url = Url::parse("https://example.test/image.jpg")?;
+        let mut product_listing_ids = Vec::new();
+        let mut products = Vec::new();
+        let mut assessments = HashMap::new();
+
+        for (decision, show_all, _) in cases {
+            let product_listing_id = ProductListingId::new();
+            product_listing_ids.push(product_listing_id);
+            let mut summary = search_result()?.items.remove(0);
+            summary.product_listing_id = product_listing_id;
+            summary.images = IndexSet::from([ProductListingImage::new(image_url.clone())]);
+            if let Some(decision) = decision {
+                assessments.insert(
+                    product_listing_id,
+                    crate::ports::ProductListingContentAssessment {
+                        product_listing_id,
+                        source_event_id: summary.event_id,
+                        decision,
+                    },
+                );
+            }
+            let user_state = show_all.then(|| ProductListingUserState {
+                content_visibility: crate::user_state::ContentVisibilityUserState {
+                    show_unassessed_or_sensitive_content: true,
+                },
+                ..Default::default()
+            });
+            products.push(Personalized {
+                item: summary,
+                user_state,
+            });
+        }
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let reader = StaticAssessmentReader {
+            assessments,
+            requests: Arc::clone(&requests),
+        };
+
+        let products = present_product_summaries(products, &reader).await?;
+
+        for ((decision, _, visible), product) in cases.into_iter().zip(products) {
+            assert_eq!(decision, product.item.content_policy);
+            assert_eq!(
+                vec![
+                    crate::use_cases::queries::get_product_listing::ProductListingImageView {
+                        url: visible.then(|| image_url.clone()),
+                    }
+                ],
+                product.item.images
+            );
+        }
+        let requests = match requests.lock() {
+            Ok(requests) => requests,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        assert_eq!(vec![product_listing_ids], *requests);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_propagate_summary_content_assessment_reader_failure()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let products = vec![Personalized {
+            item: search_result()?.items.remove(0),
+            user_state: None,
+        }];
+
+        let result = present_product_summaries(products, &FailingAssessmentReader).await;
+
+        assert!(matches!(
+            result,
+            Err(ProductListingContentAssessmentReadError::QueryFailed { .. })
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_search_products_when_reader_succeeds() -> Result<(), Box<dyn std::error::Error>>
     {
         let state = state();
@@ -777,7 +1067,10 @@ mod tests {
 
         let result = handler(&state).execute(&context(), request()).await?;
 
-        assert_eq!(expected.items[0], result.items[0].item);
+        assert_eq!(
+            expected.items[0].product_listing_id,
+            result.items[0].item.product_listing_id
+        );
         assert_eq!(None, result.items[0].user_state);
         assert!(matches!(
             result.cursor.search_after,
@@ -797,7 +1090,10 @@ mod tests {
             .execute(&context(), request_with_text_query()?)
             .await?;
 
-        assert_eq!(expected.items[0], result.items[0].item);
+        assert_eq!(
+            expected.items[0].product_listing_id,
+            result.items[0].item.product_listing_id
+        );
         assert_eq!(None, result.items[0].user_state);
         assert!(matches!(
             result.cursor.search_after,
@@ -826,7 +1122,10 @@ mod tests {
             .execute(&context(), request_with_text_query()?)
             .await?;
 
-        assert_eq!(expected.items[0], result.items[0].item);
+        assert_eq!(
+            expected.items[0].product_listing_id,
+            result.items[0].item.product_listing_id
+        );
         assert_eq!(None, result.items[0].user_state);
         assert!(matches!(
             result.cursor.search_after,

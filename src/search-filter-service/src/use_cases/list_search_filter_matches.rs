@@ -615,6 +615,7 @@ mod tests {
                 sale_observation: None,
                 availability: Some(ListingAvailability::Available),
                 lifecycle: ListingLifecycle::Active,
+                content_policy: None,
                 url: url.clone(),
                 view_url: url,
                 images: IndexSet::new(),

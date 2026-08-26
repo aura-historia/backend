@@ -11,7 +11,6 @@ use product_listing_core::product_listing::{
 };
 use product_listing_core::product_listing_id::ProductListingKey;
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::prohibited_content::ProhibitedContent;
 use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_core::title::Title;
 use product_listing_service::use_cases::{
@@ -253,11 +252,5 @@ fn product_address(
 }
 
 fn product_images(values: Vec<Url>) -> indexmap::IndexSet<ProductListingImage> {
-    values
-        .into_iter()
-        .map(|url| ProductListingImage {
-            url,
-            prohibited_content: ProhibitedContent::Unknown,
-        })
-        .collect()
+    values.into_iter().map(ProductListingImage::new).collect()
 }

@@ -213,7 +213,7 @@ async fn should_support_core_business_relations() {
             NULL,
             'ACTIVE',
             'https://shop.example.com/product_listings/external-1',
-            '[{"url": "https://cdn.example.com/image.jpg", "prohibited_content": "NONE"}]'
+            '["https://cdn.example.com/image.jpg"]'
         );
 
         INSERT INTO product_listing_events (

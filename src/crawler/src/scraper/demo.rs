@@ -145,18 +145,13 @@ where
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductListingImageData {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<Url>,
-    pub prohibited_content: &'static str,
+    pub url: Url,
 }
 
 impl From<ProductListingImage> for ProductListingImageData {
     fn from(value: ProductListingImage) -> Self {
-        let url = value.prohibited_content.is_safe().then_some(value.url);
-
         Self {
-            url,
-            prohibited_content: value.prohibited_content.as_str(),
+            url: value.url().clone(),
         }
     }
 }

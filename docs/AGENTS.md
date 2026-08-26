@@ -40,3 +40,4 @@
 - `product-listing-inventory.md` — ProductListing rewrite scope and final scan checklist.
 - `storage.md` — canonical storage contracts.
 - `events/flow.md` — durable event and scheduled-flow contracts.
+- `swagger.yaml` — public REST contract

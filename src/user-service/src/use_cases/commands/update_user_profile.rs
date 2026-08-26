@@ -28,7 +28,7 @@ pub struct UpdateUserProfileCommand {
     pub language: PatchField<Language>,
     pub currency: PatchField<Currency>,
     pub measurement_unit: PatchField<MeasurementUnit>,
-    pub prohibited_content_consent: PatchField<bool>,
+    pub show_unassessed_or_sensitive_content: PatchField<bool>,
     pub structured_address: PatchField<StructuredAddress>,
 }
 
@@ -40,7 +40,7 @@ impl UpdateUserProfileCommand {
             && !self.language.is_changed()
             && !self.currency.is_changed()
             && !self.measurement_unit.is_changed()
-            && !self.prohibited_content_consent.is_changed()
+            && !self.show_unassessed_or_sensitive_content.is_changed()
             && !self.structured_address.is_changed()
     }
 }
@@ -226,10 +226,10 @@ fn apply_update(
     apply_optional_patch(&mut preferences.language, command.language);
     apply_optional_patch(&mut preferences.currency, command.currency);
     apply_optional_patch(&mut preferences.measurement_unit, command.measurement_unit);
-    match command.prohibited_content_consent {
+    match command.show_unassessed_or_sensitive_content {
         PatchField::Unchanged => {}
-        PatchField::Set(value) => preferences.prohibited_content_consent = value,
-        PatchField::Clear => preferences.prohibited_content_consent = false,
+        PatchField::Set(value) => preferences.show_unassessed_or_sensitive_content = value,
+        PatchField::Clear => preferences.show_unassessed_or_sensitive_content = false,
     }
     if preferences != preferences_before {
         outcome = outcome.combine(user.replace_preferences(preferences));
@@ -284,7 +284,7 @@ impl From<&User> for UserDetailsView {
             language: preferences.language,
             currency: preferences.currency,
             measurement_unit: preferences.measurement_unit,
-            prohibited_content_consent: preferences.prohibited_content_consent,
+            show_unassessed_or_sensitive_content: preferences.show_unassessed_or_sensitive_content,
             tier: user.account().tier,
             role: user.account().role,
             stripe_customer_id: user.account().stripe_customer_id.clone(),

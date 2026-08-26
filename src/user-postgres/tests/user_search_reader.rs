@@ -388,7 +388,7 @@ fn sample_user_with_profile(
             language: Some(Language::En),
             currency: Some(Currency::Gbp),
             measurement_unit: Some(MeasurementUnit::Imperial),
-            prohibited_content_consent: true,
+            show_unassessed_or_sensitive_content: true,
         },
         account: UserAccount {
             tier,

@@ -106,7 +106,7 @@ mod tests {
         SearchProductListingsUseCase,
     };
     use product_listing_service::user_state::{
-        NotificationUserState, ProductListingUserState, ProhibitedContentUserState,
+        ContentVisibilityUserState, NotificationUserState, ProductListingUserState,
         SearchFilterUserState, WatchlistUserState,
     };
     use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
@@ -331,7 +331,9 @@ mod tests {
                 watching: true,
                 notifications: false,
             },
-            prohibited_content: ProhibitedContentUserState { consent: false },
+            content_visibility: ContentVisibilityUserState {
+                show_unassessed_or_sensitive_content: false,
+            },
             notification: NotificationUserState {
                 unseen_notification_ids: vec![notification_id],
             },
@@ -359,7 +361,10 @@ mod tests {
         let body = body_json(response).await?;
         assert_eq!(true, body["userState"]["watchlist"]["watching"]);
         assert_eq!(false, body["userState"]["watchlist"]["notifications"]);
-        assert_eq!(false, body["userState"]["prohibitedContent"]["consent"]);
+        assert_eq!(
+            false,
+            body["userState"]["contentVisibility"]["showUnassessedOrSensitiveContent"]
+        );
         assert_eq!(
             json!([notification_id.to_string()]),
             body["userState"]["notification"]["unseenNotificationIds"]
@@ -480,6 +485,7 @@ mod tests {
                 url: Url::parse("https://shop.example/product-listings/1")?,
                 view_url: Url::parse("https://aura.example/product-listings/cabinet-abcdef")?,
                 images: Default::default(),
+                content_policy: None,
                 auction: ProductListingAuction::default(),
                 created: OffsetDateTime::UNIX_EPOCH,
                 updated: OffsetDateTime::UNIX_EPOCH,

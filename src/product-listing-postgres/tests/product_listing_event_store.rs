@@ -15,7 +15,7 @@ use product_listing_core::product_listing::{
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::prohibited_content::ProhibitedContent;
+
 use product_listing_core::title::Title;
 use product_listing_postgres::{
     SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventReaderFactory,
@@ -389,10 +389,9 @@ fn sample_product_with_auction(
     auction: ProductListingAuction,
 ) -> ProductListing {
     let mut images = IndexSet::new();
-    images.insert(ProductListingImage {
-        url: url(&format!("https://example.com/{slug}.jpg")),
-        prohibited_content: ProhibitedContent::None,
-    });
+    images.insert(ProductListingImage::new(url(&format!(
+        "https://example.com/{slug}.jpg"
+    ))));
     match ProductListing::create(NewProductListing {
         id: ProductListingId::new(),
         shop_id,

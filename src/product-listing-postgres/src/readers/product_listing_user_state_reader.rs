@@ -5,7 +5,7 @@ use product_listing_service::ports::{
     ProductListingUserStateLookup, ProductListingUserStateReadError, ProductListingUserStateReader,
 };
 use product_listing_service::user_state::{
-    NotificationUserState, ProductListingUserState, ProhibitedContentUserState,
+    ContentVisibilityUserState, NotificationUserState, ProductListingUserState,
     SearchFilterUserState, WatchlistUserState,
 };
 use search_filter_core::{
@@ -25,8 +25,7 @@ pub struct SqlxProductListingUserStateReader {
 #[derive(Debug, sqlx::FromRow)]
 struct ProductListingUserStateRow {
     product_listing_id: Option<uuid::Uuid>,
-    has_prohibited_content: Option<bool>,
-    user_prohibited_content_consent: bool,
+    user_show_unassessed_or_sensitive_content: bool,
     user_tier: String,
     watchlist_notifications: Option<bool>,
     selected_match_user_search_filter_id: Option<uuid::Uuid>,
@@ -41,8 +40,6 @@ struct ProductListingUserStateRow {
 enum ProductListingUserStateRowMappingError {
     #[error("product user state row was returned without a requested product")]
     MissingRequestedProductListing,
-    #[error("product user state row is missing prohibited-content input")]
-    MissingProhibitedContentInput,
     #[error("product user state has an invalid tier")]
     InvalidTier,
     #[error("unmatched product user state contains match fields")]
@@ -105,7 +102,7 @@ impl ProductListingUserStateReader for SqlxProductListingUserStateReader {
                 }
             })?;
 
-            if row.product_listing_id.is_some() || row.has_prohibited_content.is_some() {
+            if row.product_listing_id.is_some() {
                 return Err(ProductListingUserStateReadError::InvalidReadModel {
                     source: static_error("empty product user state lookup returned a product"),
                 });
@@ -140,7 +137,7 @@ const SELECT_PRODUCT_USER_STATES: &str = r#"
         WHERE NOT EXISTS (SELECT 1 FROM requested_products)
     ),
     authenticated_user AS (
-        SELECT prohibited_content_consent, tier
+        SELECT show_unassessed_or_sensitive_content, tier
         FROM users
         WHERE user_id = $1
     ),
@@ -212,15 +209,7 @@ const SELECT_PRODUCT_USER_STATES: &str = r#"
     )
     SELECT
         requested.product_listing_id,
-        CASE
-            WHEN requested.product_listing_id IS NULL OR product.product_listing_id IS NULL THEN NULL
-            ELSE EXISTS (
-                SELECT 1
-                FROM jsonb_array_elements(product.product_images) AS image
-                WHERE image ->> 'prohibited_content' IS DISTINCT FROM 'NONE'
-            )
-        END AS has_prohibited_content,
-        authenticated_user.prohibited_content_consent AS user_prohibited_content_consent,
+        authenticated_user.show_unassessed_or_sensitive_content AS user_show_unassessed_or_sensitive_content,
         authenticated_user.tier AS user_tier,
         watchlist.notifications AS watchlist_notifications,
         selected_match.user_search_filter_id AS selected_match_user_search_filter_id,
@@ -234,8 +223,7 @@ const SELECT_PRODUCT_USER_STATES: &str = r#"
         notification_state.unseen_notification_ids
     FROM authenticated_user authenticated_user
     CROSS JOIN requested_rows requested
-    LEFT JOIN product_listings product
-        ON product.product_listing_id = requested.product_listing_id
+
     LEFT JOIN product_listing_watchlist watchlist
         ON watchlist.user_id = $1
         AND watchlist.product_listing_id = requested.product_listing_id
@@ -255,9 +243,7 @@ fn product_user_state(
         .product_listing_id
         .map(ProductListingId::from)
         .ok_or(ProductListingUserStateRowMappingError::MissingRequestedProductListing)?;
-    let has_prohibited_content = row
-        .has_prohibited_content
-        .ok_or(ProductListingUserStateRowMappingError::MissingProhibitedContentInput)?;
+
     let tier = user_tier(&row.user_tier)?;
     let search_filter = search_filter_user_state(&row, tier)?;
 
@@ -268,8 +254,8 @@ fn product_user_state(
                 watching: row.watchlist_notifications.is_some(),
                 notifications: row.watchlist_notifications.unwrap_or(false),
             },
-            prohibited_content: ProhibitedContentUserState {
-                consent: !has_prohibited_content || row.user_prohibited_content_consent,
+            content_visibility: ContentVisibilityUserState {
+                show_unassessed_or_sensitive_content: row.user_show_unassessed_or_sensitive_content,
             },
             notification: NotificationUserState {
                 unseen_notification_ids: row

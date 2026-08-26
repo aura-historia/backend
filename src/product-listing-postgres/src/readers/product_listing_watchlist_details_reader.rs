@@ -10,6 +10,7 @@ use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use notification_core::notification_id::NotificationId;
 use platform_postgres::SqlxTransaction;
+use product_listing_core::content_policy::{ContentPolicyDecision, SensitiveContentCategory};
 use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
@@ -19,7 +20,6 @@ use product_listing_core::product_listing::{
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::prohibited_content::ProhibitedContent;
 use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_core::title::Title;
 use product_listing_service::ports::{
@@ -29,7 +29,7 @@ use product_listing_service::ports::{
     ProductListingWatchlistDetailsRequest,
 };
 use product_listing_service::user_state::{
-    NotificationUserState, ProductListingUserState, ProhibitedContentUserState,
+    ContentVisibilityUserState, NotificationUserState, ProductListingUserState,
     SearchFilterUserState, WatchlistUserState,
 };
 use search_filter_core::{
@@ -90,12 +90,14 @@ struct ProductListingDetailsRow {
     lifecycle: String,
     url: String,
     product_images: serde_json::Value,
+    content_policy_decision: Option<String>,
+    content_policy_category: Option<String>,
     auction_start: Option<OffsetDateTime>,
     auction_end: Option<OffsetDateTime>,
     created: OffsetDateTime,
     updated: OffsetDateTime,
     personalization_user_id: Option<uuid::Uuid>,
-    user_prohibited_content_consent: Option<bool>,
+    user_show_unassessed_or_sensitive_content: Option<bool>,
     user_tier: Option<String>,
     watchlist_notifications: Option<bool>,
     selected_match_user_search_filter_id: Option<uuid::Uuid>,
@@ -110,7 +112,6 @@ struct ProductListingDetailsRow {
 #[derive(Debug, Deserialize)]
 struct ProductListingImageJson {
     url: String,
-    prohibited_content: String,
 }
 
 impl SqlxProductListingWatchlistDetailsReaderFactory {
@@ -250,9 +251,12 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
         p.price_amount, p.price_currency, p.price_estimate_min_amount,
         p.price_estimate_min_currency, p.price_estimate_max_amount,
         p.price_estimate_max_currency, p.sale_observation_fx_rate_id, p.sale_observed_at, p.availability, p.lifecycle, p.url,
-        p.product_images, p.auction_start, p.auction_end, p.created, p.updated,
+        p.product_images,
+        assessment.decision AS content_policy_decision,
+        assessment.category AS content_policy_category,
+        p.auction_start, p.auction_end, p.created, p.updated,
         $2::uuid AS personalization_user_id,
-        authenticated_user.prohibited_content_consent AS user_prohibited_content_consent,
+        authenticated_user.show_unassessed_or_sensitive_content AS user_show_unassessed_or_sensitive_content,
         authenticated_user.tier AS user_tier,
         watchlist.notifications AS watchlist_notifications,
         selected_match.user_search_filter_id AS selected_match_user_search_filter_id,
@@ -268,6 +272,9 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
     FROM product_listings p
     JOIN shops shop ON shop.shop_id = p.shop_id
     JOIN shops seller ON seller.shop_id = p.seller_id
+    LEFT JOIN product_listing_content_assessments assessment
+        ON assessment.product_listing_id = p.product_listing_id
+        AND assessment.source_event_id = p.event_id
     LEFT JOIN users authenticated_user ON authenticated_user.user_id = $2
     LEFT JOIN product_listing_watchlist watchlist
         ON watchlist.user_id = $2
@@ -386,6 +393,10 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
         let address = address(&row)?;
         let parsed_images = images(row.product_images.clone())?;
         let user_state = user_state(&row, &parsed_images)?;
+        let content_policy = content_policy(
+            row.content_policy_decision.as_deref(),
+            row.content_policy_category.as_deref(),
+        )?;
         let product_title = localized_title(row.product_title_text, row.product_title_language)?;
         let product_description = localized_description(
             row.product_description_text,
@@ -435,6 +446,7 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                 view_url: append_utm_params(url.clone()),
                 url,
                 images: parsed_images,
+                content_policy,
                 auction: ProductListingAuction {
                     start: row.auction_start,
                     end: row.auction_end,
@@ -444,6 +456,20 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
             },
             user_state,
         })
+    }
+}
+
+fn content_policy(
+    decision: Option<&str>,
+    category: Option<&str>,
+) -> Result<Option<ContentPolicyDecision>, ()> {
+    match (decision, category) {
+        (None, None) => Ok(None),
+        (Some("ALLOWED"), None) => Ok(Some(ContentPolicyDecision::Allowed)),
+        (Some("REQUIRES_CONSENT"), Some("NAZI_GERMANY")) => Ok(Some(
+            ContentPolicyDecision::RequiresConsent(SensitiveContentCategory::NaziGermany),
+        )),
+        _ => Err(()),
     }
 }
 
@@ -463,14 +489,14 @@ fn sale_observation(
 
 fn user_state(
     row: &ProductListingDetailsRow,
-    images: &IndexSet<ProductListingImage>,
+    _images: &IndexSet<ProductListingImage>,
 ) -> Result<Option<ProductListingUserState>, ()> {
     if row.personalization_user_id.is_none() {
         return Ok(None);
     }
 
     let (stored_consent, tier) = match (
-        row.user_prohibited_content_consent,
+        row.user_show_unassessed_or_sensitive_content,
         row.user_tier.as_deref(),
     ) {
         (Some(consent), Some("FREE")) => (consent, "FREE"),
@@ -478,11 +504,6 @@ fn user_state(
         (Some(consent), Some("ULTIMATE")) => (consent, "ULTIMATE"),
         _ => return Err(()),
     };
-
-    let consent = images
-        .iter()
-        .all(|image| image.prohibited_content.is_safe())
-        || stored_consent;
     let search_filter = search_filter_user_state(row, Some(tier))?;
 
     Ok(Some(ProductListingUserState {
@@ -490,7 +511,9 @@ fn user_state(
             watching: row.watchlist_notifications.is_some(),
             notifications: row.watchlist_notifications.unwrap_or(false),
         },
-        prohibited_content: ProhibitedContentUserState { consent },
+        content_visibility: ContentVisibilityUserState {
+            show_unassessed_or_sensitive_content: stored_consent,
+        },
         notification: NotificationUserState {
             unseen_notification_ids: row
                 .unseen_notification_ids
@@ -641,11 +664,9 @@ fn images(value: serde_json::Value) -> Result<IndexSet<ProductListingImage>, ()>
         .map_err(|_| ())?
         .into_iter()
         .map(|image| {
-            Ok(ProductListingImage {
-                url: Url::parse(&image.url).map_err(|_| ())?,
-                prohibited_content: ProhibitedContent::from_code(&image.prohibited_content)
-                    .ok_or(())?,
-            })
+            Ok(ProductListingImage::new(
+                Url::parse(&image.url).map_err(|_| ())?,
+            ))
         })
         .collect()
 }

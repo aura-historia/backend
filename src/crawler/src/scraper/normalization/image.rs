@@ -1,15 +1,12 @@
 use super::error::NormalizationError;
 use crate::scraper::css_selector::rule::split_image_candidate_group;
-use product_listing_core::{
-    product_listing_image::ProductListingImage, prohibited_content::ProhibitedContent,
-};
+use product_listing_core::product_listing_image::ProductListingImage;
 use url::Url;
 
 /// Converts a list of raw image URL strings into [`ProductListingImage`] values.
 ///
 /// Each string is first trimmed. Absolute URLs are parsed directly; relative
-/// paths are resolved against `base_url`. All images start with
-/// [`ProhibitedContent::Unknown`] — content moderation runs separately.
+/// paths are resolved against `base_url`.
 pub(super) fn normalize_images(
     raw: Vec<String>,
     base_url: &Url,
@@ -28,10 +25,7 @@ pub(super) fn normalize_images(
                     raw: image_url.clone(),
                     source,
                 })?;
-            Ok(ProductListingImage {
-                url,
-                prohibited_content: ProhibitedContent::Unknown,
-            })
+            Ok(ProductListingImage::new(url))
         })
         .collect()
 }
@@ -44,8 +38,6 @@ pub(super) fn normalize_images(
 mod tests {
     use rstest::rstest;
     use url::Url;
-
-    use product_listing_core::prohibited_content::ProhibitedContent;
 
     use super::normalize_images;
     use crate::scraper::normalization::error::NormalizationError;
@@ -69,7 +61,7 @@ mod tests {
         let result =
             normalize_images(vec!["https://cdn.example.com/img.jpg".into()], &base_url()).unwrap();
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].url.as_str(), "https://cdn.example.com/img.jpg");
+        assert_eq!(result[0].url().as_str(), "https://cdn.example.com/img.jpg");
     }
 
     #[test]
@@ -84,9 +76,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.len(), 3);
-        assert_eq!(result[0].url.as_str(), "https://cdn.example.com/img1.jpg");
-        assert_eq!(result[1].url.as_str(), "https://cdn.example.com/img2.jpg");
-        assert_eq!(result[2].url.as_str(), "https://cdn.example.com/img3.jpg");
+        assert_eq!(result[0].url().as_str(), "https://cdn.example.com/img1.jpg");
+        assert_eq!(result[1].url().as_str(), "https://cdn.example.com/img2.jpg");
+        assert_eq!(result[2].url().as_str(), "https://cdn.example.com/img3.jpg");
     }
 
     #[rstest]
@@ -94,7 +86,7 @@ mod tests {
     #[case("images/item.jpg", "https://example.com/products/images/item.jpg")]
     fn should_resolve_relative_urls_against_base_url(#[case] input: &str, #[case] expected: &str) {
         let result = normalize_images(vec![input.into()], &base_url()).unwrap();
-        assert_eq!(result[0].url.as_str(), expected);
+        assert_eq!(result[0].url().as_str(), expected);
     }
 
     #[test]
@@ -104,22 +96,7 @@ mod tests {
             &base_url(),
         )
         .unwrap();
-        assert_eq!(result[0].url.as_str(), "https://cdn.example.com/img.jpg");
-    }
-
-    #[test]
-    fn should_set_prohibited_content_to_unknown_for_all_images() {
-        let result = normalize_images(
-            vec![
-                "https://cdn.example.com/img1.jpg".into(),
-                "https://cdn.example.com/img2.jpg".into(),
-            ],
-            &base_url(),
-        )
-        .unwrap();
-        for image in &result {
-            assert_eq!(image.prohibited_content, ProhibitedContent::Unknown);
-        }
+        assert_eq!(result[0].url().as_str(), "https://cdn.example.com/img.jpg");
     }
 
     #[test]
@@ -133,9 +110,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0].url.as_str(), "https://cdn.example.com/img1.jpg");
+        assert_eq!(result[0].url().as_str(), "https://cdn.example.com/img1.jpg");
         assert_eq!(
-            result[1].url.as_str(),
+            result[1].url().as_str(),
             "https://example.com/images/img2.jpg"
         );
     }
@@ -146,7 +123,7 @@ mod tests {
         let result =
             normalize_images(vec!["https://cdn.example.com/img.jpg".into()], &http_base).unwrap();
         // Absolute URL keeps its own scheme, not the base's.
-        assert!(result[0].url.as_str().starts_with("https://"));
+        assert!(result[0].url().as_str().starts_with("https://"));
     }
 
     // -----------------------------------------------------------------------

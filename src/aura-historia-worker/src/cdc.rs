@@ -55,11 +55,12 @@ pub enum CdcOperation {
 }
 
 impl WorkerQueue {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::ProductListingOpenSearch,
         Self::WatchlistNotification,
         Self::SearchFilterPercolator,
         Self::SearchFilterMatchNotification,
+        Self::ProductListingContentAssessment,
         Self::ProductListingEmbed,
         Self::ProductListingTranslate,
         Self::ShopOpenSearch,
@@ -122,6 +123,7 @@ pub enum WorkerQueue {
     WatchlistNotification,
     SearchFilterPercolator,
     SearchFilterMatchNotification,
+    ProductListingContentAssessment,
     ProductListingEmbed,
     ProductListingTranslate,
     ShopOpenSearch,
@@ -301,6 +303,7 @@ enum CdcFanoutScope {
     SearchFilterMatchNotification,
     SearchFilterProjection,
     WatchlistNotification,
+    ProductListingContentAssessment,
     ProductListingTranslation,
     ProductListingEmbedding,
     ProductListingOpenSearch,
@@ -340,6 +343,13 @@ impl CdcFanout {
         Self {
             registry,
             scope: CdcFanoutScope::SearchFilterProjection,
+        }
+    }
+
+    pub fn product_content_assessment(registry: WorkerQueueRegistry) -> Self {
+        Self {
+            registry,
+            scope: CdcFanoutScope::ProductListingContentAssessment,
         }
     }
 
@@ -482,6 +492,25 @@ impl CdcFanout {
                     Ok(jobs
                         .into_iter()
                         .filter(|job| job.target_queue == WorkerQueue::ProductListingEmbed)
+                        .collect())
+                } else {
+                    Err(CdcRouteError::UnsupportedTableForWorker(
+                        change.table.clone(),
+                    ))
+                }
+            }
+            CdcFanoutScope::ProductListingContentAssessment => {
+                if matches!(
+                    CdcTable::from(change.table.as_str()),
+                    CdcTable::ProductListingEvents
+                ) && change.operation == CdcOperation::Insert
+                {
+                    let jobs = product_event_jobs(change)?;
+                    Ok(jobs
+                        .into_iter()
+                        .filter(|job| {
+                            job.target_queue == WorkerQueue::ProductListingContentAssessment
+                        })
                         .collect())
                 } else {
                     Err(CdcRouteError::UnsupportedTableForWorker(
@@ -717,6 +746,15 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
     ) {
         jobs.push(domain_job(
             WorkerQueue::WatchlistNotification,
+            idempotency_key.clone(),
+            ordering_key.clone(),
+            DomainJobPayload::ProductListingEvent(base_job.clone()),
+        ));
+    }
+
+    if event_group == "DOMAIN" {
+        jobs.push(domain_job(
+            WorkerQueue::ProductListingContentAssessment,
             idempotency_key.clone(),
             ordering_key.clone(),
             DomainJobPayload::ProductListingEvent(base_job.clone()),
@@ -965,7 +1003,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let jobs = route_change(&product_event_change("PRODUCT_LISTING_CREATED", "DOMAIN"))?;
 
-        assert_eq!(3, jobs.len());
+        assert_eq!(4, jobs.len());
         assert!(
             jobs.iter()
                 .any(|job| job.target_queue == WorkerQueue::ProductListingOpenSearch)
@@ -973,6 +1011,10 @@ mod tests {
         assert!(
             jobs.iter()
                 .any(|job| job.target_queue == WorkerQueue::SearchFilterPercolator)
+        );
+        assert!(
+            jobs.iter()
+                .any(|job| job.target_queue == WorkerQueue::ProductListingContentAssessment)
         );
         assert!(
             jobs.iter()
@@ -996,6 +1038,25 @@ mod tests {
 
             assert_eq!(1, jobs.len(), "{event_type}");
             assert_eq!(WorkerQueue::ProductListingOpenSearch, jobs[0].target_queue);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_route_every_domain_product_event_to_content_assessment()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for event_type in [
+            "PRODUCT_LISTING_CREATED",
+            "PRODUCT_LISTING_PRICE_CHANGED",
+            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+        ] {
+            let jobs = route_change(&product_event_change(event_type, "DOMAIN"))?;
+
+            assert!(
+                jobs.iter()
+                    .any(|job| job.target_queue == WorkerQueue::ProductListingContentAssessment),
+                "{event_type}"
+            );
         }
         Ok(())
     }
@@ -1333,10 +1394,15 @@ mod tests {
         let (product_sender, mut product_receiver) = in_memory_queue(QueueConfig::new(8))?;
         let (percolator_sender, mut percolator_receiver) = in_memory_queue(QueueConfig::new(8))?;
         let (embed_sender, mut embed_receiver) = in_memory_queue(QueueConfig::new(8))?;
+        let (assessment_sender, mut assessment_receiver) = in_memory_queue(QueueConfig::new(8))?;
         let registry = WorkerQueueRegistry::new()
             .with_queue(WorkerQueue::ProductListingOpenSearch, product_sender)
             .with_queue(WorkerQueue::SearchFilterPercolator, percolator_sender)
-            .with_queue(WorkerQueue::ProductListingEmbed, embed_sender);
+            .with_queue(WorkerQueue::ProductListingEmbed, embed_sender)
+            .with_queue(
+                WorkerQueue::ProductListingContentAssessment,
+                assessment_sender,
+            );
         let fanout = CdcFanout::new(registry);
         let batch = CdcBatch {
             delivery_id: Some("delivery-1".to_owned()),
@@ -1346,10 +1412,11 @@ mod tests {
 
         let enqueued = fanout.ingest_batch(&batch).await?;
 
-        assert_eq!(3, enqueued);
+        assert_eq!(4, enqueued);
         assert!(product_receiver.recv().await.is_some());
         assert!(percolator_receiver.recv().await.is_some());
         assert!(embed_receiver.recv().await.is_some());
+        assert!(assessment_receiver.recv().await.is_some());
         Ok(())
     }
 
@@ -1371,16 +1438,6 @@ mod tests {
                         "PRODUCT_LISTING_AVAILABILITY_CHANGED",
                         "DOMAIN"
                     )],
-                })
-                .await?
-        );
-        assert_eq!(
-            0,
-            fanout
-                .ingest_batch(&CdcBatch {
-                    delivery_id: Some("delivery-policy".to_owned()),
-                    source: Some("postgres".to_owned()),
-                    changes: vec![product_event_change("POLICY_ACCEPTED", "POLICY")],
                 })
                 .await?
         );

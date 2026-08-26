@@ -371,11 +371,6 @@ static USER_SEARCH_FILTER_INDEX_MAPPING_STR: &str = include_str!(concat!(
     "opensearch/mappings/user_search_filters.json"
 ));
 
-static USERS_INDEX_MAPPING_STR: &str = include_str!(concat!(
-    env!("CARGO_WORKSPACE_DIR"),
-    "opensearch/mappings/users.json"
-));
-
 fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
     if let Err(err) = response.error_for_status_code_ref()
         && err.status_code() != Some(StatusCode::NOT_FOUND)
@@ -509,13 +504,6 @@ async fn set_up_indices() -> Result<(), Error> {
         client,
         "user_search_filters",
         mapping_with_inline_synonyms(USER_SEARCH_FILTER_INDEX_MAPPING_STR),
-    )
-    .await?;
-    ensure_index_exists(
-        client,
-        "users",
-        serde_json::from_str::<serde_json::Value>(USERS_INDEX_MAPPING_STR)
-            .expect("shouldn't fail parsing USERS_INDEX_MAPPING_STR as serde_json::Value"),
     )
     .await?;
 

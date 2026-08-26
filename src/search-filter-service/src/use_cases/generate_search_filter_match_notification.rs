@@ -17,10 +17,11 @@ use notification_service::ports::notification_creator::{
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::ports::{
-    ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError,
-    ProductListingCurrentRevisionGuard, ProductListingCurrentRevisionGuardFactory,
-    ProductListingSearchFilterMatchSource, ProductListingSearchFilterMatchSourceReadError,
-    ProductListingSearchFilterMatchSourceReader,
+    ProductListingContentAssessmentReadError, ProductListingContentAssessmentSnapshotReader,
+    ProductListingContentAssessmentSnapshotReaderFactory, ProductListingCurrentRevisionCheck,
+    ProductListingCurrentRevisionCheckError, ProductListingCurrentRevisionGuard,
+    ProductListingCurrentRevisionGuardFactory, ProductListingSearchFilterMatchSource,
+    ProductListingSearchFilterMatchSourceReadError, ProductListingSearchFilterMatchSourceReader,
     ProductListingSearchFilterMatchSourceReaderFactory,
 };
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -85,6 +86,16 @@ pub enum GenerateSearchFilterMatchNotificationError {
         #[source]
         source: BoxError,
     },
+    #[error("product content assessment snapshot read failed")]
+    ContentAssessmentReadFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("product content assessment snapshot persisted state is invalid")]
+    ContentAssessmentStateInvalid {
+        #[source]
+        source: BoxError,
+    },
     #[error("user tier entitlement lock failed")]
     UserTierEntitlementsLockFailed {
         #[source]
@@ -118,17 +129,19 @@ pub trait GenerateSearchFilterMatchNotificationUseCase: Send + Sync {
     >;
 }
 
-pub struct GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, N> {
+pub struct GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, C, N> {
     unit_of_work: U,
     matches: M,
     product_listings: P,
     quotas: Q,
     tier_entitlements: A,
     product_revision_guard: G,
+    content_assessments: C,
     notifications: N,
 }
 
-impl<U, M, P, Q, A, G, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, N> {
+impl<U, M, P, Q, A, G, C, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, C, N> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         unit_of_work: U,
         matches: M,
@@ -136,6 +149,7 @@ impl<U, M, P, Q, A, G, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, 
         quotas: Q,
         tier_entitlements: A,
         product_revision_guard: G,
+        content_assessments: C,
         notifications: N,
     ) -> Self {
         Self {
@@ -145,14 +159,15 @@ impl<U, M, P, Q, A, G, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, 
             quotas,
             tier_entitlements,
             product_revision_guard,
+            content_assessments,
             notifications,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, M, P, Q, A, G, N> GenerateSearchFilterMatchNotificationUseCase
-    for GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, N>
+impl<U, M, P, Q, A, G, C, N> GenerateSearchFilterMatchNotificationUseCase
+    for GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, C, N>
 where
     U: UnitOfWork,
     M: SearchFilterMatchNotificationSourceReaderFactory<U::Tx>,
@@ -160,6 +175,7 @@ where
     Q: SearchFilterMonthlyMatchQuotaReaderFactory<U::Tx>,
     A: UserTierEntitlementsFactory<U::Tx>,
     G: ProductListingCurrentRevisionGuardFactory<U::Tx>,
+    C: ProductListingContentAssessmentSnapshotReaderFactory<U::Tx>,
     N: NotificationCreatorFactory<U::Tx>,
 {
     #[tracing::instrument(
@@ -239,6 +255,13 @@ where
             );
         }
 
+        let content_policy = self
+            .content_assessments
+            .in_transaction(&mut tx)
+            .find_for_source_event(command.product_listing_id, command.origin_event_id)
+            .await
+            .map_err(content_assessment_read_error)?;
+
         let tier = self
             .tier_entitlements
             .in_transaction(&mut tx)
@@ -269,6 +292,7 @@ where
             &mut self.notifications.in_transaction(&mut tx),
             match_source,
             product,
+            content_policy,
         )
         .await?;
         tx.commit().await.map_err(commit_error)?;
@@ -298,6 +322,7 @@ async fn create_notification(
     notifications: &mut impl NotificationCreator,
     match_source: SearchFilterMatchNotificationSource,
     product: ProductListingSearchFilterMatchSource,
+    content_policy: Option<product_listing_core::content_policy::ContentPolicyDecision>,
 ) -> Result<NotificationCreationOutcome, GenerateSearchFilterMatchNotificationError> {
     let notification = NewNotification {
         notification: notification_core::notification::Notification::new(
@@ -314,7 +339,8 @@ async fn create_notification(
                     product_listing_slug_id: product.product_listing_slug_id,
                     shop_name: product.shop_name,
                     title: (!product.titles.is_empty()).then_some(product.titles),
-                    image: product.image,
+                    image: product.image.map(|image| image.url().clone()),
+                    content_policy,
                     url: product.url,
                     view_url: product.view_url,
                 },
@@ -369,6 +395,19 @@ fn product_source_read_error(
     }
 }
 
+fn content_assessment_read_error(
+    error: ProductListingContentAssessmentReadError,
+) -> GenerateSearchFilterMatchNotificationError {
+    match error {
+        ProductListingContentAssessmentReadError::InvalidPersistedState { source } => {
+            GenerateSearchFilterMatchNotificationError::ContentAssessmentStateInvalid { source }
+        }
+        error => GenerateSearchFilterMatchNotificationError::ContentAssessmentReadFailed {
+            source: box_error(error),
+        },
+    }
+}
+
 fn tier_entitlements_error(
     error: UserTierEntitlementsError,
 ) -> GenerateSearchFilterMatchNotificationError {
@@ -399,6 +438,7 @@ mod tests {
     use super::*;
     use indexmap::IndexSet;
     use product_listing_core::{
+        content_policy::{ContentPolicyDecision, SensitiveContentCategory},
         listing_availability::ListingAvailability,
         listing_lifecycle::ListingLifecycle,
         product_listing::{ProductListingAddress, ProductListingAuction, ProductListingPricing},
@@ -406,8 +446,11 @@ mod tests {
         product_listing_slug_id::ProductListingSlugId,
         shop_listing_id::ShopListingId,
     };
-    use product_listing_service::ports::ProductListingSearchFilterMatchShopType;
-    use product_listing_service::ports::ProductListingSearchFilterMatchSourceEventKind;
+    use product_listing_service::ports::{
+        ProductListingContentAssessmentReadError, ProductListingContentAssessmentSnapshotReader,
+        ProductListingContentAssessmentSnapshotReaderFactory,
+        ProductListingSearchFilterMatchShopType, ProductListingSearchFilterMatchSourceEventKind,
+    };
     use search_filter_core::user_search_filter_name::UserSearchFilterName;
     use shop_core::{
         seller_slug_id::SellerSlugId, shop_id::ShopId, shop_name::ShopName,
@@ -426,6 +469,7 @@ mod tests {
         commits: usize,
         quota_reads: usize,
         notification_commit_counts: Vec<usize>,
+        notification_content_policies: Vec<Option<ContentPolicyDecision>>,
     }
 
     #[derive(Clone)]
@@ -558,6 +602,52 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy)]
+    enum ContentAssessments {
+        Found(Option<ContentPolicyDecision>),
+        QueryFailure,
+        InvalidPersistedState,
+    }
+
+    struct ContentAssessmentReader(ContentAssessments);
+
+    #[async_trait::async_trait]
+    impl ProductListingContentAssessmentSnapshotReader for ContentAssessmentReader {
+        async fn find_for_source_event(
+            &mut self,
+            _product_listing_id: ProductListingId,
+            _source_event_id: EventId,
+        ) -> Result<Option<ContentPolicyDecision>, ProductListingContentAssessmentReadError>
+        {
+            match self.0 {
+                ContentAssessments::Found(decision) => Ok(decision),
+                ContentAssessments::QueryFailure => {
+                    Err(ProductListingContentAssessmentReadError::QueryFailed {
+                        source: box_error(std::io::Error::other("assessment query failed")),
+                    })
+                }
+                ContentAssessments::InvalidPersistedState => Err(
+                    ProductListingContentAssessmentReadError::InvalidPersistedState {
+                        source: box_error(std::io::Error::other("assessment state invalid")),
+                    },
+                ),
+            }
+        }
+    }
+
+    impl ProductListingContentAssessmentSnapshotReaderFactory<TestTransaction> for ContentAssessments {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut TestTransaction,
+        ) -> impl ProductListingContentAssessmentSnapshotReader + 'tx {
+            match self {
+                Self::Found(decision) => ContentAssessmentReader(Self::Found(*decision)),
+                Self::QueryFailure => ContentAssessmentReader(Self::QueryFailure),
+                Self::InvalidPersistedState => ContentAssessmentReader(Self::InvalidPersistedState),
+            }
+        }
+    }
+
     struct Quotas(Arc<Mutex<State>>);
     struct QuotaReader(Arc<Mutex<State>>);
 
@@ -636,6 +726,16 @@ mod tests {
             if let Ok(mut state) = self.0.lock() {
                 let commits = state.commits;
                 state.notification_commit_counts.push(commits);
+                state
+                    .notification_content_policies
+                    .extend(notifications.iter().filter_map(|notification| {
+                        match notification.notification.content() {
+                            NotificationContent::SearchFilter { snapshot, .. } => {
+                                Some(snapshot.content_policy)
+                            }
+                            _ => None,
+                        }
+                    }));
             }
             Ok(notifications
                 .iter()
@@ -748,6 +848,7 @@ mod tests {
             Quotas(Arc::clone(&state)),
             Tiers,
             ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
+            ContentAssessments::Found(Some(ContentPolicyDecision::Allowed)),
             Notifications(Arc::clone(&state)),
         );
 
@@ -760,6 +861,43 @@ mod tests {
             .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
         assert_eq!(1, state.commits);
         assert_eq!(vec![0], state.notification_commit_counts);
+        assert_eq!(
+            vec![Some(ContentPolicyDecision::Allowed)],
+            state.notification_content_policies
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_snapshot_requires_consent_content_policy() -> Result<(), Box<dyn Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let (command, match_source, product) = sources()?;
+        let handler = GenerateSearchFilterMatchNotificationHandler::new(
+            TestUnitOfWork(Arc::clone(&state)),
+            MatchSources::Found(Some(match_source)),
+            ProductListingSources(Some(product)),
+            Quotas(Arc::clone(&state)),
+            Tiers,
+            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
+            ContentAssessments::Found(Some(ContentPolicyDecision::RequiresConsent(
+                SensitiveContentCategory::NaziGermany,
+            ))),
+            Notifications(Arc::clone(&state)),
+        );
+
+        assert_eq!(
+            GenerateSearchFilterMatchNotificationResult::Created,
+            handler.execute(command).await?
+        );
+        let state = state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
+        assert_eq!(
+            vec![Some(ContentPolicyDecision::RequiresConsent(
+                SensitiveContentCategory::NaziGermany,
+            ))],
+            state.notification_content_policies
+        );
         Ok(())
     }
 
@@ -774,6 +912,7 @@ mod tests {
             Quotas(Arc::clone(&state)),
             Tiers,
             ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
+            ContentAssessments::Found(None),
             DuplicateNotifications,
         );
 
@@ -801,6 +940,7 @@ mod tests {
             Quotas(Arc::clone(&state)),
             Tiers,
             ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
+            ContentAssessments::Found(None),
             Notifications(Arc::clone(&state)),
         );
 
@@ -828,6 +968,7 @@ mod tests {
             Quotas(Arc::clone(&state)),
             Tiers,
             ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Stale),
+            ContentAssessments::Found(None),
             Notifications(Arc::clone(&state)),
         );
 
@@ -856,6 +997,7 @@ mod tests {
             Quotas(Arc::clone(&state)),
             Tiers,
             ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Error),
+            ContentAssessments::Found(None),
             Notifications(Arc::clone(&state)),
         );
 
@@ -884,6 +1026,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_map_content_assessment_reader_errors() -> Result<(), Box<dyn Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let (command, match_source, product) = sources()?;
+        let handler = GenerateSearchFilterMatchNotificationHandler::new(
+            TestUnitOfWork(Arc::clone(&state)),
+            MatchSources::Found(Some(match_source)),
+            ProductListingSources(Some(product)),
+            Quotas(Arc::clone(&state)),
+            Tiers,
+            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
+            ContentAssessments::QueryFailure,
+            Notifications(Arc::clone(&state)),
+        );
+
+        let error = handler
+            .execute(command)
+            .await
+            .err()
+            .ok_or_else(|| std::io::Error::other("expected error"))?;
+        assert!(matches!(
+            error,
+            GenerateSearchFilterMatchNotificationError::ContentAssessmentReadFailed { .. }
+        ));
+        assert!(matches!(
+            Error::source(&error).and_then(|source| {
+                source.downcast_ref::<ProductListingContentAssessmentReadError>()
+            }),
+            Some(ProductListingContentAssessmentReadError::QueryFailed { .. })
+        ));
+
+        let (command, match_source, product) = sources()?;
+        let handler = GenerateSearchFilterMatchNotificationHandler::new(
+            TestUnitOfWork(Arc::clone(&state)),
+            MatchSources::Found(Some(match_source)),
+            ProductListingSources(Some(product)),
+            Quotas(Arc::clone(&state)),
+            Tiers,
+            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
+            ContentAssessments::InvalidPersistedState,
+            Notifications(state),
+        );
+
+        let error = handler
+            .execute(command)
+            .await
+            .err()
+            .ok_or_else(|| std::io::Error::other("expected error"))?;
+        assert!(matches!(
+            error,
+            GenerateSearchFilterMatchNotificationError::ContentAssessmentStateInvalid { .. }
+        ));
+        assert!(Error::source(&error).is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_preserve_match_source_query_failure_in_service_error_chain()
     -> Result<(), Box<dyn Error>> {
         let state = Arc::new(Mutex::new(State::default()));
@@ -895,6 +1093,7 @@ mod tests {
             Quotas(Arc::clone(&state)),
             Tiers,
             ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
+            ContentAssessments::Found(None),
             Notifications(state),
         );
 

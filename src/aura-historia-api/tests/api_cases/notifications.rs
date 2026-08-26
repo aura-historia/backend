@@ -272,8 +272,8 @@ async fn should_return_localized_reason_specific_notification_payloads() {
         price_change["payload"]["change"]["oldPrice"]["amount"]
     );
     assert_eq!(
-        serde_json::json!("NONE"),
-        price_change["payload"]["image"]["prohibitedContent"]
+        serde_json::json!({ "url": null }),
+        price_change["payload"]["image"]
     );
     assert!(price_change["payload"]["shopId"].as_str().is_some());
     assert!(price_change["payload"]["shopListingId"].as_str().is_some());
@@ -357,7 +357,7 @@ async fn should_return_localized_reason_specific_notification_payloads() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_filter_notification_image_urls_by_current_prohibited_content_consent() {
+async fn should_filter_notification_image_urls_by_current_show_unassessed_or_sensitive_content() {
     let denied_user_id = seed_user_with_consent("USER", false).await;
     let allowed_user_id = seed_user_with_consent("USER", true).await;
     let denied_token = notification_token(denied_user_id).await;
@@ -367,11 +367,7 @@ async fn should_filter_notification_image_urls_by_current_prohibited_content_con
 
     let denied = list_notification_page(&denied_token, 1, None).await;
     let denied_image = &denied["items"][0]["payload"]["image"];
-    assert_eq!(
-        serde_json::json!("UNKNOWN"),
-        denied_image["prohibitedContent"]
-    );
-    assert!(denied_image.get("url").is_none());
+    assert_eq!(serde_json::json!({ "url": null }), *denied_image);
     assert_eq!(
         serde_json::Value::Null,
         denied["items"][0]["payload"]["change"]["newAvailability"]
@@ -379,12 +375,8 @@ async fn should_filter_notification_image_urls_by_current_prohibited_content_con
 
     let allowed = list_notification_page(&allowed_token, 1, None).await;
     assert_eq!(
-        serde_json::json!("https://unsafe.shop.example/image.jpg"),
-        allowed["items"][0]["payload"]["image"]["url"]
-    );
-    assert_eq!(
-        serde_json::json!("UNKNOWN"),
-        allowed["items"][0]["payload"]["image"]["prohibitedContent"]
+        serde_json::json!({ "url": "https://unsafe.shop.example/image.jpg" }),
+        allowed["items"][0]["payload"]["image"]
     );
     assert_eq!(
         serde_json::Value::Null,
@@ -680,10 +672,7 @@ async fn seed_unsafe_image_notification(user_id: UserId) {
                 "product_listing_slug_id": "unsafe-product-abcdef",
                 "shop_name": "Unsafe Shop",
                 "title": null,
-                "image": {
-                    "url": "https://unsafe.shop.example/image.jpg",
-                    "prohibited_content": "Unknown"
-                },
+                "image": "https://unsafe.shop.example/image.jpg",
                 "url": "https://unsafe.shop.example/product",
                 "view_url": "https://aura-historia.example/product"
             },
@@ -810,10 +799,7 @@ async fn seed_notification_payloads(user_id: UserId) {
         { "language": "en", "title": "Violin title" },
         { "language": "de", "title": "Geigentitel" }
     ]);
-    let image = serde_json::json!({
-        "url": "https://shop.example/product.jpg",
-        "prohibited_content": "None"
-    });
+    let image = serde_json::json!("https://shop.example/product.jpg");
 
     seed_notification_with_payload(
         user_id,

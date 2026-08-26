@@ -101,7 +101,7 @@ where
             next_cursor: page.next_cursor,
             presentation_preferences: NotificationPresentationPreferences {
                 language: request.languages.first().copied().unwrap_or(Language::En),
-                prohibited_content_consent: page.prohibited_content_consent,
+                show_unassessed_or_sensitive_content: page.show_unassessed_or_sensitive_content,
             },
         })
     }

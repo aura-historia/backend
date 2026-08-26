@@ -1,4 +1,8 @@
 pub mod partner_product_listing_authorizer;
+pub mod product_listing_content_assessment_reader;
+pub mod product_listing_content_assessment_snapshot_reader;
+pub mod product_listing_content_assessment_source_reader;
+pub mod product_listing_content_assessment_writer;
 pub mod product_listing_current_revision_guard;
 pub mod product_listing_details_batch_reader;
 pub mod product_listing_details_reader;
@@ -25,6 +29,23 @@ pub mod watchlist_notification_recipient_reader;
 pub use partner_product_listing_authorizer::{
     PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
     PartnerProductListingAuthorizerFactory,
+};
+pub use product_listing_content_assessment_reader::{
+    ProductListingContentAssessment, ProductListingContentAssessmentReadError,
+    ProductListingContentAssessmentReader,
+};
+pub use product_listing_content_assessment_snapshot_reader::{
+    ProductListingContentAssessmentSnapshotReader,
+    ProductListingContentAssessmentSnapshotReaderFactory,
+};
+pub use product_listing_content_assessment_source_reader::{
+    ProductListingContentAssessmentSource, ProductListingContentAssessmentSourceReadError,
+    ProductListingContentAssessmentSourceReader,
+};
+pub use product_listing_content_assessment_writer::{
+    ProductListingContentAssessmentWrite, ProductListingContentAssessmentWriteError,
+    ProductListingContentAssessmentWriteOutcome, ProductListingContentAssessmentWriter,
+    ProductListingContentAssessmentWriterFactory,
 };
 pub use product_listing_current_revision_guard::{
     ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError,

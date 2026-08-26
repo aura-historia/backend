@@ -14,7 +14,7 @@ use product_listing_core::product_listing::{
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::prohibited_content::ProhibitedContent;
+
 use product_listing_core::title::Title;
 use product_listing_postgres::{
     SqlxProductListingEventStoreFactory, SqlxProductListingRepositoryFactory,
@@ -101,7 +101,11 @@ async fn should_join_watchlisted_product_localization_and_user_state() {
     };
     assert!(user_state.watchlist.watching);
     assert!(!user_state.watchlist.notifications);
-    assert!(user_state.prohibited_content.consent);
+    assert!(
+        !user_state
+            .content_visibility
+            .show_unassessed_or_sensitive_content
+    );
     assert!(!user_state.search_filter.matched);
 }
 
@@ -350,17 +354,21 @@ async fn insert_translation(
     }
 }
 
-async fn seed_user(pool: &sqlx::PgPool, tier: &str, prohibited_content_consent: bool) -> UserId {
+async fn seed_user(
+    pool: &sqlx::PgPool,
+    tier: &str,
+    show_unassessed_or_sensitive_content: bool,
+) -> UserId {
     let user_id = UserId::new();
     let result = sqlx::query(
         r#"
-        INSERT INTO users (user_id, email, prohibited_content_consent, tier, role)
+        INSERT INTO users (user_id, email, show_unassessed_or_sensitive_content, tier, role)
         VALUES ($1, $2, $3, $4, $5)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(format!("{user_id}@example.test"))
-    .bind(prohibited_content_consent)
+    .bind(show_unassessed_or_sensitive_content)
     .bind(tier)
     .bind("USER")
     .execute(pool)
@@ -407,10 +415,9 @@ fn sample_product(
     description: Option<Localized<Language, Description>>,
 ) -> ProductListing {
     let mut images = IndexSet::new();
-    images.insert(ProductListingImage {
-        url: url(&format!("https://example.com/{slug}.jpg")),
-        prohibited_content: ProhibitedContent::None,
-    });
+    images.insert(ProductListingImage::new(url(&format!(
+        "https://example.com/{slug}.jpg"
+    ))));
 
     match ProductListing::create(NewProductListing {
         id: ProductListingId::new(),

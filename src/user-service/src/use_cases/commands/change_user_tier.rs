@@ -406,7 +406,7 @@ mod tests {
             language: None,
             currency: None,
             measurement_unit: None,
-            prohibited_content_consent: false,
+            show_unassessed_or_sensitive_content: false,
             tier: UserTier::Free,
             role,
             stripe_customer_id: None,

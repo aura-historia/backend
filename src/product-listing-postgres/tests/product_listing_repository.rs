@@ -19,7 +19,6 @@ use product_listing_core::product_listing_id::{ProductListingId, ProductListingK
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
-use product_listing_core::prohibited_content::ProhibitedContent;
 use product_listing_core::title::Title;
 use product_listing_postgres::{
     SqlxProductListingEventStoreFactory, SqlxProductListingRepositoryFactory,
@@ -585,10 +584,9 @@ fn rehydrate_product_for_update(
 
 fn sample_product(slug: &str, shop_id: ShopId, seller_id: ShopId) -> ProductListing {
     let mut images = IndexSet::new();
-    images.insert(ProductListingImage {
-        url: url(&format!("https://example.com/{slug}.jpg")),
-        prohibited_content: ProhibitedContent::None,
-    });
+    images.insert(ProductListingImage::new(url(&format!(
+        "https://example.com/{slug}.jpg"
+    ))));
     match ProductListing::create(NewProductListing {
         id: product_listing_core::product_listing_id::ProductListingId::new(),
         shop_id,

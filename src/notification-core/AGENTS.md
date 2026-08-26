@@ -14,7 +14,7 @@
 - Typed `NotificationContent` owns semantic source plus immutable display snapshot; kind is derived. Watchlist price changes keep old/new prices as optional factual source-currency values; availability changes keep optional old/new `ListingAvailability` values; no FX conversion belongs here.
 - Watchlist/search-filter ProductListing titles are optional.
 - View types may carry created/updated timestamps.
-- `presentation` owns the notification image presentation result and the centralized prohibited-content consent policy. It preserves the snapshot classification while optionally omitting the image URL.
+- `presentation` owns notification image presentation and reuses the centralized listing content-visibility policy. It preserves the listing-level snapshot assessment while optionally redacting the image URL.
 - No transport or runtime glue.
 
 ## Ownership

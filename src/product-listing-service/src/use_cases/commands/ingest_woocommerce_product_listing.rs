@@ -26,7 +26,7 @@ use product_listing_core::product_listing::{
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::prohibited_content::ProhibitedContent;
+
 use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_core::title::Title;
 use shop_core::partner_status::ShopPartnerStatus;
@@ -544,10 +544,7 @@ fn listing_data(
     let images = command
         .image_urls
         .into_iter()
-        .map(|url| ProductListingImage {
-            url,
-            prohibited_content: ProhibitedContent::Unknown,
-        })
+        .map(ProductListingImage::new)
         .collect();
     Ok(WoocommerceListingData {
         shop_listing_id: command.shop_listing_id,

@@ -51,8 +51,7 @@ pub enum ProductListingRepositoryError {
     InvalidProductListingImagesPersisted,
     #[error("persisted product image URL is invalid")]
     InvalidProductListingImageUrlPersisted,
-    #[error("persisted product image prohibited-content value is invalid")]
-    InvalidProductListingImageProhibitedContentPersisted,
+
     #[error("persisted aggregate state is invalid")]
     InvalidAggregateStatePersisted,
 }

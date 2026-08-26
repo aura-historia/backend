@@ -50,7 +50,7 @@ pub struct UserPreferences {
     pub language: Option<Language>,
     pub currency: Option<Currency>,
     pub measurement_unit: Option<MeasurementUnit>,
-    pub prohibited_content_consent: bool,
+    pub show_unassessed_or_sensitive_content: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -278,7 +278,7 @@ mod tests {
         assert_eq!(None, preferences.language);
         assert_eq!(None, preferences.currency);
         assert_eq!(None, preferences.measurement_unit);
-        assert!(!preferences.prohibited_content_consent);
+        assert!(!preferences.show_unassessed_or_sensitive_content);
     }
 
     #[test]
@@ -437,7 +437,7 @@ mod tests {
         let mut user =
             User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
         let preferences = UserPreferences {
-            prohibited_content_consent: true,
+            show_unassessed_or_sensitive_content: true,
             ..Default::default()
         };
 

@@ -1,4 +1,4 @@
-use crate::mapping::{NotificationRow, mapping_error};
+use crate::mapping::{NotificationRow, content_policy_from_assessment, mapping_error};
 use application::error::box_error;
 use notification_core::{notification::Notification, notification_id::NotificationId};
 use notification_service::ports::notification_list_reader::{
@@ -34,7 +34,9 @@ struct NotificationListRow {
     seen: Option<bool>,
     created: Option<OffsetDateTime>,
     updated: Option<OffsetDateTime>,
-    prohibited_content_consent: bool,
+    show_unassessed_or_sensitive_content: bool,
+    content_policy_decision: Option<String>,
+    content_policy_category: Option<String>,
 }
 
 impl NotificationListRow {
@@ -52,7 +54,9 @@ impl NotificationListRow {
             seen,
             created,
             updated,
-            prohibited_content_consent: _,
+            show_unassessed_or_sensitive_content: _,
+            content_policy_decision: _,
+            content_policy_category: _,
         } = self;
         let Some(notification_id) = notification_id else {
             return Ok(None);
@@ -110,7 +114,7 @@ impl NotificationListReader for SqlxNotificationListReader {
                 source: box_error(source),
             })?;
         let rows = sqlx::query_as::<_, NotificationListRow>(
-            "WITH notification_page AS (SELECT n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_listing_id, n.user_search_filter_id, n.partner_shop_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notifications n WHERE n.user_id = $1 AND ($2::timestamptz IS NULL OR (n.created, n.notification_id) < ($2, $3)) ORDER BY n.created DESC, n.notification_id DESC LIMIT $4) SELECT p.notification_id, p.user_id, p.kind, p.origin_event_id, p.product_listing_id, p.user_search_filter_id, p.partner_shop_application_id, p.payload_version, p.payload, p.seen, p.created, p.updated, u.prohibited_content_consent FROM users u LEFT JOIN notification_page p ON TRUE WHERE u.user_id = $1 ORDER BY p.created DESC NULLS LAST, p.notification_id DESC NULLS LAST",
+            "WITH notification_page AS (SELECT n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_listing_id, n.user_search_filter_id, n.partner_shop_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notifications n WHERE n.user_id = $1 AND ($2::timestamptz IS NULL OR (n.created, n.notification_id) < ($2, $3)) ORDER BY n.created DESC, n.notification_id DESC LIMIT $4) SELECT p.notification_id, p.user_id, p.kind, p.origin_event_id, p.product_listing_id, p.user_search_filter_id, p.partner_shop_application_id, p.payload_version, p.payload, p.seen, p.created, p.updated, u.show_unassessed_or_sensitive_content, a.decision AS content_policy_decision, a.category AS content_policy_category FROM users u LEFT JOIN notification_page p ON TRUE LEFT JOIN product_listing_content_assessments a ON a.product_listing_id = p.product_listing_id WHERE u.user_id = $1 ORDER BY p.created DESC NULLS LAST, p.notification_id DESC NULLS LAST",
         )
         .bind(uuid::Uuid::from(user_id))
         .bind(cursor.map(|cursor| cursor.created))
@@ -122,11 +126,18 @@ impl NotificationListReader for SqlxNotificationListReader {
             source: box_error(source),
         })?;
 
-        let prohibited_content_consent = rows
+        let show_unassessed_or_sensitive_content = rows
             .first()
-            .is_some_and(|row| row.prohibited_content_consent);
+            .is_some_and(|row| row.show_unassessed_or_sensitive_content);
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
+            let content_policy = content_policy_from_assessment(
+                row.content_policy_decision.clone(),
+                row.content_policy_category.clone(),
+            )
+            .map_err(|error| NotificationListReadError::InvalidReadModel {
+                source: mapping_error(error),
+            })?;
             let Some(row) = row.notification_row()? else {
                 continue;
             };
@@ -134,12 +145,13 @@ impl NotificationListReader for SqlxNotificationListReader {
             let created = row.created;
             let updated = row.updated;
             let seen = row.seen;
-            let content = Notification::try_from(row)
+            let mut content = Notification::try_from(row)
                 .map_err(|error| NotificationListReadError::InvalidReadModel {
                     source: mapping_error(error),
                 })?
                 .content()
                 .clone();
+            content.set_product_listing_content_policy(content_policy);
             items.push(NotificationListItem {
                 notification_id,
                 content,
@@ -164,7 +176,7 @@ impl NotificationListReader for SqlxNotificationListReader {
         Ok(NotificationListPage {
             items,
             next_cursor,
-            prohibited_content_consent,
+            show_unassessed_or_sensitive_content,
         })
     }
 }

@@ -7,6 +7,7 @@ use domain_primitives::event_id::EventId;
 use indexmap::IndexSet;
 use localization::Language;
 use localization::Localized;
+use product_listing_core::content_policy::ContentPolicyDecision;
 use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
@@ -58,6 +59,7 @@ pub struct ProductListingDetailsReadModel {
     pub url: Url,
     pub view_url: Url,
     pub images: IndexSet<ProductListingImage>,
+    pub content_policy: Option<ContentPolicyDecision>,
     pub auction: ProductListingAuction,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
