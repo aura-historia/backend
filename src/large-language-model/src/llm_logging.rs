@@ -64,7 +64,6 @@ impl std::fmt::Display for LlmProvider {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmModel {
-    Gemini25FlashLite,
     Gemini31FlashLite,
     Gemini31ProPreview,
     GeminiEmbedding2Preview0325,
@@ -75,7 +74,6 @@ pub enum LlmModel {
 impl LlmModel {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Gemini25FlashLite => "gemini-2.5-flash-lite",
             Self::Gemini31FlashLite => "gemini-3.1-flash-lite",
             Self::Gemini31ProPreview => "gemini-3.1-pro-preview",
             Self::GeminiEmbedding2Preview0325 => "gemini-embedding-2-preview-03-25",

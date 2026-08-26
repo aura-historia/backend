@@ -251,7 +251,7 @@ fn init_crawler_logging(
     let stdout_layer = tracing_subscriber::fmt::layer()
         .json()
         .with_current_span(true)
-        .with_span_list(false)
+        .with_span_list(true)
         .with_ansi(false);
 
     if let (Some(config), Some(client)) = (cloudwatch_config, cloudwatch_client) {
@@ -260,7 +260,7 @@ fn init_crawler_logging(
                 tracing_subscriber::fmt::layer()
                     .json()
                     .with_current_span(true)
-                    .with_span_list(false)
+                    .with_span_list(true)
                     .with_ansi(false),
             )
             .with_code_location(false)
