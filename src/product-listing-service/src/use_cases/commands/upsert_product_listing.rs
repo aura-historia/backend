@@ -39,14 +39,14 @@ pub struct UpsertProductListingCommand {
     pub address: ProductListingAddress,
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
-    pub price: Option<Price>,
-    pub price_estimate_min: Option<Price>,
-    pub price_estimate_max: Option<Price>,
+    pub price: PatchField<Price>,
+    pub price_estimate_min: PatchField<Price>,
+    pub price_estimate_max: PatchField<Price>,
     pub availability: PatchField<ListingAvailability>,
     pub url: Option<Url>,
-    pub images: IndexSet<ProductListingImage>,
-    pub auction_start: Option<time::OffsetDateTime>,
-    pub auction_end: Option<time::OffsetDateTime>,
+    pub images: PatchField<IndexSet<ProductListingImage>>,
+    pub auction_start: PatchField<time::OffsetDateTime>,
+    pub auction_end: PatchField<time::OffsetDateTime>,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpsertProductListingResult {
@@ -331,19 +331,22 @@ impl UpsertProductListingCommand {
                 .or_else(|| Some(Localized::new(Language::En, Title::from("")))),
             description: self.description,
             pricing: ProductListingPricing {
-                price: self.price,
-                price_estimate_min: self.price_estimate_min,
-                price_estimate_max: self.price_estimate_max,
+                price: match self.price {
+                    PatchField::Set(price) => Some(price),
+                    PatchField::Unchanged | PatchField::Clear => None,
+                },
+                price_estimate_min: optional_patch_into_value(self.price_estimate_min),
+                price_estimate_max: optional_patch_into_value(self.price_estimate_max),
             },
             availability: match self.availability {
                 PatchField::Unchanged | PatchField::Clear => None,
                 PatchField::Set(availability) => Some(availability),
             },
             url,
-            images: self.images,
+            images: collection_patch_into_value(self.images),
             auction: ProductListingAuction {
-                start: self.auction_start,
-                end: self.auction_end,
+                start: optional_patch_into_value(self.auction_start),
+                end: optional_patch_into_value(self.auction_end),
             },
         })
     }
@@ -352,15 +355,16 @@ fn apply_update(
     product: &mut ProductListing,
     command: &UpsertProductListingCommand,
 ) -> Result<(), UpsertProductListingError> {
-    let pricing = ProductListingPricing {
-        price: command.price.or(product.pricing().price),
-        price_estimate_min: command
-            .price_estimate_min
-            .or(product.pricing().price_estimate_min),
-        price_estimate_max: command
-            .price_estimate_max
-            .or(product.pricing().price_estimate_max),
-    };
+    let mut pricing = product.pricing();
+    apply_optional_patch(&mut pricing.price, command.price.clone());
+    apply_optional_patch(
+        &mut pricing.price_estimate_min,
+        command.price_estimate_min.clone(),
+    );
+    apply_optional_patch(
+        &mut pricing.price_estimate_max,
+        command.price_estimate_max.clone(),
+    );
     product.replace_pricing(pricing)?;
     match command.availability {
         PatchField::Unchanged => {}
@@ -374,19 +378,47 @@ fn apply_update(
     if let Some(url) = &command.url {
         product.change_url(url.clone())?;
     }
-    product.replace_images(command.images.clone())?;
-    if command.auction_start.is_some() || command.auction_end.is_some() {
-        let mut auction = product.auction();
-        if let Some(value) = command.auction_start {
-            auction.start = Some(value);
+    match &command.images {
+        PatchField::Unchanged => {}
+        PatchField::Set(images) => {
+            product.replace_images(images.clone())?;
         }
-        if let Some(value) = command.auction_end {
-            auction.end = Some(value);
+        PatchField::Clear => {
+            product.replace_images(IndexSet::new())?;
         }
-        product.replace_auction(auction)?;
     }
+    let mut auction = product.auction();
+    apply_optional_patch(&mut auction.start, command.auction_start.clone());
+    apply_optional_patch(&mut auction.end, command.auction_end.clone());
+    product.replace_auction(auction)?;
     Ok(())
 }
+
+fn apply_optional_patch<T>(field: &mut Option<T>, patch: PatchField<T>) {
+    match patch {
+        PatchField::Unchanged => {}
+        PatchField::Set(value) => *field = Some(value),
+        PatchField::Clear => *field = None,
+    }
+}
+
+fn optional_patch_into_value<T>(patch: PatchField<T>) -> Option<T> {
+    match patch {
+        PatchField::Set(value) => Some(value),
+        PatchField::Unchanged | PatchField::Clear => None,
+    }
+}
+
+fn collection_patch_into_value<T>(patch: PatchField<IndexSet<T>>) -> IndexSet<T>
+where
+    T: Eq + std::hash::Hash,
+{
+    match patch {
+        PatchField::Set(value) => value,
+        PatchField::Unchanged | PatchField::Clear => IndexSet::new(),
+    }
+}
+
 fn partner_actor(principal: &Principal) -> Option<UserId> {
     match principal {
         Principal::User(id) | Principal::DelegatedUser { user_id: id, .. } => Some(*id),
@@ -450,5 +482,313 @@ impl From<ProductListingRepositoryError> for UpsertProductListingError {
 impl From<ProductListingEventStoreError> for UpsertProductListingError {
     fn from(_: ProductListingEventStoreError) -> Self {
         Self::EventStoreFailed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use money::{Currency, MonetaryAmount};
+    use product_listing_core::product_listing::ProductListingEventPayload;
+    use product_listing_core::prohibited_content::ProhibitedContent;
+
+    fn price(amount: u64) -> Price {
+        Price::new(MonetaryAmount::from(amount), Currency::Eur)
+    }
+
+    fn command(price: PatchField<Price>) -> UpsertProductListingCommand {
+        UpsertProductListingCommand {
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shop_listing_id: ShopListingId::from("listing"),
+            address: ProductListingAddress::default(),
+            title: None,
+            description: None,
+            price,
+            price_estimate_min: PatchField::Unchanged,
+            price_estimate_max: PatchField::Unchanged,
+            availability: PatchField::Unchanged,
+            url: None,
+            images: PatchField::Unchanged,
+            auction_start: PatchField::Unchanged,
+            auction_end: PatchField::Unchanged,
+        }
+    }
+
+    fn listing_with_price(value: Option<Price>) -> ProductListing {
+        listing_with_state(
+            ProductListingPricing {
+                price: value,
+                ..Default::default()
+            },
+            IndexSet::new(),
+            ProductListingAuction::default(),
+        )
+    }
+
+    fn listing_with_state(
+        pricing: ProductListingPricing,
+        images: IndexSet<ProductListingImage>,
+        auction: ProductListingAuction,
+    ) -> ProductListing {
+        ProductListing::create(NewProductListing {
+            id: ProductListingId::new(),
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shop_listing_id: ShopListingId::from("listing"),
+            address: ProductListingAddress::default(),
+            title: None,
+            description: None,
+            pricing,
+            availability: None,
+            url: Url::parse("https://example.com/listing")
+                .unwrap_or_else(|error| panic!("url: {error}")),
+            images,
+            auction,
+        })
+        .unwrap_or_else(|error| panic!("listing: {error}"))
+    }
+
+    #[test]
+    fn should_apply_main_price_patch_for_existing_listing() {
+        for (patch, expected) in [
+            (PatchField::Unchanged, Some(price(100))),
+            (PatchField::Set(price(120)), Some(price(120))),
+            (PatchField::Clear, None),
+        ] {
+            let mut listing = listing_with_price(Some(price(100)));
+            listing.take_pending_event_payloads();
+            let changed = patch.is_changed();
+            let update = command(patch);
+
+            apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
+
+            assert_eq!(expected, listing.pricing().price);
+            assert_eq!(changed, !listing.pending_event_payloads().is_empty());
+        }
+    }
+
+    #[test]
+    fn should_apply_estimate_patch_intent_for_existing_listing() {
+        for (field, patch, expected) in [
+            ("min", PatchField::Unchanged, Some(price(100))),
+            ("min", PatchField::Set(price(120)), Some(price(120))),
+            ("min", PatchField::Clear, None),
+            ("max", PatchField::Unchanged, Some(price(200))),
+            ("max", PatchField::Set(price(220)), Some(price(220))),
+            ("max", PatchField::Clear, None),
+        ] {
+            let mut listing = listing_with_state(
+                ProductListingPricing {
+                    price_estimate_min: Some(price(100)),
+                    price_estimate_max: Some(price(200)),
+                    ..Default::default()
+                },
+                IndexSet::new(),
+                ProductListingAuction::default(),
+            );
+            listing.take_pending_event_payloads();
+            let mut update = command(PatchField::Unchanged);
+            if field == "min" {
+                update.price_estimate_min = patch;
+            } else {
+                update.price_estimate_max = patch;
+            }
+
+            apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
+
+            let actual = if field == "min" {
+                listing.pricing().price_estimate_min
+            } else {
+                listing.pricing().price_estimate_max
+            };
+            assert_eq!(expected, actual);
+        }
+    }
+
+    #[test]
+    fn should_not_emit_price_event_when_clearing_absent_estimate() {
+        let mut listing = listing_with_state(
+            ProductListingPricing::default(),
+            IndexSet::new(),
+            ProductListingAuction::default(),
+        );
+        listing.take_pending_event_payloads();
+        let mut update = command(PatchField::Unchanged);
+        update.price_estimate_min = PatchField::Clear;
+
+        apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
+
+        assert!(listing.pending_event_payloads().is_empty());
+    }
+
+    #[test]
+    fn should_emit_one_price_event_with_final_pricing_for_combined_patch() {
+        let old_pricing = ProductListingPricing {
+            price: Some(price(100)),
+            price_estimate_min: Some(price(110)),
+            price_estimate_max: Some(price(120)),
+        };
+        let new_pricing = ProductListingPricing {
+            price: Some(price(200)),
+            price_estimate_min: Some(price(210)),
+            price_estimate_max: Some(price(220)),
+        };
+        let mut listing = listing_with_state(
+            old_pricing,
+            IndexSet::new(),
+            ProductListingAuction::default(),
+        );
+        listing.take_pending_event_payloads();
+        let mut update = command(PatchField::Set(price(200)));
+        update.price_estimate_min = PatchField::Set(price(210));
+        update.price_estimate_max = PatchField::Set(price(220));
+
+        apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
+
+        assert_eq!(listing.pricing(), new_pricing);
+        assert!(matches!(
+            listing.pending_event_payloads(),
+            [ProductListingEventPayload::PriceChanged(change)]
+                if change.old_pricing == old_pricing && change.new_pricing == new_pricing
+        ));
+    }
+
+    #[test]
+    fn should_apply_images_patch_intent_for_existing_listing() {
+        let image = ProductListingImage {
+            url: Url::parse("https://example.com/image.jpg")
+                .unwrap_or_else(|error| panic!("image URL: {error}")),
+            prohibited_content: ProhibitedContent::Unknown,
+        };
+        for patch in [
+            PatchField::Unchanged,
+            PatchField::Set(IndexSet::new()),
+            PatchField::Clear,
+        ] {
+            let mut listing = listing_with_state(
+                ProductListingPricing::default(),
+                IndexSet::from([image.clone()]),
+                ProductListingAuction::default(),
+            );
+            listing.take_pending_event_payloads();
+            let mut update = command(PatchField::Unchanged);
+            update.images = patch.clone();
+
+            apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
+
+            let expected = match patch {
+                PatchField::Unchanged => IndexSet::from([image.clone()]),
+                PatchField::Set(images) => images,
+                PatchField::Clear => IndexSet::new(),
+            };
+            assert_eq!(listing.images(), &expected);
+        }
+    }
+
+    #[test]
+    fn should_apply_auction_patches_atomically() {
+        let old = ProductListingAuction {
+            start: Some(time::macros::datetime!(2026-01-01 0:00 UTC)),
+            end: Some(time::macros::datetime!(2026-01-02 0:00 UTC)),
+        };
+        let new = ProductListingAuction {
+            start: Some(time::macros::datetime!(2026-02-01 0:00 UTC)),
+            end: Some(time::macros::datetime!(2026-02-02 0:00 UTC)),
+        };
+        let mut listing =
+            listing_with_state(ProductListingPricing::default(), IndexSet::new(), old);
+        listing.take_pending_event_payloads();
+        let mut update = command(PatchField::Unchanged);
+        update.auction_start = PatchField::Set(new.start.unwrap_or_else(|| panic!("start")));
+        update.auction_end = PatchField::Set(new.end.unwrap_or_else(|| panic!("end")));
+
+        apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
+
+        assert_eq!(listing.auction(), new);
+        assert!(matches!(
+            listing.pending_event_payloads(),
+            [ProductListingEventPayload::AuctionChanged(change)] if change.auction == new
+        ));
+    }
+
+    #[test]
+    fn should_create_listing_without_price_for_clear_or_unchanged_patch() {
+        for patch in [
+            PatchField::Set(price(100)),
+            PatchField::Clear,
+            PatchField::Unchanged,
+        ] {
+            let expected = match &patch {
+                PatchField::Set(value) => Some(*value),
+                PatchField::Clear | PatchField::Unchanged => None,
+            };
+            let new_listing = command(patch)
+                .into_new_product(ProductListingId::new())
+                .unwrap_or_else(|error| panic!("new listing: {error}"));
+            assert_eq!(expected, new_listing.pricing.price);
+        }
+    }
+
+    #[test]
+    fn should_map_all_patch_states_to_new_listing_current_state() {
+        let image = ProductListingImage {
+            url: Url::parse("https://example.com/image.jpg")
+                .unwrap_or_else(|error| panic!("image URL: {error}")),
+            prohibited_content: ProhibitedContent::Unknown,
+        };
+        for (
+            estimate_min,
+            estimate_max,
+            images,
+            auction_start,
+            auction_end,
+            expected_min,
+            expected_max,
+            expected_images,
+            expected_auction,
+        ) in [
+            (
+                PatchField::Set(price(110)),
+                PatchField::Set(price(120)),
+                PatchField::Set(IndexSet::from([image.clone()])),
+                PatchField::Set(time::OffsetDateTime::UNIX_EPOCH),
+                PatchField::Set(time::OffsetDateTime::UNIX_EPOCH),
+                Some(price(110)),
+                Some(price(120)),
+                IndexSet::from([image.clone()]),
+                ProductListingAuction {
+                    start: Some(time::OffsetDateTime::UNIX_EPOCH),
+                    end: Some(time::OffsetDateTime::UNIX_EPOCH),
+                },
+            ),
+            (
+                PatchField::Clear,
+                PatchField::Unchanged,
+                PatchField::Clear,
+                PatchField::Clear,
+                PatchField::Unchanged,
+                None,
+                None,
+                IndexSet::new(),
+                ProductListingAuction::default(),
+            ),
+        ] {
+            let mut upsert = command(PatchField::Unchanged);
+            upsert.price_estimate_min = estimate_min;
+            upsert.price_estimate_max = estimate_max;
+            upsert.images = images;
+            upsert.auction_start = auction_start;
+            upsert.auction_end = auction_end;
+
+            let new_listing = upsert
+                .into_new_product(ProductListingId::new())
+                .unwrap_or_else(|error| panic!("new listing: {error}"));
+
+            assert_eq!(new_listing.pricing.price_estimate_min, expected_min);
+            assert_eq!(new_listing.pricing.price_estimate_max, expected_max);
+            assert_eq!(new_listing.images, expected_images);
+            assert_eq!(new_listing.auction, expected_auction);
+        }
     }
 }

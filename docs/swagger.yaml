@@ -431,13 +431,16 @@ paths:
 
         The request body is an array of `UpsertProductListingData` objects. Each entry is upserted
         synchronously in its own PostgreSQL transaction. For each entry:
-        - **New listing** — omitted or `null` availability creates a listing with no reliable
-          current availability assertion; a concrete value sets that assertion.
-        - **Existing listing** — omitted availability is unchanged, `null` clears it, and a
-          concrete value replaces it. A withdrawn listing is restored before current facts apply.
-        - `title`, `description`, `structuredAddress`, and `geoAddress` apply only on creation.
-        - On the update path, other omitted or `null` optional fields preserve their existing
-          values; provided images replace the stored image set.
+        - **New listing** — omitted or `null` availability, price, estimates, and auction timestamps
+          create no value; a concrete value sets it.
+        - **Existing listing** — availability, price, each price estimate, and each auction timestamp
+          are tri-state: omitted preserves, `null` clears, and a concrete value sets. A withdrawn
+          listing is restored before current facts apply.
+        - `title`, `description`, `structuredAddress`, and `geoAddress` apply only on creation. For an
+          existing listing they preserve current state and emit no current-state history event.
+        - `images` is separate: omit to preserve, send `[]` to clear, or send an array to replace.
+          `null` is invalid. `url` is non-clearable: omit or send `null` to preserve it; send a URL
+          value to replace it.
 
         The response returns HTTP 200 with failures as `{ shopId, shopListingId, error }` objects when
         one or more entries succeed. `error` is the stable API error key for that entry. If every non-empty entry fails, the first failure is returned
@@ -506,7 +509,7 @@ paths:
                 summary: Clear an existing product's images
                 value:
                   - shopListingId: "baroque-violin-001"
-                    images: null
+                    images: []
       responses:
         "200":
           description: |
@@ -13851,9 +13854,10 @@ components:
       type: object
       description: |
         Data for synchronously upserting one ProductListing. Only `shopListingId` is required.
-        For availability, omitted preserves an existing assertion; `null` clears it; and a concrete
-        canonical value sets it. On creation, omitted and `null` both mean no reliable assertion.
-        Upsert restores a withdrawn listing before current listing facts apply.
+        Availability, price, each price estimate, and each auction timestamp are tri-state: omitted
+        preserves an existing value, `null` clears it, and a concrete value sets it. On creation,
+        omitted and `null` both mean no value. Upsert restores a withdrawn listing before current
+        facts apply. Images and URL use the field-specific rules documented below.
       required:
         - shopListingId
       properties:
@@ -13875,17 +13879,17 @@ components:
           allOf:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
-          description: Optional asking price for the product. Applied on create and on update when a non-null value is provided. Omit or send `null` to leave the current stored price unchanged.
+          description: Optional current asking price. Omit to leave an existing price unchanged; send null to clear it; send a value to set it. On creation, omitted and null both mean no current price.
         priceEstimateMin:
           allOf:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
-          description: Optional lower bound of the estimated price range. Applied on both create and update paths. Omit or send `null` to leave the current stored lower bound unchanged.
+          description: Optional lower bound of the estimated price range. On an existing listing, omit to preserve, send `null` to clear, or send a value to set. On creation, omitted and `null` both mean no lower bound.
         priceEstimateMax:
           allOf:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
-          description: Optional upper bound of the estimated price range. Applied on both create and update paths. Omit or send `null` to leave the current stored upper bound unchanged.
+          description: Optional upper bound of the estimated price range. On an existing listing, omit to preserve, send `null` to clear, or send a value to set. On creation, omitted and `null` both mean no upper bound.
         availability:
           allOf:
             - $ref: "#/components/schemas/ListingAvailabilityData"
@@ -13895,15 +13899,14 @@ components:
           type: string
           format: uri
           nullable: true
-          description: URL to the product on the shop's website. Applied on both create and update paths. Omit or send `null` to leave the current stored URL unchanged.
+          description: URL to the product on the shop's website. On an existing listing, omit or send `null` to preserve the current URL; send a value to replace it. URL is non-clearable.
           example: "https://my-shop.com/product-listings/baroque-violin"
         images:
           type: array
           items:
             type: string
             format: uri
-          nullable: true
-          description: List of image URLs for the product. Applied on both create and update paths. On update, the provided array replaces the stored image set; omitting `images` or sending `null` is treated as an empty list and therefore clears all stored images.
+          description: List of image URLs for the product. On an existing listing, omit to preserve the stored image set, send `[]` to clear it, or send an array to replace it. `null` is invalid.
           example:
             - "https://my-shop.com/images/violin-1.jpg"
             - "https://my-shop.com/images/violin-2.jpg"
@@ -13913,8 +13916,8 @@ components:
           nullable: true
           description: |
             RFC3339 timestamp of when the auction for this product starts.
-            Only relevant for auction-house shop types. Applied on both create and update paths.
-            Omit or send `null` to leave the current stored start timestamp unchanged.
+            Only relevant for auction-house shop types. On an existing listing, omit to preserve,
+            send `null` to clear, or send a value to set. On creation, omitted and `null` both mean no start timestamp.
           example: "2025-05-01T12:00:00Z"
         auctionEnd:
           type: string
@@ -13922,8 +13925,8 @@ components:
           nullable: true
           description: |
             RFC3339 timestamp of when the auction for this product ends.
-            Only relevant for auction-house shop types. Applied on both create and update paths.
-            Omit or send `null` to leave the current stored end timestamp unchanged.
+            Only relevant for auction-house shop types. On an existing listing, omit to preserve,
+            send `null` to clear, or send a value to set. On creation, omitted and `null` both mean no end timestamp.
           example: "2025-05-10T12:00:00Z"
         sellerName:
           type: string

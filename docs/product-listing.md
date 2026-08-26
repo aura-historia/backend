@@ -107,7 +107,7 @@ pub enum ListingLifecycle {
 
 Codes are `ACTIVE` and `WITHDRAWN`. Withdrawal means retained history for a listing no longer offered/published by its authoritative source. It is reversible. It is not physical purge, legal deletion, or retention cleanup.
 
-`None` for aggregate availability has one meaning only: Aura has no sufficiently reliable current availability assertion for this active listing. It never means unchanged. Application patches use `PatchField::{Unchanged, Set, Clear}` for that separate instruction.
+`None` for aggregate availability has one meaning only: Aura has no sufficiently reliable current availability assertion for this active listing. `None` for `ProductListingPricing.price` means Aura has no current numeric source price recorded. Neither means unchanged. Application patches use `PatchField::{Unchanged, Set, Clear}` for that separate instruction; a price clear emits the ordinary price-change event with old `Some(price)` and new `None`.
 
 The old canonical `ProductState` vocabulary is deleted. In particular, `LISTED`, `UNKNOWN`, `REMOVED`, and `SOLD` are not Aura listing availability values. Boundary uncertainty remains adapter-local.
 
@@ -128,7 +128,7 @@ Use observation FX for presentation only while currently `SoldOut`, or for a del
 
 ## Behaviors and events
 
-Canonical aggregate behaviors are `set_availability`, `clear_availability`, `withdraw`, `restore`, `record_sale_observation`, and `retract_sale_observation`. Old `mark_*`, generic state transition, and state-machine methods are removed.
+Canonical aggregate behaviors are `set_price`, `clear_price`, `set_availability`, `clear_availability`, `withdraw`, `restore`, `record_sale_observation`, and `retract_sale_observation`. Old `mark_*`, generic state transition, and state-machine methods are removed.
 
 Canonical event codes:
 
@@ -150,11 +150,11 @@ Availability-change events contain optional previous/current availability. Withd
 
 ## Application, API, and search contracts
 
-Create accepts `Option<ListingAvailability>`; omitted and JSON `null` create an active listing without an assertion. Update and upsert use `PatchField<ListingAvailability>`: omitted is unchanged, `null` clears, and a code sets. Existing withdrawn listings are restored by explicit upsert intent before current facts are applied.
+Create accepts `Option<ListingAvailability>`; omitted and JSON `null` create an active listing without an assertion. Update and upsert use tri-state patches for availability, main price, each price estimate, and each auction timestamp: omitted is unchanged, `null` clears, and a value sets. On creation, omitted and `null` both create no value. Upsert images are separate: omitted preserves existing images, `[]` clears them, and `null` is invalid. URL is non-clearable: omitted or `null` preserves it; a URL value sets it. Existing withdrawn listings are restored by explicit upsert intent before current facts are applied.
 
 Withdrawal replaces normal deletion. The HTTP partner route may remain `DELETE`, but invokes `WithdrawProductListingUseCase`. Recording a sale observation is a dedicated, authorized PostgreSQL transaction that loads the aggregate and the latest FX snapshot at or before `observed_at`.
 
-Responses always emit `"availability": null` when absent. Requests parse availability tri-state. Aura route and identifier vocabulary uses `product-listings`, `productListingId`, `productListingSlugId`, and `shopListingId`.
+`title`, `description`, and listing address are creation-only upsert inputs. For an existing listing, they preserve current state and emit no current-state history event. Responses always emit `"availability": null` when absent. Requests parse availability tri-state. Aura route and identifier vocabulary uses `product-listings`, `productListingId`, `productListingSlugId`, and `shopListingId`.
 
 Public listing discovery contains active listings only. Withdrawn listings are not found by public detail and are deleted from the OpenSearch projection; restore rebuilds the projection. Public discovery does not expose a lifecycle filter.
 

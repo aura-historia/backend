@@ -29,16 +29,25 @@ pub async fn upsert_products(
         Err(error) => return error.into_response(),
     };
 
+    let mapped = match products
+        .into_iter()
+        .map(|product| {
+            let shop_listing_id = product.shop_listing_id.clone();
+            product
+                .into_command(shop_id)
+                .map(|command| (shop_listing_id, command))
+        })
+        .collect::<Result<Vec<_>, ApiError>>()
+    {
+        Ok(mapped) => mapped,
+        Err(error) => return error.into_response(),
+    };
+
     let mut failures = Vec::new();
     let mut first_error = None;
     let mut successes = 0;
-    for product in products {
-        let shop_listing_id = product.shop_listing_id.clone();
-        match state
-            .upsert
-            .execute(&context, product.into_command(shop_id))
-            .await
-        {
+    for (shop_listing_id, command) in mapped {
+        match state.upsert.execute(&context, command).await {
             Ok(_) => successes += 1,
             Err(error) => {
                 let error = ApiError::from(error);
@@ -77,6 +86,7 @@ mod tests {
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
     use application::operation_context::{CredentialCapability, OperationContext};
+    use application::patch_field::PatchField;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, header};
@@ -129,6 +139,190 @@ mod tests {
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(json!([]), body_json(response).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_omitted_null_and_value_price_to_explicit_upsert_intent()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut upsert = MockUpsertUseCase::new();
+        upsert
+            .expect_execute()
+            .times(3)
+            .withf(|_, command| {
+                matches!(
+                    (command.shop_listing_id.as_ref(), &command.price),
+                    ("omitted", application::patch_field::PatchField::Unchanged)
+                        | ("clear", application::patch_field::PatchField::Clear)
+                        | ("set", application::patch_field::PatchField::Set(_))
+                )
+            })
+            .returning(|_, _| Ok(created()));
+        let app = app(upsert);
+        let shop_id = ShopId::new();
+
+        let response = request(
+            &app,
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            r#"[
+                {"shopListingId":"omitted"},
+                {"shopListingId":"clear","price":null},
+                {"shopListingId":"set","price":{"amount":12000,"currency":"EUR"}}
+            ]"#,
+            true,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(json!([]), body_json(response).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_upsert_patch_values() -> Result<(), Box<dyn std::error::Error>> {
+        let mut upsert = MockUpsertUseCase::new();
+        upsert
+            .expect_execute()
+            .times(1)
+            .withf(|_, command| {
+                matches!(&command.price_estimate_min, PatchField::Set(_))
+                    && matches!(&command.price_estimate_max, PatchField::Set(_))
+                    && matches!(&command.auction_start, PatchField::Set(_))
+                    && matches!(&command.auction_end, PatchField::Set(_))
+                    && matches!(&command.images, PatchField::Set(images) if images.len() == 1)
+            })
+            .returning(|_, _| Ok(created()));
+        let app = app(upsert);
+        let shop_id = ShopId::new();
+
+        let response = request(
+            &app,
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            r#"[{
+                "shopListingId":"patched",
+                "priceEstimateMin":{"amount":10000,"currency":"EUR"},
+                "priceEstimateMax":{"amount":20000,"currency":"EUR"},
+                "images":["https://example.com/image.jpg"],
+                "auctionStart":"2026-08-23T12:00:00Z",
+                "auctionEnd":"2026-08-24T12:00:00Z"
+            }]"#,
+            true,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(json!([]), body_json(response).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_empty_images_to_explicit_upsert_replacement()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut upsert = MockUpsertUseCase::new();
+        upsert
+            .expect_execute()
+            .times(1)
+            .withf(|_, command| {
+                matches!(&command.images, PatchField::Set(images) if images.is_empty())
+            })
+            .returning(|_, _| Ok(created()));
+        let app = app(upsert);
+        let shop_id = ShopId::new();
+
+        let response = request(
+            &app,
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            r#"[{"shopListingId":"empty-images","images":[]}]"#,
+            true,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(json!([]), body_json(response).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_preserve_omitted_and_null_upsert_patch_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut upsert = MockUpsertUseCase::new();
+        upsert
+            .expect_execute()
+            .times(2)
+            .withf(|_, command| {
+                matches!(
+                    (
+                        command.shop_listing_id.as_ref(),
+                        &command.price_estimate_min,
+                        &command.price_estimate_max,
+                        &command.images,
+                        &command.auction_start,
+                        &command.auction_end,
+                    ),
+                    (
+                        "omitted",
+                        PatchField::Unchanged,
+                        PatchField::Unchanged,
+                        PatchField::Unchanged,
+                        PatchField::Unchanged,
+                        PatchField::Unchanged,
+                    ) | (
+                        "clear",
+                        PatchField::Clear,
+                        PatchField::Clear,
+                        PatchField::Unchanged,
+                        PatchField::Clear,
+                        PatchField::Clear,
+                    )
+                )
+            })
+            .returning(|_, _| Ok(created()));
+        let app = app(upsert);
+        let shop_id = ShopId::new();
+
+        let response = request(
+            &app,
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            r#"[
+                {"shopListingId":"omitted"},
+                {
+                    "shopListingId":"clear",
+                    "priceEstimateMin":null,
+                    "priceEstimateMax":null,
+                    "auctionStart":null,
+                    "auctionEnd":null
+                }
+            ]"#,
+            true,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(json!([]), body_json(response).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_later_upsert_member_before_any_use_case()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut upsert = MockUpsertUseCase::new();
+        upsert.expect_execute().never();
+        let app = app(upsert);
+        let shop_id = ShopId::new();
+
+        let response = request(
+            &app,
+            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            r#"[
+                {"shopListingId":"valid"},
+                {"shopListingId":"invalid","images":null}
+            ]"#,
+            true,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        assert_eq!("BAD_BODY_VALUE", body_json(response).await?["error"]);
         Ok(())
     }
 
