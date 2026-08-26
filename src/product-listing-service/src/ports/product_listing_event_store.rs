@@ -30,8 +30,6 @@ pub enum ProductListingEventStoreError {
     ProductListingEventAlreadyExists,
     #[error("product listing event append failed")]
     ProductListingEventAppendFailed,
-    #[error("current product listing event lookup failed")]
-    CurrentProductListingEventLookupFailed,
 }
 
 #[async_trait::async_trait]
@@ -40,11 +38,6 @@ pub trait ProductListingEventStore: Send {
         &mut self,
         event: &ProductListingEvent,
     ) -> Result<(), ProductListingEventStoreError>;
-
-    async fn find_current_event_id(
-        &mut self,
-        product_listing_id: ProductListingId,
-    ) -> Result<Option<EventId>, ProductListingEventStoreError>;
 }
 
 pub trait ProductListingEventStoreFactory<Tx>: Send + Sync {

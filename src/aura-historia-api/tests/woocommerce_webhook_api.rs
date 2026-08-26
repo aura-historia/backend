@@ -91,6 +91,28 @@ async fn should_withdraw_existing_product_listing_when_woocommerce_deleted_webho
         );
 
         let pool = get_postgres_client().await;
+        let event_count_after_withdrawal: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = (SELECT product_listing_id FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2)",
+        )
+        .bind(uuid::Uuid::parse_str(&shop_id)?)
+        .bind("18")
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(
+            reqwest::StatusCode::NO_CONTENT,
+            send(&shop_id, &token, "product.deleted", &deleted)
+                .await?
+                .status()
+        );
+        let event_count_after_redelivery: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = (SELECT product_listing_id FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2)",
+        )
+        .bind(uuid::Uuid::parse_str(&shop_id)?)
+        .bind("18")
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(event_count_after_withdrawal, event_count_after_redelivery);
+
         let lifecycle: (String,) = sqlx::query_as(
             "SELECT lifecycle FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
         )
@@ -99,6 +121,28 @@ async fn should_withdraw_existing_product_listing_when_woocommerce_deleted_webho
         .fetch_one(&pool)
         .await?;
         assert_eq!("WITHDRAWN", lifecycle.0);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_ignore_missing_product_listing_when_woocommerce_deleted_webhook_arrives() {
+    let result: TestResult = async {
+        let (shop_id, token) = webhook_auth().await?;
+        let deleted = json!({ "id": 999 }).to_string();
+
+        assert_eq!(
+            reqwest::StatusCode::NO_CONTENT,
+            send(&shop_id, &token, "product.deleted", &deleted)
+                .await?
+                .status()
+        );
+        assert_eq!(
+            0,
+            product_count(uuid::Uuid::parse_str(&shop_id)?.into()).await?
+        );
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;

@@ -1,10 +1,17 @@
-use crate::use_cases::{
-    UpsertProductListingCommand, UpsertProductListingError, UpsertProductListingResult,
-    UpsertProductListingUseCase, WithdrawProductListingError, WithdrawProductListingResult,
-    WithdrawProductListingUseCase,
+use crate::ports::{
+    PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
+    PartnerProductListingAuthorizerFactory, ProductListingEventStore,
+    ProductListingEventStoreError, ProductListingEventStoreFactory, ProductListingRepository,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
 };
-use application::error::BoxError;
-use application::operation_context::{CredentialCapability, OperationContext, Principal};
+use crate::use_cases::{
+    CreateProductListingResult, UpdateProductListingResult, UpsertProductListingResult,
+    WithdrawProductListingResult,
+};
+use application::error::{BoxError, box_error};
+use application::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
+};
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
 use indexmap::IndexSet;
@@ -12,7 +19,12 @@ use localization::Localized;
 use money::{MonetaryAmount, Price};
 use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::product_listing::ProductListingAddress;
+use product_listing_core::product_listing::{
+    ChangeListingAvailabilityError, ChangeProductListingError, NewProductListing, ProductListing,
+    ProductListingAddress, ProductListingAuction, ProductListingPricing,
+    RehydrateProductListingError,
+};
+use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::prohibited_content::ProhibitedContent;
 use product_listing_core::shop_listing_id::ShopListingId;
@@ -20,12 +32,10 @@ use product_listing_core::title::Title;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop_id::ShopId;
 use shop_service::ports::{
-    PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory, WoocommerceWebhookShop,
-    WoocommerceWebhookShopReadError, WoocommerceWebhookShopReader,
+    WoocommerceWebhookShop, WoocommerceWebhookShopReadError, WoocommerceWebhookShopReader,
     WoocommerceWebhookShopReaderFactory, WoocommerceWebhookSignatureVerification,
     WoocommerceWebhookSignatureVerifier, WoocommerceWebhookSignatureVerifierFactory,
 };
-use shop_service::use_cases::CheckUserPartnerShopRequest;
 use url::Url;
 use user_core::user_id::UserId;
 
@@ -35,6 +45,7 @@ pub enum WoocommerceProductEventKind {
     Update,
     Delete,
 }
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct IngestWoocommerceProductListingCommand {
     pub shop_id: ShopId,
@@ -51,6 +62,7 @@ pub struct IngestWoocommerceProductListingCommand {
     pub stock_status: Option<String>,
     pub image_urls: IndexSet<Url>,
 }
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum IngestWoocommerceProductListingResult {
     Ignored,
@@ -64,6 +76,18 @@ enum WoocommerceListingAction {
     Withdraw,
     Ignore,
 }
+
+#[derive(Debug)]
+struct WoocommerceListingData {
+    shop_listing_id: ShopListingId,
+    title: Localized<localization::Language, Title>,
+    description: Option<Localized<localization::Language, Description>>,
+    price: Option<Price>,
+    availability: PatchField<ListingAvailability>,
+    url: Url,
+    images: IndexSet<ProductListingImage>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum IngestWoocommerceProductListingError {
     #[error("WooCommerce product title is missing")]
@@ -78,6 +102,8 @@ pub enum IngestWoocommerceProductListingError {
     MissingShopLanguage,
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("actor may not ingest WooCommerce webhooks for this shop")]
     ActorMayNotIngestForShop,
     #[error("shop not found")]
@@ -88,13 +114,13 @@ pub enum IngestWoocommerceProductListingError {
     WebhookSecretNotConfigured,
     #[error("WooCommerce webhook signature is invalid")]
     InvalidSignature,
-    #[error("temporary partner shop membership read failure")]
-    PartnerMembershipTemporarilyUnavailable {
+    #[error("partner ProductListing authorization is temporarily unavailable")]
+    PartnerAuthorizationTemporarilyUnavailable {
         #[source]
         source: BoxError,
     },
-    #[error("invalid partner shop membership read model")]
-    InvalidPartnerMembershipReadModel {
+    #[error("partner ProductListing authorization failed internally")]
+    PartnerAuthorizationInternal {
         #[source]
         source: BoxError,
     },
@@ -108,21 +134,23 @@ pub enum IngestWoocommerceProductListingError {
         #[source]
         source: BoxError,
     },
-    #[error("product listing upsert failed")]
-    ProductListingUpsertFailed {
+    #[error("product listing is withdrawn")]
+    ListingWithdrawn,
+    #[error("WooCommerce product listing is invalid")]
+    InvalidProductListing {
         #[source]
-        source: UpsertProductListingError,
+        source: BoxError,
     },
-    #[error("product listing withdrawal failed")]
-    ProductListingWithdrawalFailed {
-        #[source]
-        source: WithdrawProductListingError,
-    },
+    #[error("product listing persistence failed")]
+    ProductListingPersistenceFailed,
+    #[error("product listing event storage failed")]
+    ProductListingEventStoreFailed,
     #[error("failed to begin WooCommerce product ingestion transaction")]
     BeginTransactionFailed,
     #[error("failed to commit WooCommerce product ingestion transaction")]
     CommitTransactionFailed,
 }
+
 #[async_trait::async_trait]
 pub trait IngestWoocommerceProductListingUseCase: Send + Sync {
     async fn execute(
@@ -131,37 +159,42 @@ pub trait IngestWoocommerceProductListingUseCase: Send + Sync {
         command: IngestWoocommerceProductListingCommand,
     ) -> Result<IngestWoocommerceProductListingResult, IngestWoocommerceProductListingError>;
 }
-pub struct IngestWoocommerceProductListingHandler<U, M, S, V, P, W> {
+
+pub struct IngestWoocommerceProductListingHandler<U, R, E, A, S, V> {
     unit_of_work: U,
-    memberships: M,
+    products: R,
+    events: E,
+    authorizer: A,
     shops: S,
     signature_verifier: V,
-    products: P,
-    withdrawals: W,
 }
-impl<U, M, S, V, P, W> IngestWoocommerceProductListingHandler<U, M, S, V, P, W> {
+
+impl<U, R, E, A, S, V> IngestWoocommerceProductListingHandler<U, R, E, A, S, V> {
     pub fn new(
         unit_of_work: U,
-        memberships: M,
+        products: R,
+        events: E,
+        authorizer: A,
         shops: S,
         signature_verifier: V,
-        products: P,
-        withdrawals: W,
     ) -> Self {
         Self {
             unit_of_work,
-            memberships,
+            products,
+            events,
+            authorizer,
             shops,
             signature_verifier,
-            products,
-            withdrawals,
         }
     }
 }
-impl<U, M, S, V, P, W> IngestWoocommerceProductListingHandler<U, M, S, V, P, W>
+
+impl<U, R, E, A, S, V> IngestWoocommerceProductListingHandler<U, R, E, A, S, V>
 where
     U: UnitOfWork,
-    M: PartnerShopReaderFactory<U::Tx>,
+    R: ProductListingRepositoryFactory<U::Tx>,
+    E: ProductListingEventStoreFactory<U::Tx>,
+    A: PartnerProductListingAuthorizerFactory<U::Tx>,
     S: WoocommerceWebhookShopReaderFactory<U::Tx>,
     V: WoocommerceWebhookSignatureVerifierFactory<U::Tx>,
 {
@@ -172,18 +205,12 @@ where
         shop_id: ShopId,
         body: &[u8],
         signature: &[u8],
-    ) -> Result<(UserId, WoocommerceWebhookShop), IngestWoocommerceProductListingError> {
-        let actor_id = actor_id(context)?;
-        if !self
-            .memberships
-            .in_transaction(tx)
-            .is_user_partner_of_shop(&CheckUserPartnerShopRequest {
-                user_id: actor_id,
-                shop_id,
-            })
-            .await?
-        {
-            return Err(IngestWoocommerceProductListingError::ActorMayNotIngestForShop);
+    ) -> Result<WoocommerceWebhookShop, IngestWoocommerceProductListingError> {
+        if let Some(actor_id) = partner_actor(&context.principal) {
+            self.authorizer
+                .in_transaction(tx)
+                .authorize(actor_id, shop_id)
+                .await?;
         }
         let shop = self
             .shops
@@ -200,7 +227,7 @@ where
             .verify(shop_id, body, signature)
             .await?
         {
-            WoocommerceWebhookSignatureVerification::Valid => Ok((actor_id, shop)),
+            WoocommerceWebhookSignatureVerification::Valid => Ok(shop),
             WoocommerceWebhookSignatureVerification::Invalid => {
                 Err(IngestWoocommerceProductListingError::InvalidSignature)
             }
@@ -209,17 +236,160 @@ where
             }
         }
     }
+
+    async fn upsert(
+        &self,
+        tx: &mut U::Tx,
+        shop: &WoocommerceWebhookShop,
+        data: WoocommerceListingData,
+    ) -> Result<UpsertProductListingResult, IngestWoocommerceProductListingError> {
+        let key = ProductListingKey::new(shop.shop_id, data.shop_listing_id.clone());
+        let existing = self.products.in_transaction(tx).find_by_key(&key).await?;
+        match existing {
+            Some(loaded) => {
+                let expected_event_id = loaded.version;
+                let mut listing = loaded.value;
+                listing.restore();
+                let pricing = ProductListingPricing {
+                    price: data.price.or(listing.pricing().price),
+                    price_estimate_min: listing.pricing().price_estimate_min,
+                    price_estimate_max: listing.pricing().price_estimate_max,
+                };
+                listing.replace_pricing(pricing)?;
+                match data.availability {
+                    PatchField::Unchanged => {}
+                    PatchField::Set(availability) => {
+                        listing.set_availability(availability)?;
+                    }
+                    PatchField::Clear => {
+                        listing.clear_availability()?;
+                    }
+                }
+                listing.change_url(data.url)?;
+                listing.replace_images(data.images)?;
+                let events = stamp_product_listing_events(
+                    listing.id(),
+                    time::OffsetDateTime::now_utc(),
+                    listing.take_pending_event_payloads(),
+                );
+                let event_id = events.last().map(|event| event.event_id);
+                if let Some(new_event_id) = event_id {
+                    listing = self
+                        .products
+                        .in_transaction(tx)
+                        .update(&listing, expected_event_id, new_event_id)
+                        .await?
+                        .value;
+                    for event in &events {
+                        self.events.in_transaction(tx).append(event).await?;
+                    }
+                }
+                Ok(UpsertProductListingResult::Updated(
+                    UpdateProductListingResult {
+                        product_listing_id: listing.id(),
+                        event_id,
+                    },
+                ))
+            }
+            None => {
+                let mut listing = ProductListing::create(NewProductListing {
+                    id: ProductListingId::new(),
+                    shop_id: shop.shop_id,
+                    seller_id: shop.shop_id,
+                    shop_listing_id: data.shop_listing_id,
+                    address: ProductListingAddress::default(),
+                    title: Some(data.title),
+                    description: data.description,
+                    pricing: ProductListingPricing {
+                        price: data.price,
+                        price_estimate_min: None,
+                        price_estimate_max: None,
+                    },
+                    availability: match data.availability {
+                        PatchField::Set(availability) => Some(availability),
+                        PatchField::Unchanged | PatchField::Clear => None,
+                    },
+                    url: data.url,
+                    images: data.images,
+                    auction: ProductListingAuction::default(),
+                })?;
+                let events = stamp_product_listing_events(
+                    listing.id(),
+                    time::OffsetDateTime::now_utc(),
+                    listing.take_pending_event_payloads(),
+                );
+                let event_id = events.last().map(|event| event.event_id).ok_or_else(|| {
+                    IngestWoocommerceProductListingError::InvalidProductListing {
+                        source: box_error(std::io::Error::other("created listing has no event")),
+                    }
+                })?;
+                let persisted = self
+                    .products
+                    .in_transaction(tx)
+                    .insert(&listing, event_id)
+                    .await?;
+                for event in &events {
+                    self.events.in_transaction(tx).append(event).await?;
+                }
+                Ok(UpsertProductListingResult::Created(
+                    CreateProductListingResult {
+                        product_listing_id: persisted.value.id(),
+                        product_listing_slug_id: persisted.value.slug_id().clone(),
+                        event_id,
+                    },
+                ))
+            }
+        }
+    }
+
+    async fn withdraw(
+        &self,
+        tx: &mut U::Tx,
+        key: ProductListingKey,
+    ) -> Result<Option<WithdrawProductListingResult>, IngestWoocommerceProductListingError> {
+        let Some(loaded) = self.products.in_transaction(tx).find_by_key(&key).await? else {
+            return Ok(None);
+        };
+        let expected_event_id = loaded.version;
+        let mut listing = loaded.value;
+        listing.withdraw();
+        let events = stamp_product_listing_events(
+            listing.id(),
+            time::OffsetDateTime::now_utc(),
+            listing.take_pending_event_payloads(),
+        );
+        let event_id = events
+            .last()
+            .map(|event| event.event_id)
+            .unwrap_or(expected_event_id);
+        if !events.is_empty() {
+            listing = self
+                .products
+                .in_transaction(tx)
+                .update(&listing, expected_event_id, event_id)
+                .await?
+                .value;
+            for event in &events {
+                self.events.in_transaction(tx).append(event).await?;
+            }
+        }
+        Ok(Some(WithdrawProductListingResult {
+            product_listing_id: listing.id(),
+            event_id,
+        }))
+    }
 }
+
 #[async_trait::async_trait]
-impl<U, M, S, V, P, W> IngestWoocommerceProductListingUseCase
-    for IngestWoocommerceProductListingHandler<U, M, S, V, P, W>
+impl<U, R, E, A, S, V> IngestWoocommerceProductListingUseCase
+    for IngestWoocommerceProductListingHandler<U, R, E, A, S, V>
 where
     U: UnitOfWork,
-    M: PartnerShopReaderFactory<U::Tx>,
+    R: ProductListingRepositoryFactory<U::Tx>,
+    E: ProductListingEventStoreFactory<U::Tx>,
+    A: PartnerProductListingAuthorizerFactory<U::Tx>,
     S: WoocommerceWebhookShopReaderFactory<U::Tx>,
     V: WoocommerceWebhookSignatureVerifierFactory<U::Tx>,
-    P: UpsertProductListingUseCase,
-    W: WithdrawProductListingUseCase,
 {
     #[tracing::instrument(name = "ingest_woocommerce_product_listing", skip_all, fields(shop_id = %command.shop_id, shop_listing_id = %command.shop_listing_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
@@ -232,7 +402,11 @@ where
             .begin()
             .await
             .map_err(|_| IngestWoocommerceProductListingError::BeginTransactionFailed)?;
-        let (_, shop) = self
+        context
+            .require()
+            .credential_capability(CredentialCapability::ProductListingsWrite)
+            .authorize::<IngestWoocommerceProductListingError>()?;
+        let shop = self
             .validate_webhook(
                 &mut tx,
                 context,
@@ -241,102 +415,84 @@ where
                 &command.signature,
             )
             .await?;
-        tx.commit()
-            .await
-            .map_err(|_| IngestWoocommerceProductListingError::CommitTransactionFailed)?;
-        match listing_action(
+        let result = match listing_action(
             command.kind,
             command.status.as_deref(),
             command.stock_status.as_deref(),
         ) {
-            WoocommerceListingAction::Ignore => Ok(IngestWoocommerceProductListingResult::Ignored),
+            WoocommerceListingAction::Ignore => IngestWoocommerceProductListingResult::Ignored,
             WoocommerceListingAction::Withdraw => self
-                .withdrawals
-                .execute_by_key(
-                    context,
-                    product_listing_core::product_listing_id::ProductListingKey::new(
-                        shop.shop_id,
-                        command.shop_listing_id,
-                    ),
+                .withdraw(
+                    &mut tx,
+                    ProductListingKey::new(shop.shop_id, command.shop_listing_id),
                 )
-                .await
+                .await?
                 .map(IngestWoocommerceProductListingResult::Withdrawn)
-                .map_err(|source| {
-                    IngestWoocommerceProductListingError::ProductListingWithdrawalFailed { source }
-                }),
+                .unwrap_or(IngestWoocommerceProductListingResult::Ignored),
             WoocommerceListingAction::Upsert(availability) => {
-                let language = shop
-                    .language
-                    .ok_or(IngestWoocommerceProductListingError::MissingShopLanguage)?;
-                let title = command
-                    .title
-                    .as_deref()
-                    .filter(|value| !value.trim().is_empty())
-                    .ok_or(IngestWoocommerceProductListingError::MissingTitle)?;
-                let url = command
-                    .permalink
-                    .ok_or(IngestWoocommerceProductListingError::MissingUrl)?;
-                let price = parse_price(command.price.as_deref(), shop.currency)?;
-                let description = command
-                    .description_html
-                    .as_deref()
-                    .or(command.short_description_html.as_deref())
-                    .map(fallbacked_html_to_markdown)
-                    .filter(|value| !value.is_empty())
-                    .map(Description::from)
-                    .map(|value| Localized::new(language, value));
-                let images = command
-                    .image_urls
-                    .into_iter()
-                    .map(|url| ProductListingImage {
-                        url,
-                        prohibited_content: ProhibitedContent::Unknown,
-                    })
-                    .collect();
-                self.products
-                    .execute(
-                        context,
-                        UpsertProductListingCommand {
-                            shop_id: shop.shop_id,
-                            seller_id: shop.shop_id,
-                            shop_listing_id: command.shop_listing_id,
-                            address: ProductListingAddress::default(),
-                            title: Some(Localized::new(language, Title::from(title))),
-                            description,
-                            price,
-                            price_estimate_min: None,
-                            price_estimate_max: None,
-                            availability,
-                            url: Some(url),
-                            images,
-                            auction_start: None,
-                            auction_end: None,
-                        },
-                    )
-                    .await
-                    .map(IngestWoocommerceProductListingResult::Upserted)
-                    .map_err(|source| {
-                        IngestWoocommerceProductListingError::ProductListingUpsertFailed { source }
-                    })
+                IngestWoocommerceProductListingResult::Upserted(
+                    self.upsert(&mut tx, &shop, listing_data(command, availability, &shop)?)
+                        .await?,
+                )
             }
-        }
+        };
+        tx.commit()
+            .await
+            .map_err(|_| IngestWoocommerceProductListingError::CommitTransactionFailed)?;
+        Ok(result)
     }
 }
-fn actor_id(context: &OperationContext) -> Result<UserId, IngestWoocommerceProductListingError> {
-    match &context.principal {
-        Principal::User(id) => Ok(*id),
-        Principal::DelegatedUser {
-            user_id,
-            capabilities,
-        } if capabilities.contains(&CredentialCapability::PartnerShopsWrite) => Ok(*user_id),
-        Principal::Anonymous => {
-            Err(IngestWoocommerceProductListingError::AuthenticatedActorRequired)
-        }
-        Principal::DelegatedUser { .. } | Principal::Service(_) | Principal::System => {
-            Err(IngestWoocommerceProductListingError::ActorMayNotIngestForShop)
-        }
+
+fn partner_actor(principal: &Principal) -> Option<UserId> {
+    match principal {
+        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Some(*user_id),
+        Principal::Anonymous | Principal::Service(_) | Principal::System => None,
     }
 }
+
+fn listing_data(
+    command: IngestWoocommerceProductListingCommand,
+    availability: PatchField<ListingAvailability>,
+    shop: &WoocommerceWebhookShop,
+) -> Result<WoocommerceListingData, IngestWoocommerceProductListingError> {
+    let language = shop
+        .language
+        .ok_or(IngestWoocommerceProductListingError::MissingShopLanguage)?;
+    let title = command
+        .title
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or(IngestWoocommerceProductListingError::MissingTitle)?;
+    let url = command
+        .permalink
+        .ok_or(IngestWoocommerceProductListingError::MissingUrl)?;
+    let description = command
+        .description_html
+        .as_deref()
+        .or(command.short_description_html.as_deref())
+        .map(fallbacked_html_to_markdown)
+        .filter(|value| !value.is_empty())
+        .map(Description::from)
+        .map(|value| Localized::new(language, value));
+    let images = command
+        .image_urls
+        .into_iter()
+        .map(|url| ProductListingImage {
+            url,
+            prohibited_content: ProhibitedContent::Unknown,
+        })
+        .collect();
+    Ok(WoocommerceListingData {
+        shop_listing_id: command.shop_listing_id,
+        title: Localized::new(language, Title::from(title)),
+        description,
+        price: parse_price(command.price.as_deref(), shop.currency)?,
+        availability,
+        url,
+        images,
+    })
+}
+
 fn parse_price(
     value: Option<&str>,
     currency: Option<money::Currency>,
@@ -366,12 +522,14 @@ fn parse_price(
         currency,
     )))
 }
+
 fn fallbacked_html_to_markdown(html: &str) -> String {
     match html_to_markdown_rs::convert(html, None) {
         Ok(result) => result.content.unwrap_or_else(|| html.to_owned()),
         Err(_) => html.to_owned(),
     }
 }
+
 fn listing_action(
     kind: WoocommerceProductEventKind,
     status: Option<&str>,
@@ -392,19 +550,34 @@ fn listing_action(
         Some(_) | None => WoocommerceListingAction::Ignore,
     }
 }
-impl From<PartnerShopReadError> for IngestWoocommerceProductListingError {
-    fn from(error: PartnerShopReadError) -> Self {
+
+impl From<OperationAuthorizationError> for IngestWoocommerceProductListingError {
+    fn from(error: OperationAuthorizationError) -> Self {
         match error {
-            PartnerShopReadError::TemporarilyUnavailable { source } => {
-                Self::PartnerMembershipTemporarilyUnavailable { source }
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
             }
-            PartnerShopReadError::InvalidReadModel { source }
-            | PartnerShopReadError::Internal { source } => {
-                Self::InvalidPartnerMembershipReadModel { source }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
+    }
+}
+
+impl From<PartnerProductListingAuthorizationError> for IngestWoocommerceProductListingError {
+    fn from(error: PartnerProductListingAuthorizationError) -> Self {
+        match error {
+            PartnerProductListingAuthorizationError::ShopNotFound => Self::ShopNotFound,
+            PartnerProductListingAuthorizationError::Forbidden => Self::ActorMayNotIngestForShop,
+            PartnerProductListingAuthorizationError::TemporarilyUnavailable { source } => {
+                Self::PartnerAuthorizationTemporarilyUnavailable { source }
+            }
+            PartnerProductListingAuthorizationError::Internal { source } => {
+                Self::PartnerAuthorizationInternal { source }
             }
         }
     }
 }
+
 impl From<WoocommerceWebhookShopReadError> for IngestWoocommerceProductListingError {
     fn from(error: WoocommerceWebhookShopReadError) -> Self {
         match error {
@@ -414,6 +587,38 @@ impl From<WoocommerceWebhookShopReadError> for IngestWoocommerceProductListingEr
             WoocommerceWebhookShopReadError::InvalidReadModel { source } => {
                 Self::InvalidWebhookShopReadModel { source }
             }
+        }
+    }
+}
+
+impl From<ProductListingRepositoryError> for IngestWoocommerceProductListingError {
+    fn from(_: ProductListingRepositoryError) -> Self {
+        Self::ProductListingPersistenceFailed
+    }
+}
+
+impl From<ProductListingEventStoreError> for IngestWoocommerceProductListingError {
+    fn from(_: ProductListingEventStoreError) -> Self {
+        Self::ProductListingEventStoreFailed
+    }
+}
+
+impl From<ChangeListingAvailabilityError> for IngestWoocommerceProductListingError {
+    fn from(_: ChangeListingAvailabilityError) -> Self {
+        Self::ListingWithdrawn
+    }
+}
+
+impl From<ChangeProductListingError> for IngestWoocommerceProductListingError {
+    fn from(_: ChangeProductListingError) -> Self {
+        Self::ListingWithdrawn
+    }
+}
+
+impl From<RehydrateProductListingError> for IngestWoocommerceProductListingError {
+    fn from(error: RehydrateProductListingError) -> Self {
+        Self::InvalidProductListing {
+            source: box_error(error),
         }
     }
 }

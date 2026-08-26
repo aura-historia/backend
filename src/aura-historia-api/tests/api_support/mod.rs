@@ -634,21 +634,11 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     let webhooks_state = WebhooksState::new(
         Arc::new(IngestWoocommerceProductListingHandler::new(
             unit_of_work.clone(),
-            SqlxPartnerShopReaderFactory::new(),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventStoreFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
             SqlxWoocommerceWebhookShopReaderFactory::new(),
             SqlxWoocommerceWebhookSignatureVerifierFactory::new(),
-            UpsertProductListingHandler::new(
-                unit_of_work.clone(),
-                SqlxProductListingRepositoryFactory::new(),
-                SqlxProductListingEventStoreFactory::new(),
-                SqlxPartnerProductListingAuthorizerFactory::new(),
-            ),
-            WithdrawProductListingHandler::new(
-                unit_of_work.clone(),
-                SqlxProductListingRepositoryFactory::new(),
-                SqlxProductListingEventStoreFactory::new(),
-                SqlxPartnerProductListingAuthorizerFactory::new(),
-            ),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );

@@ -797,21 +797,11 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     );
     let ingest_woocommerce_product = IngestWoocommerceProductListingHandler::new(
         unit_of_work.clone(),
-        SqlxPartnerShopReaderFactory::new(),
+        SqlxProductListingRepositoryFactory::new(),
+        SqlxProductListingEventStoreFactory::new(),
+        SqlxPartnerProductListingAuthorizerFactory::new(),
         SqlxWoocommerceWebhookShopReaderFactory::new(),
         SqlxWoocommerceWebhookSignatureVerifierFactory::new(),
-        UpsertProductListingHandler::new(
-            unit_of_work.clone(),
-            SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
-            SqlxPartnerProductListingAuthorizerFactory::new(),
-        ),
-        WithdrawProductListingHandler::new(
-            unit_of_work.clone(),
-            SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
-            SqlxPartnerProductListingAuthorizerFactory::new(),
-        ),
     );
     let list_watchlist = ListWatchlistHandler::new(
         unit_of_work.clone(),

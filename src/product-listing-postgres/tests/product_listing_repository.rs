@@ -89,20 +89,11 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
         Ok(Some(Versioned { ref value, .. })) if value.id() == product.id()
     ));
 
-    let current_event_id = match events
-        .in_transaction(&mut tx)
-        .find_current_event_id(product.id())
-        .await
-    {
-        Ok(Some(event_id)) => event_id,
-        Ok(None) => panic!("missing current product event id"),
-        Err(error) => panic!("failed to find current event id: {error:?}"),
-    };
     commit(tx).await;
 
     assert_eq!(product.id(), loaded_by_id.id());
     assert_eq!(created_event.event_id, version);
-    assert_eq!(created_event.event_id, current_event_id);
+
     assert_eq!(ListingLifecycle::Active, loaded_by_id.lifecycle());
 
     let mut updated = loaded_by_id;
@@ -134,15 +125,6 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
         Ok(None) => panic!("missing updated product"),
         Err(error) => panic!("failed to load updated product: {error:?}"),
     };
-    let current_event_id_after_update = match events
-        .in_transaction(&mut tx)
-        .find_current_event_id(product.id())
-        .await
-    {
-        Ok(Some(event_id)) => event_id,
-        Ok(None) => panic!("missing current product event id after update"),
-        Err(error) => panic!("failed to find current event id after update: {error:?}"),
-    };
     commit(tx).await;
 
     assert_eq!(
@@ -150,7 +132,6 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
         loaded.value.availability()
     );
     assert_eq!(update_event.event_id, loaded.version);
-    assert_eq!(update_event.event_id, current_event_id_after_update);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -379,14 +360,14 @@ async fn should_report_identity_conflict_when_update_would_duplicate_shop_produc
 
     let result = {
         let mut tx = begin(&unit_of_work).await;
-        let expected_event_id = match events
+        let expected_event_id = match product_listings
             .in_transaction(&mut tx)
-            .find_current_event_id(second.id())
+            .find_by_id(second.id())
             .await
         {
-            Ok(Some(event_id)) => event_id,
-            Ok(None) => panic!("missing current event for second listing"),
-            Err(error) => panic!("failed to find current event: {error:?}"),
+            Ok(Some(loaded)) => loaded.version,
+            Ok(None) => panic!("missing second listing"),
+            Err(error) => panic!("failed to find second listing: {error:?}"),
         };
         product_listings
             .in_transaction(&mut tx)
@@ -421,14 +402,14 @@ async fn should_report_slug_conflict_when_update_would_duplicate_product_slug() 
 
     let result = {
         let mut tx = begin(&unit_of_work).await;
-        let expected_event_id = match events
+        let expected_event_id = match product_listings
             .in_transaction(&mut tx)
-            .find_current_event_id(second.id())
+            .find_by_id(second.id())
             .await
         {
-            Ok(Some(event_id)) => event_id,
-            Ok(None) => panic!("missing current event for second listing"),
-            Err(error) => panic!("failed to find current event: {error:?}"),
+            Ok(Some(loaded)) => loaded.version,
+            Ok(None) => panic!("missing second listing"),
+            Err(error) => panic!("failed to find second listing: {error:?}"),
         };
         product_listings
             .in_transaction(&mut tx)
@@ -478,14 +459,7 @@ async fn should_roll_back_product_and_event_when_transaction_is_not_committed() 
         Ok(value) => value,
         Err(error) => panic!("failed to find rolled-back product: {error:?}"),
     };
-    let current_event_after_rollback = match events
-        .in_transaction(&mut tx)
-        .find_current_event_id(product.id())
-        .await
-    {
-        Ok(value) => value,
-        Err(error) => panic!("failed to find rolled-back current event: {error:?}"),
-    };
+
     let persisted_event_count: i64 = match sqlx::query_scalar(
         "SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1",
     )
@@ -499,7 +473,7 @@ async fn should_roll_back_product_and_event_when_transaction_is_not_committed() 
     commit(tx).await;
 
     assert!(product_after_rollback.is_none());
-    assert_eq!(None, current_event_after_rollback);
+
     assert_eq!(0, persisted_event_count);
 }
 

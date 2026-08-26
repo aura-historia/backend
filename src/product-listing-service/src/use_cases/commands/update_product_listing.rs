@@ -66,6 +66,8 @@ pub enum UpdateProductListingError {
     NotFound,
     #[error("product listing is withdrawn")]
     ListingWithdrawn,
+    #[error("product listing URL is required")]
+    UrlRequired,
     #[error("product listing persistence failed")]
     PersistenceFailed,
     #[error("product listing event storage failed")]
@@ -128,12 +130,15 @@ where
     ) -> Result<UpdateProductListingResult, UpdateProductListingError> {
         context
             .require()
-            .credential_capability(CredentialCapability::PartnerShopsWrite)
+            .credential_capability(CredentialCapability::ProductListingsWrite)
             .authorize::<UpdateProductListingError>()?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
         );
+        if matches!(command.url, PatchField::Clear) {
+            return Err(UpdateProductListingError::UrlRequired);
+        }
         let mut tx = self
             .unit_of_work
             .begin()
@@ -275,7 +280,9 @@ fn apply_command(
         PatchField::Set(value) => {
             product.change_url(value)?;
         }
-        PatchField::Clear => {}
+        PatchField::Clear => {
+            return Err(UpdateProductListingError::UrlRequired);
+        }
     }
     match command.images {
         PatchField::Unchanged => {}
@@ -392,5 +399,53 @@ impl From<ProductListingRepositoryError> for UpdateProductListingError {
 impl From<ProductListingEventStoreError> for UpdateProductListingError {
     fn from(_: ProductListingEventStoreError) -> Self {
         Self::EventStoreFailed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use localization::{Language, Localized};
+    use product_listing_core::{
+        product_listing::{NewProductListing, ProductListingAuction},
+        product_listing_id::ProductListingId,
+        shop_listing_id::ShopListingId,
+        title::Title,
+    };
+    use shop_core::shop_id::ShopId;
+
+    #[test]
+    fn should_reject_clearing_required_url_without_mutating_listing() {
+        let url = Url::parse("https://shop.example/listing")
+            .unwrap_or_else(|error| panic!("invalid URL: {error}"));
+        let mut listing = ProductListing::create(NewProductListing {
+            id: ProductListingId::new(),
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shop_listing_id: ShopListingId::from("listing"),
+            address: ProductListingAddress::default(),
+            title: Some(Localized::new(Language::En, Title::from("Listing"))),
+            description: None,
+            pricing: ProductListingPricing::default(),
+            availability: None,
+            url: url.clone(),
+            images: IndexSet::new(),
+            auction: ProductListingAuction::default(),
+        })
+        .unwrap_or_else(|error| panic!("valid listing should be created: {error}"));
+
+        let result = apply_command(
+            &mut listing,
+            UpdateProductListingCommand {
+                url: PatchField::Clear,
+                ..Default::default()
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(UpdateProductListingError::UrlRequired)
+        ));
+        assert_eq!(&url, listing.url());
     }
 }

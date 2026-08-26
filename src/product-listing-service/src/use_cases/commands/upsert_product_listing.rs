@@ -210,7 +210,7 @@ where
     ) -> Result<UpsertProductListingResult, UpsertProductListingError> {
         context
             .require()
-            .credential_capability(CredentialCapability::PartnerShopsWrite)
+            .credential_capability(CredentialCapability::ProductListingsWrite)
             .authorize::<UpsertProductListingError>()?;
         tracing::Span::current().record(
             "actor_id",

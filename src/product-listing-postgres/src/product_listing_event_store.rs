@@ -1,11 +1,10 @@
 #![allow(dead_code)]
 
-use domain_primitives::event_id::EventId;
 use product_listing_core::product_listing::{
     ListingSaleObservation, ProductListingAddress, ProductListingAuction,
     ProductListingEventPayload, ProductListingPricing,
 };
-use product_listing_core::product_listing_id::ProductListingId;
+
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_service::ports::product_listing_event_store::{
     ProductListingEvent, ProductListingEventStore, ProductListingEventStoreError,
@@ -64,25 +63,9 @@ impl ProductListingEventStore for SqlxProductListingEventStore<'_> {
 
         Ok(())
     }
-
-    async fn find_current_event_id(
-        &mut self,
-        product_listing_id: ProductListingId,
-    ) -> Result<Option<EventId>, ProductListingEventStoreError> {
-        let event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT event_id FROM product_listing_events WHERE product_listing_id = $1 ORDER BY event_time DESC, event_id DESC LIMIT 1",
-        )
-        .bind(uuid::Uuid::from(product_listing_id))
-        .fetch_optional(&mut *self.connection)
-        .await
-        .map_err(ProductListingCurrentEventLookupSqlxError)?;
-
-        Ok(event_id.map(EventId::from))
-    }
 }
 
 struct ProductListingEventAppendSqlxError(sqlx::Error);
-struct ProductListingCurrentEventLookupSqlxError(sqlx::Error);
 
 impl From<ProductListingEventAppendSqlxError> for ProductListingEventStoreError {
     fn from(value: ProductListingEventAppendSqlxError) -> Self {
@@ -93,13 +76,6 @@ impl From<ProductListingEventAppendSqlxError> for ProductListingEventStoreError 
             }
             _ => Self::ProductListingEventAppendFailed,
         }
-    }
-}
-
-impl From<ProductListingCurrentEventLookupSqlxError> for ProductListingEventStoreError {
-    fn from(value: ProductListingCurrentEventLookupSqlxError) -> Self {
-        let ProductListingCurrentEventLookupSqlxError(_error) = value;
-        Self::CurrentProductListingEventLookupFailed
     }
 }
 

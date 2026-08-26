@@ -244,7 +244,10 @@ fn crawler_operation_context(command: &UpsertProductListingCommand) -> Operation
     }
 }
 
-/// Writes upsert commands as primitive JSON snapshots to a configured output file.
+/// Writes display-only upsert snapshots to a configured output file.
+///
+/// These snapshots are not command replay input. They retain availability patch intent only
+/// for inspection, using an explicit tagged representation.
 pub struct FileProductListingPushService {
     output_path: std::path::PathBuf,
 }
@@ -257,7 +260,9 @@ impl FileProductListingPushService {
     }
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+/// Display-only record of a command. It deliberately has no deserializer because this file is
+/// never an upsert-command replay source.
+#[derive(Debug, serde::Serialize)]
 struct UpsertCommandSnapshot {
     shop_id: String,
     seller_id: String,
@@ -268,34 +273,42 @@ struct UpsertCommandSnapshot {
     price: Option<PriceSnapshot>,
     price_estimate_min: Option<PriceSnapshot>,
     price_estimate_max: Option<PriceSnapshot>,
-    availability: Option<String>,
+    availability: AvailabilityPatchSnapshot,
     url: Option<String>,
     images: Vec<ProductListingImageSnapshot>,
     auction_start: Option<String>,
     auction_end: Option<String>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     raw_attributes: BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize)]
+#[serde(tag = "state", rename_all = "SCREAMING_SNAKE_CASE")]
+enum AvailabilityPatchSnapshot {
+    Set { value: String },
+    Clear,
+    Unchanged,
+}
+
+#[derive(Debug, Default, serde::Serialize)]
 struct ProductListingAddressSnapshot {
     structured: Option<String>,
     geo: Option<String>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize)]
 struct LocalizedTextSnapshot {
     language: String,
     text: String,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize)]
 struct PriceSnapshot {
     amount: u64,
     currency: String,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize)]
 struct ProductListingImageSnapshot {
     url: String,
     prohibited_content: String,
@@ -318,8 +331,11 @@ impl From<&ProductListingPushItem> for UpsertCommandSnapshot {
             price_estimate_min: command.price_estimate_min.map(snapshot_price),
             price_estimate_max: command.price_estimate_max.map(snapshot_price),
             availability: match command.availability {
-                PatchField::Set(availability) => Some(availability_name(availability).to_owned()),
-                PatchField::Unchanged | PatchField::Clear => None,
+                PatchField::Set(availability) => AvailabilityPatchSnapshot::Set {
+                    value: availability_name(availability).to_owned(),
+                },
+                PatchField::Clear => AvailabilityPatchSnapshot::Clear,
+                PatchField::Unchanged => AvailabilityPatchSnapshot::Unchanged,
             },
             url: command.url.as_ref().map(ToString::to_string),
             images: command
@@ -372,7 +388,9 @@ impl ProductListingPushService for FileProductListingPushService {
             return Vec::new();
         }
 
-        let mut snapshots = if self.output_path.exists() {
+        // Existing entries are retained for display only. Do not deserialize them as commands:
+        // the file is not a replay source and may contain older display formats.
+        let mut snapshots: Vec<serde_json::Value> = if self.output_path.exists() {
             match std::fs::read_to_string(&self.output_path) {
                 Ok(content) => match serde_json::from_str(&content) {
                     Ok(snapshots) => snapshots,
@@ -398,7 +416,19 @@ impl ProductListingPushService for FileProductListingPushService {
             Vec::new()
         };
 
-        snapshots.extend(products.iter().map(UpsertCommandSnapshot::from));
+        let new_snapshots = match products
+            .iter()
+            .map(UpsertCommandSnapshot::from)
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(snapshots) => snapshots,
+            Err(error) => {
+                error!(error = %error, "Failed to serialize scraped product snapshots");
+                return vec![false; products.len()];
+            }
+        };
+        snapshots.extend(new_snapshots);
 
         let json = match serde_json::to_string_pretty(&snapshots) {
             Ok(json) => json,
@@ -858,8 +888,32 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn should_serialize_availability_patch_state_without_aliasing()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let set = push_item()?;
+        let mut clear = set.clone();
+        clear.command.availability = PatchField::Clear;
+        let mut unchanged = set.clone();
+        unchanged.command.availability = PatchField::Unchanged;
+
+        for (item, expected) in [
+            (
+                set,
+                serde_json::json!({ "state": "SET", "value": "AVAILABLE" }),
+            ),
+            (clear, serde_json::json!({ "state": "CLEAR" })),
+            (unchanged, serde_json::json!({ "state": "UNCHANGED" })),
+        ] {
+            let snapshot = serde_json::to_value(UpsertCommandSnapshot::from(&item))?;
+            assert_eq!(snapshot["availability"], expected);
+        }
+
+        Ok(())
+    }
+
     #[tokio::test]
-    async fn should_write_primitive_canonical_snapshot() -> Result<(), url::ParseError> {
+    async fn should_write_display_only_snapshot() -> Result<(), url::ParseError> {
         let path = std::env::temp_dir().join(format!("product_push_{}.json", uuid::Uuid::new_v4()));
         let service = FileProductListingPushService::new(path.clone());
 
@@ -871,7 +925,8 @@ mod tests {
             Err(error) => panic!("failed to read product snapshot: {error}"),
         };
         assert!(content.contains("\"seller_id\""));
-        assert!(content.contains("\"availability\": \"AVAILABLE\""));
+        assert!(content.contains("\"state\": \"SET\""));
+        assert!(content.contains("\"value\": \"AVAILABLE\""));
 
         let _ = std::fs::remove_file(path);
         Ok(())

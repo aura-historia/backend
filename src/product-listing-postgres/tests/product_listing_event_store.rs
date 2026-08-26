@@ -31,7 +31,7 @@ use url::Url;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_report_duplicate_event_and_missing_current_event_in_product_listing_postgres() {
+async fn should_report_duplicate_event_in_product_listing_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
@@ -62,17 +62,6 @@ async fn should_report_duplicate_event_and_missing_current_event_in_product_list
         duplicate_event,
         Err(ProductListingEventStoreError::ProductListingEventAlreadyExists)
     ));
-
-    let mut tx = begin(&unit_of_work).await;
-    let missing_event = match events
-        .in_transaction(&mut tx)
-        .find_current_event_id(ProductListingId::new())
-        .await
-    {
-        Ok(value) => value,
-        Err(error) => panic!("failed to read missing current event: {error:?}"),
-    };
-    assert_eq!(None, missing_event);
 }
 
 fn first_stamped_event(

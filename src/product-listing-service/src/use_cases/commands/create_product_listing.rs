@@ -128,7 +128,7 @@ where
     ) -> Result<CreateProductListingResult, CreateProductListingError> {
         context
             .require()
-            .credential_capability(CredentialCapability::PartnerShopsWrite)
+            .credential_capability(CredentialCapability::ProductListingsWrite)
             .authorize::<CreateProductListingError>()?;
         tracing::Span::current().record(
             "actor_id",

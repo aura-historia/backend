@@ -765,6 +765,9 @@ impl From<UpdateProductListingError> for ApiError {
             UpdateProductListingError::ListingWithdrawn => {
                 ApiError::conflict(CONFLICT).with_detail("ProductListing has been withdrawn.")
             }
+            UpdateProductListingError::UrlRequired => {
+                ApiError::bad_request(BAD_BODY_VALUE).with_detail("ProductListing URL is required.")
+            }
             UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | UpdateProductListingError::PersistenceFailed
             | UpdateProductListingError::EventStoreFailed
@@ -832,7 +835,8 @@ impl From<IngestWoocommerceProductListingError> for ApiError {
                     .with_header_field("Authorization")
                     .with_detail("Bearer token is required.")
             }
-            IngestWoocommerceProductListingError::ActorMayNotIngestForShop
+            IngestWoocommerceProductListingError::Forbidden
+            | IngestWoocommerceProductListingError::ActorMayNotIngestForShop
             | IngestWoocommerceProductListingError::ShopNotPartnered => {
                 ApiError::forbidden(PARTNER_SHOP_NOT_PARTNERED)
                     .with_detail("Actor is not a partner of this shop.")
@@ -849,25 +853,28 @@ impl From<IngestWoocommerceProductListingError> for ApiError {
                     .with_header_field("x-wc-webhook-signature")
                     .with_detail("WooCommerce signature is invalid.")
             }
-            IngestWoocommerceProductListingError::PartnerMembershipTemporarilyUnavailable {
+            IngestWoocommerceProductListingError::PartnerAuthorizationTemporarilyUnavailable {
                 ..
             }
             | IngestWoocommerceProductListingError::WebhookShopTemporarilyUnavailable { .. } => {
                 ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
                     .with_detail("WooCommerce webhook validation is temporarily unavailable.")
             }
-            IngestWoocommerceProductListingError::InvalidPartnerMembershipReadModel { .. }
+            IngestWoocommerceProductListingError::PartnerAuthorizationInternal { .. }
             | IngestWoocommerceProductListingError::InvalidWebhookShopReadModel { .. } => {
                 ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
                     .with_detail("WooCommerce webhook validation failed internally.")
             }
-            IngestWoocommerceProductListingError::ProductListingUpsertFailed { source } => {
-                ApiError::from(source)
+            IngestWoocommerceProductListingError::InvalidProductListing { .. } => {
+                ApiError::bad_request(BAD_BODY_VALUE)
+                    .with_detail("WooCommerce product payload is invalid.")
             }
-            IngestWoocommerceProductListingError::ProductListingWithdrawalFailed { source } => {
-                ApiError::from(source)
+            IngestWoocommerceProductListingError::ListingWithdrawn => {
+                ApiError::conflict(CONFLICT).with_detail("ProductListing has been withdrawn.")
             }
-            IngestWoocommerceProductListingError::BeginTransactionFailed
+            IngestWoocommerceProductListingError::ProductListingPersistenceFailed
+            | IngestWoocommerceProductListingError::ProductListingEventStoreFailed
+            | IngestWoocommerceProductListingError::BeginTransactionFailed
             | IngestWoocommerceProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("WooCommerce product ingestion is temporarily unavailable.")

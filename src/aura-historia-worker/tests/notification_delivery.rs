@@ -133,12 +133,12 @@ async fn deliver_committed_notification_delivery() -> Result<(), Box<dyn std::er
             vec![delivery.recipient_email],
             email.destination.to_addresses
         );
-        assert_eq!("Your watchlist item changed", email.subject);
+        assert_eq!("Your watchlist item's availability changed", email.subject);
         assert!(email.body.html_part.as_deref().is_some_and(|body| {
             body.contains("data-template-language=\"en\"")
                 && body.contains("Delivery test shop")
-                && body.contains("Listed")
                 && body.contains("Available")
+                && body.contains("In stock")
         }));
         assert!(
             email
@@ -583,7 +583,7 @@ impl DeliveryTargets {
         s3.put_object()
             .bucket(&bucket)
             .key(format!(
-                "{stage}/{commit_sha}/mjml/watchlist/product-update/state/en.html"
+                "{stage}/{commit_sha}/mjml/watchlist/product-update/availability/en.html"
             ))
             .body(template.bytes().into())
             .send()

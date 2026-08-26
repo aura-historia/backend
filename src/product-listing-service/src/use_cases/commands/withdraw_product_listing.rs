@@ -99,7 +99,7 @@ where
     ) -> Result<WithdrawProductListingResult, WithdrawProductListingError> {
         context
             .require()
-            .credential_capability(CredentialCapability::PartnerShopsWrite)
+            .credential_capability(CredentialCapability::ProductListingsWrite)
             .authorize::<WithdrawProductListingError>()?;
         tracing::Span::current().record(
             "actor_id",

@@ -125,13 +125,15 @@ where
     {
         context
             .require()
-            .credential_capability(CredentialCapability::PartnerShopsWrite)
+            .credential_capability(CredentialCapability::ProductListingsWrite)
             .authorize::<RecordProductListingSaleObservationError>()?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
         );
 
+        let observed_at = command.observed_at;
+        let recorded_at = OffsetDateTime::now_utc();
         let mut tx = self
             .unit_of_work
             .begin()
@@ -152,16 +154,16 @@ where
         let snapshot = self
             .fx_rates
             .in_transaction(&mut tx)
-            .find_latest_at_or_before(command.observed_at)
+            .find_latest_at_or_before(observed_at)
             .await?
             .ok_or(RecordProductListingSaleObservationError::FxSnapshotMissing)?;
-        let observation = ListingSaleObservation::new(command.observed_at, snapshot.id());
+        let observation = ListingSaleObservation::new(observed_at, snapshot.id());
         let expected_event_id = loaded.version;
         let mut listing = loaded.value;
         let outcome = listing.record_sale_observation(observation)?;
         let events = stamp_product_listing_events(
             listing.id(),
-            command.observed_at,
+            recorded_at,
             listing.take_pending_event_payloads(),
         );
         let event_id = events
@@ -294,6 +296,7 @@ mod tests {
         commits: usize,
         updates: usize,
         appends: usize,
+        recorded_events: Vec<crate::ports::product_listing_event_store::ProductListingEvent>,
         fx_lookups: usize,
     }
 
@@ -401,17 +404,12 @@ mod tests {
     impl ProductListingEventStore for EventStoreFake {
         async fn append(
             &mut self,
-            _event: &crate::ports::product_listing_event_store::ProductListingEvent,
+            event: &crate::ports::product_listing_event_store::ProductListingEvent,
         ) -> Result<(), ProductListingEventStoreError> {
-            lock(&self.0).appends += 1;
+            let mut state = lock(&self.0);
+            state.appends += 1;
+            state.recorded_events.push(event.clone());
             Ok(())
-        }
-
-        async fn find_current_event_id(
-            &mut self,
-            _product_listing_id: ProductListingId,
-        ) -> Result<Option<EventId>, ProductListingEventStoreError> {
-            Ok(None)
         }
     }
 
@@ -565,6 +563,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_accept_delegated_product_listings_write_scope()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let listing = listing(None)?;
+        let product_listing_id = listing.id();
+        lock(&state).listing = Some(Versioned::new(listing, EventId::new()));
+        lock(&state).snapshot = Some(snapshot()?);
+        let context = context(Principal::DelegatedUser {
+            user_id: UserId::new(),
+            capabilities: [CredentialCapability::ProductListingsWrite]
+                .into_iter()
+                .collect(),
+        });
+
+        let result = handler(&state)
+            .execute(
+                &context,
+                RecordProductListingSaleObservationCommand {
+                    product_listing_id,
+                    observed_at: OffsetDateTime::UNIX_EPOCH,
+                },
+            )
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(1, lock(&state).commits);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_delegated_partner_shops_write_scope_before_starting_transaction() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let context = context(Principal::DelegatedUser {
+            user_id: UserId::new(),
+            capabilities: [CredentialCapability::PartnerShopsWrite]
+                .into_iter()
+                .collect(),
+        });
+
+        let result = handler(&state)
+            .execute(
+                &context,
+                RecordProductListingSaleObservationCommand {
+                    product_listing_id: ProductListingId::new(),
+                    observed_at: OffsetDateTime::UNIX_EPOCH,
+                },
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(RecordProductListingSaleObservationError::Forbidden)
+        ));
+        assert_eq!(0, lock(&state).commits);
+    }
+
+    #[tokio::test]
     async fn should_commit_idempotent_observation_without_persistence()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = Arc::new(Mutex::new(State::default()));
@@ -591,6 +646,39 @@ mod tests {
         assert_eq!(1, state.commits);
         assert_eq!(0, state.updates);
         assert_eq!(0, state.appends);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_keep_sale_fact_time_in_payload_and_record_event_at_processing_time()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let listing = listing(None)?;
+        let product_listing_id = listing.id();
+        lock(&state).listing = Some(Versioned::new(listing, EventId::new()));
+        lock(&state).snapshot = Some(snapshot()?);
+        let observed_at = OffsetDateTime::UNIX_EPOCH;
+
+        handler(&state)
+            .execute(
+                &context(Principal::System),
+                RecordProductListingSaleObservationCommand {
+                    product_listing_id,
+                    observed_at,
+                },
+            )
+            .await?;
+
+        let state = lock(&state);
+        assert_eq!(1, state.recorded_events.len());
+        let event = &state.recorded_events[0];
+        assert!(event.timestamp > observed_at);
+        assert!(matches!(
+            event.payload,
+            product_listing_core::product_listing::ProductListingEventPayload::SaleObserved(
+                product_listing_core::product_listing::ListingSaleObserved { observation }
+            ) if observation.observed_at() == observed_at
+        ));
         Ok(())
     }
 
