@@ -11,7 +11,7 @@
 - Integrate workflow checks Rust dependency graph rules, runs Rust crate tests with required coverage, processes only `coverage-profraw` profiles, and uploads merged LCOV to SonarCloud. Profile search/generation errors, missing coverage input, or an empty report fail CI. Changes under `migrations/**` trigger integration validation.
 - Deploy workflow deploys split CDK stacks from one stage prefix, pushes active Lambda artifacts, and merges stack outputs for smoke tests. Changes under `migrations/**` trigger deployment validation.
 - Workflow change can change CI gate, deploy path, or DOX contract for many crates.
-- `workflows/test-images.yml` publishes only trusted-branch immutable test images; the pinned Postgres pg-ttl reference lives in `src/test-api/postgres/image-ref.txt`. Integration jobs have package-read access to consume it.
+- `workflows/test-images.yml` publishes only trusted-branch immutable test images; the pinned Postgres pg-ttl reference lives in `src/test-api/postgres/image-ref.txt`. Integration jobs use package-read access and `GITHUB_TOKEN` GHCR login to consume private images.
 - Command failure MUST fail its job. `always()` only for cleanup; explicit fallback must fail if recovery fails.
 
 ## Ownership
