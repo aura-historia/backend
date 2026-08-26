@@ -101,17 +101,19 @@ pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStrea
         }
     });
 
-    let teardown_calls = (0..service_exprs.len()).map(|i| {
+    let teardown_calls = (0..service_exprs.len()).rev().map(|i| {
         let ident = syn::Ident::new(&format!("__svc_{i}"), proc_macro2::Span::call_site());
         quote! {
             #ident.tear_down().await;
         }
     });
 
+    let attributes = &input_fn.attrs;
     let fn_name = &input_fn.sig.ident;
     let fn_block = &input_fn.block;
 
     let expanded = quote! {
+        #( #attributes )*
         #[tokio::test]
         #[test_api::serial]
         async fn #fn_name() {
@@ -144,14 +146,44 @@ pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStrea
                 None
             };
 
+            let __setup_started = std::time::Instant::now();
             #( #setup_calls )*
+            test_api::tracing::debug!(
+                elapsed_ms = __setup_started.elapsed().as_millis(),
+                "Integration test setup complete."
+            );
 
-            let __test_fn = async #fn_block;
-            __test_fn.await;
+            let __body_started = std::time::Instant::now();
+            let __body_result = test_api::FutureExt::catch_unwind(
+                std::panic::AssertUnwindSafe(async #fn_block)
+            ).await;
+            test_api::tracing::debug!(
+                elapsed_ms = __body_started.elapsed().as_millis(),
+                "Integration test body complete."
+            );
 
-            #( #teardown_calls )*
+            let __teardown_started = std::time::Instant::now();
+            let __teardown_result = test_api::FutureExt::catch_unwind(
+                std::panic::AssertUnwindSafe(async {
+                    #( #teardown_calls )*
+                })
+            ).await;
+            test_api::tracing::debug!(
+                elapsed_ms = __teardown_started.elapsed().as_millis(),
+                "Integration test teardown complete."
+            );
 
             drop(__localstack);
+
+            match (__body_result, __teardown_result) {
+                (Err(body_panic), Err(cleanup_panic)) => {
+                    eprintln!("integration-test teardown panicked after test-body panic: {cleanup_panic:?}");
+                    std::panic::resume_unwind(body_panic);
+                }
+                (Err(body_panic), Ok(())) => std::panic::resume_unwind(body_panic),
+                (Ok(()), Err(cleanup_panic)) => std::panic::resume_unwind(cleanup_panic),
+                (Ok(()), Ok(())) => {}
+            }
         }
     };
 

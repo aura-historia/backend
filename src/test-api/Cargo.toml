@@ -38,6 +38,7 @@ mrml = { workspace = true, optional = true }
 aws-sdk-cognitoidentityprovider = { workspace = true, optional = true}
 zip = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
+futures-util = { workspace = true }
 
 reqwest = { workspace = true, optional = true, features = ["json"] }
 base64 = { workspace = true, optional = true }

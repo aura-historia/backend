@@ -52,6 +52,10 @@
 - Put business behavior in domain crates and services.
 - Use runtime-neutral request/auth context; no API Gateway context.
 
+## Test Lifecycle
+
+- Keep API acceptance source modules by route/unit under `tests/api_cases/`, but run compatible modules through the single `tests/api.rs` suite binary. Shared Postgres, LocalStack/OpenSearch, and normal API server fixtures are process-lived; mutable DB/OpenSearch data resets after each test.
+
 ## Verification
 
 - `cargo check -p aura-historia-api`
