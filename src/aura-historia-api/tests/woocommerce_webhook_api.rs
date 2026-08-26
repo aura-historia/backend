@@ -201,6 +201,104 @@ async fn should_update_existing_product_and_not_append_event_for_redelivery() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_preserve_availability_for_woocommerce_updates_without_supported_stock_status() {
+    let result: TestResult = async {
+        let (shop_id, token) = webhook_auth().await?;
+        let created = product_body(25, "42.00", "publish", "instock");
+        assert_eq!(
+            reqwest::StatusCode::NO_CONTENT,
+            send(&shop_id, &token, "product.created", &created)
+                .await?
+                .status()
+        );
+
+        let pool = get_postgres_client().await;
+        let availability_event_count_before_updates: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = (SELECT product_listing_id FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2) AND event_type = 'PRODUCT_LISTING_AVAILABILITY_CHANGED'",
+        )
+        .bind(uuid::Uuid::parse_str(&shop_id)?)
+        .bind("25")
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(0, availability_event_count_before_updates.0);
+
+        let missing_stock_status = json!({
+            "id": 25,
+            "name": "Woo Cabinet",
+            "permalink": "https://partner.example/product-listings/woo-cabinet-25",
+            "description": "<p>Cabinet description</p>",
+            "price": "42.00",
+            "status": "publish",
+            "images": []
+        })
+        .to_string();
+        let unsupported_stock_status = product_body(25, "42.00", "publish", "unsupported");
+        for updated in [&missing_stock_status, &unsupported_stock_status] {
+            assert_eq!(
+                reqwest::StatusCode::NO_CONTENT,
+                send(&shop_id, &token, "product.updated", updated)
+                    .await?
+                    .status()
+            );
+        }
+
+        let existing_listing: (String, String) = sqlx::query_as(
+            "SELECT availability, lifecycle FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
+        )
+        .bind(uuid::Uuid::parse_str(&shop_id)?)
+        .bind("25")
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!("IN_STOCK", existing_listing.0);
+        assert_eq!("ACTIVE", existing_listing.1);
+        let availability_event_count_after_updates: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = (SELECT product_listing_id FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2) AND event_type = 'PRODUCT_LISTING_AVAILABILITY_CHANGED'",
+        )
+        .bind(uuid::Uuid::parse_str(&shop_id)?)
+        .bind("25")
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(
+            availability_event_count_before_updates,
+            availability_event_count_after_updates
+        );
+
+        let missing_status_new_listing = json!({
+            "id": 26,
+            "name": "Woo Cabinet",
+            "permalink": "https://partner.example/product-listings/woo-cabinet-26",
+            "description": "<p>Cabinet description</p>",
+            "price": "42.00",
+            "status": "publish",
+            "images": []
+        })
+        .to_string();
+        assert_eq!(
+            reqwest::StatusCode::NO_CONTENT,
+            send(
+                &shop_id,
+                &token,
+                "product.updated",
+                &missing_status_new_listing,
+            )
+            .await?
+            .status()
+        );
+        let new_listing_availability: Option<String> = sqlx::query_scalar(
+            "SELECT availability FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
+        )
+        .bind(uuid::Uuid::parse_str(&shop_id)?)
+        .bind("26")
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(None, new_listing_availability);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_woocommerce_webhook_with_invalid_signature() {
     let result: TestResult = async {
         let (shop_id, token) = webhook_auth().await?;

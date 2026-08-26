@@ -750,7 +750,7 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
             &worker.pool,
             sale_event.event_id,
             price_filters,
-            "SALE",
+            "SALE_OBSERVATION",
             snapshot_b,
         )
         .await?;

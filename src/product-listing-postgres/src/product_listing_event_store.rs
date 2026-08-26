@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use application::error::box_error;
 use product_listing_core::product_listing::{
     ListingSaleObservation, ProductListingAddress, ProductListingAuction,
     ProductListingEventPayload, ProductListingPricing,
@@ -12,6 +13,7 @@ use product_listing_service::ports::product_listing_event_store::{
 };
 use serde_json::{Value, json};
 use sqlx::PgConnection;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxProductListingEventStoreFactory;
@@ -55,7 +57,7 @@ impl ProductListingEventStore for SqlxProductListingEventStore<'_> {
         .bind(uuid::Uuid::from(event.event_id))
         .bind(uuid::Uuid::from(event.aggregate_id))
         .bind(event.payload.event_type())
-        .bind(event_payload_json(&event.payload))
+        .bind(event_payload_json(&event.payload)?)
         .bind(event.timestamp)
         .execute(&mut *self.connection)
         .await
@@ -79,8 +81,10 @@ impl From<ProductListingEventAppendSqlxError> for ProductListingEventStoreError 
     }
 }
 
-fn event_payload_json(payload: &ProductListingEventPayload) -> Value {
-    match payload {
+fn event_payload_json(
+    payload: &ProductListingEventPayload,
+) -> Result<Value, ProductListingEventStoreError> {
+    Ok(match payload {
         ProductListingEventPayload::Created(payload) => json!({
             "kind": "created",
             "title": payload.title.as_ref().map(localized_title_json),
@@ -90,7 +94,7 @@ fn event_payload_json(payload: &ProductListingEventPayload) -> Value {
             "availability": payload.availability.map(|value| value.as_str()),
             "url": payload.url.as_str(),
             "images": images_json(&payload.images),
-            "auction": auction_json(payload.auction),
+            "auction": auction_json(payload.auction)?,
         }),
         ProductListingEventPayload::AvailabilityChanged(payload) => json!({
             "kind": "availabilityChanged",
@@ -117,7 +121,7 @@ fn event_payload_json(payload: &ProductListingEventPayload) -> Value {
         }),
         ProductListingEventPayload::AuctionChanged(payload) => json!({
             "kind": "auctionChanged",
-            "auction": auction_json(payload.auction),
+            "auction": auction_json(payload.auction)?,
         }),
         ProductListingEventPayload::Withdrawn(payload) => json!({
             "kind": "withdrawn",
@@ -128,13 +132,13 @@ fn event_payload_json(payload: &ProductListingEventPayload) -> Value {
         }),
         ProductListingEventPayload::SaleObserved(payload) => json!({
             "kind": "saleObserved",
-            "observation": sale_observation_json(payload.observation),
+            "observation": sale_observation_json(payload.observation)?,
         }),
         ProductListingEventPayload::SaleObservationRetracted(payload) => json!({
             "kind": "saleObservationRetracted",
-            "observation": sale_observation_json(payload.observation),
+            "observation": sale_observation_json(payload.observation)?,
         }),
-    }
+    })
 }
 
 fn localized_title_json(
@@ -183,11 +187,13 @@ fn pricing_json(pricing: ProductListingPricing) -> Value {
     })
 }
 
-fn sale_observation_json(observation: ListingSaleObservation) -> Value {
-    json!({
-        "observedAt": observation.observed_at().to_string(),
+fn sale_observation_json(
+    observation: ListingSaleObservation,
+) -> Result<Value, ProductListingEventStoreError> {
+    Ok(json!({
+        "observedAt": format_event_timestamp(observation.observed_at())?,
         "fxRateId": observation.fx_rate_id().to_string(),
-    })
+    }))
 }
 
 fn price_json(price: money::Price) -> Value {
@@ -211,10 +217,18 @@ fn images_json(images: &indexmap::IndexSet<ProductListingImage>) -> Value {
     )
 }
 
-fn auction_json(auction: ProductListingAuction) -> Value {
-    json!({
-        "start": auction.start.map(|value| value.to_string()),
-        "end": auction.end.map(|value| value.to_string()),
+fn auction_json(auction: ProductListingAuction) -> Result<Value, ProductListingEventStoreError> {
+    Ok(json!({
+        "start": auction.start.map(format_event_timestamp).transpose()?,
+        "end": auction.end.map(format_event_timestamp).transpose()?,
+    }))
+}
+
+fn format_event_timestamp(value: OffsetDateTime) -> Result<String, ProductListingEventStoreError> {
+    value.format(&Rfc3339).map_err(|source| {
+        ProductListingEventStoreError::PayloadSerializationFailed {
+            source: box_error(source),
+        }
     })
 }
 
@@ -233,7 +247,8 @@ mod tests {
             current: None,
         });
 
-        let json = event_payload_json(&payload);
+        let json = event_payload_json(&payload)
+            .unwrap_or_else(|error| panic!("serialize payload: {error}"));
 
         assert_eq!(
             Some("availabilityChanged"),
@@ -252,10 +267,12 @@ mod tests {
             ProductListingWithdrawn {
                 previous_availability: Some(ListingAvailability::Available),
             },
-        ));
+        ))
+        .unwrap_or_else(|error| panic!("serialize withdrawn: {error}"));
         let restored = event_payload_json(&ProductListingEventPayload::Restored(
             ProductListingRestored,
-        ));
+        ))
+        .unwrap_or_else(|error| panic!("serialize restored: {error}"));
 
         assert_eq!(
             Some("withdrawn"),

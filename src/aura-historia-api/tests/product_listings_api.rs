@@ -2,15 +2,39 @@ mod api_support;
 
 use api_support::{
     assert_problem, aura_api_app_with_failed_search_embedding, json_response, product_route_slugs,
-    seed_current_fx_snapshot, seed_product,
+    seed_current_fx_snapshot, seed_product, seed_shop,
 };
+use application::transaction::{Transaction, UnitOfWork};
+use fxrate_core::FxRateId;
+use indexmap::IndexSet;
+use localization::{Language, Localized};
 use opensearch::{IndexParts, indices::IndicesPutMappingParts};
+use platform_postgres::SqlxUnitOfWork;
+use product_listing_core::{
+    description::Description,
+    listing_availability::ListingAvailability,
+    product_listing::{
+        ListingSaleObservation, NewProductListing, ProductListing, ProductListingAddress,
+        ProductListingAuction, ProductListingPricing,
+    },
+    product_listing_id::ProductListingId,
+    shop_listing_id::ShopListingId,
+    title::Title,
+};
+use product_listing_postgres::{
+    SqlxProductListingEventStoreFactory, SqlxProductListingRepositoryFactory,
+};
+use product_listing_service::ports::{
+    ProductListingEventStore, ProductListingEventStoreFactory, ProductListingRepository,
+    ProductListingRepositoryFactory, stamp_product_listing_events,
+};
 use serde_json::{Value, json};
 use test_api::{
     AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
     get_opensearch_client, get_postgres_client, refresh_index,
 };
-use time::{Duration, OffsetDateTime};
+use time::{Duration, OffsetDateTime, UtcOffset};
+use url::Url;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
 
@@ -95,6 +119,143 @@ async fn should_get_product_history_by_id() {
         Some("public, max-age=180, s-maxage=900".to_owned()),
         cache_control
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_get_product_history_with_timestamped_event_payloads() {
+    let shop = seed_shop().await;
+    let product_listing_id = ProductListingId::new();
+    let source_offset =
+        UtcOffset::from_hms(5, 30, 0).unwrap_or_else(|error| panic!("source offset: {error}"));
+    let auction_start = (OffsetDateTime::from_unix_timestamp(1_700_000_000)
+        .unwrap_or_else(|error| panic!("auction start: {error}"))
+        + Duration::nanoseconds(123_456_789))
+    .to_offset(source_offset);
+    let auction_end = (auction_start + Duration::hours(3)).to_offset(source_offset);
+    let mut product = ProductListing::create(NewProductListing {
+        id: product_listing_id,
+        shop_id: shop.id(),
+        seller_id: shop.id(),
+        shop_listing_id: ShopListingId::from(
+            format!("timestamped-history-{product_listing_id}").as_str(),
+        ),
+        address: ProductListingAddress::default(),
+        title: Some(Localized::new(
+            Language::En,
+            Title::from("Timestamped history ProductListing"),
+        )),
+        description: Some(Localized::new(
+            Language::En,
+            Description::from("Timestamp-bearing event payload fixture"),
+        )),
+        pricing: ProductListingPricing::default(),
+        availability: Some(ListingAvailability::Available),
+        url: Url::parse("https://api-acceptance.example/timestamped-history")
+            .unwrap_or_else(|error| panic!("product URL: {error}")),
+        images: IndexSet::new(),
+        auction: ProductListingAuction {
+            start: Some(auction_start),
+            end: Some(auction_end),
+        },
+    })
+    .unwrap_or_else(|error| panic!("create timestamped history product: {error}"));
+    let created_events = stamp_product_listing_events(
+        product_listing_id,
+        OffsetDateTime::now_utc(),
+        product.take_pending_event_payloads(),
+    );
+    let created_event_id = created_events
+        .last()
+        .map(|event| event.event_id)
+        .unwrap_or_else(|| panic!("created product event is missing"));
+
+    product
+        .replace_auction(ProductListingAuction {
+            start: Some((auction_start + Duration::days(1)).to_offset(source_offset)),
+            end: Some((auction_end + Duration::days(1)).to_offset(source_offset)),
+        })
+        .unwrap_or_else(|error| panic!("change auction: {error}"));
+    let observation = ListingSaleObservation::new(
+        (auction_end + Duration::nanoseconds(987_654_321)).to_offset(source_offset),
+        FxRateId::new(),
+    );
+    product
+        .record_sale_observation(observation)
+        .unwrap_or_else(|error| panic!("record sale observation: {error}"));
+    product.retract_sale_observation();
+    let changed_events = stamp_product_listing_events(
+        product_listing_id,
+        OffsetDateTime::now_utc(),
+        product.take_pending_event_payloads(),
+    );
+    let current_event_id = changed_events
+        .last()
+        .map(|event| event.event_id)
+        .unwrap_or_else(|| panic!("changed product event is missing"));
+
+    let unit_of_work = SqlxUnitOfWork::new(get_postgres_client().await);
+    let products = SqlxProductListingRepositoryFactory::new();
+    let events = SqlxProductListingEventStoreFactory::new();
+    let mut transaction = unit_of_work
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin product history transaction: {error}"));
+    products
+        .in_transaction(&mut transaction)
+        .insert(&product, created_event_id)
+        .await
+        .unwrap_or_else(|error| panic!("insert timestamped history product: {error:?}"));
+    for event in &created_events {
+        events
+            .in_transaction(&mut transaction)
+            .append(event)
+            .await
+            .unwrap_or_else(|error| panic!("append created product event: {error:?}"));
+    }
+    products
+        .in_transaction(&mut transaction)
+        .update(&product, created_event_id, current_event_id)
+        .await
+        .unwrap_or_else(|error| panic!("update timestamped history product: {error:?}"));
+    for event in &changed_events {
+        events
+            .in_transaction(&mut transaction)
+            .append(event)
+            .await
+            .unwrap_or_else(|error| panic!("append changed product event: {error:?}"));
+    }
+    transaction
+        .commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit product history transaction: {error}"));
+
+    let (response, _) = get_json(format!(
+        "/api/v1/product-listings/{product_listing_id}/history"
+    ))
+    .await;
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    let history = body
+        .as_array()
+        .unwrap_or_else(|| panic!("product history is not an array: {body}"));
+    let event = |event_type| {
+        history
+            .iter()
+            .find(|event| event["eventType"] == event_type)
+            .unwrap_or_else(|| panic!("missing {event_type} history event"))
+    };
+    for event_type in ["PRODUCT_LISTING_CREATED", "PRODUCT_LISTING_AUCTION_CHANGED"] {
+        let auction = &event(event_type)["payload"]["auction"];
+        assert!(auction["start"].is_string());
+        assert!(auction["end"].is_string());
+    }
+    for event_type in [
+        "PRODUCT_LISTING_SALE_OBSERVED",
+        "PRODUCT_LISTING_SALE_OBSERVATION_RETRACTED",
+    ] {
+        assert!(event(event_type)["payload"]["observedAt"].is_string());
+    }
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

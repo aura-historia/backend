@@ -235,6 +235,25 @@ pub enum RehydrateProductListingError {
     GeoLatitudeOutOfRange,
     #[error("product listing geo longitude out of range")]
     GeoLongitudeOutOfRange,
+    #[error("product listing auction start is after its end")]
+    AuctionStartAfterEnd,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProductListingInvariantError {
+    GeoLatitudeOutOfRange,
+    GeoLongitudeOutOfRange,
+    AuctionStartAfterEnd,
+}
+
+impl From<ProductListingInvariantError> for RehydrateProductListingError {
+    fn from(error: ProductListingInvariantError) -> Self {
+        match error {
+            ProductListingInvariantError::GeoLatitudeOutOfRange => Self::GeoLatitudeOutOfRange,
+            ProductListingInvariantError::GeoLongitudeOutOfRange => Self::GeoLongitudeOutOfRange,
+            ProductListingInvariantError::AuctionStartAfterEnd => Self::AuctionStartAfterEnd,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -247,6 +266,22 @@ pub enum ChangeListingAvailabilityError {
 pub enum ChangeProductListingError {
     #[error("listing is withdrawn")]
     ListingWithdrawn,
+    #[error("product listing geo latitude out of range")]
+    GeoLatitudeOutOfRange,
+    #[error("product listing geo longitude out of range")]
+    GeoLongitudeOutOfRange,
+    #[error("product listing auction start is after its end")]
+    AuctionStartAfterEnd,
+}
+
+impl From<ProductListingInvariantError> for ChangeProductListingError {
+    fn from(error: ProductListingInvariantError) -> Self {
+        match error {
+            ProductListingInvariantError::GeoLatitudeOutOfRange => Self::GeoLatitudeOutOfRange,
+            ProductListingInvariantError::GeoLongitudeOutOfRange => Self::GeoLongitudeOutOfRange,
+            ProductListingInvariantError::AuctionStartAfterEnd => Self::AuctionStartAfterEnd,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -294,7 +329,8 @@ impl ProductListing {
     pub fn rehydrate(
         state: RehydratedProductListingState,
     ) -> Result<Self, RehydrateProductListingError> {
-        validate_geo_address(state.address.geo)?;
+        validate_geo_address(state.address.geo).map_err(RehydrateProductListingError::from)?;
+        validate_auction(state.auction).map_err(RehydrateProductListingError::from)?;
         if state.lifecycle == ListingLifecycle::Withdrawn && state.availability.is_some() {
             return Err(RehydrateProductListingError::WithdrawnListingHasAvailability);
         }
@@ -396,6 +432,7 @@ impl ProductListing {
         address: ProductListingAddress,
     ) -> Result<ChangeOutcome, ChangeProductListingError> {
         self.ensure_active_mutation()?;
+        validate_geo_address(address.geo).map_err(ChangeProductListingError::from)?;
         if replace_if_changed(&mut self.address, address.clone()) == ChangeOutcome::Unchanged {
             return Ok(ChangeOutcome::Unchanged);
         }
@@ -460,6 +497,7 @@ impl ProductListing {
         auction: ProductListingAuction,
     ) -> Result<ChangeOutcome, ChangeProductListingError> {
         self.ensure_active_mutation()?;
+        validate_auction(auction).map_err(ChangeProductListingError::from)?;
         if self.auction == auction {
             return Ok(ChangeOutcome::Unchanged);
         }
@@ -568,14 +606,23 @@ fn product_listing_slug_id(
 
 fn validate_geo_address(
     geo_address: Option<GeoAddress>,
-) -> Result<(), RehydrateProductListingError> {
+) -> Result<(), ProductListingInvariantError> {
     if let Some(address) = geo_address {
         if !(-90.0..=90.0).contains(&address.lat) {
-            return Err(RehydrateProductListingError::GeoLatitudeOutOfRange);
+            return Err(ProductListingInvariantError::GeoLatitudeOutOfRange);
         }
         if !(-180.0..=180.0).contains(&address.lon) {
-            return Err(RehydrateProductListingError::GeoLongitudeOutOfRange);
+            return Err(ProductListingInvariantError::GeoLongitudeOutOfRange);
         }
+    }
+    Ok(())
+}
+
+fn validate_auction(auction: ProductListingAuction) -> Result<(), ProductListingInvariantError> {
+    if let (Some(start), Some(end)) = (auction.start, auction.end)
+        && start > end
+    {
+        return Err(ProductListingInvariantError::AuctionStartAfterEnd);
     }
     Ok(())
 }
@@ -704,6 +751,86 @@ mod tests {
         listing.take_pending_event_payloads();
         assert_eq!(ChangeOutcome::Unchanged, listing.withdraw());
         assert!(listing.pending_event_payloads().is_empty());
+    }
+
+    #[rstest::rstest]
+    #[case(
+        ProductListingAddress {
+            structured: None,
+            geo: Some(GeoAddress { lat: 90.1, lon: 0.0 }),
+        },
+        ChangeProductListingError::GeoLatitudeOutOfRange
+    )]
+    #[case(
+        ProductListingAddress {
+            structured: None,
+            geo: Some(GeoAddress { lat: 0.0, lon: 180.1 }),
+        },
+        ChangeProductListingError::GeoLongitudeOutOfRange
+    )]
+    fn should_reject_invalid_geo_address_without_mutating_listing_or_events(
+        #[case] address: ProductListingAddress,
+        #[case] error: ChangeProductListingError,
+    ) {
+        let mut listing =
+            ProductListing::create(input()).unwrap_or_else(|error| panic!("create: {error}"));
+        let expected = listing.clone();
+
+        assert_eq!(Err(error), listing.replace_address(address));
+        assert_eq!(expected, listing);
+    }
+
+    #[test]
+    fn should_reject_invalid_auction_without_mutating_listing_or_events() {
+        let mut listing =
+            ProductListing::create(input()).unwrap_or_else(|error| panic!("create: {error}"));
+        let expected = listing.clone();
+        let auction = ProductListingAuction {
+            start: Some(OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(1)),
+            end: Some(OffsetDateTime::UNIX_EPOCH),
+        };
+
+        assert_eq!(
+            Err(ChangeProductListingError::AuctionStartAfterEnd),
+            listing.replace_auction(auction)
+        );
+        assert_eq!(expected, listing);
+    }
+
+    #[test]
+    fn should_reject_invalid_auction_during_creation_and_rehydration() {
+        let auction = ProductListingAuction {
+            start: Some(OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(1)),
+            end: Some(OffsetDateTime::UNIX_EPOCH),
+        };
+        let mut creation_input = input();
+        creation_input.auction = auction;
+        assert_eq!(
+            Err(RehydrateProductListingError::AuctionStartAfterEnd),
+            ProductListing::create(creation_input)
+        );
+
+        let source = input();
+        assert_eq!(
+            Err(RehydrateProductListingError::AuctionStartAfterEnd),
+            ProductListing::rehydrate(RehydratedProductListingState {
+                id: source.id,
+                slug_id: product_listing_slug_id(source.id, source.title.as_ref()),
+                shop_id: source.shop_id,
+                seller_id: source.seller_id,
+                shop_listing_id: source.shop_listing_id,
+                address: source.address,
+                title: source.title,
+                description: source.description,
+                pricing: source.pricing,
+                sale_observation: None,
+                availability: source.availability,
+                lifecycle: ListingLifecycle::Active,
+                url: source.url,
+                images: source.images,
+                auction,
+            })
+        );
     }
 
     fn observation() -> ListingSaleObservation {

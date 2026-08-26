@@ -68,6 +68,8 @@ pub enum UpdateProductListingError {
     ListingWithdrawn,
     #[error("product listing URL is required")]
     UrlRequired,
+    #[error("product listing is invalid")]
+    InvalidProductListing,
     #[error("product listing persistence failed")]
     PersistenceFailed,
     #[error("product listing event storage failed")]
@@ -362,8 +364,13 @@ impl From<ChangeListingAvailabilityError> for UpdateProductListingError {
     }
 }
 impl From<ChangeProductListingError> for UpdateProductListingError {
-    fn from(_: ChangeProductListingError) -> Self {
-        Self::ListingWithdrawn
+    fn from(error: ChangeProductListingError) -> Self {
+        match error {
+            ChangeProductListingError::ListingWithdrawn => Self::ListingWithdrawn,
+            ChangeProductListingError::GeoLatitudeOutOfRange
+            | ChangeProductListingError::GeoLongitudeOutOfRange
+            | ChangeProductListingError::AuctionStartAfterEnd => Self::InvalidProductListing,
+        }
     }
 }
 impl From<OperationAuthorizationError> for UpdateProductListingError {

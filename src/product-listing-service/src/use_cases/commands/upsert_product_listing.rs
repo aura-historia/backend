@@ -101,6 +101,53 @@ pub struct UpsertProductListingHandler<U, R, E, A> {
     events: E,
     authorizer: A,
 }
+
+enum UpsertAttemptError {
+    ShopListingInsertRace,
+    Failed(UpsertProductListingError),
+}
+
+impl From<UpsertProductListingError> for UpsertAttemptError {
+    fn from(error: UpsertProductListingError) -> Self {
+        Self::Failed(error)
+    }
+}
+
+impl From<ProductListingRepositoryError> for UpsertAttemptError {
+    fn from(error: ProductListingRepositoryError) -> Self {
+        Self::Failed(error.into())
+    }
+}
+
+impl From<ProductListingEventStoreError> for UpsertAttemptError {
+    fn from(error: ProductListingEventStoreError) -> Self {
+        Self::Failed(error.into())
+    }
+}
+
+impl From<PartnerProductListingAuthorizationError> for UpsertAttemptError {
+    fn from(error: PartnerProductListingAuthorizationError) -> Self {
+        Self::Failed(error.into())
+    }
+}
+
+impl From<ChangeListingAvailabilityError> for UpsertAttemptError {
+    fn from(error: ChangeListingAvailabilityError) -> Self {
+        Self::Failed(error.into())
+    }
+}
+
+impl From<ChangeProductListingError> for UpsertAttemptError {
+    fn from(error: ChangeProductListingError) -> Self {
+        Self::Failed(error.into())
+    }
+}
+
+impl From<RehydrateProductListingError> for UpsertAttemptError {
+    fn from(error: RehydrateProductListingError) -> Self {
+        Self::Failed(error.into())
+    }
+}
 impl<U, R, E, A> UpsertProductListingHandler<U, R, E, A> {
     pub fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
         Self {
@@ -123,7 +170,7 @@ where
         tx: &mut U::Tx,
         context: &OperationContext,
         command: UpsertProductListingCommand,
-    ) -> Result<UpsertProductListingResult, UpsertProductListingError> {
+    ) -> Result<UpsertProductListingResult, UpsertAttemptError> {
         if let Some(actor_id) = partner_actor(&context.principal) {
             self.authorizer
                 .in_transaction(tx)
@@ -179,7 +226,13 @@ where
                     .products
                     .in_transaction(tx)
                     .insert(&product, event_id)
-                    .await?;
+                    .await
+                    .map_err(|error| match error {
+                        ProductListingRepositoryError::ShopListingAlreadyExists => {
+                            UpsertAttemptError::ShopListingInsertRace
+                        }
+                        error => UpsertAttemptError::Failed(error.into()),
+                    })?;
                 for event in &events {
                     self.events.in_transaction(tx).append(event).await?;
                 }
@@ -192,6 +245,27 @@ where
                 ))
             }
         }
+    }
+
+    async fn execute_attempt(
+        &self,
+        context: &OperationContext,
+        command: UpsertProductListingCommand,
+    ) -> Result<UpsertProductListingResult, UpsertAttemptError> {
+        context
+            .require()
+            .credential_capability(CredentialCapability::ProductListingsWrite)
+            .authorize::<UpsertProductListingError>()?;
+        let mut tx = self
+            .unit_of_work
+            .begin()
+            .await
+            .map_err(|_| UpsertProductListingError::BeginTransactionFailed)?;
+        let result = self.persist(&mut tx, context, command).await?;
+        tx.commit()
+            .await
+            .map_err(|_| UpsertProductListingError::CommitTransactionFailed)?;
+        Ok(result)
     }
 }
 #[async_trait::async_trait]
@@ -208,23 +282,23 @@ where
         context: &OperationContext,
         command: UpsertProductListingCommand,
     ) -> Result<UpsertProductListingResult, UpsertProductListingError> {
-        context
-            .require()
-            .credential_capability(CredentialCapability::ProductListingsWrite)
-            .authorize::<UpsertProductListingError>()?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
         );
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| UpsertProductListingError::BeginTransactionFailed)?;
-        let result = self.persist(&mut tx, context, command).await?;
-        tx.commit()
-            .await
-            .map_err(|_| UpsertProductListingError::CommitTransactionFailed)?;
+        let result = match self.execute_attempt(context, command.clone()).await {
+            Ok(result) => result,
+            Err(UpsertAttemptError::ShopListingInsertRace) => {
+                match self.execute_attempt(context, command).await {
+                    Ok(result) => result,
+                    Err(UpsertAttemptError::ShopListingInsertRace) => {
+                        return Err(UpsertProductListingError::PersistenceFailed);
+                    }
+                    Err(UpsertAttemptError::Failed(error)) => return Err(error),
+                }
+            }
+            Err(UpsertAttemptError::Failed(error)) => return Err(error),
+        };
         let product_listing_id = match &result {
             UpsertProductListingResult::Created(value) => value.product_listing_id,
             UpsertProductListingResult::Updated(value) => value.product_listing_id,
@@ -350,8 +424,15 @@ impl From<ChangeListingAvailabilityError> for UpsertProductListingError {
     }
 }
 impl From<ChangeProductListingError> for UpsertProductListingError {
-    fn from(_: ChangeProductListingError) -> Self {
-        Self::ListingWithdrawn
+    fn from(error: ChangeProductListingError) -> Self {
+        match error {
+            ChangeProductListingError::ListingWithdrawn => Self::ListingWithdrawn,
+            ChangeProductListingError::GeoLatitudeOutOfRange
+            | ChangeProductListingError::GeoLongitudeOutOfRange
+            | ChangeProductListingError::AuctionStartAfterEnd => Self::InvalidProductListing {
+                source: box_error(error),
+            },
+        }
     }
 }
 impl From<RehydrateProductListingError> for UpsertProductListingError {

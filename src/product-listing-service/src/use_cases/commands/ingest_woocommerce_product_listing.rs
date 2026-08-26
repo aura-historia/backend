@@ -169,6 +169,47 @@ pub struct IngestWoocommerceProductListingHandler<U, R, E, A, S, V> {
     signature_verifier: V,
 }
 
+enum WoocommerceIngestAttemptError {
+    ShopListingInsertRace,
+    Failed(IngestWoocommerceProductListingError),
+}
+
+impl From<IngestWoocommerceProductListingError> for WoocommerceIngestAttemptError {
+    fn from(error: IngestWoocommerceProductListingError) -> Self {
+        Self::Failed(error)
+    }
+}
+
+impl From<ProductListingRepositoryError> for WoocommerceIngestAttemptError {
+    fn from(error: ProductListingRepositoryError) -> Self {
+        Self::Failed(error.into())
+    }
+}
+
+impl From<ProductListingEventStoreError> for WoocommerceIngestAttemptError {
+    fn from(error: ProductListingEventStoreError) -> Self {
+        Self::Failed(error.into())
+    }
+}
+
+impl From<ChangeListingAvailabilityError> for WoocommerceIngestAttemptError {
+    fn from(error: ChangeListingAvailabilityError) -> Self {
+        Self::Failed(error.into())
+    }
+}
+
+impl From<ChangeProductListingError> for WoocommerceIngestAttemptError {
+    fn from(error: ChangeProductListingError) -> Self {
+        Self::Failed(error.into())
+    }
+}
+
+impl From<RehydrateProductListingError> for WoocommerceIngestAttemptError {
+    fn from(error: RehydrateProductListingError) -> Self {
+        Self::Failed(error.into())
+    }
+}
+
 impl<U, R, E, A, S, V> IngestWoocommerceProductListingHandler<U, R, E, A, S, V> {
     pub fn new(
         unit_of_work: U,
@@ -242,7 +283,7 @@ where
         tx: &mut U::Tx,
         shop: &WoocommerceWebhookShop,
         data: WoocommerceListingData,
-    ) -> Result<UpsertProductListingResult, IngestWoocommerceProductListingError> {
+    ) -> Result<UpsertProductListingResult, WoocommerceIngestAttemptError> {
         let key = ProductListingKey::new(shop.shop_id, data.shop_listing_id.clone());
         let existing = self.products.in_transaction(tx).find_by_key(&key).await?;
         match existing {
@@ -327,7 +368,13 @@ where
                     .products
                     .in_transaction(tx)
                     .insert(&listing, event_id)
-                    .await?;
+                    .await
+                    .map_err(|error| match error {
+                        ProductListingRepositoryError::ShopListingAlreadyExists => {
+                            WoocommerceIngestAttemptError::ShopListingInsertRace
+                        }
+                        error => WoocommerceIngestAttemptError::Failed(error.into()),
+                    })?;
                 for event in &events {
                     self.events.in_transaction(tx).append(event).await?;
                 }
@@ -378,34 +425,21 @@ where
             event_id,
         }))
     }
-}
 
-#[async_trait::async_trait]
-impl<U, R, E, A, S, V> IngestWoocommerceProductListingUseCase
-    for IngestWoocommerceProductListingHandler<U, R, E, A, S, V>
-where
-    U: UnitOfWork,
-    R: ProductListingRepositoryFactory<U::Tx>,
-    E: ProductListingEventStoreFactory<U::Tx>,
-    A: PartnerProductListingAuthorizerFactory<U::Tx>,
-    S: WoocommerceWebhookShopReaderFactory<U::Tx>,
-    V: WoocommerceWebhookSignatureVerifierFactory<U::Tx>,
-{
-    #[tracing::instrument(name = "ingest_woocommerce_product_listing", skip_all, fields(shop_id = %command.shop_id, shop_listing_id = %command.shop_listing_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
-    async fn execute(
+    async fn execute_attempt(
         &self,
         context: &OperationContext,
         command: IngestWoocommerceProductListingCommand,
-    ) -> Result<IngestWoocommerceProductListingResult, IngestWoocommerceProductListingError> {
+    ) -> Result<IngestWoocommerceProductListingResult, WoocommerceIngestAttemptError> {
+        context
+            .require()
+            .credential_capability(CredentialCapability::ProductListingsWrite)
+            .authorize::<IngestWoocommerceProductListingError>()?;
         let mut tx = self
             .unit_of_work
             .begin()
             .await
             .map_err(|_| IngestWoocommerceProductListingError::BeginTransactionFailed)?;
-        context
-            .require()
-            .credential_capability(CredentialCapability::ProductListingsWrite)
-            .authorize::<IngestWoocommerceProductListingError>()?;
         let shop = self
             .validate_webhook(
                 &mut tx,
@@ -440,6 +474,39 @@ where
             .await
             .map_err(|_| IngestWoocommerceProductListingError::CommitTransactionFailed)?;
         Ok(result)
+    }
+}
+
+#[async_trait::async_trait]
+impl<U, R, E, A, S, V> IngestWoocommerceProductListingUseCase
+    for IngestWoocommerceProductListingHandler<U, R, E, A, S, V>
+where
+    U: UnitOfWork,
+    R: ProductListingRepositoryFactory<U::Tx>,
+    E: ProductListingEventStoreFactory<U::Tx>,
+    A: PartnerProductListingAuthorizerFactory<U::Tx>,
+    S: WoocommerceWebhookShopReaderFactory<U::Tx>,
+    V: WoocommerceWebhookSignatureVerifierFactory<U::Tx>,
+{
+    #[tracing::instrument(name = "ingest_woocommerce_product_listing", skip_all, fields(shop_id = %command.shop_id, shop_listing_id = %command.shop_listing_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        command: IngestWoocommerceProductListingCommand,
+    ) -> Result<IngestWoocommerceProductListingResult, IngestWoocommerceProductListingError> {
+        match self.execute_attempt(context, command.clone()).await {
+            Ok(result) => Ok(result),
+            Err(WoocommerceIngestAttemptError::ShopListingInsertRace) => {
+                match self.execute_attempt(context, command).await {
+                    Ok(result) => Ok(result),
+                    Err(WoocommerceIngestAttemptError::ShopListingInsertRace) => {
+                        Err(IngestWoocommerceProductListingError::ProductListingPersistenceFailed)
+                    }
+                    Err(WoocommerceIngestAttemptError::Failed(error)) => Err(error),
+                }
+            }
+            Err(WoocommerceIngestAttemptError::Failed(error)) => Err(error),
+        }
     }
 }
 
@@ -545,7 +612,7 @@ fn listing_action(
             Some("instock") => PatchField::Set(ListingAvailability::InStock),
             Some("outofstock") => PatchField::Set(ListingAvailability::OutOfStock),
             Some("onbackorder") => PatchField::Set(ListingAvailability::BackOrder),
-            Some(_) | None => PatchField::Clear,
+            Some(_) | None => PatchField::Unchanged,
         }),
         Some(_) | None => WoocommerceListingAction::Ignore,
     }
@@ -610,8 +677,15 @@ impl From<ChangeListingAvailabilityError> for IngestWoocommerceProductListingErr
 }
 
 impl From<ChangeProductListingError> for IngestWoocommerceProductListingError {
-    fn from(_: ChangeProductListingError) -> Self {
-        Self::ListingWithdrawn
+    fn from(error: ChangeProductListingError) -> Self {
+        match error {
+            ChangeProductListingError::ListingWithdrawn => Self::ListingWithdrawn,
+            ChangeProductListingError::GeoLatitudeOutOfRange
+            | ChangeProductListingError::GeoLongitudeOutOfRange
+            | ChangeProductListingError::AuctionStartAfterEnd => Self::InvalidProductListing {
+                source: box_error(error),
+            },
+        }
     }
 }
 
@@ -642,8 +716,8 @@ mod tests {
                 Some("onbackorder"),
                 PatchField::Set(ListingAvailability::BackOrder),
             ),
-            (None, PatchField::Clear),
-            (Some("unsupported"), PatchField::Clear),
+            (None, PatchField::Unchanged),
+            (Some("unsupported"), PatchField::Unchanged),
         ];
 
         for (stock_status, expected) in cases {

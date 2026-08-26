@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use application::error::BoxError;
 use domain_primitives::{event::Event, event_id::EventId};
 use product_listing_core::{
     product_listing::ProductListingEventPayload, product_listing_id::ProductListingId,
@@ -28,6 +29,11 @@ pub fn stamp_product_listing_events(
 pub enum ProductListingEventStoreError {
     #[error("product listing event already exists")]
     ProductListingEventAlreadyExists,
+    #[error("product listing event payload serialization failed")]
+    PayloadSerializationFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("product listing event append failed")]
     ProductListingEventAppendFailed,
 }

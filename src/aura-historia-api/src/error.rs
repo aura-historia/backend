@@ -768,6 +768,10 @@ impl From<UpdateProductListingError> for ApiError {
             UpdateProductListingError::UrlRequired => {
                 ApiError::bad_request(BAD_BODY_VALUE).with_detail("ProductListing URL is required.")
             }
+            UpdateProductListingError::InvalidProductListing => {
+                ApiError::bad_request(BAD_BODY_VALUE)
+                    .with_detail("ProductListing update is invalid.")
+            }
             UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | UpdateProductListingError::PersistenceFailed
             | UpdateProductListingError::EventStoreFailed
