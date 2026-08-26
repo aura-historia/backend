@@ -246,7 +246,7 @@ async fn insert_product_with_event(
     let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, 'Embedding worker shop', 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
         .bind(shop_id).bind(format!("embedding-worker-shop-{shop_id}")).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Antiker Eichenstuhl', 'de', 'Bemalter Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[{\"url\": \"https://example.test/image.jpg\"}]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $4, $5, 'Antiker Eichenstuhl', 'de', 'Bemalter Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[{\"url\": \"https://example.test/image.jpg\"}]')")
         .bind(uuid::Uuid::from(product_listing_id)).bind(format!("embedding-worker-product-{product_listing_id}")).bind(uuid::Uuid::from(event_id)).bind(shop_id).bind(product_listing_id.to_string()).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
         .bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_listing_id)).bind(event_type).bind(event_group).execute(&mut *tx).await?;
@@ -263,7 +263,7 @@ async fn insert_product_with_event_then_rollback(
     let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, 'Rollback embedding shop', 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
         .bind(shop_id).bind(format!("rollback-embedding-shop-{shop_id}")).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Antiker Eichenstuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $4, $5, 'Antiker Eichenstuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_listing_id)).bind(format!("rollback-embedding-product-{product_listing_id}")).bind(uuid::Uuid::from(event_id)).bind(shop_id).bind(product_listing_id.to_string()).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())")
         .bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_listing_id)).execute(&mut *tx).await?;

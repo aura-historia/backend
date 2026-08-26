@@ -166,7 +166,7 @@ OpenSearch stores an active listing document with optional availability. Concret
 
 `ProductListingImage` is a URL-only source fact. It carries no classification, consent, or assessment lifecycle.
 
-Listing text is assessed asynchronously after each committed `DOMAIN` ProductListing event. PostgreSQL stores the optional listing-level result in `product_listing_content_assessments`, guarded by its `source_event_id`: a row is current only when it equals `product_listings.event_id`. Missing or stale rows mean unassessed.
+Listing text is assessed asynchronously after each committed `PRODUCT_LISTING_CREATED` event, the sole current text source. PostgreSQL stores the optional listing-level result in `product_listing_content_assessments`, guarded by its `source_event_id`: a row is current only when it equals `product_listings.content_source_event_id`. Price, availability, URL, images, lifecycle, and enrichment revisions do not invalidate it. A future title/description event must advance `content_source_event_id` and route content assessment. Missing or stale rows mean unassessed.
 
 `ContentPolicyDecision` is either `ALLOWED` or `REQUIRES_CONSENT(NAZI_GERMANY)`. There is no `UNKNOWN` or `NONE` policy/category value. The pure visibility rule is centralized in `product-listing-core`: callers without the stored `show_unassessed_or_sensitive_content` preference see image URLs only for a current `ALLOWED` assessment. Opted-in users see URLs for allowed, sensitive, and unassessed listings. Presentation retains image order/cardinality and redacts a hidden URL as `null`.
 

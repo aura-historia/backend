@@ -142,6 +142,7 @@ CREATE TABLE product_listings (
     product_listing_id uuid PRIMARY KEY,
     product_listing_slug_id text NOT NULL,
     event_id uuid NOT NULL,
+    content_source_event_id uuid NOT NULL,
     shop_id uuid NOT NULL REFERENCES shops(shop_id),
     seller_id uuid NOT NULL REFERENCES shops(shop_id),
     shop_listing_id text NOT NULL,
@@ -240,6 +241,12 @@ CREATE TABLE product_listing_events (
 ALTER TABLE product_listings
     ADD CONSTRAINT product_listings_current_event_same_product_fkey
     FOREIGN KEY (product_listing_id, event_id)
+    REFERENCES product_listing_events(product_listing_id, event_id)
+    DEFERRABLE INITIALLY DEFERRED;
+
+ALTER TABLE product_listings
+    ADD CONSTRAINT product_listings_content_source_event_same_product_fkey
+    FOREIGN KEY (product_listing_id, content_source_event_id)
     REFERENCES product_listing_events(product_listing_id, event_id)
     DEFERRABLE INITIALLY DEFERRED;
 

@@ -455,7 +455,7 @@ async fn seed_watchlist_entries(
         .await
         .unwrap_or_else(|error| panic!("failed to seed product-listing event: {error:?}"));
         sqlx::query(
-            "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, availability, lifecycle, url) VALUES ($1, $2, $3, $4, $4, $5, 'AVAILABLE', 'ACTIVE', 'https://example.com/product-listings')",
+            "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, availability, lifecycle, url) VALUES ($1, $2, $3, $3, $4, $4, $5, 'AVAILABLE', 'ACTIVE', 'https://example.com/product-listings')",
         )
         .bind(product_listing_id)
         .bind(format!("tier-entitlements-product-{product_listing_id}"))

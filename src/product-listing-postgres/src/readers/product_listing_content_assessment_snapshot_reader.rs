@@ -1,6 +1,6 @@
 use crate::readers::product_listing_content_assessment_reader::decode_decision;
 use application::error::box_error;
-use domain_primitives::event_id::EventId;
+
 use platform_postgres::SqlxTransaction;
 use product_listing_core::{
     content_policy::ContentPolicyDecision, product_listing_id::ProductListingId,
@@ -51,21 +51,21 @@ impl ProductListingContentAssessmentSnapshotReaderFactory<SqlxTransaction>
 impl ProductListingContentAssessmentSnapshotReader
     for SqlxProductListingContentAssessmentSnapshotReader<'_>
 {
-    async fn find_for_source_event(
+    async fn find_current_for_product_listing(
         &mut self,
         product_listing_id: ProductListingId,
-        source_event_id: EventId,
     ) -> Result<Option<ContentPolicyDecision>, ProductListingContentAssessmentReadError> {
         let row = sqlx::query_as::<_, ProductListingContentAssessmentSnapshotRow>(
             r#"
-            SELECT decision, category
-            FROM product_listing_content_assessments
-            WHERE product_listing_id = $1
-              AND source_event_id = $2
+            SELECT assessment.decision, assessment.category
+            FROM product_listings product
+            JOIN product_listing_content_assessments assessment
+              ON assessment.product_listing_id = product.product_listing_id
+             AND assessment.source_event_id = product.content_source_event_id
+            WHERE product.product_listing_id = $1
             "#,
         )
         .bind(uuid::Uuid::from(product_listing_id))
-        .bind(uuid::Uuid::from(source_event_id))
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(

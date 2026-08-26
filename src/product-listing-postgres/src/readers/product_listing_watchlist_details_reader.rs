@@ -274,7 +274,7 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
     JOIN shops seller ON seller.shop_id = p.seller_id
     LEFT JOIN product_listing_content_assessments assessment
         ON assessment.product_listing_id = p.product_listing_id
-        AND assessment.source_event_id = p.event_id
+        AND assessment.source_event_id = p.content_source_event_id
     LEFT JOIN users authenticated_user ON authenticated_user.user_id = $2
     LEFT JOIN product_listing_watchlist watchlist
         ON watchlist.user_id = $2

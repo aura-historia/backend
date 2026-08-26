@@ -487,7 +487,7 @@ async fn insert_product_row(
     let event_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, lifecycle, url, sale_observation_fx_rate_id, sale_observed_at) VALUES ($1, $2, $3, $4, $4, $5, 'ACTIVE', 'https://example.test/product', $6, $7)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, lifecycle, url, sale_observation_fx_rate_id, sale_observed_at) VALUES ($1, $2, $3, $3, $4, $4, $5, 'ACTIVE', 'https://example.test/product', $6, $7)",
     )
     .bind(product_listing_id)
     .bind(slug)

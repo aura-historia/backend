@@ -389,9 +389,9 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     let product_result = sqlx::query(
         r#"
         INSERT INTO product_listings (
-            product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id,
+            product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id,
             availability, lifecycle, url
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ) VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9)
         "#,
     )
     .bind(raw_product_listing_id)

@@ -194,7 +194,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         sqlx::query(
             r#"
             INSERT INTO product_listings (
-                product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id,
+                product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id,
                 structured_address_addressline, structured_address_addressline_extra,
                 structured_address_locality, structured_address_region, structured_address_postal_code,
                 structured_address_country, geo_address_lat, geo_address_lon, title_text,
@@ -204,7 +204,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url,
                 product_images, auction_start, auction_end
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+                $1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
                 $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32
             )
             "#,

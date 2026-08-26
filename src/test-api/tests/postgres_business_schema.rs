@@ -191,6 +191,7 @@ async fn should_support_core_business_relations() {
             product_listing_id,
             product_listing_slug_id,
             event_id,
+            content_source_event_id,
             shop_id,
             seller_id,
             shop_listing_id,
@@ -204,6 +205,7 @@ async fn should_support_core_business_relations() {
         VALUES (
             '30000000-0000-0000-0000-000000000001',
             'product-one',
+            '40000000-0000-0000-0000-000000000001',
             '40000000-0000-0000-0000-000000000001',
             '20000000-0000-0000-0000-000000000001',
             '20000000-0000-0000-0000-000000000001',

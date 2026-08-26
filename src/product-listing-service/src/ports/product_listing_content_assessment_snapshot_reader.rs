@@ -1,16 +1,15 @@
 use super::product_listing_content_assessment_reader::ProductListingContentAssessmentReadError;
-use domain_primitives::event_id::EventId;
+
 use product_listing_core::{
     content_policy::ContentPolicyDecision, product_listing_id::ProductListingId,
 };
 
-/// Reads the assessment exactly associated with a ProductListing source revision.
+/// Reads the assessment for a ProductListing's current content-source revision.
 #[async_trait::async_trait]
 pub trait ProductListingContentAssessmentSnapshotReader: Send {
-    async fn find_for_source_event(
+    async fn find_current_for_product_listing(
         &mut self,
         product_listing_id: ProductListingId,
-        source_event_id: EventId,
     ) -> Result<Option<ContentPolicyDecision>, ProductListingContentAssessmentReadError>;
 }
 

@@ -116,7 +116,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
 
         let claimed = claimed_from_row(row)?;
         let source = sqlx::query_as::<_, DeliverySourceRow>(
-            "SELECT d.notification_delivery_id, d.channel, d.target_key, u.language, u.show_unassessed_or_sensitive_content, n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_listing_id, n.user_search_filter_id, n.partner_shop_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated, a.decision AS content_policy_decision, a.category AS content_policy_category FROM notification_deliveries d JOIN notifications n ON n.notification_id = d.notification_id JOIN users u ON u.user_id = n.user_id LEFT JOIN product_listing_content_assessments a ON a.product_listing_id = n.product_listing_id WHERE d.notification_delivery_id = $1",
+            "SELECT d.notification_delivery_id, d.channel, d.target_key, u.language, u.show_unassessed_or_sensitive_content, n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_listing_id, n.user_search_filter_id, n.partner_shop_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated, a.decision AS content_policy_decision, a.category AS content_policy_category FROM notification_deliveries d JOIN notifications n ON n.notification_id = d.notification_id JOIN users u ON u.user_id = n.user_id LEFT JOIN product_listings p ON p.product_listing_id = n.product_listing_id LEFT JOIN product_listing_content_assessments a ON a.product_listing_id = p.product_listing_id AND a.source_event_id = p.content_source_event_id WHERE d.notification_delivery_id = $1",
         )
         .bind(Uuid::from(notification_delivery_id))
         .fetch_optional(&mut *transaction)

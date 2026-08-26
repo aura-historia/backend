@@ -13,6 +13,7 @@ use product_listing_core::{
 };
 
 const DOMAIN_EVENT_GROUP: &str = "DOMAIN";
+const CONTENT_SOURCE_EVENT_TYPE: &str = "PRODUCT_LISTING_CREATED";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AssessProductListingContentCommand {
@@ -133,13 +134,15 @@ where
                 AssessProductListingContentEventOutcome::ProductListingNotFound,
             ));
         };
-        if source.current_event_id != command.event_id {
-            return Ok(result(AssessProductListingContentEventOutcome::Stale));
-        }
-        if source.event_group != DOMAIN_EVENT_GROUP {
+        if source.event_group != DOMAIN_EVENT_GROUP
+            || source.event_type != CONTENT_SOURCE_EVENT_TYPE
+        {
             return Ok(result(
                 AssessProductListingContentEventOutcome::IgnoredEvent,
             ));
+        }
+        if source.current_content_source_event_id != command.event_id {
+            return Ok(result(AssessProductListingContentEventOutcome::Stale));
         }
         let decision = assess_listing_text(
             source.title.as_deref().map(AsRef::as_ref),
@@ -226,5 +229,179 @@ impl From<ProductListingContentAssessmentWriteError> for AssessProductListingCon
         Self::AssessmentWriteFailed {
             source: box_error(source),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ports::ProductListingContentAssessmentSource;
+    use application::{
+        operation_context::{CorrelationId, Principal, RequestId},
+        transaction::TransactionError,
+    };
+    use product_listing_core::{description::Description, title::Title};
+    use std::sync::{Arc, Mutex};
+
+    struct State {
+        source: ProductListingContentAssessmentSource,
+        writes: Vec<ProductListingContentAssessmentWrite>,
+        begins: usize,
+        commits: usize,
+    }
+
+    type SharedState = Arc<Mutex<State>>;
+
+    struct Sources(SharedState);
+    struct UnitOfWorkFake(SharedState);
+    struct Tx(SharedState);
+    struct WriterFactory(SharedState);
+    struct Writer(SharedState);
+
+    fn lock(state: &SharedState) -> std::sync::MutexGuard<'_, State> {
+        state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn state() -> SharedState {
+        let product_listing_id = ProductListingId::new();
+        let content_source_event_id = EventId::new();
+        Arc::new(Mutex::new(State {
+            source: ProductListingContentAssessmentSource {
+                product_listing_id,
+                event_id: content_source_event_id,
+                current_content_source_event_id: content_source_event_id,
+                event_group: DOMAIN_EVENT_GROUP.to_owned(),
+                event_type: "PRODUCT_LISTING_CREATED".to_owned(),
+                title: Some(Title::from("Ancient vase")),
+                description: Some(Description::from("Painted clay")),
+            },
+            writes: Vec::new(),
+            begins: 0,
+            commits: 0,
+        }))
+    }
+
+    fn command(state: &SharedState) -> AssessProductListingContentCommand {
+        let source = &lock(state).source;
+        AssessProductListingContentCommand {
+            event_id: source.event_id,
+            product_listing_id: source.product_listing_id,
+        }
+    }
+
+    fn context() -> OperationContext {
+        OperationContext {
+            principal: Principal::System,
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+
+    fn handler(
+        state: &SharedState,
+    ) -> AssessProductListingContentEventHandler<Sources, UnitOfWorkFake, WriterFactory> {
+        AssessProductListingContentEventHandler::new(
+            Sources(Arc::clone(state)),
+            UnitOfWorkFake(Arc::clone(state)),
+            WriterFactory(Arc::clone(state)),
+        )
+    }
+
+    #[async_trait::async_trait]
+    impl ProductListingContentAssessmentSourceReader for Sources {
+        async fn find_source(
+            &self,
+            _: EventId,
+            _: ProductListingId,
+        ) -> Result<
+            Option<ProductListingContentAssessmentSource>,
+            ProductListingContentAssessmentSourceReadError,
+        > {
+            Ok(Some(lock(&self.0).source.clone()))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for UnitOfWorkFake {
+        type Tx = Tx;
+
+        async fn begin(&self) -> Result<Self::Tx, application::transaction::TransactionError> {
+            lock(&self.0).begins += 1;
+            Ok(Tx(Arc::clone(&self.0)))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for Tx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            lock(&self.0).commits += 1;
+            Ok(())
+        }
+    }
+
+    impl ProductListingContentAssessmentWriterFactory<Tx> for WriterFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut Tx,
+        ) -> impl ProductListingContentAssessmentWriter + 'tx {
+            Writer(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductListingContentAssessmentWriter for Writer {
+        async fn apply(
+            &mut self,
+            write: &ProductListingContentAssessmentWrite,
+        ) -> Result<
+            ProductListingContentAssessmentWriteOutcome,
+            ProductListingContentAssessmentWriteError,
+        > {
+            lock(&self.0).writes.push(*write);
+            Ok(ProductListingContentAssessmentWriteOutcome::Applied)
+        }
+    }
+
+    #[tokio::test]
+    async fn should_ignore_non_content_source_domain_event_without_writing() {
+        let state = state();
+        let command = command(&state);
+        lock(&state).source.event_type = "PRODUCT_LISTING_PRICE_CHANGED".to_owned();
+
+        let result = handler(&state).execute(&context(), command).await;
+
+        assert!(matches!(
+            result,
+            Ok(AssessProductListingContentEventResult {
+                outcome: AssessProductListingContentEventOutcome::IgnoredEvent
+            })
+        ));
+        let state = lock(&state);
+        assert_eq!(0, state.begins);
+        assert_eq!(0, state.commits);
+        assert!(state.writes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_assess_current_content_after_generic_price_or_enrichment_revision() {
+        let state = state();
+        let result = handler(&state).execute(&context(), command(&state)).await;
+
+        assert!(matches!(
+            result,
+            Ok(AssessProductListingContentEventResult {
+                outcome: AssessProductListingContentEventOutcome::Applied
+            })
+        ));
+        let state = lock(&state);
+        assert_eq!(1, state.begins);
+        assert_eq!(1, state.commits);
+        assert!(matches!(
+            state.writes.as_slice(),
+            [ProductListingContentAssessmentWrite { source_event_id, .. }]
+                if *source_event_id == state.source.current_content_source_event_id
+        ));
     }
 }

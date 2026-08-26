@@ -62,25 +62,19 @@ impl ProductListingContentAssessmentWriter for SqlxProductListingContentAssessme
         ProductListingContentAssessmentWriteOutcome,
         ProductListingContentAssessmentWriteError,
     > {
-        let current_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT event_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE",
+        let current_content_source_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT content_source_event_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE",
         )
         .bind(uuid::Uuid::from(write.product_listing_id))
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(ProductListingContentAssessmentWriteSqlxError)?;
-        let Some(current_event_id) = current_event_id else {
+        let Some(current_content_source_event_id) = current_content_source_event_id else {
             return Ok(ProductListingContentAssessmentWriteOutcome::ProductListingNotFound);
         };
 
-        if EventId::from(current_event_id) != write.source_event_id {
-            return Ok(
-                if stored_assessment_matches(self.connection, write).await? {
-                    ProductListingContentAssessmentWriteOutcome::Duplicate
-                } else {
-                    ProductListingContentAssessmentWriteOutcome::Stale
-                },
-            );
+        if EventId::from(current_content_source_event_id) != write.source_event_id {
+            return Ok(ProductListingContentAssessmentWriteOutcome::Stale);
         }
 
         let stored_assessment_matches = stored_assessment_matches(self.connection, write).await?;

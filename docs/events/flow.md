@@ -126,7 +126,7 @@ Crash rule:
 
 | Source table | Operation | Route |
 |---|---|---|
-| `product_listing_events` | INSERT | ProductListing projector for every event; content assessment for every `DOMAIN` event; percolator only for `DOMAIN`/`ENRICHMENT`; watchlist notifications for `PRODUCT_LISTING_PRICE_CHANGED` / `PRODUCT_LISTING_AVAILABILITY_CHANGED`; embedding for `PRODUCT_LISTING_CREATED`; translation for `ENRICHMENT_EMBEDDED`. `PRODUCT_LISTING_WITHDRAWN` and `PRODUCT_LISTING_RESTORED` go only to the ProductListing projector. |
+| `product_listing_events` | INSERT | ProductListing projector for every event; content assessment only for `PRODUCT_LISTING_CREATED`; percolator only for `DOMAIN`/`ENRICHMENT`; watchlist notifications for `PRODUCT_LISTING_PRICE_CHANGED` / `PRODUCT_LISTING_AVAILABILITY_CHANGED`; embedding for `PRODUCT_LISTING_CREATED`; translation for `ENRICHMENT_EMBEDDED`. `PRODUCT_LISTING_WITHDRAWN` and `PRODUCT_LISTING_RESTORED` go only to the ProductListing projector. |
 | `product_listings` | INSERT/MODIFY/DELETE | No default downstream route. ProductListing events are the projection trigger to avoid double-firing. Use listing CDC only for future explicit non-event projections. |
 | `shops` | INSERT/MODIFY/DELETE | Shop OpenSearch projector. Domains are inline in `shops.shop_domains`. Idempotency: `(shop_id, version, op)`. |
 | `search_filters` | INSERT/MODIFY/DELETE | Search-filter OpenSearch sync for every persisted change; handlers reread the complete authoritative record. Idempotency: `(user_search_filter_id, version, op)`. |
@@ -159,7 +159,7 @@ Examples:
 | Notification delivery dispatcher | PostgreSQL delivery flow | `notification_deliveries` insert job | Claims PostgreSQL delivery lease, dispatches by persisted channel, and finalizes durable delivery state. EMAIL resolves its current target, renders S3 templates, and sends through SES. |
 | Search-filter percolator | `aura-historia-worker` | Domain/enrichment ProductListing event job | Postgres matches only. |
 | Search-filter match notification generator | Search-filter match notification path | Search-filter match inserted job | One PostgreSQL SearchFilter notification per matching filter. |
-| ProductListing content assessment | ProductListing `DOMAIN` events | ProductListing event job | Reads current listing text and writes a current-revision guarded assessment row. It emits no ProductListing event and never writes OpenSearch. |
+| ProductListing content assessment | `PRODUCT_LISTING_CREATED` events | ProductListing event job | Reads current listing text and writes a content-source-revision guarded assessment row. It emits no ProductListing event and never writes OpenSearch. |
 | ProductListing embed | legacy `product-pipeline-embed-text` | `PRODUCT_LISTING_CREATED` job | Postgres enrichment event + ProductListing update. Embedding stored in Postgres only. |
 | ProductListing translate | legacy `product-pipeline-translate` | Enrichment embedded job | Postgres `product_listing_translations` upsert plus one translated-titles enrichment event and ProductListing revision update. |
 | Shop OpenSearch projector | `aura-historia-worker` | Shop changed job | OpenSearch shop document write. |

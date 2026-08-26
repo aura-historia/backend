@@ -752,7 +752,7 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
         ));
     }
 
-    if event_group == "DOMAIN" {
+    if event_type == "PRODUCT_LISTING_CREATED" {
         jobs.push(domain_job(
             WorkerQueue::ProductListingContentAssessment,
             idempotency_key.clone(),
@@ -1043,16 +1043,31 @@ mod tests {
     }
 
     #[test]
-    fn should_route_every_domain_product_event_to_content_assessment()
+    fn should_route_only_product_created_event_to_content_assessment()
     -> Result<(), Box<dyn std::error::Error>> {
-        for event_type in [
-            "PRODUCT_LISTING_CREATED",
-            "PRODUCT_LISTING_PRICE_CHANGED",
-            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+        for (event_type, event_group, expected) in [
+            ("PRODUCT_LISTING_CREATED", "DOMAIN", true),
+            ("PRODUCT_LISTING_AVAILABILITY_CHANGED", "DOMAIN", false),
+            ("PRODUCT_LISTING_ADDRESS_CHANGED", "DOMAIN", false),
+            ("PRODUCT_LISTING_PRICE_CHANGED", "DOMAIN", false),
+            ("PRODUCT_LISTING_URL_CHANGED", "DOMAIN", false),
+            ("PRODUCT_LISTING_IMAGES_CHANGED", "DOMAIN", false),
+            ("PRODUCT_LISTING_AUCTION_CHANGED", "DOMAIN", false),
+            ("PRODUCT_LISTING_SALE_OBSERVED", "DOMAIN", false),
+            (
+                "PRODUCT_LISTING_SALE_OBSERVATION_RETRACTED",
+                "DOMAIN",
+                false,
+            ),
+            ("PRODUCT_LISTING_WITHDRAWN", "LIFECYCLE", false),
+            ("PRODUCT_LISTING_RESTORED", "LIFECYCLE", false),
+            ("ENRICHMENT_EMBEDDED", "ENRICHMENT", false),
+            ("ENRICHMENT_TRANSLATED_TITLES", "ENRICHMENT", false),
         ] {
-            let jobs = route_change(&product_event_change(event_type, "DOMAIN"))?;
+            let jobs = route_change(&product_event_change(event_type, event_group))?;
 
-            assert!(
+            assert_eq!(
+                expected,
                 jobs.iter()
                     .any(|job| job.target_queue == WorkerQueue::ProductListingContentAssessment),
                 "{event_type}"

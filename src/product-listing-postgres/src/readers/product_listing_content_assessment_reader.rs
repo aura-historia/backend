@@ -64,7 +64,7 @@ impl ProductListingContentAssessmentReader for SqlxProductListingContentAssessme
             FROM product_listings product
             JOIN product_listing_content_assessments assessment
               ON assessment.product_listing_id = product.product_listing_id
-             AND assessment.source_event_id = product.event_id
+             AND assessment.source_event_id = product.content_source_event_id
             WHERE product.product_listing_id = ANY($1::uuid[])
             "#,
         )

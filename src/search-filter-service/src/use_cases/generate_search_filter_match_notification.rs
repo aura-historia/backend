@@ -258,7 +258,7 @@ where
         let content_policy = self
             .content_assessments
             .in_transaction(&mut tx)
-            .find_for_source_event(command.product_listing_id, command.origin_event_id)
+            .find_current_for_product_listing(command.product_listing_id)
             .await
             .map_err(content_assessment_read_error)?;
 
@@ -613,10 +613,9 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProductListingContentAssessmentSnapshotReader for ContentAssessmentReader {
-        async fn find_for_source_event(
+        async fn find_current_for_product_listing(
             &mut self,
             _product_listing_id: ProductListingId,
-            _source_event_id: EventId,
         ) -> Result<Option<ContentPolicyDecision>, ProductListingContentAssessmentReadError>
         {
             match self.0 {

@@ -472,9 +472,9 @@ pub async fn seed_product() -> ProductListingId {
     if let Err(error) = sqlx::query(
         r#"
         INSERT INTO product_listings (
-            product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id,
+            product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id,
             availability, lifecycle, url
-        ) VALUES ($1, $2, $3, $4, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
+        ) VALUES ($1, $2, $3, $3, $4, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
         "#,
     )
     .bind(uuid::Uuid::from(product_listing_id))

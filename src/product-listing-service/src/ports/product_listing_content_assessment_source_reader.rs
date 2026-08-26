@@ -8,7 +8,7 @@ use product_listing_core::{
 pub struct ProductListingContentAssessmentSource {
     pub product_listing_id: ProductListingId,
     pub event_id: EventId,
-    pub current_event_id: EventId,
+    pub current_content_source_event_id: EventId,
     pub event_group: String,
     pub event_type: String,
     pub title: Option<Title>,

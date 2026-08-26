@@ -19,7 +19,7 @@ pub struct SqlxProductListingContentAssessmentSourceReader {
 struct ProductListingContentAssessmentSourceRow {
     product_listing_id: uuid::Uuid,
     event_id: uuid::Uuid,
-    current_event_id: uuid::Uuid,
+    current_content_source_event_id: uuid::Uuid,
     event_group: String,
     event_type: String,
     title_text: Option<String>,
@@ -62,7 +62,7 @@ impl ProductListingContentAssessmentSourceReader
             SELECT
                 event.product_listing_id,
                 event.event_id,
-                product.event_id AS current_event_id,
+                product.content_source_event_id AS current_content_source_event_id,
                 event.event_group,
                 event.event_type,
                 product.title_text,
@@ -96,7 +96,7 @@ impl TryFrom<ProductListingContentAssessmentSourceRow> for ProductListingContent
         Ok(Self {
             product_listing_id: ProductListingId::from(row.product_listing_id),
             event_id: EventId::from(row.event_id),
-            current_event_id: EventId::from(row.current_event_id),
+            current_content_source_event_id: EventId::from(row.current_content_source_event_id),
             event_group: row.event_group,
             event_type: row.event_type,
             title: content_title(row.title_text, row.title_language)?,

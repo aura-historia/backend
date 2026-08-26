@@ -151,7 +151,7 @@ impl ProductListingWatchlistNotificationSourceReader
             JOIN shops shop ON shop.shop_id = product.shop_id
             LEFT JOIN product_listing_content_assessments assessment
                 ON assessment.product_listing_id = product.product_listing_id
-                AND assessment.source_event_id = product.event_id
+                AND assessment.source_event_id = product.content_source_event_id
             WHERE event.event_id = $1 AND event.product_listing_id = $2
             "#,
         )
