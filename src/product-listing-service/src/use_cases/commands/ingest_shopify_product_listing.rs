@@ -163,14 +163,17 @@ where
                         .filter(|value| !value.is_empty())
                         .map(Description::from)
                         .map(|value| Localized::new(language, value)),
-                    price,
-                    price_estimate_min: None,
-                    price_estimate_max: None,
+                    price: match price {
+                        Some(price) => PatchField::Set(price),
+                        None => PatchField::Clear,
+                    },
+                    price_estimate_min: PatchField::Unchanged,
+                    price_estimate_max: PatchField::Unchanged,
                     availability: command.availability,
                     url: Some(url),
-                    images,
-                    auction_start: None,
-                    auction_end: None,
+                    images: PatchField::Set(images),
+                    auction_start: PatchField::Unchanged,
+                    auction_end: PatchField::Unchanged,
                 },
             )
             .await
@@ -259,9 +262,17 @@ mod tests {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .clone();
-        assert!(
-            matches!(command, Some(command) if command.shop_id == shop_id && command.seller_id == shop_id)
-        );
+        assert!(matches!(
+            command,
+            Some(command)
+                if command.shop_id == shop_id
+                    && command.seller_id == shop_id
+                    && matches!(&command.price_estimate_min, PatchField::Unchanged)
+                    && matches!(&command.price_estimate_max, PatchField::Unchanged)
+                    && matches!(&command.auction_start, PatchField::Unchanged)
+                    && matches!(&command.auction_end, PatchField::Unchanged)
+                    && matches!(&command.images, PatchField::Set(images) if images.is_empty())
+        ));
     }
 
     #[tokio::test]

@@ -1,7 +1,6 @@
 use crate::error::{ApiError, ApiErrorCode, BAD_BODY_VALUE};
 use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
 use crate::values::{LocalizedTextData, PriceData};
-
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use money::Price;
 use product_listing_core::description::Description;
@@ -84,22 +83,22 @@ pub(super) struct UpsertProductListingData {
     #[serde(default)]
     pub(super) description: Option<LocalizedTextData>,
     #[serde(default)]
-    pub(super) price: Option<PriceData>,
+    pub(super) price: PatchValue<PriceData>,
     #[serde(default)]
-    pub(super) price_estimate_min: Option<PriceData>,
+    pub(super) price_estimate_min: PatchValue<PriceData>,
     #[serde(default)]
-    pub(super) price_estimate_max: Option<PriceData>,
+    pub(super) price_estimate_max: PatchValue<PriceData>,
     #[serde(default)]
     #[serde(deserialize_with = "crate::wire::listing_availability::patch::deserialize")]
     pub(super) availability: PatchValue<ListingAvailability>,
     #[serde(default)]
     pub(super) url: Option<Url>,
     #[serde(default)]
-    pub(super) images: Option<Vec<Url>>,
-    #[serde(default, with = "time::serde::rfc3339::option")]
-    pub(super) auction_start: Option<OffsetDateTime>,
-    #[serde(default, with = "time::serde::rfc3339::option")]
-    pub(super) auction_end: Option<OffsetDateTime>,
+    pub(super) images: PatchValue<Vec<Url>>,
+    #[serde(default, deserialize_with = "crate::patch_value::rfc3339::deserialize")]
+    pub(super) auction_start: PatchValue<OffsetDateTime>,
+    #[serde(default, deserialize_with = "crate::patch_value::rfc3339::deserialize")]
+    pub(super) auction_end: PatchValue<OffsetDateTime>,
     #[serde(default)]
     pub(super) structured_address: Option<StructuredAddressData>,
     #[serde(default)]
@@ -187,23 +186,26 @@ impl UpdateProductListingData {
 }
 
 impl UpsertProductListingData {
-    pub(super) fn into_command(self, shop_id: ShopId) -> UpsertProductListingCommand {
-        UpsertProductListingCommand {
+    pub(super) fn into_command(
+        self,
+        shop_id: ShopId,
+    ) -> Result<UpsertProductListingCommand, ApiError> {
+        Ok(UpsertProductListingCommand {
             shop_id,
             seller_id: shop_id,
             shop_listing_id: self.shop_listing_id,
             address: product_address(self.structured_address, self.geo_address),
             title: self.title.map(title),
             description: self.description.map(description),
-            price: self.price.map(price),
-            price_estimate_min: self.price_estimate_min.map(price),
-            price_estimate_max: self.price_estimate_max.map(price),
+            price: clearable(self.price.map(price)),
+            price_estimate_min: clearable(self.price_estimate_min.map(price)),
+            price_estimate_max: clearable(self.price_estimate_max.map(price)),
             availability: clearable(self.availability),
             url: self.url,
-            images: product_images(self.images.unwrap_or_default()),
-            auction_start: self.auction_start,
-            auction_end: self.auction_end,
-        }
+            images: non_nullable_patch(self.images.map(product_images), "images")?,
+            auction_start: clearable(self.auction_start),
+            auction_end: clearable(self.auction_end),
+        })
     }
 }
 

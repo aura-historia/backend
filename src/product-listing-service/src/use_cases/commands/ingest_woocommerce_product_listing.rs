@@ -82,7 +82,7 @@ struct WoocommerceListingData {
     shop_listing_id: ShopListingId,
     title: Localized<localization::Language, Title>,
     description: Option<Localized<localization::Language, Description>>,
-    price: Option<Price>,
+    price: PatchField<Price>,
     availability: PatchField<ListingAvailability>,
     url: Url,
     images: IndexSet<ProductListingImage>,
@@ -291,12 +291,15 @@ where
                 let expected_event_id = loaded.version;
                 let mut listing = loaded.value;
                 listing.restore();
-                let pricing = ProductListingPricing {
-                    price: data.price.or(listing.pricing().price),
-                    price_estimate_min: listing.pricing().price_estimate_min,
-                    price_estimate_max: listing.pricing().price_estimate_max,
-                };
-                listing.replace_pricing(pricing)?;
+                match data.price {
+                    PatchField::Unchanged => {}
+                    PatchField::Set(price) => {
+                        listing.set_price(price)?;
+                    }
+                    PatchField::Clear => {
+                        listing.clear_price()?;
+                    }
+                }
                 match data.availability {
                     PatchField::Unchanged => {}
                     PatchField::Set(availability) => {
@@ -342,7 +345,10 @@ where
                     title: Some(data.title),
                     description: data.description,
                     pricing: ProductListingPricing {
-                        price: data.price,
+                        price: match data.price {
+                            PatchField::Set(price) => Some(price),
+                            PatchField::Unchanged | PatchField::Clear => None,
+                        },
                         price_estimate_min: None,
                         price_estimate_max: None,
                     },
@@ -550,7 +556,10 @@ fn listing_data(
         shop_listing_id: command.shop_listing_id,
         title: Localized::new(language, Title::from(title)),
         description,
-        price: parse_price(command.price.as_deref(), shop.currency)?,
+        price: match parse_price(command.price.as_deref(), shop.currency)? {
+            Some(price) => PatchField::Set(price),
+            None => PatchField::Clear,
+        },
         availability,
         url,
         images,

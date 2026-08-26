@@ -96,8 +96,11 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     assert_eq!(ListingLifecycle::Active, loaded_by_id.lifecycle());
 
     let mut updated = loaded_by_id;
-    let outcome = updated.set_availability(ListingAvailability::Available);
-    assert!(outcome.is_ok());
+    let outcome = updated.clear_price();
+    assert!(matches!(
+        outcome,
+        Ok(domain_primitives::change_outcome::ChangeOutcome::Changed)
+    ));
     let update_event = first_stamped_event(&updated);
     let mut tx = begin(&unit_of_work).await;
     match product_listings
@@ -126,10 +129,7 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     };
     commit(tx).await;
 
-    assert_eq!(
-        Some(ListingAvailability::Available),
-        loaded.value.availability()
-    );
+    assert_eq!(None, loaded.value.pricing().price);
     assert_eq!(update_event.event_id, loaded.version);
 }
 

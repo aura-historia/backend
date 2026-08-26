@@ -281,17 +281,17 @@ fn upsert_command(
         address: ProductListingAddress::default(),
         title: Some(Localized::new(Language::En, Title::from(title))),
         description: None,
-        price: Some(Price::new(
+        price: application::patch_field::PatchField::Set(Price::new(
             MonetaryAmount::from(price_amount),
             Currency::Eur,
         )),
-        price_estimate_min: None,
-        price_estimate_max: None,
+        price_estimate_min: application::patch_field::PatchField::Unchanged,
+        price_estimate_max: application::patch_field::PatchField::Unchanged,
         availability: application::patch_field::PatchField::Set(ListingAvailability::InStock),
         url: Some(url("https://example.com/concurrent-listing")),
-        images: IndexSet::new(),
-        auction_start: None,
-        auction_end: None,
+        images: application::patch_field::PatchField::Unchanged,
+        auction_start: application::patch_field::PatchField::Unchanged,
+        auction_end: application::patch_field::PatchField::Unchanged,
     }
 }
 
