@@ -1,5 +1,8 @@
 FROM postgres:16-bookworm
 
+LABEL org.opencontainers.image.source="https://github.com/aura-historia/backend" \
+      org.opencontainers.image.description="PostgreSQL 16 integration-test image with pg_ttl_index"
+
 ARG PG_TTL_INDEX_VERSION=3.0.0
 ARG PG_TTL_INDEX_SHA256=cd27090bf5496b7563ed0926cebce5424864db7f6c149e1da4b75042439e2d82
 

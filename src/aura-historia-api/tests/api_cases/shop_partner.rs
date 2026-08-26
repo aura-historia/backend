@@ -1,18 +1,11 @@
-mod api_support;
+use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{assert_problem, json_response, seed_access_token_for, seed_shop, seed_user};
 use shop_core::shop_id::ShopId;
 use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use std::collections::HashSet;
-use test_api::{
-    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
-};
+use test_api::{IntegrationTestService, aura_integration_test};
 use user_core::access_token::Scope;
-
-const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const OPENSEARCH: OpenSearch = OpenSearch();
-
-static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_create_partner_application_for_existing_shop() {

@@ -1,20 +1,12 @@
-mod api_support;
+use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
     assert_problem, json_response, seed_access_token_for, seed_active_watchlist_entries,
     seed_inactive_watchlist_entry, seed_product, seed_user, seed_user_with_tier,
 };
 use product_listing_core::product_listing_id::ProductListingId;
-use test_api::{
-    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
-    get_postgres_client,
-};
+use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
 use user_core::{access_token::Scope, tier::UserTier};
-
-const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-const OPENSEARCH: OpenSearch = OpenSearch();
-
-static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_add_product_to_watchlist_when_authenticated() {

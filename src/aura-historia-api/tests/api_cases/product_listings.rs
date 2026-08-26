@@ -1,4 +1,4 @@
-mod api_support;
+use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
     assert_problem, aura_api_app_with_failed_search_embedding, json_response, product_route_slugs,
@@ -30,17 +30,13 @@ use product_listing_service::ports::{
 };
 use serde_json::{Value, json};
 use test_api::{
-    AuraHistoriaApi, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
-    get_opensearch_client, get_postgres_client, refresh_index,
+    AuraHistoriaApi, IntegrationTestService, aura_integration_test, get_opensearch_client,
+    get_postgres_client, refresh_index,
 };
 use time::{Duration, OffsetDateTime, UtcOffset};
 use url::Url;
 
-const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
-
-const OPENSEARCH: OpenSearch = OpenSearch();
 const PRODUCTS_INDEX: &str = "product-listings";
-static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 static AURA_API_WITH_FAILED_EMBEDDING: AuraHistoriaApi =
     AuraHistoriaApi::new(aura_api_app_with_failed_search_embedding);
 

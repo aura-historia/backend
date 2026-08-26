@@ -150,6 +150,7 @@ jobs:
     if: needs.determine-affected-crates.outputs.integration_test_crates != '[]'
     permissions:
       contents: read
+      packages: read
     runs-on: ubuntu-latest
     strategy:
       matrix:

@@ -21,7 +21,9 @@ const REDIS_CONTAINER_PORT: u16 = 6379;
 const REDIS_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-sequin-redis-test";
 const SEQUIN_CONTAINER_PORT: u16 = 7376;
 const SEQUIN_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-sequin-test";
-const SEQUIN_HEALTH_MAX_ATTEMPTS: u8 = 90;
+const SEQUIN_READINESS_TIMEOUT: Duration = Duration::from_secs(90);
+const SEQUIN_READINESS_POLL_INTERVAL: Duration = Duration::from_millis(200);
+const SEQUIN_IMAGE_TAG: &str = "v0.14.6";
 const SEQUIN_STATE_DB_PREFIX: &str = "sequin";
 const SECRET_KEY_BASE: &str = "wDPLYus0pvD6qJhKJICO4vYl782Zjtpew5qRBDp7CZvbWtQmY0eB13If01234567";
 const VAULT_KEY: &str = "2Sig69bIpuSm2kv0VQfDekET2qy8qUZGI8v3/h3ASiY=";
@@ -125,7 +127,8 @@ async fn start_worker_webhook_sequin(webhook_url: &str) -> RunningSequin {
     let _ = docker_remove(&sequin_name);
 
     let redis_port = find_free_port();
-    let redis = GenericImage::new("redis", "7-alpine")
+    let redis_started = std::time::Instant::now();
+    let redis = GenericImage::new("redis", "7.4.2-alpine")
         .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
         .with_container_name(redis_name)
         .with_mapped_port(redis_port, REDIS_CONTAINER_PORT.tcp())
@@ -133,14 +136,19 @@ async fn start_worker_webhook_sequin(webhook_url: &str) -> RunningSequin {
         .await
         .expect("shouldn't fail starting Redis test container for Sequin");
 
+    debug!(
+        elapsed_ms = redis_started.elapsed().as_millis(),
+        "Sequin Redis container ready."
+    );
+
     let config_yaml = sequin_config_yaml(webhook_url, &suffix);
     let config_yaml_base64 = STANDARD.encode(config_yaml);
     let redis_url = format!("redis://host.docker.internal:{redis_port}");
     let sequin_state_pg_url = get_postgres_host_gateway_connection_string(&state_database);
 
     let sequin_port = find_free_port();
-    let sequin = GenericImage::new("sequin/sequin", "latest")
-        .with_wait_for(WaitFor::seconds(5))
+    let sequin_started = std::time::Instant::now();
+    let sequin = GenericImage::new("sequin/sequin", SEQUIN_IMAGE_TAG)
         .with_env_var("SERVER_PORT", SEQUIN_CONTAINER_PORT.to_string())
         .with_env_var("PG_URL", sequin_state_pg_url)
         .with_env_var("PG_POOL_SIZE", "3")
@@ -158,6 +166,10 @@ async fn start_worker_webhook_sequin(webhook_url: &str) -> RunningSequin {
         .expect("shouldn't fail starting Sequin test container");
     let endpoint_url = format!("http://localhost:{sequin_port}");
 
+    debug!(
+        elapsed_ms = sequin_started.elapsed().as_millis(),
+        "Sequin container process started."
+    );
     wait_for_sequin_health(&endpoint_url, &sequin).await;
     wait_for_worker_webhook_replication(&format!("aura_historia_test_slot_{suffix}"), &sequin)
         .await;
@@ -237,13 +249,18 @@ async fn wait_for_sequin_health(endpoint_url: &str, container: &ContainerAsync<G
     let client = reqwest::Client::new();
     let health_url = format!("{endpoint_url}/health");
 
-    for _ in 0..SEQUIN_HEALTH_MAX_ATTEMPTS {
+    let started = std::time::Instant::now();
+    while started.elapsed() < SEQUIN_READINESS_TIMEOUT {
         if let Ok(response) = client.get(&health_url).send().await
             && response.status() == StatusCode::OK
         {
+            debug!(
+                elapsed_ms = started.elapsed().as_millis(),
+                "Sequin health endpoint ready."
+            );
             return;
         }
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(SEQUIN_READINESS_POLL_INTERVAL).await;
     }
 
     panic_with_sequin_logs(
@@ -259,7 +276,8 @@ async fn wait_for_worker_webhook_replication(
 ) {
     let pool = get_postgres_client().await;
 
-    for _ in 0..SEQUIN_HEALTH_MAX_ATTEMPTS {
+    let started = std::time::Instant::now();
+    while started.elapsed() < SEQUIN_READINESS_TIMEOUT {
         let active = sqlx::query_scalar(AssertSqlSafe(
             "SELECT EXISTS(SELECT 1 FROM pg_replication_slots WHERE slot_name = $1 AND active)",
         ))
@@ -268,11 +286,17 @@ async fn wait_for_worker_webhook_replication(
         .await;
 
         match active {
-            Ok(true) => return,
+            Ok(true) => {
+                debug!(
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "Sequin replication slot active."
+                );
+                return;
+            }
             Ok(false) => {}
             Err(error) => debug!(%slot_name, %error, "Sequin replication slot is not ready yet."),
         }
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(SEQUIN_READINESS_POLL_INTERVAL).await;
     }
 
     panic_with_sequin_logs(

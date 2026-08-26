@@ -7718,6 +7718,7 @@ dependencies = [
  "ctrlc",
  "derive_builder",
  "futures",
+ "futures-util",
  "libc",
  "mrml",
  "opensearch",

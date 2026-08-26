@@ -36,6 +36,7 @@ pub use cognito::*;
 
 #[cfg(feature = "eventbridge")]
 pub use eventbridge::get_eventbridge_client;
+pub use futures_util::FutureExt;
 #[cfg(feature = "opensearch")]
 pub use opensearch::{OpenSearch, get_opensearch_client, read_by_id, refresh_index};
 #[cfg(feature = "postgres")]
@@ -50,6 +51,7 @@ pub use ses::*;
 pub use sqs::{Sqs, SqsBuilder, SqsBuilderError, get_sqs_client};
 pub use test_api_macros::aura_integration_test;
 pub use tokio;
+pub use tracing;
 
 /// A trait for defining integration test lifecycle behavior for an Aura integration test service.
 ///

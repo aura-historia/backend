@@ -34,6 +34,7 @@ pub const TEST_DOMAIN_NAME: &str = "test-domain";
 /// This `OnceCell` ensures that the client is only created once during the test lifecycle,
 /// using the shared [`SdkConfig`] provided by [`get_aws_config()`].
 static OPENSEARCH_CLIENT: OnceCell<Client> = OnceCell::const_new();
+static OPENSEARCH_BOOTSTRAPPED: OnceCell<()> = OnceCell::const_new();
 
 fn test_access_policies() -> String {
     json!({
@@ -91,7 +92,9 @@ impl IntegrationTestService for OpenSearch {
     }
 
     async fn set_up(&self) {
-        set_up_open_search(false).await;
+        OPENSEARCH_BOOTSTRAPPED
+            .get_or_init(|| async { set_up_open_search(false).await })
+            .await;
     }
 
     async fn tear_down(&self) {
@@ -122,6 +125,7 @@ pub(crate) async fn set_up_after_cloudformation() {
 }
 
 async fn set_up_open_search(recreate_existing_domain: bool) {
+    let started = std::time::Instant::now();
     set_up_domain(recreate_existing_domain)
         .await
         .expect("shouldn't fail creating OpenSearch-Domain");
@@ -131,6 +135,10 @@ async fn set_up_open_search(recreate_existing_domain: bool) {
     wait_until_indices_are_set_up()
         .await
         .expect("shouldn't fail setting up indices");
+    debug!(
+        elapsed_ms = started.elapsed().as_millis(),
+        "OpenSearch structural bootstrap complete."
+    );
 }
 
 async fn set_up_domain(recreate_existing_domain: bool) -> Result<CreateDomainOutput, BoxError> {
@@ -535,6 +543,7 @@ async fn wait_until_indices_are_set_up() -> Result<(), Error> {
 /// implementation that needs a full OpenSearch reset, including the
 /// `Cloudformation` service.
 pub(crate) async fn clear_all_indices() {
+    let started = std::time::Instant::now();
     const INDICES: &[&str] = &["product-listings", "shops", "user_search_filters", "users"];
     for index in INDICES {
         match clear_index_data(index).await {
@@ -544,7 +553,10 @@ pub(crate) async fn clear_all_indices() {
             }
         }
     }
-    debug!("Cleared all OpenSearch indices for test isolation");
+    debug!(
+        elapsed_ms = started.elapsed().as_millis(),
+        "Cleared OpenSearch documents for test isolation."
+    );
 }
 
 /// Clears all documents from the specified OpenSearch index.

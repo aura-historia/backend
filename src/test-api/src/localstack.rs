@@ -1,5 +1,5 @@
 use aws_config::{BehaviorVersion, SdkConfig};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::net::TcpListener;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
@@ -11,6 +11,7 @@ use tokio::sync::OnceCell;
 use tracing::{debug, error};
 
 const LOCALSTACK_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-localstack-test";
+const LOCALSTACK_IMAGE_TAG: &str = "2026.07.6";
 
 /// The fixed TCP port that LocalStack listens on **inside** the container.
 ///
@@ -79,26 +80,87 @@ pub async fn get_aws_config() -> &'static SdkConfig {
     cfg
 }
 
-static LOCALSTACK: OnceCell<ContainerAsync<LocalStackPro>> = OnceCell::const_new();
+struct LocalStackFixture {
+    container: ContainerAsync<LocalStackPro>,
+    topology: LocalStackTopology,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct LocalStackTopology {
+    services: BTreeSet<String>,
+    env: BTreeMap<String, String>,
+}
+
+impl LocalStackTopology {
+    fn new(services: &[&str], extra_env_vars: &[(&str, &str)]) -> Self {
+        let services = services
+            .iter()
+            .map(|service| service.trim().to_ascii_lowercase())
+            .collect();
+        let env = extra_env_vars
+            .iter()
+            .map(|(key, value)| (key.trim().to_owned(), value.trim().to_owned()))
+            .collect();
+        Self { services, env }
+    }
+
+    fn assert_compatible_with(&self, active: &Self) {
+        let missing_services = self
+            .services
+            .difference(&active.services)
+            .cloned()
+            .collect::<Vec<_>>();
+        assert!(
+            missing_services.is_empty(),
+            "LocalStack topology requests services not enabled by the process fixture: requested={:?}, active={:?}, missing={missing_services:?}",
+            self.services,
+            active.services,
+        );
+        for (key, value) in &self.env {
+            match active.env.get(key) {
+                Some(active_value) if active_value == value => {}
+                Some(active_value) => panic!(
+                    "LocalStack topology has conflicting environment value for {key}: requested={value:?}, active={active_value:?}"
+                ),
+                None => panic!(
+                    "LocalStack topology requests environment variable {key} after the process fixture started; active environment is {:?}",
+                    active.env
+                ),
+            }
+        }
+    }
+}
+
+static LOCALSTACK: OnceCell<LocalStackFixture> = OnceCell::const_new();
 
 pub async fn get_localstack(
     services: &[&str],
     extra_env_vars: &[(&str, &str)],
 ) -> &'static ContainerAsync<LocalStackPro> {
-    LOCALSTACK
+    let requested_topology = LocalStackTopology::new(services, extra_env_vars);
+    let fixture = LOCALSTACK
         .get_or_init(|| async {
             install_cleanup();
-            // Spins up with the first (!) supplied services only.
-            // No dealbreaker for now as each test-suite has it's own OnceCell
-            // And all tests within a test-suite require the same services
+            let normalized_services = requested_topology.services.iter().map(String::as_str).collect::<Vec<_>>();
+            let normalized_env = requested_topology
+                .env
+                .iter()
+                .map(|(key, value)| (key.as_str(), value.as_str()))
+                .collect::<Vec<_>>();
             let (container, port) =
-                spin_up_localstack_with_services(services, extra_env_vars).await;
+                spin_up_localstack_with_services(&normalized_services, &normalized_env).await;
             ENDPOINT_URL
                 .set(format!("http://localhost:{port}"))
                 .expect("shouldn't fail setting LocalStack endpoint URL");
-            container
+            debug!(services = ?requested_topology.services, pid = std::process::id(), "LocalStack process fixture started.");
+            LocalStackFixture {
+                container,
+                topology: requested_topology,
+            }
         })
-        .await
+        .await;
+    LocalStackTopology::new(services, extra_env_vars).assert_compatible_with(&fixture.topology);
+    &fixture.container
 }
 
 fn docker_remove(name: &str) -> std::io::Result<std::process::ExitStatus> {
@@ -190,7 +252,7 @@ pub async fn spin_up_localstack(
         .fold(
             LocalStackPro::with_auth_token(auth_token)
                 .with_container_name(localstack_container_name())
-                .with_tag("latest"),
+                .with_tag(LOCALSTACK_IMAGE_TAG),
             |ls, (k, v)| ls.with_env_var(*k, v.as_str()),
         )
         .with_mount(Mount::bind_mount(
@@ -240,4 +302,53 @@ pub async fn spin_up_localstack_with_services(
         env_vars.insert(k, v.to_string());
     }
     spin_up_localstack(env_vars).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LocalStackTopology;
+
+    #[test]
+    fn normalizes_service_and_environment_topology() {
+        let topology = LocalStackTopology::new(
+            &[" S3 ", "opensearch", "s3"],
+            &[(" FEATURE_FLAG ", " enabled ")],
+        );
+
+        assert_eq!(
+            topology.services.into_iter().collect::<Vec<_>>(),
+            ["opensearch", "s3"]
+        );
+        assert_eq!(
+            topology.env.get("FEATURE_FLAG"),
+            Some(&"enabled".to_owned())
+        );
+    }
+
+    #[test]
+    fn permits_a_subset_of_the_active_topology() {
+        let active = LocalStackTopology::new(&["s3", "opensearch"], &[("FEATURE_FLAG", "enabled")]);
+        let requested = LocalStackTopology::new(&["s3"], &[("FEATURE_FLAG", "enabled")]);
+
+        requested.assert_compatible_with(&active);
+    }
+
+    #[test]
+    fn rejects_missing_services_and_conflicting_environment() {
+        let active = LocalStackTopology::new(&["s3"], &[("FEATURE_FLAG", "enabled")]);
+
+        assert!(
+            std::panic::catch_unwind(|| {
+                LocalStackTopology::new(&["opensearch"], &[]).assert_compatible_with(&active);
+            })
+            .is_err()
+        );
+        assert!(
+            std::panic::catch_unwind(|| {
+                LocalStackTopology::new(&["s3"], &[("FEATURE_FLAG", "disabled")])
+                    .assert_compatible_with(&active);
+            })
+            .is_err()
+        );
+    }
 }
