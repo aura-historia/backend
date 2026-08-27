@@ -344,7 +344,7 @@ mod tests {
     use product_listing_core::listing_lifecycle::ListingLifecycle;
     use product_listing_core::product_listing_id::ProductListingId;
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-    use product_listing_core::shop_listing_id::ShopListingId;
+    use product_listing_core::source_listing_id::ShopListingId;
     use shop_core::shop_id::ShopId;
     use shop_core::shop_name::ShopName;
     use shop_core::shop_slug_id::ShopSlugId;

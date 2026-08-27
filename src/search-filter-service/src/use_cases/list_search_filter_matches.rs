@@ -431,7 +431,7 @@ mod tests {
     use indexmap::IndexSet;
     use product_listing_core::{
         listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
-        product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
+        product_listing_slug_id::ProductListingSlugId, source_listing_id::ShopListingId,
     };
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 

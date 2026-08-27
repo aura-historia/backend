@@ -39,8 +39,8 @@ pub enum RecordProductListingSaleObservationError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
-    #[error("shop not found")]
-    ShopNotFound,
+    #[error("listing source not found")]
+    ListingSourceNotFound,
     #[error("partner product listing authorization is temporarily unavailable")]
     PartnerAuthorizationTemporarilyUnavailable {
         #[source]
@@ -148,7 +148,7 @@ where
         if let Some(actor_id) = partner_actor(&context.principal) {
             self.authorizer
                 .in_transaction(&mut tx)
-                .authorize(actor_id, loaded.value.shop_id())
+                .authorize(actor_id, loaded.value.listing_source_id())
                 .await?;
         }
         let snapshot = self
@@ -220,7 +220,9 @@ impl From<OperationAuthorizationError> for RecordProductListingSaleObservationEr
 impl From<PartnerProductListingAuthorizationError> for RecordProductListingSaleObservationError {
     fn from(error: PartnerProductListingAuthorizationError) -> Self {
         match error {
-            PartnerProductListingAuthorizationError::ShopNotFound => Self::ShopNotFound,
+            PartnerProductListingAuthorizationError::ListingSourceNotFound => {
+                Self::ListingSourceNotFound
+            }
             PartnerProductListingAuthorizationError::Forbidden => Self::Forbidden,
             PartnerProductListingAuthorizationError::TemporarilyUnavailable { source } => {
                 Self::PartnerAuthorizationTemporarilyUnavailable { source }
@@ -274,17 +276,17 @@ mod tests {
         NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
+    use listing_source_core::ListingSourceId;
     use money::Currency;
     use product_listing_core::{
         listing_lifecycle::ListingLifecycle,
         product_listing::{
-            ProductListing, ProductListingAddress, ProductListingAuction, ProductListingPricing,
+            ProductListing, ProductListingAuction, ProductListingPricing,
             RehydratedProductListingState,
         },
         product_listing_slug_id::ProductListingSlugId,
-        shop_listing_id::ShopListingId,
+        source_listing_id::SourceListingId,
     };
-    use shop_core::shop_id::ShopId;
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
     use url::Url;
@@ -427,7 +429,7 @@ mod tests {
         async fn authorize(
             &mut self,
             _actor_id: UserId,
-            _shop_id: shop_core::shop_id::ShopId,
+            _listing_source_id: ListingSourceId,
         ) -> Result<(), PartnerProductListingAuthorizationError> {
             Ok(())
         }
@@ -507,10 +509,8 @@ mod tests {
         Ok(ProductListing::rehydrate(RehydratedProductListingState {
             id: ProductListingId::new(),
             slug_id: ProductListingSlugId::from("listing"),
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shop_listing_id: ShopListingId::from("listing"),
-            address: ProductListingAddress::default(),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::from("listing"),
             title: None,
             description: None,
             pricing: ProductListingPricing::default(),

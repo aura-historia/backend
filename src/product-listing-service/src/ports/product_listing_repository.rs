@@ -10,13 +10,13 @@ use product_listing_core::product_listing_id::{ProductListingId, ProductListingK
 pub enum ProductListingRepositoryError {
     #[error("product current event id did not match expected event id")]
     ProductListingCurrentEventIdConflict,
-    #[error("product already exists for shop product identity")]
-    ShopListingAlreadyExists,
+    #[error("product already exists for source listing identity")]
+    SourceListingAlreadyExists,
     #[error("product slug already exists")]
     ProductListingSlugAlreadyExists,
     #[error("product lookup by id failed")]
     ProductListingLookupByIdFailed,
-    #[error("product lookup by shop product identity failed")]
+    #[error("product lookup by source listing identity failed")]
     ProductListingLookupByKeyFailed {
         #[source]
         source: BoxError,

@@ -11,7 +11,7 @@ use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use lambda_runtime::LambdaEvent;
 use product_listing_core::product_listing_id::ProductListingKey;
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::ShopListingId;
 use product_listing_service::use_cases::{
     IngestShopifyProductListingError, IngestShopifyProductListingUseCase,
     WithdrawProductListingError, WithdrawProductListingUseCase,

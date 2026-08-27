@@ -60,10 +60,13 @@ impl ProductListingEmbeddingReader for SqlxProductListingEmbeddingReader<'_> {
                 "SELECT product_listing_id, embedding FROM product_listings WHERE product_listing_id = $1",
             )
             .bind(uuid::Uuid::from(*product_listing_id)),
-            ProductListingEmbeddingLookup::BySlug { shop_slug_id, product_listing_slug_id } => sqlx::query_as::<_, ProductListingEmbeddingRow>(
-                "SELECT p.product_listing_id, p.embedding FROM product_listings p JOIN shops s ON s.shop_id = p.shop_id WHERE s.shop_slug_id = $1 AND p.product_listing_slug_id = $2",
+            ProductListingEmbeddingLookup::BySlug {
+                listing_source_slug_id,
+                product_listing_slug_id,
+            } => sqlx::query_as::<_, ProductListingEmbeddingRow>(
+                "SELECT p.product_listing_id, p.embedding FROM product_listings p JOIN listing_sources source ON source.listing_source_id = p.listing_source_id WHERE source.listing_source_slug_id = $1 AND p.product_listing_slug_id = $2",
             )
-            .bind(shop_slug_id.as_ref())
+            .bind(listing_source_slug_id.as_ref())
             .bind(product_listing_slug_id.as_ref()),
         };
         query

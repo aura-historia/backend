@@ -10,6 +10,6 @@ pub mod product_listing_image;
 pub mod product_listing_search;
 pub mod product_listing_slug_id;
 pub mod sanitize;
-pub mod shop_listing_id;
 pub mod sort_product_listing_field;
+pub mod source_listing_id;
 pub mod title;

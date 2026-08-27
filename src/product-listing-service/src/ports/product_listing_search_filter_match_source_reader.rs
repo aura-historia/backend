@@ -1,3 +1,4 @@
+use crate::ports::ListingSourceSummary;
 use domain_primitives::event_id::EventId;
 use indexmap::IndexSet;
 use localization::Language;
@@ -6,25 +7,16 @@ use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
     listing_lifecycle::ListingLifecycle,
-    product_listing::{
-        ListingSaleObservation, ProductListingAddress, ProductListingAuction, ProductListingPricing,
-    },
+    product_listing::{ListingSaleObservation, ProductListingAuction, ProductListingPricing},
     product_listing_id::ProductListingId,
     product_listing_image::ProductListingImage,
     product_listing_slug_id::ProductListingSlugId,
-    shop_listing_id::ShopListingId,
+    source_listing_id::SourceListingId,
     title::Title,
 };
-use shop_core::seller_slug_id::SellerSlugId;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
-use shop_core::shop_type::ShopType;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use url::Url;
-
-pub use shop_core::shop_type::ShopType as ProductListingSearchFilterMatchShopType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductListingSearchFilterMatchSourceEventKind {
@@ -60,15 +52,8 @@ pub struct ProductListingSearchFilterMatchSource {
     pub projection_version: i64,
     pub product_listing_id: ProductListingId,
     pub product_listing_slug_id: ProductListingSlugId,
-    pub shop_id: ShopId,
-    pub shop_slug_id: ShopSlugId,
-    pub shop_name: ShopName,
-    pub shop_type: ShopType,
-    pub seller_id: ShopId,
-    pub seller_slug_id: SellerSlugId,
-    pub seller_name: ShopName,
-    pub shop_listing_id: ShopListingId,
-    pub address: ProductListingAddress,
+    pub source: ListingSourceSummary,
+    pub source_listing_id: SourceListingId,
     pub product_title: Option<Localized<Language, Title>>,
     pub product_description: Option<Localized<Language, Description>>,
     /// Translations take precedence over the original text for the same language.

@@ -10,12 +10,14 @@ use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::{
     ListingSaleObservation, ListingSaleObservationRetracted, ListingSaleObserved,
-    NewProductListing, ProductListing, ProductListingAddress, ProductListingAuction,
-    ProductListingAuctionChanged, ProductListingEventPayload, ProductListingPricing,
+    NewProductListing, ProductListing, ProductListingAuction, ProductListingAuctionChanged,
+    ProductListingEventPayload, ProductListingPricing,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
 
+use listing_source_core::ListingSourceId;
+use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
 use product_listing_postgres::{
     SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventReaderFactory,
@@ -30,8 +32,6 @@ use product_listing_service::use_cases::{
     ProductListingEventLookup, UpsertProductListingCommand, UpsertProductListingHandler,
     UpsertProductListingResult, UpsertProductListingUseCase,
 };
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
 use sqlx::AssertSqlSafe;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime, UtcOffset};
@@ -46,8 +46,8 @@ async fn should_round_trip_timestamp_payloads_through_product_listing_postgres()
     let product_listings = SqlxProductListingRepositoryFactory::new();
     let event_store = SqlxProductListingEventStoreFactory::new();
     let event_reader = SqlxProductListingEventReaderFactory::new();
-    let shop_id = seed_shop(&pool, "product-listing-postgres-event-timestamps-shop").await;
-    let seller_id = seed_shop(&pool, "product-listing-postgres-event-timestamps-seller").await;
+    let listing_source_id =
+        seed_listing_source(&pool, "product-listing-postgres-event-timestamps-source").await;
     let source_offset =
         UtcOffset::from_hms(5, 30, 0).unwrap_or_else(|error| panic!("source offset: {error}"));
     let auction_start = (OffsetDateTime::from_unix_timestamp(1_700_000_000)
@@ -61,8 +61,7 @@ async fn should_round_trip_timestamp_payloads_through_product_listing_postgres()
     );
     let product = sample_product_with_auction(
         "postgres-product-event-timestamps",
-        shop_id,
-        seller_id,
+        listing_source_id,
         ProductListingAuction {
             start: Some(auction_start),
             end: Some(auction_end),
@@ -129,9 +128,9 @@ async fn should_round_trip_timestamp_payloads_through_product_listing_postgres()
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_retry_same_key_upserts_after_a_real_postgres_insert_race() {
     let pool = get_postgres_client().await;
-    let shop_id = seed_shop(&pool, "product-listing-postgres-upsert-race-shop").await;
-    let seller_id = seed_shop(&pool, "product-listing-postgres-upsert-race-seller").await;
-    install_same_key_insert_barrier(&pool, shop_id).await;
+    let listing_source_id =
+        seed_listing_source(&pool, "product-listing-postgres-upsert-race-source").await;
+    install_same_key_insert_barrier(&pool, listing_source_id).await;
 
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let handler = UpsertProductListingHandler::new(
@@ -142,15 +141,13 @@ async fn should_retry_same_key_upserts_after_a_real_postgres_insert_race() {
     );
     let context = system_context();
     let first_command = upsert_command(
-        shop_id,
-        seller_id,
+        listing_source_id,
         "postgres-product-upsert-race",
         "Concurrent listing first",
         1_200,
     );
     let second_command = upsert_command(
-        shop_id,
-        seller_id,
+        listing_source_id,
         "postgres-product-upsert-race",
         "Concurrent listing second",
         1_300,
@@ -185,9 +182,9 @@ async fn should_retry_same_key_upserts_after_a_real_postgres_insert_race() {
     };
 
     let listing_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
+        "SELECT count(*) FROM product_listings WHERE listing_source_id = $1 AND source_listing_id = $2",
     )
-    .bind(uuid::Uuid::from(shop_id))
+    .bind(uuid::Uuid::from(listing_source_id))
     .bind("postgres-product-upsert-race")
     .fetch_one(&pool)
     .await
@@ -237,9 +234,9 @@ async fn should_report_duplicate_event_in_product_listing_postgres() {
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
-    let shop_id = seed_shop(&pool, "product-listing-postgres-conflict-shop").await;
-    let seller_id = seed_shop(&pool, "product-listing-postgres-conflict-seller").await;
-    let product = sample_product("postgres-product-conflict", shop_id, seller_id);
+    let listing_source_id =
+        seed_listing_source(&pool, "product-listing-postgres-conflict-source").await;
+    let product = sample_product("postgres-product-conflict", listing_source_id);
     let event = first_stamped_event(&product);
 
     let mut tx = begin(&unit_of_work).await;
@@ -266,19 +263,14 @@ async fn should_report_duplicate_event_in_product_listing_postgres() {
 }
 
 fn upsert_command(
-    shop_id: ShopId,
-    seller_id: ShopId,
-    shop_listing_id: &str,
+    listing_source_id: ListingSourceId,
+    source_listing_id: &str,
     title: &str,
     price_amount: u64,
 ) -> UpsertProductListingCommand {
     UpsertProductListingCommand {
-        shop_id,
-        seller_id,
-        shop_listing_id: product_listing_core::shop_listing_id::ShopListingId::from(
-            shop_listing_id,
-        ),
-        address: ProductListingAddress::default(),
+        listing_source_id,
+        source_listing_id: SourceListingId::from(source_listing_id),
         title: Some(Localized::new(Language::En, Title::from(title))),
         description: None,
         price: application::patch_field::PatchField::Set(Price::new(
@@ -303,14 +295,14 @@ fn system_context() -> OperationContext {
     }
 }
 
-async fn install_same_key_insert_barrier(pool: &sqlx::PgPool, shop_id: ShopId) {
+async fn install_same_key_insert_barrier(pool: &sqlx::PgPool, listing_source_id: ListingSourceId) {
     let sql = format!(
         r#"
         CREATE OR REPLACE FUNCTION product_listing_same_key_insert_barrier()
         RETURNS trigger LANGUAGE plpgsql AS $$
         DECLARE attempts integer := 0;
         BEGIN
-            IF NEW.shop_id = '{shop_id}'::uuid THEN
+            IF NEW.listing_source_id = '{listing_source_id}'::uuid THEN
                 PERFORM pg_advisory_lock_shared(87654321, 42);
                 LOOP
                     EXIT WHEN (
@@ -378,14 +370,13 @@ fn first_stamped_event(
     }
 }
 
-fn sample_product(slug: &str, shop_id: ShopId, seller_id: ShopId) -> ProductListing {
-    sample_product_with_auction(slug, shop_id, seller_id, ProductListingAuction::default())
+fn sample_product(slug: &str, listing_source_id: ListingSourceId) -> ProductListing {
+    sample_product_with_auction(slug, listing_source_id, ProductListingAuction::default())
 }
 
 fn sample_product_with_auction(
     slug: &str,
-    shop_id: ShopId,
-    seller_id: ShopId,
+    listing_source_id: ListingSourceId,
     auction: ProductListingAuction,
 ) -> ProductListing {
     let mut images = IndexSet::new();
@@ -394,10 +385,8 @@ fn sample_product_with_auction(
     ))));
     match ProductListing::create(NewProductListing {
         id: ProductListingId::new(),
-        shop_id,
-        seller_id,
-        shop_listing_id: product_listing_core::shop_listing_id::ShopListingId::from(slug),
-        address: ProductListingAddress::default(),
+        listing_source_id,
+        source_listing_id: SourceListingId::from(slug),
         title: Some(Localized::new(Language::En, Title::from(slug))),
         description: Some(Localized::new(
             Language::En,
@@ -418,28 +407,25 @@ fn sample_product_with_auction(
     }
 }
 
-async fn seed_shop(pool: &sqlx::PgPool, slug: &str) -> ShopId {
-    let shop_id = ShopId::new();
-    let result = sqlx::query(
-        r#"
-        INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        "#,
-    )
-    .bind(uuid::Uuid::from(shop_id))
-    .bind(slug)
-    .bind(ShopName::from(slug).to_string())
-    .bind("COMMERCIAL_DEALER")
-    .bind("SCRAPED")
-    .bind(Vec::<String>::from([format!("{slug}.example")]))
-    .execute(pool)
-    .await;
-
-    if let Err(error) = result {
-        panic!("failed to seed shop: {error}");
-    }
-
-    shop_id
+async fn seed_listing_source(pool: &sqlx::PgPool, slug: &str) -> ListingSourceId {
+    let party_id = uuid::Uuid::new_v4();
+    let listing_source_id = ListingSourceId::new();
+    sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
+        .bind(party_id)
+        .bind(format!("{slug}-party"))
+        .bind(format!("{slug} party"))
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed listing-source party: {error}"));
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)")
+        .bind(uuid::Uuid::from(listing_source_id))
+        .bind(slug)
+        .bind(slug)
+        .bind(party_id)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed listing source: {error}"));
+    listing_source_id
 }
 
 fn url(value: &str) -> Url {

@@ -9,10 +9,9 @@ use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
-use product_listing_core::shop_listing_id::ShopListingId;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
+use crate::ports::ListingSourceSummary;
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use product_listing_core::source_listing_id::SourceListingId;
 use user_core::user_id::UserId;
 
 use product_listing_core::title::Title;
@@ -109,11 +108,12 @@ fn redact_hidden_product_search_item(
     product.product_listing_id = ProductListingId::from(nil);
     product.product_listing_slug_id = ProductListingSlugId::from("Hidden");
     product.event_id = EventId::from(nil);
-    product.shop_id = ShopId::from(nil);
-    product.seller_id = ShopId::from(nil);
-    product.shop_listing_id = ShopListingId::from(nil.to_string());
-    product.shop_name = ShopName::from("Hidden");
-    product.shop_slug_id = ShopSlugId::from("Hidden");
+    product.source = ListingSourceSummary {
+        listing_source_id: ListingSourceId::from(nil),
+        name: ListingSourceName::from("Hidden"),
+        slug_id: ListingSourceSlugId::from("hidden"),
+    };
+    product.source_listing_id = SourceListingId::from(nil.to_string());
     product.title = Some(Localized::new(language, hidden_title(language)));
     product.display_price = None;
     product.availability = None;

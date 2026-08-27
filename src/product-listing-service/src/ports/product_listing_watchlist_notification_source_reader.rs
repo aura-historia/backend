@@ -1,3 +1,4 @@
+use crate::ports::ListingSourceSummary;
 use application::error::BoxError;
 use domain_primitives::event_id::EventId;
 use localization::Language;
@@ -5,11 +6,9 @@ use money::Price;
 use product_listing_core::{
     content_policy::ContentPolicyDecision, listing_availability::ListingAvailability,
     product_listing_id::ProductListingId, product_listing_image::ProductListingImage,
-    product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId, title::Title,
+    product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
+    title::Title,
 };
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use url::Url;
@@ -20,10 +19,8 @@ pub struct ProductListingWatchlistNotificationSource {
     pub event_time: OffsetDateTime,
     pub product_listing_id: ProductListingId,
     pub product_listing_slug_id: ProductListingSlugId,
-    pub shop_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub shop_slug_id: ShopSlugId,
-    pub shop_name: ShopName,
+    pub source: ListingSourceSummary,
+    pub source_listing_id: SourceListingId,
     pub title: Option<HashMap<Language, Title>>,
     pub image: Option<ProductListingImage>,
     pub content_policy: Option<ContentPolicyDecision>,

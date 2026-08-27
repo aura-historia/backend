@@ -360,45 +360,51 @@ async fn seed_user(
 async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     let product_listing_id = ProductListingId::new();
     let event_id = EventId::new();
-    let shop_id = uuid::Uuid::from(ProductListingId::new());
+    let party_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
     let raw_product_listing_id = uuid::Uuid::from(product_listing_id);
     let mut transaction = match pool.begin().await {
         Ok(transaction) => transaction,
         Err(error) => panic!("failed to begin product seed transaction: {error}"),
     };
-    let shop_label = format!("product-user-state-{shop_id}");
+    let source_label = format!("product-user-state-{listing_source_id}");
 
-    let shop_result = sqlx::query(
-        r#"
-        INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        "#,
+    let party_result =
+        sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
+            .bind(party_id)
+            .bind(format!("{source_label}-party"))
+            .bind(format!("{source_label} party"))
+            .execute(&mut *transaction)
+            .await;
+    if let Err(error) = party_result {
+        panic!("failed to seed product party: {error}");
+    }
+
+    let source_result = sqlx::query(
+        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
     )
-    .bind(shop_id)
-    .bind(&shop_label)
-    .bind(&shop_label)
-    .bind("COMMERCIAL_DEALER")
-    .bind("SCRAPED")
-    .bind(Vec::<String>::from([format!("{shop_label}.example")]))
+    .bind(listing_source_id)
+    .bind(&source_label)
+    .bind(&source_label)
+    .bind(party_id)
     .execute(&mut *transaction)
     .await;
-    if let Err(error) = shop_result {
-        panic!("failed to seed product shop: {error}");
+    if let Err(error) = source_result {
+        panic!("failed to seed product listing source: {error}");
     }
 
     let product_result = sqlx::query(
         r#"
         INSERT INTO product_listings (
-            product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id,
+            product_listing_id, product_listing_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id,
             availability, lifecycle, url
-        ) VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9)
+        ) VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8)
         "#,
     )
     .bind(raw_product_listing_id)
     .bind(format!("product-user-state-{raw_product_listing_id}"))
     .bind(uuid::Uuid::from(event_id))
-    .bind(shop_id)
-    .bind(shop_id)
+    .bind(listing_source_id)
     .bind(raw_product_listing_id.to_string())
     .bind("AVAILABLE")
     .bind("ACTIVE")

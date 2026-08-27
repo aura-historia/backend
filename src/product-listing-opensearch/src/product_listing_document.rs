@@ -10,7 +10,7 @@ use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::ShopListingId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use shop_core::seller_slug_id::SellerSlugId;

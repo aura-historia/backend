@@ -4,7 +4,7 @@ use application::error::box_error;
 use domain_primitives::event_id::EventId;
 use domain_primitives::versioned::Versioned;
 use fxrate_core::FxRateId;
-use geo::core::address::{GeoAddress, StructuredAddress};
+
 use indexmap::IndexSet;
 use localization::Language;
 use localization::Localized;
@@ -14,20 +14,21 @@ use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{
-    ListingSaleObservation, ProductListing, ProductListingAddress, ProductListingAuction,
-    ProductListingPricing, RehydratedProductListingState,
+    ListingSaleObservation, ProductListing, ProductListingAuction, ProductListingPricing,
+    RehydratedProductListingState,
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
-use product_listing_core::shop_listing_id::ShopListingId;
+use listing_source_core::ListingSourceId;
+use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
 use product_listing_service::ports::product_listing_repository::{
     ProductListingRepository, ProductListingRepositoryError, ProductListingRepositoryFactory,
 };
 use serde::{Deserialize, Serialize};
-use shop_core::shop_id::ShopId;
+
 use sqlx::PgConnection;
 
 use time::OffsetDateTime;
@@ -45,17 +46,8 @@ struct ProductListingRow {
     product_listing_id: uuid::Uuid,
     product_listing_slug_id: String,
     event_id: uuid::Uuid,
-    shop_id: uuid::Uuid,
-    seller_id: uuid::Uuid,
-    shop_listing_id: String,
-    structured_address_addressline: Option<String>,
-    structured_address_addressline_extra: Option<String>,
-    structured_address_locality: Option<String>,
-    structured_address_region: Option<String>,
-    structured_address_postal_code: Option<String>,
-    structured_address_country: Option<String>,
-    geo_address_lat: Option<f64>,
-    geo_address_lon: Option<f64>,
+    listing_source_id: uuid::Uuid,
+    source_listing_id: String,
     title_text: Option<String>,
     title_language: Option<String>,
     description_text: Option<String>,
@@ -113,11 +105,8 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         let row = sqlx::query_as::<_, ProductListingRow>(
             r#"
             SELECT
-                product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id AS shop_listing_id,
-                structured_address_addressline, structured_address_addressline_extra,
-                structured_address_locality, structured_address_region, structured_address_postal_code,
-                structured_address_country, geo_address_lat, geo_address_lon, title_text,
-                title_language, description_text, description_language,
+                product_listing_id, product_listing_slug_id, event_id, listing_source_id, source_listing_id,
+                title_text, title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url,
@@ -141,22 +130,19 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         let row = sqlx::query_as::<_, ProductListingRow>(
             r#"
             SELECT
-                product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id AS shop_listing_id,
-                structured_address_addressline, structured_address_addressline_extra,
-                structured_address_locality, structured_address_region, structured_address_postal_code,
-                structured_address_country, geo_address_lat, geo_address_lon, title_text,
-                title_language, description_text, description_language,
+                product_listing_id, product_listing_slug_id, event_id, listing_source_id, source_listing_id,
+                title_text, title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url,
                 product_images, embedding, auction_start, auction_end, created, updated
             FROM product_listings
-            WHERE shop_id = $1
-              AND shop_listing_id = $2
+            WHERE listing_source_id = $1
+              AND source_listing_id = $2
             "#,
         )
-        .bind(uuid::Uuid::from(key.shop_id))
-        .bind(key.shop_listing_id.as_ref())
+        .bind(uuid::Uuid::from(key.listing_source_id))
+        .bind(key.source_listing_id.as_ref())
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(ProductListingLookupByKeySqlxError)?;
@@ -169,7 +155,6 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         product: &ProductListing,
         current_event_id: EventId,
     ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
-        let address = product.address();
         let pricing = product.pricing();
         let auction = product.auction();
         let title = product.title();
@@ -194,41 +179,33 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         sqlx::query(
             r#"
             INSERT INTO product_listings (
-                product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id,
-                structured_address_addressline, structured_address_addressline_extra,
-                structured_address_locality, structured_address_region, structured_address_postal_code,
-                structured_address_country, geo_address_lat, geo_address_lon, title_text,
-                title_language, description_text, description_language,
-                price_amount, price_currency, price_estimate_min_amount,
-                price_estimate_min_currency, price_estimate_max_amount,
-                price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url,
-                product_images, auction_start, auction_end
+                product_listing_id, product_listing_slug_id, event_id, content_source_event_id,
+                listing_source_id, source_listing_id, title_text, title_language,
+                description_text, description_language, price_amount, price_currency,
+                price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount,
+                price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at,
+                availability, lifecycle, url, product_images, auction_start, auction_end
             ) VALUES (
-                $1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-                $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32
+                $1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                $16, $17, $18, $19, $20, $21, $22, $23
             )
             "#,
         )
         .bind(uuid::Uuid::from(product.id()))
         .bind(product.slug_id().as_ref().to_owned())
         .bind(uuid::Uuid::from(current_event_id))
-        .bind(uuid::Uuid::from(product.shop_id()))
-        .bind(uuid::Uuid::from(product.seller_id()))
-        .bind(product.shop_listing_id().as_ref().to_owned())
-        .bind(address.structured.as_ref().and_then(|value| value.addressline.clone()))
-        .bind(address.structured.as_ref().and_then(|value| value.addressline_extra.clone()))
-        .bind(address.structured.as_ref().and_then(|value| value.locality.clone()))
-        .bind(address.structured.as_ref().and_then(|value| value.region.clone()))
-        .bind(address.structured.as_ref().and_then(|value| value.postal_code.clone()))
-        .bind(address.structured.as_ref().and_then(|value| value.country.map(|country| country.alpha3().to_string())))
-        .bind(address.geo.map(|value| value.lat))
-        .bind(address.geo.map(|value| value.lon))
+        .bind(uuid::Uuid::from(product.listing_source_id()))
+        .bind(product.source_listing_id().as_ref().to_owned())
         .bind(title.map(|value| value.payload.as_ref().to_owned()))
         .bind(title.map(|value| value.localization.as_str().to_owned()))
         .bind(description.map(|value| value.payload.as_ref().to_owned()))
         .bind(description.map(|value| value.localization.as_str().to_owned()))
         .bind(price_amount)
-        .bind(pricing.price.map(|value| value.currency.as_str().to_owned()))
+        .bind(
+            pricing
+                .price
+                .map(|value| value.currency.as_str().to_owned()),
+        )
         .bind(price_estimate_min_amount)
         .bind(
             pricing
@@ -266,7 +243,6 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         expected_event_id: EventId,
         new_event_id: EventId,
     ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
-        let address = product.address();
         let pricing = product.pricing();
         let auction = product.auction();
         let title = product.title();
@@ -294,83 +270,35 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
             SET
                 product_listing_slug_id = $1,
                 event_id = $2,
-                shop_id = $3,
-                seller_id = $4,
-                shop_listing_id = $5,
-                structured_address_addressline = $6,
-                structured_address_addressline_extra = $7,
-                structured_address_locality = $8,
-                structured_address_region = $9,
-                structured_address_postal_code = $10,
-                structured_address_country = $11,
-                geo_address_lat = $12,
-                geo_address_lon = $13,
-                title_text = $14,
-                title_language = $15,
-                description_text = $16,
-                description_language = $17,
-                price_amount = $18,
-                price_currency = $19,
-                price_estimate_min_amount = $20,
-                price_estimate_min_currency = $21,
-                price_estimate_max_amount = $22,
-                price_estimate_max_currency = $23,
-                sale_observation_fx_rate_id = $24,
-                sale_observed_at = $25,
-                availability = $26,
-                lifecycle = $27,
-                url = $28,
-                product_images = $29,
-                auction_start = $30,
-                auction_end = $31,
+                listing_source_id = $3,
+                source_listing_id = $4,
+                title_text = $5,
+                title_language = $6,
+                description_text = $7,
+                description_language = $8,
+                price_amount = $9,
+                price_currency = $10,
+                price_estimate_min_amount = $11,
+                price_estimate_min_currency = $12,
+                price_estimate_max_amount = $13,
+                price_estimate_max_currency = $14,
+                sale_observation_fx_rate_id = $15,
+                sale_observed_at = $16,
+                availability = $17,
+                lifecycle = $18,
+                url = $19,
+                product_images = $20,
+                auction_start = $21,
+                auction_end = $22,
                 projection_version = projection_version + 1,
                 updated = now()
-            WHERE product_listing_id = $32 AND event_id = $33
+            WHERE product_listing_id = $23 AND event_id = $24
             "#,
         )
         .bind(product.slug_id().as_ref().to_owned())
         .bind(uuid::Uuid::from(new_event_id))
-        .bind(uuid::Uuid::from(product.shop_id()))
-        .bind(uuid::Uuid::from(product.seller_id()))
-        .bind(product.shop_listing_id().as_ref().to_owned())
-        .bind(
-            address
-                .structured
-                .as_ref()
-                .and_then(|value| value.addressline.clone()),
-        )
-        .bind(
-            address
-                .structured
-                .as_ref()
-                .and_then(|value| value.addressline_extra.clone()),
-        )
-        .bind(
-            address
-                .structured
-                .as_ref()
-                .and_then(|value| value.locality.clone()),
-        )
-        .bind(
-            address
-                .structured
-                .as_ref()
-                .and_then(|value| value.region.clone()),
-        )
-        .bind(
-            address
-                .structured
-                .as_ref()
-                .and_then(|value| value.postal_code.clone()),
-        )
-        .bind(
-            address
-                .structured
-                .as_ref()
-                .and_then(|value| value.country.map(|country| country.alpha3().to_string())),
-        )
-        .bind(address.geo.map(|value| value.lat))
-        .bind(address.geo.map(|value| value.lon))
+        .bind(uuid::Uuid::from(product.listing_source_id()))
+        .bind(product.source_listing_id().as_ref().to_owned())
         .bind(title.map(|value| value.payload.as_ref().to_owned()))
         .bind(title.map(|value| value.localization.as_str().to_owned()))
         .bind(description.map(|value| value.payload.as_ref().to_owned()))
@@ -425,20 +353,14 @@ impl TryFrom<ProductListingRow> for Versioned<ProductListing, EventId> {
     fn try_from(row: ProductListingRow) -> Result<Self, Self::Error> {
         let _created = row.created;
         let _updated = row.updated;
-        let address = ProductListingAddress {
-            structured: structured_address_from_row(&row),
-            geo: geo_address_from_row(&row),
-        };
         let title = localized_title_from_row(&row)?;
         let description = localized_description_from_row(&row)?;
         let product = ProductListing::rehydrate(RehydratedProductListingState {
             id: ProductListingId::from(row.product_listing_id),
             slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
                 .map_err(|_| ProductListingRepositoryError::InvalidProductListingSlugPersisted)?,
-            shop_id: ShopId::from(row.shop_id),
-            seller_id: ShopId::from(row.seller_id),
-            shop_listing_id: ShopListingId::from(row.shop_listing_id),
-            address,
+            listing_source_id: ListingSourceId::from(row.listing_source_id),
+            source_listing_id: SourceListingId::from(row.source_listing_id),
             title,
             description,
             pricing: ProductListingPricing {
@@ -508,33 +430,6 @@ fn price_from_parts(
         }
         (None, None) => Ok(None),
         _ => Err(ProductListingRepositoryError::IncompletePricePersisted),
-    }
-}
-
-fn structured_address_from_row(row: &ProductListingRow) -> Option<StructuredAddress> {
-    row.structured_address_addressline
-        .as_ref()
-        .map(|addressline| {
-            let country = row
-                .structured_address_country
-                .as_deref()
-                .and_then(|value| isocountry::CountryCode::for_alpha3(value).ok());
-            StructuredAddress {
-                addressline: Some(addressline.clone()),
-                addressline_extra: row.structured_address_addressline_extra.clone(),
-                locality: row.structured_address_locality.clone(),
-                region: row.structured_address_region.clone(),
-                postal_code: row.structured_address_postal_code.clone(),
-                country,
-                continent: country.map(geo::core::continent::Continent::from),
-            }
-        })
-}
-
-fn geo_address_from_row(row: &ProductListingRow) -> Option<GeoAddress> {
-    match (row.geo_address_lat, row.geo_address_lon) {
-        (Some(lat), Some(lon)) => Some(GeoAddress { lat, lon }),
-        _ => None,
     }
 }
 
@@ -632,7 +527,7 @@ fn parse_listing_lifecycle(value: &str) -> Result<ListingLifecycle, ProductListi
 
 struct ProductListingLookupByIdSqlxError(sqlx::Error);
 #[derive(Debug, thiserror::Error)]
-#[error("product lookup by shop product identity query failed")]
+#[error("product lookup by listing-source identity query failed")]
 struct ProductListingLookupByKeySqlxError(#[source] sqlx::Error);
 struct ProductListingInsertSqlxError(sqlx::Error);
 struct ProductListingUpdateSqlxError(sqlx::Error);
@@ -656,9 +551,10 @@ impl From<ProductListingInsertSqlxError> for ProductListingRepositoryError {
     fn from(error: ProductListingInsertSqlxError) -> Self {
         match error.0 {
             sqlx::Error::Database(db_error)
-                if db_error.constraint() == Some("product_listings_shop_product_unique") =>
+                if db_error.constraint()
+                    == Some("product_listings_listing_source_listing_unique") =>
             {
-                Self::ShopListingAlreadyExists
+                Self::SourceListingAlreadyExists
             }
             sqlx::Error::Database(db_error)
                 if db_error.constraint() == Some("product_listings_slug_unique") =>
@@ -675,9 +571,10 @@ impl From<ProductListingUpdateSqlxError> for ProductListingRepositoryError {
         let ProductListingUpdateSqlxError(error) = value;
         match &error {
             sqlx::Error::Database(db_error)
-                if db_error.constraint() == Some("product_listings_shop_product_unique") =>
+                if db_error.constraint()
+                    == Some("product_listings_listing_source_listing_unique") =>
             {
-                Self::ShopListingAlreadyExists
+                Self::SourceListingAlreadyExists
             }
             sqlx::Error::Database(db_error)
                 if db_error.constraint() == Some("product_listings_slug_unique") =>
@@ -708,7 +605,7 @@ mod tests {
             error => panic!("unexpected error: {error:?}"),
         };
         assert_eq!(
-            "product lookup by shop product identity query failed",
+            "product lookup by listing-source identity query failed",
             source.to_string()
         );
         assert!(
@@ -755,16 +652,8 @@ mod tests {
     }
 
     #[test]
-    fn should_map_optional_address_language_and_image_branches() {
+    fn should_map_source_identity_language_and_image_branches() {
         let row = product_row();
-        let structured = match structured_address_from_row(&row) {
-            Some(value) => value,
-            None => panic!("missing structured address"),
-        };
-        let geo = match geo_address_from_row(&row) {
-            Some(value) => value,
-            None => panic!("missing geo address"),
-        };
         let title = match localized_title_from_row(&row) {
             Ok(Some(value)) => value,
             Ok(None) => panic!("missing title"),
@@ -780,8 +669,6 @@ mod tests {
             Err(error) => panic!("failed to map images: {error:?}"),
         };
 
-        assert_eq!(Some("line"), structured.addressline.as_deref());
-        assert_eq!(47.0, geo.lat);
         assert_eq!(Language::En, title.localization);
         assert_eq!(Language::De, description.localization);
         assert_eq!(1, images.len());
@@ -886,17 +773,8 @@ mod tests {
             product_listing_id: uuid::Uuid::new_v4(),
             product_listing_slug_id: slug,
             event_id: uuid::Uuid::new_v4(),
-            shop_id: uuid::Uuid::new_v4(),
-            seller_id: uuid::Uuid::new_v4(),
-            shop_listing_id: "unit-product".to_owned(),
-            structured_address_addressline: Some("line".to_owned()),
-            structured_address_addressline_extra: Some("extra".to_owned()),
-            structured_address_locality: Some("locality".to_owned()),
-            structured_address_region: Some("region".to_owned()),
-            structured_address_postal_code: Some("12345".to_owned()),
-            structured_address_country: Some("DEU".to_owned()),
-            geo_address_lat: Some(47.0),
-            geo_address_lon: Some(8.0),
+            listing_source_id: uuid::Uuid::new_v4(),
+            source_listing_id: "unit-product".to_owned(),
             title_text: Some("title".to_owned()),
             title_language: Some("en".to_owned()),
             description_text: Some("description".to_owned()),

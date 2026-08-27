@@ -244,11 +244,11 @@ fn notification_content(
         origin_event_id,
         product_listing_id: source.product_listing_id,
         snapshot: ProductListingNotificationSnapshot {
-            shop_id: source.shop_id,
-            shop_listing_id: source.shop_listing_id,
-            shop_slug_id: source.shop_slug_id,
+            listing_source_id: source.source.listing_source_id,
+            source_listing_id: source.source_listing_id,
+            listing_source_slug_id: source.source.slug_id,
             product_listing_slug_id: source.product_listing_slug_id,
-            shop_name: source.shop_name,
+            listing_source_name: source.source.name,
             title: source.title,
             image: source.image.map(|image| image.url().clone()),
             content_policy: source.content_policy,
@@ -262,6 +262,7 @@ fn notification_content(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::ListingSourceSummary;
     use crate::ports::{
         ProductListingCurrentRevisionRef, ProductListingWatchlistNotificationSourceReadError,
         WatchlistNotificationRecipient, WatchlistNotificationRecipientReadError,
@@ -270,10 +271,10 @@ mod tests {
         error::static_error,
         transaction::{TransactionError, UnitOfWork},
     };
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use product_listing_core::{
-        product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
+        product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
     };
-    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
     use std::{
         collections::{HashMap, VecDeque},
         sync::{Arc, Mutex, MutexGuard},
@@ -333,10 +334,12 @@ mod tests {
             event_time,
             product_listing_id,
             product_listing_slug_id: ProductListingSlugId::from("product"),
-            shop_id: ShopId::new(),
-            shop_listing_id: ShopListingId::from("product-1"),
-            shop_slug_id: ShopSlugId::from("shop"),
-            shop_name: ShopName::from("Shop"),
+            source: ListingSourceSummary {
+                listing_source_id: ListingSourceId::new(),
+                name: ListingSourceName::from("Source"),
+                slug_id: ListingSourceSlugId::from("source"),
+            },
+            source_listing_id: SourceListingId::from("product-1"),
             title: None,
             image: None,
             content_policy: None,

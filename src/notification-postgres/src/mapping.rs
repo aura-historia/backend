@@ -19,7 +19,7 @@ use product_listing_core::{
     listing_availability::ListingAvailability,
     product_listing_id::ProductListingId,
     product_listing_slug_id::ProductListingSlugId,
-    shop_listing_id::ShopListingId,
+    source_listing_id::ShopListingId,
     title::Title,
 };
 use search_filter_core::{

@@ -893,7 +893,7 @@ mod tests {
     use product_listing_core::{
         listing_availability::ListingAvailability, listing_orderability::ListingOrderability,
         product_listing_id::ProductListingId, product_listing_search::ListingAvailabilityQuery,
-        product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
+        product_listing_slug_id::ProductListingSlugId, source_listing_id::ShopListingId,
     };
     use shop_core::shop_id::ShopId;
     use shop_core::shop_slug_id::ShopSlugId;

@@ -183,7 +183,7 @@ mod tests {
         product_listing::{ProductListingAddress, ProductListingAuction, ProductListingPricing},
         product_listing_image::ProductListingImage,
         product_listing_slug_id::ProductListingSlugId,
-        shop_listing_id::ShopListingId,
+        source_listing_id::ShopListingId,
     };
     use product_listing_service::ports::{
         ProductListingSearchFilterMatchShopType, ProductListingSearchFilterMatchSourceEventKind,

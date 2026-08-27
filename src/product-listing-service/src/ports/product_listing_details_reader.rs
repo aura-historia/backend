@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::use_cases::queries::get_product_listing::ProductListingLookup;
-use crate::user_state::ProductListingUserState;
+use crate::{ports::ListingSourceSummary, user_state::ProductListingUserState};
 use application::personalized::Personalized;
 use domain_primitives::event_id::EventId;
 use indexmap::IndexSet;
@@ -12,17 +12,14 @@ use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{
-    ListingSaleObservation, ProductListingAddress, ProductListingAuction, ProductListingPricing,
+    ListingSaleObservation, ProductListingAuction, ProductListingPricing,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
 use time::OffsetDateTime;
 use url::Url;
 use user_core::user_id::UserId;
@@ -40,14 +37,8 @@ pub struct ProductListingDetailsReadModel {
     pub product_listing_id: ProductListingId,
     pub product_listing_slug_id: ProductListingSlugId,
     pub event_id: EventId,
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub shop_name: ShopName,
-    pub seller_name: ShopName,
-    pub shop_slug_id: ShopSlugId,
-    pub seller_slug_id: ShopSlugId,
-    pub address: ProductListingAddress,
+    pub source: ListingSourceSummary,
+    pub source_listing_id: SourceListingId,
     pub product_title: Option<Localized<Language, Title>>,
     pub product_description: Option<Localized<Language, Description>>,
     pub title: Option<Localized<Language, Title>>,

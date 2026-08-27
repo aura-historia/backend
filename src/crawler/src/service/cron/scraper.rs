@@ -737,7 +737,7 @@ mod tests {
     use crate::spider::candidate_service::MockSpiderCandidateService;
     use crate::spider::service::MockSpiderService;
     use product_listing_core::{
-        product_listing::ProductListingAddress, shop_listing_id::ShopListingId,
+        product_listing::ProductListingAddress, source_listing_id::ShopListingId,
     };
     use product_listing_service::use_cases::commands::upsert_product_listing::UpsertProductListingCommand;
     use shop_core::{shop_id::ShopId, shop_type::ShopType};

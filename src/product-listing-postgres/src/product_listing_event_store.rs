@@ -2,8 +2,8 @@
 
 use application::error::box_error;
 use product_listing_core::product_listing::{
-    ListingSaleObservation, ProductListingAddress, ProductListingAuction,
-    ProductListingEventPayload, ProductListingPricing,
+    ListingSaleObservation, ProductListingAuction, ProductListingEventPayload,
+    ProductListingPricing,
 };
 
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -89,7 +89,8 @@ fn event_payload_json(
             "kind": "created",
             "title": payload.title.as_ref().map(localized_title_json),
             "description": payload.description.as_ref().map(localized_description_json),
-            "address": address_json(&payload.address),
+            "listingSourceId": payload.listing_source_id.to_string(),
+            "sourceListingId": payload.source_listing_id.as_ref(),
             "pricing": pricing_json(payload.pricing),
             "availability": payload.availability.map(|value| value.as_str()),
             "url": payload.url.as_str(),
@@ -101,10 +102,7 @@ fn event_payload_json(
             "previousAvailability": payload.previous.map(|value| value.as_str()),
             "currentAvailability": payload.current.map(|value| value.as_str()),
         }),
-        ProductListingEventPayload::AddressChanged(payload) => json!({
-            "kind": "addressChanged",
-            "address": address_json(&payload.address),
-        }),
+
         ProductListingEventPayload::PriceChanged(payload) => json!({
             "kind": "priceChanged",
             "oldPricing": pricing_json(payload.old_pricing),
@@ -159,23 +157,6 @@ fn localized_description_json(
     json!({
         "language": description.localization.as_str(),
         "text": description.payload.as_ref(),
-    })
-}
-
-fn address_json(address: &ProductListingAddress) -> Value {
-    json!({
-        "structured": address.structured.as_ref().map(|structured| json!({
-            "addressline": structured.addressline,
-            "addresslineExtra": structured.addressline_extra,
-            "locality": structured.locality,
-            "region": structured.region,
-            "postalCode": structured.postal_code,
-            "country": structured.country.map(|country| country.alpha3()),
-        })),
-        "geo": address.geo.map(|geo| json!({
-            "lat": geo.lat,
-            "lon": geo.lon,
-        })),
     })
 }
 

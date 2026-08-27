@@ -691,7 +691,7 @@ mod tests {
     use indexmap::IndexSet;
     use localization::Language;
     use money::{Currency, MonetaryAmount, Price};
-    use product_listing_core::shop_listing_id::ShopListingId;
+    use product_listing_core::source_listing_id::ShopListingId;
     use product_listing_core::{
         listing_availability::ListingAvailability,
         listing_lifecycle::ListingLifecycle,

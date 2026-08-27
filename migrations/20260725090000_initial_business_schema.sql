@@ -253,17 +253,10 @@ CREATE TABLE product_listings (
     product_listing_slug_id text NOT NULL,
     event_id uuid NOT NULL,
     content_source_event_id uuid NOT NULL,
-    shop_id uuid NOT NULL REFERENCES shops(shop_id),
-    seller_id uuid NOT NULL REFERENCES shops(shop_id),
-    shop_listing_id text NOT NULL,
-    structured_address_addressline text,
-    structured_address_addressline_extra text,
-    structured_address_locality text,
-    structured_address_region text,
-    structured_address_postal_code text,
-    structured_address_country text,
-    geo_address_lat double precision,
-    geo_address_lon double precision,
+    listing_source_id uuid NOT NULL
+        REFERENCES listing_sources(listing_source_id)
+        ON DELETE CASCADE,
+    source_listing_id text NOT NULL,
     title_text text,
     title_language text,
     description_text text,
@@ -286,7 +279,7 @@ CREATE TABLE product_listings (
     auction_end timestamptz,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT product_listings_shop_product_unique UNIQUE (shop_id, shop_listing_id),
+    CONSTRAINT product_listings_listing_source_listing_unique UNIQUE (listing_source_id, source_listing_id),
     CONSTRAINT product_listings_slug_unique UNIQUE (product_listing_slug_id),
     CONSTRAINT product_listings_availability_check CHECK (availability IS NULL OR availability IN ('AVAILABLE', 'IN_STOCK', 'LIMITED_AVAILABILITY', 'BACK_ORDER', 'MADE_TO_ORDER', 'PRE_ORDER', 'PRE_SALE', 'UNAVAILABLE', 'RESERVED', 'OUT_OF_STOCK', 'SOLD_OUT')),
     CONSTRAINT product_listings_lifecycle_check CHECK (lifecycle IN ('ACTIVE', 'WITHDRAWN')),
@@ -305,16 +298,13 @@ CREATE TABLE product_listings (
     CONSTRAINT product_listings_price_estimate_min_currency_check CHECK (price_estimate_min_currency IS NULL OR price_estimate_min_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT product_listings_price_estimate_max_currency_check CHECK (price_estimate_max_currency IS NULL OR price_estimate_max_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT product_listings_sale_observation_pair_check CHECK ((sale_observation_fx_rate_id IS NULL) = (sale_observed_at IS NULL)),
-    CONSTRAINT product_listings_geo_pair_check CHECK ((geo_address_lat IS NULL) = (geo_address_lon IS NULL)),
-    CONSTRAINT product_listings_geo_lat_range CHECK (geo_address_lat IS NULL OR geo_address_lat BETWEEN -90 AND 90),
-    CONSTRAINT product_listings_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180),
     CONSTRAINT product_listings_images_array CHECK (jsonb_typeof(product_images) = 'array'),
     CONSTRAINT product_listings_embedding_dimension_check CHECK (embedding IS NULL OR (array_ndims(embedding) = 1 AND cardinality(embedding) = 768)),
     CONSTRAINT product_listings_projection_version_positive CHECK (projection_version >= 1),
     CONSTRAINT product_listings_auction_order_check CHECK (auction_start IS NULL OR auction_end IS NULL OR auction_start <= auction_end)
 );
 
-CREATE INDEX product_listings_seller_id_idx ON product_listings (seller_id);
+CREATE INDEX product_listings_listing_source_id_idx ON product_listings (listing_source_id);
 CREATE INDEX product_listings_lifecycle_updated_idx ON product_listings (lifecycle, updated DESC);
 CREATE INDEX product_listings_sale_observation_fx_rate_id_idx ON product_listings (sale_observation_fx_rate_id);
 

@@ -14,7 +14,7 @@ use localization::Language;
 use money::Currency;
 use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_id::ProductListingId,
-    product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
+    product_listing_slug_id::ProductListingSlugId, source_listing_id::ShopListingId,
 };
 use product_listing_service::ports::{
     ProductListingPercolationInput, ProductListingPricesByCurrency,
@@ -440,7 +440,7 @@ mod tests {
             ProductListingPriceValuationBasis, ProductListingPricing,
         },
         product_listing_slug_id::ProductListingSlugId,
-        shop_listing_id::ShopListingId,
+        source_listing_id::ShopListingId,
         title::Title,
     };
     use product_listing_service::ports::{

@@ -4,17 +4,17 @@ use crate::ports::{
 use application::operation_context::OperationContext;
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
+use listing_source_core::ListingSourceSlugId;
 use product_listing_core::product_listing::ProductListingEventPayload;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use shop_core::shop_slug_id::ShopSlugId;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProductListingEventLookup {
     ById(ProductListingId),
     BySlug {
-        shop_slug_id: ShopSlugId,
+        listing_source_slug_id: ListingSourceSlugId,
         product_listing_slug_id: ProductListingSlugId,
     },
 }

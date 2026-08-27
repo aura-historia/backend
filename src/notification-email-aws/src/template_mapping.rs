@@ -457,7 +457,7 @@ mod tests {
         listing_availability::ListingAvailability,
         product_listing_id::ProductListingId,
         product_listing_slug_id::ProductListingSlugId,
-        shop_listing_id::ShopListingId,
+        source_listing_id::ShopListingId,
     };
     use rstest::rstest;
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};

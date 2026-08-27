@@ -11,8 +11,8 @@ Provider-facing types may retain provider vocabulary, such as `ShopifyProductPay
 | Concept | Canonical name |
 | --- | --- |
 | Aggregate | `ProductListing` |
-| IDs | `ProductListingId`, `ProductListingSlugId`, `ShopListingId`, `ProductListingKey` |
-| Address, pricing, auction, image | `ProductListingAddress`, `ProductListingPricing`, `ProductListingAuction`, `ProductListingImage` |
+| IDs | `ProductListingId`, `ProductListingSlugId`, `ListingSourceId`, `SourceListingId`, `ProductListingKey` |
+| Pricing, auction, image | `ProductListingPricing`, `ProductListingAuction`, `ProductListingImage` |
 | Availability | `ListingAvailability` |
 | Derived availability class | `ListingOrderability` |
 | Catalog membership | `ListingLifecycle` |
@@ -135,7 +135,6 @@ Canonical event codes:
 ```text
 PRODUCT_LISTING_CREATED
 PRODUCT_LISTING_AVAILABILITY_CHANGED
-PRODUCT_LISTING_ADDRESS_CHANGED
 PRODUCT_LISTING_PRICE_CHANGED
 PRODUCT_LISTING_URL_CHANGED
 PRODUCT_LISTING_IMAGES_CHANGED
@@ -154,7 +153,9 @@ Create accepts `Option<ListingAvailability>`; omitted and JSON `null` create an 
 
 Withdrawal replaces normal deletion. The HTTP partner route may remain `DELETE`, but invokes `WithdrawProductListingUseCase`. Recording a sale observation is a dedicated, authorized PostgreSQL transaction that loads the aggregate and the latest FX snapshot at or before `observed_at`.
 
-`title`, `description`, and listing address are creation-only upsert inputs. For an existing listing, they preserve current state and emit no current-state history event. Responses always emit `"availability": null` when absent. Requests parse availability tri-state. Aura route and identifier vocabulary uses `product-listings`, `productListingId`, `productListingSlugId`, and `shopListingId`.
+`title` and `description` are creation-only upsert inputs. For an existing listing, they preserve current state and emit no current-state history event. Responses always emit `"availability": null` when absent. Requests parse availability tri-state. Aura route and identifier vocabulary uses `product-listings`, `productListingId`, `productListingSlugId`, and `sourceListingId`.
+
+A ProductListing is identified by `(ListingSourceId, SourceListingId)`. It has no seller, auctioneer, Party attribution, address, or location state. The created event includes both immutable source identifiers. Actor attribution belongs to #1321; durable raw input to #1646; addresses to #1635.
 
 Public listing discovery contains active listings only. Withdrawn listings are not found by public detail and are deleted from the OpenSearch projection; restore rebuilds the projection. Public discovery does not expose a lifecycle filter.
 
@@ -191,8 +192,8 @@ Reusable mappings persist `AVAILABILITY` with a non-null valid value or `NO_ASSE
 
 ## Persistence contract
 
-The initial schema uses `product_listings`, `product_listing_events`, `product_listing_translations`, and `product_listing_watchlist`; IDs use `product_listing_id`, `product_listing_slug_id`, and `shop_listing_id`.
+The initial schema uses `product_listings`, `product_listing_events`, `product_listing_translations`, and `product_listing_watchlist`; IDs use `product_listing_id`, `product_listing_slug_id`, `listing_source_id`, and `source_listing_id`. `product_listings` has a unique `(listing_source_id, source_listing_id)` key and a cascading foreign key to `listing_sources`.
 
-Authoritative listing columns are nullable `availability`, non-null `lifecycle`, and the paired nullable `sale_observation_fx_rate_id` / `sale_observed_at`. PostgreSQL validates exact codes, `Withdrawn => availability IS NULL`, and the sale-observation pair. PostgreSQL is authoritative; OpenSearch is rebuildable.
+Authoritative listing columns are nullable `availability`, non-null `lifecycle`, and the paired nullable `sale_observation_fx_rate_id` / `sale_observed_at`. PostgreSQL validates exact codes, `Withdrawn => availability IS NULL`, and the sale-observation pair. Listing address/geo and seller columns do not exist. PostgreSQL is authoritative; OpenSearch is rebuildable.
 
 Rows keep persisted enum text as `String` and map using fallible exact canonical parsing. Invalid or noncanonical persisted values are rejected; no mapping defaults or case-normalizes corrupt state.

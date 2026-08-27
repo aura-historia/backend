@@ -1,14 +1,14 @@
 use uuid::Uuid;
 
-domain_primitives::slug_id_newtype!(ShopListingId, 0);
+domain_primitives::slug_id_newtype!(SourceListingId, 0);
 
-impl ShopListingId {
+impl SourceListingId {
     pub fn new() -> Self {
         Self::from(Uuid::new_v4().to_string())
     }
 }
 
-impl Default for ShopListingId {
+impl Default for SourceListingId {
     fn default() -> Self {
         Self::new()
     }

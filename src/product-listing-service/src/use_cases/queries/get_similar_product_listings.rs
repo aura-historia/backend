@@ -297,6 +297,7 @@ impl From<ProductListingSummaryPersonalizationError> for GetSimilarProductListin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::ListingSourceSummary;
     use crate::ports::{ProductListingEmbedding, ProductListingSimilarProductListingsReadError};
     use crate::use_cases::{ProductListingSearchItem, ProductListingSummaryPriceValuation};
     use application::{
@@ -308,15 +309,15 @@ mod tests {
     use fxrate_core::FxRateId;
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use localization::Localized;
     use money::{Currency, MonetaryAmount, Price};
     use product_listing_core::{
         content_policy::ContentPolicyDecision, listing_availability::ListingAvailability,
         listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId,
         product_listing_image::ProductListingImage, product_listing_slug_id::ProductListingSlugId,
-        shop_listing_id::ShopListingId,
+        source_listing_id::SourceListingId,
     };
-    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 
     use crate::user_state::ProductListingUserState;
     use product_listing_core::title::Title;
@@ -637,11 +638,12 @@ mod tests {
             product_listing_id,
             product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
             event_id: EventId::new(),
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shop_listing_id: ShopListingId::new(),
-            shop_name: ShopName::from("Shop"),
-            shop_slug_id: ShopSlugId::from("shop"),
+            source: ListingSourceSummary {
+                listing_source_id: ListingSourceId::new(),
+                name: ListingSourceName::from("Source"),
+                slug_id: ListingSourceSlugId::from("source"),
+            },
+            source_listing_id: SourceListingId::from("cabinet-1"),
             title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
             display_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
             price_valuation: ProductListingSummaryPriceValuation::Current {

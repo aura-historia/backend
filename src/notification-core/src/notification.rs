@@ -1,6 +1,6 @@
 use crate::{notification_id::NotificationId, notification_kind::NotificationKind};
 use domain_primitives::event_id::EventId;
-use listing_source_core::ListingSourceName;
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use localization::Localized;
 use money::Price;
 use partnership_core::partnership_application_id::PartnershipApplicationId;
@@ -8,12 +8,12 @@ use party_core::party_name::PartyName;
 use product_listing_core::{
     content_policy::ContentPolicyDecision, listing_availability::ListingAvailability,
     product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
-    shop_listing_id::ShopListingId, title::Title,
+    source_listing_id::SourceListingId, title::Title,
 };
 use search_filter_core::{
     user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
 };
-use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use shop_core::shop_name::ShopName;
 use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use std::collections::HashMap;
 use url::Url;
@@ -225,11 +225,11 @@ impl NotificationContent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingNotificationSnapshot {
-    pub shop_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub shop_slug_id: ShopSlugId,
+    pub listing_source_id: ListingSourceId,
+    pub source_listing_id: SourceListingId,
+    pub listing_source_slug_id: ListingSourceSlugId,
     pub product_listing_slug_id: ProductListingSlugId,
-    pub shop_name: ShopName,
+    pub listing_source_name: ListingSourceName,
     pub title: Option<HashMap<localization::Language, Title>>,
     pub image: Option<Url>,
     pub content_policy: Option<ContentPolicyDecision>,
@@ -243,11 +243,11 @@ impl ProductListingNotificationSnapshot {
         preferred_languages: &[localization::Language],
     ) -> LocalizedProductListingNotificationSnapshot {
         LocalizedProductListingNotificationSnapshot {
-            shop_id: self.shop_id,
-            shop_listing_id: self.shop_listing_id,
-            shop_slug_id: self.shop_slug_id,
+            listing_source_id: self.listing_source_id,
+            source_listing_id: self.source_listing_id,
+            listing_source_slug_id: self.listing_source_slug_id,
             product_listing_slug_id: self.product_listing_slug_id,
-            shop_name: self.shop_name,
+            listing_source_name: self.listing_source_name,
             title: self
                 .title
                 .and_then(|titles| localization::Language::resolve(preferred_languages, titles)),
@@ -344,11 +344,11 @@ pub enum LocalizedNotificationContent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductListingNotificationSnapshot {
-    pub shop_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub shop_slug_id: ShopSlugId,
+    pub listing_source_id: ListingSourceId,
+    pub source_listing_id: SourceListingId,
+    pub listing_source_slug_id: ListingSourceSlugId,
     pub product_listing_slug_id: ProductListingSlugId,
-    pub shop_name: ShopName,
+    pub listing_source_name: ListingSourceName,
     pub title: Option<Localized<localization::Language, Title>>,
     pub image: Option<Url>,
     pub content_policy: Option<ContentPolicyDecision>,

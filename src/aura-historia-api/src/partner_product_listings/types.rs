@@ -10,7 +10,7 @@ use product_listing_core::product_listing::{
 };
 use product_listing_core::product_listing_id::ProductListingKey;
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::ShopListingId;
 use product_listing_core::title::Title;
 use product_listing_service::use_cases::{
     CreateProductListingCommand, UpdateProductListingCommand, UpsertProductListingCommand,

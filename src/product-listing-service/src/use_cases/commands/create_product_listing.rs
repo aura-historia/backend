@@ -11,28 +11,26 @@ use application::operation_context::{
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
 use indexmap::IndexSet;
+use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
 use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::{
-    NewProductListing, ProductListing, ProductListingAddress, ProductListingAuction,
-    ProductListingPricing, RehydrateProductListingError,
+    NewProductListing, ProductListing, ProductListingAuction, ProductListingPricing,
+    RehydrateProductListingError,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
-use shop_core::shop_id::ShopId;
 use url::Url;
 use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateProductListingCommand {
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub address: ProductListingAddress,
+    pub listing_source_id: ListingSourceId,
+    pub source_listing_id: SourceListingId,
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductListingPricing,
@@ -55,8 +53,8 @@ pub enum CreateProductListingError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
-    #[error("shop not found")]
-    ShopNotFound,
+    #[error("listing source not found")]
+    ListingSourceNotFound,
     #[error("partner product listing authorization is temporarily unavailable")]
     PartnerAuthorizationTemporarilyUnavailable {
         #[source]
@@ -67,8 +65,8 @@ pub enum CreateProductListingError {
         #[source]
         source: BoxError,
     },
-    #[error("product listing already exists for shop listing identity")]
-    ShopListingAlreadyExists,
+    #[error("product listing already exists for source listing identity")]
+    SourceListingAlreadyExists,
     #[error("product listing slug already exists")]
     ProductListingSlugAlreadyExists,
     #[error("new product listing is invalid")]
@@ -120,7 +118,7 @@ where
     E: ProductListingEventStoreFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
 {
-    #[tracing::instrument(name = "create_product_listing", skip_all, fields(shop_id = %command.shop_id, shop_listing_id = %command.shop_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    #[tracing::instrument(name = "create_product_listing", skip_all, fields(listing_source_id = %command.listing_source_id, source_listing_id = %command.source_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
         &self,
         context: &OperationContext,
@@ -143,7 +141,7 @@ where
         if let Some(actor_id) = partner_actor(&context.principal) {
             self.authorizer
                 .in_transaction(&mut tx)
-                .authorize(actor_id, command.shop_id)
+                .authorize(actor_id, command.listing_source_id)
                 .await?;
         }
 
@@ -183,10 +181,8 @@ impl CreateProductListingCommand {
     fn into_new_product(self, id: ProductListingId) -> NewProductListing {
         NewProductListing {
             id,
-            shop_id: self.shop_id,
-            seller_id: self.seller_id,
-            shop_listing_id: self.shop_listing_id,
-            address: self.address,
+            listing_source_id: self.listing_source_id,
+            source_listing_id: self.source_listing_id,
             title: self.title,
             description: self.description,
             pricing: self.pricing,
@@ -226,7 +222,9 @@ impl From<OperationAuthorizationError> for CreateProductListingError {
 impl From<PartnerProductListingAuthorizationError> for CreateProductListingError {
     fn from(error: PartnerProductListingAuthorizationError) -> Self {
         match error {
-            PartnerProductListingAuthorizationError::ShopNotFound => Self::ShopNotFound,
+            PartnerProductListingAuthorizationError::ListingSourceNotFound => {
+                Self::ListingSourceNotFound
+            }
             PartnerProductListingAuthorizationError::Forbidden => Self::Forbidden,
             PartnerProductListingAuthorizationError::TemporarilyUnavailable { source } => {
                 Self::PartnerAuthorizationTemporarilyUnavailable { source }
@@ -241,8 +239,8 @@ impl From<PartnerProductListingAuthorizationError> for CreateProductListingError
 impl From<ProductListingRepositoryError> for CreateProductListingError {
     fn from(error: ProductListingRepositoryError) -> Self {
         match error {
-            ProductListingRepositoryError::ShopListingAlreadyExists => {
-                Self::ShopListingAlreadyExists
+            ProductListingRepositoryError::SourceListingAlreadyExists => {
+                Self::SourceListingAlreadyExists
             }
             ProductListingRepositoryError::ProductListingSlugAlreadyExists => {
                 Self::ProductListingSlugAlreadyExists

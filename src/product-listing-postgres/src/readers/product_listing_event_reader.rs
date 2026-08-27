@@ -1,6 +1,7 @@
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
+use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use product_listing_core::{
@@ -8,14 +9,14 @@ use product_listing_core::{
     listing_availability::ListingAvailability,
     product_listing::{
         ListingAvailabilityChanged, ListingSaleObservation, ListingSaleObservationRetracted,
-        ListingSaleObserved, ProductListingAddress, ProductListingAddressChanged,
-        ProductListingAuction, ProductListingAuctionChanged, ProductListingCreated,
-        ProductListingEventPayload, ProductListingImagesChanged, ProductListingPriceChanged,
-        ProductListingPricing, ProductListingRestored, ProductListingUrlChanged,
-        ProductListingWithdrawn,
+        ListingSaleObserved, ProductListingAuction, ProductListingAuctionChanged,
+        ProductListingCreated, ProductListingEventPayload, ProductListingImagesChanged,
+        ProductListingPriceChanged, ProductListingPricing, ProductListingRestored,
+        ProductListingUrlChanged, ProductListingWithdrawn,
     },
     product_listing_id::ProductListingId,
     product_listing_image::ProductListingImage,
+    source_listing_id::SourceListingId,
     title::Title,
 };
 use product_listing_service::{
@@ -80,12 +81,12 @@ impl ProductListingEventReader for SqlxProductListingEventReader<'_> {
                 .await
             }
             ProductListingEventLookup::BySlug {
-                shop_slug_id,
+                listing_source_slug_id,
                 product_listing_slug_id,
             } => sqlx::query_scalar::<_, uuid::Uuid>(
-                "SELECT p.product_listing_id FROM product_listings p JOIN shops s ON s.shop_id = p.shop_id WHERE s.shop_slug_id = $1 AND p.product_listing_slug_id = $2",
+                "SELECT p.product_listing_id FROM product_listings p JOIN listing_sources source ON source.listing_source_id = p.listing_source_id WHERE source.listing_source_slug_id = $1 AND p.product_listing_slug_id = $2",
             )
-            .bind(shop_slug_id.as_ref())
+            .bind(listing_source_slug_id.as_ref())
             .bind(product_listing_slug_id.as_ref())
             .fetch_optional(&mut *self.connection)
             .await,
@@ -139,7 +140,8 @@ pub(crate) fn parse_payload(
             ProductListingCreated {
                 title: localized_title(payload.get("title"))?,
                 description: localized_description(payload.get("description"))?,
-                address: address(payload.get("address"))?,
+                listing_source_id: listing_source_id(payload)?,
+                source_listing_id: source_listing_id(payload)?,
                 pricing: pricing(payload.get("pricing"))?,
                 availability: availability(payload.get("availability"))?,
                 url: url(string(payload, "url")?)?,
@@ -153,11 +155,7 @@ pub(crate) fn parse_payload(
                 current: availability(payload.get("currentAvailability"))?,
             }),
         ),
-        "PRODUCT_LISTING_ADDRESS_CHANGED" => Ok(ProductListingEventPayload::AddressChanged(
-            ProductListingAddressChanged {
-                address: address(payload.get("address"))?,
-            },
-        )),
+
         "PRODUCT_LISTING_PRICE_CHANGED" => Ok(ProductListingEventPayload::PriceChanged(
             ProductListingPriceChanged {
                 old_pricing: pricing(payload.get("oldPricing"))?,
@@ -335,45 +333,15 @@ fn price(value: Option<&Value>) -> Result<Option<Price>, ProductListingEventRead
     )))
 }
 
-fn address(value: Option<&Value>) -> Result<ProductListingAddress, ProductListingEventReadError> {
-    let value = object(value)?;
-    let structured = match value.get("structured") {
-        Some(Value::Null) | None => None,
-        Some(structured) => {
-            let structured = object(Some(structured))?;
-            let country = optional_string(structured, "country")?
-                .map(isocountry::CountryCode::for_alpha3)
-                .transpose()
-                .map_err(|_| ProductListingEventReadError::ProductListingEventReadModelInvalid)?;
-            Some(geo::core::address::StructuredAddress {
-                addressline: optional_string(structured, "addressline")?.map(str::to_owned),
-                addressline_extra: optional_string(structured, "addresslineExtra")?
-                    .map(str::to_owned),
-                locality: optional_string(structured, "locality")?.map(str::to_owned),
-                region: optional_string(structured, "region")?.map(str::to_owned),
-                postal_code: optional_string(structured, "postalCode")?.map(str::to_owned),
-                country,
-                continent: country.map(geo::core::continent::Continent::from),
-            })
-        }
-    };
-    let geo = match value.get("geo") {
-        Some(Value::Null) | None => None,
-        Some(geo) => {
-            let geo = object(Some(geo))?;
-            Some(geo::core::address::GeoAddress {
-                lat: geo
-                    .get("lat")
-                    .and_then(Value::as_f64)
-                    .ok_or(ProductListingEventReadError::ProductListingEventReadModelInvalid)?,
-                lon: geo
-                    .get("lon")
-                    .and_then(Value::as_f64)
-                    .ok_or(ProductListingEventReadError::ProductListingEventReadModelInvalid)?,
-            })
-        }
-    };
-    Ok(ProductListingAddress { structured, geo })
+fn listing_source_id(payload: &Value) -> Result<ListingSourceId, ProductListingEventReadError> {
+    string(payload, "listingSourceId")?
+        .parse::<uuid::Uuid>()
+        .map(ListingSourceId::from)
+        .map_err(|_| ProductListingEventReadError::ProductListingEventReadModelInvalid)
+}
+
+fn source_listing_id(payload: &Value) -> Result<SourceListingId, ProductListingEventReadError> {
+    Ok(SourceListingId::from(string(payload, "sourceListingId")?))
 }
 
 fn images(

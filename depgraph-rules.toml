@@ -39,7 +39,7 @@ fxrate-fxratesapi = ["application", "fxrate-core", "fxrate-service", "money", "r
 fxrate-lambda = ["application", "platform-observability", "platform-postgres", "fxrate-fxratesapi", "fxrate-postgres", "fxrate-service"]
 oauth-core = ["credential-core", "domain-primitives", "user-core"]
 
-product-listing-core = ["domain-primitives", "fxrate-core", "geo", "localization", "money", "shop-core", "strum", "strum_macros"]
+product-listing-core = ["domain-primitives", "fxrate-core", "listing-source-core", "localization", "money", "strum", "strum_macros"]
 shop-partner-core = ["shop-core", "user-core"]
 user-service = ["application", "domain-primitives", "geo", "localization", "money", "user-core"]
 cognito-post-confirmation = ["application", "platform-observability", "platform-postgres", "user-core", "user-postgres", "user-service"]
@@ -47,7 +47,7 @@ crawler = ["application", "domain-primitives", "fxrate-postgres", "google-cloud-
 notification-core = ["domain-primitives", "listing-source-core", "localization", "money", "partnership-core", "party-core", "product-listing-core", "search-filter-core", "shop-core", "shop-partner-core", "user-core"]
 
 oauth-service = ["application", "credential-core", "domain-primitives", "oauth-core", "serde", "user-core", "user-service"]
-product-listing-service = ["application", "domain-primitives", "embedding", "fxrate-core", "fxrate-service", "geo", "html-to-markdown-rs", "localization", "money", "notification-core", "notification-service", "product-listing-core", "search-filter-core", "shop-core", "shop-partner-core", "shop-service", "user-core"]
+product-listing-service = ["application", "domain-primitives", "embedding", "fxrate-core", "fxrate-service", "html-to-markdown-rs", "listing-source-core", "listing-source-service", "localization", "money", "notification-core", "notification-service", "product-listing-core", "search-filter-core", "shop-partner-core", "user-core"]
 search-filter-core = ["domain-primitives", "fxrate-core", "product-listing-core", "user-core"]
 shop-service = ["application", "domain-primitives", "geo", "localization", "money", "openssl", "shop-core", "user-core", "user-service"]
 shopify-lambda = ["application", "platform-observability", "platform-postgres", "fxrate-postgres", "product-listing-core", "product-listing-postgres", "product-listing-service", "shop-core", "shop-postgres", "shop-service"]
@@ -61,7 +61,7 @@ notification-email-aws = ["application", "domain-primitives", "localization", "m
 notification-postgres = ["application", "domain-primitives", "listing-source-core", "localization", "money", "notification-core", "notification-email", "notification-service", "party-core", "partnership-core", "platform-postgres", "product-listing-core", "search-filter-core", "shop-core", "shop-partner-core", "user-core"]
 oauth-postgres = ["application", "credential-core", "domain-primitives", "oauth-core", "oauth-service", "platform-postgres", "user-core"]
 product-listing-opensearch = ["application", "domain-primitives", "fxrate-core", "geo", "localization", "money", "platform-opensearch", "product-listing-core", "product-listing-service", "shop-core"]
-product-listing-postgres = ["application", "domain-primitives", "fxrate-core", "geo", "localization", "money", "notification-core", "platform-postgres", "product-listing-core", "product-listing-service", "search-filter-core", "shop-core", "user-core"]
+product-listing-postgres = ["application", "domain-primitives", "fxrate-core", "listing-source-core", "localization", "money", "notification-core", "platform-postgres", "product-listing-core", "product-listing-service", "search-filter-core", "user-core"]
 product-listing-translation-llm = ["application", "large-language-model", "localization", "product-listing-core", "product-listing-service"]
 
 search-filter-service = ["application", "domain-primitives", "embedding", "fxrate-core", "fxrate-service", "geo", "large-language-model", "localization", "money", "notification-core", "notification-service", "product-listing-core", "product-listing-service", "search-filter-core", "shop-core", "user-core", "user-service"]

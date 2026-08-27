@@ -1,5 +1,5 @@
-use crate::shop_listing_id::ShopListingId;
-use shop_core::shop_id::ShopId;
+use crate::source_listing_id::SourceListingId;
+use listing_source_core::ListingSourceId;
 
 domain_primitives::uuid_v4_newtype!(ProductListingId);
 
@@ -9,18 +9,64 @@ impl From<ProductListingId> for uuid::Uuid {
     }
 }
 
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProductListingKey {
-    pub shop_id: ShopId,
-    pub shop_listing_id: ShopListingId,
+    pub listing_source_id: ListingSourceId,
+    pub source_listing_id: SourceListingId,
 }
 
 impl ProductListingKey {
-    pub fn new(shop_id: ShopId, shop_listing_id: ShopListingId) -> Self {
+    pub fn new(listing_source_id: ListingSourceId, source_listing_id: SourceListingId) -> Self {
         Self {
-            shop_id,
-            shop_listing_id,
+            listing_source_id,
+            source_listing_id,
         }
+    }
+}
+
+impl PartialOrd for ProductListingKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ProductListingKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let listing_source_id: uuid::Uuid = self.listing_source_id.into();
+        let other_listing_source_id: uuid::Uuid = other.listing_source_id.into();
+
+        (listing_source_id, &self.source_listing_id)
+            .cmp(&(other_listing_source_id, &other.source_listing_id))
+    }
+}
+
+#[cfg(feature = "test-data")]
+impl fake::Dummy<fake::Faker> for ProductListingKey {
+    fn dummy_with_rng<R: fake::RngExt + ?Sized>(_: &fake::Faker, _: &mut R) -> Self {
+        Self::new(ListingSourceId::new(), SourceListingId::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_create_key_from_listing_source_and_source_listing_ids() {
+        let listing_source_id = ListingSourceId::new();
+        let source_listing_id = SourceListingId::new();
+
+        let key = ProductListingKey::new(listing_source_id, source_listing_id.clone());
+
+        assert_eq!(listing_source_id, key.listing_source_id);
+        assert_eq!(source_listing_id, key.source_listing_id);
+    }
+
+    #[cfg(feature = "test-data")]
+    #[test]
+    fn should_fake_product_listing_key() {
+        use fake::{Fake, Faker};
+
+        let _ = Faker.fake::<ProductListingKey>();
     }
 }

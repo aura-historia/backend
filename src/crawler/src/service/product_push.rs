@@ -553,7 +553,7 @@ fn availability_name(value: ListingAvailability) -> &'static str {
 mod tests {
     use super::*;
     use product_listing_core::{
-        product_listing_id::ProductListingId, shop_listing_id::ShopListingId,
+        product_listing_id::ProductListingId, source_listing_id::ShopListingId,
     };
     use product_listing_service::use_cases::commands::{
         update_product_listing::UpdateProductListingResult,

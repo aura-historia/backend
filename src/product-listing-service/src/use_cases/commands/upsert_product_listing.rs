@@ -13,30 +13,27 @@ use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
 
 use indexmap::IndexSet;
+use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
 use money::Price;
 use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::{
     ChangeListingAvailabilityError, ChangeProductListingError, NewProductListing, ProductListing,
-    ProductListingAddress, ProductListingAuction, ProductListingPricing,
-    RehydrateProductListingError,
+    ProductListingAuction, ProductListingPricing, RehydrateProductListingError,
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
-use shop_core::shop_id::ShopId;
 use url::Url;
 use user_core::user_id::UserId;
 
 const MISSING_PRODUCT_URL: &str = "https://not-provided.invalid";
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpsertProductListingCommand {
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub address: ProductListingAddress,
+    pub listing_source_id: ListingSourceId,
+    pub source_listing_id: SourceListingId,
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
     pub price: PatchField<Price>,
@@ -59,8 +56,8 @@ pub enum UpsertProductListingError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
-    #[error("shop not found")]
-    ShopNotFound,
+    #[error("listing source not found")]
+    ListingSourceNotFound,
     #[error("partner product listing authorization is temporarily unavailable")]
     PartnerAuthorizationTemporarilyUnavailable {
         #[source]
@@ -103,7 +100,7 @@ pub struct UpsertProductListingHandler<U, R, E, A> {
 }
 
 enum UpsertAttemptError {
-    ShopListingInsertRace,
+    SourceListingInsertRace,
     Failed(UpsertProductListingError),
 }
 
@@ -174,10 +171,11 @@ where
         if let Some(actor_id) = partner_actor(&context.principal) {
             self.authorizer
                 .in_transaction(tx)
-                .authorize(actor_id, command.shop_id)
+                .authorize(actor_id, command.listing_source_id)
                 .await?;
         }
-        let key = ProductListingKey::new(command.shop_id, command.shop_listing_id.clone());
+        let key =
+            ProductListingKey::new(command.listing_source_id, command.source_listing_id.clone());
         let existing = self.products.in_transaction(tx).find_by_key(&key).await?;
         match existing {
             Some(loaded) => {
@@ -228,8 +226,8 @@ where
                     .insert(&product, event_id)
                     .await
                     .map_err(|error| match error {
-                        ProductListingRepositoryError::ShopListingAlreadyExists => {
-                            UpsertAttemptError::ShopListingInsertRace
+                        ProductListingRepositoryError::SourceListingAlreadyExists => {
+                            UpsertAttemptError::SourceListingInsertRace
                         }
                         error => UpsertAttemptError::Failed(error.into()),
                     })?;
@@ -276,7 +274,7 @@ where
     E: ProductListingEventStoreFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
 {
-    #[tracing::instrument(name = "upsert_product_listing", skip_all, fields(shop_id = %command.shop_id, shop_listing_id = %command.shop_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    #[tracing::instrument(name = "upsert_product_listing", skip_all, fields(listing_source_id = %command.listing_source_id, source_listing_id = %command.source_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
         &self,
         context: &OperationContext,
@@ -288,10 +286,10 @@ where
         );
         let result = match self.execute_attempt(context, command.clone()).await {
             Ok(result) => result,
-            Err(UpsertAttemptError::ShopListingInsertRace) => {
+            Err(UpsertAttemptError::SourceListingInsertRace) => {
                 match self.execute_attempt(context, command).await {
                     Ok(result) => result,
-                    Err(UpsertAttemptError::ShopListingInsertRace) => {
+                    Err(UpsertAttemptError::SourceListingInsertRace) => {
                         return Err(UpsertProductListingError::PersistenceFailed);
                     }
                     Err(UpsertAttemptError::Failed(error)) => return Err(error),
@@ -322,10 +320,8 @@ impl UpsertProductListingCommand {
         };
         Ok(NewProductListing {
             id,
-            shop_id: self.shop_id,
-            seller_id: self.seller_id,
-            shop_listing_id: self.shop_listing_id,
-            address: self.address,
+            listing_source_id: self.listing_source_id,
+            source_listing_id: self.source_listing_id,
             title: self.title,
             description: self.description,
             pricing: ProductListingPricing {
@@ -437,7 +433,9 @@ impl From<OperationAuthorizationError> for UpsertProductListingError {
 impl From<PartnerProductListingAuthorizationError> for UpsertProductListingError {
     fn from(error: PartnerProductListingAuthorizationError) -> Self {
         match error {
-            PartnerProductListingAuthorizationError::ShopNotFound => Self::ShopNotFound,
+            PartnerProductListingAuthorizationError::ListingSourceNotFound => {
+                Self::ListingSourceNotFound
+            }
             PartnerProductListingAuthorizationError::Forbidden => Self::Forbidden,
             PartnerProductListingAuthorizationError::TemporarilyUnavailable { source } => {
                 Self::PartnerAuthorizationTemporarilyUnavailable { source }
@@ -457,9 +455,7 @@ impl From<ChangeProductListingError> for UpsertProductListingError {
     fn from(error: ChangeProductListingError) -> Self {
         match error {
             ChangeProductListingError::ListingWithdrawn => Self::ListingWithdrawn,
-            ChangeProductListingError::GeoLatitudeOutOfRange
-            | ChangeProductListingError::GeoLongitudeOutOfRange
-            | ChangeProductListingError::AuctionStartAfterEnd => Self::InvalidProductListing {
+            ChangeProductListingError::AuctionStartAfterEnd => Self::InvalidProductListing {
                 source: box_error(error),
             },
         }
@@ -486,8 +482,10 @@ impl From<ProductListingEventStoreError> for UpsertProductListingError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use listing_source_core::ListingSourceId;
     use money::{Currency, MonetaryAmount};
     use product_listing_core::product_listing::ProductListingEventPayload;
+    use product_listing_core::source_listing_id::SourceListingId;
 
     fn price(amount: u64) -> Price {
         Price::new(MonetaryAmount::from(amount), Currency::Eur)
@@ -495,10 +493,8 @@ mod tests {
 
     fn command(price: PatchField<Price>) -> UpsertProductListingCommand {
         UpsertProductListingCommand {
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shop_listing_id: ShopListingId::from("listing"),
-            address: ProductListingAddress::default(),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::from("listing"),
             title: None,
             description: None,
             price,
@@ -530,10 +526,8 @@ mod tests {
     ) -> ProductListing {
         ProductListing::create(NewProductListing {
             id: ProductListingId::new(),
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shop_listing_id: ShopListingId::from("listing"),
-            address: ProductListingAddress::default(),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::from("listing"),
             title: None,
             description: None,
             pricing,

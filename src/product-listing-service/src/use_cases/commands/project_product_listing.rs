@@ -235,7 +235,7 @@ fn fx_rate_error(error: FxRateSnapshotRepositoryError) -> ProjectProductListingE
 mod tests {
     use super::*;
     use crate::ports::{
-        ProductListingSearchFilterMatchShopType, ProductListingSearchFilterMatchSourceEventKind,
+        ListingSourceSummary, ProductListingSearchFilterMatchSourceEventKind,
         ProductListingSearchFilterMatchSourceRef, ProductListingSearchProjectionWriteError,
     };
     use application::error::box_error;
@@ -244,24 +244,18 @@ mod tests {
         FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use localization::{Language, Localized};
     use money::Currency;
     use product_listing_core::{
         description::Description,
         listing_availability::ListingAvailability,
         listing_lifecycle::ListingLifecycle,
-        product_listing::{
-            ListingSaleObservation, ProductListingAddress, ProductListingAuction,
-            ProductListingPricing,
-        },
+        product_listing::{ListingSaleObservation, ProductListingAuction, ProductListingPricing},
         product_listing_slug_id::ProductListingSlugId,
-        shop_listing_id::ShopListingId,
+        source_listing_id::SourceListingId,
         title::Title,
     };
-    use shop_core::seller_slug_id::SellerSlugId;
-    use shop_core::shop_id::ShopId;
-    use shop_core::shop_name::ShopName;
-    use shop_core::shop_slug_id::ShopSlugId;
     use std::{
         collections::HashMap,
         sync::{Arc, Mutex, MutexGuard},
@@ -541,15 +535,12 @@ mod tests {
             projection_version: 41,
             product_listing_id: ProductListingId::new(),
             product_listing_slug_id: ProductListingSlugId::from("cabinet"),
-            shop_id: ShopId::new(),
-            shop_slug_id: ShopSlugId::from("shop"),
-            shop_name: ShopName::from("Shop"),
-            shop_type: ProductListingSearchFilterMatchShopType::Marketplace,
-            seller_id: ShopId::new(),
-            seller_slug_id: SellerSlugId::from(ShopSlugId::from("seller")),
-            seller_name: ShopName::from("Seller"),
-            shop_listing_id: ShopListingId::from("cabinet-1"),
-            address: ProductListingAddress::default(),
+            source: ListingSourceSummary {
+                listing_source_id: ListingSourceId::new(),
+                name: ListingSourceName::from("Source"),
+                slug_id: ListingSourceSlugId::from("source"),
+            },
+            source_listing_id: SourceListingId::from("cabinet-1"),
             product_title: Some(Localized::new(Language::En, title.clone())),
             product_description: Some(Localized::new(
                 Language::En,

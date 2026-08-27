@@ -31,10 +31,8 @@ use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
-use product_listing_core::shop_listing_id::ShopListingId;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
+use crate::ports::ListingSourceSummary;
+use product_listing_core::source_listing_id::SourceListingId;
 
 use crate::user_state::ProductListingUserState;
 use indexmap::IndexSet;
@@ -72,11 +70,8 @@ pub struct ProductListingSearchItem {
     pub product_listing_id: ProductListingId,
     pub product_listing_slug_id: ProductListingSlugId,
     pub event_id: EventId,
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub shop_name: ShopName,
-    pub shop_slug_id: ShopSlugId,
+    pub source: ListingSourceSummary,
+    pub source_listing_id: SourceListingId,
     pub title: Option<Localized<Language, Title>>,
     pub display_price: Option<Price>,
     pub price_valuation: ProductListingSummaryPriceValuation,
@@ -93,11 +88,8 @@ pub struct ProductListingSummary {
     pub product_listing_id: ProductListingId,
     pub product_listing_slug_id: ProductListingSlugId,
     pub event_id: EventId,
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub shop_name: ShopName,
-    pub shop_slug_id: ShopSlugId,
+    pub source: ListingSourceSummary,
+    pub source_listing_id: SourceListingId,
     pub title: Option<Localized<Language, Title>>,
     pub display_price: Option<Price>,
     pub price_valuation: ProductListingSummaryPriceValuation,
@@ -349,11 +341,8 @@ where
                     product_listing_id: product.item.product_listing_id,
                     product_listing_slug_id: product.item.product_listing_slug_id,
                     event_id: product.item.event_id,
-                    shop_id: product.item.shop_id,
-                    seller_id: product.item.seller_id,
-                    shop_listing_id: product.item.shop_listing_id,
-                    shop_name: product.item.shop_name,
-                    shop_slug_id: product.item.shop_slug_id,
+                    source: product.item.source,
+                    source_listing_id: product.item.source_listing_id,
                     title: product.item.title,
                     display_price: product.item.display_price,
                     price_valuation: product.item.price_valuation,
@@ -901,11 +890,12 @@ mod tests {
                 product_listing_id: ProductListingId::new(),
                 product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
                 event_id: EventId::new(),
-                shop_id: ShopId::new(),
-                seller_id: ShopId::new(),
-                shop_listing_id: ShopListingId::new(),
-                shop_name: ShopName::from("Shop"),
-                shop_slug_id: ShopSlugId::from("shop"),
+                source: ListingSourceSummary {
+                    listing_source_id: listing_source_core::ListingSourceId::new(),
+                    name: listing_source_core::ListingSourceName::from("Source"),
+                    slug_id: listing_source_core::ListingSourceSlugId::from("source"),
+                },
+                source_listing_id: SourceListingId::from("cabinet-1"),
                 title: Some(Localized {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),
