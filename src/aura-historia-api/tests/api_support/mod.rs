@@ -56,11 +56,11 @@ use product_listing_opensearch::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
 };
 use product_listing_postgres::{
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingDetailsBatchReader,
-    SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
-    SqlxProductListingEventReaderFactory, SqlxProductListingEventStoreFactory,
-    SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
-    SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingContentAssessmentReader,
+    SqlxProductListingDetailsBatchReader, SqlxProductListingDetailsReaderFactory,
+    SqlxProductListingEmbeddingReaderFactory, SqlxProductListingEventReaderFactory,
+    SqlxProductListingEventStoreFactory, SqlxProductListingRepositoryFactory,
+    SqlxProductListingUserStateReader, SqlxProductListingWatchlistDetailsReaderFactory,
 };
 use shop_core::domain::Domain;
 use shop_core::shop_id::ShopId;
@@ -284,9 +284,10 @@ pub async fn seed_user(role: &'static str) -> UserId {
 
 pub async fn seed_user_with_consent(
     role: &'static str,
-    prohibited_content_consent: bool,
+    show_unassessed_or_sensitive_content: bool,
 ) -> UserId {
-    seed_user_with_tier_and_consent(role, UserTier::Free, prohibited_content_consent).await
+    seed_user_with_tier_and_consent(role, UserTier::Free, show_unassessed_or_sensitive_content)
+        .await
 }
 
 pub async fn seed_user_with_tier(role: &'static str, tier: UserTier) -> UserId {
@@ -296,7 +297,7 @@ pub async fn seed_user_with_tier(role: &'static str, tier: UserTier) -> UserId {
 async fn seed_user_with_tier_and_consent(
     role: &'static str,
     tier: UserTier,
-    prohibited_content_consent: bool,
+    show_unassessed_or_sensitive_content: bool,
 ) -> UserId {
     let user_id = UserId::new();
     let email = format!("{}@example.test", user_id);
@@ -308,13 +309,13 @@ async fn seed_user_with_tier_and_consent(
     let pool = get_postgres_client().await;
     if let Err(error) = sqlx::query(
         r#"
-        INSERT INTO users (user_id, email, prohibited_content_consent, tier, role)
+        INSERT INTO users (user_id, email, show_unassessed_or_sensitive_content, tier, role)
         VALUES ($1, $2, $3, $4, $5)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(email)
-    .bind(prohibited_content_consent)
+    .bind(show_unassessed_or_sensitive_content)
     .bind(tier)
     .bind(role)
     .execute(&pool)
@@ -471,9 +472,9 @@ pub async fn seed_product() -> ProductListingId {
     if let Err(error) = sqlx::query(
         r#"
         INSERT INTO product_listings (
-            product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id,
+            product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id,
             availability, lifecycle, url
-        ) VALUES ($1, $2, $3, $4, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
+        ) VALUES ($1, $2, $3, $3, $4, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
         "#,
     )
     .bind(uuid::Uuid::from(product_listing_id))
@@ -588,6 +589,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             SqlxFxRateSnapshotRepositoryFactory,
             OpenSearchProductListingSimilarProductListingsReader::new(opensearch_client.clone()),
             SqlxProductListingUserStateReader::new(pool.clone()),
+            SqlxProductListingContentAssessmentReader::new(pool.clone()),
         )),
         Arc::new(SearchProductListingsHandler::new(
             unit_of_work.clone(),
@@ -595,6 +597,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             SqlxFxRateSnapshotRepositoryFactory,
             search_embeddings,
             SqlxProductListingUserStateReader::new(pool.clone()),
+            SqlxProductListingContentAssessmentReader::new(pool.clone()),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )

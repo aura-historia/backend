@@ -11,7 +11,6 @@ use product_listing_core::product_listing::{
     ProductListingPricing,
 };
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::prohibited_content::ProhibitedContent;
 use product_listing_core::title::Title;
 use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_id::ProductListingId,
@@ -261,7 +260,11 @@ async fn should_join_all_postgres_user_state_sections_for_authenticated_user() {
 
     assert!(user_state.watchlist.watching);
     assert!(!user_state.watchlist.notifications);
-    assert!(user_state.prohibited_content.consent);
+    assert!(
+        !user_state
+            .content_visibility
+            .show_unassessed_or_sensitive_content
+    );
     assert_eq!(
         vec![notification_id],
         user_state.notification.unseen_notification_ids
@@ -302,68 +305,17 @@ async fn should_return_default_postgres_user_state_when_no_watchlist_or_match_ex
 
     assert!(!user_state.watchlist.watching);
     assert!(!user_state.watchlist.notifications);
-    assert!(user_state.prohibited_content.consent);
+    assert!(
+        !user_state
+            .content_visibility
+            .show_unassessed_or_sensitive_content
+    );
     assert!(!user_state.search_filter.matched);
     assert!(!user_state.search_filter.hidden);
     assert_eq!(None, user_state.search_filter.user_search_filter_id);
     assert_eq!(None, user_state.search_filter.user_search_filter_name);
     assert_eq!(None, user_state.search_filter.match_reason);
     assert_eq!(None, user_state.search_filter.match_feedback);
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_grant_consent_for_empty_images_even_when_user_has_not_consented() {
-    let pool = get_postgres_client().await;
-    let product = persist_product(&pool, "details-empty-images", None, None).await;
-    let user_id = seed_user(&pool, "FREE", false).await;
-    set_product_images(&pool, product.id(), serde_json::json!([])).await;
-
-    let view = find_personalized_details(&pool, details_request(product.id(), Some(user_id))).await;
-
-    assert!(
-        view.user_state
-            .unwrap_or_default()
-            .prohibited_content
-            .consent
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_use_persisted_consent_when_product_has_unsafe_images() {
-    let pool = get_postgres_client().await;
-    let product = persist_product(&pool, "details-unsafe-images", None, None).await;
-    let denied_user_id = seed_user(&pool, "FREE", false).await;
-    let granted_user_id = seed_user(&pool, "FREE", true).await;
-    set_product_images(
-        &pool,
-        product.id(),
-        serde_json::json!([{
-            "url": "https://example.com/unsafe.jpg",
-            "prohibited_content": "NAZI_GERMANY"
-        }]),
-    )
-    .await;
-
-    let denied =
-        find_personalized_details(&pool, details_request(product.id(), Some(denied_user_id))).await;
-    let granted =
-        find_personalized_details(&pool, details_request(product.id(), Some(granted_user_id)))
-            .await;
-
-    assert!(
-        !denied
-            .user_state
-            .unwrap_or_default()
-            .prohibited_content
-            .consent
-    );
-    assert!(
-        granted
-            .user_state
-            .unwrap_or_default()
-            .prohibited_content
-            .consent
-    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -723,17 +675,21 @@ async fn insert_translation(
     }
 }
 
-async fn seed_user(pool: &sqlx::PgPool, tier: &str, prohibited_content_consent: bool) -> UserId {
+async fn seed_user(
+    pool: &sqlx::PgPool,
+    tier: &str,
+    show_unassessed_or_sensitive_content: bool,
+) -> UserId {
     let user_id = UserId::new();
     let result = sqlx::query(
         r#"
-        INSERT INTO users (user_id, email, prohibited_content_consent, tier, role)
+        INSERT INTO users (user_id, email, show_unassessed_or_sensitive_content, tier, role)
         VALUES ($1, $2, $3, $4, $5)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(format!("{user_id}@example.test"))
-    .bind(prohibited_content_consent)
+    .bind(show_unassessed_or_sensitive_content)
     .bind(tier)
     .bind("USER")
     .execute(pool)
@@ -860,24 +816,6 @@ async fn event_id_for_product(
     }
 }
 
-async fn set_product_images(
-    pool: &sqlx::PgPool,
-    product_listing_id: ProductListingId,
-    images: serde_json::Value,
-) {
-    let result = sqlx::query(
-        "UPDATE product_listings SET product_images = $1 WHERE product_listing_id = $2",
-    )
-    .bind(images)
-    .bind(uuid::Uuid::from(product_listing_id))
-    .execute(pool)
-    .await;
-
-    if let Err(error) = result {
-        panic!("failed to update product images: {error}");
-    }
-}
-
 fn sample_product(
     slug: &str,
     shop_id: ShopId,
@@ -886,10 +824,9 @@ fn sample_product(
     description: Option<Localized<Language, Description>>,
 ) -> ProductListing {
     let mut images = IndexSet::new();
-    images.insert(ProductListingImage {
-        url: url(&format!("https://example.com/{slug}.jpg")),
-        prohibited_content: ProhibitedContent::None,
-    });
+    images.insert(ProductListingImage::new(url(&format!(
+        "https://example.com/{slug}.jpg"
+    ))));
 
     match ProductListing::create(NewProductListing {
         id: ProductListingId::new(),

@@ -1,7 +1,7 @@
 use crate::ports::{
     ProductListingUserStateLookup, ProductListingUserStateReadError, ProductListingUserStateReader,
 };
-use crate::use_cases::queries::search_product_listings::PersonalizedProductListingSummary;
+use crate::use_cases::queries::search_product_listings::PersonalizedProductListingSearchItem;
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
 use localization::{Language, Localized};
@@ -45,8 +45,8 @@ pub(crate) enum ProductListingSummaryPersonalizationError {
     },
 }
 
-pub(crate) async fn hydrate_product_summaries<U>(
-    products: &mut [PersonalizedProductListingSummary],
+pub(crate) async fn hydrate_product_search_items<U>(
+    products: &mut [PersonalizedProductListingSearchItem],
     user_id: UserId,
     user_states: &U,
 ) -> Result<(), ProductListingSummaryPersonalizationError>
@@ -84,15 +84,15 @@ where
         let hidden = user_state.search_filter.hidden;
         product.user_state = Some(user_state);
         if hidden {
-            redact_hidden_product_summary(&mut product.item)?;
+            redact_hidden_product_search_item(&mut product.item)?;
         }
     }
 
     Ok(())
 }
 
-fn redact_hidden_product_summary(
-    product: &mut crate::use_cases::queries::search_product_listings::ProductListingSummary,
+fn redact_hidden_product_search_item(
+    product: &mut crate::use_cases::queries::search_product_listings::ProductListingSearchItem,
 ) -> Result<(), ProductListingSummaryPersonalizationError> {
     let nil = uuid::Uuid::nil();
     let language = product

@@ -230,7 +230,8 @@ fn notification_product_snapshot(
         title: snapshot.title.map(localized_text_data),
         image: present_image(
             snapshot.image,
-            presentation_preferences.prohibited_content_consent,
+            snapshot.content_policy,
+            presentation_preferences.show_unassessed_or_sensitive_content,
         )
         .map(ProductListingImageData::from_presented),
         url: snapshot.url,

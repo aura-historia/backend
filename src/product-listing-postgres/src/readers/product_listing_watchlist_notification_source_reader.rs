@@ -7,8 +7,12 @@ use domain_primitives::event_id::EventId;
 use money::{Currency, MonetaryAmount, Price};
 use platform_postgres::SqlxTransaction;
 use product_listing_core::{
-    listing_availability::ListingAvailability, product_listing_id::ProductListingId,
-    product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId, title::Title,
+    content_policy::{ContentPolicyDecision, SensitiveContentCategory},
+    listing_availability::ListingAvailability,
+    product_listing_id::ProductListingId,
+    product_listing_slug_id::ProductListingSlugId,
+    shop_listing_id::ShopListingId,
+    title::Title,
 };
 use product_listing_service::ports::{
     ProductListingWatchlistNotificationChange, ProductListingWatchlistNotificationSource,
@@ -45,6 +49,8 @@ struct SourceRow {
     title_text: Option<String>,
     title_language: Option<String>,
     product_images: serde_json::Value,
+    content_policy_decision: Option<String>,
+    content_policy_category: Option<String>,
     url: String,
 }
 
@@ -136,10 +142,16 @@ impl ProductListingWatchlistNotificationSourceReader
                 event.event_id, event.event_time, event.product_listing_id, event.event_type, event.payload,
                 product.product_listing_slug_id, product.shop_id, product.shop_listing_id AS shop_listing_id,
                 shop.shop_slug_id, shop.name AS shop_name,
-                product.title_text, product.title_language, product.product_images, product.url
+                product.title_text, product.title_language, product.product_images,
+                assessment.decision AS content_policy_decision,
+                assessment.category AS content_policy_category,
+                product.url
             FROM product_listing_events event
             JOIN product_listings product ON product.product_listing_id = event.product_listing_id
             JOIN shops shop ON shop.shop_id = product.shop_id
+            LEFT JOIN product_listing_content_assessments assessment
+                ON assessment.product_listing_id = product.product_listing_id
+                AND assessment.source_event_id = product.content_source_event_id
             WHERE event.event_id = $1 AND event.product_listing_id = $2
             "#,
         )
@@ -196,10 +208,31 @@ impl ProductListingWatchlistNotificationSourceReader
             shop_name: ShopName::from(row.shop_name),
             title: (!title.is_empty()).then_some(title),
             image,
+            content_policy: content_policy(
+                row.content_policy_decision.as_deref(),
+                row.content_policy_category.as_deref(),
+            )?,
             view_url: append_utm_params(url.clone()),
             url,
             change,
         }))
+    }
+}
+
+fn content_policy(
+    decision: Option<&str>,
+    category: Option<&str>,
+) -> Result<Option<ContentPolicyDecision>, ProductListingWatchlistNotificationSourceReadError> {
+    match (decision, category) {
+        (None, None) => Ok(None),
+        (Some("ALLOWED"), None) => Ok(Some(ContentPolicyDecision::Allowed)),
+        (Some("REQUIRES_CONSENT"), Some("NAZI_GERMANY")) => Ok(Some(
+            ContentPolicyDecision::RequiresConsent(SensitiveContentCategory::NaziGermany),
+        )),
+        _ => Err(WatchlistNotificationSourceMappingError::invalid(
+            "persisted watchlist notification content assessment is invalid",
+        )
+        .into()),
     }
 }
 

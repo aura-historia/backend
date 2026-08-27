@@ -7,7 +7,7 @@ use search_filter_core::{
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProductListingUserState {
     pub watchlist: WatchlistUserState,
-    pub prohibited_content: ProhibitedContentUserState,
+    pub content_visibility: ContentVisibilityUserState,
     pub notification: NotificationUserState,
     pub search_filter: SearchFilterUserState,
 }
@@ -19,8 +19,8 @@ pub struct WatchlistUserState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct ProhibitedContentUserState {
-    pub consent: bool,
+pub struct ContentVisibilityUserState {
+    pub show_unassessed_or_sensitive_content: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

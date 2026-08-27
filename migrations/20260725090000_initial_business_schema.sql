@@ -6,7 +6,7 @@ CREATE TABLE users (
     language text,
     currency text,
     measurement_unit text,
-    prohibited_content_consent boolean NOT NULL DEFAULT false,
+    show_unassessed_or_sensitive_content boolean NOT NULL DEFAULT false,
     tier text NOT NULL,
     role text NOT NULL,
     stripe_customer_id text UNIQUE,
@@ -142,6 +142,7 @@ CREATE TABLE product_listings (
     product_listing_id uuid PRIMARY KEY,
     product_listing_slug_id text NOT NULL,
     event_id uuid NOT NULL,
+    content_source_event_id uuid NOT NULL,
     shop_id uuid NOT NULL REFERENCES shops(shop_id),
     seller_id uuid NOT NULL REFERENCES shops(shop_id),
     shop_listing_id text NOT NULL,
@@ -232,7 +233,7 @@ CREATE TABLE product_listing_events (
     event_time timestamptz NOT NULL,
     created timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT product_listing_events_product_event_unique UNIQUE (product_listing_id, event_id),
-    CONSTRAINT product_listing_events_group_check CHECK (event_group IN ('DOMAIN', 'ENRICHMENT', 'POLICY', 'LIFECYCLE')),
+    CONSTRAINT product_listing_events_group_check CHECK (event_group IN ('DOMAIN', 'ENRICHMENT', 'LIFECYCLE')),
     CONSTRAINT product_listing_events_schema_version_positive CHECK (event_type_schema_version >= 1),
     CONSTRAINT product_listing_events_payload_object CHECK (jsonb_typeof(payload) = 'object')
 );
@@ -243,11 +244,38 @@ ALTER TABLE product_listings
     REFERENCES product_listing_events(product_listing_id, event_id)
     DEFERRABLE INITIALLY DEFERRED;
 
+ALTER TABLE product_listings
+    ADD CONSTRAINT product_listings_content_source_event_same_product_fkey
+    FOREIGN KEY (product_listing_id, content_source_event_id)
+    REFERENCES product_listing_events(product_listing_id, event_id)
+    DEFERRABLE INITIALLY DEFERRED;
+
 ALTER TABLE product_listing_translations
     ADD CONSTRAINT product_listing_translations_source_event_fkey
     FOREIGN KEY (product_listing_id, source_event_id)
     REFERENCES product_listing_events(product_listing_id, event_id)
     DEFERRABLE INITIALLY DEFERRED;
+
+CREATE TABLE product_listing_content_assessments (
+    product_listing_id uuid PRIMARY KEY
+        REFERENCES product_listings(product_listing_id) ON DELETE CASCADE,
+    source_event_id uuid NOT NULL,
+    decision text NOT NULL,
+    category text,
+    created timestamptz NOT NULL DEFAULT now(),
+    updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT product_listing_content_assessments_decision_check
+        CHECK (decision IN ('ALLOWED', 'REQUIRES_CONSENT')),
+    CONSTRAINT product_listing_content_assessments_category_check
+        CHECK (category IS NULL OR category IN ('NAZI_GERMANY')),
+    CONSTRAINT product_listing_content_assessments_decision_category_check
+        CHECK ((decision = 'ALLOWED' AND category IS NULL)
+            OR (decision = 'REQUIRES_CONSENT' AND category IS NOT NULL)),
+    CONSTRAINT product_listing_content_assessments_source_event_fkey
+        FOREIGN KEY (product_listing_id, source_event_id)
+        REFERENCES product_listing_events(product_listing_id, event_id)
+        ON DELETE CASCADE
+);
 
 CREATE INDEX product_listing_events_product_listing_time_event_idx
     ON product_listing_events (product_listing_id, event_time ASC, event_id ASC);

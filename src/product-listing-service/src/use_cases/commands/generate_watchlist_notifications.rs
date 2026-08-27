@@ -250,7 +250,8 @@ fn notification_content(
             product_listing_slug_id: source.product_listing_slug_id,
             shop_name: source.shop_name,
             title: source.title,
-            image: source.image,
+            image: source.image.map(|image| image.url().clone()),
+            content_policy: source.content_policy,
             url: source.url,
             view_url: source.view_url,
         },
@@ -338,6 +339,7 @@ mod tests {
             shop_name: ShopName::from("Shop"),
             title: None,
             image: None,
+            content_policy: None,
             url: Url::parse("https://example.test/product")
                 .unwrap_or_else(|error| panic!("test URL invalid: {error}")),
             view_url: Url::parse("https://example.test/product/view")

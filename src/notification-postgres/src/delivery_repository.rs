@@ -48,7 +48,7 @@ struct DeliverySourceRow {
     channel: String,
     target_key: String,
     language: Option<String>,
-    prohibited_content_consent: bool,
+    show_unassessed_or_sensitive_content: bool,
     notification_id: Uuid,
     user_id: Uuid,
     kind: String,
@@ -114,7 +114,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
 
         let claimed = claimed_from_row(row)?;
         let source = sqlx::query_as::<_, DeliverySourceRow>(
-            "SELECT d.notification_delivery_id, d.channel, d.target_key, (SELECT language FROM users WHERE user_id = n.user_id) AS language, (SELECT prohibited_content_consent FROM users WHERE user_id = n.user_id) AS prohibited_content_consent, n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_listing_id, n.user_search_filter_id, n.partner_shop_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notification_deliveries d JOIN notifications n ON n.notification_id = d.notification_id WHERE d.notification_delivery_id = $1",
+            "SELECT d.notification_delivery_id, d.channel, d.target_key, u.language, u.show_unassessed_or_sensitive_content, n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_listing_id, n.user_search_filter_id, n.partner_shop_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notification_deliveries d JOIN notifications n ON n.notification_id = d.notification_id JOIN users u ON u.user_id = n.user_id WHERE d.notification_delivery_id = $1",
         )
         .bind(Uuid::from(notification_delivery_id))
         .fetch_optional(&mut *transaction)
@@ -250,7 +250,7 @@ fn source_from_row(
                 .map(parse_language)
                 .transpose()?
                 .unwrap_or(Language::En),
-            prohibited_content_consent: row.prohibited_content_consent,
+            show_unassessed_or_sensitive_content: row.show_unassessed_or_sensitive_content,
         },
     })
 }

@@ -1,13 +1,15 @@
 use crate::ports::{
-    ProductListingEmbeddingLookup, ProductListingEmbeddingReadError, ProductListingEmbeddingReader,
+    ProductListingContentAssessmentReader, ProductListingEmbeddingLookup,
+    ProductListingEmbeddingReadError, ProductListingEmbeddingReader,
     ProductListingEmbeddingReaderFactory, ProductListingPriceFilterPlan,
     ProductListingSimilarProductListingsReadError, ProductListingSimilarProductListingsReader,
     ProductListingSimilarProductListingsRequest, ProductListingUserStateReader,
 };
 use crate::use_cases::PersonalizedProductListingSummary;
 use crate::use_cases::queries::product_listing_summary_personalization::{
-    ProductListingSummaryPersonalizationError, hydrate_product_summaries,
+    ProductListingSummaryPersonalizationError, hydrate_product_search_items,
 };
+use crate::use_cases::queries::search_product_listings::present_product_summaries;
 use application::error::{BoxError, box_error};
 use application::operation_context::{OperationContext, Principal};
 use application::personalized::Personalized;
@@ -79,6 +81,16 @@ pub enum GetSimilarProductListingsError {
         #[source]
         source: BoxError,
     },
+    #[error("product content assessment query failed")]
+    ContentAssessmentQueryFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("product content assessment state is invalid")]
+    ContentAssessmentStateInvalid {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]
@@ -90,21 +102,23 @@ pub trait GetSimilarProductListingsUseCase: Send + Sync {
     ) -> Result<GetSimilarProductListingsResult, GetSimilarProductListingsError>;
 }
 
-pub struct GetSimilarProductListingsHandler<U, E, F, S, P> {
+pub struct GetSimilarProductListingsHandler<U, E, F, S, P, A> {
     unit_of_work: U,
     embedding_reader: E,
     fx_rates: F,
     similar_products_reader: S,
     user_states: P,
+    assessments: A,
 }
 
-impl<U, E, F, S, P> GetSimilarProductListingsHandler<U, E, F, S, P> {
+impl<U, E, F, S, P, A> GetSimilarProductListingsHandler<U, E, F, S, P, A> {
     pub fn new(
         unit_of_work: U,
         embedding_reader: E,
         fx_rates: F,
         similar_products_reader: S,
         user_states: P,
+        assessments: A,
     ) -> Self {
         Self {
             unit_of_work,
@@ -112,19 +126,21 @@ impl<U, E, F, S, P> GetSimilarProductListingsHandler<U, E, F, S, P> {
             fx_rates,
             similar_products_reader,
             user_states,
+            assessments,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, E, F, S, P> GetSimilarProductListingsUseCase
-    for GetSimilarProductListingsHandler<U, E, F, S, P>
+impl<U, E, F, S, P, A> GetSimilarProductListingsUseCase
+    for GetSimilarProductListingsHandler<U, E, F, S, P, A>
 where
     U: UnitOfWork,
     E: ProductListingEmbeddingReaderFactory<U::Tx>,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
     S: ProductListingSimilarProductListingsReader,
     P: ProductListingUserStateReader,
+    A: ProductListingContentAssessmentReader,
 {
     #[tracing::instrument(
         name = "get_similar_products",
@@ -195,8 +211,11 @@ where
             })
             .collect::<Vec<_>>();
         if let Some(user_id) = personalization_user_id(&context.principal) {
-            hydrate_product_summaries(&mut products, user_id, &self.user_states).await?;
+            hydrate_product_search_items(&mut products, user_id, &self.user_states).await?;
         }
+        let products = present_product_summaries(products, &self.assessments)
+            .await
+            .map_err(GetSimilarProductListingsError::from)?;
 
         Ok(GetSimilarProductListingsResult::Ready(products))
     }
@@ -240,6 +259,21 @@ impl From<FxRateSnapshotRepositoryError> for GetSimilarProductListingsError {
     }
 }
 
+impl From<crate::ports::ProductListingContentAssessmentReadError>
+    for GetSimilarProductListingsError
+{
+    fn from(error: crate::ports::ProductListingContentAssessmentReadError) -> Self {
+        match error {
+            crate::ports::ProductListingContentAssessmentReadError::QueryFailed { source } => {
+                Self::ContentAssessmentQueryFailed { source }
+            }
+            crate::ports::ProductListingContentAssessmentReadError::InvalidPersistedState {
+                source,
+            } => Self::ContentAssessmentStateInvalid { source },
+        }
+    }
+}
+
 impl From<ProductListingSummaryPersonalizationError> for GetSimilarProductListingsError {
     fn from(error: ProductListingSummaryPersonalizationError) -> Self {
         match error {
@@ -264,7 +298,7 @@ impl From<ProductListingSummaryPersonalizationError> for GetSimilarProductListin
 mod tests {
     use super::*;
     use crate::ports::{ProductListingEmbedding, ProductListingSimilarProductListingsReadError};
-    use crate::use_cases::{ProductListingSummary, ProductListingSummaryPriceValuation};
+    use crate::use_cases::{ProductListingSearchItem, ProductListingSummaryPriceValuation};
     use application::{
         error::box_error,
         operation_context::{CorrelationId, Principal, RequestId},
@@ -277,8 +311,9 @@ mod tests {
     use localization::Localized;
     use money::{Currency, MonetaryAmount, Price};
     use product_listing_core::{
-        listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
-        product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
+        content_policy::ContentPolicyDecision, listing_availability::ListingAvailability,
+        listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId,
+        product_listing_image::ProductListingImage, product_listing_slug_id::ProductListingSlugId,
         shop_listing_id::ShopListingId,
     };
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
@@ -298,7 +333,7 @@ mod tests {
         find_embedding_result:
             Option<Result<Option<ProductListingEmbedding>, ProductListingEmbeddingReadError>>,
         find_similar_product_listings_result: Option<
-            Result<Vec<ProductListingSummary>, ProductListingSimilarProductListingsReadError>,
+            Result<Vec<ProductListingSearchItem>, ProductListingSimilarProductListingsReadError>,
         >,
         requested_product_listing_ids: Vec<ProductListingId>,
         requested_similar_products: Vec<ProductListingSimilarProductListingsRequest>,
@@ -337,6 +372,15 @@ mod tests {
 
     #[derive(Clone, Copy)]
     struct EmptyUserStateReader;
+
+    #[derive(Clone, Copy)]
+    struct EmptyAssessmentReader;
+
+    #[derive(Clone)]
+    struct StaticAssessmentReader {
+        assessments: HashMap<ProductListingId, crate::ports::ProductListingContentAssessment>,
+        requests: Arc<Mutex<Vec<Vec<ProductListingId>>>>,
+    }
 
     #[derive(Clone)]
     struct StaticUserStateReader {
@@ -473,6 +517,36 @@ mod tests {
     }
 
     #[async_trait::async_trait]
+    impl ProductListingContentAssessmentReader for EmptyAssessmentReader {
+        async fn find_current_assessments(
+            &self,
+            _product_listing_ids: &[ProductListingId],
+        ) -> Result<
+            HashMap<ProductListingId, crate::ports::ProductListingContentAssessment>,
+            crate::ports::ProductListingContentAssessmentReadError,
+        > {
+            Ok(HashMap::new())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductListingContentAssessmentReader for StaticAssessmentReader {
+        async fn find_current_assessments(
+            &self,
+            product_listing_ids: &[ProductListingId],
+        ) -> Result<
+            HashMap<ProductListingId, crate::ports::ProductListingContentAssessment>,
+            crate::ports::ProductListingContentAssessmentReadError,
+        > {
+            match self.requests.lock() {
+                Ok(mut requests) => requests.push(product_listing_ids.to_vec()),
+                Err(poisoned) => poisoned.into_inner().push(product_listing_ids.to_vec()),
+            }
+            Ok(self.assessments.clone())
+        }
+    }
+
+    #[async_trait::async_trait]
     impl ProductListingUserStateReader for EmptyUserStateReader {
         async fn find_for_user(
             &self,
@@ -503,7 +577,7 @@ mod tests {
         async fn find_similar_product_listings(
             &self,
             request: &ProductListingSimilarProductListingsRequest,
-        ) -> Result<Vec<ProductListingSummary>, ProductListingSimilarProductListingsReadError>
+        ) -> Result<Vec<ProductListingSearchItem>, ProductListingSimilarProductListingsReadError>
         {
             let mut state = lock_state(&self.state);
             state.requested_similar_products.push(request.clone());
@@ -522,6 +596,7 @@ mod tests {
         FakeFxRateSnapshotRepositoryFactory,
         FakeSimilarProductsReader,
         EmptyUserStateReader,
+        EmptyAssessmentReader,
     > {
         GetSimilarProductListingsHandler::new(
             FakeUnitOfWork {
@@ -535,6 +610,7 @@ mod tests {
                 state: Arc::clone(state),
             },
             EmptyUserStateReader,
+            EmptyAssessmentReader,
         )
     }
 
@@ -554,10 +630,10 @@ mod tests {
         }
     }
 
-    fn product_summary(
+    fn product_search_item(
         product_listing_id: ProductListingId,
-    ) -> Result<ProductListingSummary, url::ParseError> {
-        Ok(ProductListingSummary {
+    ) -> Result<ProductListingSearchItem, url::ParseError> {
+        Ok(ProductListingSearchItem {
             product_listing_id,
             product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
             event_id: EventId::new(),
@@ -579,6 +655,16 @@ mod tests {
             images: IndexSet::new(),
             updated: OffsetDateTime::UNIX_EPOCH,
         })
+    }
+
+    fn product_search_item_with_image(
+        product_listing_id: ProductListingId,
+    ) -> Result<ProductListingSearchItem, url::ParseError> {
+        let mut item = product_search_item(product_listing_id)?;
+        item.images = IndexSet::from([ProductListingImage::new(Url::parse(
+            "https://shop.example/images/cabinet.jpg",
+        )?)]);
+        Ok(item)
     }
 
     fn request() -> GetSimilarProductListingsRequest {
@@ -665,7 +751,7 @@ mod tests {
             embedding: Some(vec![0.1_f32]),
         })));
         lock_state(&state).find_similar_product_listings_result =
-            Some(Ok(vec![product_summary(product_listing_id)?]));
+            Some(Ok(vec![product_search_item(product_listing_id)?]));
         let handler = GetSimilarProductListingsHandler::new(
             FakeUnitOfWork {
                 state: Arc::clone(&state),
@@ -680,6 +766,7 @@ mod tests {
             StaticUserStateReader {
                 states: HashMap::from([(product_listing_id, user_state)]),
             },
+            EmptyAssessmentReader,
         );
 
         let result = handler
@@ -696,6 +783,72 @@ mod tests {
                 .as_ref()
                 .map(|state| state.watchlist.watching)
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_present_similar_raw_items_after_one_batched_content_assessment()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state();
+        let product_listing_id = ProductListingId::new();
+        let item = product_search_item_with_image(product_listing_id)?;
+        let image_url = item
+            .images
+            .first()
+            .ok_or("missing raw image")?
+            .url()
+            .clone();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        lock_state(&state).find_embedding_result = Some(Ok(Some(ProductListingEmbedding {
+            product_listing_id: ProductListingId::new(),
+            embedding: Some(vec![0.1_f32]),
+        })));
+        lock_state(&state).find_similar_product_listings_result = Some(Ok(vec![item]));
+        let handler = GetSimilarProductListingsHandler::new(
+            FakeUnitOfWork {
+                state: Arc::clone(&state),
+            },
+            FakeEmbeddingReaderFactory {
+                state: Arc::clone(&state),
+            },
+            FakeFxRateSnapshotRepositoryFactory,
+            FakeSimilarProductsReader {
+                state: Arc::clone(&state),
+            },
+            EmptyUserStateReader,
+            StaticAssessmentReader {
+                assessments: HashMap::from([(
+                    product_listing_id,
+                    crate::ports::ProductListingContentAssessment {
+                        product_listing_id,
+                        source_event_id: EventId::new(),
+                        decision: ContentPolicyDecision::Allowed,
+                    },
+                )]),
+                requests: Arc::clone(&requests),
+            },
+        );
+
+        let result = handler.execute(&context(), request()).await?;
+
+        let GetSimilarProductListingsResult::Ready(products) = result else {
+            return Err(std::io::Error::other("expected ready similar products").into());
+        };
+        assert_eq!(
+            Some(ContentPolicyDecision::Allowed),
+            products[0].item.content_policy
+        );
+        assert_eq!(
+            vec![crate::use_cases::ProductListingImageView {
+                url: Some(image_url),
+            }],
+            products[0].item.images
+        );
+        let requests = match requests.lock() {
+            Ok(requests) => requests,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        assert_eq!(vec![vec![product_listing_id]], *requests);
         Ok(())
     }
 

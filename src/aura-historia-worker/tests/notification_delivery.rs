@@ -666,7 +666,7 @@ async fn insert_delivery_in_transaction_with_language(
     let recipient_email = format!("notification-delivery-{delivery_id}@example.test");
 
     sqlx::query(
-        "INSERT INTO users (user_id, email, language, prohibited_content_consent, tier, role) VALUES ($1, $2, $3, false, 'ULTIMATE', 'USER')",
+        "INSERT INTO users (user_id, email, language, show_unassessed_or_sensitive_content, tier, role) VALUES ($1, $2, $3, false, 'ULTIMATE', 'USER')",
     )
     .bind(user_id)
     .bind(&recipient_email)
@@ -732,10 +732,7 @@ fn notification_payload() -> serde_json::Value {
             "product_listing_slug_id": "worker-delivery-product-abcdef",
             "shop_name": "Delivery test shop",
             "title": null,
-            "image": {
-                "url": UNSAFE_IMAGE_URL,
-                "prohibited_content": "NaziGermany"
-            },
+            "image": UNSAFE_IMAGE_URL,
             "url": "https://example.test/product_listings/delivery",
             "view_url": "https://aura-historia.test/product_listings/delivery"
         },

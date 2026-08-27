@@ -11,7 +11,7 @@ use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::ProductListingAddress;
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::prohibited_content::ProhibitedContent;
+
 use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_core::title::Title;
 use shop_core::domain::Domain;
@@ -146,10 +146,7 @@ where
         let images = command
             .image_urls
             .into_iter()
-            .map(|url| ProductListingImage {
-                url,
-                prohibited_content: ProhibitedContent::Unknown,
-            })
+            .map(ProductListingImage::new)
             .collect();
 
         self.products

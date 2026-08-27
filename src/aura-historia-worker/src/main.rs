@@ -1,4 +1,5 @@
 use aura_historia_worker::notification_delivery::consume_notification_delivery_queue;
+use aura_historia_worker::product_content_assessment::consume_product_content_assessment_queue;
 use aura_historia_worker::product_embedding::consume_product_embedding_queue;
 use aura_historia_worker::product_listing_opensearch::consume_product_listing_opensearch_queue;
 use aura_historia_worker::product_translation::consume_product_translation_queue;
@@ -46,6 +47,9 @@ use platform_observability::{LogLevel, LoggingConfig, init};
 use platform_postgres::{PostgresConnectError, SqlxUnitOfWork};
 use product_listing_opensearch::OpenSearchProductListingSearchProjection;
 use product_listing_postgres::{
+    SqlxProductListingContentAssessmentSnapshotReaderFactory,
+    SqlxProductListingContentAssessmentSourceReader,
+    SqlxProductListingContentAssessmentWriterFactory,
     SqlxProductListingCurrentRevisionGuardFactory, SqlxProductListingEmbeddingSourceReader,
     SqlxProductListingEmbeddingWriterFactory,
     SqlxProductListingSearchFilterMatchSourceReaderFactory,
@@ -53,6 +57,7 @@ use product_listing_postgres::{
     SqlxProductListingWatchlistNotificationSourceReaderFactory,
 };
 use product_listing_service::use_cases::{
+    AssessProductListingContentEventHandler, AssessProductListingContentEventUseCase,
     EmbedProductListingEventHandler, EmbedProductListingEventUseCase,
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
     ProjectProductListingHandler, ProjectProductListingUseCase,
@@ -117,6 +122,9 @@ async fn main() -> Result<(), MainError> {
         }
         WorkerScope::WatchlistNotification => {
             run_watchlist_notifications(worker_config, pool, composition).await
+        }
+        WorkerScope::ProductListingContentAssessment => {
+            run_product_content_assessment(worker_config, pool, composition).await
         }
         WorkerScope::ProductListingTranslation => {
             let vertex_ai = startup
@@ -197,6 +205,7 @@ async fn run_search_filter_match_notifications(
             SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
             SqlxUserTierEntitlementsFactory::new(),
             SqlxProductListingCurrentRevisionGuardFactory::new(),
+            SqlxProductListingContentAssessmentSnapshotReaderFactory::new(),
             NotificationCreationCoordinatorFactory::new(
                 SqlxNotificationRepositoryFactory::new(),
                 InitialExternalDeliveryPlanReaderFactory,
@@ -225,6 +234,22 @@ async fn run_product_listing_opensearch(
         ));
     let (runtime, receiver) = composition.into_parts();
     let task = tokio::spawn(consume_product_listing_opensearch_queue(receiver, handler));
+    finish_runtime(config, runtime, task).await
+}
+
+async fn run_product_content_assessment(
+    config: aura_historia_worker::WorkerConfig,
+    pool: sqlx::PgPool,
+    composition: WorkerRuntimeComposition,
+) -> Result<(), MainError> {
+    let handler: Arc<dyn AssessProductListingContentEventUseCase> =
+        Arc::new(AssessProductListingContentEventHandler::new(
+            SqlxProductListingContentAssessmentSourceReader::new(pool.clone()),
+            SqlxUnitOfWork::new(pool),
+            SqlxProductListingContentAssessmentWriterFactory::new(),
+        ));
+    let (runtime, receiver) = composition.into_parts();
+    let task = tokio::spawn(consume_product_content_assessment_queue(receiver, handler));
     finish_runtime(config, runtime, task).await
 }
 

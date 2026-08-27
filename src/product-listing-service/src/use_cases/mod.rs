@@ -1,6 +1,11 @@
 pub mod commands;
 pub mod queries;
 
+pub use commands::assess_product_listing_content_event::{
+    AssessProductListingContentCommand, AssessProductListingContentEventError,
+    AssessProductListingContentEventHandler, AssessProductListingContentEventOutcome,
+    AssessProductListingContentEventResult, AssessProductListingContentEventUseCase,
+};
 pub use commands::create_product_listing::{
     CreateProductListingCommand, CreateProductListingError, CreateProductListingHandler,
     CreateProductListingResult, CreateProductListingUseCase,
@@ -54,9 +59,10 @@ pub use commands::withdraw_product_listing::{
 pub use queries::get_product_listing::{
     DisplayProductListingPricing, GetProductListingError, GetProductListingHandler,
     GetProductListingRequest, GetProductListingUseCase, PersonalizedProductListingDetailsView,
-    ProductListingDetailsView, ProductListingLookup, ProductListingPricingPresentation,
-    ProductListingPricingPresentationError, ProductListingPricingValuation,
-    present_product_details, present_product_pricing, redact_hidden_product,
+    ProductListingDetailsView, ProductListingImageView, ProductListingLookup,
+    ProductListingPricingPresentation, ProductListingPricingPresentationError,
+    ProductListingPricingValuation, present_product_details, present_product_pricing,
+    redact_hidden_product,
 };
 pub use queries::get_product_listing_events::{
     GetProductListingEventsError, GetProductListingEventsHandler, GetProductListingEventsRequest,
@@ -68,8 +74,8 @@ pub use queries::get_similar_product_listings::{
     GetSimilarProductListingsUseCase,
 };
 pub use queries::search_product_listings::{
-    PersonalizedProductListingSummary, ProductListingSearchCursor, ProductListingSearchReadResult,
-    ProductListingSummary, ProductListingSummaryPriceValuation, SearchProductListingsError,
-    SearchProductListingsHandler, SearchProductListingsRequest, SearchProductListingsResult,
-    SearchProductListingsUseCase,
+    PersonalizedProductListingSummary, ProductListingSearchCursor, ProductListingSearchItem,
+    ProductListingSearchReadResult, ProductListingSummary, ProductListingSummaryPriceValuation,
+    SearchProductListingsError, SearchProductListingsHandler, SearchProductListingsRequest,
+    SearchProductListingsResult, SearchProductListingsUseCase,
 };

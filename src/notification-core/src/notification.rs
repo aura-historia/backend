@@ -3,8 +3,8 @@ use domain_primitives::event_id::EventId;
 use localization::Localized;
 use money::Price;
 use product_listing_core::{
-    listing_availability::ListingAvailability, product_listing_id::ProductListingId,
-    product_listing_image::ProductListingImage, product_listing_slug_id::ProductListingSlugId,
+    content_policy::ContentPolicyDecision, listing_availability::ListingAvailability,
+    product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
     shop_listing_id::ShopListingId, title::Title,
 };
 use search_filter_core::{
@@ -206,7 +206,8 @@ pub struct ProductListingNotificationSnapshot {
     pub product_listing_slug_id: ProductListingSlugId,
     pub shop_name: ShopName,
     pub title: Option<HashMap<localization::Language, Title>>,
-    pub image: Option<ProductListingImage>,
+    pub image: Option<Url>,
+    pub content_policy: Option<ContentPolicyDecision>,
     pub url: Url,
     pub view_url: Url,
 }
@@ -226,6 +227,7 @@ impl ProductListingNotificationSnapshot {
                 .title
                 .and_then(|titles| localization::Language::resolve(preferred_languages, titles)),
             image: self.image,
+            content_policy: self.content_policy,
             url: self.url,
             view_url: self.view_url,
         }
@@ -305,7 +307,8 @@ pub struct LocalizedProductListingNotificationSnapshot {
     pub product_listing_slug_id: ProductListingSlugId,
     pub shop_name: ShopName,
     pub title: Option<Localized<localization::Language, Title>>,
-    pub image: Option<ProductListingImage>,
+    pub image: Option<Url>,
+    pub content_policy: Option<ContentPolicyDecision>,
     pub url: Url,
     pub view_url: Url,
 }

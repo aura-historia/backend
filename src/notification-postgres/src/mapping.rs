@@ -11,10 +11,13 @@ use notification_core::{
     notification_kind::NotificationKind,
 };
 use product_listing_core::{
-    listing_availability::ListingAvailability, product_listing_id::ProductListingId,
-    product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
+    content_policy::{ContentPolicyDecision, SensitiveContentCategory},
+    listing_availability::ListingAvailability,
+    product_listing_id::ProductListingId,
+    product_listing_slug_id::ProductListingSlugId,
+    shop_listing_id::ShopListingId,
+    title::Title,
 };
-use product_listing_core::{product_listing_image::ProductListingImage, title::Title};
 use search_filter_core::{
     user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
 };
@@ -59,6 +62,8 @@ pub(crate) enum NotificationMappingError {
     PayloadSerialization(#[source] serde_json::Error),
     #[error("notification payload is invalid")]
     InvalidPayload(#[source] serde_json::Error),
+    #[error("notification content policy is invalid")]
+    InvalidContentPolicy,
     #[error("notification source columns do not match its kind")]
     SourceShapeMismatch,
     #[error("notification kind does not match its payload")]
@@ -121,6 +126,13 @@ struct PersistedPrice {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PersistedContentPolicyDecision {
+    decision: String,
+    category: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ProductListingNotificationSnapshotV1 {
     shop_id: ShopId,
     shop_listing_id: ShopListingId,
@@ -128,7 +140,8 @@ struct ProductListingNotificationSnapshotV1 {
     product_listing_slug_id: ProductListingSlugId,
     shop_name: ShopName,
     title: Option<Vec<LocalizedTitleV1>>,
-    image: Option<ProductListingImage>,
+    image: Option<Url>,
+    content_policy: Option<PersistedContentPolicyDecision>,
     url: Url,
     view_url: Url,
 }
@@ -180,6 +193,7 @@ impl From<&ProductListingNotificationSnapshot> for ProductListingNotificationSna
                     .collect()
             }),
             image: snapshot.image.clone(),
+            content_policy: snapshot.content_policy.map(Into::into),
             url: snapshot.url.clone(),
             view_url: snapshot.view_url.clone(),
         }
@@ -216,9 +230,39 @@ impl TryFrom<ProductListingNotificationSnapshotV1> for ProductListingNotificatio
             shop_name: snapshot.shop_name,
             title,
             image: snapshot.image,
+            content_policy: snapshot.content_policy.map(TryInto::try_into).transpose()?,
             url: snapshot.url,
             view_url: snapshot.view_url,
         })
+    }
+}
+
+impl From<ContentPolicyDecision> for PersistedContentPolicyDecision {
+    fn from(decision: ContentPolicyDecision) -> Self {
+        match decision {
+            ContentPolicyDecision::Allowed => Self {
+                decision: decision.as_str().to_owned(),
+                category: None,
+            },
+            ContentPolicyDecision::RequiresConsent(category) => Self {
+                decision: decision.as_str().to_owned(),
+                category: Some(category.as_str().to_owned()),
+            },
+        }
+    }
+}
+
+impl TryFrom<PersistedContentPolicyDecision> for ContentPolicyDecision {
+    type Error = NotificationMappingError;
+
+    fn try_from(value: PersistedContentPolicyDecision) -> Result<Self, Self::Error> {
+        match (value.decision.as_str(), value.category.as_deref()) {
+            ("ALLOWED", None) => Ok(Self::Allowed),
+            ("REQUIRES_CONSENT", Some(category)) => SensitiveContentCategory::from_code(category)
+                .map(Self::RequiresConsent)
+                .ok_or(NotificationMappingError::InvalidContentPolicy),
+            _ => Err(NotificationMappingError::InvalidContentPolicy),
+        }
     }
 }
 
@@ -629,6 +673,18 @@ mod tests {
                 "type": "AVAILABILITY_CHANGE",
                 "old_availability": null,
                 "new_availability": "UNKNOWN",
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn should_reject_unknown_content_policy_json_fields() {
+        assert!(
+            serde_json::from_value::<PersistedContentPolicyDecision>(serde_json::json!({
+                "decision": "ALLOWED",
+                "category": null,
+                "unexpected": true,
             }))
             .is_err()
         );

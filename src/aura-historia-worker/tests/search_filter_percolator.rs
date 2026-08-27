@@ -27,6 +27,7 @@ use product_listing_core::{
     product_listing_id::ProductListingId, product_listing_search::ProductListingSearch,
 };
 use product_listing_postgres::{
+    SqlxProductListingContentAssessmentSnapshotReaderFactory,
     SqlxProductListingCurrentRevisionGuardFactory,
     SqlxProductListingSearchFilterMatchSourceReaderFactory,
 };
@@ -424,22 +425,14 @@ async fn ignored_product_listing_events_flow() -> Result<(), Box<dyn std::error:
         worker.project_filter(&filter).await?;
         refresh_index("user_search_filters").await;
 
-        let (product_listing_id, policy_event) = create_product_with_event(
+        let (_, lifecycle_event) = create_product_with_event(
             &worker.pool,
             &product_listing_query,
-            "POLICY_ACCEPTED",
-            "POLICY",
-        )
-        .await?;
-        let lifecycle_event = insert_product_event(
-            &worker.pool,
-            product_listing_id,
             "PRODUCT_LISTING_WITHDRAWN",
             "LIFECYCLE",
         )
         .await?;
 
-        assert_no_matches_for(&worker.pool, policy_event, NO_SIDE_EFFECT_OBSERVATION).await?;
         assert_no_matches_for(&worker.pool, lifecycle_event, NO_SIDE_EFFECT_OBSERVATION).await?;
         assert_no_more_than_notifications(&worker.pool, user_id, 0, NO_SIDE_EFFECT_OBSERVATION)
             .await
@@ -899,6 +892,7 @@ impl FullFlowWorker {
                 SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
                 SqlxUserTierEntitlementsFactory::new(),
                 SqlxProductListingCurrentRevisionGuardFactory::new(),
+                SqlxProductListingContentAssessmentSnapshotReaderFactory::new(),
                 NotificationCreationCoordinatorFactory::new(
                     SqlxNotificationRepositoryFactory::new(),
                     InitialExternalDeliveryPlanReaderFactory,
@@ -1174,7 +1168,7 @@ async fn create_product_with_event(
         .bind("Worker percolator shop")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-percolator-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))
@@ -1234,7 +1228,7 @@ async fn insert_cross_currency_product_with_event(
         .execute(&mut *tx)
         .await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Cross currency worker description', 'en', $7, $8, $9, $10, $11, $12, $13, CASE WHEN $13 IS NULL THEN NULL ELSE $14 END, $15, 'ACTIVE', 'https://example.test/cross-currency-product', '[]')",
+        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $4, $5, $6, 'en', 'Cross currency worker description', 'en', $7, $8, $9, $10, $11, $12, $13, CASE WHEN $13 IS NULL THEN NULL ELSE $14 END, $15, 'ACTIVE', 'https://example.test/cross-currency-product', '[]')",
     )
     .bind(product_uuid)
     .bind(format!("cross-currency-worker-product-{product_slug_suffix}"))
@@ -1360,23 +1354,6 @@ async fn insert_filter(
     Ok(inserted.version)
 }
 
-async fn insert_product_event(
-    pool: &sqlx::PgPool,
-    product_listing_id: ProductListingId,
-    event_type: &str,
-    event_group: &str,
-) -> Result<EventId, sqlx::Error> {
-    let event_id = EventId::new();
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
-        .bind(uuid::Uuid::from(event_id))
-        .bind(uuid::Uuid::from(product_listing_id))
-        .bind(event_type)
-        .bind(event_group)
-        .execute(pool)
-        .await?;
-    Ok(event_id)
-}
-
 async fn update_product_and_insert_event(
     pool: &sqlx::PgPool,
     product_listing_id: ProductListingId,
@@ -1436,7 +1413,7 @@ async fn create_product_with_event_then_rollback(
         .bind("Worker percolator shop")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-percolator-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))

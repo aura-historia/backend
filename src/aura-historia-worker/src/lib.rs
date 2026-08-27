@@ -1,5 +1,6 @@
 pub mod cdc;
 pub mod notification_delivery;
+pub mod product_content_assessment;
 pub mod product_embedding;
 pub mod product_listing_opensearch;
 pub mod product_translation;
@@ -61,6 +62,7 @@ pub enum WorkerScope {
     SearchFilterPercolator,
     SearchFilterMatchNotification,
     WatchlistNotification,
+    ProductListingContentAssessment,
     ProductListingTranslation,
     ProductListingEmbedding,
     ProductListingOpenSearch,
@@ -90,6 +92,7 @@ impl WorkerScope {
             "search-filter-percolator" => Ok(Self::SearchFilterPercolator),
             "search-filter-match-notification" => Ok(Self::SearchFilterMatchNotification),
             "watchlist-notification" => Ok(Self::WatchlistNotification),
+            "product-content-assessment" => Ok(Self::ProductListingContentAssessment),
             "product-translation" => Ok(Self::ProductListingTranslation),
             "product-embedding" => Ok(Self::ProductListingEmbedding),
             "product-listing-opensearch" => Ok(Self::ProductListingOpenSearch),
@@ -104,6 +107,7 @@ impl WorkerScope {
             Self::SearchFilterPercolator => WorkerQueue::SearchFilterPercolator,
             Self::SearchFilterMatchNotification => WorkerQueue::SearchFilterMatchNotification,
             Self::WatchlistNotification => WorkerQueue::WatchlistNotification,
+            Self::ProductListingContentAssessment => WorkerQueue::ProductListingContentAssessment,
             Self::ProductListingTranslation => WorkerQueue::ProductListingTranslate,
             Self::ProductListingEmbedding => WorkerQueue::ProductListingEmbed,
             Self::ProductListingOpenSearch => WorkerQueue::ProductListingOpenSearch,
@@ -303,9 +307,9 @@ impl WorkerStartupConfig {
                     }),
                 }),
             ),
-            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {
-                (None, None, None)
-            }
+            WorkerScope::SearchFilterMatchNotification
+            | WorkerScope::WatchlistNotification
+            | WorkerScope::ProductListingContentAssessment => (None, None, None),
         };
 
         Ok(Self {
@@ -617,6 +621,20 @@ impl WorkerRuntime {
         ))
     }
 
+    pub fn with_product_content_assessment_queue(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (sender, receiver) = in_memory_queue(config)?;
+        let registry = WorkerQueueRegistry::new()
+            .with_queue(WorkerQueue::ProductListingContentAssessment, sender);
+        let mut receivers = WorkerQueueReceivers::new();
+        receivers.insert(WorkerQueue::ProductListingContentAssessment, receiver);
+        Ok((
+            Self::new(CdcFanout::product_content_assessment(registry)),
+            receivers,
+        ))
+    }
+
     pub fn with_product_embedding_queue(
         config: QueueConfig,
     ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
@@ -698,6 +716,9 @@ impl WorkerRuntimeComposition {
             }
             WorkerScope::WatchlistNotification => {
                 WorkerRuntime::with_watchlist_notification_queue(config)?
+            }
+            WorkerScope::ProductListingContentAssessment => {
+                WorkerRuntime::with_product_content_assessment_queue(config)?
             }
             WorkerScope::ProductListingTranslation => {
                 WorkerRuntime::with_product_translation_queue(config)?
@@ -960,7 +981,9 @@ mod tests {
                 values.insert(OPENSEARCH_USERNAME_ENV, "worker".to_owned());
                 values.insert(OPENSEARCH_PASSWORD_ENV, "not-a-real-secret".to_owned());
             }
-            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {}
+            WorkerScope::SearchFilterMatchNotification
+            | WorkerScope::WatchlistNotification
+            | WorkerScope::ProductListingContentAssessment => {}
             WorkerScope::NotificationDelivery => {
                 values.insert(S3_BUCKET_NAME_TEMPLATES_ENV, "templates".to_owned());
                 values.insert(
@@ -1089,6 +1112,11 @@ mod tests {
         WorkerQueue::WatchlistNotification
     )]
     #[case(
+        WorkerScope::ProductListingContentAssessment,
+        "product-content-assessment",
+        WorkerQueue::ProductListingContentAssessment
+    )]
+    #[case(
         WorkerScope::ProductListingTranslation,
         "product-translation",
         WorkerQueue::ProductListingTranslate
@@ -1173,6 +1201,11 @@ mod tests {
         WorkerScope::WatchlistNotification,
         WorkerQueue::WatchlistNotification,
         r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_PRICE_CHANGED","event_group":"DOMAIN"}}]}"#
+    )]
+    #[case(
+        WorkerScope::ProductListingContentAssessment,
+        WorkerQueue::ProductListingContentAssessment,
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_CREATED","event_group":"DOMAIN"}}]}"#
     )]
     #[case(
         WorkerScope::ProductListingTranslation,
@@ -1280,11 +1313,17 @@ mod tests {
         let (percolator_sender, mut percolator_receiver) =
             in_memory_queue::<DomainJob>(QueueConfig::new(8))?;
         let (embed_sender, mut embed_receiver) = in_memory_queue::<DomainJob>(QueueConfig::new(8))?;
+        let (assessment_sender, mut assessment_receiver) =
+            in_memory_queue::<DomainJob>(QueueConfig::new(8))?;
         let runtime = WorkerRuntime::new(CdcFanout::new(
             WorkerQueueRegistry::new()
                 .with_queue(WorkerQueue::ProductListingOpenSearch, product_sender)
                 .with_queue(WorkerQueue::SearchFilterPercolator, percolator_sender)
-                .with_queue(WorkerQueue::ProductListingEmbed, embed_sender),
+                .with_queue(WorkerQueue::ProductListingEmbed, embed_sender)
+                .with_queue(
+                    WorkerQueue::ProductListingContentAssessment,
+                    assessment_sender,
+                ),
         ));
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
@@ -1320,6 +1359,7 @@ mod tests {
         assert!(product_receiver.recv().await.is_some());
         assert!(percolator_receiver.recv().await.is_some());
         assert!(embed_receiver.recv().await.is_some());
+        assert!(assessment_receiver.recv().await.is_some());
         Ok(())
     }
 

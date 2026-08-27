@@ -276,9 +276,6 @@
                 "properties": {
                     "url": {
                         "type": "keyword"
-                    },
-                    "prohibitedContent": {
-                        "type": "keyword"
                     }
                 }
             },

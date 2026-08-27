@@ -89,7 +89,7 @@ impl ProductListingSnapshot {
         }
 
         let mut sorted_images: Vec<String> =
-            product.images.iter().map(|i| i.url.to_string()).collect();
+            product.images.iter().map(|i| i.url().to_string()).collect();
         sorted_images.sort();
         let images_hash = {
             let mut h = Sha256::new();

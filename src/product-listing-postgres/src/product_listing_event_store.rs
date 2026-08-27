@@ -207,12 +207,7 @@ fn images_json(images: &indexmap::IndexSet<ProductListingImage>) -> Value {
     Value::Array(
         images
             .iter()
-            .map(|image| {
-                json!({
-                    "url": image.url.as_str(),
-                    "prohibitedContent": image.prohibited_content.as_str(),
-                })
-            })
+            .map(|image| json!({ "url": image.url().as_str() }))
             .collect(),
     )
 }

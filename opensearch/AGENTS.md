@@ -6,7 +6,7 @@
 
 ## Core Design
 
-- `analysis/` hold synonym lists. `mappings/` hold index mappings for products, shops, users, and filters.
+- `analysis/` hold synonym lists. `mappings/` hold index mappings for ProductListings, shops, and user search filters.
 - Runtime crates and infra depend on these files staying aligned with actual indexed documents.
 
 ## Ownership

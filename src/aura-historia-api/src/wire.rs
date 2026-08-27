@@ -468,18 +468,6 @@ pub(crate) mod listing_lifecycle {
     }
 }
 
-pub(crate) mod prohibited_content {
-    use super::*;
-    use product_listing_core::prohibited_content::ProhibitedContent;
-
-    pub(crate) fn serialize<S>(value: &ProhibitedContent, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, ProhibitedContent::as_str)
-    }
-}
-
 pub(crate) mod distance_unit {
     use super::*;
     use geo::core::distance::DistanceUnit;

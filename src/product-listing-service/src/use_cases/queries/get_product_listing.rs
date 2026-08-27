@@ -15,6 +15,9 @@ use fxrate_service::ports::{
 use indexmap::IndexSet;
 use localization::{Language, Localized};
 use money::Currency;
+use product_listing_core::content_policy::{
+    ContentPolicyDecision, may_show_product_listing_images,
+};
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
@@ -144,6 +147,11 @@ pub fn present_product_pricing(
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ProductListingImageView {
+    pub url: Option<Url>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingDetailsView {
     pub product_listing_id: ProductListingId,
     pub product_listing_slug_id: ProductListingSlugId,
@@ -165,7 +173,8 @@ pub struct ProductListingDetailsView {
     pub lifecycle: ListingLifecycle,
     pub url: Url,
     pub view_url: Url,
-    pub images: IndexSet<ProductListingImage>,
+    pub images: Vec<ProductListingImageView>,
+    pub content_policy: Option<ContentPolicyDecision>,
     pub auction: ProductListingAuction,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -360,13 +369,37 @@ pub fn present_product_details(
             lifecycle: item.lifecycle,
             url: item.url,
             view_url: item.view_url,
-            images: item.images,
+            images: present_images(
+                item.images,
+                item.content_policy,
+                user_state.as_ref().is_some_and(|state| {
+                    state
+                        .content_visibility
+                        .show_unassessed_or_sensitive_content
+                }),
+            ),
+            content_policy: item.content_policy,
             auction: item.auction,
             created: item.created,
             updated: item.updated,
         },
         user_state,
     })
+}
+
+fn present_images(
+    images: IndexSet<ProductListingImage>,
+    content_policy: Option<ContentPolicyDecision>,
+    show_unassessed_or_sensitive_content: bool,
+) -> Vec<ProductListingImageView> {
+    let visible =
+        may_show_product_listing_images(content_policy, show_unassessed_or_sensitive_content);
+    images
+        .into_iter()
+        .map(|image| ProductListingImageView {
+            url: visible.then(|| image.url().clone()),
+        })
+        .collect()
 }
 
 fn applicable_sale_observation(
@@ -432,7 +465,7 @@ pub fn redact_hidden_product(
     details.availability = None;
     details.url = hidden_url.clone();
     details.view_url = hidden_url;
-    details.images = IndexSet::new();
+    details.images.clear();
     details.auction = ProductListingAuction::default();
     details.created = OffsetDateTime::UNIX_EPOCH;
     details.updated = OffsetDateTime::UNIX_EPOCH;
@@ -507,6 +540,7 @@ mod tests {
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use money::{MonetaryAmount, Price};
+    use product_listing_core::content_policy::{ContentPolicyDecision, SensitiveContentCategory};
 
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
@@ -799,6 +833,7 @@ mod tests {
                 url: url("https://shop.example/products/1")?,
                 view_url: url("https://aura.example/products/cabinet-abcdef")?,
                 images: IndexSet::<ProductListingImage>::new(),
+                content_policy: None,
                 auction: ProductListingAuction::default(),
                 created: OffsetDateTime::UNIX_EPOCH,
                 updated: OffsetDateTime::UNIX_EPOCH,
@@ -809,6 +844,45 @@ mod tests {
 
     fn prepare_current_snapshot(state: &SharedState) -> Result<(), FxRateSnapshotError> {
         lock_state(state).latest_snapshot_result = Some(Ok(Some(snapshot()?)));
+        Ok(())
+    }
+
+    #[test]
+    fn should_apply_content_policy_to_detail_images() -> Result<(), Box<dyn std::error::Error>> {
+        let cases = [
+            (None, false, false),
+            (None, true, true),
+            (Some(ContentPolicyDecision::Allowed), false, true),
+            (Some(ContentPolicyDecision::Allowed), true, true),
+            (
+                Some(ContentPolicyDecision::RequiresConsent(
+                    SensitiveContentCategory::NaziGermany,
+                )),
+                false,
+                false,
+            ),
+            (
+                Some(ContentPolicyDecision::RequiresConsent(
+                    SensitiveContentCategory::NaziGermany,
+                )),
+                true,
+                true,
+            ),
+        ];
+        let image_url = Url::parse("https://example.test/image.jpg")?;
+
+        for (decision, show_all, visible) in cases {
+            let images = IndexSet::from([ProductListingImage::new(image_url.clone())]);
+
+            let presented = present_images(images, decision, show_all);
+
+            assert_eq!(
+                vec![ProductListingImageView {
+                    url: visible.then(|| image_url.clone()),
+                }],
+                presented
+            );
+        }
         Ok(())
     }
 

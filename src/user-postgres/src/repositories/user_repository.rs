@@ -111,7 +111,7 @@ impl UserRepository for SqlxUserRepository<'_> {
             r#"
             INSERT INTO users (
                 user_id, email, first_name, last_name, language, currency, measurement_unit,
-                prohibited_content_consent, tier, role, stripe_customer_id,
+                show_unassessed_or_sensitive_content, tier, role, stripe_customer_id,
                 structured_address_addressline, structured_address_addressline_extra,
                 structured_address_locality, structured_address_region,
                 structured_address_postal_code, structured_address_country,
@@ -135,7 +135,7 @@ impl UserRepository for SqlxUserRepository<'_> {
             .bind(bind_language(preferences.language))
             .bind(bind_currency(preferences.currency))
             .bind(bind_measurement_unit(preferences.measurement_unit))
-            .bind(preferences.prohibited_content_consent)
+            .bind(preferences.show_unassessed_or_sensitive_content)
             .bind(bind_tier(account.tier))
             .bind(bind_role(account.role))
             .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
@@ -170,7 +170,7 @@ impl UserRepository for SqlxUserRepository<'_> {
             r#"
             INSERT INTO users (
                 user_id, email, first_name, last_name, language, currency, measurement_unit,
-                prohibited_content_consent, tier, role, stripe_customer_id,
+                show_unassessed_or_sensitive_content, tier, role, stripe_customer_id,
                 structured_address_addressline, structured_address_addressline_extra,
                 structured_address_locality, structured_address_region,
                 structured_address_postal_code, structured_address_country,
@@ -195,7 +195,7 @@ impl UserRepository for SqlxUserRepository<'_> {
             .bind(bind_language(preferences.language))
             .bind(bind_currency(preferences.currency))
             .bind(bind_measurement_unit(preferences.measurement_unit))
-            .bind(preferences.prohibited_content_consent)
+            .bind(preferences.show_unassessed_or_sensitive_content)
             .bind(bind_tier(account.tier))
             .bind(bind_role(account.role))
             .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
@@ -249,7 +249,7 @@ impl UserRepository for SqlxUserRepository<'_> {
                 language = $5,
                 currency = $6,
                 measurement_unit = $7,
-                prohibited_content_consent = $8,
+                show_unassessed_or_sensitive_content = $8,
                 tier = $9,
                 role = $10,
                 stripe_customer_id = $11,
@@ -277,7 +277,7 @@ impl UserRepository for SqlxUserRepository<'_> {
             .bind(bind_language(preferences.language))
             .bind(bind_currency(preferences.currency))
             .bind(bind_measurement_unit(preferences.measurement_unit))
-            .bind(preferences.prohibited_content_consent)
+            .bind(preferences.show_unassessed_or_sensitive_content)
             .bind(bind_tier(account.tier))
             .bind(bind_role(account.role))
             .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))

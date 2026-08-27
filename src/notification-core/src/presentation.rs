@@ -1,61 +1,52 @@
-use product_listing_core::{
-    product_listing_image::ProductListingImage, prohibited_content::ProhibitedContent,
+use product_listing_core::content_policy::{
+    ContentPolicyDecision, may_show_product_listing_images,
 };
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotificationImagePresentation {
     pub url: Option<Url>,
-    pub prohibited_content: ProhibitedContent,
+    pub content_policy: Option<ContentPolicyDecision>,
 }
 
 pub fn present_image(
-    image: Option<ProductListingImage>,
-    prohibited_content_consent: bool,
+    image: Option<Url>,
+    content_policy: Option<ContentPolicyDecision>,
+    show_unassessed_or_sensitive_content: bool,
 ) -> Option<NotificationImagePresentation> {
-    image.map(|image| NotificationImagePresentation {
-        url: (image.prohibited_content.is_safe() || prohibited_content_consent)
-            .then_some(image.url),
-        prohibited_content: image.prohibited_content,
+    image.map(|url| NotificationImagePresentation {
+        url: may_show_product_listing_images(content_policy, show_unassessed_or_sensitive_content)
+            .then_some(url),
+        content_policy,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use product_listing_core::content_policy::SensitiveContentCategory;
     use rstest::rstest;
 
     #[rstest]
-    #[case(ProhibitedContent::None, false, true)]
-    #[case(ProhibitedContent::Unknown, false, false)]
-    #[case(ProhibitedContent::Unknown, true, true)]
-    fn should_filter_notification_image_url_by_consent(
-        #[case] prohibited_content: ProhibitedContent,
-        #[case] consent: bool,
-        #[case] includes_url: bool,
+    #[case(None, false, false)]
+    #[case(Some(ContentPolicyDecision::Allowed), false, true)]
+    #[case(
+        Some(ContentPolicyDecision::RequiresConsent(SensitiveContentCategory::NaziGermany)),
+        false,
+        false
+    )]
+    #[case(None, true, true)]
+    fn should_apply_listing_content_policy_to_notification_image(
+        #[case] decision: Option<ContentPolicyDecision>,
+        #[case] preference: bool,
+        #[case] visible: bool,
     ) -> Result<(), url::ParseError> {
-        let image = ProductListingImage {
-            url: Url::parse("https://shop.example/image.jpg")?,
-            prohibited_content,
-        };
-
-        let presentation = present_image(Some(image), consent);
-
+        let image = Url::parse("https://shop.example/image.jpg")?;
+        let presentation = present_image(Some(image), decision, preference);
         assert_eq!(
-            includes_url,
-            presentation
-                .as_ref()
-                .is_some_and(|image| image.url.is_some())
-        );
-        assert_eq!(
-            Some(prohibited_content),
-            presentation.map(|image| image.prohibited_content)
+            presentation.is_some_and(|image| image.url.is_some()),
+            visible
         );
         Ok(())
-    }
-
-    #[test]
-    fn should_keep_no_notification_image_as_none() {
-        assert_eq!(None, present_image(None, false));
     }
 }

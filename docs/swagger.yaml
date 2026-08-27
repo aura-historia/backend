@@ -2729,15 +2729,16 @@ paths:
                       viewUrl: "https://curated-antiques.example/product-listings/golden-cufflinks?utm_source=aura_historia&utm_medium=referral"
                       images:
                         - url: "https://curated-antiques.example/images/golden-cufflinks-1.jpg"
-                          prohibitedContent: "NONE"
+                      contentPolicy:
+                        decision: ALLOWED
                       created: "2024-01-01T10:00:00Z"
                       updated: "2024-01-01T12:00:00Z"
                     userState:
                       watchlist:
                         watching: false
                         notifications: false
-                      prohibitedContent:
-                        consent: false
+                      contentVisibility:
+                        showUnassessedOrSensitiveContent: false
                       notification:
                         unseenNotificationIds: []
                       searchFilter:
@@ -2926,8 +2927,9 @@ paths:
                       updated: "2024-01-01T12:00:00Z"
                     userState:
                       watchlist: { watching: false, notifications: false }
-                      prohibitedContent: { consent: false }
-                      notification: { seen: false }
+                      contentVisibility:
+                        { showUnassessedOrSensitiveContent: false }
+                      notification: { unseenNotificationIds: [] }
                       searchFilter: { matched: true, hidden: false }
                 size: 1
                 total: null
@@ -3310,15 +3312,16 @@ paths:
                       viewUrl: "https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral"
                       images:
                         - url: "https://tech-store.com/images/case-1.jpg"
-                          prohibitedContent: "NONE"
+                      contentPolicy:
+                        decision: ALLOWED
                       created: "2024-01-01T10:00:00Z"
                       updated: "2024-01-01T12:00:00Z"
                     userState:
                       watchlist:
                         watching: true
                         notifications: false
-                      prohibitedContent:
-                        consent: false
+                      contentVisibility:
+                        showUnassessedOrSensitiveContent: false
                       notification:
                         unseenNotificationIds: []
                       searchFilter:
@@ -3687,7 +3690,7 @@ paths:
                     lastName: "Lovelace"
                     language: "en"
                     currency: "EUR"
-                    prohibitedContentConsent: true
+                    showUnassessedOrSensitiveContent: true
                     tier: "ULTIMATE"
                     role: "ADMIN"
                     stripeCustomerId: "cus_admin_550e8400e29b41d4a716446655440000"
@@ -3708,7 +3711,7 @@ paths:
                     lastName: "Hopper"
                     language: "en"
                     currency: "USD"
-                    prohibitedContentConsent: false
+                    showUnassessedOrSensitiveContent: false
                     tier: "PRO"
                     role: "USER"
                     created: "2026-02-01T12:00:00Z"
@@ -3863,7 +3866,7 @@ paths:
                 lastName: "Lovelace"
                 language: "en"
                 currency: "EUR"
-                prohibitedContentConsent: true
+                showUnassessedOrSensitiveContent: true
                 tier: "ULTIMATE"
                 role: "ADMIN"
                 stripeCustomerId: "cus_admin_550e8400e29b41d4a716446655440000"
@@ -3964,7 +3967,7 @@ paths:
                   lastName: "Lovelace"
                   language: "en"
                   currency: "EUR"
-                  prohibitedContentConsent: true
+                  showUnassessedOrSensitiveContent: true
       responses:
         "200":
           description: User updated successfully.
@@ -3991,7 +3994,7 @@ paths:
                 lastName: "Lovelace"
                 language: "en"
                 currency: "EUR"
-                prohibitedContentConsent: true
+                showUnassessedOrSensitiveContent: true
                 tier: "ULTIMATE"
                 role: "ADMIN"
                 stripeCustomerId: "cus_admin_550e8400e29b41d4a716446655440000"
@@ -4196,7 +4199,7 @@ paths:
       summary: Get user account data
       description: |
         Retrieves the authenticated user's account information including email, name, language and currency preferences,
-        the consent flag for displaying prohibited content, the user's subscription tier, and the user's role.
+        the `showUnassessedOrSensitiveContent` preference, the user's subscription tier, and the user's role.
         Requires valid Cognito JWT authentication.
       operationId: getUserAccount
       tags:
@@ -4229,7 +4232,7 @@ paths:
                 lastName: "Doe"
                 language: "en"
                 currency: "EUR"
-                prohibitedContentConsent: false
+                showUnassessedOrSensitiveContent: false
                 tier: "FREE"
                 role: "USER"
                 created: "2024-01-01T10:00:00Z"
@@ -4294,7 +4297,7 @@ paths:
                   lastName: "Smith"
                   language: "de"
                   currency: "USD"
-                  prohibitedContentConsent: true
+                  showUnassessedOrSensitiveContent: true
               update_name_only:
                 summary: Update name only
                 value:
@@ -4305,10 +4308,10 @@ paths:
                 value:
                   language: "fr"
                   currency: "GBP"
-              update_prohibited_content_consent_only:
-                summary: Update prohibited content consent only
+              update_content_visibility_preference_only:
+                summary: Update content visibility preference only
                 value:
-                  prohibitedContentConsent: true
+                  showUnassessedOrSensitiveContent: true
       responses:
         "200":
           description: User account updated successfully
@@ -4335,7 +4338,7 @@ paths:
                 lastName: "Smith"
                 language: "de"
                 currency: "USD"
-                prohibitedContentConsent: true
+                showUnassessedOrSensitiveContent: true
                 tier: "FREE"
                 role: "USER"
                 created: "2024-01-01T10:00:00Z"
@@ -5372,15 +5375,16 @@ paths:
                   viewUrl: "https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral"
                   images:
                     - url: "https://tech-store.com/images/case-1.jpg"
-                      prohibitedContent: "NONE"
+                  contentPolicy:
+                    decision: ALLOWED
                   created: "2024-01-01T10:00:00Z"
                   updated: "2024-01-01T12:00:00Z"
                 userState:
                   watchlist:
                     watching: true
                     notifications: true
-                  prohibitedContent:
-                    consent: false
+                  contentVisibility:
+                    showUnassessedOrSensitiveContent: false
                   notification:
                     unseenNotificationIds: []
         "400":
@@ -5482,8 +5486,8 @@ paths:
       description: |
         Retrieves the authenticated user’s canonical notifications in newest-first order.
         Watchlist price-change notifications preserve each event’s immutable source currency; no FX conversion
-        is applied from the user’s preferences. Product image classifications remain visible; unsafe image URLs
-        are omitted unless the authenticated user’s current prohibited-content consent is enabled.
+        is applied from the user’s preferences. Product image URLs are presented according to the authenticated
+        user’s `showUnassessedOrSensitiveContent` preference.
       operationId: listNotifications
       tags: [Notifications]
       parameters:
@@ -9731,8 +9735,13 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ProductListingImageData"
-          description: Array of product images with prohibited content classification
+          description: Product image URLs after viewer-specific presentation. A URL is `null` when it is not shown to the viewer.
           default: []
+        contentPolicy:
+          allOf:
+            - $ref: "#/components/schemas/ContentPolicyData"
+          nullable: true
+          description: Listing-level content decision. `null` means no assessment is available.
         auction:
           allOf:
             - $ref: "#/components/schemas/AuctionData"
@@ -9830,7 +9839,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ProductListingImageData"
-          description: Array of product image URLs.
+          description: Product image URLs after viewer-specific presentation. A URL is `null` when it is not shown to the viewer.
+        contentPolicy:
+          allOf:
+            - $ref: "#/components/schemas/ContentPolicyData"
+          nullable: true
+          description: Listing-level content decision. `null` means no assessment is available.
         updated:
           type: string
           format: date-time
@@ -9962,6 +9976,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ProductListingImageData"
+          description: Product image URLs after viewer-specific presentation. A URL is `null` when it is not shown to the viewer.
+        contentPolicy:
+          allOf:
+            - $ref: "#/components/schemas/ContentPolicyData"
+          nullable: true
+          description: Listing-level content decision. `null` means no assessment is available.
         auction:
           type: object
           properties:
@@ -10175,14 +10195,14 @@ components:
       description: User-specific state information for a product
       required:
         - watchlist
-        - prohibitedContent
+        - contentVisibility
         - notification
         - searchFilter
       properties:
         watchlist:
           $ref: "#/components/schemas/WatchlistUserStateData"
-        prohibitedContent:
-          $ref: "#/components/schemas/ProhibitedContentUserStateData"
+        contentVisibility:
+          $ref: "#/components/schemas/ContentVisibilityUserStateData"
         notification:
           $ref: "#/components/schemas/NotificationUserStateData"
         searchFilter:
@@ -10204,18 +10224,15 @@ components:
           description: Whether notifications are enabled for this watchlist product
           example: false
 
-    ProhibitedContentUserStateData:
+    ContentVisibilityUserStateData:
       type: object
-      description: |
-        Effective user consent for viewing prohibited content on a product. It is `true` when all
-        product images are safe (including no images); otherwise it reflects the user's stored
-        consent. Canonical Product detail currently exposes this state for client-side display policy.
+      description: Stored viewer preference used when presenting unassessed or sensitive listing content.
       required:
-        - consent
+        - showUnassessedOrSensitiveContent
       properties:
-        consent:
+        showUnassessedOrSensitiveContent:
           type: boolean
-          description: Whether the user has consented to view prohibited content
+          description: Whether unassessed or sensitive content may be shown to this viewer.
           example: false
 
     NotificationUserStateData:
@@ -10635,17 +10652,6 @@ components:
             Optional price estimate range.
             Common for auction items where an estimated value range is provided.
 
-    ProhibitedContentData:
-      type: string
-      enum: [UNKNOWN, NONE, NAZI_GERMANY]
-      description: |
-        Classification of prohibited or sensitive content that may be present in product images:
-        - UNKNOWN: Content classification has not been determined
-        - NONE: No prohibited content detected in the image
-        - NAZI_GERMANY: Image contains Nazi Germany symbols, insignia, or related content
-      default: UNKNOWN
-      example: NONE
-
     ShopTypeData:
       type: string
       enum: [AUCTION_HOUSE, AUCTION_PLATFORM, COMMERCIAL_DEALER, MARKETPLACE]
@@ -10668,20 +10674,35 @@ components:
 
     ProductListingImageData:
       type: object
-      description: Product image classification. Unsafe image URLs are omitted unless effective prohibited-content consent is true.
+      description: Product image after viewer-specific presentation.
       required:
-        - prohibitedContent
+        - url
       properties:
         url:
           type: string
           format: uri
-          description: URL to the product image. Omitted for unsafe content without effective consent.
+          nullable: true
+          description: URL to the product image, or `null` when it is not shown to this viewer.
           example: "https://my-shop.com/images/product-1.jpg"
-        prohibitedContent:
-          type: string
-          enum: [UNKNOWN, NONE, NAZI_GERMANY]
-          description: Safety classification of the image.
-          example: NONE
+
+    ContentPolicyData:
+      oneOf:
+        - type: object
+          required: [decision]
+          properties:
+            decision:
+              type: string
+              enum: [ALLOWED]
+        - type: object
+          required: [decision, category]
+          properties:
+            decision:
+              type: string
+              enum: [REQUIRES_CONSENT]
+            category:
+              type: string
+              enum: [NAZI_GERMANY]
+      description: Listing-level content decision. This schema is used only when the listing has an assessment.
 
     SortProductListingFieldData:
       type: string
@@ -13242,7 +13263,7 @@ components:
       required:
         - userId
         - email
-        - prohibitedContentConsent
+        - showUnassessedOrSensitiveContent
         - tier
         - role
       properties:
@@ -13274,8 +13295,9 @@ components:
           allOf:
             - $ref: "#/components/schemas/MeasurementUnitData"
           nullable: true
-        prohibitedContentConsent:
+        showUnassessedOrSensitiveContent:
           type: boolean
+          description: Stored preference for showing unassessed or sensitive content.
         tier:
           $ref: "#/components/schemas/UserTierData"
         role:
@@ -13333,9 +13355,9 @@ components:
             - $ref: "#/components/schemas/MeasurementUnitData"
           nullable: true
           description: New preferred measurement unit system.
-        prohibitedContentConsent:
+        showUnassessedOrSensitiveContent:
           type: boolean
-          description: Omit to leave unchanged. Send false explicitly to disable; null is invalid.
+          description: Omit to leave unchanged. Send `true` to show unassessed or sensitive content; send `false` to hide it. `null` is invalid.
           example: true
         tier:
           allOf:
@@ -13385,10 +13407,9 @@ components:
             - $ref: "#/components/schemas/MeasurementUnitData"
           nullable: true
           description: New preferred measurement unit system
-        prohibitedContentConsent:
+        showUnassessedOrSensitiveContent:
           type: boolean
-          nullable: true
-          description: New consent state for displaying prohibited content
+          description: Omit to leave unchanged. Send `true` to show unassessed or sensitive content; send `false` to hide it. `null` is invalid.
           example: true
         structuredAddress:
           allOf:

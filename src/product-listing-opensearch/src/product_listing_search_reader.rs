@@ -27,7 +27,7 @@ use product_listing_service::ports::{
     ProductListingSearchReadRequest, ProductListingSearchReader,
 };
 use product_listing_service::use_cases::queries::search_product_listings::{
-    ProductListingSearchReadResult, ProductListingSummary, ProductListingSummaryPriceValuation,
+    ProductListingSearchItem, ProductListingSearchReadResult, ProductListingSummaryPriceValuation,
 };
 use serde::ser::Error;
 use serde_json::json;
@@ -168,7 +168,7 @@ fn map_summary(
     search: &ProductListingSearch,
     price_filter: &ProductListingPriceFilterPlan,
     hit: SearchHit<ProductListingDocument>,
-) -> Result<ProductListingSummary, ProductListingSearchReadError> {
+) -> Result<ProductListingSearchItem, ProductListingSearchReadError> {
     let document = hit.source;
     let display_price = resolve_price(&document, price_filter)?;
     let price_valuation = price_valuation(&document, price_filter)?;
@@ -180,10 +180,10 @@ fn map_summary_fields(
     preferred_language: Language,
     display_price: Option<Price>,
     price_valuation: ProductListingSummaryPriceValuation,
-) -> Result<ProductListingSummary, ProductListingSearchReadError> {
+) -> Result<ProductListingSearchItem, ProductListingSearchReadError> {
     let title = resolve_title(&document, preferred_language);
 
-    Ok(ProductListingSummary {
+    Ok(ProductListingSearchItem {
         product_listing_id: document.product_listing_id,
         product_listing_slug_id: document.product_listing_slug_id,
         event_id: document.event_id,

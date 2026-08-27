@@ -1,4 +1,7 @@
-use crate::{ports::ProductListingPriceFilterPlan, use_cases::ProductListingSummary};
+use crate::{
+    ports::ProductListingPriceFilterPlan,
+    use_cases::queries::search_product_listings::ProductListingSearchItem,
+};
 use application::error::BoxError;
 use localization::Language;
 use product_listing_core::product_listing_id::ProductListingId;
@@ -41,5 +44,5 @@ pub trait ProductListingSimilarProductListingsReader: Send + Sync {
     async fn find_similar_product_listings(
         &self,
         request: &ProductListingSimilarProductListingsRequest,
-    ) -> Result<Vec<ProductListingSummary>, ProductListingSimilarProductListingsReadError>;
+    ) -> Result<Vec<ProductListingSearchItem>, ProductListingSimilarProductListingsReadError>;
 }

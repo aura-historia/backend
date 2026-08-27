@@ -17,7 +17,6 @@ use product_listing_core::{
     product_listing_id::ProductListingId,
     product_listing_image::ProductListingImage,
     product_listing_slug_id::ProductListingSlugId,
-    prohibited_content::ProhibitedContent,
     shop_listing_id::ShopListingId,
     title::Title,
 };
@@ -525,18 +524,15 @@ fn images(value: &serde_json::Value) -> Result<IndexSet<ProductListingImage>, ()
     #[derive(serde::Deserialize)]
     struct ImageJson {
         url: String,
-        prohibited_content: String,
     }
 
     serde_json::from_value::<Vec<ImageJson>>(value.clone())
         .map_err(|_| ())?
         .into_iter()
         .map(|image| {
-            Ok(ProductListingImage {
-                url: Url::parse(&image.url).map_err(|_| ())?,
-                prohibited_content: ProhibitedContent::from_code(&image.prohibited_content)
-                    .ok_or(())?,
-            })
+            Ok(ProductListingImage::new(
+                Url::parse(&image.url).map_err(|_| ())?,
+            ))
         })
         .collect()
 }
@@ -615,7 +611,7 @@ mod tests {
         );
         assert_eq!(
             ProductListingSearchFilterMatchSourceEventKind::Ignored,
-            event_kind("POLICY")
+            event_kind("LIFECYCLE")
         );
     }
 

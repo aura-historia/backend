@@ -19,7 +19,6 @@ use product_listing_core::product_listing_id::{ProductListingId, ProductListingK
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
-use product_listing_core::prohibited_content::ProhibitedContent;
 use product_listing_core::title::Title;
 use product_listing_postgres::{
     SqlxProductListingEventStoreFactory, SqlxProductListingRepositoryFactory,
@@ -488,7 +487,7 @@ async fn insert_product_row(
     let event_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, lifecycle, url, sale_observation_fx_rate_id, sale_observed_at) VALUES ($1, $2, $3, $4, $4, $5, 'ACTIVE', 'https://example.test/product', $6, $7)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, lifecycle, url, sale_observation_fx_rate_id, sale_observed_at) VALUES ($1, $2, $3, $3, $4, $4, $5, 'ACTIVE', 'https://example.test/product', $6, $7)",
     )
     .bind(product_listing_id)
     .bind(slug)
@@ -585,10 +584,9 @@ fn rehydrate_product_for_update(
 
 fn sample_product(slug: &str, shop_id: ShopId, seller_id: ShopId) -> ProductListing {
     let mut images = IndexSet::new();
-    images.insert(ProductListingImage {
-        url: url(&format!("https://example.com/{slug}.jpg")),
-        prohibited_content: ProhibitedContent::None,
-    });
+    images.insert(ProductListingImage::new(url(&format!(
+        "https://example.com/{slug}.jpg"
+    ))));
     match ProductListing::create(NewProductListing {
         id: product_listing_core::product_listing_id::ProductListingId::new(),
         shop_id,

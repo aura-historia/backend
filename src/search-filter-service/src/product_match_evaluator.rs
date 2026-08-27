@@ -100,7 +100,7 @@ fn product_match_request(
             .images
             .iter()
             .take(MAX_PRODUCT_MATCH_IMAGES)
-            .map(|image| image.url.clone())
+            .map(|image| image.url().clone())
             .collect(),
         response_json_schema: product_match_response_schema(),
         options: GenerationOptions {
@@ -256,11 +256,7 @@ mod tests {
             .map(|index| Url::parse(&format!("https://example.test/image-{index}.jpg")))
             .collect::<Result<Vec<_>, _>>()?;
         for url in &image_urls {
-            product.images.insert(ProductListingImage {
-                url: url.clone(),
-                prohibited_content:
-                    product_listing_core::prohibited_content::ProhibitedContent::None,
-            });
+            product.images.insert(ProductListingImage::new(url.clone()));
         }
 
         let request = product_match_request(&product, "only paintings", Language::En);

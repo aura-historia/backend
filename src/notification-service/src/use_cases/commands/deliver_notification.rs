@@ -560,7 +560,7 @@ mod tests {
             },
             presentation_preferences: crate::presentation::NotificationPresentationPreferences {
                 language: Language::En,
-                prohibited_content_consent: false,
+                show_unassessed_or_sensitive_content: false,
             },
         }
     }

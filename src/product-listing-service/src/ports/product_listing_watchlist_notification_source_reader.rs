@@ -3,9 +3,9 @@ use domain_primitives::event_id::EventId;
 use localization::Language;
 use money::Price;
 use product_listing_core::{
-    listing_availability::ListingAvailability, product_listing_id::ProductListingId,
-    product_listing_image::ProductListingImage, product_listing_slug_id::ProductListingSlugId,
-    shop_listing_id::ShopListingId, title::Title,
+    content_policy::ContentPolicyDecision, listing_availability::ListingAvailability,
+    product_listing_id::ProductListingId, product_listing_image::ProductListingImage,
+    product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId, title::Title,
 };
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
@@ -26,6 +26,7 @@ pub struct ProductListingWatchlistNotificationSource {
     pub shop_name: ShopName,
     pub title: Option<HashMap<Language, Title>>,
     pub image: Option<ProductListingImage>,
+    pub content_policy: Option<ContentPolicyDecision>,
     pub url: Url,
     pub view_url: Url,
     pub change: ProductListingWatchlistNotificationChange,

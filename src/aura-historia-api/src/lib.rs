@@ -75,11 +75,11 @@ use product_listing_opensearch::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
 };
 use product_listing_postgres::{
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingDetailsBatchReader,
-    SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
-    SqlxProductListingEventReaderFactory, SqlxProductListingEventStoreFactory,
-    SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
-    SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingContentAssessmentReader,
+    SqlxProductListingDetailsBatchReader, SqlxProductListingDetailsReaderFactory,
+    SqlxProductListingEmbeddingReaderFactory, SqlxProductListingEventReaderFactory,
+    SqlxProductListingEventStoreFactory, SqlxProductListingRepositoryFactory,
+    SqlxProductListingUserStateReader, SqlxProductListingWatchlistDetailsReaderFactory,
 };
 use product_listing_service::use_cases::{
     CreateProductListingHandler, GetProductListingEventsHandler, GetProductListingHandler,
@@ -758,6 +758,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxFxRateSnapshotRepositoryFactory,
         OpenSearchProductListingSimilarProductListingsReader::new(opensearch_client.clone()),
         product_user_states.clone(),
+        SqlxProductListingContentAssessmentReader::new(pool.clone()),
     );
     let search_products = SearchProductListingsHandler::new(
         unit_of_work.clone(),
@@ -765,6 +766,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxFxRateSnapshotRepositoryFactory,
         Arc::clone(&embeddings),
         product_user_states,
+        SqlxProductListingContentAssessmentReader::new(pool.clone()),
     );
     let get_product = GetProductListingHandler::new(
         unit_of_work.clone(),

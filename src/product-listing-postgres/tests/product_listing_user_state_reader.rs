@@ -27,10 +27,7 @@ async fn should_return_complete_state_with_safe_and_unsafe_content_and_free_tier
     set_product_images(
         &pool,
         unsafe_product,
-        serde_json::json!([{
-            "url": "https://example.test/unsafe.jpg",
-            "prohibited_content": "NAZI_GERMANY"
-        }]),
+        serde_json::json!([{"url": "https://example.test/unsafe.jpg"}]),
     )
     .await;
 
@@ -88,7 +85,11 @@ async fn should_return_complete_state_with_safe_and_unsafe_content_and_free_tier
     let unsafe_state = state(&states, unsafe_product);
     assert!(unsafe_state.watchlist.watching);
     assert!(!unsafe_state.watchlist.notifications);
-    assert!(!unsafe_state.prohibited_content.consent);
+    assert!(
+        !unsafe_state
+            .content_visibility
+            .show_unassessed_or_sensitive_content
+    );
     assert!(unsafe_state.notification.unseen_notification_ids.is_empty());
     assert!(unsafe_state.search_filter.matched);
     assert!(unsafe_state.search_filter.hidden);
@@ -117,7 +118,11 @@ async fn should_return_complete_state_with_safe_and_unsafe_content_and_free_tier
     let safe_state = state(&states, safe_product);
     assert!(!safe_state.watchlist.watching);
     assert!(!safe_state.watchlist.notifications);
-    assert!(safe_state.prohibited_content.consent);
+    assert!(
+        !safe_state
+            .content_visibility
+            .show_unassessed_or_sensitive_content
+    );
     assert!(!safe_state.search_filter.matched);
 }
 
@@ -129,10 +134,7 @@ async fn should_return_default_state_when_user_has_no_watchlist_or_matches() {
     set_product_images(
         &pool,
         product_listing_id,
-        serde_json::json!([{
-            "url": "https://example.test/unsafe.jpg",
-            "prohibited_content": "UNKNOWN"
-        }]),
+        serde_json::json!([{"url": "https://example.test/unsafe.jpg"}]),
     )
     .await;
 
@@ -281,10 +283,7 @@ async fn should_return_user_state_for_many_products_in_one_batched_lookup() {
     set_product_images(
         &pool,
         unsafe_product,
-        serde_json::json!([{
-            "url": "https://example.test/unsafe.jpg",
-            "prohibited_content": "NAZI_GERMANY"
-        }]),
+        serde_json::json!([{"url": "https://example.test/unsafe.jpg"}]),
     )
     .await;
 
@@ -300,8 +299,6 @@ async fn should_return_user_state_for_many_products_in_one_batched_lookup() {
     assert_eq!(states.len(), 3);
     assert!(state(&states, watched_product).watchlist.watching);
     assert!(state(&states, watched_product).watchlist.notifications);
-    assert!(state(&states, safe_product).prohibited_content.consent);
-    assert!(!state(&states, unsafe_product).prohibited_content.consent);
 }
 
 async fn find_for_user(
@@ -333,17 +330,21 @@ fn state(
     }
 }
 
-async fn seed_user(pool: &sqlx::PgPool, tier: &str, prohibited_content_consent: bool) -> UserId {
+async fn seed_user(
+    pool: &sqlx::PgPool,
+    tier: &str,
+    show_unassessed_or_sensitive_content: bool,
+) -> UserId {
     let user_id = UserId::new();
     let result = sqlx::query(
         r#"
-        INSERT INTO users (user_id, email, prohibited_content_consent, tier, role)
+        INSERT INTO users (user_id, email, show_unassessed_or_sensitive_content, tier, role)
         VALUES ($1, $2, $3, $4, $5)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(format!("{user_id}@example.test"))
-    .bind(prohibited_content_consent)
+    .bind(show_unassessed_or_sensitive_content)
     .bind(tier)
     .bind("USER")
     .execute(pool)
@@ -388,9 +389,9 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     let product_result = sqlx::query(
         r#"
         INSERT INTO product_listings (
-            product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id,
+            product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id,
             availability, lifecycle, url
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ) VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9)
         "#,
     )
     .bind(raw_product_listing_id)

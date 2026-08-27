@@ -1,7 +1,8 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
-    assert_problem, json_response, seed_access_token_for, seed_user, seed_user_with_consent,
+    assert_problem, json_response, seed_access_token_for, seed_product, seed_user,
+    seed_user_with_consent,
 };
 use serde_json::Value;
 use std::collections::HashSet;
@@ -272,8 +273,8 @@ async fn should_return_localized_reason_specific_notification_payloads() {
         price_change["payload"]["change"]["oldPrice"]["amount"]
     );
     assert_eq!(
-        serde_json::json!("NONE"),
-        price_change["payload"]["image"]["prohibitedContent"]
+        serde_json::json!({ "url": null }),
+        price_change["payload"]["image"]
     );
     assert!(price_change["payload"]["shopId"].as_str().is_some());
     assert!(price_change["payload"]["shopListingId"].as_str().is_some());
@@ -357,39 +358,68 @@ async fn should_return_localized_reason_specific_notification_payloads() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_filter_notification_image_urls_by_current_prohibited_content_consent() {
-    let denied_user_id = seed_user_with_consent("USER", false).await;
-    let allowed_user_id = seed_user_with_consent("USER", true).await;
-    let denied_token = notification_token(denied_user_id).await;
-    let allowed_token = notification_token(allowed_user_id).await;
-    seed_unsafe_image_notification(denied_user_id).await;
-    seed_unsafe_image_notification(allowed_user_id).await;
+async fn should_present_notification_images_from_immutable_snapshot_and_current_preference() {
+    let user_id = seed_user_with_consent("USER", false).await;
+    let token = notification_token(user_id).await;
+    let product_listing_id = seed_product().await;
 
-    let denied = list_notification_page(&denied_token, 1, None).await;
-    let denied_image = &denied["items"][0]["payload"]["image"];
+    set_current_assessment(product_listing_id, "REQUIRES_CONSENT", Some("NAZI_GERMANY")).await;
+    seed_unsafe_image_notification(
+        user_id,
+        uuid::Uuid::from(product_listing_id),
+        serde_json::json!({ "decision": "ALLOWED", "category": null }),
+    )
+    .await;
+    let allowed_snapshot = list_notification_page(&token, 10, None).await;
     assert_eq!(
-        serde_json::json!("UNKNOWN"),
-        denied_image["prohibitedContent"]
-    );
-    assert!(denied_image.get("url").is_none());
-    assert_eq!(
-        serde_json::Value::Null,
-        denied["items"][0]["payload"]["change"]["newAvailability"]
+        serde_json::json!({ "url": "https://unsafe.shop.example/image.jpg" }),
+        allowed_snapshot["items"][0]["payload"]["image"]
     );
 
-    let allowed = list_notification_page(&allowed_token, 1, None).await;
+    set_current_assessment(product_listing_id, "ALLOWED", None).await;
+    seed_unsafe_image_notification(
+        user_id,
+        uuid::Uuid::from(product_listing_id),
+        serde_json::json!({ "decision": "REQUIRES_CONSENT", "category": "NAZI_GERMANY" }),
+    )
+    .await;
+    seed_unsafe_image_notification(user_id, uuid::Uuid::from(product_listing_id), Value::Null)
+        .await;
+
+    let hidden = list_notification_page(&token, 10, None).await;
+    let hidden_images = hidden["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("notification items"))
+        .iter()
+        .map(|item| item["payload"]["image"].clone())
+        .collect::<Vec<_>>();
     assert_eq!(
-        serde_json::json!("https://unsafe.shop.example/image.jpg"),
-        allowed["items"][0]["payload"]["image"]["url"]
+        1,
+        hidden_images
+            .iter()
+            .filter(|image| **image
+                == serde_json::json!({ "url": "https://unsafe.shop.example/image.jpg" }))
+            .count()
     );
     assert_eq!(
-        serde_json::json!("UNKNOWN"),
-        allowed["items"][0]["payload"]["image"]["prohibitedContent"]
+        2,
+        hidden_images
+            .iter()
+            .filter(|image| **image == serde_json::json!({ "url": null }))
+            .count()
     );
-    assert_eq!(
-        serde_json::Value::Null,
-        allowed["items"][0]["payload"]["change"]["newAvailability"]
-    );
+
+    set_user_content_preference(user_id, true).await;
+    let visible = list_notification_page(&token, 10, None).await;
+    for item in visible["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("notification items"))
+    {
+        assert_eq!(
+            serde_json::json!({ "url": "https://unsafe.shop.example/image.jpg" }),
+            item["payload"]["image"]
+        );
+    }
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -663,12 +693,16 @@ async fn seed_notification(user_id: UserId, seen: bool) -> Uuid {
     notification_id
 }
 
-async fn seed_unsafe_image_notification(user_id: UserId) {
+async fn seed_unsafe_image_notification(
+    user_id: UserId,
+    product_listing_id: Uuid,
+    content_policy: Value,
+) {
     seed_notification_with_payload(
         user_id,
         "WATCHLIST_AVAILABILITY_CHANGED",
         Some(Uuid::new_v4()),
-        Some(Uuid::new_v4()),
+        Some(product_listing_id),
         None,
         None,
         serde_json::json!({
@@ -680,10 +714,8 @@ async fn seed_unsafe_image_notification(user_id: UserId) {
                 "product_listing_slug_id": "unsafe-product-abcdef",
                 "shop_name": "Unsafe Shop",
                 "title": null,
-                "image": {
-                    "url": "https://unsafe.shop.example/image.jpg",
-                    "prohibited_content": "Unknown"
-                },
+                "image": "https://unsafe.shop.example/image.jpg",
+                "content_policy": content_policy,
                 "url": "https://unsafe.shop.example/product",
                 "view_url": "https://aura-historia.example/product"
             },
@@ -741,6 +773,33 @@ async fn list_notification_page(
     let (status, body) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::OK, status, "notification page: {body}");
     body
+}
+
+async fn set_current_assessment(
+    product_listing_id: product_listing_core::product_listing_id::ProductListingId,
+    decision: &str,
+    category: Option<&str>,
+) {
+    let pool = get_postgres_client().await;
+    sqlx::query(
+        "INSERT INTO product_listing_content_assessments (product_listing_id, source_event_id, decision, category) SELECT product_listing_id, content_source_event_id, $2, $3 FROM product_listings WHERE product_listing_id = $1 ON CONFLICT (product_listing_id) DO UPDATE SET decision = EXCLUDED.decision, category = EXCLUDED.category, source_event_id = EXCLUDED.source_event_id",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .bind(decision)
+    .bind(category)
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to set current content assessment: {error}"));
+}
+
+async fn set_user_content_preference(user_id: UserId, show: bool) {
+    let pool = get_postgres_client().await;
+    sqlx::query("UPDATE users SET show_unassessed_or_sensitive_content = $2 WHERE user_id = $1")
+        .bind(Uuid::from(user_id))
+        .bind(show)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to set content preference: {error}"));
 }
 
 async fn set_user_currency(user_id: UserId, currency: &str) {
@@ -810,10 +869,7 @@ async fn seed_notification_payloads(user_id: UserId) {
         { "language": "en", "title": "Violin title" },
         { "language": "de", "title": "Geigentitel" }
     ]);
-    let image = serde_json::json!({
-        "url": "https://shop.example/product.jpg",
-        "prohibited_content": "None"
-    });
+    let image = serde_json::json!("https://shop.example/product.jpg");
 
     seed_notification_with_payload(
         user_id,

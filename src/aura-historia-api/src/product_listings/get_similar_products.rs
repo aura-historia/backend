@@ -560,6 +560,7 @@ mod tests {
                 url: Url::parse("https://shop.example/product-listings/1")?,
                 view_url: Url::parse("https://aura.example/product-listings/cabinet-abcdef")?,
                 images: Default::default(),
+                content_policy: None,
                 updated: OffsetDateTime::UNIX_EPOCH,
             },
             user_state: None,

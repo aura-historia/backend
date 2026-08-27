@@ -16,7 +16,6 @@ use product_listing_core::{
     },
     product_listing_id::ProductListingId,
     product_listing_image::ProductListingImage,
-    prohibited_content::ProhibitedContent,
     title::Title,
 };
 use product_listing_service::{
@@ -386,14 +385,12 @@ fn images(
         .iter()
         .map(|image| {
             let image = object(Some(image))?;
-            Ok(ProductListingImage {
-                url: url(optional_string(image, "url")?
-                    .ok_or(ProductListingEventReadError::ProductListingEventReadModelInvalid)?)?,
-                prohibited_content: prohibited_content(
-                    optional_string(image, "prohibitedContent")?
-                        .ok_or(ProductListingEventReadError::ProductListingEventReadModelInvalid)?,
-                )?,
-            })
+            Ok(ProductListingImage::new(url(optional_string(
+                image, "url",
+            )?
+            .ok_or(
+                ProductListingEventReadError::ProductListingEventReadModelInvalid,
+            )?)?))
         })
         .collect()
 }
@@ -423,10 +420,5 @@ fn language(value: &str) -> Result<Language, ProductListingEventReadError> {
 
 fn currency(value: &str) -> Result<Currency, ProductListingEventReadError> {
     Currency::from_code(value)
-        .ok_or(ProductListingEventReadError::ProductListingEventReadModelInvalid)
-}
-
-fn prohibited_content(value: &str) -> Result<ProhibitedContent, ProductListingEventReadError> {
-    ProhibitedContent::from_code(value)
         .ok_or(ProductListingEventReadError::ProductListingEventReadModelInvalid)
 }

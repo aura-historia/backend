@@ -201,10 +201,13 @@ pub(crate) fn template_data(
         .content
         .clone()
         .localized(&[email_language.as_language()]);
-    let present_image_url = |image| {
+    let present_image_url = |image, content_policy| {
         present_image(
             image,
-            source.presentation_preferences.prohibited_content_consent,
+            content_policy,
+            source
+                .presentation_preferences
+                .show_unassessed_or_sensitive_content,
         )
         .and_then(|image| image.url)
         .map(|url| url.to_string())
@@ -218,7 +221,7 @@ pub(crate) fn template_data(
                 snapshot.shop_slug_id.to_string(),
                 snapshot.product_listing_slug_id.to_string(),
                 snapshot.title.map(|title| title.payload.to_string()),
-                present_image_url(snapshot.image),
+                present_image_url(snapshot.image, snapshot.content_policy),
                 snapshot.view_url.to_string(),
             );
             match change {
@@ -256,7 +259,7 @@ pub(crate) fn template_data(
                 snapshot.shop_slug_id.to_string(),
                 snapshot.product_listing_slug_id.to_string(),
                 snapshot.title.map(|title| title.payload.to_string()),
-                present_image_url(snapshot.image),
+                present_image_url(snapshot.image, snapshot.content_policy),
                 snapshot.view_url.to_string(),
             );
             data["search_filter_id"] = json!(user_search_filter_id.to_string());
@@ -399,8 +402,11 @@ mod tests {
         presentation::NotificationPresentationPreferences,
     };
     use product_listing_core::{
-        listing_availability::ListingAvailability, product_listing_id::ProductListingId,
-        product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
+        content_policy::{ContentPolicyDecision, SensitiveContentCategory},
+        listing_availability::ListingAvailability,
+        product_listing_id::ProductListingId,
+        product_listing_slug_id::ProductListingSlugId,
+        shop_listing_id::ShopListingId,
     };
     use rstest::rstest;
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
@@ -523,16 +529,28 @@ mod tests {
     }
 
     #[rstest]
-    #[case(Some("None"), false, Some("https://shop.example/image.jpg"))]
-    #[case(Some("NaziGermany"), false, None)]
-    #[case(Some("NaziGermany"), true, Some("https://shop.example/image.jpg"))]
+    #[case(
+        Some(ContentPolicyDecision::Allowed),
+        false,
+        Some("https://shop.example/image.jpg")
+    )]
+    #[case(
+        Some(ContentPolicyDecision::RequiresConsent(SensitiveContentCategory::NaziGermany)),
+        false,
+        None
+    )]
+    #[case(
+        Some(ContentPolicyDecision::RequiresConsent(SensitiveContentCategory::NaziGermany)),
+        true,
+        Some("https://shop.example/image.jpg")
+    )]
     #[case(None, false, None)]
     fn should_filter_image_url_in_email_template_data(
-        #[case] prohibited_content: Option<&str>,
+        #[case] content_policy: Option<ContentPolicyDecision>,
         #[case] consent: bool,
         #[case] expected_image_url: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let source = source(consent, prohibited_content)?;
+        let source = source(consent, content_policy)?;
         let data = template_data(&source, EmailLanguage::En, None);
 
         assert_eq!(expected_image_url, data["image_url"].as_str());
@@ -653,8 +671,8 @@ mod tests {
     }
 
     fn source(
-        prohibited_content_consent: bool,
-        prohibited_content: Option<&str>,
+        show_unassessed_or_sensitive_content: bool,
+        content_policy: Option<ContentPolicyDecision>,
     ) -> Result<NotificationDeliverySource, Box<dyn std::error::Error>> {
         Ok(NotificationDeliverySource {
             notification_delivery_id: NotificationDeliveryId::new(),
@@ -672,14 +690,8 @@ mod tests {
                     product_listing_slug_id: ProductListingSlugId::from("product"),
                     shop_name: ShopName::from("Test Shop"),
                     title: None,
-                    image: prohibited_content
-                        .map(|prohibited_content| {
-                            serde_json::from_value(serde_json::json!({
-                                "url": "https://shop.example/image.jpg",
-                                "prohibited_content": prohibited_content,
-                            }))
-                        })
-                        .transpose()?,
+                    image: Some(Url::parse("https://shop.example/image.jpg")?),
+                    content_policy,
                     url: Url::parse("https://shop.example/product")?,
                     view_url: Url::parse("https://aura-historia.example/product")?,
                 },
@@ -690,7 +702,7 @@ mod tests {
             },
             presentation_preferences: NotificationPresentationPreferences {
                 language: Language::En,
-                prohibited_content_consent,
+                show_unassessed_or_sensitive_content,
             },
         })
     }

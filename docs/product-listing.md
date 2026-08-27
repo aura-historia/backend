@@ -162,6 +162,16 @@ Public listing discovery contains active listings only. Withdrawn listings are n
 
 OpenSearch stores an active listing document with optional availability. Concrete availability serializes as its canonical code; absent availability omits the field. Missing availability queries use `must_not exists`; `UNKNOWN` is never indexed.
 
+## Content assessment and image visibility
+
+`ProductListingImage` is a URL-only source fact. It carries no classification, consent, or assessment lifecycle.
+
+Listing text is assessed asynchronously after each committed `PRODUCT_LISTING_CREATED` event, the sole current text source. PostgreSQL stores the optional listing-level result in `product_listing_content_assessments`, guarded by its `source_event_id`: a row is current only when it equals `product_listings.content_source_event_id`. Price, availability, URL, images, lifecycle, and enrichment revisions do not invalidate it. A future title/description event must advance `content_source_event_id` and route content assessment. Missing or stale rows mean unassessed.
+
+`ContentPolicyDecision` is either `ALLOWED` or `REQUIRES_CONSENT(NAZI_GERMANY)`. There is no `UNKNOWN` or `NONE` policy/category value. The pure visibility rule is centralized in `product-listing-core`: callers without the stored `show_unassessed_or_sensitive_content` preference see image URLs only for a current `ALLOWED` assessment. Opted-in users see URLs for allowed, sensitive, and unassessed listings. Presentation retains image order/cardinality and redacts a hidden URL as `null`.
+
+Assessment is enrichment, not aggregate state: it does not block source ingestion, append ProductListing events, modify the listing revision, or enter OpenSearch. Crawler, provider, and partner boundaries submit URLs only. OpenSearch keeps raw URLs for internal matching/search and has no content-policy fields.
+
 ## Source anti-corruption rules
 
 Crawler normalization is boundary-local:

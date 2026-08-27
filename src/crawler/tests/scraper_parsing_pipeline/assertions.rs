@@ -142,7 +142,7 @@ pub async fn assert_normalized(
         "availability"
     );
     assert_eq!(result.url.as_str(), expected.url, "url");
-    let result_image_urls: Vec<&str> = result.images.iter().map(|i| i.url.as_str()).collect();
+    let result_image_urls: Vec<&str> = result.images.iter().map(|i| i.url().as_str()).collect();
     let expected_images: Vec<&str> = expected.images.iter().map(|i| i.as_str()).collect();
     assert_eq!(result_image_urls, expected_images, "images");
     assert_eq!(

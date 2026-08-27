@@ -8,7 +8,7 @@ use product_listing_service::ports::{
     CompiledProductListingSearch, ProductListingSimilarProductListingsReadError,
     ProductListingSimilarProductListingsReader, ProductListingSimilarProductListingsRequest,
 };
-use product_listing_service::use_cases::ProductListingSummary;
+
 use serde_json::json;
 
 const DEFAULT_INDEX: &str = "product-listings";
@@ -44,7 +44,10 @@ impl ProductListingSimilarProductListingsReader
     async fn find_similar_product_listings(
         &self,
         request: &ProductListingSimilarProductListingsRequest,
-    ) -> Result<Vec<ProductListingSummary>, ProductListingSimilarProductListingsReadError> {
+    ) -> Result<
+        Vec<product_listing_service::use_cases::ProductListingSearchItem>,
+        ProductListingSimilarProductListingsReadError,
+    > {
         let response = self
             .client
             .search(SearchParts::Index(&[self.index.as_str()]))

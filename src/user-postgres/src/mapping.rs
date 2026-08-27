@@ -29,7 +29,7 @@ pub(crate) struct UserRow {
     pub language: Option<String>,
     pub currency: Option<String>,
     pub measurement_unit: Option<String>,
-    pub prohibited_content_consent: bool,
+    pub show_unassessed_or_sensitive_content: bool,
     pub tier: String,
     pub role: String,
     pub stripe_customer_id: Option<String>,
@@ -47,7 +47,7 @@ pub(crate) struct UserRow {
 }
 
 pub(crate) fn user_columns() -> &'static str {
-    "user_id, email, first_name, last_name, language, currency, measurement_unit, prohibited_content_consent, tier, role, stripe_customer_id, structured_address_addressline, structured_address_addressline_extra, structured_address_locality, structured_address_region, structured_address_postal_code, structured_address_country, geo_address_lat, geo_address_lon, version, created, updated"
+    "user_id, email, first_name, last_name, language, currency, measurement_unit, show_unassessed_or_sensitive_content, tier, role, stripe_customer_id, structured_address_addressline, structured_address_addressline_extra, structured_address_locality, structured_address_region, structured_address_postal_code, structured_address_country, geo_address_lat, geo_address_lon, version, created, updated"
 }
 
 impl TryFrom<UserRow> for VersionedUser {
@@ -79,7 +79,7 @@ impl TryFrom<UserRow> for UserDetailsView {
             language: parse_optional_language(row.language.as_deref())?,
             currency: parse_optional_currency(row.currency.as_deref())?,
             measurement_unit: parse_optional_measurement_unit(row.measurement_unit.as_deref())?,
-            prohibited_content_consent: row.prohibited_content_consent,
+            show_unassessed_or_sensitive_content: row.show_unassessed_or_sensitive_content,
             tier: parse_tier(&row.tier)?,
             role: parse_role(&row.role)?,
             stripe_customer_id: row.stripe_customer_id.clone().map(StripeCustomerId::from),
@@ -217,7 +217,7 @@ fn preferences_from_row(row: &UserRow) -> Result<UserPreferences, UserRowMapping
         language: parse_optional_language(row.language.as_deref())?,
         currency: parse_optional_currency(row.currency.as_deref())?,
         measurement_unit: parse_optional_measurement_unit(row.measurement_unit.as_deref())?,
-        prohibited_content_consent: row.prohibited_content_consent,
+        show_unassessed_or_sensitive_content: row.show_unassessed_or_sensitive_content,
     })
 }
 
@@ -573,7 +573,7 @@ mod tests {
             language: Some("en".to_owned()),
             currency: Some("GBP".to_owned()),
             measurement_unit: Some("IMPERIAL".to_owned()),
-            prohibited_content_consent: true,
+            show_unassessed_or_sensitive_content: true,
             tier: "PRO".to_owned(),
             role: "ADMIN".to_owned(),
             stripe_customer_id: Some("cus_test".to_owned()),

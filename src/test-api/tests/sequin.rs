@@ -51,7 +51,7 @@ async fn insert_product_event_under_test(pool: &sqlx::PgPool) {
         .execute(&mut *transaction)
         .await
         .unwrap_or_else(|error| panic!("failed to insert Sequin test shop: {error}"));
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Sequin test product', 'en', NULL, 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $4, $5, 'Sequin test product', 'en', NULL, 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_listing_id)
         .bind(format!("sequin-test-product-{product_listing_id}"))
         .bind(event_id)

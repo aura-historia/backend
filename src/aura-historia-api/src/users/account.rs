@@ -82,9 +82,9 @@ fn into_command(
         language: clearable(data.language),
         currency: clearable(data.currency),
         measurement_unit: clearable(data.measurement_unit),
-        prohibited_content_consent: non_nullable_patch(
-            data.prohibited_content_consent,
-            "prohibitedContentConsent",
+        show_unassessed_or_sensitive_content: non_nullable_patch(
+            data.show_unassessed_or_sensitive_content,
+            "showUnassessedOrSensitiveContent",
         )?,
         structured_address: clearable(data.structured_address.map(Into::into)),
     })

@@ -34,7 +34,7 @@ pub(crate) struct OwnUserData {
         with = "crate::wire::measurement_unit::option"
     )]
     pub(crate) measurement_unit: Option<MeasurementUnit>,
-    pub(crate) prohibited_content_consent: bool,
+    pub(crate) show_unassessed_or_sensitive_content: bool,
     #[serde(with = "crate::wire::user_tier")]
     pub(crate) tier: UserTier,
     #[serde(with = "crate::wire::user_role")]
@@ -57,7 +57,7 @@ impl From<UserDetailsView> for OwnUserData {
             language: view.language,
             currency: view.currency,
             measurement_unit: view.measurement_unit,
-            prohibited_content_consent: view.prohibited_content_consent,
+            show_unassessed_or_sensitive_content: view.show_unassessed_or_sensitive_content,
             tier: view.tier,
             role: view.role,
             stripe_customer_id: view.stripe_customer_id,
@@ -91,7 +91,7 @@ pub(crate) struct AdminUserData {
         with = "crate::wire::measurement_unit::option"
     )]
     pub(crate) measurement_unit: Option<MeasurementUnit>,
-    pub(crate) prohibited_content_consent: bool,
+    pub(crate) show_unassessed_or_sensitive_content: bool,
     #[serde(with = "crate::wire::user_tier")]
     pub(crate) tier: UserTier,
     #[serde(with = "crate::wire::user_role")]
@@ -114,7 +114,7 @@ impl From<UserDetailsView> for AdminUserData {
             language: view.language,
             currency: view.currency,
             measurement_unit: view.measurement_unit,
-            prohibited_content_consent: view.prohibited_content_consent,
+            show_unassessed_or_sensitive_content: view.show_unassessed_or_sensitive_content,
             tier: view.tier,
             role: view.role,
             stripe_customer_id: view.stripe_customer_id,
@@ -188,7 +188,7 @@ pub(crate) struct PatchOwnUserData {
     )]
     pub(crate) measurement_unit: PatchValue<MeasurementUnit>,
     #[serde(default)]
-    pub(crate) prohibited_content_consent: PatchValue<bool>,
+    pub(crate) show_unassessed_or_sensitive_content: PatchValue<bool>,
     #[serde(default)]
     pub(crate) structured_address: PatchValue<StructuredAddressData>,
 }
@@ -218,7 +218,7 @@ pub(crate) struct PatchAdminUserData {
     )]
     pub(crate) measurement_unit: PatchValue<MeasurementUnit>,
     #[serde(default)]
-    pub(crate) prohibited_content_consent: PatchValue<bool>,
+    pub(crate) show_unassessed_or_sensitive_content: PatchValue<bool>,
     #[serde(
         default,
         deserialize_with = "crate::wire::user_tier::patch::deserialize"

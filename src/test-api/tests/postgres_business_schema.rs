@@ -191,6 +191,7 @@ async fn should_support_core_business_relations() {
             product_listing_id,
             product_listing_slug_id,
             event_id,
+            content_source_event_id,
             shop_id,
             seller_id,
             shop_listing_id,
@@ -205,6 +206,7 @@ async fn should_support_core_business_relations() {
             '30000000-0000-0000-0000-000000000001',
             'product-one',
             '40000000-0000-0000-0000-000000000001',
+            '40000000-0000-0000-0000-000000000001',
             '20000000-0000-0000-0000-000000000001',
             '20000000-0000-0000-0000-000000000001',
             'external-1',
@@ -213,7 +215,7 @@ async fn should_support_core_business_relations() {
             NULL,
             'ACTIVE',
             'https://shop.example.com/product_listings/external-1',
-            '[{"url": "https://cdn.example.com/image.jpg", "prohibited_content": "NONE"}]'
+            '["https://cdn.example.com/image.jpg"]'
         );
 
         INSERT INTO product_listing_events (

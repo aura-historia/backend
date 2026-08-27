@@ -331,7 +331,6 @@ struct PriceSnapshot {
 #[derive(Debug, serde::Serialize)]
 struct ProductListingImageSnapshot {
     url: String,
-    prohibited_content: String,
 }
 
 impl From<&ProductListingPushItem> for UpsertCommandSnapshot {
@@ -400,8 +399,7 @@ fn snapshot_images_patch(
             value: images
                 .iter()
                 .map(|image| ProductListingImageSnapshot {
-                    url: image.url.to_string(),
-                    prohibited_content: image.prohibited_content.as_str().to_owned(),
+                    url: image.url().to_string(),
                 })
                 .collect(),
         },
@@ -819,11 +817,9 @@ mod tests {
         let service = ProductListingPushServiceImpl::new(use_case, 1);
         let mut first = push_item()?;
         first.command.images = PatchField::Set(IndexSet::from([
-            product_listing_core::product_listing_image::ProductListingImage {
-                url: Url::parse("https://example.com/image.jpg")?,
-                prohibited_content:
-                    product_listing_core::prohibited_content::ProhibitedContent::None,
-            },
+            product_listing_core::product_listing_image::ProductListingImage::new(Url::parse(
+                "https://example.com/image.jpg",
+            )?),
         ]));
         let mut second = first.clone();
         second.command.images = PatchField::Set(IndexSet::new());

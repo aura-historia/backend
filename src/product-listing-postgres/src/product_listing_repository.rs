@@ -20,7 +20,7 @@ use product_listing_core::product_listing::{
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::prohibited_content::ProhibitedContent;
+
 use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_core::title::Title;
 use product_listing_service::ports::product_listing_repository::{
@@ -80,9 +80,9 @@ struct ProductListingRow {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ProductListingImageJson {
     url: String,
-    prohibited_content: String,
 }
 
 impl SqlxProductListingRepositoryFactory {
@@ -194,7 +194,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         sqlx::query(
             r#"
             INSERT INTO product_listings (
-                product_listing_id, product_listing_slug_id, event_id, shop_id, seller_id, shop_listing_id,
+                product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id,
                 structured_address_addressline, structured_address_addressline_extra,
                 structured_address_locality, structured_address_region, structured_address_postal_code,
                 structured_address_country, geo_address_lat, geo_address_lon, title_text,
@@ -204,7 +204,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url,
                 product_images, auction_start, auction_end
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+                $1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
                 $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32
             )
             "#,
@@ -568,8 +568,7 @@ fn images_to_json(images: &IndexSet<ProductListingImage>) -> Result<serde_json::
     let images = images
         .iter()
         .map(|image| ProductListingImageJson {
-            url: image.url.to_string(),
-            prohibited_content: image.prohibited_content.as_str().to_owned(),
+            url: image.url().to_string(),
         })
         .collect::<Vec<_>>();
     serde_json::to_value(images).map_err(|_| ())
@@ -583,12 +582,9 @@ fn images_from_json(
     images
         .into_iter()
         .map(|image| {
-            Ok(ProductListingImage {
-                url: Url::parse(&image.url).map_err(|_| {
-                    ProductListingRepositoryError::InvalidProductListingImageUrlPersisted
-                })?,
-                prohibited_content: parse_prohibited_content(&image.prohibited_content)?,
-            })
+            Ok(ProductListingImage::new(Url::parse(&image.url).map_err(
+                |_| ProductListingRepositoryError::InvalidProductListingImageUrlPersisted,
+            )?))
         })
         .collect()
 }
@@ -632,13 +628,6 @@ fn parse_listing_availability(
 fn parse_listing_lifecycle(value: &str) -> Result<ListingLifecycle, ProductListingRepositoryError> {
     ListingLifecycle::from_code(value)
         .ok_or(ProductListingRepositoryError::InvalidListingLifecyclePersisted)
-}
-
-fn parse_prohibited_content(
-    value: &str,
-) -> Result<ProhibitedContent, ProductListingRepositoryError> {
-    ProhibitedContent::from_code(value)
-        .ok_or(ProductListingRepositoryError::InvalidProductListingImageProhibitedContentPersisted)
 }
 
 struct ProductListingLookupByIdSqlxError(sqlx::Error);
@@ -832,16 +821,12 @@ mod tests {
             Err(ProductListingRepositoryError::InvalidProductListingImagesPersisted)
         ));
         assert!(matches!(
-            images_from_json(json!([{ "url": "not a url", "prohibited_content": "NONE" }])),
+            images_from_json(json!([{ "url": "not a url" }])),
             Err(ProductListingRepositoryError::InvalidProductListingImageUrlPersisted)
         ));
         assert!(matches!(
-            images_from_json(
-                json!([{ "url": "https://example.com/a.jpg", "prohibited_content": "BAD" }])
-            ),
-            Err(
-                ProductListingRepositoryError::InvalidProductListingImageProhibitedContentPersisted
-            )
+            images_from_json(json!([{ "url": "https://example.com/a.jpg", "extra": "BAD" }])),
+            Err(ProductListingRepositoryError::InvalidProductListingImagesPersisted)
         ));
     }
 
@@ -856,9 +841,6 @@ mod tests {
         assert_eq!(None, parse_availability(None));
         for lifecycle in ListingLifecycle::iter() {
             assert_eq!(lifecycle, parse_lifecycle(lifecycle.as_str()));
-        }
-        for content in ProhibitedContent::iter() {
-            assert_eq!(content, parse_prohibited(content.as_str()));
         }
     }
 
@@ -892,13 +874,6 @@ mod tests {
         match parse_listing_lifecycle(value) {
             Ok(lifecycle) => lifecycle,
             Err(error) => panic!("failed to parse lifecycle: {error:?}"),
-        }
-    }
-
-    fn parse_prohibited(value: &str) -> ProhibitedContent {
-        match parse_prohibited_content(value) {
-            Ok(content) => content,
-            Err(error) => panic!("failed to parse prohibited content: {error:?}"),
         }
     }
 
@@ -937,7 +912,7 @@ mod tests {
             availability: Some("AVAILABLE".to_owned()),
             lifecycle: "ACTIVE".to_owned(),
             url: "https://example.com/unit-product".to_owned(),
-            product_images: json!([{ "url": "https://example.com/unit-product.jpg", "prohibited_content": "NONE" }]),
+            product_images: json!([{ "url": "https://example.com/unit-product.jpg" }]),
             embedding: None,
             auction_start: None,
             auction_end: None,

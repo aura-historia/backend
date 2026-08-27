@@ -635,6 +635,7 @@ mod tests {
                 url: url.clone(),
                 view_url: url,
                 images: Default::default(),
+                content_policy: None,
                 auction: ProductListingAuction::default(),
                 created: OffsetDateTime::UNIX_EPOCH,
                 updated: OffsetDateTime::UNIX_EPOCH,
