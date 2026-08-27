@@ -46,6 +46,49 @@ CREATE TABLE parties (
     CONSTRAINT parties_version_positive CHECK (version >= 1)
 );
 
+CREATE TABLE listing_sources (
+    listing_source_id uuid PRIMARY KEY,
+    listing_source_slug_id text NOT NULL UNIQUE,
+    name text NOT NULL,
+    operator_party_id uuid NOT NULL REFERENCES parties(party_id) ON DELETE RESTRICT,
+    url text,
+    image text,
+    referral_configuration jsonb,
+    version bigint NOT NULL DEFAULT 1,
+    created timestamptz NOT NULL DEFAULT now(),
+    updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT listing_sources_referral_configuration_object CHECK (referral_configuration IS NULL OR jsonb_typeof(referral_configuration) = 'object'),
+    CONSTRAINT listing_sources_version_positive CHECK (version >= 1)
+);
+
+CREATE TABLE listing_source_acquisition_methods (
+    listing_source_id uuid NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
+    acquisition_method text NOT NULL,
+    PRIMARY KEY (listing_source_id, acquisition_method),
+    CONSTRAINT listing_source_acquisition_methods_check CHECK (acquisition_method IN ('WEB_CRAWL', 'SHOPIFY', 'WOOCOMMERCE', 'PARTNER_API'))
+);
+
+CREATE TABLE listing_source_shopify_configurations (
+    listing_source_id uuid PRIMARY KEY REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
+    domain text NOT NULL UNIQUE,
+    currency text,
+    language text,
+    CONSTRAINT listing_source_shopify_currency_check CHECK (currency IS NULL OR currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT listing_source_shopify_language_check CHECK (language IS NULL OR language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar'))
+);
+
+CREATE TABLE listing_source_woocommerce_configurations (
+    listing_source_id uuid PRIMARY KEY REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
+    webhook_secret text,
+    currency text,
+    language text,
+    CONSTRAINT listing_source_woocommerce_currency_check CHECK (currency IS NULL OR currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT listing_source_woocommerce_language_check CHECK (language IS NULL OR language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar'))
+);
+
+CREATE INDEX listing_sources_operator_party_id_idx ON listing_sources (operator_party_id);
+CREATE INDEX listing_source_acquisition_methods_method_idx ON listing_source_acquisition_methods (acquisition_method, listing_source_id);
+
 CREATE TABLE shops (
     shop_id uuid PRIMARY KEY,
     shop_slug_id text NOT NULL UNIQUE,

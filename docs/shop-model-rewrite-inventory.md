@@ -7,6 +7,13 @@
 - `develop` and `origin/develop` were the same starting commit. Fetch succeeded; no rebase was needed.
 - Iteration 0 changed documentation only. Iteration 1 adds the isolated Party vertical slice below; it does not change existing Shop consumers or begin cutover.
 
+## Iteration 2 ListingSource slice
+
+- `listing-source-core`, `listing-source-service`, and `listing-source-postgres` add an isolated listing acquisition source owned by a Party.
+- The source has stable slug/name, acquisition methods, presentation/referral behavior, and provider-specific PostgreSQL configuration. Provider secrets stay adapter-private.
+- New Party operators and ListingSource persist atomically in one service-owned PostgreSQL transaction. Existing Shop flows and runtime composition remain untouched.
+- Party-based provider/grant ports are intentionally unwired: old grants bind users to legacy Shops, not Parties. Composition-root cutover is Iteration 5 after the Party grant model exists; Iteration 2 must not couple ListingSource back to Shop.
+
 ## Iteration 1 Party slice
 
 - `party-core`, `party-service`, and `party-postgres` establish Party identity, stable slug, name, and optional phone/email contact.

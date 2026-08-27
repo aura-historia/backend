@@ -4281,6 +4281,68 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
+name = "listing-source-core"
+version = "0.1.0"
+dependencies = [
+ "domain-primitives",
+ "party-core",
+ "percent-encoding",
+ "slug",
+ "strum 0.28.0",
+ "strum_macros 0.28.0",
+ "thiserror 2.0.20",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "listing-source-postgres"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "listing-source-core",
+ "listing-source-service",
+ "localization",
+ "money",
+ "openssl",
+ "party-core",
+ "platform-postgres",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "strum 0.28.0",
+ "test-api",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "listing-source-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain-primitives",
+ "fake",
+ "listing-source-core",
+ "localization",
+ "money",
+ "party-core",
+ "party-service",
+ "serde",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "user-service",
+]
+
+[[package]]
 name = "litemap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
