@@ -113,12 +113,12 @@ fn content_title(
         (Some(text), Some(language)) => {
             parse_language(&language)?;
             let title = Title::from(text.as_str());
-            if title.as_ref().is_empty() || title.as_ref() != text {
+            if title.as_ref() != text {
                 return Err(mapping_error(
                     "persisted product content assessment title is invalid",
                 ));
             }
-            Ok(Some(title))
+            Ok((!title.as_ref().is_empty()).then_some(title))
         }
         (None, None) => Ok(None),
         _ => Err(mapping_error(
@@ -135,12 +135,12 @@ fn content_description(
         (Some(text), Some(language)) => {
             parse_language(&language)?;
             let description = Description::from(text.as_str());
-            if description.as_ref().is_empty() || description.as_ref() != text {
+            if description.as_ref() != text {
                 return Err(mapping_error(
                     "persisted product content assessment description is invalid",
                 ));
             }
-            Ok(Some(description))
+            Ok((!description.as_ref().is_empty()).then_some(description))
         }
         (None, None) => Ok(None),
         _ => Err(mapping_error(
@@ -166,6 +166,18 @@ fn mapping_error(message: &'static str) -> ProductListingContentAssessmentSource
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_normalize_empty_content_assessment_source_text_to_absence() {
+        assert!(matches!(
+            content_title(Some(String::new()), Some("en".to_owned())),
+            Ok(None)
+        ));
+        assert!(matches!(
+            content_description(Some(String::new()), Some("en".to_owned())),
+            Ok(None)
+        ));
+    }
 
     #[test]
     fn should_reject_noncanonical_content_assessment_source_language() {

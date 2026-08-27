@@ -385,6 +385,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_classify_sensitive_description_without_title() {
+        let state = state();
+        {
+            let mut state = lock(&state);
+            state.source.title = None;
+            state.source.description = Some(Description::from("Nazi memorabilia"));
+        }
+
+        let result = handler(&state).execute(&context(), command(&state)).await;
+
+        assert!(matches!(
+            result,
+            Ok(AssessProductListingContentEventResult {
+                outcome: AssessProductListingContentEventOutcome::Applied
+            })
+        ));
+        assert!(matches!(
+            lock(&state).writes.as_slice(),
+            [ProductListingContentAssessmentWrite {
+                decision: Some(
+                    product_listing_core::content_policy::ContentPolicyDecision::RequiresConsent(
+                        product_listing_core::content_policy::SensitiveContentCategory::NaziGermany
+                    )
+                ),
+                ..
+            }]
+        ));
+    }
+
+    #[tokio::test]
     async fn should_assess_current_content_after_generic_price_or_enrichment_revision() {
         let state = state();
         let result = handler(&state).execute(&context(), command(&state)).await;

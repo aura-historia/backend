@@ -326,9 +326,7 @@ impl UpsertProductListingCommand {
             seller_id: self.seller_id,
             shop_listing_id: self.shop_listing_id,
             address: self.address,
-            title: self
-                .title
-                .or_else(|| Some(Localized::new(Language::En, Title::from("")))),
+            title: self.title,
             description: self.description,
             pricing: ProductListingPricing {
                 price: match self.price {
@@ -708,6 +706,15 @@ mod tests {
             listing.pending_event_payloads(),
             [ProductListingEventPayload::AuctionChanged(change)] if change.auction == new
         ));
+    }
+
+    #[test]
+    fn should_preserve_absent_title_when_creating_listing() {
+        let new_listing = command(PatchField::Unchanged)
+            .into_new_product(ProductListingId::new())
+            .unwrap_or_else(|error| panic!("new listing: {error}"));
+
+        assert!(new_listing.title.is_none());
     }
 
     #[test]

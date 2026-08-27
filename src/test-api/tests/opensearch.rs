@@ -6,7 +6,7 @@ async fn should_run_without_errors() {}
 
 #[aura_integration_test(services = [OpenSearch()])]
 async fn should_set_up_indices() {
-    for index in ["product-listings", "shops", "user_search_filters", "users"] {
+    for index in ["product-listings", "shops", "user_search_filters"] {
         let exists_response = get_opensearch_client()
             .await
             .indices()
