@@ -1,11 +1,18 @@
-# Shop model rewrite: iteration 0 inventory
+# Shop model rewrite: iteration 0 inventory and iteration 1 Party slice
 
 ## Record
 
 - Starting commit: `e03104c38f32a8155430ba3c3f84771581d56672` (`task(#1642): prohibited-content revision (#1648)`).
 - Branch: `epic/#1437-shop-model-rewrite`.
 - `develop` and `origin/develop` were the same starting commit. Fetch succeeded; no rebase was needed.
-- Iteration 0 changes documentation only. No production, schema, API, or dependency change is authorized here.
+- Iteration 0 changed documentation only. Iteration 1 adds the isolated Party vertical slice below; it does not change existing Shop consumers or begin cutover.
+
+## Iteration 1 Party slice
+
+- `party-core`, `party-service`, and `party-postgres` establish Party identity, stable slug, name, and optional phone/email contact.
+- PostgreSQL `parties` is authoritative and uses optimistic `version`; aggregate state excludes timestamps and version.
+- Party create, update, and internal details use cases require the existing service-layer admin-or-internal policy and service-owned transactions.
+- No API route, Shop consumer, event, projection, Party role/type/lifecycle/merge/address, or Shop-to-Party cutover is included.
 
 ## Scope lock
 
@@ -45,7 +52,7 @@
 
 ### SQL
 
-- `migrations/20260725090000_initial_business_schema.sql` owns `shops`, `user_partner_shops`, and `partner_shop_applications`; their lifecycle, partner, integration, version, foreign-key, and application-state constraints are material.
+- `migrations/20260725090000_initial_business_schema.sql` owns `parties`, `shops`, `user_partner_shops`, and `partner_shop_applications`; Party has stable unique slug, optional phone/email contact, and optimistic version. Shop lifecycle, partner, integration, version, foreign-key, and application-state constraints remain material.
 - `product_listings` has required `shop_id` and `seller_id` foreign keys to `shops`; its unique `(shop_id, shop_listing_id)` key makes shop identity part of listing identity.
 - Related material tables: `product_listing_events`, translations, assessments, `product_listing_watchlist`, `search_filters`, `search_filter_matches`, `notifications`, and `notification_deliveries`.
 - Any later schema edit must review Sequin consumers and use expand/contract where practical. PostgreSQL stays authoritative; no synchronous OpenSearch write joins the SQL transaction.

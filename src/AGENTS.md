@@ -138,6 +138,9 @@
 - `src/shop-core/AGENTS.md` — canonical Shop domain crate.
 - `src/shop-service/AGENTS.md` — canonical Shop service crate.
 - `src/shop-postgres/AGENTS.md` — canonical Shop Postgres adapter crate.
+- `src/party-core/AGENTS.md` — canonical Party domain crate.
+- `src/party-service/AGENTS.md` — canonical Party service crate.
+- `src/party-postgres/AGENTS.md` — canonical Party PostgreSQL adapter crate.
 - `src/shop-partner-core/AGENTS.md` — canonical Partner Shop Application domain crate.
 - `src/shop-partner-service/AGENTS.md` — canonical Partner Shop Application service crate.
 - `src/shop-partner-postgres/AGENTS.md` — canonical Partner Shop Application Postgres adapter crate.

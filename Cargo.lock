@@ -4972,6 +4972,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "party-core"
+version = "0.1.0"
+dependencies = [
+ "domain-primitives",
+ "serde-email",
+ "slug",
+ "thiserror 2.0.20",
+ "uuid",
+]
+
+[[package]]
+name = "party-postgres"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "party-core",
+ "party-service",
+ "platform-postgres",
+ "serde-email",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "party-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain-primitives",
+ "fake",
+ "party-core",
+ "serde",
+ "serde-email",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tracing",
+ "user-service",
+]
+
+[[package]]
 name = "pathdiff"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

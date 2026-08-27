@@ -1,0 +1,15 @@
+[package]
+name = "party-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+domain-primitives = { workspace = true }
+serde-email = { workspace = true }
+slug = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[features]
+default = []
+test-data = ["domain-primitives/test-data"]

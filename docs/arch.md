@@ -1728,6 +1728,7 @@ Every dataset MUST have one documented operational owner.
 PostgreSQL owns business truth for:
 
 * users;
+* parties;
 * shops;
 * partner-shop applications;
 * product listings;

@@ -34,6 +34,18 @@ CREATE TABLE users (
 
 CREATE INDEX users_created_idx ON users (created DESC);
 
+CREATE TABLE parties (
+    party_id uuid PRIMARY KEY,
+    party_slug_id text NOT NULL UNIQUE,
+    name text NOT NULL,
+    phone text,
+    email text,
+    version bigint NOT NULL DEFAULT 1,
+    created timestamptz NOT NULL DEFAULT now(),
+    updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT parties_version_positive CHECK (version >= 1)
+);
+
 CREATE TABLE shops (
     shop_id uuid PRIMARY KEY,
     shop_slug_id text NOT NULL UNIQUE,

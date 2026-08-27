@@ -1,0 +1,24 @@
+[package]
+name = "party-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+domain-primitives = { workspace = true }
+fake = { workspace = true, optional = true }
+party-core = { workspace = true }
+serde = { workspace = true }
+serde-email = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+user-service = { workspace = true }
+
+[features]
+default = []
+test-data = ["fake"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
