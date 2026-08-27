@@ -74,13 +74,6 @@ impl Notification {
     pub fn mark_seen(&mut self, seen: bool) {
         self.seen = seen;
     }
-    pub fn set_product_listing_content_policy(
-        &mut self,
-        content_policy: Option<ContentPolicyDecision>,
-    ) {
-        self.content
-            .set_product_listing_content_policy(content_policy);
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -162,18 +155,6 @@ impl NotificationContent {
                 product_listing_id, ..
             } => Some(*product_listing_id),
             Self::PartnerApplication { .. } => None,
-        }
-    }
-
-    pub fn set_product_listing_content_policy(
-        &mut self,
-        content_policy: Option<ContentPolicyDecision>,
-    ) {
-        match self {
-            Self::Watchlist { snapshot, .. } | Self::SearchFilter { snapshot, .. } => {
-                snapshot.content_policy = content_policy;
-            }
-            Self::PartnerApplication { .. } => {}
         }
     }
 

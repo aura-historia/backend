@@ -1,6 +1,6 @@
 use crate::{
     delivery_mapping::channel_from_persisted,
-    mapping::{NotificationRow, content_policy_from_assessment, mapping_error},
+    mapping::{NotificationRow, mapping_error},
 };
 use application::error::box_error;
 use localization::Language;
@@ -61,8 +61,6 @@ struct DeliverySourceRow {
     seen: bool,
     created: OffsetDateTime,
     updated: OffsetDateTime,
-    content_policy_decision: Option<String>,
-    content_policy_category: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -116,7 +114,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
 
         let claimed = claimed_from_row(row)?;
         let source = sqlx::query_as::<_, DeliverySourceRow>(
-            "SELECT d.notification_delivery_id, d.channel, d.target_key, u.language, u.show_unassessed_or_sensitive_content, n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_listing_id, n.user_search_filter_id, n.partner_shop_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated, a.decision AS content_policy_decision, a.category AS content_policy_category FROM notification_deliveries d JOIN notifications n ON n.notification_id = d.notification_id JOIN users u ON u.user_id = n.user_id LEFT JOIN product_listings p ON p.product_listing_id = n.product_listing_id LEFT JOIN product_listing_content_assessments a ON a.product_listing_id = p.product_listing_id AND a.source_event_id = p.content_source_event_id WHERE d.notification_delivery_id = $1",
+            "SELECT d.notification_delivery_id, d.channel, d.target_key, u.language, u.show_unassessed_or_sensitive_content, n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_listing_id, n.user_search_filter_id, n.partner_shop_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notification_deliveries d JOIN notifications n ON n.notification_id = d.notification_id JOIN users u ON u.user_id = n.user_id WHERE d.notification_delivery_id = $1",
         )
         .bind(Uuid::from(notification_delivery_id))
         .fetch_optional(&mut *transaction)
@@ -212,32 +210,23 @@ fn claimed_from_row(
 fn source_from_row(
     row: DeliverySourceRow,
 ) -> Result<NotificationDeliverySource, NotificationDeliveryError> {
-    let content_policy = content_policy_from_assessment(
-        row.content_policy_decision.clone(),
-        row.content_policy_category.clone(),
-    )
+    let notification = notification_core::notification::Notification::try_from(NotificationRow {
+        notification_id: row.notification_id,
+        user_id: row.user_id,
+        kind: row.kind,
+        origin_event_id: row.origin_event_id,
+        product_listing_id: row.product_listing_id,
+        user_search_filter_id: row.user_search_filter_id,
+        partner_shop_application_id: row.partner_shop_application_id,
+        payload_version: row.payload_version,
+        payload: row.payload,
+        seen: row.seen,
+        created: row.created,
+        updated: row.updated,
+    })
     .map_err(|error| NotificationDeliveryError::InvalidPersistedState {
         source: mapping_error(error),
     })?;
-    let mut notification =
-        notification_core::notification::Notification::try_from(NotificationRow {
-            notification_id: row.notification_id,
-            user_id: row.user_id,
-            kind: row.kind,
-            origin_event_id: row.origin_event_id,
-            product_listing_id: row.product_listing_id,
-            user_search_filter_id: row.user_search_filter_id,
-            partner_shop_application_id: row.partner_shop_application_id,
-            payload_version: row.payload_version,
-            payload: row.payload,
-            seen: row.seen,
-            created: row.created,
-            updated: row.updated,
-        })
-        .map_err(|error| NotificationDeliveryError::InvalidPersistedState {
-            source: mapping_error(error),
-        })?;
-    notification.set_product_listing_content_policy(content_policy);
 
     Ok(NotificationDeliverySource {
         notification_delivery_id: NotificationDeliveryId::from(row.notification_delivery_id),

@@ -30,14 +30,6 @@ impl ContentPolicyDecision {
             Self::RequiresConsent(_) => "REQUIRES_CONSENT",
         }
     }
-
-    pub fn from_code(value: &str) -> Option<Self> {
-        match value {
-            "ALLOWED" => Some(Self::Allowed),
-            "REQUIRES_CONSENT" => None,
-            _ => None,
-        }
-    }
 }
 
 pub fn may_show_product_listing_images(
@@ -299,13 +291,7 @@ mod tests {
             SensitiveContentCategory::NaziGermany.as_str(),
             "NAZI_GERMANY"
         );
-        assert_eq!(
-            ContentPolicyDecision::from_code("ALLOWED"),
-            Some(ContentPolicyDecision::Allowed)
-        );
-        assert_eq!(ContentPolicyDecision::from_code("allowed"), None);
-        assert_eq!(ContentPolicyDecision::from_code("UNKNOWN"), None);
-        assert_eq!(ContentPolicyDecision::from_code("NONE"), None);
+
         assert_eq!(
             SensitiveContentCategory::from_code("NAZI_GERMANY"),
             Some(SensitiveContentCategory::NaziGermany)

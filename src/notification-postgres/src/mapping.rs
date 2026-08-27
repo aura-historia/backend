@@ -237,19 +237,6 @@ impl TryFrom<ProductListingNotificationSnapshotV1> for ProductListingNotificatio
     }
 }
 
-pub(crate) fn content_policy_from_assessment(
-    decision: Option<String>,
-    category: Option<String>,
-) -> Result<Option<ContentPolicyDecision>, NotificationMappingError> {
-    match (decision, category) {
-        (None, None) => Ok(None),
-        (Some(decision), category) => PersistedContentPolicyDecision { decision, category }
-            .try_into()
-            .map(Some),
-        (None, Some(_)) => Err(NotificationMappingError::InvalidContentPolicy),
-    }
-}
-
 impl From<ContentPolicyDecision> for PersistedContentPolicyDecision {
     fn from(decision: ContentPolicyDecision) -> Self {
         match decision {
@@ -689,22 +676,6 @@ mod tests {
             }))
             .is_err()
         );
-    }
-
-    #[test]
-    fn should_decode_current_assessment_strictly() {
-        assert!(matches!(
-            content_policy_from_assessment(Some("ALLOWED".to_owned()), None),
-            Ok(Some(ContentPolicyDecision::Allowed))
-        ));
-        assert!(
-            content_policy_from_assessment(
-                Some("REQUIRES_CONSENT".to_owned()),
-                Some("UNKNOWN".to_owned()),
-            )
-            .is_err()
-        );
-        assert!(content_policy_from_assessment(None, Some("NAZI_GERMANY".to_owned())).is_err());
     }
 
     #[test]

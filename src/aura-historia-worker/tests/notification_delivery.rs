@@ -732,7 +732,7 @@ fn notification_payload() -> serde_json::Value {
             "product_listing_slug_id": "worker-delivery-product-abcdef",
             "shop_name": "Delivery test shop",
             "title": null,
-            "image": {"url": UNSAFE_IMAGE_URL},
+            "image": UNSAFE_IMAGE_URL,
             "url": "https://example.test/product_listings/delivery",
             "view_url": "https://aura-historia.test/product_listings/delivery"
         },

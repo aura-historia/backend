@@ -257,8 +257,10 @@ impl From<ProductListingAuction> for ProductListingAuctionData {
 }
 
 fn images(images: impl IntoIterator<Item = ProductListingImage>) -> Vec<ProductListingImageData> {
+    // ProductListing history is public-cacheable and currently has no viewer-specific
+    // content-policy presentation context; historical image URLs are redacted here.
     images
         .into_iter()
-        .map(ProductListingImageData::from)
+        .map(|_| ProductListingImageData::redacted())
         .collect()
 }

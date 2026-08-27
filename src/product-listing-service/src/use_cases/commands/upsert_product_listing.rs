@@ -490,7 +490,6 @@ mod tests {
     use super::*;
     use money::{Currency, MonetaryAmount};
     use product_listing_core::product_listing::ProductListingEventPayload;
-    use product_listing_core::prohibited_content::ProhibitedContent;
 
     fn price(amount: u64) -> Price {
         Price::new(MonetaryAmount::from(amount), Currency::Eur)
@@ -656,11 +655,10 @@ mod tests {
 
     #[test]
     fn should_apply_images_patch_intent_for_existing_listing() {
-        let image = ProductListingImage {
-            url: Url::parse("https://example.com/image.jpg")
+        let image = ProductListingImage::new(
+            Url::parse("https://example.com/image.jpg")
                 .unwrap_or_else(|error| panic!("image URL: {error}")),
-            prohibited_content: ProhibitedContent::Unknown,
-        };
+        );
         for patch in [
             PatchField::Unchanged,
             PatchField::Set(IndexSet::new()),
@@ -732,11 +730,10 @@ mod tests {
 
     #[test]
     fn should_map_all_patch_states_to_new_listing_current_state() {
-        let image = ProductListingImage {
-            url: Url::parse("https://example.com/image.jpg")
+        let image = ProductListingImage::new(
+            Url::parse("https://example.com/image.jpg")
                 .unwrap_or_else(|error| panic!("image URL: {error}")),
-            prohibited_content: ProhibitedContent::Unknown,
-        };
+        );
         for (
             estimate_min,
             estimate_max,

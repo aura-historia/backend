@@ -16,7 +16,7 @@ use product_listing_core::product_listing::ProductListingPricing;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
-use product_listing_core::content_policy::{ContentPolicyDecision, SensitiveContentCategory};
+use product_listing_core::content_policy::ContentPolicyDecision;
 use product_listing_core::shop_listing_id::ShopListingId;
 use product_listing_service::use_cases::{
     DisplayProductListingPricing, PersonalizedProductListingDetailsView,
@@ -228,11 +228,9 @@ impl From<ContentPolicyDecision> for ContentPolicyData {
     fn from(value: ContentPolicyDecision) -> Self {
         match value {
             ContentPolicyDecision::Allowed => Self::Allowed,
-            ContentPolicyDecision::RequiresConsent(SensitiveContentCategory::NaziGermany) => {
-                Self::RequiresConsent {
-                    category: "NAZI_GERMANY",
-                }
-            }
+            ContentPolicyDecision::RequiresConsent(category) => Self::RequiresConsent {
+                category: category.as_str(),
+            },
         }
     }
 }
@@ -446,19 +444,15 @@ impl ProductListingImageData {
     pub(crate) fn from_presented(image: NotificationImagePresentation) -> Self {
         Self { url: image.url }
     }
+
+    pub(crate) fn redacted() -> Self {
+        Self { url: None }
+    }
 }
 
 impl From<product_listing_service::use_cases::ProductListingImageView> for ProductListingImageData {
     fn from(image: product_listing_service::use_cases::ProductListingImageView) -> Self {
         Self { url: image.url }
-    }
-}
-
-impl From<product_listing_core::product_listing_image::ProductListingImage>
-    for ProductListingImageData
-{
-    fn from(_: product_listing_core::product_listing_image::ProductListingImage) -> Self {
-        Self { url: None }
     }
 }
 
