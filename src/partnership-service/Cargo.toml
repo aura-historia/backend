@@ -1,0 +1,31 @@
+[package]
+name = "partnership-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+domain-primitives = { workspace = true }
+fake = { workspace = true, optional = true }
+listing-source-core = { workspace = true }
+listing-source-service = { workspace = true }
+notification-core = { workspace = true }
+notification-service = { workspace = true }
+party-core = { workspace = true }
+party-service = { workspace = true }
+partnership-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+user-core = { workspace = true }
+user-service = { workspace = true }
+url = { workspace = true }
+
+[features]
+default = []
+test-data = ["fake"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+time = { workspace = true }

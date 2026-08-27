@@ -212,7 +212,9 @@ async fn write_configuration(
             AcquisitionConfiguration::Woocommerce { currency, language } => {
                 sqlx::query("INSERT INTO listing_source_woocommerce_configurations (listing_source_id,webhook_secret,currency,language) VALUES ($1,$2,$3,$4)").bind(uuid::Uuid::from(id)).bind(woocommerce_webhook_secret).bind(currency.map(|v|v.as_str())).bind(language.map(|v|v.as_str())).execute(&mut *connection).await.map_err(db_write)?;
             }
-            _ => {}
+            AcquisitionConfiguration::Unconfigured(_)
+            | AcquisitionConfiguration::WebCrawl
+            | AcquisitionConfiguration::PartnerApi => {}
         }
     }
     Ok(())
@@ -227,20 +229,26 @@ async fn read_configuration(
         match row.acquisition_method.parse().map_err(invalid)? {
             AcquisitionMethod::WebCrawl => configs.push(AcquisitionConfiguration::WebCrawl),
             AcquisitionMethod::PartnerApi => configs.push(AcquisitionConfiguration::PartnerApi),
-            AcquisitionMethod::Shopify => {
-                let row=sqlx::query_as::<_,(String,Option<String>,Option<String>)>("SELECT domain,currency,language FROM listing_source_shopify_configurations WHERE listing_source_id=$1").bind(id).fetch_optional(&mut *connection).await.map_err(db_read)?.ok_or_else(||invalid(AcquisitionConfigurationMismatch))?;
-                configs.push(AcquisitionConfiguration::Shopify {
-                    domain: Domain::try_from(row.0).map_err(invalid)?,
-                    currency: parse_optional_currency(row.1.as_deref())?,
-                    language: parse_optional_language(row.2.as_deref())?,
-                });
+            method @ AcquisitionMethod::Shopify => {
+                let row=sqlx::query_as::<_,(String,Option<String>,Option<String>)>("SELECT domain,currency,language FROM listing_source_shopify_configurations WHERE listing_source_id=$1").bind(id).fetch_optional(&mut *connection).await.map_err(db_read)?;
+                match row {
+                    Some(row) => configs.push(AcquisitionConfiguration::Shopify {
+                        domain: Domain::try_from(row.0).map_err(invalid)?,
+                        currency: parse_optional_currency(row.1.as_deref())?,
+                        language: parse_optional_language(row.2.as_deref())?,
+                    }),
+                    None => configs.push(AcquisitionConfiguration::Unconfigured(method)),
+                }
             }
-            AcquisitionMethod::Woocommerce => {
-                let row=sqlx::query_as::<_,(Option<String>,Option<String>)>("SELECT currency,language FROM listing_source_woocommerce_configurations WHERE listing_source_id=$1").bind(id).fetch_optional(&mut *connection).await.map_err(db_read)?.ok_or_else(||invalid(AcquisitionConfigurationMismatch))?;
-                configs.push(AcquisitionConfiguration::Woocommerce {
-                    currency: parse_optional_currency(row.0.as_deref())?,
-                    language: parse_optional_language(row.1.as_deref())?,
-                });
+            method @ AcquisitionMethod::Woocommerce => {
+                let row=sqlx::query_as::<_,(Option<String>,Option<String>)>("SELECT currency,language FROM listing_source_woocommerce_configurations WHERE listing_source_id=$1").bind(id).fetch_optional(&mut *connection).await.map_err(db_read)?;
+                match row {
+                    Some(row) => configs.push(AcquisitionConfiguration::Woocommerce {
+                        currency: parse_optional_currency(row.0.as_deref())?,
+                        language: parse_optional_language(row.1.as_deref())?,
+                    }),
+                    None => configs.push(AcquisitionConfiguration::Unconfigured(method)),
+                }
             }
         }
     }

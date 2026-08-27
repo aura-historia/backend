@@ -173,6 +173,61 @@ CREATE INDEX partner_shop_applications_applicant_created_idx ON partner_shop_app
 CREATE INDEX partner_shop_applications_business_state_created_idx ON partner_shop_applications (business_state, created DESC);
 CREATE INDEX partner_shop_applications_shop_id_idx ON partner_shop_applications (shop_id);
 
+CREATE TABLE partnerships (
+    partnership_id uuid PRIMARY KEY,
+    party_id uuid NOT NULL UNIQUE REFERENCES parties(party_id) ON DELETE CASCADE,
+    version bigint NOT NULL DEFAULT 1,
+    created timestamptz NOT NULL DEFAULT now(),
+    updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT partnerships_version_positive CHECK (version >= 1)
+);
+
+CREATE TABLE partnership_members (
+    user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    partnership_id uuid NOT NULL REFERENCES partnerships(partnership_id) ON DELETE CASCADE,
+    created timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, partnership_id)
+);
+
+CREATE TABLE partnership_listing_source_grants (
+    user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    listing_source_id uuid NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
+    created timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, listing_source_id)
+);
+
+CREATE TABLE partnership_applications (
+    partnership_application_id uuid PRIMARY KEY,
+    applicant_user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    business_state text NOT NULL,
+    proposal jsonb NOT NULL,
+    version bigint NOT NULL DEFAULT 1,
+    created timestamptz NOT NULL DEFAULT now(),
+    updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT partnership_applications_business_state_check CHECK (business_state IN ('SUBMITTED', 'IN_REVIEW', 'APPROVED', 'REJECTED', 'WITHDRAWN')),
+    CONSTRAINT partnership_applications_proposal_shape_check CHECK (
+        jsonb_typeof(proposal) = 'object'
+        AND proposal->>'type' IN ('EXISTING_LISTING_SOURCE', 'PROPOSED_LISTING_SOURCE')
+        AND (
+            (
+                proposal->>'type' = 'EXISTING_LISTING_SOURCE'
+                AND jsonb_typeof(proposal->'listing_source_id') = 'string'
+            )
+            OR (
+                proposal->>'type' = 'PROPOSED_LISTING_SOURCE'
+                AND jsonb_typeof(proposal->'party') = 'object'
+                AND jsonb_typeof(proposal->'listing_source') = 'object'
+            )
+        )
+    ),
+    CONSTRAINT partnership_applications_version_positive CHECK (version >= 1)
+);
+
+CREATE INDEX partnership_members_partnership_id_idx ON partnership_members (partnership_id);
+CREATE INDEX partnership_listing_source_grants_listing_source_id_idx ON partnership_listing_source_grants (listing_source_id);
+CREATE INDEX partnership_applications_applicant_created_idx ON partnership_applications (applicant_user_id, created DESC);
+CREATE INDEX partnership_applications_business_state_created_idx ON partnership_applications (business_state, created DESC);
+
 CREATE TABLE fx_rates (
     fx_rate_id uuid PRIMARY KEY,
     generation bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
@@ -458,6 +513,7 @@ CREATE TABLE notifications (
     product_listing_id uuid,
     user_search_filter_id uuid,
     partner_shop_application_id uuid,
+    partnership_application_id uuid,
 
     payload_version smallint NOT NULL DEFAULT 1,
     payload jsonb NOT NULL,
@@ -473,7 +529,9 @@ CREATE TABLE notifications (
             'WATCHLIST_AVAILABILITY_CHANGED',
             'SEARCH_FILTER_MATCH',
             'PARTNER_APPLICATION_APPROVED',
-            'PARTNER_APPLICATION_REJECTED'
+            'PARTNER_APPLICATION_REJECTED',
+            'PARTNERSHIP_APPLICATION_APPROVED',
+            'PARTNERSHIP_APPLICATION_REJECTED'
         )
     ),
 
@@ -514,6 +572,19 @@ CREATE TABLE notifications (
             AND product_listing_id IS NULL
             AND user_search_filter_id IS NULL
             AND partner_shop_application_id IS NOT NULL
+            AND partnership_application_id IS NULL
+        )
+        OR
+        (
+            kind IN (
+                'PARTNERSHIP_APPLICATION_APPROVED',
+                'PARTNERSHIP_APPLICATION_REJECTED'
+            )
+            AND origin_event_id IS NULL
+            AND product_listing_id IS NULL
+            AND user_search_filter_id IS NULL
+            AND partner_shop_application_id IS NULL
+            AND partnership_application_id IS NOT NULL
         )
     )
 );
@@ -542,6 +613,16 @@ CREATE UNIQUE INDEX notifications_partner_application_identity_idx
     WHERE kind IN (
         'PARTNER_APPLICATION_APPROVED',
         'PARTNER_APPLICATION_REJECTED'
+    );
+
+CREATE UNIQUE INDEX notifications_partnership_application_identity_idx
+    ON notifications (
+        user_id,
+        partnership_application_id
+    )
+    WHERE kind IN (
+        'PARTNERSHIP_APPLICATION_APPROVED',
+        'PARTNERSHIP_APPLICATION_REJECTED'
     );
 
 CREATE INDEX notifications_user_created_idx

@@ -10,7 +10,7 @@
 - Implements service-owned `NotificationChannelSender` for EMAIL only.
 - Consumes the EMAIL target-reader contract from `notification-email`. Channel-specific runtime wiring resolves the current `PRIMARY` target after generic delivery claim.
 - Owns email templates, localized subject/availability text, S3 keys, SES mapping, and safe provider-error classification. Availability template data uses nullable `old_availability`/`new_availability` values. Template data consumes the service-owned already-presented image URL; it does not decide listing content visibility. Watchlist price data remains in its immutable source currency; no FX conversion is applied. Missing templates and invalid/configuration failures are permanent; timeouts, transport failures, throttling, and 5xx responses are retryable.
-- Takes clients and typed config through constructor. No env read. No logs.
+- Partnership application approval/rejection templates use immutable `party_name`, `listing_source_name`, and optional `image_url` snapshot fields. Takes clients and typed config through constructor. No env read. No logs.
 
 ## Ownership
 

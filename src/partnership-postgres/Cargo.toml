@@ -1,0 +1,39 @@
+[package]
+name = "partnership-postgres"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+domain-primitives = { workspace = true }
+fake = { workspace = true, optional = true }
+listing-source-core = { workspace = true }
+partnership-core = { workspace = true }
+partnership-service = { workspace = true }
+party-core = { workspace = true }
+platform-postgres = { workspace = true }
+serde = { workspace = true }
+serde-email = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+strum = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+user-core = { workspace = true }
+
+[features]
+default = []
+test-data = ["fake"]
+
+[dev-dependencies]
+listing-source-postgres = { workspace = true }
+notification-postgres = { workspace = true }
+notification-service = { workspace = true }
+party-postgres = { workspace = true }
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["postgres"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+user-postgres = { workspace = true }

@@ -11,7 +11,7 @@
 - Root modules: `notification`, `notification_id`, `presentation`, `notification_delivery`, `notification_delivery_id`, `notification_kind`. `NotificationId` lives here. ProductListing core has no dependency on notification core, so this keeps notification identity acyclic.
 - `notification_delivery` owns channel and opaque logical target-key values. EMAIL is the sole channel. Future channel values belong here, with a matching schema migration, not in producers or adapters.
 - `Notification` aggregate has no created/updated, actor, delivery, or runtime metadata.
-- Typed `NotificationContent` owns semantic source plus immutable display snapshot; kind is derived. Watchlist price changes keep old/new prices as optional factual source-currency values; availability changes keep optional old/new `ListingAvailability` values; no FX conversion belongs here.
+- Typed `NotificationContent` owns semantic source plus immutable display snapshot; kind is derived. Partner Shop and Partnership application decisions carry distinct application IDs and immutable snapshots. Watchlist price changes keep old/new prices as optional factual source-currency values; availability changes keep optional old/new `ListingAvailability` values; no FX conversion belongs here.
 - Watchlist/search-filter ProductListing titles are optional.
 - View types may carry created/updated timestamps.
 - `presentation` owns notification image presentation and reuses the centralized listing content-visibility policy. It preserves the listing-level snapshot assessment while optionally redacting the image URL.

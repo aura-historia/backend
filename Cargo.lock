@@ -4620,8 +4620,11 @@ version = "0.1.0"
 dependencies = [
  "domain-primitives",
  "fake",
+ "listing-source-core",
  "localization",
  "money",
+ "partnership-core",
+ "party-core",
  "product-listing-core",
  "rstest",
  "search-filter-core",
@@ -4658,11 +4661,13 @@ dependencies = [
  "aws-sdk-sesv2",
  "domain-primitives",
  "handlebars",
+ "listing-source-core",
  "localization",
  "money",
  "notification-core",
  "notification-email",
  "notification-service",
+ "party-core",
  "product-listing-core",
  "rstest",
  "serde_json",
@@ -4678,17 +4683,21 @@ dependencies = [
  "application",
  "async-trait",
  "domain-primitives",
+ "listing-source-core",
  "localization",
  "money",
  "notification-core",
  "notification-email",
  "notification-service",
+ "partnership-core",
+ "party-core",
  "platform-postgres",
  "product-listing-core",
  "search-filter-core",
  "serde",
  "serde-email",
  "serde_json",
+ "serial_test",
  "shop-core",
  "shop-partner-core",
  "sqlx",
@@ -5031,6 +5040,78 @@ dependencies = [
  "regex-syntax",
  "structmeta",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "partnership-core"
+version = "0.1.0"
+dependencies = [
+ "fake",
+ "listing-source-core",
+ "party-core",
+ "strum 0.28.0",
+ "strum_macros 0.28.0",
+ "thiserror 2.0.20",
+ "user-core",
+ "uuid",
+]
+
+[[package]]
+name = "partnership-postgres"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain-primitives",
+ "fake",
+ "listing-source-core",
+ "listing-source-postgres",
+ "notification-postgres",
+ "notification-service",
+ "partnership-core",
+ "partnership-service",
+ "party-core",
+ "party-postgres",
+ "platform-postgres",
+ "serde",
+ "serde-email",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "strum 0.28.0",
+ "test-api",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "url",
+ "user-core",
+ "user-postgres",
+ "uuid",
+]
+
+[[package]]
+name = "partnership-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain-primitives",
+ "fake",
+ "listing-source-core",
+ "listing-source-service",
+ "notification-core",
+ "notification-service",
+ "partnership-core",
+ "party-core",
+ "party-service",
+ "serde",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "user-core",
+ "user-service",
 ]
 
 [[package]]

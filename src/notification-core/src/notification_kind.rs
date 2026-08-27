@@ -6,6 +6,8 @@ pub enum NotificationKind {
     SearchFilterMatch,
     PartnerApplicationApproved,
     PartnerApplicationRejected,
+    PartnershipApplicationApproved,
+    PartnershipApplicationRejected,
 }
 
 impl NotificationKind {
@@ -16,6 +18,8 @@ impl NotificationKind {
             Self::SearchFilterMatch => "SEARCH_FILTER_MATCH",
             Self::PartnerApplicationApproved => "PARTNER_APPLICATION_APPROVED",
             Self::PartnerApplicationRejected => "PARTNER_APPLICATION_REJECTED",
+            Self::PartnershipApplicationApproved => "PARTNERSHIP_APPLICATION_APPROVED",
+            Self::PartnershipApplicationRejected => "PARTNERSHIP_APPLICATION_REJECTED",
         }
     }
 }
@@ -42,6 +46,8 @@ mod tests {
                 "SEARCH_FILTER_MATCH",
                 "PARTNER_APPLICATION_APPROVED",
                 "PARTNER_APPLICATION_REJECTED",
+                "PARTNERSHIP_APPLICATION_APPROVED",
+                "PARTNERSHIP_APPLICATION_REJECTED",
             ],
             kinds
                 .into_iter()

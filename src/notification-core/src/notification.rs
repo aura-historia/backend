@@ -1,7 +1,10 @@
 use crate::{notification_id::NotificationId, notification_kind::NotificationKind};
 use domain_primitives::event_id::EventId;
+use listing_source_core::ListingSourceName;
 use localization::Localized;
 use money::Price;
+use partnership_core::partnership_application_id::PartnershipApplicationId;
+use party_core::party_name::PartyName;
 use product_listing_core::{
     content_policy::ContentPolicyDecision, listing_availability::ListingAvailability,
     product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
@@ -109,6 +112,11 @@ pub enum NotificationContent {
         snapshot: PartnerApplicationNotificationSnapshot,
         decision: PartnerApplicationDecision,
     },
+    PartnershipApplication {
+        partnership_application_id: PartnershipApplicationId,
+        snapshot: PartnershipApplicationNotificationSnapshot,
+        decision: PartnershipApplicationDecision,
+    },
 }
 
 impl NotificationContent {
@@ -131,6 +139,14 @@ impl NotificationContent {
                 decision: PartnerApplicationDecision::Rejected,
                 ..
             } => NotificationKind::PartnerApplicationRejected,
+            Self::PartnershipApplication {
+                decision: PartnershipApplicationDecision::Approved,
+                ..
+            } => NotificationKind::PartnershipApplicationApproved,
+            Self::PartnershipApplication {
+                decision: PartnershipApplicationDecision::Rejected,
+                ..
+            } => NotificationKind::PartnershipApplicationRejected,
         }
     }
 
@@ -142,7 +158,7 @@ impl NotificationContent {
             | Self::SearchFilter {
                 origin_event_id, ..
             } => Some(*origin_event_id),
-            Self::PartnerApplication { .. } => None,
+            Self::PartnerApplication { .. } | Self::PartnershipApplication { .. } => None,
         }
     }
 
@@ -154,7 +170,7 @@ impl NotificationContent {
             | Self::SearchFilter {
                 product_listing_id, ..
             } => Some(*product_listing_id),
-            Self::PartnerApplication { .. } => None,
+            Self::PartnerApplication { .. } | Self::PartnershipApplication { .. } => None,
         }
     }
 
@@ -191,6 +207,15 @@ impl NotificationContent {
                 decision,
             } => LocalizedNotificationContent::PartnerApplication {
                 partner_shop_application_id,
+                snapshot,
+                decision,
+            },
+            Self::PartnershipApplication {
+                partnership_application_id,
+                snapshot,
+                decision,
+            } => LocalizedNotificationContent::PartnershipApplication {
+                partnership_application_id,
                 snapshot,
                 decision,
             },
@@ -247,6 +272,19 @@ pub enum PartnerApplicationDecision {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct PartnershipApplicationNotificationSnapshot {
+    pub party_name: PartyName,
+    pub listing_source_name: ListingSourceName,
+    pub image: Option<Url>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartnershipApplicationDecision {
+    Approved,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum NotificationWatchlistChange {
     PriceChange {
         old_price: Option<Price>,
@@ -296,6 +334,11 @@ pub enum LocalizedNotificationContent {
         partner_shop_application_id: PartnerShopApplicationId,
         snapshot: PartnerApplicationNotificationSnapshot,
         decision: PartnerApplicationDecision,
+    },
+    PartnershipApplication {
+        partnership_application_id: PartnershipApplicationId,
+        snapshot: PartnershipApplicationNotificationSnapshot,
+        decision: PartnershipApplicationDecision,
     },
 }
 

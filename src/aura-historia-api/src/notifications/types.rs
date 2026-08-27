@@ -8,6 +8,7 @@ use notification_core::{
     notification::{
         LocalizedNotificationContent, LocalizedNotificationWatchlistChange,
         LocalizedProductListingNotificationSnapshot, PartnerApplicationDecision,
+        PartnershipApplicationDecision,
     },
     notification_id::NotificationId,
     notification_kind::NotificationKind,
@@ -71,6 +72,7 @@ enum NotificationContentData {
     Watchlist(WatchlistNotificationPayloadData),
     SearchFilter(SearchFilterNotificationPayloadData),
     PartnerApplication(PartnerApplicationNotificationPayloadData),
+    PartnershipApplication(PartnershipApplicationNotificationPayloadData),
 }
 
 impl Serialize for NotificationContentData {
@@ -82,6 +84,7 @@ impl Serialize for NotificationContentData {
             Self::Watchlist(payload) => payload.serialize(serializer),
             Self::SearchFilter(payload) => payload.serialize(serializer),
             Self::PartnerApplication(payload) => payload.serialize(serializer),
+            Self::PartnershipApplication(payload) => payload.serialize(serializer),
         }
     }
 }
@@ -148,6 +151,17 @@ struct PartnerApplicationNotificationPayloadData {
     image: Option<Url>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PartnershipApplicationNotificationPayloadData {
+    partnership_application_id: Uuid,
+    #[serde(with = "crate::wire::partnership_application_decision")]
+    decision: PartnershipApplicationDecision,
+    party_name: String,
+    listing_source_name: String,
+    image: Option<Url>,
+}
+
 impl
     From<(
         LocalizedNotificationContent,
@@ -211,6 +225,17 @@ impl
                 partner_shop_application_id: Uuid::from(partner_shop_application_id),
                 decision,
                 shop_name: snapshot.shop_name.to_string(),
+                image: snapshot.image,
+            }),
+            LocalizedNotificationContent::PartnershipApplication {
+                partnership_application_id,
+                snapshot,
+                decision,
+            } => Self::PartnershipApplication(PartnershipApplicationNotificationPayloadData {
+                partnership_application_id: Uuid::from(partnership_application_id),
+                decision,
+                party_name: snapshot.party_name.to_string(),
+                listing_source_name: snapshot.listing_source_name.to_string(),
                 image: snapshot.image,
             }),
         }

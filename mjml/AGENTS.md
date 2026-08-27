@@ -6,7 +6,7 @@
 
 ## Core Design
 
-- Templates grouped by feature: partner application, search filter, watchlist.
+- Templates grouped by feature: partner application, partnership application, search filter, watchlist.
 - Notification code render these assets. Template names and variables be durable contract.
 - Notification product `title` may be absent; guard title blocks and preview text.
 

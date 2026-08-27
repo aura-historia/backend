@@ -1,0 +1,14 @@
+<mjml>
+  <mj-head>
+    <mj-title>Demande de partenariat approuvée : {{party_name}}</mj-title>
+    <mj-preview>Votre demande de partenariat pour {{listing_source_name}} a été approuvée.</mj-preview>
+  </mj-head>
+  <mj-body background-color="#F7F4E9" width="600px">
+    <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
+      <mj-column>
+        <mj-text>{{#if first_name}}Bonjour {{first_name}},{{else}}Bonjour,{{/if}}</mj-text>
+        <mj-text>Votre demande de partenariat pour <b>{{party_name}}</b> et <b>{{listing_source_name}}</b> a été approuvée.</mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

@@ -56,6 +56,7 @@ struct DeliverySourceRow {
     product_listing_id: Option<Uuid>,
     user_search_filter_id: Option<Uuid>,
     partner_shop_application_id: Option<Uuid>,
+    partnership_application_id: Option<Uuid>,
     payload_version: i16,
     payload: serde_json::Value,
     seen: bool,
@@ -114,7 +115,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
 
         let claimed = claimed_from_row(row)?;
         let source = sqlx::query_as::<_, DeliverySourceRow>(
-            "SELECT d.notification_delivery_id, d.channel, d.target_key, u.language, u.show_unassessed_or_sensitive_content, n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_listing_id, n.user_search_filter_id, n.partner_shop_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notification_deliveries d JOIN notifications n ON n.notification_id = d.notification_id JOIN users u ON u.user_id = n.user_id WHERE d.notification_delivery_id = $1",
+            "SELECT d.notification_delivery_id, d.channel, d.target_key, u.language, u.show_unassessed_or_sensitive_content, n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_listing_id, n.user_search_filter_id, n.partner_shop_application_id, n.partnership_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notification_deliveries d JOIN notifications n ON n.notification_id = d.notification_id JOIN users u ON u.user_id = n.user_id WHERE d.notification_delivery_id = $1",
         )
         .bind(Uuid::from(notification_delivery_id))
         .fetch_optional(&mut *transaction)
@@ -218,6 +219,7 @@ fn source_from_row(
         product_listing_id: row.product_listing_id,
         user_search_filter_id: row.user_search_filter_id,
         partner_shop_application_id: row.partner_shop_application_id,
+        partnership_application_id: row.partnership_application_id,
         payload_version: row.payload_version,
         payload: row.payload,
         seen: row.seen,

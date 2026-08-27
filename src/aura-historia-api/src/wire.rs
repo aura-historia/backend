@@ -626,6 +626,28 @@ pub(crate) mod partner_application_decision {
     }
 }
 
+pub(crate) mod partnership_application_decision {
+    use super::*;
+    use notification_core::notification::PartnershipApplicationDecision;
+
+    fn code(value: PartnershipApplicationDecision) -> &'static str {
+        match value {
+            PartnershipApplicationDecision::Approved => "APPROVED",
+            PartnershipApplicationDecision::Rejected => "REJECTED",
+        }
+    }
+
+    pub(crate) fn serialize<S>(
+        value: &PartnershipApplicationDecision,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_code(value, serializer, code)
+    }
+}
+
 pub(crate) mod billing_plan {
     use super::*;
     use billing_service::use_cases::BillingPlan;

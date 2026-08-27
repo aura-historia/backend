@@ -1,0 +1,18 @@
+[package]
+name = "partnership-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fake = { workspace = true, optional = true }
+listing-source-core = { workspace = true }
+party-core = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
+thiserror = { workspace = true }
+user-core = { workspace = true }
+uuid = { workspace = true }
+
+[features]
+default = []
+test-data = ["fake"]

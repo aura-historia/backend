@@ -144,6 +144,9 @@
 - `src/listing-source-core/AGENTS.md` — ListingSource domain crate.
 - `src/listing-source-service/AGENTS.md` — ListingSource use-case crate.
 - `src/listing-source-postgres/AGENTS.md` — ListingSource PostgreSQL adapter crate.
+- `src/partnership-core/AGENTS.md` — Partnership domain crate.
+- `src/partnership-service/AGENTS.md` — Partnership use-case crate.
+- `src/partnership-postgres/AGENTS.md` — Partnership PostgreSQL adapter crate.
 - `src/shop-partner-core/AGENTS.md` — canonical Partner Shop Application domain crate.
 - `src/shop-partner-service/AGENTS.md` — canonical Partner Shop Application service crate.
 - `src/shop-partner-postgres/AGENTS.md` — canonical Partner Shop Application Postgres adapter crate.

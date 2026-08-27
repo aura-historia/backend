@@ -1,0 +1,14 @@
+<mjml>
+  <mj-head>
+    <mj-title>Aggiornamento della tua richiesta di partnership: {{party_name}}</mj-title>
+    <mj-preview>Un aggiornamento della tua richiesta di partnership per {{listing_source_name}}.</mj-preview>
+  </mj-head>
+  <mj-body background-color="#F7F4E9" width="600px">
+    <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
+      <mj-column>
+        <mj-text>{{#if first_name}}Ciao {{first_name}},{{else}}Ciao,{{/if}}</mj-text>
+        <mj-text>La tua richiesta di partnership per <b>{{party_name}}</b> e <b>{{listing_source_name}}</b> non è stata approvata questa volta.</mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

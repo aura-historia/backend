@@ -1,15 +1,19 @@
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
+use listing_source_core::ListingSourceName;
 use money::{Currency, MonetaryAmount, Price};
 use notification_core::{
     notification::{
         Notification, NotificationContent, NotificationWatchlistChange, PartnerApplicationDecision,
-        PartnerApplicationNotificationSnapshot, ProductListingNotificationSnapshot,
+        PartnerApplicationNotificationSnapshot, PartnershipApplicationDecision,
+        PartnershipApplicationNotificationSnapshot, ProductListingNotificationSnapshot,
         RehydratedNotificationState,
     },
     notification_id::NotificationId,
     notification_kind::NotificationKind,
 };
+use partnership_core::partnership_application_id::PartnershipApplicationId;
+use party_core::party_name::PartyName;
 use product_listing_core::{
     content_policy::{ContentPolicyDecision, SensitiveContentCategory},
     listing_availability::ListingAvailability,
@@ -41,6 +45,7 @@ pub(crate) struct NotificationRow {
     pub(crate) product_listing_id: Option<uuid::Uuid>,
     pub(crate) user_search_filter_id: Option<uuid::Uuid>,
     pub(crate) partner_shop_application_id: Option<uuid::Uuid>,
+    pub(crate) partnership_application_id: Option<uuid::Uuid>,
     pub(crate) payload_version: i16,
     pub(crate) payload: serde_json::Value,
     pub(crate) seen: bool,
@@ -85,6 +90,9 @@ enum NotificationPayloadV1 {
     },
     PartnerApplication {
         snapshot: PartnerApplicationNotificationSnapshotV1,
+    },
+    PartnershipApplication {
+        snapshot: PartnershipApplicationNotificationSnapshotV1,
     },
 }
 
@@ -172,6 +180,14 @@ enum NotificationWatchlistChangeV1 {
 #[serde(deny_unknown_fields)]
 struct PartnerApplicationNotificationSnapshotV1 {
     shop_name: ShopName,
+    image: Option<Url>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PartnershipApplicationNotificationSnapshotV1 {
+    party_name: String,
+    listing_source_name: String,
     image: Option<Url>,
 }
 
@@ -326,6 +342,30 @@ impl From<PartnerApplicationNotificationSnapshotV1> for PartnerApplicationNotifi
     }
 }
 
+impl From<&PartnershipApplicationNotificationSnapshot>
+    for PartnershipApplicationNotificationSnapshotV1
+{
+    fn from(snapshot: &PartnershipApplicationNotificationSnapshot) -> Self {
+        Self {
+            party_name: snapshot.party_name.to_string(),
+            listing_source_name: snapshot.listing_source_name.to_string(),
+            image: snapshot.image.clone(),
+        }
+    }
+}
+
+impl From<PartnershipApplicationNotificationSnapshotV1>
+    for PartnershipApplicationNotificationSnapshot
+{
+    fn from(snapshot: PartnershipApplicationNotificationSnapshotV1) -> Self {
+        Self {
+            party_name: PartyName::from(snapshot.party_name),
+            listing_source_name: ListingSourceName::from(snapshot.listing_source_name),
+            image: snapshot.image,
+        }
+    }
+}
+
 pub(crate) struct NotificationWriteValues {
     pub(crate) notification_id: uuid::Uuid,
     pub(crate) user_id: uuid::Uuid,
@@ -334,6 +374,7 @@ pub(crate) struct NotificationWriteValues {
     pub(crate) product_listing_id: Option<uuid::Uuid>,
     pub(crate) user_search_filter_id: Option<uuid::Uuid>,
     pub(crate) partner_shop_application_id: Option<uuid::Uuid>,
+    pub(crate) partnership_application_id: Option<uuid::Uuid>,
     pub(crate) payload: serde_json::Value,
 }
 
@@ -346,6 +387,7 @@ impl TryFrom<&Notification> for NotificationWriteValues {
             product_listing_id,
             user_search_filter_id,
             partner_shop_application_id,
+            partnership_application_id,
             payload,
         ) = match notification.content() {
             NotificationContent::Watchlist {
@@ -356,6 +398,7 @@ impl TryFrom<&Notification> for NotificationWriteValues {
             } => (
                 Some(uuid::Uuid::from(*origin_event_id)),
                 Some(uuid::Uuid::from(*product_listing_id)),
+                None,
                 None,
                 None,
                 NotificationPayloadV1::Watchlist {
@@ -374,6 +417,7 @@ impl TryFrom<&Notification> for NotificationWriteValues {
                 Some(uuid::Uuid::from(*product_listing_id)),
                 Some(uuid::Uuid::from(*user_search_filter_id)),
                 None,
+                None,
                 NotificationPayloadV1::SearchFilter {
                     snapshot: snapshot.into(),
                     user_search_filter_name: user_search_filter_name.clone(),
@@ -388,7 +432,22 @@ impl TryFrom<&Notification> for NotificationWriteValues {
                 None,
                 None,
                 Some(uuid::Uuid::from(*partner_shop_application_id)),
+                None,
                 NotificationPayloadV1::PartnerApplication {
+                    snapshot: snapshot.into(),
+                },
+            ),
+            NotificationContent::PartnershipApplication {
+                partnership_application_id,
+                snapshot,
+                ..
+            } => (
+                None,
+                None,
+                None,
+                None,
+                Some(uuid::Uuid::from(*partnership_application_id)),
+                NotificationPayloadV1::PartnershipApplication {
                     snapshot: snapshot.into(),
                 },
             ),
@@ -403,6 +462,7 @@ impl TryFrom<&Notification> for NotificationWriteValues {
             product_listing_id,
             user_search_filter_id,
             partner_shop_application_id,
+            partnership_application_id,
             payload,
         })
     }
@@ -427,6 +487,7 @@ impl TryFrom<NotificationRow> for Notification {
             row.product_listing_id,
             row.user_search_filter_id,
             row.partner_shop_application_id,
+            row.partnership_application_id,
         ) {
             (
                 NotificationKind::WatchlistPriceChanged
@@ -434,6 +495,7 @@ impl TryFrom<NotificationRow> for Notification {
                 NotificationPayloadV1::Watchlist { snapshot, change },
                 Some(origin_event_id),
                 Some(product_listing_id),
+                None,
                 None,
                 None,
             ) => {
@@ -458,6 +520,7 @@ impl TryFrom<NotificationRow> for Notification {
                 Some(product_listing_id),
                 Some(user_search_filter_id),
                 None,
+                None,
             ) => NotificationContent::SearchFilter {
                 origin_event_id: EventId::from(origin_event_id),
                 product_listing_id: ProductListingId::from(product_listing_id),
@@ -473,6 +536,7 @@ impl TryFrom<NotificationRow> for Notification {
                 None,
                 None,
                 Some(partner_shop_application_id),
+                None,
             ) => NotificationContent::PartnerApplication {
                 partner_shop_application_id: PartnerShopApplicationId::from(
                     partner_shop_application_id,
@@ -484,9 +548,30 @@ impl TryFrom<NotificationRow> for Notification {
                     PartnerApplicationDecision::Rejected
                 },
             },
-            (_, NotificationPayloadV1::Watchlist { .. }, _, _, _, _)
-            | (_, NotificationPayloadV1::SearchFilter { .. }, _, _, _, _)
-            | (_, NotificationPayloadV1::PartnerApplication { .. }, _, _, _, _) => {
+            (
+                NotificationKind::PartnershipApplicationApproved
+                | NotificationKind::PartnershipApplicationRejected,
+                NotificationPayloadV1::PartnershipApplication { snapshot },
+                None,
+                None,
+                None,
+                None,
+                Some(partnership_application_id),
+            ) => NotificationContent::PartnershipApplication {
+                partnership_application_id: PartnershipApplicationId::from(
+                    partnership_application_id,
+                ),
+                snapshot: snapshot.into(),
+                decision: if kind == NotificationKind::PartnershipApplicationApproved {
+                    PartnershipApplicationDecision::Approved
+                } else {
+                    PartnershipApplicationDecision::Rejected
+                },
+            },
+            (_, NotificationPayloadV1::Watchlist { .. }, _, _, _, _, _)
+            | (_, NotificationPayloadV1::SearchFilter { .. }, _, _, _, _, _)
+            | (_, NotificationPayloadV1::PartnerApplication { .. }, _, _, _, _, _)
+            | (_, NotificationPayloadV1::PartnershipApplication { .. }, _, _, _, _, _) => {
                 return Err(NotificationMappingError::SourceShapeMismatch);
             }
         };
@@ -608,7 +693,16 @@ pub(crate) fn mapping_error(error: NotificationMappingError) -> BoxError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use listing_source_core::ListingSourceName;
     use money::{Currency, MonetaryAmount};
+    use notification_core::notification::{
+        PartnershipApplicationDecision, PartnershipApplicationNotificationSnapshot,
+    };
+    use notification_core::notification_id::NotificationId;
+    use partnership_core::partnership_application_id::PartnershipApplicationId;
+    use party_core::party_name::PartyName;
+    use time::OffsetDateTime;
+    use user_core::user_id::UserId;
 
     #[test]
     fn should_parse_each_canonical_persisted_kind() {
@@ -688,6 +782,85 @@ mod tests {
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn should_round_trip_partnership_application_notification_write_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let notification = Notification::new(
+            NotificationId::new(),
+            UserId::new(),
+            NotificationContent::PartnershipApplication {
+                partnership_application_id: PartnershipApplicationId::new(),
+                snapshot: PartnershipApplicationNotificationSnapshot {
+                    party_name: PartyName::from("Northwind Antiques"),
+                    listing_source_name: ListingSourceName::from("Northwind Source"),
+                    image: None,
+                },
+                decision: PartnershipApplicationDecision::Approved,
+            },
+        );
+        let values = NotificationWriteValues::try_from(&notification)?;
+
+        let restored = Notification::try_from(NotificationRow {
+            notification_id: values.notification_id,
+            user_id: values.user_id,
+            kind: values.kind.to_owned(),
+            origin_event_id: values.origin_event_id,
+            product_listing_id: values.product_listing_id,
+            user_search_filter_id: values.user_search_filter_id,
+            partner_shop_application_id: values.partner_shop_application_id,
+            partnership_application_id: values.partnership_application_id,
+            payload_version: PAYLOAD_VERSION,
+            payload: values.payload,
+            seen: false,
+            created: OffsetDateTime::UNIX_EPOCH,
+            updated: OffsetDateTime::UNIX_EPOCH,
+        })?;
+
+        assert_eq!(notification, restored);
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_partnership_application_notification_with_invalid_source_shape()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let notification = Notification::new(
+            NotificationId::new(),
+            UserId::new(),
+            NotificationContent::PartnershipApplication {
+                partnership_application_id: PartnershipApplicationId::new(),
+                snapshot: PartnershipApplicationNotificationSnapshot {
+                    party_name: PartyName::from("Northwind Antiques"),
+                    listing_source_name: ListingSourceName::from("Northwind Source"),
+                    image: None,
+                },
+                decision: PartnershipApplicationDecision::Rejected,
+            },
+        );
+        let values = NotificationWriteValues::try_from(&notification)?;
+
+        let result = Notification::try_from(NotificationRow {
+            notification_id: values.notification_id,
+            user_id: values.user_id,
+            kind: values.kind.to_owned(),
+            origin_event_id: values.origin_event_id,
+            product_listing_id: values.product_listing_id,
+            user_search_filter_id: values.user_search_filter_id,
+            partner_shop_application_id: values.partner_shop_application_id,
+            partnership_application_id: None,
+            payload_version: PAYLOAD_VERSION,
+            payload: values.payload,
+            seen: false,
+            created: OffsetDateTime::UNIX_EPOCH,
+            updated: OffsetDateTime::UNIX_EPOCH,
+        });
+
+        assert!(matches!(
+            result,
+            Err(NotificationMappingError::SourceShapeMismatch)
+        ));
+        Ok(())
     }
 
     #[test]

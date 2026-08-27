@@ -16,6 +16,8 @@ domain_primitives::version_newtype!(ListingSourceStorageVersion);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AcquisitionConfiguration {
+    /// Requested acquisition method awaiting provider-specific configuration.
+    Unconfigured(AcquisitionMethod),
     WebCrawl,
     Shopify {
         domain: Domain,
@@ -32,6 +34,7 @@ pub enum AcquisitionConfiguration {
 impl AcquisitionConfiguration {
     pub fn method(&self) -> AcquisitionMethod {
         match self {
+            Self::Unconfigured(method) => *method,
             Self::WebCrawl => AcquisitionMethod::WebCrawl,
             Self::Shopify { .. } => AcquisitionMethod::Shopify,
             Self::Woocommerce { .. } => AcquisitionMethod::Woocommerce,

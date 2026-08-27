@@ -3,7 +3,7 @@ use money::Price;
 use notification_core::{
     notification::{
         LocalizedNotificationContent, LocalizedNotificationWatchlistChange, NotificationContent,
-        NotificationWatchlistChange, PartnerApplicationDecision,
+        NotificationWatchlistChange, PartnerApplicationDecision, PartnershipApplicationDecision,
     },
     presentation::present_image,
 };
@@ -68,6 +68,8 @@ pub(crate) enum EmailTemplateType {
     SearchFilterMatch,
     PartnerApplicationApproval,
     PartnerApplicationRejection,
+    PartnershipApplicationApproval,
+    PartnershipApplicationRejection,
 }
 
 pub(crate) const fn template_type(content: &NotificationContent) -> EmailTemplateType {
@@ -85,6 +87,13 @@ pub(crate) const fn template_type(content: &NotificationContent) -> EmailTemplat
         NotificationContent::PartnerApplication { .. } => {
             EmailTemplateType::PartnerApplicationRejection
         }
+        NotificationContent::PartnershipApplication {
+            decision: PartnershipApplicationDecision::Approved,
+            ..
+        } => EmailTemplateType::PartnershipApplicationApproval,
+        NotificationContent::PartnershipApplication { .. } => {
+            EmailTemplateType::PartnershipApplicationRejection
+        }
     }
 }
 
@@ -97,6 +106,12 @@ pub(crate) const fn template_directory(template_type: EmailTemplateType) -> &'st
         EmailTemplateType::SearchFilterMatch => "mjml/search-filter/match",
         EmailTemplateType::PartnerApplicationApproval => "mjml/partner-application/approval",
         EmailTemplateType::PartnerApplicationRejection => "mjml/partner-application/rejection",
+        EmailTemplateType::PartnershipApplicationApproval => {
+            "mjml/partnership-application/approval"
+        }
+        EmailTemplateType::PartnershipApplicationRejection => {
+            "mjml/partnership-application/rejection"
+        }
     }
 }
 
@@ -120,6 +135,8 @@ pub(crate) const fn ses_template_tag_value(template_type: EmailTemplateType) -> 
         EmailTemplateType::SearchFilterMatch => "SEARCH_FILTER_MATCH",
         EmailTemplateType::PartnerApplicationApproval => "PARTNER_APPLICATION_APPROVAL",
         EmailTemplateType::PartnerApplicationRejection => "PARTNER_APPLICATION_REJECTION",
+        EmailTemplateType::PartnershipApplicationApproval => "PARTNERSHIP_APPLICATION_APPROVAL",
+        EmailTemplateType::PartnershipApplicationRejection => "PARTNERSHIP_APPLICATION_REJECTION",
     }
 }
 
@@ -138,6 +155,10 @@ pub(crate) const fn subject(
             EmailTemplateType::SearchFilterMatch => "Neuer Treffer für deinen Suchfilter",
             EmailTemplateType::PartnerApplicationApproval => "Partnerantrag genehmigt",
             EmailTemplateType::PartnerApplicationRejection => "Update zu deinem Partnerantrag",
+            EmailTemplateType::PartnershipApplicationApproval => "Partnerschaftsantrag genehmigt",
+            EmailTemplateType::PartnershipApplicationRejection => {
+                "Update zu deinem Partnerschaftsantrag"
+            }
         },
         EmailLanguage::Fr => match template_type {
             EmailTemplateType::WatchlistUpdatePrice => {
@@ -153,6 +174,10 @@ pub(crate) const fn subject(
             EmailTemplateType::PartnerApplicationRejection => {
                 "Mise à jour de votre demande de partenariat"
             }
+            EmailTemplateType::PartnershipApplicationApproval => "Demande de partenariat approuvée",
+            EmailTemplateType::PartnershipApplicationRejection => {
+                "Mise à jour de votre demande de partenariat"
+            }
         },
         EmailLanguage::Es => match template_type {
             EmailTemplateType::WatchlistUpdatePrice => {
@@ -164,6 +189,10 @@ pub(crate) const fn subject(
             EmailTemplateType::SearchFilterMatch => "Nuevo resultado para tu filtro de búsqueda",
             EmailTemplateType::PartnerApplicationApproval => "Solicitud de asociación aprobada",
             EmailTemplateType::PartnerApplicationRejection => {
+                "Actualización de tu solicitud de asociación"
+            }
+            EmailTemplateType::PartnershipApplicationApproval => "Solicitud de asociación aprobada",
+            EmailTemplateType::PartnershipApplicationRejection => {
                 "Actualización de tu solicitud de asociación"
             }
         },
@@ -179,6 +208,12 @@ pub(crate) const fn subject(
             EmailTemplateType::PartnerApplicationRejection => {
                 "Aggiornamento della tua richiesta di partnership"
             }
+            EmailTemplateType::PartnershipApplicationApproval => {
+                "Richiesta di partnership approvata"
+            }
+            EmailTemplateType::PartnershipApplicationRejection => {
+                "Aggiornamento della tua richiesta di partnership"
+            }
         },
         EmailLanguage::En => match template_type {
             EmailTemplateType::WatchlistUpdatePrice => "Your watchlist price changed",
@@ -188,6 +223,8 @@ pub(crate) const fn subject(
             EmailTemplateType::SearchFilterMatch => "New search filter match",
             EmailTemplateType::PartnerApplicationApproval => "Partner application approved",
             EmailTemplateType::PartnerApplicationRejection => "Partner application update",
+            EmailTemplateType::PartnershipApplicationApproval => "Partnership application approved",
+            EmailTemplateType::PartnershipApplicationRejection => "Partnership application update",
         },
     }
 }
@@ -276,6 +313,20 @@ pub(crate) fn template_data(
                 "notification_type": match decision {
                     PartnerApplicationDecision::Approved => "partner_application_approval",
                     PartnerApplicationDecision::Rejected => "partner_application_rejection",
+                },
+            }),
+            first_name,
+        ),
+        LocalizedNotificationContent::PartnershipApplication {
+            snapshot, decision, ..
+        } => add_recipient_data(
+            json!({
+                "party_name": snapshot.party_name.to_string(),
+                "listing_source_name": snapshot.listing_source_name.to_string(),
+                "image_url": snapshot.image.map(|image| image.to_string()),
+                "notification_type": match decision {
+                    PartnershipApplicationDecision::Approved => "partnership_application_approval",
+                    PartnershipApplicationDecision::Rejected => "partnership_application_rejection",
                 },
             }),
             first_name,
@@ -491,6 +542,22 @@ mod tests {
         EmailTemplateType::PartnerApplicationRejection,
         "Update zu deinem Partnerantrag",
         "Partner application update",
+        "Mise à jour de votre demande de partenariat",
+        "Actualización de tu solicitud de asociación",
+        "Aggiornamento della tua richiesta di partnership"
+    )]
+    #[case(
+        EmailTemplateType::PartnershipApplicationApproval,
+        "Partnerschaftsantrag genehmigt",
+        "Partnership application approved",
+        "Demande de partenariat approuvée",
+        "Solicitud de asociación aprobada",
+        "Richiesta di partnership approvata"
+    )]
+    #[case(
+        EmailTemplateType::PartnershipApplicationRejection,
+        "Update zu deinem Partnerschaftsantrag",
+        "Partnership application update",
         "Mise à jour de votre demande de partenariat",
         "Actualización de tu solicitud de asociación",
         "Aggiornamento della tua richiesta di partnership"

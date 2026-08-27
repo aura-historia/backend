@@ -53,6 +53,9 @@ members = [
     "src/listing-source-core",
     "src/listing-source-service",
     "src/listing-source-postgres",
+    "src/partnership-core",
+    "src/partnership-service",
+    "src/partnership-postgres",
     "src/shop-partner-core",
     "src/shop-partner-service",
     "src/shop-partner-postgres",
@@ -122,6 +125,9 @@ party-postgres = { path = "src/party-postgres" }
 listing-source-core = { path = "src/listing-source-core" }
 listing-source-service = { path = "src/listing-source-service" }
 listing-source-postgres = { path = "src/listing-source-postgres" }
+partnership-core = { path = "src/partnership-core" }
+partnership-service = { path = "src/partnership-service" }
+partnership-postgres = { path = "src/partnership-postgres" }
 shop-partner-core = { path = "src/shop-partner-core" }
 shop-partner-service = { path = "src/shop-partner-service" }
 shop-partner-postgres = { path = "src/shop-partner-postgres" }

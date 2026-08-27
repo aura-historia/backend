@@ -7,6 +7,12 @@
 - `develop` and `origin/develop` were the same starting commit. Fetch succeeded; no rebase was needed.
 - Iteration 0 changed documentation only. Iteration 1 adds the isolated Party vertical slice below; it does not change existing Shop consumers or begin cutover.
 
+## Iteration 3 Partnership slice
+
+- `partnership-core`, `partnership-service`, and `partnership-postgres` add a Party-scoped partnership application flow without changing the legacy Shop partner flow.
+- Submitted applications retain an existing ListingSource reference or a validated proposed Party/ListingSource payload. They create no draft Party or source.
+- Approval atomically creates proposed Party/ListingSource state when needed, finds or creates the Party partnership, and idempotently grants membership plus ListingSource access. Approval and rejection atomically create canonical applicant notification and EMAIL delivery intents through the notification factory. ListingSource grants are source-scoped; no new flow reads or writes Shop partner status.
+
 ## Iteration 2 ListingSource slice
 
 - `listing-source-core`, `listing-source-service`, and `listing-source-postgres` add an isolated listing acquisition source owned by a Party.

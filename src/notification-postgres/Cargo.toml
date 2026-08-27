@@ -10,6 +10,9 @@ platform-postgres = { workspace = true }
 domain-primitives = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
+partnership-core = { workspace = true }
+party-core = { workspace = true }
+listing-source-core = { workspace = true }
 notification-core = { workspace = true }
 notification-email = { workspace = true }
 notification-service = { workspace = true }
@@ -30,5 +33,6 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
