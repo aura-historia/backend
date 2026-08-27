@@ -38,6 +38,7 @@
 
 - `product-listing.md` — canonical ProductListing domain contract.
 - `product-listing-inventory.md` — ProductListing rewrite scope and final scan checklist.
+- `shop-model-rewrite-inventory.md` — Shop rewrite iteration 0 impact inventory.
 - `storage.md` — canonical storage contracts.
 - `events/flow.md` — durable event and scheduled-flow contracts.
 - `swagger.yaml` — public REST contract
