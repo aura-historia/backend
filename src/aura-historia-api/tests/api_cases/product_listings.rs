@@ -8,6 +8,7 @@ use application::transaction::{Transaction, UnitOfWork};
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
+
 use localization::{Language, Localized};
 use opensearch::{IndexParts, indices::IndicesPutMappingParts};
 use platform_postgres::SqlxUnitOfWork;
@@ -30,6 +31,7 @@ use product_listing_service::ports::{
     ProductListingRepositoryFactory, stamp_product_listing_events,
 };
 use serde_json::{Value, json};
+use std::collections::HashSet;
 use test_api::{
     AuraHistoriaApi, IntegrationTestService, aura_integration_test, get_opensearch_client,
     get_postgres_client, refresh_index,
@@ -54,7 +56,7 @@ async fn should_get_product_details_by_id() {
         .map(ToOwned::to_owned);
     let (status, body) = json_response(response.0).await;
 
-    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
     assert_eq!(
         json!(product_listing_id.to_string()),
         body["item"]["productListingId"]
@@ -88,7 +90,7 @@ async fn should_get_product_history_by_id() {
         .map(ToOwned::to_owned);
     let (status, body) = json_response(response).await;
 
-    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
     assert!(body.as_array().is_some_and(|events| !events.is_empty()));
     assert_eq!(
         json!(product_listing_id.to_string()),
@@ -102,6 +104,7 @@ async fn should_get_product_history_by_id() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_product_history_with_timestamped_event_payloads() {
+    let listing_source_id = api_support::seed_listing_source().await;
     let product_listing_id = ProductListingId::new();
     let source_offset =
         UtcOffset::from_hms(5, 30, 0).unwrap_or_else(|error| panic!("source offset: {error}"));
@@ -112,7 +115,7 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
     let auction_end = (auction_start + Duration::hours(3)).to_offset(source_offset);
     let mut product = ProductListing::create(NewProductListing {
         id: product_listing_id,
-        listing_source_id: ListingSourceId::new(),
+        listing_source_id: ListingSourceId::from(listing_source_id),
         source_listing_id: SourceListingId::try_from(format!(
             "timestamped-history-{product_listing_id}"
         ))
@@ -625,18 +628,17 @@ async fn should_intersect_product_search_filters() {
         format!(
             "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Filter%20cabinet&listingSourceId[0]={}&availability[0]=AVAILABLE&price[min]=500&price[max]=600",
             target.1["listingSourceId"]
+                .as_str()
+                .unwrap_or_else(|| panic!("target listing source ID is not a string"))
         ),
     )
     .await;
     let (status, body) = json_response(response).await;
 
-    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
     assert!(body["total"].is_null());
     assert_eq!(vec![target.0], product_listing_ids(&body));
-    assert_eq!(
-        json!("Imperial Antiques"),
-        body["items"][0]["item"]["source"]["name"]
-    );
+    assert!(body["items"][0]["item"]["source"]["name"].is_string());
     assert_eq!(json!("AVAILABLE"), body["items"][0]["item"]["availability"]);
     assert_eq!(
         json!(550),
@@ -827,8 +829,10 @@ async fn capture_fx_snapshot(captured_at: OffsetDateTime, usd_units_per_eur: i64
 }
 
 async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
+    let documents = documents.into_iter().collect::<Vec<_>>();
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;
+    seed_search_listing_sources(&pool, &documents).await;
     let client = get_opensearch_client().await;
     ensure_canonical_product_listing_mapping(client).await;
     for document in documents {
@@ -852,6 +856,41 @@ async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
         }
     }
     refresh_index(PRODUCTS_INDEX).await;
+}
+
+async fn seed_search_listing_sources(pool: &sqlx::PgPool, documents: &[Value]) {
+    let mut listing_source_ids = HashSet::new();
+    for document in documents {
+        let listing_source_id = document["listingSourceId"]
+            .as_str()
+            .unwrap_or_else(|| panic!("search fixture has no listingSourceId"));
+        listing_source_ids.insert(
+            uuid::Uuid::parse_str(listing_source_id).unwrap_or_else(|error| {
+                panic!("invalid search fixture listing source ID: {error}")
+            }),
+        );
+    }
+
+    for listing_source_id in listing_source_ids {
+        let party_id = uuid::Uuid::new_v4();
+        sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
+            .bind(party_id)
+            .bind(format!("search-party-{party_id}"))
+            .bind(format!("Search Party {party_id}"))
+            .execute(pool)
+            .await
+            .unwrap_or_else(|error| panic!("failed to seed search party: {error}"));
+        sqlx::query(
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(listing_source_id)
+        .bind(format!("search-source-{listing_source_id}"))
+        .bind(format!("Search Listing Source {listing_source_id}"))
+        .bind(party_id)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed search listing source: {error}"));
+    }
 }
 
 async fn ensure_canonical_product_listing_mapping(client: &opensearch::OpenSearch) {
@@ -922,7 +961,6 @@ fn search_document_with_source(
             "sourcePrice": { "amount": price_usd, "currency": "USD" },
             "availability": availability,
             "url": "https://listing-source.example/product",
-            "viewUrl": "https://aura.example/product",
             "images": [],
             "embedding": null,
             "auctionStart": null,

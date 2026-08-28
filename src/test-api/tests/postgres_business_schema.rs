@@ -1,4 +1,4 @@
-use sqlx::Executor;
+use sqlx::{AssertSqlSafe, Executor};
 use test_api::*;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -151,8 +151,8 @@ async fn should_apply_intentional_secondary_index_definitions() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_support_core_business_relations() {
     let pool = get_postgres_client().await;
-    pool.execute(sqlx::raw_sql(
-        r#"
+    let source_listing_slug_id = source_listing_slug_id("external-1");
+    let business_fixture_sql = r#"
         INSERT INTO users (user_id, email, tier, role)
         VALUES ('10000000-0000-0000-0000-000000000001', 'user@example.com', 'FREE', 'USER');
 
@@ -198,6 +198,7 @@ async fn should_support_core_business_relations() {
             content_source_event_id,
             listing_source_id,
             source_listing_id,
+            source_listing_slug_id,
             title_text,
             title_language,
             availability,
@@ -212,6 +213,7 @@ async fn should_support_core_business_relations() {
             '40000000-0000-0000-0000-000000000001',
             '20000000-0000-0000-0000-000000000002',
             'external-1',
+            '__SOURCE_LISTING_SLUG_ID__',
             'A vase',
             'en',
             NULL,
@@ -279,10 +281,11 @@ async fn should_support_core_business_relations() {
             '30000000-0000-0000-0000-000000000001',
             '40000000-0000-0000-0000-000000000001'
         );
-        "#,
-    ))
-    .await
-    .unwrap();
+        "#
+    .replace("__SOURCE_LISTING_SLUG_ID__", &source_listing_slug_id);
+    pool.execute(sqlx::raw_sql(AssertSqlSafe(business_fixture_sql)))
+        .await
+        .unwrap();
 
     let match_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM search_filter_matches")
         .fetch_one(&pool)
@@ -306,4 +309,14 @@ async fn should_reject_noncanonical_persisted_enum_values() {
             .await;
 
     assert!(result.is_err(), "noncanonical user role must be rejected");
+}
+
+fn source_listing_slug_id(raw: impl AsRef<str>) -> String {
+    let source_listing_id =
+        product_listing_core::source_listing_id::SourceListingId::try_from(raw.as_ref())
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
+    product_listing_core::product_listing_slug_id::SourceListingSlugId::from_source_listing_id(
+        &source_listing_id,
+    )
+    .to_string()
 }

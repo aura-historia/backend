@@ -224,7 +224,8 @@ fn product_source(title: &str) -> ProductListingSearchFilterMatchSource {
             listing_source_id: ListingSourceId::new(),
             name: ListingSourceName::try_from("Source")
                 .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
-            slug_id: ListingSourceSlugId::from("source"),
+            slug_id: ListingSourceSlugId::raw("source")
+                .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
         },
         source_listing_id: SourceListingId::try_from("sku-1")
             .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),

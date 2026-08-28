@@ -140,9 +140,12 @@ mod tests {
                             .unwrap_or_else(|error| {
                                 panic!("invalid test listing source name: {error}")
                             }),
-                            listing_source_slug: listing_source_core::ListingSourceSlugId::from(
+                            listing_source_slug: listing_source_core::ListingSourceSlugId::raw(
                                 "test-source",
-                            ),
+                            )
+                            .unwrap_or_else(|error| {
+                                panic!("valid test listing source slug: {error}")
+                            }),
                             crawl_enabled: true,
                         },
                     ])

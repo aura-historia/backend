@@ -191,7 +191,6 @@ fn map_summary_fields(
         availability: document.availability,
         lifecycle: ListingLifecycle::Active,
         url: document.url,
-        view_url: document.view_url,
         images: document.images.into_iter().map(Into::into).collect(),
         updated: document.updated,
     })
@@ -871,7 +870,6 @@ mod tests {
             sale_observed_at: None,
             availability: Some(ListingAvailability::Available),
             url: Url::parse("https://shop.example/product_listings/sku-1")?,
-            view_url: Url::parse("https://aura.example/product_listings/vase-abcdef")?,
             images: IndexSet::new(),
             embedding: None,
             auction_start: None,

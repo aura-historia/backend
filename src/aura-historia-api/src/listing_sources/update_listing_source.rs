@@ -38,7 +38,7 @@ pub async fn update_listing_source(
     let command = UpdateListingSourceCommand {
         listing_source_id,
         name: parts.name,
-        acquisition_configuration: parts.acquisition_configuration,
+        ingestion_configuration: parts.ingestion_configuration,
         woocommerce_webhook_secret: parts.woocommerce_webhook_secret,
         url: parts.url,
         image: parts.image,

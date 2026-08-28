@@ -20,11 +20,11 @@ A Party contains only a stable ID, immutable slug, name, and optional phone/emai
 
 ## ListingSource
 
-A ListingSource contains a stable ID, immutable slug, name, required operator Party ID, active acquisition methods, optional presentation URL/image, and optional referral configuration. ListingSource names trim Unicode outer whitespace, reject blank values, and allow at most 255 UTF-8 bytes without truncation. Creation derives its slug once; an empty slugification falls back to stable `listing-source-<listingSourceId>`. Rename does not alter the slug. Rehydration validates exact persisted name and slug. It has no type, lifecycle, search, address, crawl configuration, provider secret, or attribution policy.
+A ListingSource contains a stable ID, immutable slug, name, required operator Party ID, active ingestion methods, optional presentation URL/image, and optional referral configuration. ListingSource names trim Unicode outer whitespace, reject blank values, and allow at most 255 UTF-8 bytes without truncation. Creation derives its slug once; an empty slugification falls back to stable `listing-source-<listingSourceId>`. Rename does not alter the slug. Rehydration validates exact persisted name and slug. It has no type, lifecycle, search, address, crawl configuration, provider secret, or attribution policy.
 
 ProductListing reads and projections retain the raw source URL and derive a separate outbound view URL from the current ListingSource referral configuration: Partnerize when configured, otherwise Aura UTM parameters.
 
-Supported acquisition codes are exact canonical values:
+Supported ingestion codes are exact canonical values:
 
 ```text
 WEB_CRAWL

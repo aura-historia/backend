@@ -696,7 +696,8 @@ mod tests {
                     listing_source_id: ListingSourceId::new(),
                     source_listing_id: SourceListingId::try_from("source-product")
                         .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-                    listing_source_slug_id: ListingSourceSlugId::from("test-source"),
+                    listing_source_slug_id: ListingSourceSlugId::raw("test-source")
+                        .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
                     product_listing_slug_id: ProductListingSlugId::from("product"),
                     listing_source_name: ListingSourceName::try_from("Test Listing Source")
                         .unwrap_or_else(|error| {

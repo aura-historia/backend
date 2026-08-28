@@ -290,7 +290,6 @@ pub(crate) struct ProductListingDocument {
     )]
     pub availability: Option<ListingAvailability>,
     pub url: Url,
-    pub view_url: Url,
     #[serde(skip_serializing_if = "IndexSet::is_empty", default)]
     pub images: IndexSet<ProductListingImageDocument>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -375,7 +374,6 @@ mod tests {
             sale_observed_at: None,
             availability: Some(ListingAvailability::Available),
             url: Url::parse("https://shop.example/product_listings/sku-1")?,
-            view_url: Url::parse("https://aura.example/product_listings/vase-abcdef")?,
             images: IndexSet::new(),
             embedding: None,
             auction_start: None,
@@ -480,6 +478,7 @@ mod tests {
             "structuredAddressCountry",
             "structuredAddressContinent",
             "geoAddress",
+            "viewUrl",
         ] {
             assert!(
                 value.get(field).is_none(),

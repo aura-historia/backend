@@ -28,7 +28,7 @@ pub mod product_listing_watchlist_details_reader;
 pub mod product_listing_watchlist_notification_source_reader;
 pub mod watchlist_notification_recipient_reader;
 
-pub use listing_source_summary::ListingSourceSummary;
+pub use listing_source_summary::{ListingSourceSummary, ListingSourceSummaryWithReferral};
 pub use listing_source_summary_reader::{
     ListingSourceSummaryReadError, ListingSourceSummaryReader,
 };

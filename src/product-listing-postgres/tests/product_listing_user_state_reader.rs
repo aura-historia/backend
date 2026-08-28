@@ -398,7 +398,7 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
         INSERT INTO product_listings (
             product_listing_id, product_listing_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id,
             availability, lifecycle, url
-        ) VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8)
+        , source_listing_slug_id) VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9)
         "#,
     )
     .bind(raw_product_listing_id)
@@ -409,7 +409,8 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     .bind("AVAILABLE")
     .bind("ACTIVE")
     .bind("https://example.test/product")
-    .execute(&mut *transaction)
+    .bind(source_listing_slug_id(raw_product_listing_id.to_string()))
+        .execute(&mut *transaction)
     .await;
     if let Err(error) = product_result {
         panic!("failed to seed product: {error}");
@@ -633,4 +634,14 @@ fn uuid_from_filter_id(filter_id: UserSearchFilterId) -> uuid::Uuid {
         Ok(value) => value,
         Err(error) => panic!("invalid user search filter ID: {error}"),
     }
+}
+
+fn source_listing_slug_id(raw: impl AsRef<str>) -> String {
+    let source_listing_id =
+        product_listing_core::source_listing_id::SourceListingId::try_from(raw.as_ref())
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
+    product_listing_core::product_listing_slug_id::SourceListingSlugId::from_source_listing_id(
+        &source_listing_id,
+    )
+    .to_string()
 }

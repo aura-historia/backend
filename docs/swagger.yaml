@@ -1022,6 +1022,75 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
+  /api/v1/listing-sources/{listingSourceSlugId}/product-listings/{sourceListingSlugId}:
+    get:
+      summary: Get a single product by source-scoped source listing slug
+      description: >-
+        Retrieves an active ProductListing by its ListingSource slug and immutable,
+        deterministic `sourceListingSlugId`. `sourceListingSlugId` derives from the
+        raw `sourceListingId`; clients must not treat it as the raw provider key.
+      operationId: getProductListingBySourceListingSlug
+      tags:
+        - ProductListings
+      parameters:
+        - name: listingSourceSlugId
+          in: path
+          required: true
+          description: Canonical ListingSource slug
+          schema:
+            type: string
+            pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+        - name: sourceListingSlugId
+          in: path
+          required: true
+          description: Source-scoped deterministic slug for the raw source listing ID
+          schema:
+            type: string
+            pattern: "^[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{12}$"
+        - name: language
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/LanguageData"
+        - name: currency
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/CurrencyData"
+      security:
+        - BearerAuth: []
+        - {}
+      responses:
+        "200":
+          description: ProductListing found and returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonalizedProductListingDetailsData"
+        "400":
+          description: Invalid path or query parameter
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: ProductListing not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: Internal server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Product detail temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /api/v1/product-listings/{productListingId}:
     get:
       summary: Get a single product
@@ -11210,7 +11279,7 @@ components:
         - listingSourceSlugId
         - name
         - operator
-        - acquisitionMethods
+        - ingestionMethods
         - created
         - updated
       properties:
@@ -11224,10 +11293,10 @@ components:
           description: ListingSource name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
         operator:
           $ref: "#/components/schemas/OperatorPartyData"
-        acquisitionMethods:
+        ingestionMethods:
           type: array
           items:
-            $ref: "#/components/schemas/AcquisitionMethodData"
+            $ref: "#/components/schemas/ListingIngestionMethodData"
         url:
           type: string
           format: uri
@@ -11254,26 +11323,26 @@ components:
           type: string
         name:
           type: string
-    AcquisitionMethodData:
+    ListingIngestionMethodData:
       type: string
       enum:
         - WEB_CRAWL
         - SHOPIFY
         - WOOCOMMERCE
         - PARTNER_API
-    AcquisitionConfigurationData:
+    ListingIngestionConfigurationData:
       oneOf:
         - type: object
           required:
             - type
-            - acquisitionMethod
+            - ingestionMethod
           properties:
             type:
               type: string
               enum:
                 - UNCONFIGURED
-            acquisitionMethod:
-              $ref: "#/components/schemas/AcquisitionMethodData"
+            ingestionMethod:
+              $ref: "#/components/schemas/ListingIngestionMethodData"
         - type: object
           required:
             - type
@@ -11379,17 +11448,17 @@ components:
       required:
         - name
         - operator
-        - acquisitionConfiguration
+        - ingestionConfiguration
       properties:
         name:
           type: string
           description: ListingSource name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
         operator:
           $ref: "#/components/schemas/ListingSourceOperatorInputData"
-        acquisitionConfiguration:
+        ingestionConfiguration:
           type: array
           items:
-            $ref: "#/components/schemas/AcquisitionConfigurationData"
+            $ref: "#/components/schemas/ListingIngestionConfigurationData"
         woocommerceWebhookSecret:
           type: string
         url:
@@ -11407,10 +11476,10 @@ components:
         name:
           type: string
           description: ListingSource name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
-        acquisitionConfiguration:
+        ingestionConfiguration:
           type: array
           items:
-            $ref: "#/components/schemas/AcquisitionConfigurationData"
+            $ref: "#/components/schemas/ListingIngestionConfigurationData"
         woocommerceWebhookSecret:
           type: string
           nullable: true
@@ -11471,7 +11540,7 @@ components:
       type: object
       required:
         - name
-        - requestedAcquisitionMethods
+        - requestedIngestionMethods
       properties:
         name:
           type: string
@@ -11482,10 +11551,10 @@ components:
         image:
           type: string
           format: uri
-        requestedAcquisitionMethods:
+        requestedIngestionMethods:
           type: array
           items:
-            $ref: "#/components/schemas/AcquisitionMethodData"
+            $ref: "#/components/schemas/ListingIngestionMethodData"
     SubmitPartnershipApplicationData:
       type: object
       required:

@@ -1,6 +1,6 @@
 use application::{error::BoxError, patch_field::PatchField};
 use listing_source_core::{
-    AcquisitionMethod, Domain, ListingSource, ListingSourceId, ListingSourceSlugId,
+    Domain, ListingIngestionMethod, ListingSource, ListingSourceId, ListingSourceSlugId,
 };
 use localization::Language;
 use money::Currency;
@@ -9,7 +9,7 @@ use time::OffsetDateTime;
 domain_primitives::version_newtype!(ListingSourceStorageVersion);
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum AcquisitionConfiguration {
+pub enum ListingIngestionConfiguration {
     WebCrawl,
     Shopify {
         domain: Domain,
@@ -23,61 +23,66 @@ pub enum AcquisitionConfiguration {
     PartnerApi,
 }
 
-impl AcquisitionConfiguration {
-    pub fn method(&self) -> AcquisitionMethod {
+impl ListingIngestionConfiguration {
+    pub fn method(&self) -> ListingIngestionMethod {
         match self {
-            Self::WebCrawl => AcquisitionMethod::WebCrawl,
-            Self::Shopify { .. } => AcquisitionMethod::Shopify,
-            Self::Woocommerce { .. } => AcquisitionMethod::Woocommerce,
-            Self::PartnerApi => AcquisitionMethod::PartnerApi,
+            Self::WebCrawl => ListingIngestionMethod::WebCrawl,
+            Self::Shopify { .. } => ListingIngestionMethod::Shopify,
+            Self::Woocommerce { .. } => ListingIngestionMethod::Woocommerce,
+            Self::PartnerApi => ListingIngestionMethod::PartnerApi,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ListingSourceAcquisitionConfigurations(pub Vec<AcquisitionConfiguration>);
+pub struct ListingSourceIngestionConfigurations(pub Vec<ListingIngestionConfiguration>);
 
-impl ListingSourceAcquisitionConfigurations {
+impl ListingSourceIngestionConfigurations {
     pub fn methods(
         &self,
-    ) -> Result<std::collections::HashSet<AcquisitionMethod>, AcquisitionConfigurationMismatch>
-    {
+    ) -> Result<
+        std::collections::HashSet<ListingIngestionMethod>,
+        ListingIngestionConfigurationMismatch,
+    > {
         let methods = self
             .0
             .iter()
-            .map(AcquisitionConfiguration::method)
+            .map(ListingIngestionConfiguration::method)
             .collect::<std::collections::HashSet<_>>();
         if methods.len() == self.0.len() {
             Ok(methods)
         } else {
-            Err(AcquisitionConfigurationMismatch)
+            Err(ListingIngestionConfigurationMismatch)
         }
     }
 
     pub fn validate_for(
         &self,
         source: &ListingSource,
-    ) -> Result<(), AcquisitionConfigurationMismatch> {
-        (self.methods()? == *source.acquisition_methods())
+    ) -> Result<(), ListingIngestionConfigurationMismatch> {
+        (self.methods()? == *source.ingestion_methods())
             .then_some(())
-            .ok_or(AcquisitionConfigurationMismatch)
+            .ok_or(ListingIngestionConfigurationMismatch)
     }
 
     pub fn has_woocommerce(&self) -> bool {
         self.0.iter().any(|configuration| {
-            matches!(configuration, AcquisitionConfiguration::Woocommerce { .. })
+            matches!(
+                configuration,
+                ListingIngestionConfiguration::Woocommerce { .. }
+            )
         })
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("acquisition methods and configuration do not match")]
-pub struct AcquisitionConfigurationMismatch;
+#[error("ingestion methods and configuration do not match")]
+pub struct ListingIngestionConfigurationMismatch;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoredListingSource {
     pub source: ListingSource,
-    pub configuration: ListingSourceAcquisitionConfigurations,
+    pub configuration: ListingSourceIngestionConfigurations,
     pub version: ListingSourceStorageVersion,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -127,13 +132,13 @@ pub trait ListingSourceRepository: Send {
     async fn insert(
         &mut self,
         source: &ListingSource,
-        configuration: &ListingSourceAcquisitionConfigurations,
+        configuration: &ListingSourceIngestionConfigurations,
         woocommerce_webhook_secret: Option<&str>,
     ) -> Result<StoredListingSource, ListingSourceRepositoryError>;
     async fn update(
         &mut self,
         source: &ListingSource,
-        configuration: &ListingSourceAcquisitionConfigurations,
+        configuration: &ListingSourceIngestionConfigurations,
         woocommerce_webhook_secret: PatchField<&str>,
         expected: ListingSourceStorageVersion,
     ) -> Result<StoredListingSource, ListingSourceRepositoryError>;

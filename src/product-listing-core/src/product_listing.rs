@@ -3,7 +3,7 @@ use crate::listing_availability::ListingAvailability;
 use crate::listing_lifecycle::ListingLifecycle;
 use crate::product_listing_id::ProductListingId;
 use crate::product_listing_image::ProductListingImage;
-use crate::product_listing_slug_id::ProductListingSlugId;
+use crate::product_listing_slug_id::{ProductListingSlugId, SourceListingSlugId};
 use crate::source_listing_id::SourceListingId;
 use crate::title::Title;
 use domain_primitives::change_outcome::ChangeOutcome;
@@ -19,6 +19,7 @@ use url::Url;
 pub struct ProductListing {
     id: ProductListingId,
     slug_id: ProductListingSlugId,
+    source_listing_slug_id: SourceListingSlugId,
     listing_source_id: ListingSourceId,
     source_listing_id: SourceListingId,
     title: Option<Localized<Language, Title>>,
@@ -260,6 +261,7 @@ pub enum RecordListingSaleObservationError {
 impl ProductListing {
     pub fn create(input: NewProductListing) -> Result<Self, RehydrateProductListingError> {
         let slug_id = product_listing_slug_id(input.id, input.title.as_ref());
+
         let mut listing = Self::rehydrate(RehydratedProductListingState {
             id: input.id,
             slug_id,
@@ -302,6 +304,9 @@ impl ProductListing {
         Ok(Self {
             id: state.id,
             slug_id: state.slug_id,
+            source_listing_slug_id: SourceListingSlugId::from_source_listing_id(
+                &state.source_listing_id,
+            ),
             listing_source_id: state.listing_source_id,
             source_listing_id: state.source_listing_id,
             title: state.title,
@@ -481,6 +486,9 @@ impl ProductListing {
     }
     pub fn slug_id(&self) -> &ProductListingSlugId {
         &self.slug_id
+    }
+    pub fn source_listing_slug_id(&self) -> &SourceListingSlugId {
+        &self.source_listing_slug_id
     }
     pub fn listing_source_id(&self) -> ListingSourceId {
         self.listing_source_id

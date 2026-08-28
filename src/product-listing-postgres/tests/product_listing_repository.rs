@@ -18,7 +18,7 @@ use product_listing_core::product_listing::{
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::product_listing_slug_id::ProductListingSlugId;
+use product_listing_core::product_listing_slug_id::{ProductListingSlugId, SourceListingSlugId};
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
 use product_listing_postgres::{
@@ -259,6 +259,52 @@ async fn should_return_none_when_product_is_missing_in_postgres() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_persist_canonical_source_listing_id_after_unicode_whitespace_input() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let product_listings = SqlxProductListingRepositoryFactory::new();
+    let events = SqlxProductListingEventStoreFactory::new();
+    let listing_source_id =
+        seed_listing_source(&pool, "product-listing-postgres-unicode-source-id").await;
+    let source_listing_id = SourceListingId::try_from("\u{2003} SKU  #42/Blue \u{2002}")
+        .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
+    let product = sample_product_with_source_listing_id(
+        "postgres-product-unicode-source-id",
+        listing_source_id,
+        source_listing_id.clone(),
+    );
+
+    insert_product_with_event(&unit_of_work, &product_listings, &events, &product).await;
+
+    let persisted_source_listing_id: String = sqlx::query_scalar(
+        "SELECT source_listing_id FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product.id()))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to load persisted source listing ID: {error}"));
+    assert_eq!("SKU  #42/Blue", persisted_source_listing_id);
+
+    let mut tx = begin(&unit_of_work).await;
+    let loaded = match product_listings
+        .in_transaction(&mut tx)
+        .find_by_key(&ProductListingKey::new(
+            listing_source_id,
+            source_listing_id,
+        ))
+        .await
+    {
+        Ok(Some(loaded)) => loaded,
+        Ok(None) => panic!("missing product by canonical source listing ID"),
+        Err(error) => panic!("failed to find product by canonical source listing ID: {error:?}"),
+    };
+    commit(tx).await;
+
+    assert_eq!(product.id(), loaded.value.id());
+    assert_eq!("SKU  #42/Blue", loaded.value.source_listing_id().as_ref());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_report_product_insert_conflict_when_source_listing_identity_or_slug_duplicates() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -483,14 +529,18 @@ async fn insert_product_row(
     let product_listing_id = uuid::Uuid::new_v4();
     let event_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
+    let source_listing_id = SourceListingId::try_from(format!("{slug}-source-listing"))
+        .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
+    let source_listing_slug_id = SourceListingSlugId::from_source_listing_id(&source_listing_id);
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, lifecycle, url, sale_observation_fx_rate_id, sale_observed_at) VALUES ($1, $2, $3, $3, $4, $5, 'ACTIVE', 'https://example.test/product', $6, $7)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, source_listing_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, lifecycle, url, sale_observation_fx_rate_id, sale_observed_at) VALUES ($1, $2, $3, $4, $4, $5, $6, 'ACTIVE', 'https://example.test/product', $7, $8)",
     )
     .bind(product_listing_id)
     .bind(slug)
+    .bind(source_listing_slug_id.as_ref())
     .bind(event_id)
     .bind(uuid::Uuid::from(listing_source_id))
-    .bind(format!("{slug}-source-listing"))
+    .bind(source_listing_id.as_ref())
     .bind(sale_observation_fx_rate_id.map(uuid::Uuid::from))
     .bind(sale_observed_at)
     .execute(&mut *tx)
@@ -578,6 +628,16 @@ fn rehydrate_product_for_update(
 }
 
 fn sample_product(slug: &str, listing_source_id: ListingSourceId) -> ProductListing {
+    let source_listing_id = SourceListingId::try_from(slug)
+        .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
+    sample_product_with_source_listing_id(slug, listing_source_id, source_listing_id)
+}
+
+fn sample_product_with_source_listing_id(
+    slug: &str,
+    listing_source_id: ListingSourceId,
+    source_listing_id: SourceListingId,
+) -> ProductListing {
     let mut images = IndexSet::new();
     images.insert(ProductListingImage::new(url(&format!(
         "https://example.com/{slug}.jpg"
@@ -585,8 +645,7 @@ fn sample_product(slug: &str, listing_source_id: ListingSourceId) -> ProductList
     match ProductListing::create(NewProductListing {
         id: product_listing_core::product_listing_id::ProductListingId::new(),
         listing_source_id,
-        source_listing_id: SourceListingId::try_from(slug)
-            .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+        source_listing_id,
         title: Some(Localized::new(Language::En, Title::from(slug))),
         description: Some(Localized::new(
             Language::En,

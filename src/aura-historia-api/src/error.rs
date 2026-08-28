@@ -729,9 +729,9 @@ impl From<CreateListingSourceError> for ApiError {
                 ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
                     .with_detail("Listing source operator was not found.")
             }
-            CreateListingSourceError::AcquisitionConfigurationMismatch => {
+            CreateListingSourceError::ListingIngestionConfigurationMismatch => {
                 ApiError::bad_request(BAD_BODY_VALUE)
-                    .with_detail("Listing source acquisition configuration is invalid.")
+                    .with_detail("Listing source ingestion configuration is invalid.")
             }
             CreateListingSourceError::OperatorPartySlugConflict { .. }
             | CreateListingSourceError::SlugConflict { .. }
@@ -771,9 +771,9 @@ impl From<UpdateListingSourceError> for ApiError {
                 ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
                     .with_detail("Listing source operator was not found.")
             }
-            UpdateListingSourceError::AcquisitionConfigurationMismatch => {
+            UpdateListingSourceError::ListingIngestionConfigurationMismatch => {
                 ApiError::bad_request(BAD_BODY_VALUE)
-                    .with_detail("Listing source acquisition configuration is invalid.")
+                    .with_detail("Listing source ingestion configuration is invalid.")
             }
             UpdateListingSourceError::ConcurrencyConflict
             | UpdateListingSourceError::SlugConflict { .. }

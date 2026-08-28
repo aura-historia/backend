@@ -1,6 +1,6 @@
 use application::error::BoxError;
 use domain_primitives::versioned::Versioned;
-use partnership_core::partnership::Partnership;
+use partnership_core::{partnership::Partnership, partnership_id::PartnershipId};
 use party_core::party_id::PartyId;
 
 domain_primitives::version_newtype!(PartnershipStorageVersion);
@@ -8,11 +8,6 @@ pub type VersionedPartnership = Versioned<Partnership, PartnershipStorageVersion
 
 #[derive(Debug, thiserror::Error)]
 pub enum PartnershipRepositoryError {
-    #[error("partnership already exists for party")]
-    PartyConflict {
-        #[source]
-        source: BoxError,
-    },
     #[error("temporary partnership persistence failure")]
     TemporarilyUnavailable {
         #[source]
@@ -32,13 +27,10 @@ pub enum PartnershipRepositoryError {
 
 #[async_trait::async_trait]
 pub trait PartnershipRepository: Send {
-    async fn find_by_party_id(
+    async fn find_or_create_for_party(
         &mut self,
         party_id: PartyId,
-    ) -> Result<Option<VersionedPartnership>, PartnershipRepositoryError>;
-    async fn insert(
-        &mut self,
-        partnership: &Partnership,
+        new_partnership_id: PartnershipId,
     ) -> Result<VersionedPartnership, PartnershipRepositoryError>;
 }
 

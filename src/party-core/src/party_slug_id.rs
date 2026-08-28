@@ -32,10 +32,14 @@ impl PartySlugId {
     }
 
     pub(crate) fn derive(name: &str, party_id: PartyId) -> Self {
-        match Self::raw(slug::slugify(name)) {
-            Ok(slug_id) => slug_id,
-            Err(_) => Self(format!("{}-{party_id}", Self::FALLBACK_PREFIX)),
-        }
+        let prefix = slug::slugify(name);
+        let prefix = if prefix.is_empty() {
+            Self::FALLBACK_PREFIX
+        } else {
+            prefix.as_str()
+        };
+
+        Self(format!("{prefix}-{party_id}"))
     }
 }
 

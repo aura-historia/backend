@@ -92,7 +92,9 @@ mod tests {
     use product_listing_core::listing_availability::ListingAvailability;
     use product_listing_core::listing_lifecycle::ListingLifecycle;
     use product_listing_core::product_listing::{ProductListingAuction, ProductListingPricing};
-    use product_listing_core::product_listing_slug_id::ProductListingSlugId;
+    use product_listing_core::product_listing_slug_id::{
+        ProductListingSlugId, SourceListingSlugId,
+    };
     use product_listing_core::source_listing_id::SourceListingId;
     use product_listing_core::title::Title;
     use product_listing_service::ports::ListingSourceSummary;
@@ -278,6 +280,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_map_source_scoped_slug_path_to_source_slug_lookup()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let view = product_details_view()?;
+        let source_listing_id = SourceListingId::try_from("source-listing-id")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
+        let source_listing_slug_id =
+            SourceListingSlugId::from_source_listing_id(&source_listing_id);
+        let expected_listing_source_slug_id = ListingSourceSlugId::raw("source")
+            .unwrap_or_else(|error| panic!("valid listing source slug: {error}"));
+        let (app, calls) = app(view, false, None);
+
+        let response = app
+            .oneshot(
+                Request::get(format!(
+                    "/api/v1/listing-sources/source/product-listings/{source_listing_slug_id}?language=de&currency=USD"
+                ))
+                .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert!(matches!(
+            &lock(&calls)[0].1,
+            GetProductListingRequest {
+                lookup: ProductListingLookup::BySourceListingSlug {
+                    listing_source_slug_id,
+                    source_listing_slug_id: actual_source_listing_slug_id,
+                },
+                language: Language::De,
+                currency: Currency::Usd,
+            } if listing_source_slug_id == &expected_listing_source_slug_id
+                && actual_source_listing_slug_id == &source_listing_slug_id
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_reject_invalid_language_before_calling_use_case()
     -> Result<(), Box<dyn std::error::Error>> {
         let product_listing_id = ProductListingId::new();
@@ -431,6 +470,12 @@ mod tests {
                     "/api/v1/product-listings/{product_listing_id}",
                     axum::routing::get(get_product_by_id),
                 )
+                .route(
+                    "/api/v1/listing-sources/{listing_source_slug_id}/product-listings/{source_listing_slug_id}",
+                    axum::routing::get(
+                        crate::product_listings::get_product_by_source_slug::get_product_by_source_slug,
+                    ),
+                )
                 .with_state(state),
             calls,
         )
@@ -452,7 +497,8 @@ mod tests {
                     name: ListingSourceName::try_from("Source").unwrap_or_else(|error| {
                         panic!("invalid test listing source name: {error}")
                     }),
-                    slug_id: ListingSourceSlugId::from("source"),
+                    slug_id: ListingSourceSlugId::raw("source")
+                        .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
                 },
                 source_listing_id: SourceListingId::try_from("source-listing-id")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),

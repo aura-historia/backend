@@ -1,6 +1,6 @@
 use application::error::box_error;
 use listing_source_core::{
-    AcquisitionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
+    ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
 };
 use partnership_core::{
     partnership_application::{
@@ -74,7 +74,7 @@ struct ProposedListingSourceV1 {
     name: String,
     url: Option<String>,
     image: Option<String>,
-    requested_acquisition_methods: Vec<String>,
+    requested_ingestion_methods: Vec<String>,
 }
 impl From<&PartnershipProposal> for ProposalV1 {
     fn from(v: &PartnershipProposal) -> Self {
@@ -105,8 +105,8 @@ impl From<&PartnershipProposal> for ProposalV1 {
                         .image
                         .as_ref()
                         .map(ToString::to_string),
-                    requested_acquisition_methods: listing_source
-                        .requested_acquisition_methods
+                    requested_ingestion_methods: listing_source
+                        .requested_ingestion_methods
                         .iter()
                         .map(|m| m.as_str().to_owned())
                         .collect(),
@@ -133,10 +133,10 @@ impl TryFrom<ProposalV1> for PartnershipProposal {
                     .map(|v| v.parse::<Email>().map_err(|_| MappingError::Value))
                     .transpose()?;
                 let methods = listing_source
-                    .requested_acquisition_methods
+                    .requested_ingestion_methods
                     .into_iter()
                     .map(|v| {
-                        AcquisitionMethod::iter()
+                        ListingIngestionMethod::iter()
                             .find(|m| m.as_str() == v)
                             .ok_or(MappingError::Value)
                     })
@@ -162,7 +162,7 @@ impl TryFrom<ProposalV1> for PartnershipProposal {
                                 .map(|v| Url::parse(&v).map_err(|_| MappingError::Value))
                                 .transpose()?,
                         },
-                        requested_acquisition_methods: methods,
+                        requested_ingestion_methods: methods,
                     },
                 })
             }

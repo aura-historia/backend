@@ -1,4 +1,4 @@
-use crate::ports::ListingSourceSummary;
+use crate::ports::ListingSourceSummaryWithReferral;
 use application::error::BoxError;
 use listing_source_core::ListingSourceId;
 use std::collections::HashMap;
@@ -23,5 +23,8 @@ pub trait ListingSourceSummaryReader: Send + Sync {
     async fn find_summaries(
         &self,
         listing_source_ids: &[ListingSourceId],
-    ) -> Result<HashMap<ListingSourceId, ListingSourceSummary>, ListingSourceSummaryReadError>;
+    ) -> Result<
+        HashMap<ListingSourceId, ListingSourceSummaryWithReferral>,
+        ListingSourceSummaryReadError,
+    >;
 }

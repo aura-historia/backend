@@ -49,10 +49,10 @@ impl WoocommerceSourceReader for SqlxListingSourceReaders {
     ) -> Result<Option<WoocommerceSource>, ListingSourceReadError> {
         sqlx::query_as::<_, WooRow>(
             "SELECT c.listing_source_id,c.currency,c.language \
-             FROM listing_source_woocommerce_configurations c \
+             FROM listing_source_woocommerce_ingestion_configurations c \
              JOIN listing_sources s ON s.listing_source_id=c.listing_source_id \
-             JOIN listing_source_acquisition_methods m \
-               ON m.listing_source_id=c.listing_source_id AND m.acquisition_method='WOOCOMMERCE' \
+             JOIN listing_source_ingestion_methods m \
+               ON m.listing_source_id=c.listing_source_id AND m.ingestion_method='WOOCOMMERCE' \
              JOIN partnerships p ON p.party_id=s.operator_party_id \
              WHERE c.listing_source_id=$1 \
                AND EXISTS ( \

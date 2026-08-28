@@ -82,7 +82,6 @@ struct ProductListingPercolationDocument {
     )]
     availability: Option<ListingAvailability>,
     url: Url,
-    view_url: Url,
     #[serde(skip_serializing_if = "IndexSet::is_empty")]
     images: IndexSet<ProductListingImageDocument>,
     #[serde(
@@ -159,7 +158,6 @@ fn build_product_listing_percolation_document(
             .map(|valuation| percolation_prices(valuation.prices)),
         availability: product.availability,
         url: product.url.clone(),
-        view_url: product.view_url.clone(),
         images: product
             .images
             .iter()
@@ -227,7 +225,6 @@ pub(crate) fn product_listing_document(
         sale_observed_at,
         availability: product.availability,
         url: product.url.clone(),
-        view_url: product.view_url.clone(),
         images: product
             .images
             .iter()
@@ -398,7 +395,8 @@ mod tests {
                 listing_source_id: ListingSourceId::new(),
                 name: ListingSourceName::try_from("Source")
                     .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
-                slug_id: ListingSourceSlugId::from("source"),
+                slug_id: ListingSourceSlugId::raw("source")
+                    .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
             },
             source_listing_id: SourceListingId::try_from("sku-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
@@ -622,13 +620,9 @@ mod tests {
     }
 
     #[test]
-    fn should_preserve_raw_and_referral_view_urls_in_projection_documents()
+    fn should_preserve_raw_urls_without_view_urls_in_projection_documents()
     -> Result<(), Box<dyn std::error::Error>> {
-        let mut product = source()?;
-        product.view_url = Url::parse(
-            "https://prf.hn/click/camref:campaign/pubref:aurahistoria/destination:https%3A%2F%2Fshop.example.test%2Fproduct_listings%2Fblue-vase",
-        )?;
-
+        let product = source()?;
         let persistent = serde_json::to_value(product_listing_document(&product, None)?)?;
         let temporary = product_listing_percolation_document(&ProductListingPercolationInput {
             source: product,
@@ -642,12 +636,7 @@ mod tests {
                 )),
                 document.get("url"),
             );
-            assert_eq!(
-                Some(&serde_json::json!(
-                    "https://prf.hn/click/camref:campaign/pubref:aurahistoria/destination:https%3A%2F%2Fshop.example.test%2Fproduct_listings%2Fblue-vase"
-                )),
-                document.get("viewUrl"),
-            );
+            assert!(document.get("viewUrl").is_none());
         }
         Ok(())
     }

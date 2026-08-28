@@ -107,18 +107,22 @@ mod tests {
     }
 
     #[test]
-    fn should_derive_slug_once_when_creating_party() {
+    fn should_always_disambiguate_slug_when_creating_party() {
+        let party_id = PartyId::from(uuid::Uuid::nil());
         let party = Party::create(NewParty {
-            id: PartyId::new(),
+            id: party_id,
             name: party_name("Antik und Stil"),
             contact: PartyContact::default(),
         });
 
-        assert_eq!("antik-und-stil", party.slug_id().as_ref());
+        assert_eq!(
+            "antik-und-stil-00000000-0000-0000-0000-000000000000",
+            party.slug_id().as_ref()
+        );
     }
 
     #[test]
-    fn should_use_stable_fallback_prefix_when_name_has_no_slug_characters() {
+    fn should_disambiguate_fallback_slug_when_name_has_no_slug_characters() {
         let party_id = PartyId::from(uuid::Uuid::nil());
         let party = Party::create(NewParty {
             id: party_id,
@@ -142,7 +146,10 @@ mod tests {
 
         assert!(party.rename(party_name("Neue Identität")).changed());
 
-        assert_eq!("antik-und-stil", party.slug_id().as_ref());
+        assert_eq!(
+            format!("antik-und-stil-{}", party.id()),
+            party.slug_id().as_ref()
+        );
         assert_eq!("Neue Identität", party.name().as_ref());
     }
 

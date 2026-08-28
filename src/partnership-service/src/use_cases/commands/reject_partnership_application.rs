@@ -349,7 +349,7 @@ mod tests {
         transaction::TransactionError,
     };
     use domain_primitives::versioned::Versioned;
-    use listing_source_core::{AcquisitionMethod, ListingSourcePresentation};
+    use listing_source_core::{ListingIngestionMethod, ListingSourcePresentation};
     use listing_source_service::ports::{
         ListingSourceRepository, ListingSourceRepositoryError, ListingSourceStorageVersion,
         StoredListingSource,
@@ -587,7 +587,7 @@ mod tests {
         async fn insert(
             &mut self,
             _source: &listing_source_core::ListingSource,
-            _configuration: &listing_source_service::ports::ListingSourceAcquisitionConfigurations,
+            _configuration: &listing_source_service::ports::ListingSourceIngestionConfigurations,
             _woocommerce_webhook_secret: Option<&str>,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             Err(ListingSourceRepositoryError::Internal {
@@ -598,7 +598,7 @@ mod tests {
         async fn update(
             &mut self,
             _source: &listing_source_core::ListingSource,
-            _configuration: &listing_source_service::ports::ListingSourceAcquisitionConfigurations,
+            _configuration: &listing_source_service::ports::ListingSourceIngestionConfigurations,
             _woocommerce_webhook_secret: application::patch_field::PatchField<&str>,
             _expected: ListingSourceStorageVersion,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
@@ -698,8 +698,8 @@ mod tests {
                                 url: None,
                                 image: None,
                             },
-                            requested_acquisition_methods: std::collections::HashSet::from([
-                                AcquisitionMethod::PartnerApi,
+                            requested_ingestion_methods: std::collections::HashSet::from([
+                                ListingIngestionMethod::PartnerApi,
                             ]),
                         },
                 },

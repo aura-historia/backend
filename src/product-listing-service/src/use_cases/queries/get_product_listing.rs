@@ -21,7 +21,7 @@ use product_listing_core::content_policy::{
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
-use product_listing_core::product_listing_slug_id::ProductListingSlugId;
+use product_listing_core::product_listing_slug_id::{ProductListingSlugId, SourceListingSlugId};
 
 use crate::ports::ListingSourceSummary;
 use listing_source_core::ListingSourceSlugId;
@@ -44,6 +44,10 @@ pub enum ProductListingLookup {
     BySlug {
         listing_source_slug_id: ListingSourceSlugId,
         product_listing_slug_id: ProductListingSlugId,
+    },
+    BySourceListingSlug {
+        listing_source_slug_id: ListingSourceSlugId,
+        source_listing_slug_id: SourceListingSlugId,
     },
 }
 
@@ -429,7 +433,8 @@ pub fn redact_hidden_product(
         listing_source_id: listing_source_core::ListingSourceId::from(nil),
         name: listing_source_core::ListingSourceName::try_from("Hidden")
             .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?,
-        slug_id: ListingSourceSlugId::from("hidden"),
+        slug_id: ListingSourceSlugId::raw("hidden")
+            .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
     };
     details.source_listing_id = SourceListingId::try_from(nil.to_string())
         .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?;
@@ -791,7 +796,8 @@ mod tests {
                         .unwrap_or_else(|error| {
                             panic!("invalid test listing source name: {error}")
                         }),
-                    slug_id: ListingSourceSlugId::from("source"),
+                    slug_id: ListingSourceSlugId::raw("source")
+                        .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
                 },
                 source_listing_id: SourceListingId::try_from("cabinet-1")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),

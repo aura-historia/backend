@@ -6,7 +6,7 @@ Iteration 6 is complete. Aura-owned listing-source, partner, and onboarding cont
 
 ## Canonical boundary
 
-- `ListingSource` owns an acquisition source operated by a `Party`.
+- `ListingSource` owns an ingestion source operated by a `Party`.
 - `Partnership` owns membership and ListingSource grants.
 - `PartnershipApplication` proposes an existing ListingSource or a new Party plus ListingSource.
 - `ProductListing` identity uses `listingSourceId` and `sourceListingId`.

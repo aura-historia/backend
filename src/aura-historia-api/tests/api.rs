@@ -24,3 +24,5 @@ mod search_filters;
 mod users;
 #[path = "api_cases/watchlist.rs"]
 mod watchlist;
+#[path = "api_cases/woocommerce_webhook.rs"]
+mod woocommerce_webhook;

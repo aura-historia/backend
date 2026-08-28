@@ -13,11 +13,17 @@ use user_service::use_cases::queries::check_user_admin::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum RequiredPatch<T> {
+    Unchanged,
+    Set(T),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct UpdateListingSourceCommand {
     pub listing_source_id: ListingSourceId,
-    pub name: PatchField<ListingSourceName>,
+    pub name: RequiredPatch<ListingSourceName>,
 
-    pub acquisition_configuration: PatchField<ListingSourceAcquisitionConfigurations>,
+    pub ingestion_configuration: RequiredPatch<ListingSourceIngestionConfigurations>,
     pub woocommerce_webhook_secret: PatchField<String>,
     pub url: PatchField<url::Url>,
     pub image: PatchField<url::Url>,
@@ -40,8 +46,8 @@ pub enum UpdateListingSourceError {
     NotFound,
     #[error("operator party not found")]
     OperatorPartyNotFound,
-    #[error("acquisition method/configuration mismatch")]
-    AcquisitionConfigurationMismatch,
+    #[error("ingestion method/configuration mismatch")]
+    ListingIngestionConfigurationMismatch,
     #[error("concurrent listing source update")]
     ConcurrencyConflict,
     #[error("listing source slug conflict")]
@@ -144,9 +150,9 @@ where
         let outcome = apply_update(&mut source, &mut configuration, &command)?;
         configuration
             .validate_for(&source)
-            .map_err(|_| UpdateListingSourceError::AcquisitionConfigurationMismatch)?;
+            .map_err(|_| UpdateListingSourceError::ListingIngestionConfigurationMismatch)?;
         if command.woocommerce_webhook_secret.is_changed() && !configuration.has_woocommerce() {
-            return Err(UpdateListingSourceError::AcquisitionConfigurationMismatch);
+            return Err(UpdateListingSourceError::ListingIngestionConfigurationMismatch);
         }
         let result = if outcome.changed() {
             self.sources
@@ -197,18 +203,18 @@ impl From<StoredListingSource> for UpdateListingSourceResult {
 
 fn apply_update(
     source: &mut ListingSource,
-    configuration: &mut ListingSourceAcquisitionConfigurations,
+    configuration: &mut ListingSourceIngestionConfigurations,
     command: &UpdateListingSourceCommand,
 ) -> Result<ChangeOutcome, UpdateListingSourceError> {
     let mut outcome = ChangeOutcome::Unchanged;
-    if let PatchField::Set(name) = &command.name {
+    if let RequiredPatch::Set(name) = &command.name {
         outcome = outcome.combine(source.rename(name.clone()));
     }
-    if let PatchField::Set(value) = &command.acquisition_configuration {
+    if let RequiredPatch::Set(value) = &command.ingestion_configuration {
         let methods = value
             .methods()
-            .map_err(|_| UpdateListingSourceError::AcquisitionConfigurationMismatch)?;
-        outcome = outcome.combine(source.replace_acquisition_methods(methods));
+            .map_err(|_| UpdateListingSourceError::ListingIngestionConfigurationMismatch)?;
+        outcome = outcome.combine(source.replace_ingestion_methods(methods));
         outcome = outcome.combine(ChangeOutcome::from(*configuration != *value));
         *configuration = value.clone();
     }
@@ -359,7 +365,7 @@ mod tests {
         async fn insert(
             &mut self,
             _: &ListingSource,
-            _: &ListingSourceAcquisitionConfigurations,
+            _: &ListingSourceIngestionConfigurations,
             _: Option<&str>,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             Err(error())
@@ -367,7 +373,7 @@ mod tests {
         async fn update(
             &mut self,
             source: &ListingSource,
-            config: &ListingSourceAcquisitionConfigurations,
+            config: &ListingSourceIngestionConfigurations,
             _: PatchField<&str>,
             _: ListingSourceStorageVersion,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
@@ -397,14 +403,14 @@ mod tests {
             name: ListingSourceName::try_from("Source")
                 .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
             operator_party_id: PartyId::new(),
-            acquisition_methods: std::collections::HashSet::from([AcquisitionMethod::WebCrawl]),
+            ingestion_methods: std::collections::HashSet::from([ListingIngestionMethod::WebCrawl]),
             presentation: ListingSourcePresentation::default(),
             referral_configuration: None,
         });
         StoredListingSource {
             source,
-            configuration: ListingSourceAcquisitionConfigurations(vec![
-                AcquisitionConfiguration::WebCrawl,
+            configuration: ListingSourceIngestionConfigurations(vec![
+                ListingIngestionConfiguration::WebCrawl,
             ]),
             version: ListingSourceStorageVersion::INITIAL,
             created: OffsetDateTime::UNIX_EPOCH,
@@ -415,9 +421,9 @@ mod tests {
     fn command(id: ListingSourceId) -> UpdateListingSourceCommand {
         UpdateListingSourceCommand {
             listing_source_id: id,
-            name: PatchField::Unchanged,
+            name: RequiredPatch::Unchanged,
 
-            acquisition_configuration: PatchField::Unchanged,
+            ingestion_configuration: RequiredPatch::Unchanged,
             woocommerce_webhook_secret: PatchField::Unchanged,
             url: PatchField::Unchanged,
             image: PatchField::Unchanged,
@@ -435,6 +441,29 @@ mod tests {
         ListingSourceRepositoryError::Internal {
             source: static_error("fake failure"),
         }
+    }
+
+    #[tokio::test]
+    async fn should_persist_when_required_name_patch_is_set() {
+        let stored = source();
+        let state = Arc::new(Mutex::new(State::default()));
+        let handler = UpdateListingSourceHandler::new(
+            Uow(Arc::clone(&state)),
+            Sources(stored.clone()),
+            Admin,
+        );
+        let mut command = command(stored.source.id());
+        command.name = RequiredPatch::Set(
+            ListingSourceName::try_from("Renamed source")
+                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+        );
+
+        assert!(handler.execute(&context(), command).await.is_ok());
+        let state = state
+            .lock()
+            .unwrap_or_else(|error| panic!("fake state poisoned: {error}"));
+        assert_eq!(1, state.updates);
+        assert_eq!(1, state.commits);
     }
 
     #[tokio::test]

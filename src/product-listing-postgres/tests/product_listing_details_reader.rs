@@ -151,7 +151,8 @@ async fn should_fall_back_to_de_then_deterministic_remaining_translation_for_slu
         &pool,
         ProductListingDetailsReadRequest {
             lookup: ProductListingLookup::BySlug {
-                listing_source_slug_id: ListingSourceSlugId::from(listing_source_slug),
+                listing_source_slug_id: ListingSourceSlugId::raw(listing_source_slug)
+                    .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
                 product_listing_slug_id: product.slug_id().clone(),
             },
             language: Language::It,

@@ -12,7 +12,8 @@ fn listing_source(listing_source_id: ListingSourceId) -> RegisteredListingSource
         listing_source_id,
         listing_source_name: ListingSourceName::try_from("Test source")
             .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
-        listing_source_slug: ListingSourceSlugId::from("test-source"),
+        listing_source_slug: ListingSourceSlugId::raw("test-source")
+            .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
         crawl_enabled: true,
     }
 }

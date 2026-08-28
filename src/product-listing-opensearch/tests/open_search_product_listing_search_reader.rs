@@ -284,7 +284,6 @@ fn product_listing_document(
         "saleObservedAt": sale_observed_at,
 
         "url": format!("https://shop.example/product_listings/{}", seed.product_listing_slug_id),
-        "viewUrl": format!("https://aura.example/product_listings/{}", seed.product_listing_slug_id),
         "created": OffsetDateTime::UNIX_EPOCH.format(&Rfc3339)?,
         "updated": OffsetDateTime::UNIX_EPOCH.format(&Rfc3339)?
     });

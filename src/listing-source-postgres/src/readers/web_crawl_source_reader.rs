@@ -9,9 +9,9 @@ impl WebCrawlSourceReader for SqlxListingSourceReaders {
         let rows = sqlx::query_as::<_, (uuid::Uuid, String, String, bool)>(
             "SELECT s.listing_source_id, s.name, s.listing_source_slug_id, \
                     EXISTS ( \
-                        SELECT 1 FROM listing_source_acquisition_methods m \
+                        SELECT 1 FROM listing_source_ingestion_methods m \
                         WHERE m.listing_source_id = s.listing_source_id \
-                          AND m.acquisition_method = 'WEB_CRAWL' \
+                          AND m.ingestion_method = 'WEB_CRAWL' \
                     ) AS web_crawl_enabled \
              FROM listing_sources s",
         )

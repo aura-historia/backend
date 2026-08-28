@@ -436,12 +436,12 @@ PostgreSQL owns row types and storage encoding. A row MAY decode directly into c
 #[derive(serde::Deserialize)]
 struct CreateListingSourceDto {
     name: ListingSourceName,
-    #[serde(with = "acquisition_method_wire")]
-    acquisition_methods: Vec<AcquisitionMethod>,
+    #[serde(with = "ingestion_method_wire")]
+    ingestion_methods: Vec<ListingIngestionMethod>,
 }
 ```
 
-Avoid a boundary mirror such as `AcquisitionMethodDto` plus exhaustive identity conversions unless an intentional contract divergence requires it.
+Avoid a boundary mirror such as `ListingIngestionMethodDto` plus exhaustive identity conversions unless an intentional contract divergence requires it.
 
 For bounded-context enums, this workspace uses the policy that the canonical value set equals the REST value set when the API delegates to the canonical identifier. Adding a canonical variant therefore intentionally makes it REST-visible. A REST-specific alias, subset, or compatibility value still requires an API-local codec and review.
 

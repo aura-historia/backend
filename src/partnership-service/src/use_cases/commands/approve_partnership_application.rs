@@ -9,7 +9,7 @@ use application::{
 };
 use listing_source_core::{ListingSource, ListingSourceId, NewListingSource};
 use listing_source_service::ports::{
-    AcquisitionConfiguration, ListingSourceAcquisitionConfigurations,
+    ListingIngestionConfiguration, ListingSourceIngestionConfigurations,
 };
 use notification_core::notification::{
     Notification, NotificationContent, PartnershipApplicationDecision,
@@ -21,7 +21,6 @@ use notification_service::ports::notification_creator::{
     NotificationCreatorFactory,
 };
 use partnership_core::{
-    partnership::{NewPartnership, Partnership},
     partnership_application::{
         PartnershipApplication, PartnershipApplicationApprovalResult, PartnershipProposal,
     },
@@ -222,19 +221,19 @@ where
                         .insert(&party)
                         .await?
                         .party;
-                    let config = ListingSourceAcquisitionConfigurations(
+                    let config = ListingSourceIngestionConfigurations(
                         listing_source
-                            .requested_acquisition_methods
+                            .requested_ingestion_methods
                             .iter()
                             .filter_map(|method| match method {
-                                listing_source_core::AcquisitionMethod::WebCrawl => {
-                                    Some(AcquisitionConfiguration::WebCrawl)
+                                listing_source_core::ListingIngestionMethod::WebCrawl => {
+                                    Some(ListingIngestionConfiguration::WebCrawl)
                                 }
-                                listing_source_core::AcquisitionMethod::PartnerApi => {
-                                    Some(AcquisitionConfiguration::PartnerApi)
+                                listing_source_core::ListingIngestionMethod::PartnerApi => {
+                                    Some(ListingIngestionConfiguration::PartnerApi)
                                 }
-                                listing_source_core::AcquisitionMethod::Shopify
-                                | listing_source_core::AcquisitionMethod::Woocommerce => None,
+                                listing_source_core::ListingIngestionMethod::Shopify
+                                | listing_source_core::ListingIngestionMethod::Woocommerce => None,
                             })
                             .collect(),
                     );
@@ -242,7 +241,7 @@ where
                         id: ListingSourceId::new(),
                         name: listing_source.name,
                         operator_party_id: party.id(),
-                        acquisition_methods: config.methods().map_err(|source| {
+                        ingestion_methods: config.methods().map_err(|source| {
                             ApprovePartnershipApplicationError::InvalidPersistedState {
                                 source: application::error::box_error(source),
                             }
@@ -265,24 +264,12 @@ where
                     )
                 }
             };
-        let existing_partnership = self
+        let partnership = self
             .partnerships
             .in_transaction(&mut tx)
-            .find_by_party_id(party_id)
-            .await?;
-        let partnership = match existing_partnership {
-            Some(found) => found.value,
-            None => {
-                self.partnerships
-                    .in_transaction(&mut tx)
-                    .insert(&Partnership::create(NewPartnership {
-                        id: PartnershipId::new(),
-                        party_id,
-                    }))
-                    .await?
-                    .value
-            }
-        };
+            .find_or_create_for_party(party_id, PartnershipId::new())
+            .await?
+            .value;
         self.memberships
             .in_transaction(&mut tx)
             .add_member(versioned.value.applicant_user_id(), partnership.id())
@@ -386,7 +373,6 @@ impl From<PartnershipApplicationRepositoryError> for ApprovePartnershipApplicati
 impl From<PartnershipRepositoryError> for ApprovePartnershipApplicationError {
     fn from(value: PartnershipRepositoryError) -> Self {
         match value {
-            PartnershipRepositoryError::PartyConflict { source } => Self::SlugConflict { source },
             PartnershipRepositoryError::TemporarilyUnavailable { source } => {
                 Self::TemporarilyUnavailable { source }
             }
@@ -462,12 +448,15 @@ mod tests {
         transaction::TransactionError,
     };
     use domain_primitives::versioned::Versioned;
-    use listing_source_core::{AcquisitionMethod, ListingSourceName, ListingSourcePresentation};
+    use listing_source_core::{
+        ListingIngestionMethod, ListingSourceName, ListingSourcePresentation,
+    };
     use listing_source_service::ports::{
         ListingSourceRepository, ListingSourceRepositoryError, ListingSourceStorageVersion,
         StoredListingSource,
     };
     use notification_service::ports::notification_creator::NotificationCreationOutcome;
+    use partnership_core::partnership::{NewPartnership, Partnership};
     use party_core::{
         party::{Party, PartyContact},
         party_name::PartyName,
@@ -785,7 +774,7 @@ mod tests {
         async fn insert(
             &mut self,
             source: &ListingSource,
-            configuration: &ListingSourceAcquisitionConfigurations,
+            configuration: &ListingSourceIngestionConfigurations,
             _woocommerce_webhook_secret: Option<&str>,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             let mut state = lock(&self.state);
@@ -809,7 +798,7 @@ mod tests {
         async fn update(
             &mut self,
             _source: &ListingSource,
-            _configuration: &ListingSourceAcquisitionConfigurations,
+            _configuration: &ListingSourceIngestionConfigurations,
             _woocommerce_webhook_secret: application::patch_field::PatchField<&str>,
             _expected: ListingSourceStorageVersion,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
@@ -821,36 +810,31 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PartnershipRepository for FakePartnershipRepository {
-        async fn find_by_party_id(
+        async fn find_or_create_for_party(
             &mut self,
             party_id: PartyId,
-        ) -> Result<Option<VersionedPartnership>, PartnershipRepositoryError> {
-            let state = lock(&self.state);
-            let version = PartnershipStorageVersion::try_from(1_i64).map_err(|error| {
-                PartnershipRepositoryError::Internal {
-                    source: box_error(error),
-                }
-            })?;
-            Ok(state
+            new_partnership_id: PartnershipId,
+        ) -> Result<VersionedPartnership, PartnershipRepositoryError> {
+            let mut state = lock(&self.state);
+            let partnership = state
                 .partnership
                 .clone()
                 .filter(|partnership| partnership.party_id() == party_id)
-                .map(|partnership| Versioned::new(partnership, version)))
-        }
-
-        async fn insert(
-            &mut self,
-            partnership: &Partnership,
-        ) -> Result<VersionedPartnership, PartnershipRepositoryError> {
-            let mut state = lock(&self.state);
-            state.partnership_inserts += 1;
-            state.partnership = Some(partnership.clone());
+                .unwrap_or_else(|| {
+                    state.partnership_inserts += 1;
+                    let partnership = Partnership::create(NewPartnership {
+                        id: new_partnership_id,
+                        party_id,
+                    });
+                    state.partnership = Some(partnership.clone());
+                    partnership
+                });
             let version = PartnershipStorageVersion::try_from(1_i64).map_err(|error| {
                 PartnershipRepositoryError::Internal {
                     source: box_error(error),
                 }
             })?;
-            Ok(Versioned::new(partnership.clone(), version))
+            Ok(Versioned::new(partnership, version))
         }
     }
 
@@ -968,8 +952,8 @@ mod tests {
                                 url: None,
                                 image: None,
                             },
-                            requested_acquisition_methods: HashSet::from([
-                                AcquisitionMethod::PartnerApi,
+                            requested_ingestion_methods: HashSet::from([
+                                ListingIngestionMethod::PartnerApi,
                             ]),
                         },
                 },
@@ -1078,7 +1062,7 @@ mod tests {
             name: ListingSourceName::try_from("Existing Source")
                 .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
             operator_party_id: party_id,
-            acquisition_methods: HashSet::from([AcquisitionMethod::PartnerApi]),
+            ingestion_methods: HashSet::from([ListingIngestionMethod::PartnerApi]),
             presentation: ListingSourcePresentation {
                 url: None,
                 image: None,
@@ -1115,8 +1099,8 @@ mod tests {
         });
         fake_state.existing_source = Some(StoredListingSource {
             source: source.clone(),
-            configuration: ListingSourceAcquisitionConfigurations(vec![
-                AcquisitionConfiguration::PartnerApi,
+            configuration: ListingSourceIngestionConfigurations(vec![
+                ListingIngestionConfiguration::PartnerApi,
             ]),
             version: source_version,
             created: OffsetDateTime::UNIX_EPOCH,

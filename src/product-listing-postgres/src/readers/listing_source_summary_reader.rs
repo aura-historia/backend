@@ -1,7 +1,9 @@
+use crate::url::referral_configuration;
 use application::error::box_error;
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use product_listing_service::ports::{
     ListingSourceSummary, ListingSourceSummaryReadError, ListingSourceSummaryReader,
+    ListingSourceSummaryWithReferral,
 };
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -16,6 +18,7 @@ struct ListingSourceSummaryRow {
     listing_source_id: uuid::Uuid,
     name: String,
     listing_source_slug_id: String,
+    referral_configuration: Option<serde_json::Value>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -40,14 +43,17 @@ impl ListingSourceSummaryReader for SqlxListingSourceSummaryReader {
     async fn find_summaries(
         &self,
         listing_source_ids: &[ListingSourceId],
-    ) -> Result<HashMap<ListingSourceId, ListingSourceSummary>, ListingSourceSummaryReadError> {
+    ) -> Result<
+        HashMap<ListingSourceId, ListingSourceSummaryWithReferral>,
+        ListingSourceSummaryReadError,
+    > {
         if listing_source_ids.is_empty() {
             return Ok(HashMap::new());
         }
 
         let rows = sqlx::query_as::<_, ListingSourceSummaryRow>(
             r#"
-            SELECT listing_source_id, name, listing_source_slug_id
+            SELECT listing_source_id, name, listing_source_slug_id, referral_configuration
             FROM listing_sources
             WHERE listing_source_id = ANY($1::uuid[])
             "#,
@@ -67,33 +73,43 @@ impl ListingSourceSummaryReader for SqlxListingSourceSummaryReader {
 
         rows.into_iter()
             .map(|row| {
-                let summary = ListingSourceSummary::try_from(row)?;
-                Ok((summary.listing_source_id, summary))
+                let summary = ListingSourceSummaryWithReferral::try_from(row)?;
+                Ok((summary.summary.listing_source_id, summary))
             })
             .collect()
     }
 }
 
-impl TryFrom<ListingSourceSummaryRow> for ListingSourceSummary {
+impl TryFrom<ListingSourceSummaryRow> for ListingSourceSummaryWithReferral {
     type Error = ListingSourceSummaryReadError;
 
     fn try_from(row: ListingSourceSummaryRow) -> Result<Self, Self::Error> {
         Ok(Self {
-            listing_source_id: ListingSourceId::from(row.listing_source_id),
-            name: ListingSourceName::try_from(row.name).map_err(|source| {
-                ListingSourceSummaryReadError::InvalidReadModel {
+            summary: ListingSourceSummary {
+                listing_source_id: ListingSourceId::from(row.listing_source_id),
+                name: ListingSourceName::try_from(row.name).map_err(|source| {
+                    ListingSourceSummaryReadError::InvalidReadModel {
+                        source: box_error(ListingSourceSummaryMappingError {
+                            source: box_error(source),
+                        }),
+                    }
+                })?,
+                slug_id: ListingSourceSlugId::raw(row.listing_source_slug_id).map_err(
+                    |source| ListingSourceSummaryReadError::InvalidReadModel {
+                        source: box_error(ListingSourceSummaryMappingError {
+                            source: box_error(source),
+                        }),
+                    },
+                )?,
+            },
+            referral_configuration: referral_configuration(row.referral_configuration.as_ref())
+                .map_err(|_| ListingSourceSummaryReadError::InvalidReadModel {
                     source: box_error(ListingSourceSummaryMappingError {
-                        source: box_error(source),
+                        source: application::error::static_error(
+                            "persisted listing source referral configuration is invalid",
+                        ),
                     }),
-                }
-            })?,
-            slug_id: ListingSourceSlugId::raw(row.listing_source_slug_id).map_err(|source| {
-                ListingSourceSummaryReadError::InvalidReadModel {
-                    source: box_error(ListingSourceSummaryMappingError {
-                        source: box_error(source),
-                    }),
-                }
-            })?,
+                })?,
         })
     }
 }
@@ -104,10 +120,11 @@ mod tests {
 
     #[test]
     fn should_reject_invalid_persisted_listing_source_name_and_slug() {
-        let error = ListingSourceSummary::try_from(ListingSourceSummaryRow {
+        let error = ListingSourceSummaryWithReferral::try_from(ListingSourceSummaryRow {
             listing_source_id: uuid::Uuid::new_v4(),
             name: "\u{2003}".to_owned(),
             listing_source_slug_id: "".to_owned(),
+            referral_configuration: None,
         });
 
         assert!(matches!(

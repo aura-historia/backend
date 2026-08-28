@@ -363,6 +363,10 @@ pub async fn seed_partnership_membership(user_id: UserId, listing_source_id: uui
     {
         panic!("failed to seed partnership membership: {error}");
     }
+}
+
+pub async fn seed_operator_partnership_listing_source_grant(listing_source_id: uuid::Uuid) {
+    let pool = get_postgres_client().await;
     if let Err(error) = sqlx::query(
         r#"
         INSERT INTO partnership_listing_source_grants (partnership_id, listing_source_id)
@@ -377,7 +381,7 @@ pub async fn seed_partnership_membership(user_id: UserId, listing_source_id: uui
     .execute(&pool)
     .await
     {
-        panic!("failed to seed listing-source grant: {error}");
+        panic!("failed to seed operator listing-source grant: {error}");
     }
 }
 
@@ -440,12 +444,12 @@ pub async fn seed_listing_source() -> uuid::Uuid {
     .await
     .unwrap_or_else(|error| panic!("failed to seed listing source: {error}"));
     sqlx::query(
-        "INSERT INTO listing_source_acquisition_methods (listing_source_id, acquisition_method) VALUES ($1, 'PARTNER_API')",
+        "INSERT INTO listing_source_ingestion_methods (listing_source_id, ingestion_method) VALUES ($1, 'PARTNER_API')",
     )
     .bind(listing_source_id)
     .execute(&mut *transaction)
     .await
-    .unwrap_or_else(|error| panic!("failed to seed listing-source acquisition method: {error}"));
+    .unwrap_or_else(|error| panic!("failed to seed listing-source ingestion method: {error}"));
     sqlx::query("INSERT INTO partnerships (partnership_id, party_id) VALUES ($1, $2)")
         .bind(uuid::Uuid::new_v4())
         .bind(party_id)
@@ -461,7 +465,10 @@ pub async fn seed_listing_source() -> uuid::Uuid {
 pub async fn seed_product() -> ProductListingId {
     let listing_source_id = seed_listing_source().await;
     let product_listing_id = ProductListingId::new();
-    let product_listing_slug_id = format!("acceptance-product-{product_listing_id}");
+    let product_listing_slug_id = format!(
+        "acceptance-product-{}",
+        &product_listing_id.to_string()[..6]
+    );
     let event_id = uuid::Uuid::new_v4();
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;
@@ -474,7 +481,7 @@ pub async fn seed_product() -> ProductListingId {
         INSERT INTO product_listings (
             product_listing_id, product_listing_slug_id, event_id, content_source_event_id,
             listing_source_id, source_listing_id, availability, lifecycle, url
-        ) VALUES ($1, $2, $3, $3, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
+        , source_listing_slug_id) VALUES ($1, $2, $3, $3, $4, $5, 'AVAILABLE', 'ACTIVE', $6, $7)
         "#,
     )
     .bind(uuid::Uuid::from(product_listing_id))
@@ -483,6 +490,9 @@ pub async fn seed_product() -> ProductListingId {
     .bind(listing_source_id)
     .bind(format!("listing-source-product-{product_listing_id}"))
     .bind("https://api-acceptance.example/product")
+    .bind(source_listing_slug_id(format!(
+        "listing-source-product-{product_listing_id}"
+    )))
     .execute(&mut *tx)
     .await
     {
@@ -491,18 +501,22 @@ pub async fn seed_product() -> ProductListingId {
     if let Err(error) = sqlx::query(
         r#"
         INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time)
-        VALUES (
-            $1,
-            $2,
-            'PRODUCT_LISTING_CREATED',
-            'DOMAIN',
-            '{"title":null,"description":null,"address":{},"pricing":{},"availability":"AVAILABLE","url":"https://api-acceptance.example/product","images":[],"auction":{}}',
-            now()
-        )
+        VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', $3, now())
         "#,
     )
     .bind(event_id)
     .bind(uuid::Uuid::from(product_listing_id))
+    .bind(serde_json::json!({
+        "title": null,
+        "description": null,
+        "listingSourceId": listing_source_id.to_string(),
+        "sourceListingId": format!("listing-source-product-{product_listing_id}"),
+        "pricing": {},
+        "availability": "AVAILABLE",
+        "url": "https://api-acceptance.example/product",
+        "images": [],
+        "auction": {}
+    }))
     .execute(&mut *tx)
     .await
     {
@@ -1014,4 +1028,14 @@ impl TokenAuthenticator for RejectJwtAuthenticator {
     ) -> Result<TransportPrincipal, AuthError> {
         Err(AuthError::InvalidCredentials)
     }
+}
+
+fn source_listing_slug_id(raw: impl AsRef<str>) -> String {
+    let source_listing_id =
+        product_listing_core::source_listing_id::SourceListingId::try_from(raw.as_ref())
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
+    product_listing_core::product_listing_slug_id::SourceListingSlugId::from_source_listing_id(
+        &source_listing_id,
+    )
+    .to_string()
 }

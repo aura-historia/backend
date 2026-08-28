@@ -387,7 +387,8 @@ fn product_source(
             listing_source_id: ListingSourceId::new(),
             name: ListingSourceName::try_from("Test source")
                 .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
-            slug_id: ListingSourceSlugId::from("test-source"),
+            slug_id: ListingSourceSlugId::raw("test-source")
+                .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
         },
         source_listing_id: SourceListingId::try_from("test-product-1")
             .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),

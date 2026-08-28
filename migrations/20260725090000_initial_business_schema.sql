@@ -36,7 +36,8 @@ CREATE INDEX users_created_idx ON users (created DESC);
 
 CREATE TABLE parties (
     party_id uuid PRIMARY KEY,
-    party_slug_id text NOT NULL UNIQUE,
+    party_slug_id text NOT NULL,
+    CONSTRAINT parties_slug_unique UNIQUE (party_slug_id),
     name text NOT NULL,
     phone text,
     email text,
@@ -51,7 +52,8 @@ CREATE TABLE parties (
 
 CREATE TABLE listing_sources (
     listing_source_id uuid PRIMARY KEY,
-    listing_source_slug_id text NOT NULL UNIQUE,
+    listing_source_slug_id text NOT NULL,
+    CONSTRAINT listing_sources_slug_unique UNIQUE (listing_source_slug_id),
     name text NOT NULL,
     operator_party_id uuid NOT NULL REFERENCES parties(party_id) ON DELETE RESTRICT,
     url text,
@@ -67,23 +69,24 @@ CREATE TABLE listing_sources (
     CONSTRAINT listing_sources_version_positive CHECK (version >= 1)
 );
 
-CREATE TABLE listing_source_acquisition_methods (
+CREATE TABLE listing_source_ingestion_methods (
     listing_source_id uuid NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
-    acquisition_method text NOT NULL,
-    PRIMARY KEY (listing_source_id, acquisition_method),
-    CONSTRAINT listing_source_acquisition_methods_check CHECK (acquisition_method IN ('WEB_CRAWL', 'SHOPIFY', 'WOOCOMMERCE', 'PARTNER_API'))
+    ingestion_method text NOT NULL,
+    PRIMARY KEY (listing_source_id, ingestion_method),
+    CONSTRAINT listing_source_ingestion_methods_check CHECK (ingestion_method IN ('WEB_CRAWL', 'SHOPIFY', 'WOOCOMMERCE', 'PARTNER_API'))
 );
 
-CREATE TABLE listing_source_shopify_configurations (
+CREATE TABLE listing_source_shopify_ingestion_configurations (
     listing_source_id uuid PRIMARY KEY REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
-    domain text NOT NULL UNIQUE,
+    domain text NOT NULL,
+    CONSTRAINT listing_source_shopify_domain_unique UNIQUE (domain),
     currency text,
     language text,
     CONSTRAINT listing_source_shopify_currency_check CHECK (currency IS NULL OR currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT listing_source_shopify_language_check CHECK (language IS NULL OR language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar'))
 );
 
-CREATE TABLE listing_source_woocommerce_configurations (
+CREATE TABLE listing_source_woocommerce_ingestion_configurations (
     listing_source_id uuid PRIMARY KEY REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
     webhook_secret text,
     currency text,
@@ -93,7 +96,7 @@ CREATE TABLE listing_source_woocommerce_configurations (
 );
 
 CREATE INDEX listing_sources_operator_party_id_idx ON listing_sources (operator_party_id);
-CREATE INDEX listing_source_acquisition_methods_method_idx ON listing_source_acquisition_methods (acquisition_method, listing_source_id);
+CREATE INDEX listing_source_ingestion_methods_method_idx ON listing_source_ingestion_methods (ingestion_method, listing_source_id);
 
 
 CREATE TABLE partnerships (
@@ -185,6 +188,7 @@ CREATE TABLE fx_rate_quotes (
 CREATE TABLE product_listings (
     product_listing_id uuid PRIMARY KEY,
     product_listing_slug_id text NOT NULL,
+    source_listing_slug_id text NOT NULL,
     event_id uuid NOT NULL,
     content_source_event_id uuid NOT NULL,
     listing_source_id uuid NOT NULL
@@ -214,10 +218,14 @@ CREATE TABLE product_listings (
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT product_listings_listing_source_listing_unique UNIQUE (listing_source_id, source_listing_id),
+    CONSTRAINT product_listings_listing_source_slug_unique UNIQUE (listing_source_id, source_listing_slug_id),
     CONSTRAINT product_listings_slug_unique UNIQUE (product_listing_slug_id),
     CONSTRAINT product_listings_source_listing_id_check CHECK (
         octet_length(source_listing_id) BETWEEN 1 AND 512
         AND source_listing_id !~ '(^[[:space:]]|[[:space:]]$)'
+    ),
+    CONSTRAINT product_listings_source_listing_slug_id_format CHECK (
+        source_listing_slug_id ~ '^[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{12}$'
     ),
     CONSTRAINT product_listings_availability_check CHECK (availability IS NULL OR availability IN ('AVAILABLE', 'IN_STOCK', 'LIMITED_AVAILABILITY', 'BACK_ORDER', 'MADE_TO_ORDER', 'PRE_ORDER', 'PRE_SALE', 'UNAVAILABLE', 'RESERVED', 'OUT_OF_STOCK', 'SOLD_OUT')),
     CONSTRAINT product_listings_lifecycle_check CHECK (lifecycle IN ('ACTIVE', 'WITHDRAWN')),

@@ -2,7 +2,7 @@ use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
     seed_access_token_for, seed_current_fx_snapshot, seed_listing_source,
-    seed_partnership_membership, seed_user,
+    seed_operator_partnership_listing_source_grant, seed_partnership_membership, seed_user,
 };
 use base64::Engine;
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
@@ -326,6 +326,7 @@ async fn should_reject_woocommerce_webhook_without_product_write_capability() {
         configure_woocommerce_source(listing_source).await?;
         let user_id = seed_user("USER").await;
         seed_partnership_membership(user_id, listing_source).await;
+        seed_operator_partnership_listing_source_grant(listing_source).await;
         let token = String::from(seed_access_token_for(user_id, HashSet::new()).await);
         let body = json!({ "id": 21 }).to_string();
 
@@ -339,6 +340,37 @@ async fn should_reject_woocommerce_webhook_without_product_write_capability() {
         assert_eq!(reqwest::StatusCode::FORBIDDEN, response.status());
         assert_eq!(
             "FORBIDDEN",
+            response.json::<serde_json::Value>().await?["error"]
+        );
+        assert_eq!(0, product_count(listing_source).await?);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_woocommerce_webhook_without_operator_partnership_source_grant() {
+    let result: TestResult = async {
+        let listing_source = seed_listing_source().await;
+        configure_woocommerce_source(listing_source).await?;
+        let user_id = seed_user("USER").await;
+        seed_partnership_membership(user_id, listing_source).await;
+        let token = String::from(
+            seed_access_token_for(user_id, HashSet::from([Scope::ProductListingsWrite])).await,
+        );
+        let body = json!({ "id": 22 }).to_string();
+
+        let response = send(
+            &listing_source.to_string(),
+            &token,
+            "product.deleted",
+            &body,
+        )
+        .await?;
+        assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
+        assert_eq!(
+            "LISTING_SOURCE_NOT_FOUND",
             response.json::<serde_json::Value>().await?["error"]
         );
         assert_eq!(0, product_count(listing_source).await?);
@@ -366,9 +398,9 @@ async fn should_reject_woocommerce_webhook_from_user_not_linked_to_listing_sourc
             &body,
         )
         .await?;
-        assert_eq!(reqwest::StatusCode::FORBIDDEN, response.status());
+        assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
         assert_eq!(
-            "FORBIDDEN",
+            "LISTING_SOURCE_NOT_FOUND",
             response.json::<serde_json::Value>().await?["error"]
         );
         assert_eq!(0, product_count(listing_source).await?);
@@ -480,6 +512,7 @@ async fn webhook_auth() -> Result<(String, String), Box<dyn std::error::Error>> 
     configure_woocommerce_source(listing_source).await?;
     let user_id = seed_user("USER").await;
     seed_partnership_membership(user_id, listing_source).await;
+    seed_operator_partnership_listing_source_grant(listing_source).await;
     let token = seed_access_token_for(user_id, HashSet::from([Scope::ProductListingsWrite])).await;
     Ok((listing_source_id, String::from(token)))
 }
@@ -487,7 +520,13 @@ async fn webhook_auth() -> Result<(String, String), Box<dyn std::error::Error>> 
 async fn configure_woocommerce_source(listing_source_id: uuid::Uuid) -> Result<(), sqlx::Error> {
     let pool = get_postgres_client().await;
     sqlx::query(
-        "INSERT INTO listing_source_woocommerce_configurations (listing_source_id, webhook_secret, currency, language) VALUES ($1, $2, 'EUR', 'en')",
+        "INSERT INTO listing_source_ingestion_methods (listing_source_id, ingestion_method) VALUES ($1, 'WOOCOMMERCE')",
+    )
+    .bind(listing_source_id)
+    .execute(&pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO listing_source_woocommerce_ingestion_configurations (listing_source_id, webhook_secret, currency, language) VALUES ($1, $2, 'EUR', 'en')",
     )
     .bind(listing_source_id)
     .bind(SECRET)

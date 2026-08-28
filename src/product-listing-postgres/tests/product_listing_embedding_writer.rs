@@ -139,7 +139,8 @@ async fn insert_product_with_created_event(
     .execute(&mut *tx)
     .await?;
     sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, 'Embedding source', $3)").bind(listing_source_id).bind(format!("embedding-source-{listing_source_id}")).bind(party_id).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')").bind(uuid::Uuid::from(product_listing_id)).bind(format!("embedding-product-{product_listing_id}")).bind(uuid::Uuid::from(event_id)).bind(listing_source_id).bind(product_listing_id.to_string()).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images, source_listing_slug_id) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]', $6)").bind(uuid::Uuid::from(product_listing_id)).bind(format!("embedding-product-{product_listing_id}")).bind(uuid::Uuid::from(event_id)).bind(listing_source_id).bind(product_listing_id.to_string()).bind(source_listing_slug_id(product_listing_id.to_string()))
+        .execute(&mut *tx).await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())").bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_listing_id)).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok((product_listing_id, event_id))
@@ -157,4 +158,14 @@ async fn advance_product_revision(
         .execute(&mut *tx)
         .await?;
     tx.commit().await
+}
+
+fn source_listing_slug_id(raw: impl AsRef<str>) -> String {
+    let source_listing_id =
+        product_listing_core::source_listing_id::SourceListingId::try_from(raw.as_ref())
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
+    product_listing_core::product_listing_slug_id::SourceListingSlugId::from_source_listing_id(
+        &source_listing_id,
+    )
+    .to_string()
 }

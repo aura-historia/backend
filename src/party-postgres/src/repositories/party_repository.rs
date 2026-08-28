@@ -156,7 +156,7 @@ impl From<PartyWriteSqlxError> for PartyRepositoryError {
         let PartyWriteSqlxError(source) = error;
         match &source {
             sqlx::Error::Database(database_error)
-                if database_error.constraint() == Some("parties_party_slug_id_key") =>
+                if database_error.constraint() == Some("parties_slug_unique") =>
             {
                 Self::SlugConflict {
                     source: box_error(source),

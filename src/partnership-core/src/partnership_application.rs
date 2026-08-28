@@ -3,7 +3,7 @@ use crate::{
     partnership_application_state::PartnershipApplicationState, partnership_id::PartnershipId,
 };
 use listing_source_core::{
-    AcquisitionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
+    ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
 };
 use party_core::{party::PartyContact, party_name::PartyName};
 use std::collections::HashSet;
@@ -62,7 +62,7 @@ pub struct ProposedParty {
 pub struct ProposedListingSource {
     pub name: ListingSourceName,
     pub presentation: ListingSourcePresentation,
-    pub requested_acquisition_methods: HashSet<AcquisitionMethod>,
+    pub requested_ingestion_methods: HashSet<ListingIngestionMethod>,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewPartnershipApplication {

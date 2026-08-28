@@ -104,6 +104,23 @@ async fn should_withdraw_product_listing_and_append_event_for_shopify_delete() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_acknowledge_configured_shopify_source_without_exact_grant_without_ingesting() {
+    let source = seed_ungranted_source().await;
+
+    let response = invoke(
+        SHOPIFY_TOPIC_PRODUCTS_CREATE,
+        source.domain.as_str(),
+        105,
+        5,
+    )
+    .await;
+
+    assert!(response.batch_item_failures.is_empty());
+    assert_eq!(0, listing_count(source.id).await);
+    assert_eq!(0, listing_count_for_source_listing_id(105).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_ignore_shopify_event_for_missing_listing_source() {
     let response = invoke(
         SHOPIFY_TOPIC_PRODUCTS_CREATE,
@@ -322,6 +339,14 @@ struct ShopifySourceFixture {
 }
 
 async fn seed_source() -> ShopifySourceFixture {
+    seed_configured_source(true).await
+}
+
+async fn seed_ungranted_source() -> ShopifySourceFixture {
+    seed_configured_source(false).await
+}
+
+async fn seed_configured_source(granted: bool) -> ShopifySourceFixture {
     let listing_source_id = ListingSourceId::new();
     let operator_party_id = uuid::Uuid::new_v4();
     let domain = Domain::try_from(format!("shopify-{listing_source_id}.example").as_str())
@@ -343,17 +368,35 @@ async fn seed_source() -> ShopifySourceFixture {
         .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("failed inserting listing source: {error}"));
-    sqlx::query("INSERT INTO listing_source_acquisition_methods (listing_source_id, acquisition_method) VALUES ($1, 'SHOPIFY')")
+    sqlx::query("INSERT INTO listing_source_ingestion_methods (listing_source_id, ingestion_method) VALUES ($1, 'SHOPIFY')")
         .bind(uuid::Uuid::from(listing_source_id))
         .execute(&pool)
         .await
-        .unwrap_or_else(|error| panic!("failed inserting Shopify acquisition method: {error}"));
-    sqlx::query("INSERT INTO listing_source_shopify_configurations (listing_source_id, domain, currency, language) VALUES ($1, $2, 'USD', 'de')")
+        .unwrap_or_else(|error| panic!("failed inserting Shopify ingestion method: {error}"));
+    sqlx::query("INSERT INTO listing_source_shopify_ingestion_configurations (listing_source_id, domain, currency, language) VALUES ($1, $2, 'USD', 'de')")
         .bind(uuid::Uuid::from(listing_source_id))
         .bind(domain.as_str())
         .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("failed inserting Shopify source configuration: {error}"));
+
+    if granted {
+        let partnership_id = uuid::Uuid::new_v4();
+        sqlx::query("INSERT INTO partnerships (partnership_id, party_id) VALUES ($1, $2)")
+            .bind(partnership_id)
+            .bind(operator_party_id)
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| {
+                panic!("failed inserting source operator partnership: {error}")
+            });
+        sqlx::query("INSERT INTO partnership_listing_source_grants (partnership_id, listing_source_id) VALUES ($1, $2)")
+            .bind(partnership_id)
+            .bind(uuid::Uuid::from(listing_source_id))
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("failed granting Shopify source access: {error}"));
+    }
 
     ShopifySourceFixture {
         id: listing_source_id,

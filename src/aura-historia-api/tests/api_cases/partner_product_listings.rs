@@ -2,7 +2,7 @@ use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
     json_response, seed_access_token_for, seed_current_fx_snapshot, seed_listing_source,
-    seed_partnership_membership, seed_user,
+    seed_operator_partnership_listing_source_grant, seed_partnership_membership, seed_user,
 };
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -452,7 +452,7 @@ async fn should_not_expose_legacy_partner_product_item_delete_route() -> TestRes
         )
         .await?;
 
-        assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
+        assert_eq!(reqwest::StatusCode::METHOD_NOT_ALLOWED, response.status());
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;
@@ -465,6 +465,7 @@ async fn partner_auth(scopes: HashSet<Scope>) -> Result<PartnerAuth, Infallible>
     let listing_source_id = seed_listing_source().await;
     let user_id = seed_user("USER").await;
     seed_partnership_membership(user_id, listing_source_id).await;
+    seed_operator_partnership_listing_source_grant(listing_source_id).await;
     let token = String::from(seed_access_token_for(user_id, scopes).await);
 
     Ok(PartnerAuth {

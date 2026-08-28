@@ -305,6 +305,9 @@ impl From<ProductListingSummaryPersonalizationError> for GetSimilarProductListin
             ProductListingSummaryPersonalizationError::ListingSourceSummaryMissing {
                 listing_source_id,
             } => Self::ListingSourceSummaryMissing { listing_source_id },
+            ProductListingSummaryPersonalizationError::ViewUrlInvalid { source } => {
+                Self::ListingSourceSummaryReadModelInvalid { source }
+            }
             ProductListingSummaryPersonalizationError::UserStateQueryFailed { source } => {
                 Self::ProductListingUserStateQueryFailed { source }
             }
@@ -554,7 +557,7 @@ mod tests {
             &self,
             listing_source_ids: &[ListingSourceId],
         ) -> Result<
-            HashMap<ListingSourceId, ListingSourceSummary>,
+            HashMap<ListingSourceId, crate::ports::ListingSourceSummaryWithReferral>,
             crate::ports::ListingSourceSummaryReadError,
         > {
             Ok(listing_source_ids
@@ -563,12 +566,17 @@ mod tests {
                 .map(|listing_source_id| {
                     (
                         listing_source_id,
-                        ListingSourceSummary {
-                            listing_source_id,
-                            name: ListingSourceName::try_from("Source").unwrap_or_else(|error| {
-                                panic!("invalid test listing source name: {error}")
-                            }),
-                            slug_id: ListingSourceSlugId::from("source"),
+                        crate::ports::ListingSourceSummaryWithReferral {
+                            summary: ListingSourceSummary {
+                                listing_source_id,
+                                name: ListingSourceName::try_from("Source").unwrap_or_else(
+                                    |error| panic!("invalid test listing source name: {error}"),
+                                ),
+                                slug_id: ListingSourceSlugId::raw("source").unwrap_or_else(
+                                    |error| panic!("valid test listing source slug: {error}"),
+                                ),
+                            },
+                            referral_configuration: None,
                         },
                     )
                 })
@@ -711,7 +719,6 @@ mod tests {
             availability: Some(ListingAvailability::InStock),
             lifecycle: ListingLifecycle::Active,
             url: Url::parse("https://shop.example/products/1")?,
-            view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
             images: IndexSet::new(),
             updated: OffsetDateTime::UNIX_EPOCH,
         })

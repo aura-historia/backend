@@ -1,6 +1,6 @@
 use crate::error::{ApiError, BAD_BODY_VALUE};
 use listing_source_core::{
-    AcquisitionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
+    ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
 };
 use partnership_core::{
     partnership_application::{
@@ -56,8 +56,8 @@ pub(super) struct ProposedListingSourceData {
     pub(super) url: Option<Url>,
     #[serde(default)]
     pub(super) image: Option<Url>,
-    #[serde(with = "crate::wire::acquisition_method::set")]
-    pub(super) requested_acquisition_methods: std::collections::HashSet<AcquisitionMethod>,
+    #[serde(with = "crate::wire::ingestion_method::set")]
+    pub(super) requested_ingestion_methods: std::collections::HashSet<ListingIngestionMethod>,
 }
 
 impl TryFrom<PartnershipProposalData> for PartnershipProposal {
@@ -93,7 +93,7 @@ impl TryFrom<PartnershipProposalData> for PartnershipProposal {
                         url: listing_source.url,
                         image: listing_source.image,
                     },
-                    requested_acquisition_methods: listing_source.requested_acquisition_methods,
+                    requested_ingestion_methods: listing_source.requested_ingestion_methods,
                 },
             }),
         }
@@ -181,7 +181,7 @@ fn proposal_data(value: &PartnershipProposal) -> PartnershipProposalData {
                 name: listing_source.name.to_string(),
                 url: listing_source.presentation.url.clone(),
                 image: listing_source.presentation.image.clone(),
-                requested_acquisition_methods: listing_source.requested_acquisition_methods.clone(),
+                requested_ingestion_methods: listing_source.requested_ingestion_methods.clone(),
             }),
         },
     }
@@ -215,7 +215,7 @@ mod tests {
                 "listingSource": {
                     "name": "Ada Antiques",
                     "url": "https://ada.example",
-                    "requestedAcquisitionMethods": ["PARTNER_API"]
+                    "requestedIngestionMethods": ["PARTNER_API"]
                 }
             }
         }))?;
@@ -245,7 +245,7 @@ mod tests {
                 "name": "Ada Antiques",
                 "url": "https://ada.example/",
                 "image": "https://ada.example/image.png",
-                "requestedAcquisitionMethods": ["PARTNER_API"]
+                "requestedIngestionMethods": ["PARTNER_API"]
             }
         });
         let proposal: PartnershipProposalData = serde_json::from_value(expected.clone())?;

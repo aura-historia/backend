@@ -48,10 +48,10 @@ impl ShopifySourceReader for SqlxListingSourceReaders {
     ) -> Result<Option<ShopifySource>, ListingSourceReadError> {
         sqlx::query_as::<_, ShopifyRow>(
             "SELECT c.listing_source_id,c.domain,c.currency,c.language \
-             FROM listing_source_shopify_configurations c \
+             FROM listing_source_shopify_ingestion_configurations c \
              JOIN listing_sources s ON s.listing_source_id=c.listing_source_id \
-             JOIN listing_source_acquisition_methods m \
-               ON m.listing_source_id=c.listing_source_id AND m.acquisition_method='SHOPIFY' \
+             JOIN listing_source_ingestion_methods m \
+               ON m.listing_source_id=c.listing_source_id AND m.ingestion_method='SHOPIFY' \
              JOIN partnerships p ON p.party_id=s.operator_party_id \
              WHERE c.domain=$1 \
                AND EXISTS ( \

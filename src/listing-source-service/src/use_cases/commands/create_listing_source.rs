@@ -24,7 +24,7 @@ pub struct CreateListingSourceCommand {
     pub name: ListingSourceName,
     pub operator: ListingSourceOperator,
 
-    pub acquisition_configuration: ListingSourceAcquisitionConfigurations,
+    pub ingestion_configuration: ListingSourceIngestionConfigurations,
     pub woocommerce_webhook_secret: Option<String>,
     pub presentation: ListingSourcePresentation,
     pub referral_configuration: Option<ReferralConfiguration>,
@@ -44,8 +44,8 @@ pub enum CreateListingSourceError {
     Forbidden,
     #[error("operator party not found")]
     OperatorPartyNotFound,
-    #[error("acquisition method/configuration mismatch")]
-    AcquisitionConfigurationMismatch,
+    #[error("ingestion method/configuration mismatch")]
+    ListingIngestionConfigurationMismatch,
     #[error("operator party slug conflict")]
     OperatorPartySlugConflict {
         #[source]
@@ -162,33 +162,33 @@ where
                 .party
                 .id(),
         };
-        let acquisition_methods = command
-            .acquisition_configuration
+        let ingestion_methods = command
+            .ingestion_configuration
             .methods()
-            .map_err(|_| CreateListingSourceError::AcquisitionConfigurationMismatch)?;
+            .map_err(|_| CreateListingSourceError::ListingIngestionConfigurationMismatch)?;
         let source = ListingSource::create(NewListingSource {
             id: ListingSourceId::new(),
             name: command.name,
             operator_party_id,
-            acquisition_methods,
+            ingestion_methods,
             presentation: command.presentation,
             referral_configuration: command.referral_configuration,
         });
         command
-            .acquisition_configuration
+            .ingestion_configuration
             .validate_for(&source)
-            .map_err(|_| CreateListingSourceError::AcquisitionConfigurationMismatch)?;
+            .map_err(|_| CreateListingSourceError::ListingIngestionConfigurationMismatch)?;
         if command.woocommerce_webhook_secret.is_some()
-            && !command.acquisition_configuration.has_woocommerce()
+            && !command.ingestion_configuration.has_woocommerce()
         {
-            return Err(CreateListingSourceError::AcquisitionConfigurationMismatch);
+            return Err(CreateListingSourceError::ListingIngestionConfigurationMismatch);
         }
         let result = self
             .sources
             .in_transaction(&mut tx)
             .insert(
                 &source,
-                &command.acquisition_configuration,
+                &command.ingestion_configuration,
                 command.woocommerce_webhook_secret.as_deref(),
             )
             .await
@@ -411,7 +411,7 @@ mod tests {
         async fn insert(
             &mut self,
             source: &ListingSource,
-            config: &ListingSourceAcquisitionConfigurations,
+            config: &ListingSourceIngestionConfigurations,
             _: Option<&str>,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
             let mut state = self.tx.state.lock().map_err(|_| source_error())?;
@@ -425,7 +425,7 @@ mod tests {
         async fn update(
             &mut self,
             _: &ListingSource,
-            _: &ListingSourceAcquisitionConfigurations,
+            _: &ListingSourceIngestionConfigurations,
             _: application::patch_field::PatchField<&str>,
             _: ListingSourceStorageVersion,
         ) -> Result<StoredListingSource, ListingSourceRepositoryError> {
@@ -465,8 +465,8 @@ mod tests {
                 contact: PartyContact::default(),
             }),
 
-            acquisition_configuration: ListingSourceAcquisitionConfigurations(vec![
-                AcquisitionConfiguration::Woocommerce {
+            ingestion_configuration: ListingSourceIngestionConfigurations(vec![
+                ListingIngestionConfiguration::Woocommerce {
                     currency: None,
                     language: None,
                 },
@@ -491,7 +491,7 @@ mod tests {
     }
     fn stored_source(
         source: ListingSource,
-        configuration: ListingSourceAcquisitionConfigurations,
+        configuration: ListingSourceIngestionConfigurations,
     ) -> StoredListingSource {
         StoredListingSource {
             source,
@@ -540,11 +540,11 @@ mod tests {
             Admin(true),
         );
         let mut command = command();
-        command.acquisition_configuration =
-            ListingSourceAcquisitionConfigurations(vec![AcquisitionConfiguration::WebCrawl]);
+        command.ingestion_configuration =
+            ListingSourceIngestionConfigurations(vec![ListingIngestionConfiguration::WebCrawl]);
         assert!(matches!(
             handler.execute(&context(), command).await,
-            Err(CreateListingSourceError::AcquisitionConfigurationMismatch)
+            Err(CreateListingSourceError::ListingIngestionConfigurationMismatch)
         ));
         let state = state
             .lock()

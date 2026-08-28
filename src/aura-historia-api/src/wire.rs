@@ -528,33 +528,33 @@ pub(crate) mod partnership_application_state {
     }
 }
 
-pub(crate) mod acquisition_method {
+pub(crate) mod ingestion_method {
     use super::*;
-    use listing_source_core::AcquisitionMethod;
+    use listing_source_core::ListingIngestionMethod;
     use std::str::FromStr;
 
     pub(crate) mod set {
         use super::*;
 
         pub(crate) fn serialize<S>(
-            values: &HashSet<AcquisitionMethod>,
+            values: &HashSet<ListingIngestionMethod>,
             serializer: S,
         ) -> Result<S::Ok, S::Error>
         where
             S: Serializer,
         {
-            serialize_set_code(values, serializer, AcquisitionMethod::as_str)
+            serialize_set_code(values, serializer, ListingIngestionMethod::as_str)
         }
 
         pub(crate) fn deserialize<'de, D>(
             deserializer: D,
-        ) -> Result<HashSet<AcquisitionMethod>, D::Error>
+        ) -> Result<HashSet<ListingIngestionMethod>, D::Error>
         where
             D: Deserializer<'de>,
         {
             deserialize_set_code(
                 deserializer,
-                |value| AcquisitionMethod::from_str(value).ok(),
+                |value| ListingIngestionMethod::from_str(value).ok(),
                 Some(&["WEB_CRAWL", "SHOPIFY", "WOOCOMMERCE", "PARTNER_API"]),
             )
         }

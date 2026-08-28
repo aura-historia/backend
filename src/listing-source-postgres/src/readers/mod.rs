@@ -87,14 +87,14 @@ mod tests {
         .await
         .unwrap_or_else(|error| panic!("insert provider listing source: {error}"));
         sqlx::query(
-            "INSERT INTO listing_source_acquisition_methods (listing_source_id, acquisition_method) VALUES ($1, 'SHOPIFY'), ($1, 'WOOCOMMERCE')",
+            "INSERT INTO listing_source_ingestion_methods (listing_source_id, ingestion_method) VALUES ($1, 'SHOPIFY'), ($1, 'WOOCOMMERCE')",
         )
         .bind(uuid::Uuid::from(source_id))
         .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("insert provider ingestion methods: {error}"));
         sqlx::query(
-            "INSERT INTO listing_source_shopify_configurations (listing_source_id, domain) VALUES ($1, $2)",
+            "INSERT INTO listing_source_shopify_ingestion_configurations (listing_source_id, domain) VALUES ($1, $2)",
         )
         .bind(uuid::Uuid::from(source_id))
         .bind(domain.as_str())
@@ -102,7 +102,7 @@ mod tests {
         .await
         .unwrap_or_else(|error| panic!("insert Shopify configuration: {error}"));
         sqlx::query(
-            "INSERT INTO listing_source_woocommerce_configurations (listing_source_id, webhook_secret) VALUES ($1, $2)",
+            "INSERT INTO listing_source_woocommerce_ingestion_configurations (listing_source_id, webhook_secret) VALUES ($1, $2)",
         )
         .bind(uuid::Uuid::from(source_id))
         .bind("provider-reader-secret")

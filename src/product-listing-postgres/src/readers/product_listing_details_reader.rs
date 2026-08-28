@@ -161,6 +161,24 @@ impl ProductListingDetailsReader for SqlxProductListingDetailsReader<'_> {
                     .fetch_optional(&mut *self.connection)
                     .await
             }
+
+            ProductListingLookup::BySourceListingSlug {
+                listing_source_slug_id,
+                source_listing_slug_id,
+            } => {
+                let mut query = QueryBuilder::<Postgres>::new(product_details_select(
+                    DEFAULT_NOTIFICATION_STATES,
+                ));
+                query.push(" WHERE listing_source.listing_source_slug_id = $3 AND p.source_listing_slug_id = $4");
+                query
+                    .build_query_as::<ProductListingDetailsRow>()
+                    .bind(requested_language)
+                    .bind(user_id)
+                    .bind(listing_source_slug_id.as_ref())
+                    .bind(source_listing_slug_id.as_ref())
+                    .fetch_optional(&mut *self.connection)
+                    .await
+            }
         }
         .map_err(|_| ProductListingDetailsReadError::ProductListingDetailsQueryFailed)?;
 

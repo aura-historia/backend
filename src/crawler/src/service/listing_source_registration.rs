@@ -159,7 +159,8 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             listing_source_name: ListingSourceName::try_from("Source")
                 .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
-            listing_source_slug: ListingSourceSlugId::from("source"),
+            listing_source_slug: ListingSourceSlugId::raw("source")
+                .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
             crawl_enabled: true,
         }
     }

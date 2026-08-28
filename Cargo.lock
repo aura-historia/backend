@@ -7751,6 +7751,7 @@ dependencies = [
  "libc",
  "mrml",
  "opensearch",
+ "product-listing-core",
  "reqwest 0.12.28",
  "rstest",
  "serde",

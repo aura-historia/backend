@@ -105,7 +105,7 @@ async fn seed_product(pool: &sqlx::PgPool) -> Result<(ProductListingId, EventId)
     .execute(&mut *transaction)
     .await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, $6, 'en', 'Revision guard description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')",
+        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images, source_listing_slug_id) VALUES ($1, $2, $3, $3, $4, $5, $6, 'en', 'Revision guard description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]', $7)",
     )
     .bind(product_uuid)
     .bind(format!("revision-guard-product-{slug_suffix}"))
@@ -113,7 +113,8 @@ async fn seed_product(pool: &sqlx::PgPool) -> Result<(ProductListingId, EventId)
     .bind(listing_source_id)
     .bind(product_uuid.to_string())
     .bind("Revision guard product")
-    .execute(&mut *transaction)
+    .bind(source_listing_slug_id(product_uuid.to_string()))
+        .execute(&mut *transaction)
     .await?;
     sqlx::query(
         "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())",
@@ -124,4 +125,14 @@ async fn seed_product(pool: &sqlx::PgPool) -> Result<(ProductListingId, EventId)
     .await?;
     transaction.commit().await?;
     Ok((product_listing_id, event_id))
+}
+
+fn source_listing_slug_id(raw: impl AsRef<str>) -> String {
+    let source_listing_id =
+        product_listing_core::source_listing_id::SourceListingId::try_from(raw.as_ref())
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
+    product_listing_core::product_listing_slug_id::SourceListingSlugId::from_source_listing_id(
+        &source_listing_id,
+    )
+    .to_string()
 }

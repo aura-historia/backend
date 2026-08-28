@@ -14,7 +14,7 @@ use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
 use crate::ports::ListingSourceSummary;
-use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, outbound_url};
 use product_listing_core::source_listing_id::SourceListingId;
 use user_core::user_id::UserId;
 
@@ -54,6 +54,11 @@ pub(crate) enum ProductListingSummaryPersonalizationError {
     UserStateMissing {
         product_listing_id: ProductListingId,
     },
+    #[error("product listing view URL could not be constructed")]
+    ViewUrlInvalid {
+        #[source]
+        source: BoxError,
+    },
     #[error("hidden product summary could not be constructed")]
     HiddenProductListingSummaryInvalid {
         #[source]
@@ -91,7 +96,17 @@ where
                     listing_source_id,
                 },
             )?;
-            Ok(ProductListingSearchItemWithSource { item, source })
+            let view_url = outbound_url(source.referral_configuration.as_ref(), &item.url)
+                .map_err(
+                    |source| ProductListingSummaryPersonalizationError::ViewUrlInvalid {
+                        source: box_error(source),
+                    },
+                )?;
+            Ok(ProductListingSearchItemWithSource {
+                item,
+                source: source.summary,
+                view_url,
+            })
         })
         .collect()
 }
@@ -169,7 +184,8 @@ fn redact_hidden_product_search_item(
                 source: box_error(source),
             }
         })?,
-        slug_id: ListingSourceSlugId::from("hidden"),
+        slug_id: ListingSourceSlugId::raw("hidden")
+            .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
     };
     product.item.source_listing_id =
         SourceListingId::try_from(nil.to_string()).map_err(|error| {
@@ -182,7 +198,7 @@ fn redact_hidden_product_search_item(
     product.item.availability = None;
     product.item.lifecycle = ListingLifecycle::Active;
     product.item.url = hidden_url.clone();
-    product.item.view_url = hidden_url;
+    product.view_url = hidden_url;
     product.item.images.clear();
     product.item.updated = OffsetDateTime::UNIX_EPOCH;
 
@@ -239,7 +255,7 @@ mod tests {
     use std::{collections::HashMap, sync::Mutex};
 
     struct RecordingListingSourceSummaryReader {
-        summaries: HashMap<ListingSourceId, ListingSourceSummary>,
+        summaries: HashMap<ListingSourceId, crate::ports::ListingSourceSummaryWithReferral>,
         requests: Mutex<Vec<Vec<ListingSourceId>>>,
     }
 
@@ -248,8 +264,10 @@ mod tests {
         async fn find_summaries(
             &self,
             listing_source_ids: &[ListingSourceId],
-        ) -> Result<HashMap<ListingSourceId, ListingSourceSummary>, ListingSourceSummaryReadError>
-        {
+        ) -> Result<
+            HashMap<ListingSourceId, crate::ports::ListingSourceSummaryWithReferral>,
+            ListingSourceSummaryReadError,
+        > {
             match self.requests.lock() {
                 Ok(mut requests) => requests.push(listing_source_ids.to_vec()),
                 Err(poisoned) => poisoned.into_inner().push(listing_source_ids.to_vec()),
@@ -276,8 +294,6 @@ mod tests {
             lifecycle: ListingLifecycle::Active,
             url: Url::parse("https://source.example/cabinet")
                 .unwrap_or_else(|error| panic!("valid source URL: {error}")),
-            view_url: Url::parse("https://aura.example/cabinet")
-                .unwrap_or_else(|error| panic!("valid view URL: {error}")),
             images: IndexSet::<ProductListingImage>::new(),
             updated: OffsetDateTime::UNIX_EPOCH,
         }
@@ -292,22 +308,37 @@ mod tests {
             summaries: HashMap::from([
                 (
                     source_one,
-                    ListingSourceSummary {
-                        listing_source_id: source_one,
-                        name: ListingSourceName::try_from("One").unwrap_or_else(|error| {
-                            panic!("invalid test listing source name: {error}")
-                        }),
-                        slug_id: ListingSourceSlugId::from("one"),
+                    crate::ports::ListingSourceSummaryWithReferral {
+                        summary: ListingSourceSummary {
+                            listing_source_id: source_one,
+                            name: ListingSourceName::try_from("One").unwrap_or_else(|error| {
+                                panic!("invalid test listing source name: {error}")
+                            }),
+                            slug_id: ListingSourceSlugId::raw("one").unwrap_or_else(|error| {
+                                panic!("valid test listing source slug: {error}")
+                            }),
+                        },
+                        referral_configuration: Some(
+                            listing_source_core::ReferralConfiguration::Partnerize {
+                                camref: listing_source_core::PartnerizeCamref::try_from("campaign")
+                                    .unwrap_or_else(|error| panic!("test camref: {error}")),
+                            },
+                        ),
                     },
                 ),
                 (
                     source_two,
-                    ListingSourceSummary {
-                        listing_source_id: source_two,
-                        name: ListingSourceName::try_from("Two").unwrap_or_else(|error| {
-                            panic!("invalid test listing source name: {error}")
-                        }),
-                        slug_id: ListingSourceSlugId::from("two"),
+                    crate::ports::ListingSourceSummaryWithReferral {
+                        summary: ListingSourceSummary {
+                            listing_source_id: source_two,
+                            name: ListingSourceName::try_from("Two").unwrap_or_else(|error| {
+                                panic!("invalid test listing source name: {error}")
+                            }),
+                            slug_id: ListingSourceSlugId::raw("two").unwrap_or_else(|error| {
+                                panic!("valid test listing source slug: {error}")
+                            }),
+                        },
+                        referral_configuration: None,
                     },
                 ),
             ]),
@@ -330,6 +361,18 @@ mod tests {
                 .iter()
                 .map(|product| product.source.listing_source_id)
                 .collect::<Vec<_>>()
+        );
+        assert!(
+            products[0]
+                .view_url
+                .as_str()
+                .starts_with("https://prf.hn/click/camref:campaign/")
+        );
+        assert!(
+            products[1]
+                .view_url
+                .as_str()
+                .contains("utm_source=aura_historia")
         );
         let requests = match reader.requests.lock() {
             Ok(requests) => requests,

@@ -21,13 +21,13 @@ pub async fn create_listing_source(
         Ok(data) => data,
         Err(error) => return error.into_response(),
     };
-    let acquisition_configuration = match data
-        .acquisition_configuration
+    let ingestion_configuration = match data
+        .ingestion_configuration
         .into_iter()
         .map(TryInto::try_into)
         .collect::<Result<Vec<_>, ApiError>>()
     {
-        Ok(value) => listing_source_service::ports::ListingSourceAcquisitionConfigurations(value),
+        Ok(value) => listing_source_service::ports::ListingSourceIngestionConfigurations(value),
         Err(error) => return error.into_response(),
     };
     let operator: listing_source_service::use_cases::commands::create_listing_source::ListingSourceOperator =
@@ -47,13 +47,20 @@ pub async fn create_listing_source(
     let command = CreateListingSourceCommand {
         name,
         operator,
-        acquisition_configuration,
+        ingestion_configuration,
         woocommerce_webhook_secret: data.woocommerce_webhook_secret,
         presentation: ListingSourcePresentation {
             url: data.url,
             image: data.image,
         },
-        referral_configuration: data.referral_configuration.map(Into::into),
+        referral_configuration: match data
+            .referral_configuration
+            .map(TryInto::try_into)
+            .transpose()
+        {
+            Ok(value) => value,
+            Err(error) => return error.into_response(),
+        },
     };
 
     match state.create.execute(&context, command).await {

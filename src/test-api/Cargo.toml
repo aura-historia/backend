@@ -57,6 +57,7 @@ test-api = { workspace = true, features = [
 ]}
 rstest = { workspace = true }
 aura-historia-worker = { workspace = true }
+product-listing-core = { workspace = true }
 
 [features]
 default = []

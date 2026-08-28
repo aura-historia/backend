@@ -60,27 +60,41 @@ fn map(row: Row) -> Result<VersionedPartnership, PartnershipRepositoryError> {
 }
 #[async_trait::async_trait]
 impl PartnershipRepository for Repository<'_> {
-    async fn find_by_party_id(
+    async fn find_or_create_for_party(
         &mut self,
         party_id: PartyId,
-    ) -> Result<Option<VersionedPartnership>, PartnershipRepositoryError> {
-        sqlx::query_as::<_, Row>(
-            "SELECT partnership_id,party_id,version FROM partnerships WHERE party_id=$1",
+        new_partnership_id: PartnershipId,
+    ) -> Result<VersionedPartnership, PartnershipRepositoryError> {
+        let inserted = sqlx::query_as::<_, Row>(
+            "INSERT INTO partnerships(partnership_id,party_id) VALUES($1,$2) \
+             ON CONFLICT (party_id) DO NOTHING \
+             RETURNING partnership_id,party_id,version",
         )
+        .bind(uuid::Uuid::from(new_partnership_id))
         .bind(uuid::Uuid::from(party_id))
         .fetch_optional(&mut *self.connection)
         .await
-        .map_err(|e| PartnershipRepositoryError::TemporarilyUnavailable {
-            source: box_error(e),
-        })?
-        .map(map)
-        .transpose()
-    }
-    async fn insert(
-        &mut self,
-        p: &Partnership,
-    ) -> Result<VersionedPartnership, PartnershipRepositoryError> {
-        sqlx::query_as::<_,Row>("INSERT INTO partnerships(partnership_id,party_id) VALUES($1,$2) RETURNING partnership_id,party_id,version").bind(uuid::Uuid::from(p.id())).bind(uuid::Uuid::from(p.party_id())).fetch_one(&mut*self.connection).await.map_err(|e|PartnershipRepositoryError::Internal{source:box_error(e)}).and_then(map)
+        .map_err(|error| PartnershipRepositoryError::Internal {
+            source: box_error(error),
+        })?;
+        let row = match inserted {
+            Some(row) => row,
+            None => sqlx::query_as::<_, Row>(
+                "SELECT partnership_id,party_id,version FROM partnerships WHERE party_id=$1",
+            )
+            .bind(uuid::Uuid::from(party_id))
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(|error| PartnershipRepositoryError::TemporarilyUnavailable {
+                source: box_error(error),
+            })?
+            .ok_or_else(|| PartnershipRepositoryError::Internal {
+                source: box_error(std::io::Error::other(
+                    "partnership disappeared after party conflict",
+                )),
+            })?,
+        };
+        map(row)
     }
 }
 #[async_trait::async_trait]

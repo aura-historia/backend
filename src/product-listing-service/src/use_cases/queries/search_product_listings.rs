@@ -80,7 +80,6 @@ pub struct ProductListingSearchItem {
     pub availability: Option<ListingAvailability>,
     pub lifecycle: ListingLifecycle,
     pub url: Url,
-    pub view_url: Url,
     pub images: IndexSet<ProductListingImage>,
     pub updated: OffsetDateTime,
 }
@@ -123,6 +122,7 @@ pub type PersonalizedProductListingSummary =
 pub(crate) struct ProductListingSearchItemWithSource {
     pub(crate) item: ProductListingSearchItem,
     pub(crate) source: ListingSourceSummary,
+    pub(crate) view_url: Url,
 }
 
 pub(crate) type PersonalizedProductListingSearchItem =
@@ -374,7 +374,7 @@ where
                     availability: product.item.item.availability,
                     lifecycle: product.item.item.lifecycle,
                     url: product.item.item.url,
-                    view_url: product.item.item.view_url,
+                    view_url: product.item.view_url,
                     images: product
                         .item
                         .item
@@ -530,6 +530,9 @@ impl From<ProductListingSummaryPersonalizationError> for SearchProductListingsEr
             ProductListingSummaryPersonalizationError::ListingSourceSummaryMissing {
                 listing_source_id,
             } => Self::ListingSourceSummaryMissing { listing_source_id },
+            ProductListingSummaryPersonalizationError::ViewUrlInvalid { .. } => {
+                Self::ProductListingSearchReadModelInvalid
+            }
             ProductListingSummaryPersonalizationError::UserStateQueryFailed { source } => {
                 Self::ProductListingUserStateQueryFailed { source }
             }
@@ -821,7 +824,7 @@ mod tests {
             &self,
             listing_source_ids: &[ListingSourceId],
         ) -> Result<
-            HashMap<ListingSourceId, ListingSourceSummary>,
+            HashMap<ListingSourceId, crate::ports::ListingSourceSummaryWithReferral>,
             crate::ports::ListingSourceSummaryReadError,
         > {
             Ok(listing_source_ids
@@ -830,13 +833,19 @@ mod tests {
                 .map(|listing_source_id| {
                     (
                         listing_source_id,
-                        ListingSourceSummary {
-                            listing_source_id,
-                            name: listing_source_core::ListingSourceName::try_from("Source")
-                                .unwrap_or_else(|error| {
-                                    panic!("invalid test listing source name: {error}")
-                                }),
-                            slug_id: listing_source_core::ListingSourceSlugId::from("source"),
+                        crate::ports::ListingSourceSummaryWithReferral {
+                            summary: ListingSourceSummary {
+                                listing_source_id,
+                                name: listing_source_core::ListingSourceName::try_from("Source")
+                                    .unwrap_or_else(|error| {
+                                        panic!("invalid test listing source name: {error}")
+                                    }),
+                                slug_id: listing_source_core::ListingSourceSlugId::raw("source")
+                                    .unwrap_or_else(|error| {
+                                        panic!("valid test listing source slug: {error}")
+                                    }),
+                            },
+                            referral_configuration: None,
                         },
                     )
                 })
@@ -974,7 +983,6 @@ mod tests {
                 availability: Some(ListingAvailability::InStock),
                 lifecycle: ListingLifecycle::Active,
                 url: Url::parse("https://shop.example/products/1")?,
-                view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
                 images: IndexSet::<ProductListingImage>::new(),
                 updated: OffsetDateTime::UNIX_EPOCH,
             }],
@@ -994,8 +1002,10 @@ mod tests {
                 listing_source_id: item.listing_source_id,
                 name: listing_source_core::ListingSourceName::try_from("Source")
                     .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
-                slug_id: listing_source_core::ListingSourceSlugId::from("source"),
+                slug_id: listing_source_core::ListingSourceSlugId::raw("source")
+                    .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
             },
+            view_url: item.url.clone(),
             item,
         }
     }

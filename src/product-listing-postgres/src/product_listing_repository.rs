@@ -19,7 +19,7 @@ use product_listing_core::product_listing::{
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::product_listing_slug_id::ProductListingSlugId;
+use product_listing_core::product_listing_slug_id::{ProductListingSlugId, SourceListingSlugId};
 
 use listing_source_core::ListingSourceId;
 use product_listing_core::source_listing_id::SourceListingId;
@@ -45,6 +45,7 @@ struct SqlxProductListingRepository<'tx> {
 struct ProductListingRow {
     product_listing_id: uuid::Uuid,
     product_listing_slug_id: String,
+    source_listing_slug_id: String,
     event_id: uuid::Uuid,
     listing_source_id: uuid::Uuid,
     source_listing_id: String,
@@ -105,7 +106,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         let row = sqlx::query_as::<_, ProductListingRow>(
             r#"
             SELECT
-                product_listing_id, product_listing_slug_id, event_id, listing_source_id, source_listing_id,
+                product_listing_id, product_listing_slug_id, source_listing_slug_id, event_id, listing_source_id, source_listing_id,
                 title_text, title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
@@ -130,7 +131,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         let row = sqlx::query_as::<_, ProductListingRow>(
             r#"
             SELECT
-                product_listing_id, product_listing_slug_id, event_id, listing_source_id, source_listing_id,
+                product_listing_id, product_listing_slug_id, source_listing_slug_id, event_id, listing_source_id, source_listing_id,
                 title_text, title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
@@ -179,20 +180,21 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         sqlx::query(
             r#"
             INSERT INTO product_listings (
-                product_listing_id, product_listing_slug_id, event_id, content_source_event_id,
+                product_listing_id, product_listing_slug_id, source_listing_slug_id, event_id, content_source_event_id,
                 listing_source_id, source_listing_id, title_text, title_language,
                 description_text, description_language, price_amount, price_currency,
                 price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at,
                 availability, lifecycle, url, product_images, auction_start, auction_end
             ) VALUES (
-                $1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                $16, $17, $18, $19, $20, $21, $22, $23
+                $1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                $16, $17, $18, $19, $20, $21, $22, $23, $24
             )
             "#,
         )
         .bind(uuid::Uuid::from(product.id()))
         .bind(product.slug_id().as_ref().to_owned())
+        .bind(product.source_listing_slug_id().as_ref().to_owned())
         .bind(uuid::Uuid::from(current_event_id))
         .bind(uuid::Uuid::from(product.listing_source_id()))
         .bind(product.source_listing_id().as_ref().to_owned())
@@ -355,13 +357,22 @@ impl TryFrom<ProductListingRow> for Versioned<ProductListing, EventId> {
         let _updated = row.updated;
         let title = localized_title_from_row(&row)?;
         let description = localized_description_from_row(&row)?;
+        let source_listing_id = SourceListingId::try_from(row.source_listing_id)
+            .map_err(|_| ProductListingRepositoryError::InvalidSourceListingIdPersisted)?;
+        let persisted_source_listing_slug_id =
+            SourceListingSlugId::raw(&row.source_listing_slug_id)
+                .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;
+        if persisted_source_listing_slug_id
+            != SourceListingSlugId::from_source_listing_id(&source_listing_id)
+        {
+            return Err(ProductListingRepositoryError::InvalidAggregateStatePersisted);
+        }
         let product = ProductListing::rehydrate(RehydratedProductListingState {
             id: ProductListingId::from(row.product_listing_id),
             slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
                 .map_err(|_| ProductListingRepositoryError::InvalidProductListingSlugPersisted)?,
             listing_source_id: ListingSourceId::from(row.listing_source_id),
-            source_listing_id: SourceListingId::try_from(row.source_listing_id)
-                .map_err(|_| ProductListingRepositoryError::InvalidSourceListingIdPersisted)?,
+            source_listing_id,
             title,
             description,
             pricing: ProductListingPricing {
@@ -770,12 +781,17 @@ mod tests {
         let slug = ProductListingSlugId::from("unit product")
             .as_ref()
             .to_owned();
+        let source_listing_id = SourceListingId::try_from("unit-product")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
+        let source_listing_slug_id =
+            SourceListingSlugId::from_source_listing_id(&source_listing_id).to_string();
         ProductListingRow {
             product_listing_id: uuid::Uuid::new_v4(),
             product_listing_slug_id: slug,
+            source_listing_slug_id,
             event_id: uuid::Uuid::new_v4(),
             listing_source_id: uuid::Uuid::new_v4(),
-            source_listing_id: "unit-product".to_owned(),
+            source_listing_id: source_listing_id.to_string(),
             title_text: Some("title".to_owned()),
             title_language: Some("en".to_owned()),
             description_text: Some("description".to_owned()),
