@@ -717,10 +717,10 @@ impl From<CreateProductListingError> for ApiError {
             CreateProductListingError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            CreateProductListingError::ShopNotFound => {
-                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
+            CreateProductListingError::ListingSourceNotFound => {
+                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Listing source was not found.")
             }
-            CreateProductListingError::ShopListingAlreadyExists
+            CreateProductListingError::SourceListingAlreadyExists
             | CreateProductListingError::ProductListingSlugAlreadyExists => {
                 ApiError::conflict(CONFLICT)
                     .with_detail("ProductListing conflicts with current state.")
@@ -757,8 +757,8 @@ impl From<UpdateProductListingError> for ApiError {
             UpdateProductListingError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            UpdateProductListingError::ShopNotFound => {
-                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
+            UpdateProductListingError::ListingSourceNotFound => {
+                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Listing source was not found.")
             }
             UpdateProductListingError::NotFound => ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
                 .with_detail("ProductListing was not found."),
@@ -799,8 +799,8 @@ impl From<WithdrawProductListingError> for ApiError {
             WithdrawProductListingError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            WithdrawProductListingError::ShopNotFound => {
-                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
+            WithdrawProductListingError::ListingSourceNotFound => {
+                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Listing source was not found.")
             }
             WithdrawProductListingError::NotFound => ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
                 .with_detail("ProductListing was not found."),
@@ -829,10 +829,10 @@ impl From<IngestWoocommerceProductListingError> for ApiError {
                 ApiError::bad_request(BAD_BODY_VALUE)
                     .with_detail("WooCommerce product payload is invalid.")
             }
-            IngestWoocommerceProductListingError::MissingShopCurrency
-            | IngestWoocommerceProductListingError::MissingShopLanguage => {
+            IngestWoocommerceProductListingError::MissingListingSourceCurrency
+            | IngestWoocommerceProductListingError::MissingListingSourceLanguage => {
                 ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
-                    .with_detail("WooCommerce shop configuration is incomplete.")
+                    .with_detail("WooCommerce listing source configuration is incomplete.")
             }
             IngestWoocommerceProductListingError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
@@ -840,13 +840,12 @@ impl From<IngestWoocommerceProductListingError> for ApiError {
                     .with_detail("Bearer token is required.")
             }
             IngestWoocommerceProductListingError::Forbidden
-            | IngestWoocommerceProductListingError::ActorMayNotIngestForShop
-            | IngestWoocommerceProductListingError::ShopNotPartnered => {
+            | IngestWoocommerceProductListingError::ActorMayNotIngestForListingSource => {
                 ApiError::forbidden(PARTNER_SHOP_NOT_PARTNERED)
-                    .with_detail("Actor is not a partner of this shop.")
+                    .with_detail("Actor is not a partner of this listing source.")
             }
-            IngestWoocommerceProductListingError::ShopNotFound => {
-                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
+            IngestWoocommerceProductListingError::ListingSourceNotFound => {
+                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Listing source was not found.")
             }
             IngestWoocommerceProductListingError::WebhookSecretNotConfigured => {
                 ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
@@ -860,12 +859,12 @@ impl From<IngestWoocommerceProductListingError> for ApiError {
             IngestWoocommerceProductListingError::PartnerAuthorizationTemporarilyUnavailable {
                 ..
             }
-            | IngestWoocommerceProductListingError::WebhookShopTemporarilyUnavailable { .. } => {
-                ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("WooCommerce webhook validation is temporarily unavailable.")
-            }
+            | IngestWoocommerceProductListingError::ListingSourceTemporarilyUnavailable {
+                ..
+            } => ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
+                .with_detail("WooCommerce webhook validation is temporarily unavailable."),
             IngestWoocommerceProductListingError::PartnerAuthorizationInternal { .. }
-            | IngestWoocommerceProductListingError::InvalidWebhookShopReadModel { .. } => {
+            | IngestWoocommerceProductListingError::InvalidListingSourceReadModel { .. } => {
                 ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
                     .with_detail("WooCommerce webhook validation failed internally.")
             }
@@ -898,8 +897,8 @@ impl From<UpsertProductListingError> for ApiError {
             UpsertProductListingError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            UpsertProductListingError::ShopNotFound => {
-                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
+            UpsertProductListingError::ListingSourceNotFound => {
+                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Listing source was not found.")
             }
             UpsertProductListingError::ListingWithdrawn => {
                 ApiError::conflict(CONFLICT).with_detail("ProductListing has been withdrawn.")
@@ -982,12 +981,15 @@ impl From<GetSimilarProductListingsError> for ApiError {
             | GetSimilarProductListingsError::CommitTransactionFailed
             | GetSimilarProductListingsError::PricingFxSnapshotMissing
             | GetSimilarProductListingsError::PricingFxSnapshotUnavailable { .. }
+            | GetSimilarProductListingsError::ListingSourceSummaryQueryFailed { .. }
             | GetSimilarProductListingsError::ProductListingUserStateQueryFailed { .. }
             | GetSimilarProductListingsError::ContentAssessmentQueryFailed { .. } => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Similar products are temporarily unavailable.")
             }
             GetSimilarProductListingsError::PricingFxSnapshotInvalid { .. }
+            | GetSimilarProductListingsError::ListingSourceSummaryReadModelInvalid { .. }
+            | GetSimilarProductListingsError::ListingSourceSummaryMissing { .. }
             | GetSimilarProductListingsError::ProductListingUserStateReadModelInvalid { .. }
             | GetSimilarProductListingsError::ProductListingUserStateMissing
             | GetSimilarProductListingsError::HiddenProductListingSummaryInvalid { .. }
@@ -1007,6 +1009,7 @@ impl From<SearchProductListingsError> for ApiError {
             | SearchProductListingsError::BeginFxRateSnapshotTransactionFailed { .. }
             | SearchProductListingsError::FxRateSnapshotReadFailed { .. }
             | SearchProductListingsError::CommitFxRateSnapshotTransactionFailed { .. }
+            | SearchProductListingsError::ListingSourceSummaryQueryFailed { .. }
             | SearchProductListingsError::ProductListingUserStateQueryFailed { .. }
             | SearchProductListingsError::ContentAssessmentQueryFailed { .. } => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
@@ -1014,6 +1017,8 @@ impl From<SearchProductListingsError> for ApiError {
             }
             SearchProductListingsError::ProductListingSearchReadModelInvalid
             | SearchProductListingsError::FxRateSnapshotInvalid { .. }
+            | SearchProductListingsError::ListingSourceSummaryReadModelInvalid { .. }
+            | SearchProductListingsError::ListingSourceSummaryMissing { .. }
             | SearchProductListingsError::ProductListingUserStateReadModelInvalid { .. }
             | SearchProductListingsError::ProductListingUserStateMissing
             | SearchProductListingsError::HiddenProductListingSummaryInvalid { .. }

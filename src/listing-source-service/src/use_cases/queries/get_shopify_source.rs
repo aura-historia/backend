@@ -38,12 +38,22 @@ pub struct GetShopifySourceHandler<R, P> {
     reader: R,
     partnership_grants: P,
 }
+
+pub struct GetSystemShopifySourceHandler<R> {
+    reader: R,
+}
 impl<R, P> GetShopifySourceHandler<R, P> {
     pub fn new(reader: R, partnership_grants: P) -> Self {
         Self {
             reader,
             partnership_grants,
         }
+    }
+}
+
+impl<R> GetSystemShopifySourceHandler<R> {
+    pub fn new(reader: R) -> Self {
+        Self { reader }
     }
 }
 #[async_trait::async_trait]
@@ -79,6 +89,25 @@ where
         Ok(source)
     }
 }
+#[async_trait::async_trait]
+impl<R> GetShopifySourceUseCase for GetSystemShopifySourceHandler<R>
+where
+    R: ShopifySourceReader,
+{
+    #[tracing::instrument(name = "get_system_shopify_source", skip_all, fields(request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        request: GetShopifySourceRequest,
+    ) -> Result<GetShopifySourceResult, GetShopifySourceError> {
+        self.reader
+            .find_by_domain(&request.domain)
+            .await
+            .map_err(map_read)?
+            .ok_or(GetShopifySourceError::NotFound)
+    }
+}
+
 fn map_read(error: ListingSourceReadError) -> GetShopifySourceError {
     match error {
         ListingSourceReadError::TemporarilyUnavailable { source } => {
@@ -133,6 +162,24 @@ mod tests {
             correlation_id: CorrelationId::new("correlation"),
         }
     }
+    #[tokio::test]
+    async fn should_return_shopify_source_for_system_intake() {
+        let source = source();
+        let expected_id = source.listing_source_id;
+        let handler = GetSystemShopifySourceHandler::new(Reader(source.clone()));
+
+        let result = handler
+            .execute(
+                &context(),
+                GetShopifySourceRequest {
+                    domain: source.domain,
+                },
+            )
+            .await;
+
+        assert!(matches!(result, Ok(result) if result.listing_source_id == expected_id));
+    }
+
     #[tokio::test]
     async fn should_reject_shopify_source_without_partnership_grant() {
         let source = source();

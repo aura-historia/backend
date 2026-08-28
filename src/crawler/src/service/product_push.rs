@@ -5,11 +5,12 @@ use application::patch_field::PatchField;
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
 use indexmap::IndexSet;
+use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
 use money::Price;
 use product_listing_core::{
     description::Description, listing_availability::ListingAvailability,
-    product_listing::ProductListingAddress, product_listing_id::ProductListingKey, title::Title,
+    product_listing_id::ProductListingKey, title::Title,
 };
 use product_listing_service::use_cases::commands::upsert_product_listing::{
     UpsertProductListingCommand, UpsertProductListingUseCase,
@@ -65,8 +66,6 @@ impl ProductListingPushServiceImpl {
 enum DuplicateProductListingCommandError {
     #[error("duplicate commands have different ProductListing keys")]
     ProductListingKeyMismatch,
-    #[error("duplicate commands have different seller IDs")]
-    SellerMismatch,
 }
 
 struct CoalescedProductListingPush {
@@ -79,15 +78,13 @@ fn merge_upsert_command(
     current: &mut UpsertProductListingCommand,
     newer: UpsertProductListingCommand,
 ) -> Result<(), DuplicateProductListingCommandError> {
-    if current.shop_id != newer.shop_id || current.shop_listing_id != newer.shop_listing_id {
+    if current.listing_source_id != newer.listing_source_id
+        || current.source_listing_id != newer.source_listing_id
+    {
         return Err(DuplicateProductListingCommandError::ProductListingKeyMismatch);
-    }
-    if current.seller_id != newer.seller_id {
-        return Err(DuplicateProductListingCommandError::SellerMismatch);
     }
 
     let UpsertProductListingCommand {
-        address,
         title,
         description,
         price,
@@ -101,12 +98,6 @@ fn merge_upsert_command(
         ..
     } = newer;
 
-    if let Some(value) = address.structured {
-        current.address.structured = Some(value);
-    }
-    if let Some(value) = address.geo {
-        current.address.geo = Some(value);
-    }
     if let Some(value) = title {
         current.title = Some(value);
     }
@@ -146,7 +137,10 @@ impl ProductListingPushService for ProductListingPushServiceImpl {
 
         for (input_index, product) in products.into_iter().enumerate() {
             let command = product.command;
-            let key = ProductListingKey::new(command.shop_id, command.shop_listing_id.clone());
+            let key = ProductListingKey::new(
+                command.listing_source_id,
+                command.source_listing_id.clone(),
+            );
             if let Some(&group_index) = group_by_key.get(&key) {
                 let group = &mut groups[group_index];
                 group.input_indices.push(input_index);
@@ -155,8 +149,8 @@ impl ProductListingPushService for ProductListingPushServiceImpl {
                 {
                     group.valid = false;
                     warn!(
-                        shop_id = %group.command.shop_id,
-                        shop_listing_id = %group.command.shop_listing_id,
+                        listing_source_id = %group.command.listing_source_id,
+                        source_listing_id = %group.command.source_listing_id,
                         error_kind = %duplicate_product_command_error_kind(&error),
                         "Rejecting conflicting duplicate ProductListing commands"
                     );
@@ -184,16 +178,16 @@ impl ProductListingPushService for ProductListingPushServiceImpl {
                 } = group;
 
                 let context = crawler_operation_context(&command);
-                let shop_id = command.shop_id;
-                let shop_listing_id = command.shop_listing_id.clone();
+                let listing_source_id = command.listing_source_id;
+                let source_listing_id = command.source_listing_id.clone();
 
                 let succeeded = match upsert_product.execute(&context, command).await {
                     Ok(_) => true,
                     Err(error) => {
                         warn!(
                             error = %error,
-                            shop_id = %shop_id,
-                            shop_listing_id = %shop_listing_id,
+                            listing_source_id = %listing_source_id,
+                            source_listing_id = %source_listing_id,
                             request_id = %context.request_id,
                             correlation_id = %context.correlation_id,
                             "ProductListing upsert failed; it will be retried on the next scrape cycle"
@@ -224,12 +218,14 @@ fn duplicate_product_command_error_kind(
 ) -> &'static str {
     match error {
         DuplicateProductListingCommandError::ProductListingKeyMismatch => "product_key_mismatch",
-        DuplicateProductListingCommandError::SellerMismatch => "seller_mismatch",
     }
 }
 
 fn crawler_operation_context(command: &UpsertProductListingCommand) -> OperationContext {
-    let product_key = format!("crawler:{}:{}", command.shop_id, command.shop_listing_id);
+    let product_key = format!(
+        "crawler:{}:{}",
+        command.listing_source_id, command.source_listing_id
+    );
 
     OperationContext {
         principal: Principal::Service("crawler".to_owned()),
@@ -258,10 +254,8 @@ impl FileProductListingPushService {
 /// never an upsert-command replay source.
 #[derive(Debug, serde::Serialize)]
 struct UpsertCommandSnapshot {
-    shop_id: String,
-    seller_id: String,
-    shop_listing_id: String,
-    address: ProductListingAddressSnapshot,
+    listing_source_id: String,
+    source_listing_id: String,
     title: Option<LocalizedTextSnapshot>,
     description: Option<LocalizedTextSnapshot>,
     price: PricePatchSnapshot,
@@ -310,12 +304,6 @@ enum TimestampPatchSnapshot {
     Unchanged,
 }
 
-#[derive(Debug, Default, serde::Serialize)]
-struct ProductListingAddressSnapshot {
-    structured: Option<String>,
-    geo: Option<String>,
-}
-
 #[derive(Debug, serde::Serialize)]
 struct LocalizedTextSnapshot {
     language: String,
@@ -337,10 +325,8 @@ impl From<&ProductListingPushItem> for UpsertCommandSnapshot {
     fn from(product: &ProductListingPushItem) -> Self {
         let command = &product.command;
         Self {
-            shop_id: command.shop_id.to_string(),
-            seller_id: command.seller_id.to_string(),
-            shop_listing_id: command.shop_listing_id.to_string(),
-            address: ProductListingAddressSnapshot::default(),
+            listing_source_id: command.listing_source_id.to_string(),
+            source_listing_id: command.source_listing_id.to_string(),
             title: command.title.as_ref().map(snapshot_localized_title),
             description: command
                 .description
@@ -514,10 +500,8 @@ pub fn normalize_to_upsert(
     candidate: &ScraperCandidate,
 ) -> Option<UpsertProductListingCommand> {
     Some(UpsertProductListingCommand {
-        shop_id: candidate.shop_id,
-        seller_id: candidate.shop_id,
-        shop_listing_id: product.shop_listing_id,
-        address: ProductListingAddress::default(),
+        listing_source_id: ListingSourceId::from(uuid::Uuid::from(candidate.shop_id)),
+        source_listing_id: product.shop_listing_id,
         title: Some(product.title),
         description: product.description,
         price: match product.price {
@@ -552,8 +536,9 @@ fn availability_name(value: ListingAvailability) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use listing_source_core::ListingSourceId;
     use product_listing_core::{
-        product_listing_id::ProductListingId, source_listing_id::ShopListingId,
+        product_listing_id::ProductListingId, source_listing_id::SourceListingId,
     };
     use product_listing_service::use_cases::commands::{
         update_product_listing::UpdateProductListingResult,
@@ -591,7 +576,7 @@ mod tests {
             }
 
             if self.fail {
-                return Err(UpsertProductListingError::ShopNotFound);
+                return Err(UpsertProductListingError::ListingSourceNotFound);
             }
 
             Ok(UpsertProductListingResult::Updated(
@@ -605,10 +590,8 @@ mod tests {
 
     fn command() -> Result<UpsertProductListingCommand, url::ParseError> {
         Ok(UpsertProductListingCommand {
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shop_listing_id: ShopListingId::from("prod-1"),
-            address: ProductListingAddress::default(),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::from("prod-1"),
             title: Some(Localized::new(Language::De, Title::from("Ein Schrank"))),
             description: None,
             price: PatchField::Unchanged,
@@ -631,7 +614,7 @@ mod tests {
 
     fn push_item_with_id(id: &str) -> Result<ProductListingPushItem, url::ParseError> {
         let mut item = push_item()?;
-        item.command.shop_listing_id = ShopListingId::from(id);
+        item.command.source_listing_id = SourceListingId::from(id);
         Ok(item)
     }
 
@@ -671,11 +654,11 @@ mod tests {
             _: &OperationContext,
             command: UpsertProductListingCommand,
         ) -> Result<UpsertProductListingResult, UpsertProductListingError> {
-            match command.shop_listing_id.to_string().as_str() {
+            match command.source_listing_id.to_string().as_str() {
                 "slow-ok" => sleep(Duration::from_millis(40)).await,
                 "fast-fail" => {
                     sleep(Duration::from_millis(1)).await;
-                    return Err(UpsertProductListingError::ShopNotFound);
+                    return Err(UpsertProductListingError::ListingSourceNotFound);
                 }
                 "medium-ok" => sleep(Duration::from_millis(15)).await,
                 other => panic!("unexpected product id: {other}"),
@@ -750,7 +733,10 @@ mod tests {
         assert_eq!(executed_commands.len(), 2);
         assert_eq!(executed_contexts.len(), 2);
         for (context, command) in executed_contexts.iter().zip(executed_commands) {
-            let product_key = format!("crawler:{}:{}", command.shop_id, command.shop_listing_id);
+            let product_key = format!(
+                "crawler:{}:{}",
+                command.listing_source_id, command.source_listing_id
+            );
             assert_eq!(context.principal, Principal::Service("crawler".to_owned()));
             assert_eq!(context.request_id.as_str(), product_key);
             assert_eq!(context.correlation_id.as_str(), product_key);
@@ -837,8 +823,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_fan_out_group_failure_and_reject_seller_mismatch() -> Result<(), url::ParseError>
-    {
+    async fn should_fan_out_group_failure() -> Result<(), url::ParseError> {
         let use_case = Arc::new(FakeUpsertProductListingUseCase {
             fail: true,
             ..Default::default()
@@ -852,18 +837,6 @@ mod tests {
         assert_eq!(
             commands.lock().map(|commands| commands.len()).unwrap_or(0),
             1
-        );
-
-        let use_case = Arc::new(FakeUpsertProductListingUseCase::default());
-        let commands = Arc::clone(&use_case.commands);
-        let service = ProductListingPushServiceImpl::new(use_case, 1);
-        let first = push_item()?;
-        let mut second = first.clone();
-        second.command.seller_id = ShopId::new();
-        assert_eq!(service.push(vec![first, second]).await, vec![false, false]);
-        assert_eq!(
-            commands.lock().map(|commands| commands.len()).unwrap_or(0),
-            0
         );
         Ok(())
     }
@@ -941,23 +914,22 @@ mod tests {
     }
 
     #[test]
-    fn should_merge_matching_product_commands_with_explicit_invariants()
-    -> Result<(), url::ParseError> {
+    fn should_reject_mismatched_product_listing_keys() -> Result<(), url::ParseError> {
         let mut current = command()?;
         let newer = current.clone();
         assert!(merge_upsert_command(&mut current, newer).is_ok());
 
         let mut mismatched = current.clone();
-        mismatched.seller_id = ShopId::new();
+        mismatched.source_listing_id = SourceListingId::from("other-product");
         assert_eq!(
             merge_upsert_command(&mut current, mismatched),
-            Err(DuplicateProductListingCommandError::SellerMismatch)
+            Err(DuplicateProductListingCommandError::ProductListingKeyMismatch)
         );
         Ok(())
     }
 
     #[test]
-    fn should_map_normalized_product_with_candidate_as_seller() -> Result<(), url::ParseError> {
+    fn should_map_normalized_product_to_listing_source_handoff() -> Result<(), url::ParseError> {
         let candidate = ScraperCandidate {
             shop_id: ShopId::new(),
             shop_name: "Test Shop".to_owned(),
@@ -976,7 +948,7 @@ mod tests {
             last_scraped_availability: None,
         };
         let product = NormalizedProduct {
-            shop_listing_id: ShopListingId::from("prod-1"),
+            shop_listing_id: SourceListingId::from("prod-1"),
             title: Localized::new(Language::De, Title::from("Ein Schrank")),
             description: None,
             price: None,
@@ -994,16 +966,14 @@ mod tests {
         let command = normalize_to_upsert(product.clone(), &candidate);
 
         assert_eq!(
-            command.as_ref().map(|command| command.shop_id),
-            Some(candidate.shop_id)
+            command.as_ref().map(|command| command.listing_source_id),
+            Some(ListingSourceId::from(uuid::Uuid::from(candidate.shop_id)))
         );
         assert_eq!(
-            command.as_ref().map(|command| command.seller_id),
-            Some(candidate.shop_id)
-        );
-        assert_eq!(
-            command.as_ref().map(|command| command.address.clone()),
-            Some(ProductListingAddress::default())
+            command
+                .as_ref()
+                .map(|command| command.source_listing_id.to_string()),
+            Some("prod-1".to_owned())
         );
         assert!(matches!(
             command.as_ref().map(|command| &command.price),
@@ -1155,7 +1125,8 @@ mod tests {
             Ok(content) => content,
             Err(error) => panic!("failed to read product snapshot: {error}"),
         };
-        assert!(content.contains("\"seller_id\""));
+        assert!(content.contains("\"listing_source_id\""));
+        assert!(content.contains("\"source_listing_id\""));
         assert!(content.contains("\"state\": \"SET\""));
         assert!(content.contains("\"value\": \"AVAILABLE\""));
 

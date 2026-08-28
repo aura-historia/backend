@@ -1,22 +1,16 @@
 use crate::product_listing_image_document::ProductListingImageDocument;
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
-use geo::core::continent::Continent;
 use indexmap::IndexSet;
-use isocountry::CountryCode;
+use listing_source_core::ListingSourceId;
 use localization::Language;
 use money::Currency;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-
-use product_listing_core::source_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::SourceListingId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
-use shop_core::seller_slug_id::SellerSlugId;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_slug_id::ShopSlugId;
-use shop_core::shop_type::ShopType;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -100,21 +94,25 @@ pub(crate) mod language {
     }
 }
 
-pub(crate) mod shop_type {
+pub(crate) mod listing_source_id {
     use super::*;
 
-    pub(crate) fn serialize<S>(value: &ShopType, serializer: S) -> Result<S::Ok, S::Error>
+    pub(crate) fn serialize<S>(value: &ListingSourceId, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serialize_code(value, serializer, ShopType::as_str)
+        serializer.serialize_str(&value.to_string())
     }
 
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ShopType, D::Error>
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ListingSourceId, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        deserialize_code(deserializer, ShopType::from_code)
+        let value = String::deserialize(deserializer)?;
+        value
+            .parse::<uuid::Uuid>()
+            .map(ListingSourceId::from)
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -146,40 +144,6 @@ pub(crate) mod listing_availability {
             Option::<String>::deserialize(deserializer)?
                 .map(|value| {
                     ListingAvailability::from_code(&value).ok_or_else(|| {
-                        serde::de::Error::custom(format!("unsupported code `{value}`"))
-                    })
-                })
-                .transpose()
-        }
-    }
-}
-
-pub(crate) mod continent {
-    use super::*;
-
-    pub(crate) mod option {
-        use super::*;
-
-        pub(crate) fn serialize<S>(
-            value: &Option<Continent>,
-            serializer: S,
-        ) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            match value {
-                Some(value) => serializer.serialize_some(value.as_str()),
-                None => serializer.serialize_none(),
-            }
-        }
-
-        pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Option<Continent>, D::Error>
-        where
-            D: serde::Deserializer<'de>,
-        {
-            Option::<String>::deserialize(deserializer)?
-                .map(|value| {
-                    Continent::from_code(&value).ok_or_else(|| {
                         serde::de::Error::custom(format!("unsupported code `{value}`"))
                     })
                 })
@@ -270,36 +234,10 @@ pub(crate) enum ProductListingDocumentValidationError {
 pub(crate) struct ProductListingDocument {
     pub product_listing_id: ProductListingId,
     pub product_listing_slug_id: ProductListingSlugId,
-    pub shop_slug_id: ShopSlugId,
-    pub seller_slug_id: SellerSlugId,
+    #[serde(with = "listing_source_id")]
+    pub listing_source_id: ListingSourceId,
+    pub source_listing_id: SourceListingId,
     pub event_id: EventId,
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub shop_name: String,
-    pub seller_name: String,
-    #[serde(with = "shop_type")]
-    pub shop_type: ShopType,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub structured_address_addressline: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub structured_address_addressline_extra: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub structured_address_locality: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub structured_address_region: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub structured_address_postal_code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub structured_address_country: Option<CountryCode>,
-    #[serde(
-        with = "continent::option",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub structured_address_continent: Option<Continent>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub geo_address: Option<String>,
     pub title: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_de: Option<String>,
@@ -398,23 +336,9 @@ mod tests {
         Ok(ProductListingDocument {
             product_listing_id: ProductListingId::new(),
             product_listing_slug_id: ProductListingSlugId::from("vase-abcdef"),
-            shop_slug_id: ShopSlugId::from("shop"),
-            seller_slug_id: SellerSlugId::from("seller"),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::from("sku-1"),
             event_id: EventId::new(),
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shop_listing_id: ShopListingId::from("sku-1"),
-            shop_name: "Shop".to_owned(),
-            seller_name: "Seller".to_owned(),
-            shop_type: ShopType::CommercialDealer,
-            structured_address_addressline: None,
-            structured_address_addressline_extra: None,
-            structured_address_locality: None,
-            structured_address_region: None,
-            structured_address_postal_code: None,
-            structured_address_country: None,
-            structured_address_continent: None,
-            geo_address: None,
             title: TextDocument::new("Vase", Language::En),
             title_de: None,
             title_en: Some("Vase".to_owned()),
@@ -503,15 +427,44 @@ mod tests {
     }
 
     #[test]
-    fn should_preserve_canonical_continent_value() -> Result<(), Box<dyn std::error::Error>> {
-        let mut document = document()?;
-        document.structured_address_continent = Some(Continent::Europe);
-
+    fn should_serialize_listing_source_identity_without_retired_source_fields()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let document = document()?;
         let value = serde_json::to_value(&document)?;
+
         assert_eq!(
-            Some(&serde_json::json!("EUROPE")),
-            value.get("structuredAddressContinent")
+            Some(&serde_json::json!(document.listing_source_id.to_string())),
+            value.get("listingSourceId")
         );
+        assert_eq!(
+            Some(&serde_json::json!(document.source_listing_id.to_string())),
+            value.get("sourceListingId")
+        );
+        for field in [
+            "listingSourceName",
+            "listingSourceSlugId",
+            "shopSlugId",
+            "sellerSlugId",
+            "shopId",
+            "sellerId",
+            "shopListingId",
+            "shopName",
+            "sellerName",
+            "shopType",
+            "structuredAddressAddressline",
+            "structuredAddressAddresslineExtra",
+            "structuredAddressLocality",
+            "structuredAddressRegion",
+            "structuredAddressPostalCode",
+            "structuredAddressCountry",
+            "structuredAddressContinent",
+            "geoAddress",
+        ] {
+            assert!(
+                value.get(field).is_none(),
+                "retired field {field} is present"
+            );
+        }
 
         let round_tripped = serde_json::from_value::<ProductListingDocument>(value)?;
         assert_eq!(document, round_tripped);

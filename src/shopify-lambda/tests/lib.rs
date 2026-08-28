@@ -1,10 +1,10 @@
-use application::transaction::{Transaction, UnitOfWork};
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
 
 use lambda_runtime::{Context, LambdaEvent};
-use localization::Language;
-use money::Currency;
+use listing_source_core::{Domain, ListingSourceId};
+use listing_source_postgres::SqlxListingSourceReaders;
+use listing_source_service::use_cases::queries::get_shopify_source::GetSystemShopifySourceHandler;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
     SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventStoreFactory,
@@ -13,20 +13,10 @@ use product_listing_postgres::{
 use product_listing_service::use_cases::{
     IngestShopifyProductListingHandler, UpsertProductListingHandler, WithdrawProductListingHandler,
 };
-use shop_core::domain::Domain;
-use shop_core::partner_status::ShopPartnerStatus;
-use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation, ShopifyIntegration};
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_type::ShopType;
-use shop_postgres::{SqlxShopDetailsReaderFactory, SqlxShopRepositoryFactory};
-use shop_service::ports::{ShopRepository, ShopRepositoryFactory};
-use shop_service::use_cases::GetShopHandler;
 use shopify_lambda::{
     SHOPIFY_TOPIC_PRODUCTS_CREATE, SHOPIFY_TOPIC_PRODUCTS_DELETE, SHOPIFY_TOPIC_PRODUCTS_UPDATE,
     ShopifyProductListingProcessor, ShopifyProductListingProcessorUseCase, handler,
 };
-use std::collections::HashSet;
 
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 
@@ -34,20 +24,18 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_create_product_listing_and_event_in_postgres_for_shopify_create() {
-    let shop = seed_shop(ShopPartnerStatus::Partnered).await;
+    let source = seed_source().await;
 
     let response = invoke(
         SHOPIFY_TOPIC_PRODUCTS_CREATE,
-        shop.shopify()
-            .map(|value| value.domain.as_str())
-            .unwrap_or(""),
+        source.domain.as_str(),
         100,
         5,
     )
     .await;
 
     assert!(response.batch_item_failures.is_empty());
-    let listing = listing_row(shop.id(), 100).await;
+    let listing = listing_row(source.id, 100).await;
     assert_eq!(Some("IN_STOCK"), listing.availability.as_deref());
     assert_eq!("ACTIVE", listing.lifecycle);
     assert_eq!(4_200, listing.price_amount);
@@ -61,35 +49,29 @@ async fn should_create_product_listing_and_event_in_postgres_for_shopify_create(
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_not_append_duplicate_event_for_redelivered_shopify_create() {
-    let shop = seed_shop(ShopPartnerStatus::Partnered).await;
-    let domain = shop
-        .shopify()
-        .map(|value| value.domain.as_str())
-        .unwrap_or("");
+    let source = seed_source().await;
+    let domain = source.domain.as_str();
 
     let first = invoke(SHOPIFY_TOPIC_PRODUCTS_CREATE, domain, 101, 5).await;
     let second = invoke(SHOPIFY_TOPIC_PRODUCTS_CREATE, domain, 101, 5).await;
 
     assert!(first.batch_item_failures.is_empty());
     assert!(second.batch_item_failures.is_empty());
-    let listing = listing_row(shop.id(), 101).await;
+    let listing = listing_row(source.id, 101).await;
     assert_eq!(1, listing_event_count(listing.product_listing_id).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_append_availability_event_in_postgres_for_shopify_update() {
-    let shop = seed_shop(ShopPartnerStatus::Partnered).await;
-    let domain = shop
-        .shopify()
-        .map(|value| value.domain.as_str())
-        .unwrap_or("");
+    let source = seed_source().await;
+    let domain = source.domain.as_str();
     let created = invoke(SHOPIFY_TOPIC_PRODUCTS_CREATE, domain, 102, 5).await;
     assert!(created.batch_item_failures.is_empty());
 
     let updated = invoke(SHOPIFY_TOPIC_PRODUCTS_UPDATE, domain, 102, 0).await;
 
     assert!(updated.batch_item_failures.is_empty());
-    let listing = listing_row(shop.id(), 102).await;
+    let listing = listing_row(source.id, 102).await;
     assert_eq!(Some("OUT_OF_STOCK"), listing.availability.as_deref());
     assert_eq!("ACTIVE", listing.lifecycle);
     assert_eq!(4_200, listing.price_amount);
@@ -103,18 +85,15 @@ async fn should_append_availability_event_in_postgres_for_shopify_update() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_withdraw_product_listing_and_append_event_for_shopify_delete() {
-    let shop = seed_shop(ShopPartnerStatus::Partnered).await;
-    let domain = shop
-        .shopify()
-        .map(|value| value.domain.as_str())
-        .unwrap_or("");
+    let source = seed_source().await;
+    let domain = source.domain.as_str();
     let created = invoke(SHOPIFY_TOPIC_PRODUCTS_CREATE, domain, 103, 5).await;
     assert!(created.batch_item_failures.is_empty());
 
     let deleted = invoke(SHOPIFY_TOPIC_PRODUCTS_DELETE, domain, 103, 5).await;
 
     assert!(deleted.batch_item_failures.is_empty());
-    let listing = listing_row(shop.id(), 103).await;
+    let listing = listing_row(source.id, 103).await;
     assert_eq!(None, listing.availability);
     assert_eq!("WITHDRAWN", listing.lifecycle);
     assert_eq!(2, listing_event_count(listing.product_listing_id).await);
@@ -125,31 +104,17 @@ async fn should_withdraw_product_listing_and_append_event_for_shopify_delete() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_ignore_shopify_event_for_unpartnered_shop() {
-    let shop = seed_shop(ShopPartnerStatus::Scraped).await;
-    let domain = shop
-        .shopify()
-        .map(|value| value.domain.as_str())
-        .unwrap_or("");
-
-    let response = invoke(SHOPIFY_TOPIC_PRODUCTS_CREATE, domain, 104, 5).await;
-
-    assert!(response.batch_item_failures.is_empty());
-    assert_eq!(0, listing_count(shop.id()).await);
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_ignore_shopify_event_for_missing_shop() {
+async fn should_ignore_shopify_event_for_missing_listing_source() {
     let response = invoke(
         SHOPIFY_TOPIC_PRODUCTS_CREATE,
-        "missing-shop.example",
+        "missing-source.example",
         105,
         5,
     )
     .await;
 
     assert!(response.batch_item_failures.is_empty());
-    assert_eq!(0, listing_count_for_shop_listing_id(105).await);
+    assert_eq!(0, listing_count_for_source_listing_id(105).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -157,7 +122,7 @@ async fn should_retry_malformed_sqs_body_without_persisting_product() {
     let response = invoke_event(sqs_event("malformed-sqs", Some("not-json".to_owned()))).await;
 
     assert_eq!(vec!["malformed-sqs"], failure_ids(response));
-    assert_eq!(0, listing_count_for_shop_listing_id(106).await);
+    assert_eq!(0, listing_count_for_source_listing_id(106).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -173,7 +138,7 @@ async fn should_retry_malformed_eventbridge_detail_without_persisting_product() 
     .await;
 
     assert_eq!(vec!["malformed-detail"], failure_ids(response));
-    assert_eq!(0, listing_count_for_shop_listing_id(107).await);
+    assert_eq!(0, listing_count_for_source_listing_id(107).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -186,7 +151,7 @@ async fn should_acknowledge_unsupported_topic_without_persisting_product() {
     .await;
 
     assert!(response.batch_item_failures.is_empty());
-    assert_eq!(0, listing_count_for_shop_listing_id(108).await);
+    assert_eq!(0, listing_count_for_source_listing_id(108).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -199,16 +164,13 @@ async fn should_acknowledge_invalid_shop_domain_without_persisting_product() {
     .await;
 
     assert!(response.batch_item_failures.is_empty());
-    assert_eq!(0, listing_count_for_shop_listing_id(109).await);
+    assert_eq!(0, listing_count_for_source_listing_id(109).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_acknowledge_missing_title_without_persisting_product() {
-    let shop = seed_shop(ShopPartnerStatus::Partnered).await;
-    let domain = shop
-        .shopify()
-        .map(|value| value.domain.as_str())
-        .unwrap_or("");
+    let source = seed_source().await;
+    let domain = source.domain.as_str();
     let mut payload = shopify_payload(110, 5);
     payload["title"] = serde_json::Value::Null;
 
@@ -227,16 +189,13 @@ async fn should_acknowledge_missing_title_without_persisting_product() {
     .await;
 
     assert!(response.batch_item_failures.is_empty());
-    assert_eq!(0, listing_count(shop.id()).await);
+    assert_eq!(0, listing_count(source.id).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_acknowledge_invalid_price_without_persisting_product() {
-    let shop = seed_shop(ShopPartnerStatus::Partnered).await;
-    let domain = shop
-        .shopify()
-        .map(|value| value.domain.as_str())
-        .unwrap_or("");
+    let source = seed_source().await;
+    let domain = source.domain.as_str();
     let mut payload = shopify_payload(111, 5);
     payload["variants"][0]["price"] = serde_json::json!("not-a-price");
 
@@ -255,16 +214,13 @@ async fn should_acknowledge_invalid_price_without_persisting_product() {
     .await;
 
     assert!(response.batch_item_failures.is_empty());
-    assert_eq!(0, listing_count(shop.id()).await);
+    assert_eq!(0, listing_count(source.id).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_not_append_duplicate_event_for_redelivered_shopify_update() {
-    let shop = seed_shop(ShopPartnerStatus::Partnered).await;
-    let domain = shop
-        .shopify()
-        .map(|value| value.domain.as_str())
-        .unwrap_or("");
+    let source = seed_source().await;
+    let domain = source.domain.as_str();
     assert!(
         invoke(SHOPIFY_TOPIC_PRODUCTS_CREATE, domain, 112, 5)
             .await
@@ -277,7 +233,7 @@ async fn should_not_append_duplicate_event_for_redelivered_shopify_update() {
 
     assert!(first.batch_item_failures.is_empty());
     assert!(second.batch_item_failures.is_empty());
-    let listing = listing_row(shop.id(), 112).await;
+    let listing = listing_row(source.id, 112).await;
     assert_eq!(Some("OUT_OF_STOCK"), listing.availability.as_deref());
     assert_eq!("ACTIVE", listing.lifecycle);
     assert_eq!(2, listing_event_count(listing.product_listing_id).await);
@@ -285,11 +241,8 @@ async fn should_not_append_duplicate_event_for_redelivered_shopify_update() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_not_append_duplicate_event_for_redelivered_shopify_delete() {
-    let shop = seed_shop(ShopPartnerStatus::Partnered).await;
-    let domain = shop
-        .shopify()
-        .map(|value| value.domain.as_str())
-        .unwrap_or("");
+    let source = seed_source().await;
+    let domain = source.domain.as_str();
     assert!(
         invoke(SHOPIFY_TOPIC_PRODUCTS_CREATE, domain, 113, 5)
             .await
@@ -302,7 +255,7 @@ async fn should_not_append_duplicate_event_for_redelivered_shopify_delete() {
 
     assert!(first.batch_item_failures.is_empty());
     assert!(second.batch_item_failures.is_empty());
-    let listing = listing_row(shop.id(), 113).await;
+    let listing = listing_row(source.id, 113).await;
     assert_eq!(None, listing.availability);
     assert_eq!("WITHDRAWN", listing.lifecycle);
     assert_eq!(2, listing_event_count(listing.product_listing_id).await);
@@ -310,34 +263,33 @@ async fn should_not_append_duplicate_event_for_redelivered_shopify_delete() {
 
 async fn invoke(
     topic: &str,
-    shop_domain: &str,
+    source_domain: &str,
     product_id: u64,
     inventory_quantity: i64,
 ) -> aws_lambda_events::sqs::SqsBatchResponse {
     let pool = get_postgres_client().await;
-    let unit_of_work = SqlxUnitOfWork::new(pool);
-    let processor = shopify_product_listing_processor(unit_of_work);
+    let processor = shopify_product_listing_processor(pool);
     invoke_with_processor(
-        event(topic, shop_domain, product_id, inventory_quantity),
+        event(topic, source_domain, product_id, inventory_quantity),
         &processor,
     )
     .await
 }
 
 async fn invoke_event(event: LambdaEvent<SqsEvent>) -> aws_lambda_events::sqs::SqsBatchResponse {
-    let pool = get_postgres_client().await;
-    let unit_of_work = SqlxUnitOfWork::new(pool);
-    let processor = shopify_product_listing_processor(unit_of_work);
+    let processor = shopify_product_listing_processor(get_postgres_client().await);
     invoke_with_processor(event, &processor).await
 }
 
 fn shopify_product_listing_processor(
-    unit_of_work: SqlxUnitOfWork,
+    pool: sqlx::PgPool,
 ) -> impl ShopifyProductListingProcessorUseCase {
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let sources = SqlxListingSourceReaders::new(pool);
     ShopifyProductListingProcessor::new(
-        GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
+        sources.clone(),
         IngestShopifyProductListingHandler::new(
-            GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
+            GetSystemShopifySourceHandler::new(sources),
             UpsertProductListingHandler::new(
                 unit_of_work.clone(),
                 SqlxProductListingRepositoryFactory::new(),
@@ -364,47 +316,48 @@ async fn invoke_with_processor(
     }
 }
 
-async fn seed_shop(partner_status: ShopPartnerStatus) -> Shop {
-    let domain = Domain::try_from(format!("shopify-{}.example", ShopId::new()).as_str())
-        .unwrap_or_else(|error| panic!("invalid Shopify domain: {error}"));
-    let mut shop = Shop::create(NewShop {
-        id: ShopId::new(),
-        name: ShopName::from(format!("Shopify integration {domain}").as_str()),
-        shop_type: ShopType::CommercialDealer,
-        domains: HashSet::from([domain.clone()]),
-        shopify: Some(ShopifyIntegration {
-            domain,
-            currency: Some(Currency::Usd),
-            language: Some(Language::De),
-        }),
-        woocommerce: None,
-        presentation: ShopPresentation::default(),
-        address: None,
-        contact: ShopContact::default(),
-        partner_status,
-        affiliate_configuration: None,
-    });
-    match shop.publish() {
-        Ok(_) => {}
-        Err(error) => panic!("failed publishing shop fixture: {error}"),
-    }
+struct ShopifySourceFixture {
+    id: ListingSourceId,
+    domain: Domain,
+}
 
-    let unit_of_work = SqlxUnitOfWork::new(get_postgres_client().await);
-    let mut tx = match unit_of_work.begin().await {
-        Ok(tx) => tx,
-        Err(error) => panic!("failed starting shop fixture transaction: {error}"),
-    };
-    match SqlxShopRepositoryFactory::new()
-        .in_transaction(&mut tx)
-        .insert(&shop)
+async fn seed_source() -> ShopifySourceFixture {
+    let listing_source_id = ListingSourceId::new();
+    let operator_party_id = uuid::Uuid::new_v4();
+    let domain = Domain::try_from(format!("shopify-{listing_source_id}.example").as_str())
+        .unwrap_or_else(|error| panic!("invalid Shopify domain: {error}"));
+    let pool = get_postgres_client().await;
+
+    sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
+        .bind(operator_party_id)
+        .bind(format!("operator-{operator_party_id}"))
+        .bind("Shopify operator")
+        .execute(&pool)
         .await
-    {
-        Ok(_) => {}
-        Err(error) => panic!("failed inserting shop fixture: {error}"),
-    }
-    match tx.commit().await {
-        Ok(_) => shop,
-        Err(error) => panic!("failed committing shop fixture: {error}"),
+        .unwrap_or_else(|error| panic!("failed inserting source operator: {error}"));
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)")
+        .bind(uuid::Uuid::from(listing_source_id))
+        .bind(format!("shopify-source-{listing_source_id}"))
+        .bind("Shopify source")
+        .bind(operator_party_id)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed inserting listing source: {error}"));
+    sqlx::query("INSERT INTO listing_source_acquisition_methods (listing_source_id, acquisition_method) VALUES ($1, 'SHOPIFY')")
+        .bind(uuid::Uuid::from(listing_source_id))
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed inserting Shopify acquisition method: {error}"));
+    sqlx::query("INSERT INTO listing_source_shopify_configurations (listing_source_id, domain, currency, language) VALUES ($1, $2, 'USD', 'de')")
+        .bind(uuid::Uuid::from(listing_source_id))
+        .bind(domain.as_str())
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed inserting Shopify source configuration: {error}"));
+
+    ShopifySourceFixture {
+        id: listing_source_id,
+        domain,
     }
 }
 
@@ -481,12 +434,15 @@ struct ProductListingRow {
     price_currency: String,
 }
 
-async fn listing_row(shop_id: ShopId, shop_listing_id: u64) -> ProductListingRow {
+async fn listing_row(
+    listing_source_id: ListingSourceId,
+    source_listing_id: u64,
+) -> ProductListingRow {
     match sqlx::query_as::<_, (uuid::Uuid, Option<String>, String, i64, String)>(
-        "SELECT product_listing_id, availability, lifecycle, price_amount, price_currency FROM product_listings WHERE shop_id = $1 AND shop_listing_id = $2",
+        "SELECT product_listing_id, availability, lifecycle, price_amount, price_currency FROM product_listings WHERE listing_source_id = $1 AND source_listing_id = $2",
     )
-    .bind(uuid::Uuid::from(shop_id))
-    .bind(shop_listing_id.to_string())
+    .bind(uuid::Uuid::from(listing_source_id))
+    .bind(source_listing_id.to_string())
     .fetch_one(&get_postgres_client().await)
     .await
     {
@@ -527,9 +483,9 @@ async fn current_event_type(product_listing_id: uuid::Uuid) -> String {
     }
 }
 
-async fn listing_count(shop_id: ShopId) -> i64 {
-    match sqlx::query_scalar("SELECT COUNT(*) FROM product_listings WHERE shop_id = $1")
-        .bind(uuid::Uuid::from(shop_id))
+async fn listing_count(listing_source_id: ListingSourceId) -> i64 {
+    match sqlx::query_scalar("SELECT COUNT(*) FROM product_listings WHERE listing_source_id = $1")
+        .bind(uuid::Uuid::from(listing_source_id))
         .fetch_one(&get_postgres_client().await)
         .await
     {
@@ -538,9 +494,9 @@ async fn listing_count(shop_id: ShopId) -> i64 {
     }
 }
 
-async fn listing_count_for_shop_listing_id(shop_listing_id: u64) -> i64 {
-    match sqlx::query_scalar("SELECT COUNT(*) FROM product_listings WHERE shop_listing_id = $1")
-        .bind(shop_listing_id.to_string())
+async fn listing_count_for_source_listing_id(source_listing_id: u64) -> i64 {
+    match sqlx::query_scalar("SELECT COUNT(*) FROM product_listings WHERE source_listing_id = $1")
+        .bind(source_listing_id.to_string())
         .fetch_one(&get_postgres_client().await)
         .await
     {

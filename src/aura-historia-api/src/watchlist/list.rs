@@ -172,20 +172,17 @@ mod tests {
     use axum::http::{Request, StatusCode, header};
     use domain_primitives::event_id::EventId;
     use fxrate_core::FxRateId;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use localization::Language;
     use money::Currency;
     use product_listing_core::listing_availability::ListingAvailability;
     use product_listing_core::listing_lifecycle::ListingLifecycle;
-    use product_listing_core::product_listing::{
-        ProductListingAddress, ProductListingAuction, ProductListingPricing,
-    };
+    use product_listing_core::product_listing::{ProductListingAuction, ProductListingPricing};
     use product_listing_core::product_listing_id::ProductListingId;
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-    use product_listing_core::shop_listing_id::ShopListingId;
+    use product_listing_core::source_listing_id::SourceListingId;
+    use product_listing_service::ports::ListingSourceSummary;
     use product_listing_service::user_state::ProductListingUserState;
-    use shop_core::shop_id::ShopId;
-    use shop_core::shop_name::ShopName;
-    use shop_core::shop_slug_id::ShopSlugId;
     use std::sync::{Arc, Mutex, MutexGuard};
     use time::OffsetDateTime;
     use tower::ServiceExt;
@@ -308,14 +305,12 @@ mod tests {
                 product_listing_id,
                 product_listing_slug_id: ProductListingSlugId::from("product"),
                 event_id: EventId::new(),
-                shop_id: ShopId::new(),
-                seller_id: ShopId::new(),
-                shop_listing_id: ShopListingId::from("product"),
-                shop_name: ShopName::from("Shop"),
-                seller_name: ShopName::from("Seller"),
-                shop_slug_id: ShopSlugId::from("shop"),
-                seller_slug_id: ShopSlugId::from("seller"),
-                address: ProductListingAddress::default(),
+                source: ListingSourceSummary {
+                    listing_source_id: ListingSourceId::new(),
+                    name: ListingSourceName::from("Source"),
+                    slug_id: ListingSourceSlugId::from("source"),
+                },
+                source_listing_id: SourceListingId::from("product"),
                 product_title: None,
                 product_description: None,
                 title: None,

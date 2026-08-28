@@ -689,30 +689,25 @@ mod tests {
         FxRateSnapshotRepositoryFactory,
     };
     use indexmap::IndexSet;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use localization::Language;
     use money::{Currency, MonetaryAmount, Price};
-    use product_listing_core::source_listing_id::ShopListingId;
     use product_listing_core::{
         listing_availability::ListingAvailability,
         listing_lifecycle::ListingLifecycle,
-        product_listing::{
-            ListingSaleObservation, ProductListingAddress, ProductListingAuction,
-            ProductListingPricing,
-        },
+        product_listing::{ListingSaleObservation, ProductListingAuction, ProductListingPricing},
         product_listing_image::ProductListingImage,
         product_listing_slug_id::ProductListingSlugId,
+        source_listing_id::SourceListingId,
     };
     use product_listing_service::ports::{
-        ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError,
-        ProductListingCurrentRevisionGuard, ProductListingCurrentRevisionGuardFactory,
-        ProductListingSearchFilterMatchShopType, ProductListingSearchFilterMatchSource,
+        ListingSourceSummary, ProductListingCurrentRevisionCheck,
+        ProductListingCurrentRevisionCheckError, ProductListingCurrentRevisionGuard,
+        ProductListingCurrentRevisionGuardFactory, ProductListingSearchFilterMatchSource,
         ProductListingSearchFilterMatchSourceEventKind,
     };
     use search_filter_core::user_search_filter_id::UserSearchFilterId;
     use search_filter_core::user_search_filter_name::UserSearchFilterName;
-    use shop_core::shop_id::ShopId;
-    use shop_core::shop_name::ShopName;
-    use shop_core::shop_slug_id::ShopSlugId;
     use std::sync::{Arc, Mutex};
     use strum::IntoEnumIterator;
     use tokio::sync::Notify;
@@ -1098,15 +1093,12 @@ mod tests {
             projection_version: 1,
             product_listing_id: product_listing_core::product_listing_id::ProductListingId::new(),
             product_listing_slug_id: ProductListingSlugId::from("product"),
-            shop_id: ShopId::new(),
-            shop_slug_id: ShopSlugId::from("shop"),
-            shop_name: ShopName::from("Shop"),
-            shop_type: ProductListingSearchFilterMatchShopType::Marketplace,
-            seller_id: ShopId::new(),
-            seller_slug_id: shop_core::seller_slug_id::SellerSlugId::from("seller"),
-            seller_name: ShopName::from("Seller"),
-            shop_listing_id: ShopListingId::from("product"),
-            address: ProductListingAddress::default(),
+            source: ListingSourceSummary {
+                listing_source_id: ListingSourceId::new(),
+                name: ListingSourceName::from("Source"),
+                slug_id: ListingSourceSlugId::from("source"),
+            },
+            source_listing_id: SourceListingId::from("product"),
             product_title: None,
             product_description: None,
             titles: std::collections::HashMap::new(),

@@ -1,20 +1,19 @@
 use crate::{
     product_listing_document::{
-        ProductListingDocument, SalePricesDocument, SourcePriceDocument, TextDocument, continent,
-        listing_availability, shop_type,
+        ProductListingDocument, SalePricesDocument, SourcePriceDocument, TextDocument,
+        listing_availability,
     },
     product_listing_image_document::ProductListingImageDocument,
 };
 use domain_primitives::event_id::EventId;
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
-use geo::core::continent::Continent;
 use indexmap::IndexSet;
-use isocountry::CountryCode;
+use listing_source_core::ListingSourceId;
 use localization::Language;
 use money::Currency;
 use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_id::ProductListingId,
-    product_listing_slug_id::ProductListingSlugId, source_listing_id::ShopListingId,
+    product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
 };
 use product_listing_service::ports::{
     ProductListingPercolationInput, ProductListingPricesByCurrency,
@@ -22,10 +21,7 @@ use product_listing_service::ports::{
 };
 use serde::Serialize;
 use serde_json::Value;
-use shop_core::seller_slug_id::SellerSlugId;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_slug_id::ShopSlugId;
-use shop_core::shop_type::ShopType;
+
 use time::OffsetDateTime;
 use url::Url;
 
@@ -62,32 +58,10 @@ struct ProductListingPercolationPricesDocument {
 struct ProductListingPercolationDocument {
     product_listing_id: ProductListingId,
     product_listing_slug_id: ProductListingSlugId,
-    shop_slug_id: ShopSlugId,
-    seller_slug_id: SellerSlugId,
+    #[serde(with = "crate::product_listing_document::listing_source_id")]
+    listing_source_id: ListingSourceId,
+    source_listing_id: SourceListingId,
     event_id: EventId,
-    shop_id: ShopId,
-    seller_id: ShopId,
-    shop_listing_id: ShopListingId,
-    shop_name: String,
-    seller_name: String,
-    #[serde(with = "shop_type")]
-    shop_type: ShopType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address_addressline: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address_addressline_extra: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address_locality: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address_region: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address_postal_code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address_country: Option<CountryCode>,
-    #[serde(with = "continent::option", skip_serializing_if = "Option::is_none")]
-    structured_address_continent: Option<Continent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    geo_address: Option<String>,
     title: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none")]
     title_de: Option<String>,
@@ -165,36 +139,13 @@ fn build_product_listing_percolation_document(
 ) -> ProductListingPercolationDocument {
     let product = &input.source;
     let (title, language) = selected_title(product);
-    let structured_address = product.address.structured.as_ref();
 
     ProductListingPercolationDocument {
         product_listing_id: product.product_listing_id,
         product_listing_slug_id: product.product_listing_slug_id.clone(),
-        shop_slug_id: product.shop_slug_id.clone(),
-        seller_slug_id: product.seller_slug_id.clone(),
+        listing_source_id: product.source.listing_source_id,
+        source_listing_id: product.source_listing_id.clone(),
         event_id: product.current_event_id,
-        shop_id: product.shop_id,
-        seller_id: product.seller_id,
-        shop_listing_id: product.shop_listing_id.clone(),
-        shop_name: product.shop_name.to_string(),
-        seller_name: product.seller_name.to_string(),
-        shop_type: product.shop_type,
-        structured_address_addressline: structured_address
-            .and_then(|address| address.addressline.clone()),
-        structured_address_addressline_extra: structured_address
-            .and_then(|address| address.addressline_extra.clone()),
-        structured_address_locality: structured_address
-            .and_then(|address| address.locality.clone()),
-        structured_address_region: structured_address.and_then(|address| address.region.clone()),
-        structured_address_postal_code: structured_address
-            .and_then(|address| address.postal_code.clone()),
-        structured_address_country: structured_address.and_then(|address| address.country),
-        structured_address_continent: structured_address.and_then(|address| address.continent),
-        geo_address: product
-            .address
-            .geo
-            .as_ref()
-            .map(|geo| format!("{},{}", geo.lat, geo.lon)),
         title: TextDocument::new(title, language),
         title_de: translated_title(product, Language::De),
         title_en: translated_title(product, Language::En),
@@ -253,36 +204,13 @@ pub(crate) fn product_listing_document(
     let (sale_prices, sale_observation_fx_rate_id, sale_observed_at) =
         sale_projection(product, sale_snapshot)?;
     let (title, language) = selected_title(product);
-    let structured_address = product.address.structured.as_ref();
 
     Ok(ProductListingDocument {
         product_listing_id: product.product_listing_id,
         product_listing_slug_id: product.product_listing_slug_id.clone(),
-        shop_slug_id: product.shop_slug_id.clone(),
-        seller_slug_id: product.seller_slug_id.clone(),
+        listing_source_id: product.source.listing_source_id,
+        source_listing_id: product.source_listing_id.clone(),
         event_id: product.current_event_id,
-        shop_id: product.shop_id,
-        seller_id: product.seller_id,
-        shop_listing_id: product.shop_listing_id.clone(),
-        shop_name: product.shop_name.to_string(),
-        seller_name: product.seller_name.to_string(),
-        shop_type: product.shop_type,
-        structured_address_addressline: structured_address
-            .and_then(|address| address.addressline.clone()),
-        structured_address_addressline_extra: structured_address
-            .and_then(|address| address.addressline_extra.clone()),
-        structured_address_locality: structured_address
-            .and_then(|address| address.locality.clone()),
-        structured_address_region: structured_address.and_then(|address| address.region.clone()),
-        structured_address_postal_code: structured_address
-            .and_then(|address| address.postal_code.clone()),
-        structured_address_country: structured_address.and_then(|address| address.country),
-        structured_address_continent: structured_address.and_then(|address| address.continent),
-        geo_address: product
-            .address
-            .geo
-            .as_ref()
-            .map(|geo| format!("{},{}", geo.lat, geo.lon)),
         title: TextDocument::new(title, language),
         title_de: translated_title(product, Language::De),
         title_en: translated_title(product, Language::En),
@@ -430,27 +358,25 @@ mod tests {
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use localization::Localized;
     use product_listing_core::product_listing_search::ProductListingSearch;
     use product_listing_core::{
         listing_availability::ListingAvailability,
         listing_lifecycle::ListingLifecycle,
         product_listing::{
-            ListingSaleObservation, ProductListingAddress, ProductListingAuction,
-            ProductListingPriceValuationBasis, ProductListingPricing,
+            ListingSaleObservation, ProductListingAuction, ProductListingPriceValuationBasis,
+            ProductListingPricing,
         },
         product_listing_slug_id::ProductListingSlugId,
-        source_listing_id::ShopListingId,
+        source_listing_id::SourceListingId,
         title::Title,
     };
+    use product_listing_service::ports::ListingSourceSummary;
     use product_listing_service::ports::{
         ProductListingPercolationValuation, ProductListingPriceFilterPlan,
         ProductListingPricesByCurrency, ProductListingSearchFilterMatchSourceEventKind,
     };
-    use shop_core::shop_id::ShopId;
-    use shop_core::shop_name::ShopName;
-    use shop_core::shop_slug_id::ShopSlugId;
-    use shop_core::shop_type::ShopType;
     use std::collections::HashMap;
     use strum::IntoEnumIterator;
     use url::Url;
@@ -467,15 +393,12 @@ mod tests {
             projection_version: 1,
             product_listing_id: ProductListingId::new(),
             product_listing_slug_id: ProductListingSlugId::from("blue-vase"),
-            shop_id: ShopId::new(),
-            shop_slug_id: ShopSlugId::from("shop"),
-            shop_name: ShopName::from("Shop"),
-            shop_type: ShopType::Marketplace,
-            seller_id: ShopId::new(),
-            seller_slug_id: SellerSlugId::from("seller"),
-            seller_name: ShopName::from("Seller"),
-            shop_listing_id: ShopListingId::from("sku-1"),
-            address: ProductListingAddress::default(),
+            source: ListingSourceSummary {
+                listing_source_id: ListingSourceId::new(),
+                name: ListingSourceName::from("Source"),
+                slug_id: ListingSourceSlugId::from("source"),
+            },
+            source_listing_id: SourceListingId::from("sku-1"),
             product_title: Some(Localized::new(Language::En, title.clone())),
             product_description: None,
             titles: HashMap::from([(Language::En, title)]),
@@ -614,6 +537,33 @@ mod tests {
         assert!(document.get("salePrices").is_none());
         assert!(document.get("priceEstimateMin").is_none());
         assert!(document.get("priceEstimateMax").is_none());
+        assert!(document.get("listingSourceId").is_some());
+        assert!(document.get("sourceListingId").is_some());
+        for field in [
+            "listingSourceName",
+            "listingSourceSlugId",
+            "shopSlugId",
+            "sellerSlugId",
+            "shopId",
+            "sellerId",
+            "shopListingId",
+            "shopName",
+            "sellerName",
+            "shopType",
+            "structuredAddressAddressline",
+            "structuredAddressAddresslineExtra",
+            "structuredAddressLocality",
+            "structuredAddressRegion",
+            "structuredAddressPostalCode",
+            "structuredAddressCountry",
+            "structuredAddressContinent",
+            "geoAddress",
+        ] {
+            assert!(
+                document.get(field).is_none(),
+                "retired field {field} is present"
+            );
+        }
         Ok(())
     }
 

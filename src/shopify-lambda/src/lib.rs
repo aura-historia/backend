@@ -10,16 +10,16 @@ use application::operation_context::{CorrelationId, OperationContext, Principal,
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
 use lambda_runtime::LambdaEvent;
-use product_listing_core::product_listing_id::ProductListingKey;
-use product_listing_core::source_listing_id::ShopListingId;
+use listing_source_core::Domain;
+use listing_source_service::ports::{ListingSourceReadError, ShopifySourceReader};
+use product_listing_core::{
+    product_listing_id::ProductListingKey, source_listing_id::SourceListingId,
+};
 use product_listing_service::use_cases::{
     IngestShopifyProductListingError, IngestShopifyProductListingUseCase,
     WithdrawProductListingError, WithdrawProductListingUseCase,
 };
 use serde_json::Value;
-use shop_core::domain::Domain;
-use shop_core::partner_status::ShopPartnerStatus;
-use shop_service::use_cases::{GetShopError, GetShopRequest, GetShopUseCase};
 use tracing::{info, warn};
 
 pub const SHOPIFY_TOPIC_PRODUCTS_CREATE: &str = "products/create";
@@ -38,8 +38,8 @@ pub enum ShopifyProductListingProcessingError {
     InvalidPayload(#[source] ShopifyProductEventError),
     #[error("Shopify product ingestion failed")]
     Ingestion(#[source] IngestShopifyProductListingError),
-    #[error("Shop lookup failed")]
-    ShopLookup(#[source] GetShopError),
+    #[error("Listing source lookup failed")]
+    ListingSourceLookup(#[source] ListingSourceReadError),
     #[error("Shopify product listing withdrawal failed")]
     Withdrawal(#[source] WithdrawProductListingError),
 }
@@ -56,15 +56,15 @@ pub trait ShopifyProductListingProcessorUseCase: Send + Sync {
 }
 
 pub struct ShopifyProductListingProcessor<S, I, W> {
-    shops: S,
+    sources: S,
     ingestion: I,
     withdrawal: W,
 }
 
 impl<S, I, W> ShopifyProductListingProcessor<S, I, W> {
-    pub fn new(shops: S, ingestion: I, withdrawal: W) -> Self {
+    pub fn new(sources: S, ingestion: I, withdrawal: W) -> Self {
         Self {
-            shops,
+            sources,
             ingestion,
             withdrawal,
         }
@@ -74,7 +74,7 @@ impl<S, I, W> ShopifyProductListingProcessor<S, I, W> {
 #[async_trait::async_trait]
 impl<S, I, W> ShopifyProductListingProcessorUseCase for ShopifyProductListingProcessor<S, I, W>
 where
-    S: GetShopUseCase,
+    S: ShopifySourceReader,
     I: IngestShopifyProductListingUseCase,
     W: WithdrawProductListingUseCase,
 {
@@ -82,12 +82,12 @@ where
         &self,
         context: &OperationContext,
         kind: ShopifyProductEventKind,
-        shop_domain: Domain,
+        source_domain: Domain,
         payload: ShopifyProductPayload,
     ) -> Result<(), ShopifyProductListingProcessingError> {
-        let shop_listing_id = ShopListingId::from(payload.id.to_string());
+        let source_listing_id = SourceListingId::from(payload.id.to_string());
         match kind
-            .listing_action(shop_domain.clone(), payload)
+            .listing_action(source_domain.clone(), payload)
             .map_err(ShopifyProductListingProcessingError::InvalidPayload)?
         {
             ShopifyListingAction::Ingest(command) => self
@@ -98,18 +98,15 @@ where
                 .map_err(ShopifyProductListingProcessingError::Ingestion),
             ShopifyListingAction::Ignore => Ok(()),
             ShopifyListingAction::Withdraw => {
-                let shop = match self
-                    .shops
-                    .execute(context, GetShopRequest::ByShopifyDomain(shop_domain))
+                let Some(source) = self
+                    .sources
+                    .find_by_domain(&source_domain)
                     .await
-                {
-                    Ok(shop) if shop.partner_status == ShopPartnerStatus::Partnered => shop,
-                    Ok(_) | Err(GetShopError::NotFound) => return Ok(()),
-                    Err(error) => {
-                        return Err(ShopifyProductListingProcessingError::ShopLookup(error));
-                    }
+                    .map_err(ShopifyProductListingProcessingError::ListingSourceLookup)?
+                else {
+                    return Ok(());
                 };
-                let key = ProductListingKey::new(shop.shop_id, shop_listing_id);
+                let key = ProductListingKey::new(source.listing_source_id, source_listing_id);
                 match self.withdrawal.execute_by_key(context, key).await {
                     Ok(_) | Err(WithdrawProductListingError::NotFound) => Ok(()),
                     Err(error) => Err(ShopifyProductListingProcessingError::Withdrawal(error)),
@@ -189,7 +186,7 @@ fn should_retry(error: &ShopifyProductListingProcessingError) -> bool {
                 | IngestShopifyProductListingError::InvalidPrice
                 | IngestShopifyProductListingError::InvalidProductListingUrl
         ),
-        ShopifyProductListingProcessingError::ShopLookup(_)
+        ShopifyProductListingProcessingError::ListingSourceLookup(_)
         | ShopifyProductListingProcessingError::Withdrawal(_) => true,
     }
 }
@@ -312,12 +309,12 @@ mod tests {
         ));
         assert!(should_retry(
             &ShopifyProductListingProcessingError::Ingestion(
-                IngestShopifyProductListingError::MissingShopCurrency
+                IngestShopifyProductListingError::MissingListingSourceCurrency
             )
         ));
         assert!(should_retry(
             &ShopifyProductListingProcessingError::Ingestion(
-                IngestShopifyProductListingError::ShopLookupInternal
+                IngestShopifyProductListingError::ListingSourceLookupTemporarilyUnavailable
             )
         ));
     }
@@ -423,7 +420,7 @@ mod tests {
             match self.result {
                 FakeResult::Success => Ok(()),
                 FakeResult::Failure => Err(ShopifyProductListingProcessingError::Ingestion(
-                    IngestShopifyProductListingError::ShopLookupInternal,
+                    IngestShopifyProductListingError::ListingSourceLookupTemporarilyUnavailable,
                 )),
             }
         }

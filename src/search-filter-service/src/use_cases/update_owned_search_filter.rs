@@ -17,8 +17,7 @@ use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
 use embedding::{EmbeddingError, EmbeddingGenerator};
-use geo::core::{continent::Continent, distance::GeoDistanceQuery};
-use isocountry::CountryCode;
+use listing_source_core::ListingSourceId;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
 use product_listing_core::product_listing_search::{
@@ -27,8 +26,6 @@ use product_listing_core::product_listing_search::{
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
-use shop_core::shop_type::ShopType;
-use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
 use user_service::ports::{
@@ -41,18 +38,8 @@ pub struct ProductListingSearchPatch {
     pub currency: PatchField<Currency>,
     pub product_listing_query: PatchField<Vec<TextQuery<1>>>,
     pub enhanced_search_description: PatchField<EnhancedSearchDescription>,
-    pub shop_name_query: PatchField<AnyOfQuery<ShopName>>,
-    pub exclude_shop_name_query: PatchField<AnyOfQuery<ShopName>>,
-    pub seller_name_query: PatchField<AnyOfQuery<ShopName>>,
-    pub exclude_seller_name_query: PatchField<AnyOfQuery<ShopName>>,
-    pub shop_slug_id_query: PatchField<AnyOfQuery<ShopSlugId>>,
-    pub exclude_shop_slug_id_query: PatchField<AnyOfQuery<ShopSlugId>>,
-    pub seller_slug_id_query: PatchField<AnyOfQuery<SellerSlugId>>,
-    pub exclude_seller_slug_id_query: PatchField<AnyOfQuery<SellerSlugId>>,
-    pub shop_type_query: PatchField<AnyOfQuery<ShopType>>,
-    pub country_query: PatchField<AnyOfQuery<CountryCode>>,
-    pub continent_query: PatchField<AnyOfQuery<Continent>>,
-    pub geo_address_distance_query: PatchField<GeoDistanceQuery>,
+    pub listing_source_id_query: PatchField<AnyOfQuery<ListingSourceId>>,
+    pub exclude_listing_source_id_query: PatchField<AnyOfQuery<ListingSourceId>>,
     pub price_query: PatchField<RangeQuery<MonetaryAmount>>,
     pub availability_query: PatchField<ListingAvailabilityQuery>,
     pub created_query: PatchField<RangeQuery<OffsetDateTime>>,
@@ -357,35 +344,13 @@ fn apply_product_search_patch(
         &patch.enhanced_search_description,
         &mut search.enhanced_search_description,
     );
-    changed |= apply_default_patch(&patch.shop_name_query, &mut search.shop_name_query);
     changed |= apply_default_patch(
-        &patch.exclude_shop_name_query,
-        &mut search.exclude_shop_name_query,
-    );
-    changed |= apply_default_patch(&patch.seller_name_query, &mut search.seller_name_query);
-    changed |= apply_default_patch(
-        &patch.exclude_seller_name_query,
-        &mut search.exclude_seller_name_query,
-    );
-    changed |= apply_default_patch(&patch.shop_slug_id_query, &mut search.shop_slug_id_query);
-    changed |= apply_default_patch(
-        &patch.exclude_shop_slug_id_query,
-        &mut search.exclude_shop_slug_id_query,
+        &patch.listing_source_id_query,
+        &mut search.listing_source_id_query,
     );
     changed |= apply_default_patch(
-        &patch.seller_slug_id_query,
-        &mut search.seller_slug_id_query,
-    );
-    changed |= apply_default_patch(
-        &patch.exclude_seller_slug_id_query,
-        &mut search.exclude_seller_slug_id_query,
-    );
-    changed |= apply_default_patch(&patch.shop_type_query, &mut search.shop_type_query);
-    changed |= apply_default_patch(&patch.country_query, &mut search.country_query);
-    changed |= apply_default_patch(&patch.continent_query, &mut search.continent_query);
-    changed |= apply_optional_patch(
-        &patch.geo_address_distance_query,
-        &mut search.geo_address_distance_query,
+        &patch.exclude_listing_source_id_query,
+        &mut search.exclude_listing_source_id_query,
     );
     changed |= apply_optional_patch(&patch.price_query, &mut search.price_query);
     changed |= apply_optional_patch(&patch.availability_query, &mut search.availability_query);
@@ -572,6 +537,42 @@ mod tests {
         };
         assert!(apply_product_search_patch(&mut search, &clear)?);
         assert_eq!(None, search.availability_query);
+        Ok(())
+    }
+
+    #[test]
+    fn should_apply_and_clear_listing_source_id_queries() -> Result<(), UpdateOwnedSearchFilterError>
+    {
+        use std::collections::HashSet;
+
+        let listing_source_id = ListingSourceId::new();
+        let excluded_listing_source_id = ListingSourceId::new();
+        let mut search = ProductListingSearch::new(Language::En, Currency::Eur);
+        let patch = ProductListingSearchPatch {
+            listing_source_id_query: PatchField::Set(HashSet::from([listing_source_id]).into()),
+            exclude_listing_source_id_query: PatchField::Set(
+                HashSet::from([excluded_listing_source_id]).into(),
+            ),
+            ..Default::default()
+        };
+
+        assert!(apply_product_search_patch(&mut search, &patch)?);
+        assert!(search.listing_source_id_query.contains(&listing_source_id));
+        assert!(
+            search
+                .exclude_listing_source_id_query
+                .contains(&excluded_listing_source_id)
+        );
+
+        let clear = ProductListingSearchPatch {
+            listing_source_id_query: PatchField::Clear,
+            exclude_listing_source_id_query: PatchField::Clear,
+            ..Default::default()
+        };
+
+        assert!(apply_product_search_patch(&mut search, &clear)?);
+        assert!(search.listing_source_id_query.is_empty());
+        assert!(search.exclude_listing_source_id_query.is_empty());
         Ok(())
     }
 

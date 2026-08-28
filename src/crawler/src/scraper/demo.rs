@@ -68,7 +68,7 @@ use localization::{Language, Localized};
 use money::Price;
 use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_image::ProductListingImage,
-    shop_listing_id::ShopListingId,
+    source_listing_id::SourceListingId as ShopListingId,
 };
 
 use sqlx::PgPool;

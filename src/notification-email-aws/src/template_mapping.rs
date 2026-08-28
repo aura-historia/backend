@@ -254,8 +254,8 @@ pub(crate) fn template_data(
             snapshot, change, ..
         } => {
             let mut data = product_template_data(
-                snapshot.shop_name.to_string(),
-                snapshot.shop_slug_id.to_string(),
+                snapshot.listing_source_name.to_string(),
+                snapshot.listing_source_slug_id.to_string(),
                 snapshot.product_listing_slug_id.to_string(),
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
@@ -292,8 +292,8 @@ pub(crate) fn template_data(
             ..
         } => {
             let mut data = product_template_data(
-                snapshot.shop_name.to_string(),
-                snapshot.shop_slug_id.to_string(),
+                snapshot.listing_source_name.to_string(),
+                snapshot.listing_source_slug_id.to_string(),
                 snapshot.product_listing_slug_id.to_string(),
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
@@ -339,14 +339,14 @@ fn add_recipient_data(mut data: Value, first_name: Option<&str>) -> Value {
     data
 }
 fn product_template_data(
-    shop_name: String,
-    shop_slug_id: String,
+    listing_source_name: String,
+    listing_source_slug_id: String,
     product_listing_slug_id: String,
     title: Option<String>,
     image_url: Option<String>,
     view_url: String,
 ) -> Value {
-    json!({ "shop_name": shop_name, "shop_slug_id": shop_slug_id, "product_listing_slug_id": product_listing_slug_id, "title": title, "image_url": image_url, "view_url": view_url })
+    json!({ "shop_name": listing_source_name, "shop_slug_id": listing_source_slug_id, "product_listing_slug_id": product_listing_slug_id, "title": title, "image_url": image_url, "view_url": view_url })
 }
 fn price_text(price: Option<Price>) -> Option<String> {
     price.map(|price| price.format_human_readable())
@@ -438,6 +438,7 @@ fn availability_text(availability: ListingAvailability, language: Language) -> &
 mod tests {
     use super::*;
     use domain_primitives::event_id::EventId;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use localization::Language;
     use money::{Currency, MonetaryAmount, Price};
     use notification_core::notification_id::NotificationId;
@@ -457,10 +458,9 @@ mod tests {
         listing_availability::ListingAvailability,
         product_listing_id::ProductListingId,
         product_listing_slug_id::ProductListingSlugId,
-        source_listing_id::ShopListingId,
+        source_listing_id::SourceListingId,
     };
     use rstest::rstest;
-    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
     use std::collections::HashMap;
     use url::Url;
     use user_core::user_id::UserId;
@@ -751,11 +751,11 @@ mod tests {
                 origin_event_id: EventId::new(),
                 product_listing_id: ProductListingId::new(),
                 snapshot: ProductListingNotificationSnapshot {
-                    shop_id: ShopId::new(),
-                    shop_listing_id: ShopListingId::from("shop-product"),
-                    shop_slug_id: ShopSlugId::from("shop"),
+                    listing_source_id: ListingSourceId::new(),
+                    source_listing_id: SourceListingId::from("source-product"),
+                    listing_source_slug_id: ListingSourceSlugId::from("test-source"),
                     product_listing_slug_id: ProductListingSlugId::from("product"),
-                    shop_name: ShopName::from("Test Shop"),
+                    listing_source_name: ListingSourceName::from("Test Listing Source"),
                     title: None,
                     image: Some(Url::parse("https://shop.example/image.jpg")?),
                     content_policy,

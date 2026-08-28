@@ -28,6 +28,8 @@ platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
 isocountry = { workspace = true }
 jsonwebtokens = { workspace = true }
+listing-source-core = { workspace = true }
+listing-source-postgres = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 notification-core = { workspace = true }

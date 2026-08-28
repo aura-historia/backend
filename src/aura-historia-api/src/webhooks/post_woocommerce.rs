@@ -7,11 +7,11 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use base64::Engine;
 use indexmap::IndexSet;
+use listing_source_core::ListingSourceId;
 use product_listing_service::use_cases::{
     IngestWoocommerceProductListingCommand, WoocommerceProductEventKind,
 };
 use serde::Deserialize;
-use shop_core::shop_id::ShopId;
 use url::Url;
 
 const TOPIC_HEADER: &str = "x-wc-webhook-topic";
@@ -49,15 +49,16 @@ pub async fn post_woocommerce(
     Path(raw_shop_id): Path<String>,
     body: Bytes,
 ) -> Response {
-    let shop_id = match ShopId::try_from(raw_shop_id.as_str()) {
-        Ok(value) => value,
-        Err(_) => {
-            return ApiError::bad_request(INVALID_UUID)
-                .with_path_field("shopId")
-                .with_detail("Path parameter 'shopId' must be a UUID.")
-                .into_response();
-        }
-    };
+    let listing_source_id =
+        match uuid::Uuid::parse_str(raw_shop_id.as_str()).map(ListingSourceId::from) {
+            Ok(value) => value,
+            Err(_) => {
+                return ApiError::bad_request(INVALID_UUID)
+                    .with_path_field("shopId")
+                    .with_detail("Path parameter 'shopId' must be a UUID.")
+                    .into_response();
+            }
+        };
     if body.is_empty() {
         return ApiError::bad_request(BAD_BODY_VALUE)
             .with_detail("Body cannot be empty.")
@@ -88,11 +89,11 @@ pub async fn post_woocommerce(
         .execute(
             &context,
             IngestWoocommerceProductListingCommand {
-                shop_id,
+                listing_source_id,
                 kind,
                 signature,
                 raw_body: body.to_vec(),
-                shop_listing_id: product_listing_core::shop_listing_id::ShopListingId::from(
+                source_listing_id: product_listing_core::source_listing_id::SourceListingId::from(
                     payload.id.to_string(),
                 ),
                 title: payload.name,

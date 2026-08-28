@@ -1,6 +1,6 @@
 use super::{error::NormalizationError, language::detect_language};
 use localization::{Language, Localized};
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::SourceListingId as ShopListingId;
 use product_listing_core::{description::Description, title::Title};
 use sha2::{Digest, Sha256};
 use url::Url;

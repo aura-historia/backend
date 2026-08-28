@@ -38,7 +38,7 @@ use crate::spider::classification::url_metadata::UrlPresence;
 use localization::Language;
 use localization::Localized;
 use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::SourceListingId as ShopListingId;
 use product_listing_core::title::Title;
 use std::sync::Arc;
 use time::OffsetDateTime;

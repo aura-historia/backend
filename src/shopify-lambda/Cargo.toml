@@ -11,14 +11,15 @@ platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
 indexmap = { workspace = true }
 lambda_runtime = { workspace = true }
+listing-source-core = { workspace = true }
+listing-source-postgres = { workspace = true }
+listing-source-service = { workspace = true }
 product-listing-core = { workspace = true }
 product-listing-postgres = { workspace = true }
 product-listing-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-shop-core = { workspace = true }
-shop-postgres = { workspace = true }
-shop-service = { workspace = true }
+
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 tracing = { workspace = true }

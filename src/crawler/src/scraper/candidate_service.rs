@@ -757,7 +757,8 @@ mod tests {
     use crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping;
     use localization::{Language, Localized};
     use product_listing_core::{
-        listing_availability::ListingAvailability, shop_listing_id::ShopListingId, title::Title,
+        listing_availability::ListingAvailability,
+        source_listing_id::SourceListingId as ShopListingId, title::Title,
     };
 
     fn base_url() -> Url {

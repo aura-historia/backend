@@ -473,19 +473,19 @@ async fn partner_auth(scopes: HashSet<Scope>) -> Result<PartnerAuth, Infallible>
     })
 }
 
-async fn create_product(auth: &PartnerAuth, shop_listing_id: &str) -> TestResult {
-    create_products(auth, &[shop_listing_id]).await
+async fn create_product(auth: &PartnerAuth, source_listing_id: &str) -> TestResult {
+    create_products(auth, &[source_listing_id]).await
 }
 
-async fn create_products(auth: &PartnerAuth, shop_listing_ids: &[&str]) -> TestResult {
+async fn create_products(auth: &PartnerAuth, source_listing_ids: &[&str]) -> TestResult {
     let response = send_json(
         reqwest::Method::POST,
         products_path(&auth.shop_id),
         Some(&auth.token),
         &Value::Array(
-            shop_listing_ids
+            source_listing_ids
                 .iter()
-                .map(|shop_listing_id| product(shop_listing_id))
+                .map(|source_listing_id| product(source_listing_id))
                 .collect(),
         ),
     )
@@ -527,32 +527,32 @@ fn products_path(shop_id: &str) -> String {
     format!("/api/v1/shops/{shop_id}/product-listings")
 }
 
-fn product(shop_listing_id: &str) -> Value {
+fn product(source_listing_id: &str) -> Value {
     json!({
-        "shopListingId": shop_listing_id,
+        "sourceListingId": source_listing_id,
         "title": { "text": "Synchronous Cabinet", "language": "en" },
         "description": { "text": "Created in the request transaction.", "language": "en" },
         "availability": "AVAILABLE",
-        "url": format!("https://partner.example/product-listings/{shop_listing_id}"),
+        "url": format!("https://partner.example/product-listings/{source_listing_id}"),
         "images": []
     })
 }
 
-fn patch_product(shop_listing_id: &str, availability: &str) -> Value {
+fn patch_product(source_listing_id: &str, availability: &str) -> Value {
     json!({
-        "shopListingId": shop_listing_id,
+        "sourceListingId": source_listing_id,
         "availability": availability
     })
 }
 
-fn delete_product(shop_listing_id: &str) -> Value {
-    json!({ "shopListingId": shop_listing_id })
+fn delete_product(source_listing_id: &str) -> Value {
+    json!({ "sourceListingId": source_listing_id })
 }
 
-fn failure(shop_id: &str, shop_listing_id: &str, error: &str) -> Value {
+fn failure(shop_id: &str, source_listing_id: &str, error: &str) -> Value {
     json!({
-        "shopId": shop_id,
-        "shopListingId": shop_listing_id,
+        "listingSourceId": shop_id,
+        "sourceListingId": source_listing_id,
         "error": error
     })
 }

@@ -8,12 +8,12 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
+use listing_source_core::ListingSourceSlugId;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_service::use_cases::{
     GetProductListingEventsRequest, ProductListingEventLookup,
 };
-use shop_core::shop_slug_id::ShopSlugId;
 
 const HISTORY_CACHE_CONTROL: &str = "public, max-age=180, s-maxage=900";
 
@@ -44,7 +44,7 @@ pub async fn get_product_listing_events_by_slug(
     headers: HeaderMap,
     Path((raw_shop_slug_id, raw_product_listing_slug_id)): Path<(String, String)>,
 ) -> Response {
-    let shop_slug_id = match ShopSlugId::raw(&raw_shop_slug_id) {
+    let listing_source_slug_id = match ListingSourceSlugId::raw(&raw_shop_slug_id) {
         Ok(value) => value,
         Err(_) => {
             return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
@@ -66,7 +66,7 @@ pub async fn get_product_listing_events_by_slug(
         state,
         headers,
         ProductListingEventLookup::BySlug {
-            shop_slug_id,
+            listing_source_slug_id,
             product_listing_slug_id,
         },
     )

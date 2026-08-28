@@ -1,7 +1,11 @@
 use crate::ports::{
-    ProductListingUserStateLookup, ProductListingUserStateReadError, ProductListingUserStateReader,
+    ListingSourceSummaryReadError, ListingSourceSummaryReader, ProductListingUserStateLookup,
+    ProductListingUserStateReadError, ProductListingUserStateReader,
 };
-use crate::use_cases::queries::search_product_listings::PersonalizedProductListingSearchItem;
+use crate::use_cases::queries::search_product_listings::{
+    PersonalizedProductListingSearchItem, ProductListingSearchItem,
+    ProductListingSearchItemWithSource,
+};
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
 use localization::{Language, Localized};
@@ -16,12 +20,25 @@ use user_core::user_id::UserId;
 
 use product_listing_core::title::Title;
 
+use indexmap::IndexSet;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ProductListingSummaryPersonalizationError {
+    #[error("listing source summary query failed")]
+    ListingSourceSummaryQueryFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("listing source summary read model is invalid")]
+    ListingSourceSummaryReadModelInvalid {
+        #[source]
+        source: BoxError,
+    },
+    #[error("listing source summary is missing for listing source {listing_source_id}")]
+    ListingSourceSummaryMissing { listing_source_id: ListingSourceId },
     #[error("product user state query failed")]
     UserStateQueryFailed {
         #[source]
@@ -44,6 +61,41 @@ pub(crate) enum ProductListingSummaryPersonalizationError {
     },
 }
 
+pub(crate) async fn hydrate_listing_source_summaries<L>(
+    products: Vec<ProductListingSearchItem>,
+    listing_sources: &L,
+) -> Result<Vec<ProductListingSearchItemWithSource>, ProductListingSummaryPersonalizationError>
+where
+    L: ListingSourceSummaryReader,
+{
+    if products.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let listing_source_ids = products
+        .iter()
+        .map(|product| product.listing_source_id)
+        .collect::<IndexSet<_>>();
+    let listing_source_ids = listing_source_ids.into_iter().collect::<Vec<_>>();
+    let summaries = listing_sources
+        .find_summaries(&listing_source_ids)
+        .await
+        .map_err(ProductListingSummaryPersonalizationError::from)?;
+
+    products
+        .into_iter()
+        .map(|item| {
+            let listing_source_id = item.listing_source_id;
+            let source = summaries.get(&listing_source_id).cloned().ok_or(
+                ProductListingSummaryPersonalizationError::ListingSourceSummaryMissing {
+                    listing_source_id,
+                },
+            )?;
+            Ok(ProductListingSearchItemWithSource { item, source })
+        })
+        .collect()
+}
+
 pub(crate) async fn hydrate_product_search_items<U>(
     products: &mut [PersonalizedProductListingSearchItem],
     user_id: UserId,
@@ -60,7 +112,7 @@ where
         user_id,
         product_listing_ids: products
             .iter()
-            .map(|product| product.item.product_listing_id)
+            .map(|product| product.item.item.product_listing_id)
             .collect::<HashSet<_>>()
             .into_iter()
             .collect(),
@@ -72,11 +124,11 @@ where
 
     for product in products {
         let user_state = user_states
-            .get(&product.item.product_listing_id)
+            .get(&product.item.item.product_listing_id)
             .cloned()
             .ok_or(
                 ProductListingSummaryPersonalizationError::UserStateMissing {
-                    product_listing_id: product.item.product_listing_id,
+                    product_listing_id: product.item.item.product_listing_id,
                 },
             )?;
 
@@ -91,10 +143,11 @@ where
 }
 
 fn redact_hidden_product_search_item(
-    product: &mut crate::use_cases::queries::search_product_listings::ProductListingSearchItem,
+    product: &mut ProductListingSearchItemWithSource,
 ) -> Result<(), ProductListingSummaryPersonalizationError> {
     let nil = uuid::Uuid::nil();
     let language = product
+        .item
         .title
         .as_ref()
         .map(|title| title.localization)
@@ -105,23 +158,24 @@ fn redact_hidden_product_search_item(
         }
     })?;
 
-    product.product_listing_id = ProductListingId::from(nil);
-    product.product_listing_slug_id = ProductListingSlugId::from("Hidden");
-    product.event_id = EventId::from(nil);
+    product.item.product_listing_id = ProductListingId::from(nil);
+    product.item.product_listing_slug_id = ProductListingSlugId::from("Hidden");
+    product.item.event_id = EventId::from(nil);
+    product.item.listing_source_id = ListingSourceId::from(nil);
     product.source = ListingSourceSummary {
         listing_source_id: ListingSourceId::from(nil),
         name: ListingSourceName::from("Hidden"),
         slug_id: ListingSourceSlugId::from("hidden"),
     };
-    product.source_listing_id = SourceListingId::from(nil.to_string());
-    product.title = Some(Localized::new(language, hidden_title(language)));
-    product.display_price = None;
-    product.availability = None;
-    product.lifecycle = ListingLifecycle::Active;
-    product.url = hidden_url.clone();
-    product.view_url = hidden_url;
-    product.images.clear();
-    product.updated = OffsetDateTime::UNIX_EPOCH;
+    product.item.source_listing_id = SourceListingId::from(nil.to_string());
+    product.item.title = Some(Localized::new(language, hidden_title(language)));
+    product.item.display_price = None;
+    product.item.availability = None;
+    product.item.lifecycle = ListingLifecycle::Active;
+    product.item.url = hidden_url.clone();
+    product.item.view_url = hidden_url;
+    product.item.images.clear();
+    product.item.updated = OffsetDateTime::UNIX_EPOCH;
 
     Ok(())
 }
@@ -137,6 +191,19 @@ fn hidden_title(language: Language) -> Title {
     }
 }
 
+impl From<ListingSourceSummaryReadError> for ProductListingSummaryPersonalizationError {
+    fn from(error: ListingSourceSummaryReadError) -> Self {
+        match error {
+            ListingSourceSummaryReadError::QueryFailed { source } => {
+                Self::ListingSourceSummaryQueryFailed { source }
+            }
+            ListingSourceSummaryReadError::InvalidReadModel { source } => {
+                Self::ListingSourceSummaryReadModelInvalid { source }
+            }
+        }
+    }
+}
+
 impl From<ProductListingUserStateReadError> for ProductListingSummaryPersonalizationError {
     fn from(error: ProductListingUserStateReadError) -> Self {
         match error {
@@ -147,5 +214,132 @@ impl From<ProductListingUserStateReadError> for ProductListingSummaryPersonaliza
                 Self::UserStateReadModelInvalid { source }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::use_cases::queries::search_product_listings::ProductListingSummaryPriceValuation;
+    use indexmap::IndexSet;
+    use money::{Currency, MonetaryAmount, Price};
+    use product_listing_core::{
+        listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
+        product_listing_image::ProductListingImage,
+    };
+    use std::{collections::HashMap, sync::Mutex};
+
+    struct RecordingListingSourceSummaryReader {
+        summaries: HashMap<ListingSourceId, ListingSourceSummary>,
+        requests: Mutex<Vec<Vec<ListingSourceId>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ListingSourceSummaryReader for RecordingListingSourceSummaryReader {
+        async fn find_summaries(
+            &self,
+            listing_source_ids: &[ListingSourceId],
+        ) -> Result<HashMap<ListingSourceId, ListingSourceSummary>, ListingSourceSummaryReadError>
+        {
+            match self.requests.lock() {
+                Ok(mut requests) => requests.push(listing_source_ids.to_vec()),
+                Err(poisoned) => poisoned.into_inner().push(listing_source_ids.to_vec()),
+            }
+            Ok(self.summaries.clone())
+        }
+    }
+
+    fn search_item(listing_source_id: ListingSourceId) -> ProductListingSearchItem {
+        ProductListingSearchItem {
+            product_listing_id: ProductListingId::new(),
+            product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+            event_id: EventId::new(),
+            listing_source_id,
+            source_listing_id: SourceListingId::from("cabinet-1"),
+            title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
+            display_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+            price_valuation: ProductListingSummaryPriceValuation::Current {
+                fx_rate_id: fxrate_core::FxRateId::new(),
+                captured_at: OffsetDateTime::UNIX_EPOCH,
+            },
+            availability: Some(ListingAvailability::Available),
+            lifecycle: ListingLifecycle::Active,
+            url: Url::parse("https://source.example/cabinet")
+                .unwrap_or_else(|error| panic!("valid source URL: {error}")),
+            view_url: Url::parse("https://aura.example/cabinet")
+                .unwrap_or_else(|error| panic!("valid view URL: {error}")),
+            images: IndexSet::<ProductListingImage>::new(),
+            updated: OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    #[tokio::test]
+    async fn should_hydrate_unique_listing_sources_once_and_preserve_search_order() {
+        let source_one = ListingSourceId::new();
+        let source_two = ListingSourceId::new();
+        let expected_order = [source_one, source_two, source_one];
+        let reader = RecordingListingSourceSummaryReader {
+            summaries: HashMap::from([
+                (
+                    source_one,
+                    ListingSourceSummary {
+                        listing_source_id: source_one,
+                        name: ListingSourceName::from("One"),
+                        slug_id: ListingSourceSlugId::from("one"),
+                    },
+                ),
+                (
+                    source_two,
+                    ListingSourceSummary {
+                        listing_source_id: source_two,
+                        name: ListingSourceName::from("Two"),
+                        slug_id: ListingSourceSlugId::from("two"),
+                    },
+                ),
+            ]),
+            requests: Mutex::new(Vec::new()),
+        };
+
+        let products = hydrate_listing_source_summaries(
+            expected_order.into_iter().map(search_item).collect(),
+            &reader,
+        )
+        .await;
+
+        let products = match products {
+            Ok(products) => products,
+            Err(error) => panic!("source hydration must succeed: {error}"),
+        };
+        assert_eq!(
+            vec![source_one, source_two, source_one],
+            products
+                .iter()
+                .map(|product| product.source.listing_source_id)
+                .collect::<Vec<_>>()
+        );
+        let requests = match reader.requests.lock() {
+            Ok(requests) => requests,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        assert_eq!(vec![vec![source_one, source_two]], *requests);
+    }
+
+    #[tokio::test]
+    async fn should_fail_when_a_search_listing_source_summary_is_missing() {
+        let listing_source_id = ListingSourceId::new();
+        let reader = RecordingListingSourceSummaryReader {
+            summaries: HashMap::new(),
+            requests: Mutex::new(Vec::new()),
+        };
+
+        let result =
+            hydrate_listing_source_summaries(vec![search_item(listing_source_id)], &reader).await;
+
+        assert!(matches!(
+            result,
+            Err(ProductListingSummaryPersonalizationError::ListingSourceSummaryMissing {
+                listing_source_id: missing,
+            }) if missing == listing_source_id
+        ));
     }
 }

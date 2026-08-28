@@ -8,7 +8,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 
 pub async fn create_products(
     State(state): State<PartnerProductListingsState>,
@@ -16,8 +16,8 @@ pub async fn create_products(
     Path(raw_shop_id): Path<String>,
     body: String,
 ) -> Response {
-    let shop_id = match parse_shop_id(&raw_shop_id) {
-        Ok(shop_id) => shop_id,
+    let listing_source_id = match parse_listing_source_id(&raw_shop_id) {
+        Ok(listing_source_id) => listing_source_id,
         Err(error) => return error.into_response(),
     };
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
@@ -33,10 +33,10 @@ pub async fn create_products(
     let mut first_error = None;
     let mut successes = 0;
     for product in products {
-        let shop_listing_id = product.shop_listing_id.clone();
+        let source_listing_id = product.source_listing_id.clone();
         match state
             .create
-            .execute(&context, product.into_command(shop_id))
+            .execute(&context, product.into_command(listing_source_id))
             .await
         {
             Ok(_) => successes += 1,
@@ -45,8 +45,8 @@ pub async fn create_products(
                 let error_code = error.code();
                 first_error.get_or_insert(error);
                 failures.push(PartnerProductFailureData::new(
-                    shop_id,
-                    shop_listing_id,
+                    listing_source_id,
+                    source_listing_id,
                     error_code,
                 ));
             }
@@ -62,12 +62,14 @@ pub async fn create_products(
     (StatusCode::OK, Json(failures)).into_response()
 }
 
-fn parse_shop_id(value: &str) -> Result<ShopId, ApiError> {
-    ShopId::try_from(value).map_err(|_| {
-        ApiError::bad_request(INVALID_UUID)
-            .with_path_field("shopId")
-            .with_detail("Path parameter 'shopId' must be a UUID.")
-    })
+fn parse_listing_source_id(value: &str) -> Result<ListingSourceId, ApiError> {
+    uuid::Uuid::parse_str(value)
+        .map(ListingSourceId::from)
+        .map_err(|_| {
+            ApiError::bad_request(INVALID_UUID)
+                .with_path_field("listingSourceId")
+                .with_detail("Path parameter 'shopId' must be a UUID.")
+        })
 }
 
 #[cfg(test)]
@@ -148,7 +150,7 @@ mod tests {
             .times(2)
             .returning(|_, _| Ok(created()));
         let app = app(create);
-        let shop_id = ShopId::new();
+        let shop_id = ListingSourceId::new();
 
         let response = request(
             &app,
@@ -173,7 +175,7 @@ mod tests {
             .withf(|_, command| command.availability.is_none())
             .returning(|_, _| Ok(created()));
         let app = app(create);
-        let shop_id = ShopId::new();
+        let shop_id = ListingSourceId::new();
         let omitted = product("omitted").replace(",\"availability\":\"AVAILABLE\"", "");
         let explicit_null = product("null").replace("\"AVAILABLE\"", "null");
 
@@ -195,14 +197,14 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let mut create = MockCreateUseCase::new();
         create.expect_execute().times(2).returning(|_, command| {
-            if command.shop_listing_id.as_ref() == "failed" {
-                Err(CreateProductListingError::ShopListingAlreadyExists)
+            if command.source_listing_id.as_ref() == "failed" {
+                Err(CreateProductListingError::SourceListingAlreadyExists)
             } else {
                 Ok(created())
             }
         });
         let app = app(create);
-        let shop_id = ShopId::new();
+        let shop_id = ListingSourceId::new();
 
         let response = request(
             &app,
@@ -215,8 +217,8 @@ mod tests {
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
             json!([{
-                "shopId": shop_id.to_string(),
-                "shopListingId": "failed",
+                "listingSourceId": shop_id.to_string(),
+                "sourceListingId": "failed",
                 "error": "CONFLICT"
             }]),
             body_json(response).await?
@@ -231,9 +233,9 @@ mod tests {
         create
             .expect_execute()
             .times(1)
-            .returning(|_, _| Err(CreateProductListingError::ShopListingAlreadyExists));
+            .returning(|_, _| Err(CreateProductListingError::SourceListingAlreadyExists));
         let app = app(create);
-        let shop_id = ShopId::new();
+        let shop_id = ListingSourceId::new();
 
         let response = request(
             &app,
@@ -254,7 +256,7 @@ mod tests {
         let mut create = MockCreateUseCase::new();
         create.expect_execute().never();
         let app = app(create);
-        let shop_id = ShopId::new();
+        let shop_id = ListingSourceId::new();
         let body = format!(
             "[{}]",
             (0..=MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE)
@@ -282,7 +284,7 @@ mod tests {
         let mut create = MockCreateUseCase::new();
         create.expect_execute().never();
         let app = app(create);
-        let shop_id = ShopId::new();
+        let shop_id = ListingSourceId::new();
 
         let missing_auth = request(
             &app,
@@ -358,9 +360,9 @@ mod tests {
         Ok(serde_json::from_slice(&bytes)?)
     }
 
-    fn product(shop_listing_id: &str) -> String {
+    fn product(source_listing_id: &str) -> String {
         format!(
-            r#"{{"shopListingId":"{shop_listing_id}","title":{{"text":"Cabinet","language":"en"}},"description":{{"text":"Old cabinet","language":"en"}},"availability":"AVAILABLE","url":"https://shop.example/product-listings/{shop_listing_id}","images":[]}}"#
+            r#"{{"sourceListingId":"{source_listing_id}","title":{{"text":"Cabinet","language":"en"}},"description":{{"text":"Old cabinet","language":"en"}},"availability":"AVAILABLE","url":"https://shop.example/product-listings/{source_listing_id}","images":[]}}"#
         )
     }
 }

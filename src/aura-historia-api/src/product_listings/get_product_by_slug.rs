@@ -5,12 +5,12 @@ use crate::state::ProductListingsState;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
+use listing_source_core::ListingSourceSlugId;
 use localization::Language;
 use money::Currency;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_service::use_cases::{GetProductListingRequest, ProductListingLookup};
 use serde::Deserialize;
-use shop_core::shop_slug_id::ShopSlugId;
 
 #[derive(Debug, Deserialize)]
 struct ProductListingDetailsQuery {
@@ -45,8 +45,8 @@ pub async fn get_product_by_slug(
         Err(error) => return ApiError::from(error).into_response(),
     };
 
-    let shop_slug_id = match ShopSlugId::raw(&raw_shop_slug_id) {
-        Ok(shop_slug_id) => shop_slug_id,
+    let listing_source_slug_id = match ListingSourceSlugId::raw(&raw_shop_slug_id) {
+        Ok(listing_source_slug_id) => listing_source_slug_id,
         Err(_) => {
             return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
                 .with_path_field("shopSlugId")
@@ -71,7 +71,7 @@ pub async fn get_product_by_slug(
             &context,
             GetProductListingRequest {
                 lookup: ProductListingLookup::BySlug {
-                    shop_slug_id,
+                    listing_source_slug_id,
                     product_listing_slug_id,
                 },
                 language: query.language,
@@ -184,12 +184,12 @@ mod tests {
             lock(&calls).as_slice(),
             [GetProductListingRequest {
                 lookup: ProductListingLookup::BySlug {
-                    shop_slug_id,
+                    listing_source_slug_id,
                     product_listing_slug_id,
                 },
                 language: Language::En,
                 currency: money::Currency::Eur,
-            }] if shop_slug_id.as_ref() == raw_shop_slug_id
+            }] if listing_source_slug_id.as_ref() == raw_shop_slug_id
                 && product_listing_slug_id.as_ref() == raw_product_listing_slug_id
         ));
         Ok(())

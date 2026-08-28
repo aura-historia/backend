@@ -1,4 +1,5 @@
 pub mod listing_source_summary;
+pub mod listing_source_summary_reader;
 pub mod partner_product_listing_authorizer;
 pub mod product_listing_content_assessment_reader;
 pub mod product_listing_content_assessment_snapshot_reader;
@@ -28,6 +29,9 @@ pub mod product_listing_watchlist_notification_source_reader;
 pub mod watchlist_notification_recipient_reader;
 
 pub use listing_source_summary::ListingSourceSummary;
+pub use listing_source_summary_reader::{
+    ListingSourceSummaryReadError, ListingSourceSummaryReader,
+};
 pub use partner_product_listing_authorizer::{
     PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
     PartnerProductListingAuthorizerFactory,

@@ -26,6 +26,7 @@ use embedding::{
 use fxrate_core::FxRateId;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{Geocoder, GeocodingError};
+use listing_source_postgres::SqlxListingSourceReaders;
 use notification_postgres::{
     SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
     SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
@@ -56,11 +57,12 @@ use product_listing_opensearch::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
 };
 use product_listing_postgres::{
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingContentAssessmentReader,
-    SqlxProductListingDetailsBatchReader, SqlxProductListingDetailsReaderFactory,
-    SqlxProductListingEmbeddingReaderFactory, SqlxProductListingEventReaderFactory,
-    SqlxProductListingEventStoreFactory, SqlxProductListingRepositoryFactory,
-    SqlxProductListingUserStateReader, SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxListingSourceSummaryReader, SqlxPartnerProductListingAuthorizerFactory,
+    SqlxProductListingContentAssessmentReader, SqlxProductListingDetailsBatchReader,
+    SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
+    SqlxProductListingEventReaderFactory, SqlxProductListingEventStoreFactory,
+    SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
+    SqlxProductListingWatchlistDetailsReaderFactory,
 };
 use shop_core::domain::Domain;
 use shop_core::shop_id::ShopId;
@@ -95,10 +97,7 @@ use shop_partner_service::use_cases::{
     CreatePartnerShopApplicationHandler, GetPartnerShopApplicationHandler,
     ListPartnerShopApplicationsHandler, WithdrawPartnerShopApplicationHandler,
 };
-use shop_postgres::{
-    SqlxPartnerShopReaderFactory, SqlxShopRepositoryFactory,
-    SqlxWoocommerceWebhookShopReaderFactory, SqlxWoocommerceWebhookSignatureVerifierFactory,
-};
+use shop_postgres::{SqlxPartnerShopReaderFactory, SqlxShopRepositoryFactory};
 use shop_service::ports::{ShopRepository, ShopRepositoryFactory};
 use shop_service::use_cases::commands::create_shop::CreateShopHandler;
 use shop_service::use_cases::commands::update_shop::UpdateShopHandler;
@@ -588,6 +587,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             SqlxProductListingEmbeddingReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
             OpenSearchProductListingSimilarProductListingsReader::new(opensearch_client.clone()),
+            SqlxListingSourceSummaryReader::new(pool.clone()),
             SqlxProductListingUserStateReader::new(pool.clone()),
             SqlxProductListingContentAssessmentReader::new(pool.clone()),
         )),
@@ -596,6 +596,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             OpenSearchProductListingSearchReader::new(opensearch_client.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
             search_embeddings,
+            SqlxListingSourceSummaryReader::new(pool.clone()),
             SqlxProductListingUserStateReader::new(pool.clone()),
             SqlxProductListingContentAssessmentReader::new(pool.clone()),
         )),
@@ -640,8 +641,8 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             SqlxProductListingRepositoryFactory::new(),
             SqlxProductListingEventStoreFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
-            SqlxWoocommerceWebhookShopReaderFactory::new(),
-            SqlxWoocommerceWebhookSignatureVerifierFactory::new(),
+            SqlxListingSourceReaders::new(pool.clone()),
+            SqlxListingSourceReaders::new(pool.clone()),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );

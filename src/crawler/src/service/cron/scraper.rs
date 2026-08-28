@@ -736,9 +736,8 @@ mod tests {
     use crate::spider::advisory_lock::LocalLockManager;
     use crate::spider::candidate_service::MockSpiderCandidateService;
     use crate::spider::service::MockSpiderService;
-    use product_listing_core::{
-        product_listing::ProductListingAddress, source_listing_id::ShopListingId,
-    };
+    use listing_source_core::ListingSourceId;
+    use product_listing_core::source_listing_id::SourceListingId;
     use product_listing_service::use_cases::commands::upsert_product_listing::UpsertProductListingCommand;
     use shop_core::{shop_id::ShopId, shop_type::ShopType};
     use std::future::Future;
@@ -767,10 +766,8 @@ mod tests {
     fn item(shop_id: ShopId, product_id: &str) -> ProductListingPushItem {
         ProductListingPushItem {
             command: UpsertProductListingCommand {
-                shop_id,
-                seller_id: shop_id,
-                shop_listing_id: ShopListingId::from(product_id),
-                address: ProductListingAddress::default(),
+                listing_source_id: ListingSourceId::from(uuid::Uuid::from(shop_id)),
+                source_listing_id: SourceListingId::from(product_id),
                 title: None,
                 description: None,
                 price: application::patch_field::PatchField::Unchanged,

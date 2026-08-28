@@ -4,7 +4,7 @@ use crate::product_listings::product_data::{
     PersonalizedProductListingSummaryData, personalized_product_summary_data,
 };
 use crate::state::ProductListingsState;
-use crate::values::GeoDistanceQueryData;
+
 use application::operation_context::Principal;
 use application::pagination::Cursor;
 use axum::Json;
@@ -15,8 +15,7 @@ use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
 use domain_primitives::sort::{Sort, SortOrder};
 use fxrate_core::FxRateId;
-use geo::data::continent_data::ContinentData;
-use isocountry::CountryCode;
+
 use localization::Language;
 use money::Currency;
 use money::MonetaryAmount;
@@ -27,16 +26,13 @@ use product_listing_core::product_listing_search::{
     EnhancedSearchDescription, ListingAvailabilityQuery, ProductListingSearch,
 };
 
+use listing_source_core::ListingSourceId;
 use product_listing_core::sort_product_listing_field::SortProductListingField;
 use product_listing_service::use_cases::{
     ProductListingSearchCursor, SearchProductListingsRequest,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use shop_core::seller_slug_id::SellerSlugId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
-use shop_core::shop_type::ShopType;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
@@ -55,30 +51,9 @@ struct ProductListingSearchData {
     #[serde(default)]
     exclude_product_listing_id: HashSet<ProductListingId>,
     #[serde(default)]
-    shop_name: HashSet<ShopName>,
+    listing_source_id: HashSet<uuid::Uuid>,
     #[serde(default)]
-    exclude_shop_name: HashSet<ShopName>,
-    #[serde(default)]
-    seller_name: HashSet<ShopName>,
-    #[serde(default)]
-    exclude_seller_name: HashSet<ShopName>,
-    #[serde(default)]
-    shop_slug_id: HashSet<ShopSlugId>,
-    #[serde(default)]
-    exclude_shop_slug_id: HashSet<ShopSlugId>,
-    #[serde(default)]
-    seller_slug_id: HashSet<SellerSlugId>,
-    #[serde(default)]
-    exclude_seller_slug_id: HashSet<SellerSlugId>,
-    #[serde(default)]
-    #[serde(with = "crate::wire::shop_type::set")]
-    shop_type: HashSet<ShopType>,
-    #[serde(default)]
-    country: HashSet<CountryCode>,
-    #[serde(default)]
-    continent: HashSet<ContinentData>,
-    #[serde(default)]
-    geo_address: Option<GeoDistanceQueryData>,
+    exclude_listing_source_id: HashSet<uuid::Uuid>,
     #[serde(default)]
     price: Option<RangeQuery<u64>>,
     #[serde(
@@ -158,18 +133,18 @@ impl TryFrom<ProductListingSearchData> for ProductListingSearch {
                 .map(EnhancedSearchDescription::try_from)
                 .transpose()?,
             exclude_product_listing_id_query: data.exclude_product_listing_id.into(),
-            shop_name_query: data.shop_name.into(),
-            exclude_shop_name_query: data.exclude_shop_name.into(),
-            seller_name_query: data.seller_name.into(),
-            exclude_seller_name_query: data.exclude_seller_name.into(),
-            shop_slug_id_query: data.shop_slug_id.into(),
-            exclude_shop_slug_id_query: data.exclude_shop_slug_id.into(),
-            seller_slug_id_query: data.seller_slug_id.into(),
-            exclude_seller_slug_id_query: data.exclude_seller_slug_id.into(),
-            shop_type_query: data.shop_type.into(),
-            country_query: data.country.into(),
-            continent_query: data.continent.into_iter().map(Into::into).collect(),
-            geo_address_distance_query: data.geo_address.map(Into::into),
+            listing_source_id_query: data
+                .listing_source_id
+                .into_iter()
+                .map(ListingSourceId::from)
+                .collect::<HashSet<_>>()
+                .into(),
+            exclude_listing_source_id_query: data
+                .exclude_listing_source_id
+                .into_iter()
+                .map(ListingSourceId::from)
+                .collect::<HashSet<_>>()
+                .into(),
             price_query: data.price.map(|range| range.map(MonetaryAmount::from)),
             availability_query: availability_query_from_parts(
                 data.availability,

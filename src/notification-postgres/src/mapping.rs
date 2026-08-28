@@ -1,6 +1,6 @@
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
-use listing_source_core::ListingSourceName;
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use money::{Currency, MonetaryAmount, Price};
 use notification_core::{
     notification::{
@@ -19,14 +19,14 @@ use product_listing_core::{
     listing_availability::ListingAvailability,
     product_listing_id::ProductListingId,
     product_listing_slug_id::ProductListingSlugId,
-    source_listing_id::ShopListingId,
+    source_listing_id::SourceListingId,
     title::Title,
 };
 use search_filter_core::{
     user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
 };
 use serde::{Deserialize, Serialize};
-use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use shop_core::shop_name::ShopName;
 use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use std::collections::{HashMap, HashSet};
 use strum::IntoEnumIterator;
@@ -142,16 +142,105 @@ struct PersistedContentPolicyDecision {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductListingNotificationSnapshotV1 {
-    shop_id: ShopId,
-    shop_listing_id: ShopListingId,
-    shop_slug_id: ShopSlugId,
+    #[serde(
+        serialize_with = "serialize_listing_source_id",
+        deserialize_with = "deserialize_listing_source_id"
+    )]
+    listing_source_id: ListingSourceId,
+    #[serde(
+        serialize_with = "serialize_source_listing_id",
+        deserialize_with = "deserialize_source_listing_id"
+    )]
+    source_listing_id: SourceListingId,
+    #[serde(
+        serialize_with = "serialize_listing_source_slug_id",
+        deserialize_with = "deserialize_listing_source_slug_id"
+    )]
+    listing_source_slug_id: ListingSourceSlugId,
     product_listing_slug_id: ProductListingSlugId,
-    shop_name: ShopName,
+    #[serde(
+        serialize_with = "serialize_listing_source_name",
+        deserialize_with = "deserialize_listing_source_name"
+    )]
+    listing_source_name: ListingSourceName,
     title: Option<Vec<LocalizedTitleV1>>,
     image: Option<Url>,
     content_policy: Option<PersistedContentPolicyDecision>,
     url: Url,
     view_url: Url,
+}
+
+fn serialize_listing_source_id<S>(
+    listing_source_id: &ListingSourceId,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&listing_source_id.to_string())
+}
+
+fn deserialize_listing_source_id<'de, D>(deserializer: D) -> Result<ListingSourceId, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    String::deserialize(deserializer)?
+        .parse::<uuid::Uuid>()
+        .map(ListingSourceId::from)
+        .map_err(serde::de::Error::custom)
+}
+
+fn serialize_source_listing_id<S>(
+    source_listing_id: &SourceListingId,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(source_listing_id.as_ref())
+}
+
+fn deserialize_source_listing_id<'de, D>(deserializer: D) -> Result<SourceListingId, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(SourceListingId::from(String::deserialize(deserializer)?))
+}
+
+fn serialize_listing_source_slug_id<S>(
+    listing_source_slug_id: &ListingSourceSlugId,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(listing_source_slug_id.as_ref())
+}
+
+fn deserialize_listing_source_slug_id<'de, D>(
+    deserializer: D,
+) -> Result<ListingSourceSlugId, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    ListingSourceSlugId::raw(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+}
+
+fn serialize_listing_source_name<S>(
+    listing_source_name: &ListingSourceName,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(listing_source_name.as_ref())
+}
+
+fn deserialize_listing_source_name<'de, D>(deserializer: D) -> Result<ListingSourceName, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(ListingSourceName::from(String::deserialize(deserializer)?))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,11 +283,11 @@ struct PartnershipApplicationNotificationSnapshotV1 {
 impl From<&ProductListingNotificationSnapshot> for ProductListingNotificationSnapshotV1 {
     fn from(snapshot: &ProductListingNotificationSnapshot) -> Self {
         Self {
-            shop_id: snapshot.shop_id,
-            shop_listing_id: snapshot.shop_listing_id.clone(),
-            shop_slug_id: snapshot.shop_slug_id.clone(),
+            listing_source_id: snapshot.listing_source_id,
+            source_listing_id: snapshot.source_listing_id.clone(),
+            listing_source_slug_id: snapshot.listing_source_slug_id.clone(),
             product_listing_slug_id: snapshot.product_listing_slug_id.clone(),
-            shop_name: snapshot.shop_name.clone(),
+            listing_source_name: snapshot.listing_source_name.clone(),
             title: snapshot.title.as_ref().map(|titles| {
                 titles
                     .iter()
@@ -239,11 +328,11 @@ impl TryFrom<ProductListingNotificationSnapshotV1> for ProductListingNotificatio
             })
             .transpose()?;
         Ok(Self {
-            shop_id: snapshot.shop_id,
-            shop_listing_id: snapshot.shop_listing_id,
-            shop_slug_id: snapshot.shop_slug_id,
+            listing_source_id: snapshot.listing_source_id,
+            source_listing_id: snapshot.source_listing_id,
+            listing_source_slug_id: snapshot.listing_source_slug_id,
             product_listing_slug_id: snapshot.product_listing_slug_id,
-            shop_name: snapshot.shop_name,
+            listing_source_name: snapshot.listing_source_name,
             title,
             image: snapshot.image,
             content_policy: snapshot.content_policy.map(TryInto::try_into).transpose()?,
@@ -693,7 +782,7 @@ pub(crate) fn mapping_error(error: NotificationMappingError) -> BoxError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use listing_source_core::ListingSourceName;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use money::{Currency, MonetaryAmount};
     use notification_core::notification::{
         PartnershipApplicationDecision, PartnershipApplicationNotificationSnapshot,
@@ -701,6 +790,7 @@ mod tests {
     use notification_core::notification_id::NotificationId;
     use partnership_core::partnership_application_id::PartnershipApplicationId;
     use party_core::party_name::PartyName;
+    use product_listing_core::source_listing_id::SourceListingId;
     use time::OffsetDateTime;
     use user_core::user_id::UserId;
 
@@ -720,6 +810,47 @@ mod tests {
             parse_kind("watchlist_price_changed"),
             Err(NotificationMappingError::UnknownKind(value)) if value == "watchlist_price_changed"
         ));
+    }
+
+    #[test]
+    fn should_serialize_product_listing_snapshot_with_listing_source_vocabulary()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let snapshot = ProductListingNotificationSnapshot {
+            listing_source_id: ListingSourceId::from(uuid::Uuid::nil()),
+            source_listing_id: SourceListingId::from("source-listing-42"),
+            listing_source_slug_id: ListingSourceSlugId::raw("northwind-source")?,
+            product_listing_slug_id: ProductListingSlugId::raw("rare-vase-000000")?,
+            listing_source_name: ListingSourceName::from("Northwind Source"),
+            title: None,
+            image: None,
+            content_policy: None,
+            url: Url::parse("https://source.example/listings/42")?,
+            view_url: Url::parse("https://aura.example/listings/rare-vase")?,
+        };
+
+        let persisted = ProductListingNotificationSnapshotV1::from(&snapshot);
+
+        assert_eq!(
+            serde_json::json!({
+                "listing_source_id": "00000000-0000-0000-0000-000000000000",
+                "source_listing_id": "source-listing-42",
+                "listing_source_slug_id": "northwind-source",
+                "product_listing_slug_id": "rare-vase-000000",
+                "listing_source_name": "Northwind Source",
+                "title": null,
+                "image": null,
+                "content_policy": null,
+                "url": "https://source.example/listings/42",
+                "view_url": "https://aura.example/listings/rare-vase",
+            }),
+            serde_json::to_value(&persisted)?
+        );
+        assert_eq!(
+            snapshot,
+            ProductListingNotificationSnapshot::try_from(persisted)?
+        );
+
+        Ok(())
     }
 
     #[test]

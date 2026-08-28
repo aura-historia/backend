@@ -2,11 +2,11 @@ use crate::product_listings::product_data::ProductListingImageData;
 use crate::values::{LocalizedTextData, PriceData};
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
-use geo::data::address_data::{GeoAddressData, StructuredAddressData};
+
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::{
-    ListingSaleObservation, ProductListingAddress, ProductListingAuction,
-    ProductListingEventPayload, ProductListingPricing,
+    ListingSaleObservation, ProductListingAuction, ProductListingEventPayload,
+    ProductListingPricing,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -32,7 +32,7 @@ pub(crate) struct ProductListingEventData {
 enum ProductListingEventPayloadData {
     Created(ProductListingCreatedHistoryPayloadData),
     AvailabilityChanged(ListingAvailabilityChangedHistoryPayloadData),
-    AddressChanged(ProductListingAddressChangedHistoryPayloadData),
+
     PriceChanged(ProductListingPriceChangedHistoryPayloadData),
     UrlChanged(ProductListingUrlChangedHistoryPayloadData),
     ImagesChanged(ProductListingImagesChangedHistoryPayloadData),
@@ -50,10 +50,6 @@ struct ProductListingCreatedHistoryPayloadData {
     title: Option<LocalizedTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<LocalizedTextData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address: Option<StructuredAddressData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    geo_address: Option<GeoAddressData>,
     pricing: ProductListingPricingData,
     #[serde(with = "crate::wire::listing_availability::option")]
     availability: Option<ListingAvailability>,
@@ -69,15 +65,6 @@ struct ListingAvailabilityChangedHistoryPayloadData {
     previous: Option<ListingAvailability>,
     #[serde(with = "crate::wire::listing_availability::option")]
     current: Option<ListingAvailability>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProductListingAddressChangedHistoryPayloadData {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address: Option<StructuredAddressData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    geo_address: Option<GeoAddressData>,
 }
 
 #[derive(Debug, Serialize)]
@@ -161,8 +148,7 @@ impl From<ProductListingEventPayload> for ProductListingEventPayloadData {
                 Self::Created(ProductListingCreatedHistoryPayloadData {
                     title: value.title.map(Into::into),
                     description: value.description.map(Into::into),
-                    structured_address: value.address.structured.map(Into::into),
-                    geo_address: value.address.geo.map(Into::into),
+
                     pricing: value.pricing.into(),
                     availability: value.availability,
                     url: value.url,
@@ -176,9 +162,7 @@ impl From<ProductListingEventPayload> for ProductListingEventPayloadData {
                     current: value.current,
                 })
             }
-            ProductListingEventPayload::AddressChanged(value) => Self::AddressChanged(
-                ProductListingAddressChangedHistoryPayloadData::from(value.address),
-            ),
+
             ProductListingEventPayload::PriceChanged(value) => {
                 Self::PriceChanged(ProductListingPriceChangedHistoryPayloadData {
                     old_pricing: value.old_pricing.into(),
@@ -215,15 +199,6 @@ impl From<ProductListingEventPayload> for ProductListingEventPayloadData {
             ProductListingEventPayload::SaleObservationRetracted(value) => {
                 Self::SaleObservationRetracted(value.observation.into())
             }
-        }
-    }
-}
-
-impl From<ProductListingAddress> for ProductListingAddressChangedHistoryPayloadData {
-    fn from(address: ProductListingAddress) -> Self {
-        Self {
-            structured_address: address.structured.map(Into::into),
-            geo_address: address.geo.map(Into::into),
         }
     }
 }

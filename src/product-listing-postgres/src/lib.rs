@@ -21,7 +21,7 @@ pub use product_listing_repository::SqlxProductListingRepositoryFactory;
 pub use product_listing_translation_source_reader::SqlxProductListingTranslationSourceReader;
 pub use product_listing_translation_writer::SqlxProductListingTranslationWriterFactory;
 pub use readers::{
-    SqlxProductListingContentAssessmentReader,
+    SqlxListingSourceSummaryReader, SqlxProductListingContentAssessmentReader,
     SqlxProductListingContentAssessmentSnapshotReaderFactory,
     SqlxProductListingCurrentRevisionGuardFactory, SqlxProductListingDetailsBatchReader,
     SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,

@@ -2,11 +2,12 @@ use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
     assert_problem, aura_api_app_with_failed_search_embedding, json_response, product_route_slugs,
-    seed_current_fx_snapshot, seed_product, seed_shop,
+    seed_current_fx_snapshot, seed_product,
 };
 use application::transaction::{Transaction, UnitOfWork};
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
+use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
 use opensearch::{IndexParts, indices::IndicesPutMappingParts};
 use platform_postgres::SqlxUnitOfWork;
@@ -14,11 +15,11 @@ use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
     product_listing::{
-        ListingSaleObservation, NewProductListing, ProductListing, ProductListingAddress,
-        ProductListingAuction, ProductListingPricing,
+        ListingSaleObservation, NewProductListing, ProductListing, ProductListingAuction,
+        ProductListingPricing,
     },
     product_listing_id::ProductListingId,
-    shop_listing_id::ShopListingId,
+    source_listing_id::SourceListingId,
     title::Title,
 };
 use product_listing_postgres::{
@@ -119,7 +120,6 @@ async fn should_get_product_history_by_id() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_product_history_with_timestamped_event_payloads() {
-    let shop = seed_shop().await;
     let product_listing_id = ProductListingId::new();
     let source_offset =
         UtcOffset::from_hms(5, 30, 0).unwrap_or_else(|error| panic!("source offset: {error}"));
@@ -130,12 +130,10 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
     let auction_end = (auction_start + Duration::hours(3)).to_offset(source_offset);
     let mut product = ProductListing::create(NewProductListing {
         id: product_listing_id,
-        shop_id: shop.id(),
-        seller_id: shop.id(),
-        shop_listing_id: ShopListingId::from(
+        listing_source_id: ListingSourceId::new(),
+        source_listing_id: SourceListingId::from(
             format!("timestamped-history-{product_listing_id}").as_str(),
         ),
-        address: ProductListingAddress::default(),
         title: Some(Localized::new(
             Language::En,
             Title::from("Timestamped history ProductListing"),
@@ -641,7 +639,7 @@ async fn should_fall_back_to_bm25_when_mock_embedding_fails() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_intersect_product_search_filters() {
-    let target = search_document_with_shop(
+    let target = search_document_with_source(
         "Filter cabinet",
         550,
         "AVAILABLE",
@@ -649,7 +647,7 @@ async fn should_intersect_product_search_filters() {
         "imperial-antiques",
         "2025-01-01T00:00:00Z",
     );
-    let wrong_shop = search_document_with_shop(
+    let wrong_shop = search_document_with_source(
         "Filter cabinet",
         550,
         "AVAILABLE",
@@ -657,7 +655,7 @@ async fn should_intersect_product_search_filters() {
         "other-antiques",
         "2025-01-01T00:00:00Z",
     );
-    let wrong_availability = search_document_with_shop(
+    let wrong_availability = search_document_with_source(
         "Filter cabinet",
         550,
         "OUT_OF_STOCK",
@@ -665,7 +663,7 @@ async fn should_intersect_product_search_filters() {
         "imperial-antiques",
         "2025-01-01T00:00:00Z",
     );
-    let wrong_price = search_document_with_shop(
+    let wrong_price = search_document_with_source(
         "Filter cabinet",
         2_000,
         "AVAILABLE",
@@ -682,7 +680,10 @@ async fn should_intersect_product_search_filters() {
     .await;
 
     let (response, _) = get_json(
-        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Filter%20cabinet&shopName[0]=Imperial%20Antiques&availability[0]=AVAILABLE&price[min]=500&price[max]=600".to_owned(),
+        format!(
+            "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Filter%20cabinet&listingSourceId[0]={}&availability[0]=AVAILABLE&price[min]=500&price[max]=600",
+            target.1["listingSourceId"]
+        ),
     )
     .await;
     let (status, body) = json_response(response).await;
@@ -692,7 +693,7 @@ async fn should_intersect_product_search_filters() {
     assert_eq!(vec![target.0], product_listing_ids(&body));
     assert_eq!(
         json!("Imperial Antiques"),
-        body["items"][0]["item"]["shopName"]
+        body["items"][0]["item"]["source"]["name"]
     );
     assert_eq!(json!("AVAILABLE"), body["items"][0]["item"]["availability"]);
     assert_eq!(
@@ -954,7 +955,7 @@ fn search_document(
     shop_name: &str,
     created: &str,
 ) -> (String, Value) {
-    search_document_with_shop(
+    search_document_with_source(
         title,
         price_usd,
         availability,
@@ -964,41 +965,26 @@ fn search_document(
     )
 }
 
-fn search_document_with_shop(
+fn search_document_with_source(
     title: &str,
     price_usd: u64,
     availability: &str,
-    shop_name: &str,
-    shop_slug_id: &str,
+    _shop_name: &str,
+    _shop_slug_id: &str,
     created: &str,
 ) -> (String, Value) {
     let product_listing_id = uuid::Uuid::new_v4().to_string();
     let event_id = uuid::Uuid::new_v4().to_string();
-    let shop_id = uuid::Uuid::new_v4().to_string();
-    let seller_id = uuid::Uuid::new_v4().to_string();
+    let listing_source_id = uuid::Uuid::new_v4().to_string();
     let product_listing_slug_id = format!("search-{}", &product_listing_id[..6]);
     (
         product_listing_id.clone(),
         json!({
             "productListingId": product_listing_id,
             "productListingSlugId": product_listing_slug_id,
-            "shopSlugId": shop_slug_id,
-            "sellerSlugId": "search-seller",
+            "listingSourceId": listing_source_id,
+            "sourceListingId": product_listing_slug_id,
             "eventId": event_id,
-            "shopId": shop_id,
-            "sellerId": seller_id,
-            "shopListingId": product_listing_slug_id,
-            "shopName": shop_name,
-            "sellerName": shop_name,
-            "shopType": "COMMERCIAL_DEALER",
-            "structuredAddressAddressline": null,
-            "structuredAddressAddresslineExtra": null,
-            "structuredAddressLocality": null,
-            "structuredAddressRegion": null,
-            "structuredAddressPostalCode": null,
-            "structuredAddressCountry": null,
-            "structuredAddressContinent": null,
-            "geoAddress": null,
             "title": { "text": title, "language": "EN" },
             "titleDe": null,
             "titleEn": title,

@@ -1,14 +1,12 @@
 use crate::product_listing_document::{ProductListingDocument, ProductListingDocumentSerdeField};
 
 use application::pagination::{Cursor, CursoredResult};
-use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::text_query::TextQuery;
 use domain_primitives::sort::{Sort, SortOrder};
-use geo::opensearch::distance_to_opensearch_value;
+
 use localization::{Language, Localized};
 use money::Currency;
 use platform_opensearch::search_response::{SearchHit, SearchResponse};
-use shop_core::shop_name::ShopName;
 
 use money::Price;
 use opensearch::http::Method;
@@ -31,10 +29,8 @@ use product_listing_service::use_cases::queries::search_product_listings::{
 };
 use serde::ser::Error;
 use serde_json::json;
-use shop_core::shop_type::ShopType;
 use std::collections::HashMap;
-use std::hash::Hash;
-use strum::{EnumCount, IntoEnumIterator};
+use strum::IntoEnumIterator;
 use time::format_description::well_known;
 
 const DEFAULT_INDEX: &str = "product-listings";
@@ -187,11 +183,8 @@ fn map_summary_fields(
         product_listing_id: document.product_listing_id,
         product_listing_slug_id: document.product_listing_slug_id,
         event_id: document.event_id,
-        shop_id: document.shop_id,
-        seller_id: document.seller_id,
-        shop_listing_id: document.shop_listing_id,
-        shop_name: ShopName::from(document.shop_name),
-        shop_slug_id: document.shop_slug_id,
+        listing_source_id: document.listing_source_id,
+        source_listing_id: document.source_listing_id,
         title,
         display_price,
         price_valuation,
@@ -570,95 +563,22 @@ pub(crate) fn build_common_filter_clauses(
             }
         }));
     }
-    if !search.exclude_shop_name_query.is_empty() {
+    if !search.exclude_listing_source_id_query.is_empty() {
         must_not.push(json!({
             "terms": {
-                ProductListingDocumentSerdeField::ShopName.as_str(): search.exclude_shop_name_query.iter().map(ShopName::as_ref).collect::<Vec<_>>()
+                ProductListingDocumentSerdeField::ListingSourceId.as_str(): search.exclude_listing_source_id_query.iter().map(ToString::to_string).collect::<Vec<_>>()
             }
         }));
     }
-    if !search.exclude_seller_name_query.is_empty() {
-        must_not.push(json!({
-            "terms": {
-                ProductListingDocumentSerdeField::SellerName.as_str(): search.exclude_seller_name_query.iter().map(ShopName::as_ref).collect::<Vec<_>>()
-            }
-        }));
-    }
-    if !search.exclude_shop_slug_id_query.is_empty() {
-        must_not.push(json!({
-            "terms": {
-                ProductListingDocumentSerdeField::ShopSlugId.as_str(): search.exclude_shop_slug_id_query.iter().map(ToString::to_string).collect::<Vec<_>>()
-            }
-        }));
-    }
-    if !search.exclude_seller_slug_id_query.is_empty() {
-        must_not.push(json!({
-            "terms": {
-                ProductListingDocumentSerdeField::SellerSlugId.as_str(): search.exclude_seller_slug_id_query.iter().map(ToString::to_string).collect::<Vec<_>>()
-            }
-        }));
-    }
-
-    if !search.country_query.is_empty() {
+    if !search.listing_source_id_query.is_empty() {
         filter.push(json!({
             "terms": {
-                ProductListingDocumentSerdeField::StructuredAddressCountry.as_str(): search.country_query.iter().map(|country| country.alpha2()).collect::<Vec<_>>()
-            }
-        }));
-    }
-    if !search.continent_query.is_empty() {
-        filter.push(json!({
-            "terms": {
-                ProductListingDocumentSerdeField::StructuredAddressContinent.as_str(): search.continent_query.iter().map(|continent| (*continent).as_str()).collect::<Vec<_>>()
-            }
-        }));
-    }
-    if let Some(query) = search.geo_address_distance_query {
-        filter.push(json!({
-            "geo_distance": {
-                "distance": distance_to_opensearch_value(query.distance),
-                ProductListingDocumentSerdeField::GeoAddress.as_str(): {
-                    "lat": query.lat,
-                    "lon": query.lon
-                }
-            }
-        }));
-    }
-
-    apply_any_of_filter(
-        &mut filter,
-        &search.shop_name_query,
-        ProductListingDocumentSerdeField::ShopName,
-        ShopName::as_ref,
-    );
-    apply_any_of_filter(
-        &mut filter,
-        &search.seller_name_query,
-        ProductListingDocumentSerdeField::SellerName,
-        ShopName::as_ref,
-    );
-    if !search.shop_slug_id_query.is_empty() {
-        filter.push(json!({
-            "terms": {
-                ProductListingDocumentSerdeField::ShopSlugId.as_str(): search.shop_slug_id_query.iter().map(ToString::to_string).collect::<Vec<_>>()
-            }
-        }));
-    }
-    if !search.seller_slug_id_query.is_empty() {
-        filter.push(json!({
-            "terms": {
-                ProductListingDocumentSerdeField::SellerSlugId.as_str(): search.seller_slug_id_query.iter().map(ToString::to_string).collect::<Vec<_>>()
+                ProductListingDocumentSerdeField::ListingSourceId.as_str(): search.listing_source_id_query.iter().map(ToString::to_string).collect::<Vec<_>>()
             }
         }));
     }
 
     apply_availability_filter(&mut filter, search.availability_query.as_ref());
-    apply_any_of_filter(
-        &mut filter,
-        &search.shop_type_query,
-        ProductListingDocumentSerdeField::ShopType,
-        |value: &ShopType| value.as_str(),
-    );
 
     for (query, field) in [
         (
@@ -869,35 +789,20 @@ fn availability_matches_query(
     }
 }
 
-fn apply_any_of_filter<T: Hash + Eq + EnumCount>(
-    filter: &mut Vec<serde_json::Value>,
-    query: &AnyOfQuery<T>,
-    field: ProductListingDocumentSerdeField,
-    to_str: fn(&T) -> &str,
-) {
-    let values = query.iter().map(to_str).collect::<Vec<_>>();
-    if !values.is_empty() && values.len() != T::COUNT {
-        filter.push(json!({ "terms": { field.as_str(): values } }));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::product_listing_document::{SalePricesDocument, SourcePriceDocument, TextDocument};
     use domain_primitives::event_id::EventId;
     use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};
-    use geo::core::distance::{Distance, DistanceUnit, GeoDistanceQuery};
     use indexmap::IndexSet;
+    use listing_source_core::ListingSourceId;
     use money::MonetaryAmount;
     use product_listing_core::{
         listing_availability::ListingAvailability, listing_orderability::ListingOrderability,
         product_listing_id::ProductListingId, product_listing_search::ListingAvailabilityQuery,
-        product_listing_slug_id::ProductListingSlugId, source_listing_id::ShopListingId,
+        product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
     };
-    use shop_core::shop_id::ShopId;
-    use shop_core::shop_slug_id::ShopSlugId;
-    use shop_core::shop_type::ShopType;
     use strum::IntoEnumIterator;
     use time::{OffsetDateTime, macros::datetime};
     use url::Url;
@@ -947,23 +852,9 @@ mod tests {
         Ok(ProductListingDocument {
             product_listing_id: ProductListingId::new(),
             product_listing_slug_id: ProductListingSlugId::from("vase-abcdef"),
-            shop_slug_id: ShopSlugId::from("shop"),
-            seller_slug_id: shop_core::seller_slug_id::SellerSlugId::from("seller"),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::from("sku-1"),
             event_id: EventId::new(),
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shop_listing_id: ShopListingId::from("sku-1"),
-            shop_name: "Shop".to_owned(),
-            seller_name: "Seller".to_owned(),
-            shop_type: ShopType::CommercialDealer,
-            structured_address_addressline: None,
-            structured_address_addressline_extra: None,
-            structured_address_locality: None,
-            structured_address_region: None,
-            structured_address_postal_code: None,
-            structured_address_country: None,
-            structured_address_continent: None,
-            geo_address: None,
             title: TextDocument::new("Vase", Language::En),
             title_de: None,
             title_en: Some("Vase".to_owned()),
@@ -990,32 +881,30 @@ mod tests {
     }
 
     #[test]
-    fn should_render_geo_distance_with_opensearch_distance_format()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn should_filter_and_exclude_listing_sources() -> Result<(), Box<dyn std::error::Error>> {
+        let included = ListingSourceId::new();
+        let excluded = ListingSourceId::new();
         let search = ProductListingSearch::new(Language::En, Currency::Eur)
-            .with_geo_address_distance_query(GeoDistanceQuery {
-                lat: 52.52,
-                lon: 13.405,
-                distance: Distance {
-                    amount: 50.0,
-                    unit: DistanceUnit::Kilometers,
-                },
-            });
+            .with_listing_source_id_query(std::collections::HashSet::from([included]).into())
+            .with_exclude_listing_source_id_query(
+                std::collections::HashSet::from([excluded]).into(),
+            );
 
-        let (_, filters) = build_common_filter_clauses(&search)?;
-        let distance_filter = filters
-            .iter()
-            .find(|filter| filter.get("geo_distance").is_some())
-            .ok_or("missing geo distance filter")?;
+        let (must_not, filters) = build_common_filter_clauses(&search)?;
 
         assert_eq!(
-            Some(&json!("50km")),
-            distance_filter.pointer("/geo_distance/distance")
+            Some(&json!([included.to_string()])),
+            filters[0].pointer("/terms/listingSourceId")
         );
         assert_eq!(
-            Some(&json!(52.52)),
-            distance_filter.pointer("/geo_distance/geoAddress/lat")
+            Some(&json!([excluded.to_string()])),
+            must_not[0].pointer("/terms/listingSourceId")
         );
+        assert!(!filters.iter().any(|filter| {
+            filter.to_string().contains("shop")
+                || filter.to_string().contains("seller")
+                || filter.to_string().contains("geo")
+        }));
         Ok(())
     }
 
@@ -1303,6 +1192,8 @@ mod tests {
         )?;
 
         assert_eq!(None, summary.display_price);
+        assert_eq!(document.listing_source_id, summary.listing_source_id);
+        assert_eq!(document.source_listing_id, summary.source_listing_id);
         assert_eq!(
             ProductListingSummaryPriceValuation::SaleObservation {
                 fx_rate_id,

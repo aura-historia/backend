@@ -12,7 +12,6 @@ domain-primitives = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 product-listing-core = { workspace = true }
-shop-core = { workspace = true }
 user-core = { workspace = true }
 handlebars = { workspace = true }
 notification-core = { workspace = true }

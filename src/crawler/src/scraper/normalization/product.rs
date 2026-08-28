@@ -1,7 +1,7 @@
 use crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping;
 use localization::{Language, Localized};
 use money::Price;
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::SourceListingId as ShopListingId;
 use product_listing_core::{
     description::Description, product_listing_image::ProductListingImage, title::Title,
 };

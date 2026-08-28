@@ -8,6 +8,7 @@ use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use listing_source_core::ListingSourceSlugId;
 use localization::Language;
 use money::Currency;
 use product_listing_core::product_listing_id::ProductListingId;
@@ -17,7 +18,6 @@ use product_listing_service::use_cases::{
     GetSimilarProductListingsRequest, GetSimilarProductListingsResult,
 };
 use serde::Deserialize;
-use shop_core::shop_slug_id::ShopSlugId;
 
 #[derive(Debug, Deserialize)]
 struct SimilarProductListingsQuery {
@@ -65,7 +65,7 @@ pub async fn get_similar_products_by_slug(
     Path((raw_shop_slug_id, raw_product_listing_slug_id)): Path<(String, String)>,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
-    let shop_slug_id = match ShopSlugId::raw(&raw_shop_slug_id) {
+    let listing_source_slug_id = match ListingSourceSlugId::raw(&raw_shop_slug_id) {
         Ok(value) => value,
         Err(_) => {
             return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
@@ -91,7 +91,7 @@ pub async fn get_similar_products_by_slug(
         state,
         headers,
         ProductListingEmbeddingLookup::BySlug {
-            shop_slug_id,
+            listing_source_slug_id,
             product_listing_slug_id,
         },
         query,
@@ -169,10 +169,10 @@ fn pending_response(lookup: ProductListingEmbeddingLookup) -> Response {
             format!("/api/v1/product-listings/{product_listing_id}/similar")
         }
         ProductListingEmbeddingLookup::BySlug {
-            shop_slug_id,
+            listing_source_slug_id,
             product_listing_slug_id,
         } => format!(
-            "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar"
+            "/api/v1/by-slug/shops/{listing_source_slug_id}/product-listings/{product_listing_slug_id}/similar"
         ),
     };
     let location = match HeaderValue::from_str(&location_path) {
@@ -204,14 +204,16 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
     use domain_primitives::event_id::EventId;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use localization::{Language, Localized};
     use money::Currency;
     use money::{MonetaryAmount, Price};
     use product_listing_core::listing_availability::ListingAvailability;
     use product_listing_core::listing_lifecycle::ListingLifecycle;
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-    use product_listing_core::shop_listing_id::ShopListingId;
+    use product_listing_core::source_listing_id::SourceListingId;
     use product_listing_core::title::Title;
+    use product_listing_service::ports::ListingSourceSummary;
     use product_listing_service::use_cases::{
         GetProductListingError, GetProductListingRequest, GetProductListingUseCase,
         GetSimilarProductListingsError, GetSimilarProductListingsRequest,
@@ -221,9 +223,6 @@ mod tests {
         SearchProductListingsRequest, SearchProductListingsResult, SearchProductListingsUseCase,
     };
     use product_listing_service::user_state::ProductListingUserState;
-    use shop_core::shop_id::ShopId;
-    use shop_core::shop_name::ShopName;
-    use shop_core::shop_slug_id::ShopSlugId;
     use std::collections::BTreeSet;
     use std::sync::Arc;
     use time::OffsetDateTime;
@@ -541,11 +540,12 @@ mod tests {
                 product_listing_id: ProductListingId::new(),
                 product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
                 event_id: EventId::new(),
-                shop_id: ShopId::new(),
-                seller_id: ShopId::new(),
-                shop_listing_id: ShopListingId::new(),
-                shop_name: ShopName::from("Shop"),
-                shop_slug_id: ShopSlugId::from("shop"),
+                source: ListingSourceSummary {
+                    listing_source_id: ListingSourceId::new(),
+                    name: ListingSourceName::from("Source"),
+                    slug_id: ListingSourceSlugId::from("source"),
+                },
+                source_listing_id: SourceListingId::new(),
                 title: Some(Localized {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),

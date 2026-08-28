@@ -21,7 +21,7 @@ use localization::{Language, Localized};
 use money::Currency;
 use product_listing_core::{
     description::Description, product_listing_image::ProductListingImage,
-    shop_listing_id::ShopListingId, title::Title,
+    source_listing_id::SourceListingId as ShopListingId, title::Title,
 };
 
 use tracing::debug;

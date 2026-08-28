@@ -2,18 +2,20 @@ use application::pagination::Cursor;
 use domain_primitives::event_id::EventId;
 use domain_primitives::query::text_query::TextQuery;
 use indexmap::IndexSet;
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use localization::Language;
 use money::Currency;
 use product_listing_core::{
     listing_availability::ListingAvailability,
-    product_listing::{ProductListingAddress, ProductListingAuction, ProductListingPricing},
+    listing_lifecycle::ListingLifecycle,
+    product_listing::{ProductListingAuction, ProductListingPricing},
     product_listing_image::ProductListingImage,
     product_listing_search::ProductListingSearch,
+    source_listing_id::SourceListingId,
     title::Title,
 };
 use product_listing_service::ports::{
-    ProductListingPercolationInput, ProductListingSearchFilterMatchShopType,
-    ProductListingSearchFilterMatchSource,
+    ListingSourceSummary, ProductListingPercolationInput, ProductListingSearchFilterMatchSource,
 };
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -218,15 +220,12 @@ fn product_source(title: &str) -> ProductListingSearchFilterMatchSource {
         product_listing_id: product_listing_core::product_listing_id::ProductListingId::new(),
         product_listing_slug_id:
             product_listing_core::product_listing_slug_id::ProductListingSlugId::from("product"),
-        shop_id: shop_core::shop_id::ShopId::new(),
-        shop_slug_id: shop_core::shop_slug_id::ShopSlugId::from("shop"),
-        shop_name: shop_core::shop_name::ShopName::from("Shop"),
-        shop_type: ProductListingSearchFilterMatchShopType::Marketplace,
-        seller_id: shop_core::shop_id::ShopId::new(),
-        seller_slug_id: shop_core::seller_slug_id::SellerSlugId::from("seller"),
-        seller_name: shop_core::shop_name::ShopName::from("Seller"),
-        shop_listing_id: product_listing_core::shop_listing_id::ShopListingId::from("sku-1"),
-        address: ProductListingAddress::default(),
+        source: ListingSourceSummary {
+            listing_source_id: ListingSourceId::new(),
+            name: ListingSourceName::from("Source"),
+            slug_id: ListingSourceSlugId::from("source"),
+        },
+        source_listing_id: SourceListingId::from("sku-1"),
         product_title: None,
         product_description: None,
         titles: HashMap::from([(Language::En, Title::from(title))]),
@@ -234,7 +233,7 @@ fn product_source(title: &str) -> ProductListingSearchFilterMatchSource {
         pricing: ProductListingPricing::default(),
         sale_observation: None,
         availability: Some(ListingAvailability::Available),
-        lifecycle: product_listing_core::listing_lifecycle::ListingLifecycle::Active,
+        lifecycle: ListingLifecycle::Active,
         url: Url::parse("https://shop.example.test/product_listings/sku-1")
             .unwrap_or_else(|error| panic!("test URL must be valid: {error}")),
         view_url: Url::parse("https://aura.example.test/product_listings/product")

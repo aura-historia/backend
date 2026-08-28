@@ -71,15 +71,17 @@ use opensearch::{
 };
 use platform_postgres::{PostgresConnectError, PostgresPoolConfig, SqlxUnitOfWork};
 
+use listing_source_postgres::SqlxListingSourceReaders;
 use product_listing_opensearch::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
 };
 use product_listing_postgres::{
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingContentAssessmentReader,
-    SqlxProductListingDetailsBatchReader, SqlxProductListingDetailsReaderFactory,
-    SqlxProductListingEmbeddingReaderFactory, SqlxProductListingEventReaderFactory,
-    SqlxProductListingEventStoreFactory, SqlxProductListingRepositoryFactory,
-    SqlxProductListingUserStateReader, SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxListingSourceSummaryReader, SqlxPartnerProductListingAuthorizerFactory,
+    SqlxProductListingContentAssessmentReader, SqlxProductListingDetailsBatchReader,
+    SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
+    SqlxProductListingEventReaderFactory, SqlxProductListingEventStoreFactory,
+    SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
+    SqlxProductListingWatchlistDetailsReaderFactory,
 };
 use product_listing_service::use_cases::{
     CreateProductListingHandler, GetProductListingEventsHandler, GetProductListingHandler,
@@ -108,8 +110,7 @@ use shop_partner_service::use_cases::{
 };
 use shop_postgres::{
     SqlxPartnerShopReaderFactory, SqlxShopDetailsReaderFactory, SqlxShopRepositoryFactory,
-    SqlxShopSearchReaderFactory, SqlxWoocommerceWebhookShopReaderFactory,
-    SqlxWoocommerceWebhookSignatureVerifierFactory,
+    SqlxShopSearchReaderFactory,
 };
 use shop_service::use_cases::commands::create_shop::CreateShopHandler;
 use shop_service::use_cases::commands::update_shop::UpdateShopHandler;
@@ -757,6 +758,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxProductListingEmbeddingReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
         OpenSearchProductListingSimilarProductListingsReader::new(opensearch_client.clone()),
+        SqlxListingSourceSummaryReader::new(pool.clone()),
         product_user_states.clone(),
         SqlxProductListingContentAssessmentReader::new(pool.clone()),
     );
@@ -765,6 +767,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         OpenSearchProductListingSearchReader::new(opensearch_client.clone()),
         SqlxFxRateSnapshotRepositoryFactory,
         Arc::clone(&embeddings),
+        SqlxListingSourceSummaryReader::new(pool.clone()),
         product_user_states,
         SqlxProductListingContentAssessmentReader::new(pool.clone()),
     );
@@ -802,8 +805,8 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxProductListingRepositoryFactory::new(),
         SqlxProductListingEventStoreFactory::new(),
         SqlxPartnerProductListingAuthorizerFactory::new(),
-        SqlxWoocommerceWebhookShopReaderFactory::new(),
-        SqlxWoocommerceWebhookSignatureVerifierFactory::new(),
+        SqlxListingSourceReaders::new(pool.clone()),
+        SqlxListingSourceReaders::new(pool.clone()),
     );
     let list_watchlist = ListWatchlistHandler::new(
         unit_of_work.clone(),
