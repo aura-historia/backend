@@ -168,10 +168,12 @@ mod tests {
             NotificationContent::PartnershipApplication {
                 partnership_application_id: PartnershipApplicationId::new(),
                 snapshot: PartnershipApplicationNotificationSnapshot {
-                    party_name: PartyName::from("Northwind Antiques"),
-                    listing_source_name: listing_source_core::ListingSourceName::from(
+                    party_name: PartyName::try_from("Northwind Antiques")
+                        .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
+                    listing_source_name: listing_source_core::ListingSourceName::try_from(
                         "Northwind Source",
-                    ),
+                    )
+                    .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
                     image: None,
                 },
                 decision: PartnershipApplicationDecision::Approved,

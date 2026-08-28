@@ -1,3 +1,4 @@
+use crate::party_id::PartyId;
 use std::{fmt::Display, ops::Deref};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
@@ -10,6 +11,8 @@ pub struct InvalidPartySlugId {
 pub struct PartySlugId(String);
 
 impl PartySlugId {
+    pub const FALLBACK_PREFIX: &str = "party";
+
     pub fn raw(value: impl AsRef<str>) -> Result<Self, InvalidPartySlugId> {
         let value = value.as_ref();
         if !value.is_empty()
@@ -27,11 +30,12 @@ impl PartySlugId {
             })
         }
     }
-}
 
-impl From<&str> for PartySlugId {
-    fn from(value: &str) -> Self {
-        Self(slug::slugify(value))
+    pub(crate) fn derive(name: &str, party_id: PartyId) -> Self {
+        match Self::raw(slug::slugify(name)) {
+            Ok(slug_id) => slug_id,
+            Err(_) => Self(format!("{}-{party_id}", Self::FALLBACK_PREFIX)),
+        }
     }
 }
 

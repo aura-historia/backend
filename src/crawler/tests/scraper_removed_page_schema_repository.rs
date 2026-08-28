@@ -34,7 +34,11 @@ fn make_listing_source_removed_page_schemas(
 }
 
 async fn insert_shop(pool: &PgPool, listing_source_id: ListingSourceId) {
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, created, updated) VALUES ($1, NOW(), NOW())")
+    sqlx::query(
+            "INSERT INTO listing_sources \
+             (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+             VALUES ($1, 'Test source', 'test-source', TRUE, NOW(), NOW())",
+        )
         .bind(Uuid::from(listing_source_id))
         .execute(pool)
         .await

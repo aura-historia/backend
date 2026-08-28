@@ -5,7 +5,7 @@ use crate::state::ListingSourcesState;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use listing_source_core::ListingSourcePresentation;
+use listing_source_core::{ListingSourceName, ListingSourcePresentation};
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceCommand;
 
 pub async fn create_listing_source(
@@ -30,10 +30,23 @@ pub async fn create_listing_source(
         Ok(value) => listing_source_service::ports::ListingSourceAcquisitionConfigurations(value),
         Err(error) => return error.into_response(),
     };
+    let operator: listing_source_service::use_cases::commands::create_listing_source::ListingSourceOperator =
+        match data.operator.try_into() {
+        Ok(value) => value,
+        Err(error) => return error.into_response(),
+    };
+    let name = match ListingSourceName::try_from(data.name) {
+        Ok(value) => value,
+        Err(_) => {
+            return ApiError::bad_request(BAD_BODY_VALUE)
+                .with_detail("name must be nonblank and at most 255 UTF-8 bytes.")
+                .into_response();
+        }
+    };
+
     let command = CreateListingSourceCommand {
-        name: data.name.into(),
-        operator: data.operator.into(),
-        acquisition_methods: data.acquisition_methods,
+        name,
+        operator,
         acquisition_configuration,
         woocommerce_webhook_secret: data.woocommerce_webhook_secret,
         presentation: ListingSourcePresentation {

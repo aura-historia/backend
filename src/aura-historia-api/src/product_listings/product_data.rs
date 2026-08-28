@@ -51,6 +51,7 @@ pub(crate) struct ProductListingDetailsData {
     product_listing_slug_id: ProductListingSlugId,
     event_id: EventId,
     source: ListingSourceSummaryData,
+    #[serde(serialize_with = "crate::wire::source_listing_id::serialize")]
     source_listing_id: SourceListingId,
     #[serde(skip_serializing_if = "Option::is_none")]
     product_title: Option<LocalizedTextData>,
@@ -144,6 +145,7 @@ pub(crate) struct ProductListingSummaryData {
     product_listing_slug_id: ProductListingSlugId,
     event_id: EventId,
     source: ListingSourceSummaryData,
+    #[serde(serialize_with = "crate::wire::source_listing_id::serialize")]
     source_listing_id: SourceListingId,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<LocalizedTextData>,

@@ -385,10 +385,12 @@ fn product_source(
         product_listing_slug_id: ProductListingSlugId::from("test-product"),
         source: ListingSourceSummary {
             listing_source_id: ListingSourceId::new(),
-            name: ListingSourceName::from("Test source"),
+            name: ListingSourceName::try_from("Test source")
+                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
             slug_id: ListingSourceSlugId::from("test-source"),
         },
-        source_listing_id: SourceListingId::from("test-product-1"),
+        source_listing_id: SourceListingId::try_from("test-product-1")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
         product_title: Some(Localized::new(Language::En, title.clone())),
         product_description: None,
         titles: std::collections::HashMap::from([(Language::En, title)]),

@@ -112,19 +112,17 @@ impl PartyRepository for SqlxPartyRepository<'_> {
             r#"
             UPDATE parties
             SET
-                party_slug_id = $1,
-                name = $2,
-                phone = $3,
-                email = $4,
+                name = $1,
+                phone = $2,
+                email = $3,
                 version = version + 1,
                 updated = now()
-            WHERE party_id = $5 AND version = $6
+            WHERE party_id = $4 AND version = $5
             RETURNING "#,
         );
         builder.push(party_columns());
         let row = builder
             .build_query_as::<PartyRow>()
-            .bind(party.slug_id().as_ref())
             .bind(party.name().as_ref())
             .bind(party.contact().phone.as_deref())
             .bind(party.contact().email.as_ref().map(ToString::to_string))

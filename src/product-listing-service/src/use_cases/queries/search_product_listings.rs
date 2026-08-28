@@ -832,7 +832,10 @@ mod tests {
                         listing_source_id,
                         ListingSourceSummary {
                             listing_source_id,
-                            name: listing_source_core::ListingSourceName::from("Source"),
+                            name: listing_source_core::ListingSourceName::try_from("Source")
+                                .unwrap_or_else(|error| {
+                                    panic!("invalid test listing source name: {error}")
+                                }),
                             slug_id: listing_source_core::ListingSourceSlugId::from("source"),
                         },
                     )
@@ -957,7 +960,8 @@ mod tests {
                 product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
                 event_id: EventId::new(),
                 listing_source_id: ListingSourceId::new(),
-                source_listing_id: SourceListingId::from("cabinet-1"),
+                source_listing_id: SourceListingId::try_from("cabinet-1")
+                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                 title: Some(Localized {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),
@@ -988,7 +992,8 @@ mod tests {
         ProductListingSearchItemWithSource {
             source: ListingSourceSummary {
                 listing_source_id: item.listing_source_id,
-                name: listing_source_core::ListingSourceName::from("Source"),
+                name: listing_source_core::ListingSourceName::try_from("Source")
+                    .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
                 slug_id: listing_source_core::ListingSourceSlugId::from("source"),
             },
             item,

@@ -76,7 +76,6 @@ use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
 use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
-use listing_source_core::ListingSourceSlugId;
 use listing_source_postgres::SqlxListingSourceReaders;
 use listing_source_service::ports::WebCrawlSourceReader;
 use platform_postgres::SqlxUnitOfWork;
@@ -118,16 +117,11 @@ impl ListingSourceRegistrationSource for PostgresWebCrawlSource {
             .map_err(|error| ListingSourceSyncError::FetchError(error.to_string()))?
             .into_iter()
             .map(|source| {
-                let host = source.url.host_str().ok_or_else(|| {
-                    ListingSourceSyncError::FetchError(
-                        "web crawl source URL has no host".to_owned(),
-                    )
-                })?;
                 Ok(RegisteredListingSource {
                     listing_source_id: source.listing_source_id,
-                    listing_source_name: host.to_owned(),
-                    listing_source_slug: ListingSourceSlugId::from(host).to_string(),
-                    present: true,
+                    listing_source_name: source.listing_source_name,
+                    listing_source_slug: source.listing_source_slug,
+                    crawl_enabled: source.web_crawl_enabled,
                 })
             })
             .collect()

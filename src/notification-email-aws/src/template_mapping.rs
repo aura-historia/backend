@@ -694,10 +694,14 @@ mod tests {
                 product_listing_id: ProductListingId::new(),
                 snapshot: ProductListingNotificationSnapshot {
                     listing_source_id: ListingSourceId::new(),
-                    source_listing_id: SourceListingId::from("source-product"),
+                    source_listing_id: SourceListingId::try_from("source-product")
+                        .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                     listing_source_slug_id: ListingSourceSlugId::from("test-source"),
                     product_listing_slug_id: ProductListingSlugId::from("product"),
-                    listing_source_name: ListingSourceName::from("Test Listing Source"),
+                    listing_source_name: ListingSourceName::try_from("Test Listing Source")
+                        .unwrap_or_else(|error| {
+                            panic!("invalid test listing source name: {error}")
+                        }),
                     title: None,
                     image: Some(Url::parse("https://shop.example/image.jpg")?),
                     content_policy,

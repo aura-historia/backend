@@ -43,6 +43,9 @@ CREATE TABLE parties (
     version bigint NOT NULL DEFAULT 1,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT parties_party_slug_id_format CHECK (party_slug_id ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+    CONSTRAINT parties_name_nonblank CHECK (length(trim(name)) > 0),
+    CONSTRAINT parties_name_max_bytes CHECK (octet_length(name) <= 255),
     CONSTRAINT parties_version_positive CHECK (version >= 1)
 );
 
@@ -57,6 +60,9 @@ CREATE TABLE listing_sources (
     version bigint NOT NULL DEFAULT 1,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT listing_sources_listing_source_slug_id_format CHECK (listing_source_slug_id ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+    CONSTRAINT listing_sources_name_nonblank CHECK (length(trim(name)) > 0),
+    CONSTRAINT listing_sources_name_max_bytes CHECK (octet_length(name) <= 255),
     CONSTRAINT listing_sources_referral_configuration_object CHECK (referral_configuration IS NULL OR jsonb_typeof(referral_configuration) = 'object'),
     CONSTRAINT listing_sources_version_positive CHECK (version >= 1)
 );
@@ -118,6 +124,8 @@ CREATE TABLE partnership_applications (
     applicant_user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     business_state text NOT NULL,
     proposal jsonb NOT NULL,
+    approved_partnership_id uuid REFERENCES partnerships(partnership_id),
+    approved_listing_source_id uuid REFERENCES listing_sources(listing_source_id),
     version bigint NOT NULL DEFAULT 1,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
@@ -136,6 +144,14 @@ CREATE TABLE partnership_applications (
                 AND jsonb_typeof(proposal->'listing_source') = 'object'
             )
         )
+    ),
+    CONSTRAINT partnership_applications_approval_result_check CHECK (
+        (business_state = 'APPROVED'
+            AND approved_partnership_id IS NOT NULL
+            AND approved_listing_source_id IS NOT NULL)
+        OR (business_state <> 'APPROVED'
+            AND approved_partnership_id IS NULL
+            AND approved_listing_source_id IS NULL)
     ),
     CONSTRAINT partnership_applications_version_positive CHECK (version >= 1)
 );
@@ -199,6 +215,10 @@ CREATE TABLE product_listings (
     updated timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT product_listings_listing_source_listing_unique UNIQUE (listing_source_id, source_listing_id),
     CONSTRAINT product_listings_slug_unique UNIQUE (product_listing_slug_id),
+    CONSTRAINT product_listings_source_listing_id_check CHECK (
+        octet_length(source_listing_id) BETWEEN 1 AND 512
+        AND source_listing_id !~ '(^[[:space:]]|[[:space:]]$)'
+    ),
     CONSTRAINT product_listings_availability_check CHECK (availability IS NULL OR availability IN ('AVAILABLE', 'IN_STOCK', 'LIMITED_AVAILABILITY', 'BACK_ORDER', 'MADE_TO_ORDER', 'PRE_ORDER', 'PRE_SALE', 'UNAVAILABLE', 'RESERVED', 'OUT_OF_STOCK', 'SOLD_OUT')),
     CONSTRAINT product_listings_lifecycle_check CHECK (lifecycle IN ('ACTIVE', 'WITHDRAWN')),
     CONSTRAINT product_listings_withdrawn_availability_check CHECK (lifecycle <> 'WITHDRAWN' OR availability IS NULL),

@@ -1,7 +1,9 @@
 use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::patch_value::{PatchValue, clearable, non_nullable_patch};
 use application::patch_field::PatchField;
-use listing_source_core::{AcquisitionMethod, Domain, ListingSourceId, ReferralConfiguration};
+use listing_source_core::{
+    AcquisitionMethod, Domain, ListingSourceId, ListingSourceName, ReferralConfiguration,
+};
 use listing_source_service::ports::{
     AcquisitionConfiguration, ListingSourceAcquisitionConfigurations, ListingSourceDetails,
 };
@@ -14,7 +16,7 @@ use party_core::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::str::FromStr;
+
 use url::Url;
 use uuid::Uuid;
 
@@ -23,8 +25,7 @@ use uuid::Uuid;
 pub(crate) struct CreateListingSourceData {
     pub(crate) name: String,
     pub(crate) operator: ListingSourceOperatorData,
-    #[serde(deserialize_with = "deserialize_acquisition_methods")]
-    pub(crate) acquisition_methods: HashSet<AcquisitionMethod>,
+
     pub(crate) acquisition_configuration: Vec<AcquisitionConfigurationData>,
     #[serde(default)]
     pub(crate) woocommerce_webhook_secret: Option<String>,
@@ -52,17 +53,22 @@ pub(crate) enum ListingSourceOperatorData {
     },
 }
 
-impl From<ListingSourceOperatorData> for ListingSourceOperator {
-    fn from(value: ListingSourceOperatorData) -> Self {
+impl TryFrom<ListingSourceOperatorData> for ListingSourceOperator {
+    type Error = ApiError;
+
+    fn try_from(value: ListingSourceOperatorData) -> Result<Self, Self::Error> {
         match value {
             ListingSourceOperatorData::Existing { party_id } => {
-                Self::Existing(PartyId::from(party_id))
+                Ok(Self::Existing(PartyId::from(party_id)))
             }
-            ListingSourceOperatorData::New { name, phone, email } => Self::New(NewParty {
+            ListingSourceOperatorData::New { name, phone, email } => Ok(Self::New(NewParty {
                 id: PartyId::new(),
-                name: PartyName::from(name),
+                name: PartyName::try_from(name).map_err(|_| {
+                    ApiError::bad_request(BAD_BODY_VALUE)
+                        .with_detail("operator.name must be nonblank and at most 255 UTF-8 bytes.")
+                })?,
                 contact: PartyContact { phone, email },
-            }),
+            })),
         }
     }
 }
@@ -72,10 +78,7 @@ impl From<ListingSourceOperatorData> for ListingSourceOperator {
 pub(crate) struct UpdateListingSourceData {
     #[serde(default)]
     pub(crate) name: PatchValue<String>,
-    #[serde(default)]
-    pub(crate) operator_party_id: PatchValue<Uuid>,
-    #[serde(default, deserialize_with = "deserialize_patch_acquisition_methods")]
-    pub(crate) acquisition_methods: PatchValue<HashSet<AcquisitionMethod>>,
+
     #[serde(default)]
     pub(crate) acquisition_configuration: PatchValue<Vec<AcquisitionConfigurationData>>,
     #[serde(default)]
@@ -91,15 +94,13 @@ pub(crate) struct UpdateListingSourceData {
 impl UpdateListingSourceData {
     pub(crate) fn into_parts(self) -> Result<UpdateListingSourceDataParts, ApiError> {
         Ok(UpdateListingSourceDataParts {
-            name: map_patch(non_nullable_patch(self.name, "name")?, Into::into),
-            operator_party_id: map_patch(
-                non_nullable_patch(self.operator_party_id, "operatorPartyId")?,
-                Into::into,
-            ),
-            acquisition_methods: non_nullable_patch(
-                self.acquisition_methods,
-                "acquisitionMethods",
-            )?,
+            name: map_patch_result(non_nullable_patch(self.name, "name")?, |value| {
+                ListingSourceName::try_from(value).map_err(|_| {
+                    ApiError::bad_request(BAD_BODY_VALUE)
+                        .with_detail("name must be nonblank and at most 255 UTF-8 bytes.")
+                })
+            })?,
+
             acquisition_configuration: map_patch_result(
                 non_nullable_patch(self.acquisition_configuration, "acquisitionConfiguration")?,
                 configurations,
@@ -114,8 +115,7 @@ impl UpdateListingSourceData {
 
 pub(crate) struct UpdateListingSourceDataParts {
     pub(crate) name: PatchField<listing_source_core::ListingSourceName>,
-    pub(crate) operator_party_id: PatchField<party_core::party_id::PartyId>,
-    pub(crate) acquisition_methods: PatchField<HashSet<AcquisitionMethod>>,
+
     pub(crate) acquisition_configuration: PatchField<ListingSourceAcquisitionConfigurations>,
     pub(crate) woocommerce_webhook_secret: PatchField<String>,
     pub(crate) url: PatchField<Url>,
@@ -126,14 +126,6 @@ pub(crate) struct UpdateListingSourceDataParts {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 pub(crate) enum AcquisitionConfigurationData {
-    #[serde(rename = "UNCONFIGURED")]
-    Unconfigured {
-        #[serde(
-            rename = "acquisitionMethod",
-            deserialize_with = "deserialize_acquisition_method"
-        )]
-        acquisition_method: AcquisitionMethod,
-    },
     #[serde(rename = "WEB_CRAWL")]
     WebCrawl,
     #[serde(rename = "SHOPIFY")]
@@ -160,9 +152,6 @@ impl TryFrom<AcquisitionConfigurationData> for AcquisitionConfiguration {
 
     fn try_from(value: AcquisitionConfigurationData) -> Result<Self, Self::Error> {
         match value {
-            AcquisitionConfigurationData::Unconfigured { acquisition_method } => {
-                Ok(Self::Unconfigured(acquisition_method))
-            }
             AcquisitionConfigurationData::WebCrawl => Ok(Self::WebCrawl),
             AcquisitionConfigurationData::Shopify {
                 domain,
@@ -306,14 +295,6 @@ impl From<AcquisitionMethod> for AcquisitionMethodData {
     }
 }
 
-fn map_patch<T, U>(value: PatchField<T>, map: impl FnOnce(T) -> U) -> PatchField<U> {
-    match value {
-        PatchField::Unchanged => PatchField::Unchanged,
-        PatchField::Set(value) => PatchField::Set(map(value)),
-        PatchField::Clear => PatchField::Clear,
-    }
-}
-
 fn map_patch_result<T, U>(
     value: PatchField<T>,
     map: impl FnOnce(T) -> Result<U, ApiError>,
@@ -359,41 +340,6 @@ fn invalid_body(field: &str) -> ApiError {
     ApiError::bad_request(BAD_BODY_VALUE).with_detail(format!("Body field '{field}' is invalid."))
 }
 
-fn deserialize_acquisition_method<'de, D>(deserializer: D) -> Result<AcquisitionMethod, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = String::deserialize(deserializer)?;
-    AcquisitionMethod::from_str(&value).map_err(serde::de::Error::custom)
-}
-
-fn deserialize_acquisition_methods<'de, D>(
-    deserializer: D,
-) -> Result<HashSet<AcquisitionMethod>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Vec::<String>::deserialize(deserializer)?
-        .into_iter()
-        .map(|value| AcquisitionMethod::from_str(&value).map_err(serde::de::Error::custom))
-        .collect()
-}
-
-fn deserialize_patch_acquisition_methods<'de, D>(
-    deserializer: D,
-) -> Result<PatchValue<HashSet<AcquisitionMethod>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Option::<Vec<String>>::deserialize(deserializer)?.map_or(Ok(PatchValue::Null), |values| {
-        values
-            .into_iter()
-            .map(|value| AcquisitionMethod::from_str(&value).map_err(serde::de::Error::custom))
-            .collect::<Result<HashSet<_>, _>>()
-            .map(PatchValue::Value)
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,22 +350,20 @@ mod tests {
             r#"{
                 "name":"Source",
                 "operator":{"type":"EXISTING","partyId":"550e8400-e29b-41d4-a716-446655440000"},
-                "acquisitionMethods":["WEB_CRAWL","PARTNER_API"],
                 "acquisitionConfiguration":[{"type":"WEB_CRAWL"},{"type":"PARTNER_API"}]
             }"#,
         )?;
 
-        assert_eq!(2, source.acquisition_methods.len());
-        assert!(
-            source
-                .acquisition_methods
-                .contains(&AcquisitionMethod::WebCrawl)
-        );
-        assert!(
-            source
-                .acquisition_methods
-                .contains(&AcquisitionMethod::PartnerApi)
-        );
+        assert_eq!(2, source.acquisition_configuration.len());
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_invalid_listing_source_name_when_mapping_update()
+    -> Result<(), serde_json::Error> {
+        let update: UpdateListingSourceData = serde_json::from_str(r#"{"name":"\u2003"}"#)?;
+
+        assert!(update.into_parts().is_err());
         Ok(())
     }
 }

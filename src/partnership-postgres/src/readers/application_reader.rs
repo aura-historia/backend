@@ -33,7 +33,7 @@ impl PartnershipApplicationReader for Reader<'_> {
         &mut self,
         user_id: UserId,
     ) -> Result<Vec<PartnershipApplicationView>, PartnershipApplicationReadError> {
-        let rows=sqlx::query_as::<_,ApplicationRow>("SELECT partnership_application_id, applicant_user_id, business_state, proposal, version FROM partnership_applications WHERE applicant_user_id=$1 ORDER BY created DESC").bind(uuid::Uuid::from(user_id)).fetch_all(&mut*self.connection).await.map_err(|e|PartnershipApplicationReadError::TemporarilyUnavailable{source:box_error(e)})?;
+        let rows=sqlx::query_as::<_,ApplicationRow>("SELECT partnership_application_id, applicant_user_id, business_state, proposal, approved_partnership_id, approved_listing_source_id, version FROM partnership_applications WHERE applicant_user_id=$1 ORDER BY created DESC").bind(uuid::Uuid::from(user_id)).fetch_all(&mut*self.connection).await.map_err(|e|PartnershipApplicationReadError::TemporarilyUnavailable{source:box_error(e)})?;
         rows.into_iter()
             .map(view)
             .collect::<Result<Vec<_>, _>>()
@@ -44,7 +44,7 @@ impl PartnershipApplicationReader for Reader<'_> {
     async fn list_all(
         &mut self,
     ) -> Result<Vec<PartnershipApplicationView>, PartnershipApplicationReadError> {
-        let rows = sqlx::query_as::<_, ApplicationRow>("SELECT partnership_application_id, applicant_user_id, business_state, proposal, version FROM partnership_applications ORDER BY created DESC")
+        let rows = sqlx::query_as::<_, ApplicationRow>("SELECT partnership_application_id, applicant_user_id, business_state, proposal, approved_partnership_id, approved_listing_source_id, version FROM partnership_applications ORDER BY created DESC")
         .fetch_all(&mut *self.connection)
         .await
         .map_err(

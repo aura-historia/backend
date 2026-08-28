@@ -31,14 +31,22 @@ fn detail(row: DetailRow) -> Result<ListingSourceDetails, ListingSourceReadError
                 source: box_error(error),
             }
         })?,
-        name: ListingSourceName::from(row.name),
+        name: ListingSourceName::try_from(row.name).map_err(|error| {
+            ListingSourceReadError::InvalidReadModel {
+                source: box_error(error),
+            }
+        })?,
         operator_party_id: PartyId::from(row.operator_party_id),
         operator_slug_id: PartySlugId::raw(row.party_slug_id).map_err(|error| {
             ListingSourceReadError::InvalidReadModel {
                 source: box_error(error),
             }
         })?,
-        operator_name: PartyName::from(row.operator_name),
+        operator_name: PartyName::try_from(row.operator_name).map_err(|error| {
+            ListingSourceReadError::InvalidReadModel {
+                source: box_error(error),
+            }
+        })?,
         acquisition_methods: row
             .methods
             .into_iter()
@@ -66,8 +74,8 @@ fn detail(row: DetailRow) -> Result<ListingSourceDetails, ListingSourceReadError
     })
 }
 
-const DETAIL_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.operator_party_id,p.party_slug_id,p.name AS operator_name,array_agg(m.acquisition_method) AS methods,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN listing_source_acquisition_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_id=$1 GROUP BY s.listing_source_id,p.party_id";
-const DETAIL_BY_SLUG_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.operator_party_id,p.party_slug_id,p.name AS operator_name,array_agg(m.acquisition_method) AS methods,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN listing_source_acquisition_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_slug_id=$1 GROUP BY s.listing_source_id,p.party_id";
+const DETAIL_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.operator_party_id,p.party_slug_id,p.name AS operator_name,COALESCE(array_agg(m.acquisition_method) FILTER (WHERE m.acquisition_method IS NOT NULL), ARRAY[]::text[]) AS methods,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN listing_source_acquisition_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_id=$1 GROUP BY s.listing_source_id,p.party_id";
+const DETAIL_BY_SLUG_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.operator_party_id,p.party_slug_id,p.name AS operator_name,COALESCE(array_agg(m.acquisition_method) FILTER (WHERE m.acquisition_method IS NOT NULL), ARRAY[]::text[]) AS methods,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN listing_source_acquisition_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_slug_id=$1 GROUP BY s.listing_source_id,p.party_id";
 
 #[async_trait::async_trait]
 impl ListingSourceDetailsReader for SqlxListingSourceReaders {

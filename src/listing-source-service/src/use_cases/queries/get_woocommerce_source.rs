@@ -70,7 +70,7 @@ where
             .ok_or(GetWoocommerceSourceError::NotFound)?;
         if !self
             .partnership_grants
-            .can_access_source(&context.principal, source.operator_party_id)
+            .can_access_source(&context.principal, source.listing_source_id)
             .await
             .map_err(map_read)?
         {
@@ -94,7 +94,6 @@ fn map_read(error: ListingSourceReadError) -> GetWoocommerceSourceError {
 mod tests {
     use super::*;
     use application::operation_context::{CorrelationId, Principal, RequestId};
-    use party_core::party_id::PartyId;
     struct Reader(WoocommerceSource);
     #[async_trait::async_trait]
     impl WoocommerceSourceReader for Reader {
@@ -111,7 +110,7 @@ mod tests {
         async fn can_access_source(
             &self,
             _: &Principal,
-            _: PartyId,
+            _: ListingSourceId,
         ) -> Result<bool, ListingSourceReadError> {
             Ok(self.0)
         }
@@ -119,7 +118,6 @@ mod tests {
     fn source() -> WoocommerceSource {
         WoocommerceSource {
             listing_source_id: ListingSourceId::new(),
-            operator_party_id: PartyId::new(),
             currency: None,
             language: None,
         }

@@ -166,7 +166,8 @@ pub(super) fn generated_single_product(
 pub(super) fn normalized_product(url: Url) -> NormalizedProduct {
     let title: Title = "Biedermeier Chair".into();
     NormalizedProduct {
-        source_listing_id: SourceListingId::from("SKU-42"),
+        source_listing_id: SourceListingId::try_from("SKU-42")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
         title: Localized::new(Language::De, title),
         description: None,
         price: None,

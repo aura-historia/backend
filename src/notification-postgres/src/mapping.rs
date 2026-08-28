@@ -64,6 +64,8 @@ pub(crate) enum NotificationMappingError {
     PayloadSerialization(#[source] serde_json::Error),
     #[error("notification payload is invalid")]
     InvalidPayload(#[source] serde_json::Error),
+    #[error("notification payload contains an invalid value")]
+    InvalidPayloadValue,
     #[error("notification content policy is invalid")]
     InvalidContentPolicy,
     #[error("notification source columns do not match its kind")]
@@ -198,7 +200,7 @@ fn deserialize_source_listing_id<'de, D>(deserializer: D) -> Result<SourceListin
 where
     D: serde::Deserializer<'de>,
 {
-    Ok(SourceListingId::from(String::deserialize(deserializer)?))
+    SourceListingId::try_from(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
 }
 
 fn serialize_listing_source_slug_id<S>(
@@ -234,7 +236,8 @@ fn deserialize_listing_source_name<'de, D>(deserializer: D) -> Result<ListingSou
 where
     D: serde::Deserializer<'de>,
 {
-    Ok(ListingSourceName::from(String::deserialize(deserializer)?))
+    ListingSourceName::try_from(String::deserialize(deserializer)?)
+        .map_err(serde::de::Error::custom)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -412,15 +415,21 @@ impl From<&PartnershipApplicationNotificationSnapshot>
     }
 }
 
-impl From<PartnershipApplicationNotificationSnapshotV1>
+impl TryFrom<PartnershipApplicationNotificationSnapshotV1>
     for PartnershipApplicationNotificationSnapshot
 {
-    fn from(snapshot: PartnershipApplicationNotificationSnapshotV1) -> Self {
-        Self {
-            party_name: PartyName::from(snapshot.party_name),
-            listing_source_name: ListingSourceName::from(snapshot.listing_source_name),
+    type Error = NotificationMappingError;
+
+    fn try_from(
+        snapshot: PartnershipApplicationNotificationSnapshotV1,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            party_name: PartyName::try_from(snapshot.party_name)
+                .map_err(|_| NotificationMappingError::InvalidPayloadValue)?,
+            listing_source_name: ListingSourceName::try_from(snapshot.listing_source_name)
+                .map_err(|_| NotificationMappingError::InvalidPayloadValue)?,
             image: snapshot.image,
-        }
+        })
     }
 }
 
@@ -575,7 +584,7 @@ impl TryFrom<NotificationRow> for Notification {
                 partnership_application_id: PartnershipApplicationId::from(
                     partnership_application_id,
                 ),
-                snapshot: snapshot.into(),
+                snapshot: snapshot.try_into()?,
                 decision: if kind == NotificationKind::PartnershipApplicationApproved {
                     PartnershipApplicationDecision::Approved
                 } else {
@@ -741,10 +750,12 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let snapshot = ProductListingNotificationSnapshot {
             listing_source_id: ListingSourceId::from(uuid::Uuid::nil()),
-            source_listing_id: SourceListingId::from("source-listing-42"),
+            source_listing_id: SourceListingId::try_from("source-listing-42")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             listing_source_slug_id: ListingSourceSlugId::raw("northwind-source")?,
             product_listing_slug_id: ProductListingSlugId::raw("rare-vase-000000")?,
-            listing_source_name: ListingSourceName::from("Northwind Source"),
+            listing_source_name: ListingSourceName::try_from("Northwind Source")
+                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
             title: None,
             image: None,
             content_policy: None,
@@ -775,6 +786,25 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn should_reject_invalid_persisted_listing_source_name() {
+        let result =
+            serde_json::from_value::<ProductListingNotificationSnapshotV1>(serde_json::json!({
+                "listing_source_id": "00000000-0000-0000-0000-000000000000",
+                "source_listing_id": "source-listing-42",
+                "listing_source_slug_id": "northwind-source",
+                "product_listing_slug_id": "rare-vase-000000",
+                "listing_source_name": "\u{2003}",
+                "title": null,
+                "image": null,
+                "content_policy": null,
+                "url": "https://source.example/listings/42",
+                "view_url": "https://aura.example/listings/rare-vase"
+            }));
+
+        assert!(result.is_err());
     }
 
     #[test]
@@ -848,8 +878,11 @@ mod tests {
             NotificationContent::PartnershipApplication {
                 partnership_application_id: PartnershipApplicationId::new(),
                 snapshot: PartnershipApplicationNotificationSnapshot {
-                    party_name: PartyName::from("Northwind Antiques"),
-                    listing_source_name: ListingSourceName::from("Northwind Source"),
+                    party_name: PartyName::try_from("Northwind Antiques")?,
+                    listing_source_name: ListingSourceName::try_from("Northwind Source")
+                        .unwrap_or_else(|error| {
+                            panic!("invalid test listing source name: {error}")
+                        }),
                     image: None,
                 },
                 decision: PartnershipApplicationDecision::Approved,
@@ -885,8 +918,11 @@ mod tests {
             NotificationContent::PartnershipApplication {
                 partnership_application_id: PartnershipApplicationId::new(),
                 snapshot: PartnershipApplicationNotificationSnapshot {
-                    party_name: PartyName::from("Northwind Antiques"),
-                    listing_source_name: ListingSourceName::from("Northwind Source"),
+                    party_name: PartyName::try_from("Northwind Antiques")?,
+                    listing_source_name: ListingSourceName::try_from("Northwind Source")
+                        .unwrap_or_else(|error| {
+                            panic!("invalid test listing source name: {error}")
+                        }),
                     image: None,
                 },
                 decision: PartnershipApplicationDecision::Rejected,

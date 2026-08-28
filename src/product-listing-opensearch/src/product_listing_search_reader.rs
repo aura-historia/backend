@@ -853,7 +853,8 @@ mod tests {
             product_listing_id: ProductListingId::new(),
             product_listing_slug_id: ProductListingSlugId::from("vase-abcdef"),
             listing_source_id: ListingSourceId::new(),
-            source_listing_id: SourceListingId::from("sku-1"),
+            source_listing_id: SourceListingId::try_from("sku-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             event_id: EventId::new(),
             title: TextDocument::new("Vase", Language::En),
             title_de: None,

@@ -478,6 +478,14 @@ mod tests {
                 .map(|application| Versioned::new(application, version)))
         }
 
+        async fn find_by_id_for_update(
+            &mut self,
+            id: PartnershipApplicationId,
+        ) -> Result<Option<VersionedPartnershipApplication>, PartnershipApplicationRepositoryError>
+        {
+            self.find_by_id(id).await
+        }
+
         async fn find_by_user_and_id(
             &mut self,
             user_id: user_core::user_id::UserId,
@@ -668,9 +676,11 @@ mod tests {
                 id: PartnershipApplicationId::new(),
                 applicant_user_id: user_core::user_id::UserId::new(),
                 state: PartnershipApplicationState::InReview,
+                approval_result: None,
                 proposal: PartnershipProposal::ProposedListingSource {
                     party: partnership_core::partnership_application::ProposedParty {
-                        name: PartyName::from("Northwind Antiques"),
+                        name: PartyName::try_from("Northwind Antiques")
+                            .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
                         contact: PartyContact {
                             phone: None,
                             email: None,
@@ -678,7 +688,12 @@ mod tests {
                     },
                     listing_source:
                         partnership_core::partnership_application::ProposedListingSource {
-                            name: listing_source_core::ListingSourceName::from("Northwind Source"),
+                            name: listing_source_core::ListingSourceName::try_from(
+                                "Northwind Source",
+                            )
+                            .unwrap_or_else(|error| {
+                                panic!("invalid test listing source name: {error}")
+                            }),
                             presentation: ListingSourcePresentation {
                                 url: None,
                                 image: None,
@@ -690,6 +705,7 @@ mod tests {
                 },
             },
         )
+        .unwrap_or_else(|error| panic!("valid test application: {error}"))
     }
 
     fn handler(

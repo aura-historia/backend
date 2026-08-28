@@ -1,3 +1,4 @@
+use crate::error::{ApiError, BAD_BODY_VALUE};
 use listing_source_core::{
     AcquisitionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
 };
@@ -33,7 +34,7 @@ pub(super) enum PartnershipProposalData {
     #[serde(rename = "PROPOSED_LISTING_SOURCE")]
     ProposedListingSource {
         party: ProposedPartyData,
-        listing_source: ProposedListingSourceData,
+        listing_source: Box<ProposedListingSourceData>,
     },
 }
 
@@ -59,32 +60,42 @@ pub(super) struct ProposedListingSourceData {
     pub(super) requested_acquisition_methods: std::collections::HashSet<AcquisitionMethod>,
 }
 
-impl From<PartnershipProposalData> for PartnershipProposal {
-    fn from(value: PartnershipProposalData) -> Self {
+impl TryFrom<PartnershipProposalData> for PartnershipProposal {
+    type Error = ApiError;
+
+    fn try_from(value: PartnershipProposalData) -> Result<Self, Self::Error> {
         match value {
             PartnershipProposalData::ExistingListingSource { listing_source_id } => {
-                Self::ExistingListingSource { listing_source_id }
+                Ok(Self::ExistingListingSource { listing_source_id })
             }
             PartnershipProposalData::ProposedListingSource {
                 party,
                 listing_source,
-            } => Self::ProposedListingSource {
+            } => Ok(Self::ProposedListingSource {
                 party: ProposedParty {
-                    name: PartyName::from(party.name),
+                    name: PartyName::try_from(party.name).map_err(|_| {
+                        ApiError::bad_request(BAD_BODY_VALUE).with_detail(
+                            "proposal.party.name must be nonblank and at most 255 UTF-8 bytes.",
+                        )
+                    })?,
                     contact: PartyContact {
                         phone: party.phone,
                         email: party.email,
                     },
                 },
                 listing_source: ProposedListingSource {
-                    name: ListingSourceName::from(listing_source.name),
+                    name: ListingSourceName::try_from(listing_source.name).map_err(|_| {
+                        ApiError::bad_request(BAD_BODY_VALUE).with_detail(
+                            "proposal.listingSource.name must be nonblank and at most 255 UTF-8 bytes.",
+                        )
+                    })?,
                     presentation: ListingSourcePresentation {
                         url: listing_source.url,
                         image: listing_source.image,
                     },
                     requested_acquisition_methods: listing_source.requested_acquisition_methods,
                 },
-            },
+            }),
         }
     }
 }
@@ -166,12 +177,12 @@ fn proposal_data(value: &PartnershipProposal) -> PartnershipProposalData {
                 phone: party.contact.phone.clone(),
                 email: party.contact.email.clone(),
             },
-            listing_source: ProposedListingSourceData {
+            listing_source: Box::new(ProposedListingSourceData {
                 name: listing_source.name.to_string(),
                 url: listing_source.presentation.url.clone(),
                 image: listing_source.presentation.image.clone(),
                 requested_acquisition_methods: listing_source.requested_acquisition_methods.clone(),
-            },
+            }),
         },
     }
 }
@@ -209,11 +220,37 @@ mod tests {
             }
         }))?;
 
-        let proposal: PartnershipProposal = request.proposal.into();
+        let proposal: PartnershipProposal =
+            request.proposal.try_into().map_err(|error: ApiError| {
+                serde_json::Error::io(std::io::Error::other(error.to_string()))
+            })?;
         assert!(matches!(
             proposal,
             PartnershipProposal::ProposedListingSource { .. }
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn should_serialize_boxed_proposed_listing_source_with_unchanged_json_shape()
+    -> Result<(), serde_json::Error> {
+        let expected = json!({
+            "type": "PROPOSED_LISTING_SOURCE",
+            "party": {
+                "name": "Ada Antiques",
+                "phone": "+1-555-0100",
+                "email": "ada@example.com"
+            },
+            "listingSource": {
+                "name": "Ada Antiques",
+                "url": "https://ada.example/",
+                "image": "https://ada.example/image.png",
+                "requestedAcquisitionMethods": ["PARTNER_API"]
+            }
+        });
+        let proposal: PartnershipProposalData = serde_json::from_value(expected.clone())?;
+
+        assert_eq!(serde_json::to_value(proposal)?, expected);
         Ok(())
     }
 

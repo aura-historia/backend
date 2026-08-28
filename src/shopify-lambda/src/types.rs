@@ -72,6 +72,10 @@ pub enum ShopifyListingAction {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShopifyProductEventError {
+    #[error("Shopify product source listing ID is invalid")]
+    InvalidSourceListingId(
+        #[source] product_listing_core::source_listing_id::InvalidSourceListingId,
+    ),
     #[error("Shopify product title is missing")]
     MissingTitle,
     #[error("Shopify product handle is missing")]
@@ -113,7 +117,8 @@ impl ShopifyProductEventKind {
 
         Ok(IngestShopifyProductListingCommand {
             source_domain,
-            source_listing_id: SourceListingId::from(payload.id.to_string()),
+            source_listing_id: SourceListingId::try_from(payload.id.to_string())
+                .map_err(ShopifyProductEventError::InvalidSourceListingId)?,
             title,
             description: payload
                 .body_html

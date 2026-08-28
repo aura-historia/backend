@@ -89,6 +89,39 @@ async fn should_select_requested_translations_independently_and_preserve_origina
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_derive_partnerize_view_url_without_changing_raw_product_url() {
+    let pool = get_postgres_client().await;
+    let product = persist_product(&pool, "details-referral", None, None).await;
+    let config = serde_json::json!({"kind": "PARTNERIZE", "camref": "campaign"});
+    let result = sqlx::query(
+        "UPDATE listing_sources SET referral_configuration = $1 WHERE listing_source_id = $2",
+    )
+    .bind(config)
+    .bind(uuid::Uuid::from(product.listing_source_id()))
+    .execute(&pool)
+    .await;
+    if let Err(error) = result {
+        panic!("failed to configure listing-source referral: {error}");
+    }
+
+    let view = find_details(
+        &pool,
+        ProductListingDetailsReadRequest {
+            lookup: ProductListingLookup::ById(product.id()),
+            language: Language::En,
+            user_id: None,
+        },
+    )
+    .await;
+
+    assert_eq!("https://example.com/details-referral", view.url.as_str());
+    assert_eq!(
+        "https://prf.hn/click/camref:campaign/pubref:aurahistoria/destination:https%3A%2F%2Fexample.com%2Fdetails-referral",
+        view.view_url.as_str(),
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_fall_back_to_de_then_deterministic_remaining_translation_for_slug_lookup() {
     let pool = get_postgres_client().await;
     let listing_source_slug = "details-fallback-source";
@@ -828,7 +861,8 @@ fn sample_product(
     match ProductListing::create(NewProductListing {
         id: ProductListingId::new(),
         listing_source_id,
-        source_listing_id: SourceListingId::from(slug),
+        source_listing_id: SourceListingId::try_from(slug)
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
         title,
         description,
         pricing: ProductListingPricing {

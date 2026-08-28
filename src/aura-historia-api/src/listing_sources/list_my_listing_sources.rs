@@ -98,7 +98,9 @@ mod tests {
                 items: vec![AdministeredListingSource {
                     listing_source_id: ListingSourceId::new(),
                     slug_id: ListingSourceSlugId::from("Source Name"),
-                    name: ListingSourceName::from(request.user_id.to_string()),
+                    name: ListingSourceName::try_from(request.user_id.to_string()).unwrap_or_else(
+                        |error| panic!("invalid test listing source name: {error}"),
+                    ),
                 }],
             })
         }

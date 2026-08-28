@@ -24,7 +24,7 @@ pub(super) mod test_support {
             .returning(|| Box::pin(async { Ok(vec![]) }));
         let mut repository = MockListingSourceRegistrationRepository::new();
         repository
-            .expect_delete_listing_sources_not_in()
+            .expect_disable_listing_sources_not_in()
             .returning(|_| Box::pin(async { Ok(0) }));
         ListingSourceRegistrationService::new(Box::new(source), Box::new(repository))
     }

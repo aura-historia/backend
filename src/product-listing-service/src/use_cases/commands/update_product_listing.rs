@@ -418,7 +418,8 @@ mod tests {
         let mut listing = ProductListing::create(NewProductListing {
             id: ProductListingId::new(),
             listing_source_id: ListingSourceId::new(),
-            source_listing_id: SourceListingId::from("listing"),
+            source_listing_id: SourceListingId::try_from("listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: Some(Localized::new(Language::En, Title::from("Listing"))),
             description: None,
             pricing: ProductListingPricing::default(),

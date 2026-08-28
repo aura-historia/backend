@@ -7,7 +7,7 @@ use application::{
 };
 use domain_primitives::change_outcome::ChangeOutcome;
 use listing_source_core::*;
-use party_core::party_id::PartyId;
+
 use user_service::use_cases::queries::check_user_admin::{
     CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminUseCase,
 };
@@ -16,8 +16,7 @@ use user_service::use_cases::queries::check_user_admin::{
 pub struct UpdateListingSourceCommand {
     pub listing_source_id: ListingSourceId,
     pub name: PatchField<ListingSourceName>,
-    pub operator_party_id: PatchField<PartyId>,
-    pub acquisition_methods: PatchField<std::collections::HashSet<AcquisitionMethod>>,
+
     pub acquisition_configuration: PatchField<ListingSourceAcquisitionConfigurations>,
     pub woocommerce_webhook_secret: PatchField<String>,
     pub url: PatchField<url::Url>,
@@ -85,30 +84,27 @@ pub trait UpdateListingSourceUseCase: Send + Sync {
     ) -> Result<UpdateListingSourceResult, UpdateListingSourceError>;
 }
 
-pub struct UpdateListingSourceHandler<U, S, P, A> {
+pub struct UpdateListingSourceHandler<U, S, A> {
     unit_of_work: U,
     sources: S,
-    parties: P,
     check_user_admin: A,
 }
 
-impl<U, S, P, A> UpdateListingSourceHandler<U, S, P, A> {
-    pub fn new(unit_of_work: U, sources: S, parties: P, check_user_admin: A) -> Self {
+impl<U, S, A> UpdateListingSourceHandler<U, S, A> {
+    pub fn new(unit_of_work: U, sources: S, check_user_admin: A) -> Self {
         Self {
             unit_of_work,
             sources,
-            parties,
             check_user_admin,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, S, P, A> UpdateListingSourceUseCase for UpdateListingSourceHandler<U, S, P, A>
+impl<U, S, A> UpdateListingSourceUseCase for UpdateListingSourceHandler<U, S, A>
 where
     U: UnitOfWork,
     S: ListingSourceRepositoryFactory<U::Tx>,
-    P: PartyRepositoryFactory<U::Tx>,
     A: CheckUserAdminUseCase,
 {
     #[tracing::instrument(
@@ -143,19 +139,9 @@ where
             .find_by_id(command.listing_source_id)
             .await?
             .ok_or(UpdateListingSourceError::NotFound)?;
-        let original_operator_party_id = stored.source.operator_party_id();
         let mut source = stored.source;
         let mut configuration = stored.configuration;
-        let outcome = apply_update(&mut source, &mut configuration, &command);
-
-        if outcome.changed() && source.operator_party_id() != original_operator_party_id {
-            self.parties
-                .in_transaction(&mut tx)
-                .find_by_id(source.operator_party_id())
-                .await
-                .map_err(map_party)?
-                .ok_or(UpdateListingSourceError::OperatorPartyNotFound)?;
-        }
+        let outcome = apply_update(&mut source, &mut configuration, &command)?;
         configuration
             .validate_for(&source)
             .map_err(|_| UpdateListingSourceError::AcquisitionConfigurationMismatch)?;
@@ -213,18 +199,16 @@ fn apply_update(
     source: &mut ListingSource,
     configuration: &mut ListingSourceAcquisitionConfigurations,
     command: &UpdateListingSourceCommand,
-) -> ChangeOutcome {
+) -> Result<ChangeOutcome, UpdateListingSourceError> {
     let mut outcome = ChangeOutcome::Unchanged;
     if let PatchField::Set(name) = &command.name {
         outcome = outcome.combine(source.rename(name.clone()));
     }
-    if let PatchField::Set(operator) = command.operator_party_id {
-        outcome = outcome.combine(source.change_operator(operator));
-    }
-    if let PatchField::Set(methods) = &command.acquisition_methods {
-        outcome = outcome.combine(source.replace_acquisition_methods(methods.clone()));
-    }
     if let PatchField::Set(value) = &command.acquisition_configuration {
+        let methods = value
+            .methods()
+            .map_err(|_| UpdateListingSourceError::AcquisitionConfigurationMismatch)?;
+        outcome = outcome.combine(source.replace_acquisition_methods(methods));
         outcome = outcome.combine(ChangeOutcome::from(*configuration != *value));
         *configuration = value.clone();
     }
@@ -245,7 +229,7 @@ fn apply_update(
     if command.woocommerce_webhook_secret.is_changed() && configuration.has_woocommerce() {
         outcome = outcome.combine(ChangeOutcome::Changed);
     }
-    outcome
+    Ok(outcome)
 }
 
 fn patch_url(current: Option<url::Url>, patch: &PatchField<url::Url>) -> Option<url::Url> {
@@ -292,24 +276,6 @@ where
     }
 }
 
-fn map_party(error: party_service::ports::PartyRepositoryError) -> UpdateListingSourceError {
-    match error {
-        party_service::ports::PartyRepositoryError::TemporarilyUnavailable { source } => {
-            UpdateListingSourceError::TemporarilyUnavailable { source }
-        }
-        party_service::ports::PartyRepositoryError::InvalidPersistedState { source }
-        | party_service::ports::PartyRepositoryError::Internal { source }
-        | party_service::ports::PartyRepositoryError::SlugConflict { source } => {
-            UpdateListingSourceError::Internal { source }
-        }
-        party_service::ports::PartyRepositoryError::ConcurrencyConflict => {
-            UpdateListingSourceError::Internal {
-                source: static_error("unexpected party concurrency"),
-            }
-        }
-    }
-}
-
 impl From<ListingSourceRepositoryError> for UpdateListingSourceError {
     fn from(error: ListingSourceRepositoryError) -> Self {
         match error {
@@ -336,11 +302,8 @@ mod tests {
         operation_context::{CorrelationId, RequestId},
         transaction::TransactionError,
     };
-    use party_core::{
-        party::{NewParty, Party, PartyContact},
-        party_name::PartyName,
-    };
-    use party_service::ports::StoredParty;
+    use party_core::party_id::PartyId;
+
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
     use user_service::use_cases::queries::check_user_admin::CheckUserAdminResult;
@@ -348,7 +311,7 @@ mod tests {
     #[derive(Default)]
     struct State {
         updates: usize,
-        party_reads: usize,
+
         commits: usize,
     }
     #[derive(Clone)]
@@ -416,43 +379,7 @@ mod tests {
             })
         }
     }
-    #[derive(Clone)]
-    struct Parties;
-    struct PartyRepo<'a>(&'a mut Tx);
-    impl PartyRepositoryFactory<Tx> for Parties {
-        fn in_transaction<'a>(&'a self, tx: &'a mut Tx) -> impl PartyRepository + 'a {
-            PartyRepo(tx)
-        }
-    }
-    #[async_trait::async_trait]
-    impl PartyRepository for PartyRepo<'_> {
-        async fn find_by_id(
-            &mut self,
-            id: PartyId,
-        ) -> Result<Option<StoredParty>, party_service::ports::PartyRepositoryError> {
-            self.0.0.lock().map_err(|_| party_error())?.party_reads += 1;
-            Ok(Some(party(id)))
-        }
-        async fn find_by_slug(
-            &mut self,
-            _: &party_core::party_slug_id::PartySlugId,
-        ) -> Result<Option<StoredParty>, party_service::ports::PartyRepositoryError> {
-            Ok(None)
-        }
-        async fn insert(
-            &mut self,
-            _: &Party,
-        ) -> Result<StoredParty, party_service::ports::PartyRepositoryError> {
-            Err(party_error())
-        }
-        async fn update(
-            &mut self,
-            _: &Party,
-            _: party_service::ports::PartyStorageVersion,
-        ) -> Result<StoredParty, party_service::ports::PartyRepositoryError> {
-            Err(party_error())
-        }
-    }
+
     struct Admin;
     #[async_trait::async_trait]
     impl CheckUserAdminUseCase for Admin {
@@ -467,7 +394,8 @@ mod tests {
     fn source() -> StoredListingSource {
         let source = ListingSource::create(NewListingSource {
             id: ListingSourceId::new(),
-            name: ListingSourceName::from("Source"),
+            name: ListingSourceName::try_from("Source")
+                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
             operator_party_id: PartyId::new(),
             acquisition_methods: std::collections::HashSet::from([AcquisitionMethod::WebCrawl]),
             presentation: ListingSourcePresentation::default(),
@@ -483,24 +411,12 @@ mod tests {
             updated: OffsetDateTime::UNIX_EPOCH,
         }
     }
-    fn party(id: PartyId) -> StoredParty {
-        StoredParty {
-            party: Party::create(NewParty {
-                id,
-                name: PartyName::from("Party"),
-                contact: PartyContact::default(),
-            }),
-            version: party_service::ports::PartyStorageVersion::INITIAL,
-            created: OffsetDateTime::UNIX_EPOCH,
-            updated: OffsetDateTime::UNIX_EPOCH,
-        }
-    }
+
     fn command(id: ListingSourceId) -> UpdateListingSourceCommand {
         UpdateListingSourceCommand {
             listing_source_id: id,
             name: PatchField::Unchanged,
-            operator_party_id: PatchField::Unchanged,
-            acquisition_methods: PatchField::Unchanged,
+
             acquisition_configuration: PatchField::Unchanged,
             woocommerce_webhook_secret: PatchField::Unchanged,
             url: PatchField::Unchanged,
@@ -520,11 +436,7 @@ mod tests {
             source: static_error("fake failure"),
         }
     }
-    fn party_error() -> party_service::ports::PartyRepositoryError {
-        party_service::ports::PartyRepositoryError::Internal {
-            source: static_error("fake failure"),
-        }
-    }
+
     #[tokio::test]
     async fn should_skip_persistence_for_no_op_patch() {
         let stored = source();
@@ -532,7 +444,6 @@ mod tests {
         let handler = UpdateListingSourceHandler::new(
             Uow(Arc::clone(&state)),
             Sources(stored.clone()),
-            Parties,
             Admin,
         );
         assert!(
@@ -545,26 +456,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|error| panic!("fake state poisoned: {error}"));
         assert_eq!(0, state.updates);
-        assert_eq!(0, state.party_reads);
+
         assert_eq!(1, state.commits);
-    }
-    #[tokio::test]
-    async fn should_validate_changed_operator_in_caller_transaction() {
-        let stored = source();
-        let state = Arc::new(Mutex::new(State::default()));
-        let handler = UpdateListingSourceHandler::new(
-            Uow(Arc::clone(&state)),
-            Sources(stored.clone()),
-            Parties,
-            Admin,
-        );
-        let mut command = command(stored.source.id());
-        command.operator_party_id = PatchField::Set(PartyId::new());
-        assert!(handler.execute(&context(), command).await.is_ok());
-        let state = state
-            .lock()
-            .unwrap_or_else(|error| panic!("fake state poisoned: {error}"));
-        assert_eq!(1, state.party_reads);
-        assert_eq!(1, state.updates);
     }
 }

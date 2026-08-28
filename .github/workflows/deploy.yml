@@ -164,6 +164,21 @@ jobs:
           - mjml/partnership-application/rejection/es.mjml
           - mjml/partnership-application/rejection/fr.mjml
           - mjml/partnership-application/rejection/it.mjml
+          - mjml/search-filter/match/de.mjml
+          - mjml/search-filter/match/en.mjml
+          - mjml/search-filter/match/es.mjml
+          - mjml/search-filter/match/fr.mjml
+          - mjml/search-filter/match/it.mjml
+          - mjml/watchlist/product-update/availability/de.mjml
+          - mjml/watchlist/product-update/availability/en.mjml
+          - mjml/watchlist/product-update/availability/es.mjml
+          - mjml/watchlist/product-update/availability/fr.mjml
+          - mjml/watchlist/product-update/availability/it.mjml
+          - mjml/watchlist/product-update/price/de.mjml
+          - mjml/watchlist/product-update/price/en.mjml
+          - mjml/watchlist/product-update/price/es.mjml
+          - mjml/watchlist/product-update/price/fr.mjml
+          - mjml/watchlist/product-update/price/it.mjml
 
     steps:
       - uses: actions/checkout@v7

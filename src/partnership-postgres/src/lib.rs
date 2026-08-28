@@ -11,7 +11,10 @@ pub use repositories::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+    use application::{
+        operation_context::{CorrelationId, OperationContext, Principal, RequestId},
+        transaction::{Transaction, UnitOfWork},
+    };
     use listing_source_postgres::SqlxListingSourceRepositoryFactory;
     use notification_service::ports::notification_creator::{
         NewNotification, NotificationCreationError, NotificationCreationOutcome,
@@ -19,7 +22,10 @@ mod tests {
     };
     use partnership_core::partnership_application_id::PartnershipApplicationId;
     use partnership_service::{
-        ports::ListingSourceAuthorization,
+        ports::{
+            ListingSourceAuthorization, PartnershipApplicationRepository,
+            PartnershipApplicationRepositoryFactory,
+        },
         use_cases::commands::approve_partnership_application::{
             ApprovePartnershipApplicationCommand, ApprovePartnershipApplicationHandler,
             ApprovePartnershipApplicationUseCase,
@@ -29,6 +35,7 @@ mod tests {
     use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
     use serde_json::json;
     use sqlx::PgPool;
+    use std::time::Duration;
     use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
     use user_core::user_id::UserId;
     use user_postgres::SqlxUserAdminReaderFactory;
@@ -203,17 +210,99 @@ mod tests {
                 &system_context(),
                 ApprovePartnershipApplicationCommand { application_id },
             )
-            .await;
-        assert!(first.is_ok());
+            .await
+            .unwrap_or_else(|error| panic!("approve application: {error}"));
         let second = handler
             .execute(
                 &system_context(),
                 ApprovePartnershipApplicationCommand { application_id },
             )
-            .await;
-        assert!(second.is_ok());
+            .await
+            .unwrap_or_else(|error| panic!("replay approved application: {error}"));
 
+        assert_eq!(first.partnership_id, second.partnership_id);
+        assert_eq!(first.listing_source_id, second.listing_source_id);
+        assert!(second.partnership_id.is_some());
+        assert!(second.listing_source_id.is_some());
         assert_eq!("APPROVED", application_state(&pool, application_id).await);
+        assert_eq!(1, count(&pool, "parties").await);
+        assert_eq!(1, count(&pool, "listing_sources").await);
+        assert_eq!(1, count(&pool, "partnerships").await);
+        assert_eq!(1, count(&pool, "partnership_members").await);
+        assert_eq!(1, count(&pool, "partnership_listing_source_grants").await);
+    }
+
+    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    async fn should_block_locked_application_lookup_until_lock_released() {
+        let pool = get_postgres_client().await;
+        let user_id = seed_user(&pool).await;
+        let application_id = seed_application(&pool, user_id, "IN_REVIEW", proposed_source()).await;
+        let factory = SqlxPartnershipApplicationRepositoryFactory::new();
+        let mut locking_transaction = match SqlxUnitOfWork::new(pool.clone()).begin().await {
+            Ok(transaction) => transaction,
+            Err(error) => panic!("begin locking transaction: {error}"),
+        };
+        let locked = match factory
+            .in_transaction(&mut locking_transaction)
+            .find_by_id_for_update(application_id)
+            .await
+        {
+            Ok(application) => application,
+            Err(error) => panic!("lock partnership application: {error}"),
+        };
+        assert!(locked.is_some());
+
+        let lookup_pool = pool.clone();
+        let mut blocked_lookup = Box::pin(async move {
+            let mut transaction = match SqlxUnitOfWork::new(lookup_pool).begin().await {
+                Ok(transaction) => transaction,
+                Err(error) => panic!("begin blocked lookup transaction: {error}"),
+            };
+            let application = match SqlxPartnershipApplicationRepositoryFactory::new()
+                .in_transaction(&mut transaction)
+                .find_by_id_for_update(application_id)
+                .await
+            {
+                Ok(application) => application,
+                Err(error) => panic!("read locked partnership application: {error}"),
+            };
+            if let Err(error) = transaction.commit().await {
+                panic!("commit blocked lookup transaction: {error}");
+            }
+            application
+        });
+
+        tokio::select! {
+            application = &mut blocked_lookup => panic!("locked lookup completed early: {application:?}"),
+            () = tokio::time::sleep(Duration::from_millis(50)) => {}
+        }
+        if let Err(error) = locking_transaction.commit().await {
+            panic!("commit locking transaction: {error}");
+        }
+
+        assert!(blocked_lookup.await.is_some());
+    }
+
+    #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+    async fn should_replay_concurrent_approval_with_stable_result_ids() {
+        let pool = get_postgres_client().await;
+        let user_id = seed_user(&pool).await;
+        let application_id = seed_application(&pool, user_id, "IN_REVIEW", proposed_source()).await;
+        let first_handler = handler(pool.clone());
+        let second_handler = handler(pool.clone());
+        let command = ApprovePartnershipApplicationCommand { application_id };
+        let first_context = system_context();
+        let second_context = system_context();
+
+        let (first, second) = tokio::join!(
+            first_handler.execute(&first_context, command.clone()),
+            second_handler.execute(&second_context, command),
+        );
+        let first = first.unwrap_or_else(|error| panic!("first concurrent approval: {error}"));
+        let second = second.unwrap_or_else(|error| panic!("second concurrent approval: {error}"));
+
+        assert_eq!(first.partnership_id, second.partnership_id);
+        assert_eq!(first.listing_source_id, second.listing_source_id);
         assert_eq!(1, count(&pool, "parties").await);
         assert_eq!(1, count(&pool, "listing_sources").await);
         assert_eq!(1, count(&pool, "partnerships").await);

@@ -510,7 +510,8 @@ mod tests {
             id: ProductListingId::new(),
             slug_id: ProductListingSlugId::from("listing"),
             listing_source_id: ListingSourceId::new(),
-            source_listing_id: SourceListingId::from("listing"),
+            source_listing_id: SourceListingId::try_from("listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: None,
             description: None,
             pricing: ProductListingPricing::default(),

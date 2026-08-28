@@ -134,9 +134,16 @@ mod tests {
                     Ok(vec![
                         crate::service::listing_source_registration::RegisteredListingSource {
                             listing_source_id: ListingSourceId::new(),
-                            listing_source_name: "Test source".to_string(),
-                            listing_source_slug: "test-source".to_string(),
-                            present: true,
+                            listing_source_name: listing_source_core::ListingSourceName::try_from(
+                                "Test source",
+                            )
+                            .unwrap_or_else(|error| {
+                                panic!("invalid test listing source name: {error}")
+                            }),
+                            listing_source_slug: listing_source_core::ListingSourceSlugId::from(
+                                "test-source",
+                            ),
+                            crawl_enabled: true,
                         },
                     ])
                 })
@@ -148,7 +155,7 @@ mod tests {
             .times(1)
             .returning(|_| Box::pin(async { Ok(()) }));
         repository
-            .expect_delete_listing_sources_not_in()
+            .expect_disable_listing_sources_not_in()
             .times(1)
             .returning(|_| Box::pin(async { Ok(0) }));
 

@@ -1,4 +1,5 @@
 use crate::scraper::normalization::listing_availability_mapping_service::ListingAvailabilityMappingServiceError;
+use product_listing_core::source_listing_id::InvalidSourceListingId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NormalizationFailureScope {
@@ -22,6 +23,9 @@ pub enum NormalizationError {
     /// variant.
     #[error("failed to normalize `source_listing_id`: value is empty after trimming")]
     ShopsProductIdEmpty,
+
+    #[error("failed to normalize `source_listing_id`: {0}")]
+    SourceListingIdInvalid(#[source] InvalidSourceListingId),
 
     #[error("failed to normalize `title`: value is empty after trimming")]
     TitleEmpty,
@@ -100,6 +104,7 @@ impl NormalizationError {
                 }
             },
             Self::ShopsProductIdEmpty => "source_listing_id_empty",
+            Self::SourceListingIdInvalid(_) => "source_listing_id_invalid",
             Self::TitleEmpty => "title_empty",
             Self::TitleUnknownLanguage { .. } => "title_unknown_language",
             Self::DescriptionUnknownLanguage { .. } => "description_unknown_language",
@@ -132,6 +137,7 @@ impl NormalizationError {
                 }
             },
             Self::ShopsProductIdEmpty
+            | Self::SourceListingIdInvalid(_)
             | Self::TitleEmpty
             | Self::TitleUnknownLanguage { .. }
             | Self::DescriptionUnknownLanguage { .. }

@@ -38,8 +38,6 @@ pub async fn update_listing_source(
     let command = UpdateListingSourceCommand {
         listing_source_id,
         name: parts.name,
-        operator_party_id: parts.operator_party_id,
-        acquisition_methods: parts.acquisition_methods,
         acquisition_configuration: parts.acquisition_configuration,
         woocommerce_webhook_secret: parts.woocommerce_webhook_secret,
         url: parts.url,

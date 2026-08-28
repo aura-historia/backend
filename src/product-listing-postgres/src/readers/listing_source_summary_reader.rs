@@ -80,7 +80,13 @@ impl TryFrom<ListingSourceSummaryRow> for ListingSourceSummary {
     fn try_from(row: ListingSourceSummaryRow) -> Result<Self, Self::Error> {
         Ok(Self {
             listing_source_id: ListingSourceId::from(row.listing_source_id),
-            name: ListingSourceName::from(row.name),
+            name: ListingSourceName::try_from(row.name).map_err(|source| {
+                ListingSourceSummaryReadError::InvalidReadModel {
+                    source: box_error(ListingSourceSummaryMappingError {
+                        source: box_error(source),
+                    }),
+                }
+            })?,
             slug_id: ListingSourceSlugId::raw(row.listing_source_slug_id).map_err(|source| {
                 ListingSourceSummaryReadError::InvalidReadModel {
                     source: box_error(ListingSourceSummaryMappingError {
@@ -97,10 +103,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_reject_invalid_persisted_listing_source_slug() {
+    fn should_reject_invalid_persisted_listing_source_name_and_slug() {
         let error = ListingSourceSummary::try_from(ListingSourceSummaryRow {
             listing_source_id: uuid::Uuid::new_v4(),
-            name: "Source".to_owned(),
+            name: "\u{2003}".to_owned(),
             listing_source_slug_id: "".to_owned(),
         });
 

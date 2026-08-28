@@ -585,7 +585,8 @@ fn sample_product(slug: &str, listing_source_id: ListingSourceId) -> ProductList
     match ProductListing::create(NewProductListing {
         id: product_listing_core::product_listing_id::ProductListingId::new(),
         listing_source_id,
-        source_listing_id: SourceListingId::from(slug),
+        source_listing_id: SourceListingId::try_from(slug)
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
         title: Some(Localized::new(Language::En, Title::from(slug))),
         description: Some(Localized::new(
             Language::En,

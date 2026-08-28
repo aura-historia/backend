@@ -94,6 +94,25 @@ pub(crate) mod language {
     }
 }
 
+pub(crate) mod source_listing_id {
+    use super::*;
+
+    pub(crate) fn serialize<S>(value: &SourceListingId, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(value.as_ref())
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<SourceListingId, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        SourceListingId::try_from(String::deserialize(deserializer)?)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 pub(crate) mod listing_source_id {
     use super::*;
 
@@ -236,6 +255,7 @@ pub(crate) struct ProductListingDocument {
     pub product_listing_slug_id: ProductListingSlugId,
     #[serde(with = "listing_source_id")]
     pub listing_source_id: ListingSourceId,
+    #[serde(with = "source_listing_id")]
     pub source_listing_id: SourceListingId,
     pub event_id: EventId,
     pub title: TextDocument,
@@ -337,7 +357,8 @@ mod tests {
             product_listing_id: ProductListingId::new(),
             product_listing_slug_id: ProductListingSlugId::from("vase-abcdef"),
             listing_source_id: ListingSourceId::new(),
-            source_listing_id: SourceListingId::from("sku-1"),
+            source_listing_id: SourceListingId::try_from("sku-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             event_id: EventId::new(),
             title: TextDocument::new("Vase", Language::En),
             title_de: None,

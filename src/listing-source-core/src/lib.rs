@@ -4,6 +4,7 @@ use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use std::{
     collections::HashSet,
     fmt::{Display, Formatter},
+    ops::Deref,
     str::FromStr,
 };
 use strum::IntoEnumIterator;
@@ -60,23 +61,71 @@ impl From<ListingSourceId> for String {
     }
 }
 
+/// Canonical ListingSource name, normalized by trimming Unicode whitespace at both ends.
+///
+/// Names must be nonblank and contain at most 255 UTF-8 bytes. The limit matches
+/// the authoritative PostgreSQL constraint and values are never truncated.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ListingSourceName(String);
-impl From<&str> for ListingSourceName {
-    fn from(value: &str) -> Self {
-        Self(value.chars().take(255).collect())
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ListingSourceNameError {
+    #[error("listing source name must not be blank")]
+    Blank,
+    #[error("listing source name must not exceed {max_bytes} UTF-8 bytes (got {actual_bytes})")]
+    TooLong {
+        max_bytes: usize,
+        actual_bytes: usize,
+    },
+}
+
+impl ListingSourceName {
+    pub const MAX_BYTES: usize = 255;
+}
+
+impl TryFrom<&str> for ListingSourceName {
+    type Error = ListingSourceNameError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let value = value.trim();
+        if value.is_empty() {
+            return Err(ListingSourceNameError::Blank);
+        }
+
+        let actual_bytes = value.len();
+        if actual_bytes > Self::MAX_BYTES {
+            return Err(ListingSourceNameError::TooLong {
+                max_bytes: Self::MAX_BYTES,
+                actual_bytes,
+            });
+        }
+
+        Ok(Self(value.to_owned()))
     }
 }
-impl From<String> for ListingSourceName {
-    fn from(value: String) -> Self {
-        Self::from(value.as_str())
+
+impl TryFrom<String> for ListingSourceName {
+    type Error = ListingSourceNameError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
     }
 }
+
 impl AsRef<str> for ListingSourceName {
     fn as_ref(&self) -> &str {
         &self.0
     }
 }
+
+impl Deref for ListingSourceName {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl Display for ListingSourceName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
@@ -91,6 +140,8 @@ pub struct InvalidListingSourceSlug {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ListingSourceSlugId(String);
 impl ListingSourceSlugId {
+    pub const FALLBACK_PREFIX: &str = "listing-source";
+
     pub fn raw(value: impl AsRef<str>) -> Result<Self, InvalidListingSourceSlug> {
         let value = value.as_ref();
         if !value.is_empty()
@@ -106,6 +157,13 @@ impl ListingSourceSlugId {
             Err(InvalidListingSourceSlug {
                 value: value.to_owned(),
             })
+        }
+    }
+
+    pub(crate) fn derive(name: &str, listing_source_id: ListingSourceId) -> Self {
+        match Self::raw(slug::slugify(name)) {
+            Ok(slug_id) => slug_id,
+            Err(_) => Self(format!("{}-{listing_source_id}", Self::FALLBACK_PREFIX)),
         }
     }
 }
@@ -128,6 +186,11 @@ impl Display for ListingSourceSlugId {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 #[error("invalid domain '{0}'")]
 pub struct InvalidDomain(String);
+impl InvalidDomain {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Domain(String);
 impl Domain {
@@ -138,19 +201,17 @@ impl Domain {
 impl TryFrom<&str> for Domain {
     type Error = InvalidDomain;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let host = Url::parse(value)
-            .ok()
-            .and_then(|url| url.host_str().map(str::to_owned))
-            .or_else(|| {
-                Url::parse(&format!("https://{value}"))
-                    .ok()
-                    .and_then(|url| url.host_str().map(str::to_owned))
-            })
-            .ok_or_else(|| InvalidDomain(value.to_owned()))?;
-        if host.contains('.') {
+        let trimmed = value.trim();
+        if trimmed.is_empty() || trimmed != value || trimmed.contains(['/', '?', '#', '@', ':']) {
+            return Err(InvalidDomain::new(value));
+        }
+        let url =
+            Url::parse(&format!("https://{trimmed}")).map_err(|_| InvalidDomain::new(value))?;
+        let host = url.host_str().ok_or_else(|| InvalidDomain::new(value))?;
+        if host.contains('.') && url.port().is_none() {
             Ok(Self(host.to_ascii_lowercase()))
         } else {
-            Err(InvalidDomain(value.to_owned()))
+            Err(InvalidDomain::new(value))
         }
     }
 }
@@ -233,15 +294,17 @@ pub enum ReferralConfiguration {
 #[derive(Debug, thiserror::Error)]
 #[error("could not build referral URL")]
 pub struct ReferralUrlError;
-impl ReferralConfiguration {
-    pub fn apply(&self, deeplink: &Url) -> Result<Url, ReferralUrlError> {
-        match self {
-            Self::Partnerize { camref } => Url::parse(&format!(
-                "https://prf.hn/click/camref:{camref}/pubref:aurahistoria/destination:{}",
-                utf8_percent_encode(deeplink.as_str(), PARTNERIZE_DESTINATION)
-            ))
-            .map_err(|_| ReferralUrlError),
-        }
+pub fn outbound_url(
+    referral_configuration: Option<&ReferralConfiguration>,
+    destination: &Url,
+) -> Result<Url, ReferralUrlError> {
+    match referral_configuration {
+        Some(ReferralConfiguration::Partnerize { camref }) => Url::parse(&format!(
+            "https://prf.hn/click/camref:{camref}/pubref:aurahistoria/destination:{}",
+            utf8_percent_encode(destination.as_str(), PARTNERIZE_DESTINATION)
+        ))
+        .map_err(|_| ReferralUrlError),
+        None => Ok(append_aura_utm(destination.clone())),
     }
 }
 
@@ -263,13 +326,21 @@ pub struct NewListingSource {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RehydratedListingSourceState {
     pub id: ListingSourceId,
-    pub slug_id: ListingSourceSlugId,
-    pub name: ListingSourceName,
+    pub slug_id: String,
+    pub name: String,
     pub operator_party_id: PartyId,
     pub acquisition_methods: HashSet<AcquisitionMethod>,
     pub presentation: ListingSourcePresentation,
     pub referral_configuration: Option<ReferralConfiguration>,
 }
+#[derive(Debug, thiserror::Error)]
+pub enum RehydrateListingSourceError {
+    #[error("invalid persisted listing source slug")]
+    InvalidSlug(#[source] InvalidListingSourceSlug),
+    #[error("invalid persisted listing source name")]
+    InvalidName(#[source] ListingSourceNameError),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListingSource {
     id: ListingSourceId,
@@ -282,8 +353,9 @@ pub struct ListingSource {
 }
 impl ListingSource {
     pub fn create(input: NewListingSource) -> Self {
+        let slug_id = ListingSourceSlugId::derive(input.name.as_ref(), input.id);
         Self {
-            slug_id: ListingSourceSlugId::from(input.name.as_ref()),
+            slug_id,
             id: input.id,
             name: input.name,
             operator_party_id: input.operator_party_id,
@@ -293,23 +365,25 @@ impl ListingSource {
         }
     }
     #[doc(hidden)]
-    pub fn rehydrate(state: RehydratedListingSourceState) -> Self {
-        Self {
+    pub fn rehydrate(
+        state: RehydratedListingSourceState,
+    ) -> Result<Self, RehydrateListingSourceError> {
+        Ok(Self {
             id: state.id,
-            slug_id: state.slug_id,
-            name: state.name,
+            slug_id: ListingSourceSlugId::raw(state.slug_id)
+                .map_err(RehydrateListingSourceError::InvalidSlug)?,
+            name: ListingSourceName::try_from(state.name)
+                .map_err(RehydrateListingSourceError::InvalidName)?,
             operator_party_id: state.operator_party_id,
             acquisition_methods: state.acquisition_methods,
             presentation: state.presentation,
             referral_configuration: state.referral_configuration,
-        }
+        })
     }
     pub fn rename(&mut self, name: ListingSourceName) -> ChangeOutcome {
         replace(&mut self.name, name)
     }
-    pub fn change_operator(&mut self, party_id: PartyId) -> ChangeOutcome {
-        replace(&mut self.operator_party_id, party_id)
-    }
+
     pub fn replace_acquisition_methods(
         &mut self,
         methods: HashSet<AcquisitionMethod>,
@@ -329,10 +403,7 @@ impl ListingSource {
         replace(&mut self.referral_configuration, config)
     }
     pub fn referral_url(&self, deeplink: &Url) -> Result<Url, ReferralUrlError> {
-        match &self.referral_configuration {
-            Some(config) => config.apply(deeplink),
-            None => Ok(append_utm(deeplink.clone())),
-        }
+        outbound_url(self.referral_configuration.as_ref(), deeplink)
     }
     pub fn id(&self) -> ListingSourceId {
         self.id
@@ -364,7 +435,7 @@ fn replace<T: PartialEq>(current: &mut T, replacement: T) -> ChangeOutcome {
         ChangeOutcome::Changed
     }
 }
-fn append_utm(mut url: Url) -> Url {
+fn append_aura_utm(mut url: Url) -> Url {
     if !url.query_pairs().any(|(key, _)| key == "utm_source") {
         url.query_pairs_mut()
             .append_pair("utm_source", "aura_historia")
@@ -376,26 +447,158 @@ fn append_utm(mut url: Url) -> Url {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn listing_source_name(value: &str) -> ListingSourceName {
+        ListingSourceName::try_from(value)
+            .unwrap_or_else(|error| panic!("invalid test listing source name: {error}"))
+    }
+
     #[test]
-    fn should_preserve_slug_and_apply_referral_to_deeplink() {
-        let party = PartyId::new();
+    fn should_trim_unicode_outer_whitespace_from_listing_source_name() {
+        let name = ListingSourceName::try_from("\u{2003} Antik und Stil \u{00a0}");
+
+        assert_eq!(
+            Ok("Antik und Stil".to_owned()),
+            name.map(|value| value.to_string())
+        );
+    }
+
+    #[test]
+    fn should_reject_blank_listing_source_name_after_unicode_trim() {
+        assert_eq!(
+            Err(ListingSourceNameError::Blank),
+            ListingSourceName::try_from("\u{2003}\u{00a0}")
+        );
+    }
+
+    #[test]
+    fn should_reject_listing_source_name_over_byte_cap_without_truncating() {
+        let value = "é".repeat(128);
+
+        assert_eq!(
+            Err(ListingSourceNameError::TooLong {
+                max_bytes: ListingSourceName::MAX_BYTES,
+                actual_bytes: 256,
+            }),
+            ListingSourceName::try_from(value.as_str())
+        );
+    }
+
+    #[test]
+    fn should_accept_listing_source_name_at_byte_cap_without_truncating() {
+        let value = format!("{}a", "é".repeat(127));
+        let name = ListingSourceName::try_from(value.as_str());
+
+        assert_eq!(Ok(value), name.map(|value| value.to_string()));
+    }
+
+    #[test]
+    fn should_derive_slug_once_when_creating_listing_source() {
         let mut source = ListingSource::create(NewListingSource {
             id: ListingSourceId::new(),
-            name: ListingSourceName::from("Old name"),
-            operator_party_id: party,
-            acquisition_methods: HashSet::from([AcquisitionMethod::WebCrawl]),
+            name: listing_source_name("Antik und Stil"),
+            operator_party_id: PartyId::new(),
+            acquisition_methods: HashSet::new(),
             presentation: ListingSourcePresentation::default(),
-            referral_configuration: Some(ReferralConfiguration::Partnerize { camref: "x".into() }),
+            referral_configuration: None,
         });
-        source.rename(ListingSourceName::from("New name"));
-        let url = Url::parse("https://source.example/item")
-            .unwrap_or_else(|error| panic!("test URL: {error}"));
-        assert_eq!("old-name", source.slug_id().as_ref());
+
+        assert_eq!("antik-und-stil", source.slug_id().as_ref());
         assert!(
             source
-                .referral_url(&url)
-                .map(|value| value.as_str().contains("source.example%2Fitem"))
-                .unwrap_or(false)
+                .rename(listing_source_name("Neue Identität"))
+                .changed()
+        );
+        assert_eq!("antik-und-stil", source.slug_id().as_ref());
+    }
+
+    #[test]
+    fn should_use_stable_fallback_slug_when_listing_source_name_has_no_slug_characters() {
+        let listing_source_id = ListingSourceId::from(Uuid::nil());
+        let source = ListingSource::create(NewListingSource {
+            id: listing_source_id,
+            name: listing_source_name("\u{10FFFF}"),
+            operator_party_id: PartyId::new(),
+            acquisition_methods: HashSet::new(),
+            presentation: ListingSourcePresentation::default(),
+            referral_configuration: None,
+        });
+
+        assert_eq!(
+            "listing-source-00000000-0000-0000-0000-000000000000",
+            source.slug_id().as_ref()
+        );
+    }
+
+    #[test]
+    fn should_reject_invalid_persisted_listing_source_name_and_slug() {
+        let state = RehydratedListingSourceState {
+            id: ListingSourceId::new(),
+            slug_id: "historic--source".to_owned(),
+            name: "\u{2003}".to_owned(),
+            operator_party_id: PartyId::new(),
+            acquisition_methods: HashSet::new(),
+            presentation: ListingSourcePresentation::default(),
+            referral_configuration: None,
+        };
+
+        assert!(matches!(
+            ListingSource::rehydrate(state),
+            Err(RehydrateListingSourceError::InvalidSlug(_))
+        ));
+
+        let state = RehydratedListingSourceState {
+            id: ListingSourceId::new(),
+            slug_id: "historic-source".to_owned(),
+            name: "\u{2003}".to_owned(),
+            operator_party_id: PartyId::new(),
+            acquisition_methods: HashSet::new(),
+            presentation: ListingSourcePresentation::default(),
+            referral_configuration: None,
+        };
+
+        assert!(matches!(
+            ListingSource::rehydrate(state),
+            Err(RehydrateListingSourceError::InvalidName(_))
+        ));
+    }
+
+    #[test]
+    fn should_build_partnerize_outbound_url_when_configured() {
+        let destination = Url::parse("https://source.example/item?colour=red")
+            .unwrap_or_else(|error| panic!("test URL: {error}"));
+
+        let result = outbound_url(
+            Some(&ReferralConfiguration::Partnerize {
+                camref: "campaign".to_owned(),
+            }),
+            &destination,
+        )
+        .unwrap_or_else(|error| panic!("could not build referral URL: {error}"));
+
+        assert_eq!(
+            Url::parse(
+                "https://prf.hn/click/camref:campaign/pubref:aurahistoria/destination:https%3A%2F%2Fsource.example%2Fitem%3Fcolour%3Dred",
+            )
+            .unwrap_or_else(|error| panic!("test URL: {error}")),
+            result
+        );
+    }
+
+    #[test]
+    fn should_build_aura_utm_outbound_url_when_referral_is_not_configured() {
+        let destination = Url::parse("https://source.example/item?colour=red")
+            .unwrap_or_else(|error| panic!("test URL: {error}"));
+
+        let result = outbound_url(None, &destination)
+            .unwrap_or_else(|error| panic!("could not build referral URL: {error}"));
+
+        assert_eq!(
+            Url::parse(
+                "https://source.example/item?colour=red&utm_source=aura_historia&utm_medium=referral",
+            )
+            .unwrap_or_else(|error| panic!("test URL: {error}")),
+            result
         );
     }
     #[test]

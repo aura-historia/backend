@@ -108,7 +108,7 @@ pub fn prepare_product(
         });
     }
     let source_listing_id =
-        normalize_source_listing_id_with_url_sha_fallback(&raw.source_listing_id, &url);
+        normalize_source_listing_id_with_url_sha_fallback(&raw.source_listing_id, &url)?;
     let title = normalize_title(&raw.title)?;
     let title_language = detect_language(title.as_ref());
     let description_language = detect_description_language(&raw.description);

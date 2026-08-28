@@ -565,7 +565,9 @@ mod tests {
                         listing_source_id,
                         ListingSourceSummary {
                             listing_source_id,
-                            name: ListingSourceName::from("Source"),
+                            name: ListingSourceName::try_from("Source").unwrap_or_else(|error| {
+                                panic!("invalid test listing source name: {error}")
+                            }),
                             slug_id: ListingSourceSlugId::from("source"),
                         },
                     )
@@ -698,7 +700,8 @@ mod tests {
             product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
             event_id: EventId::new(),
             listing_source_id: ListingSourceId::new(),
-            source_listing_id: SourceListingId::from("cabinet-1"),
+            source_listing_id: SourceListingId::try_from("cabinet-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
             display_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
             price_valuation: ProductListingSummaryPriceValuation::Current {

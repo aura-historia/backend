@@ -1,10 +1,10 @@
-use crate::url::append_utm_params;
+use crate::url::referral_configuration;
 use application::error::{BoxError, box_error, static_error};
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 
 use indexmap::IndexSet;
-use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, outbound_url};
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use platform_postgres::SqlxTransaction;
@@ -50,6 +50,7 @@ struct SourceRow {
     listing_source_id: uuid::Uuid,
     listing_source_slug_id: String,
     listing_source_name: String,
+    listing_source_referral_configuration: Option<serde_json::Value>,
     source_listing_id: String,
     product_title_text: Option<String>,
     product_title_language: Option<String>,
@@ -186,6 +187,7 @@ impl ProductListingSearchFilterMatchSourceReader
                 listing_source.listing_source_id,
                 listing_source.listing_source_slug_id,
                 listing_source.name AS listing_source_name,
+                listing_source.referral_configuration AS listing_source_referral_configuration,
                 product.source_listing_id,
                 product.title_text AS product_title_text,
                 product.title_language AS product_title_language,
@@ -294,6 +296,11 @@ fn source_from_rows(
     let sale_observation = sale_observation(row.sale_observation_fx_rate_id, row.sale_observed_at)?;
     let images = images(&row.product_images)?;
     let url = Url::parse(&row.url).map_err(|_| ())?;
+    let view_url = outbound_url(
+        referral_configuration(row.listing_source_referral_configuration.as_ref())?.as_ref(),
+        &url,
+    )
+    .map_err(|_| ())?;
 
     Ok(Some(ProductListingSearchFilterMatchSource {
         event_id: EventId::from(row.event_id),
@@ -306,10 +313,11 @@ fn source_from_rows(
             .map_err(|_| ())?,
         source: ListingSourceSummary {
             listing_source_id: ListingSourceId::from(row.listing_source_id),
-            name: ListingSourceName::from(row.listing_source_name.clone()),
+            name: ListingSourceName::try_from(row.listing_source_name.clone()).map_err(|_| ())?,
             slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id).map_err(|_| ())?,
         },
-        source_listing_id: SourceListingId::from(row.source_listing_id.clone()),
+        source_listing_id: SourceListingId::try_from(row.source_listing_id.clone())
+            .map_err(|_| ())?,
         product_title,
         product_description,
         titles,
@@ -318,7 +326,7 @@ fn source_from_rows(
         sale_observation,
         availability: availability(row.availability.as_deref())?,
         lifecycle: lifecycle(&row.lifecycle)?,
-        view_url: append_utm_params(url.clone()),
+        view_url,
         url,
         image: images.iter().next().cloned(),
         images,

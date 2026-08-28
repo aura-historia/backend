@@ -25,8 +25,13 @@ impl ListingSourceAuthorization for SqlxListingSourceAuthorization {
                 FROM partnership_members member \
                 JOIN partnership_listing_source_grants source_grant \
                   ON source_grant.partnership_id = member.partnership_id \
+                JOIN partnerships partnership \
+                  ON partnership.partnership_id = source_grant.partnership_id \
+                JOIN listing_sources source \
+                  ON source.listing_source_id = source_grant.listing_source_id \
                 WHERE member.user_id = $1 \
-                  AND source_grant.listing_source_id = $2\
+                  AND source_grant.listing_source_id = $2 \
+                  AND partnership.party_id = source.operator_party_id\
             )",
         )
         .bind(uuid::Uuid::from(user_id))
@@ -54,6 +59,9 @@ impl ListingSourceAuthorization for SqlxListingSourceAuthorization {
                ON source_grant.partnership_id = member.partnership_id \
              JOIN listing_sources s \
                ON s.listing_source_id = source_grant.listing_source_id \
+             JOIN partnerships partnership \
+               ON partnership.partnership_id = source_grant.partnership_id \
+              AND partnership.party_id = s.operator_party_id \
              WHERE member.user_id = $1 \
              ORDER BY s.name",
         )
@@ -72,7 +80,11 @@ impl ListingSourceAuthorization for SqlxListingSourceAuthorization {
                             source: box_error(e),
                         }
                     })?,
-                    name: ListingSourceName::from(row.name),
+                    name: ListingSourceName::try_from(row.name).map_err(|error| {
+                        SourceAuthorizationError::InvalidReadModel {
+                            source: box_error(error),
+                        }
+                    })?,
                 })
             })
             .collect()

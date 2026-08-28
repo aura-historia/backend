@@ -273,7 +273,8 @@ fn product_listing_document(
         "productListingId": seed.product_listing_id,
         "productListingSlugId": seed.product_listing_slug_id,
         "listingSourceId": ListingSourceId::new().to_string(),
-        "sourceListingId": SourceListingId::from("sku-1"),
+        "sourceListingId": SourceListingId::try_from("sku-1")
+                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
         "eventId": EventId::new(),
         "title": { "text": "Blue vase", "language": "EN" },
         "titleEn": "Blue vase",

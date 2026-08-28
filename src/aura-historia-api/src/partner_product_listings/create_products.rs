@@ -29,16 +29,25 @@ pub async fn create_products(
         Err(error) => return error.into_response(),
     };
 
+    let mapped = match products
+        .into_iter()
+        .map(|product| {
+            let raw_source_listing_id = product.source_listing_id.clone();
+            product
+                .into_command(listing_source_id)
+                .map(|command| (raw_source_listing_id, command))
+        })
+        .collect::<Result<Vec<_>, ApiError>>()
+    {
+        Ok(mapped) => mapped,
+        Err(error) => return error.into_response(),
+    };
+
     let mut failures = Vec::new();
     let mut first_error = None;
     let mut successes = 0;
-    for product in products {
-        let source_listing_id = product.source_listing_id.clone();
-        match state
-            .create
-            .execute(&context, product.into_command(listing_source_id))
-            .await
-        {
+    for (source_listing_id, command) in mapped {
+        match state.create.execute(&context, command).await {
             Ok(_) => successes += 1,
             Err(error) => {
                 let error = ApiError::from(error);

@@ -418,7 +418,8 @@ fn sample_product(
     match ProductListing::create(NewProductListing {
         id: ProductListingId::new(),
         listing_source_id,
-        source_listing_id: SourceListingId::from(slug),
+        source_listing_id: SourceListingId::try_from(slug)
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
         title,
         description,
         pricing: ProductListingPricing {

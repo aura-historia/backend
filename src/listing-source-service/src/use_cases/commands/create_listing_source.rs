@@ -23,7 +23,7 @@ pub enum ListingSourceOperator {
 pub struct CreateListingSourceCommand {
     pub name: ListingSourceName,
     pub operator: ListingSourceOperator,
-    pub acquisition_methods: std::collections::HashSet<AcquisitionMethod>,
+
     pub acquisition_configuration: ListingSourceAcquisitionConfigurations,
     pub woocommerce_webhook_secret: Option<String>,
     pub presentation: ListingSourcePresentation,
@@ -46,6 +46,11 @@ pub enum CreateListingSourceError {
     OperatorPartyNotFound,
     #[error("acquisition method/configuration mismatch")]
     AcquisitionConfigurationMismatch,
+    #[error("operator party slug conflict")]
+    OperatorPartySlugConflict {
+        #[source]
+        source: BoxError,
+    },
     #[error("listing source slug conflict")]
     SlugConflict {
         #[source]
@@ -157,11 +162,15 @@ where
                 .party
                 .id(),
         };
+        let acquisition_methods = command
+            .acquisition_configuration
+            .methods()
+            .map_err(|_| CreateListingSourceError::AcquisitionConfigurationMismatch)?;
         let source = ListingSource::create(NewListingSource {
             id: ListingSourceId::new(),
             name: command.name,
             operator_party_id,
-            acquisition_methods: command.acquisition_methods,
+            acquisition_methods,
             presentation: command.presentation,
             referral_configuration: command.referral_configuration,
         });
@@ -244,9 +253,11 @@ fn map_party(error: party_service::ports::PartyRepositoryError) -> CreateListing
         party_service::ports::PartyRepositoryError::TemporarilyUnavailable { source } => {
             CreateListingSourceError::TemporarilyUnavailable { source }
         }
+        party_service::ports::PartyRepositoryError::SlugConflict { source } => {
+            CreateListingSourceError::OperatorPartySlugConflict { source }
+        }
         party_service::ports::PartyRepositoryError::InvalidPersistedState { source }
-        | party_service::ports::PartyRepositoryError::Internal { source }
-        | party_service::ports::PartyRepositoryError::SlugConflict { source } => {
+        | party_service::ports::PartyRepositoryError::Internal { source } => {
             CreateListingSourceError::Internal { source }
         }
         party_service::ports::PartyRepositoryError::ConcurrencyConflict => {
@@ -445,13 +456,15 @@ mod tests {
     }
     fn command() -> CreateListingSourceCommand {
         CreateListingSourceCommand {
-            name: ListingSourceName::from("Source"),
+            name: ListingSourceName::try_from("Source")
+                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
             operator: ListingSourceOperator::New(NewParty {
                 id: PartyId::new(),
-                name: PartyName::from("Operator"),
+                name: PartyName::try_from("Operator")
+                    .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
                 contact: PartyContact::default(),
             }),
-            acquisition_methods: std::collections::HashSet::from([AcquisitionMethod::Woocommerce]),
+
             acquisition_configuration: ListingSourceAcquisitionConfigurations(vec![
                 AcquisitionConfiguration::Woocommerce {
                     currency: None,
@@ -467,7 +480,8 @@ mod tests {
         StoredParty {
             party: Party::create(NewParty {
                 id,
-                name: PartyName::from("Operator"),
+                name: PartyName::try_from("Operator")
+                    .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
                 contact: PartyContact::default(),
             }),
             version: party_service::ports::PartyStorageVersion::INITIAL,

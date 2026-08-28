@@ -494,7 +494,8 @@ mod tests {
     fn command(price: PatchField<Price>) -> UpsertProductListingCommand {
         UpsertProductListingCommand {
             listing_source_id: ListingSourceId::new(),
-            source_listing_id: SourceListingId::from("listing"),
+            source_listing_id: SourceListingId::try_from("listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: None,
             description: None,
             price,
@@ -527,7 +528,8 @@ mod tests {
         ProductListing::create(NewProductListing {
             id: ProductListingId::new(),
             listing_source_id: ListingSourceId::new(),
-            source_listing_id: SourceListingId::from("listing"),
+            source_listing_id: SourceListingId::try_from("listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: None,
             description: None,
             pricing,

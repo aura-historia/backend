@@ -60,6 +60,7 @@ struct ProductListingPercolationDocument {
     product_listing_slug_id: ProductListingSlugId,
     #[serde(with = "crate::product_listing_document::listing_source_id")]
     listing_source_id: ListingSourceId,
+    #[serde(with = "crate::product_listing_document::source_listing_id")]
     source_listing_id: SourceListingId,
     event_id: EventId,
     title: TextDocument,
@@ -395,10 +396,12 @@ mod tests {
             product_listing_slug_id: ProductListingSlugId::from("blue-vase"),
             source: ListingSourceSummary {
                 listing_source_id: ListingSourceId::new(),
-                name: ListingSourceName::from("Source"),
+                name: ListingSourceName::try_from("Source")
+                    .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
                 slug_id: ListingSourceSlugId::from("source"),
             },
-            source_listing_id: SourceListingId::from("sku-1"),
+            source_listing_id: SourceListingId::try_from("sku-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             product_title: Some(Localized::new(Language::En, title.clone())),
             product_description: None,
             titles: HashMap::from([(Language::En, title)]),
@@ -615,6 +618,37 @@ mod tests {
             persistent.get("salePrices"),
             temporary.get("priceByCurrency"),
         );
+        Ok(())
+    }
+
+    #[test]
+    fn should_preserve_raw_and_referral_view_urls_in_projection_documents()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut product = source()?;
+        product.view_url = Url::parse(
+            "https://prf.hn/click/camref:campaign/pubref:aurahistoria/destination:https%3A%2F%2Fshop.example.test%2Fproduct_listings%2Fblue-vase",
+        )?;
+
+        let persistent = serde_json::to_value(product_listing_document(&product, None)?)?;
+        let temporary = product_listing_percolation_document(&ProductListingPercolationInput {
+            source: product,
+            valuation: None,
+        })?;
+
+        for document in [&persistent, &temporary] {
+            assert_eq!(
+                Some(&serde_json::json!(
+                    "https://shop.example.test/product_listings/blue-vase"
+                )),
+                document.get("url"),
+            );
+            assert_eq!(
+                Some(&serde_json::json!(
+                    "https://prf.hn/click/camref:campaign/pubref:aurahistoria/destination:https%3A%2F%2Fshop.example.test%2Fproduct_listings%2Fblue-vase"
+                )),
+                document.get("viewUrl"),
+            );
+        }
         Ok(())
     }
 

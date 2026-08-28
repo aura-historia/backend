@@ -131,8 +131,8 @@ async fn load(
     let config = read_configuration(connection, row.listing_source_id).await?;
     let source = ListingSource::rehydrate(RehydratedListingSourceState {
         id: ListingSourceId::from(row.listing_source_id),
-        slug_id: ListingSourceSlugId::raw(row.listing_source_slug_id).map_err(invalid)?,
-        name: ListingSourceName::from(row.name),
+        slug_id: row.listing_source_slug_id,
+        name: row.name,
         operator_party_id: party_core::party_id::PartyId::from(row.operator_party_id),
         acquisition_methods: methods,
         presentation: ListingSourcePresentation {
@@ -148,7 +148,8 @@ async fn load(
                 .map_err(invalid)?,
         },
         referral_configuration: parse_referral(row.referral_configuration)?,
-    });
+    })
+    .map_err(invalid)?;
     config.validate_for(&source).map_err(invalid)?;
     let version = ListingSourceStorageVersion::try_from(row.version).map_err(invalid)?;
     Ok(StoredListingSource {
@@ -192,9 +193,7 @@ async fn write_configuration(
             AcquisitionConfiguration::Woocommerce { currency, language } => {
                 sqlx::query("INSERT INTO listing_source_woocommerce_configurations (listing_source_id,webhook_secret,currency,language) VALUES ($1,$2,$3,$4)").bind(uuid::Uuid::from(id)).bind(woocommerce_webhook_secret).bind(currency.map(|v|v.as_str())).bind(language.map(|v|v.as_str())).execute(&mut *connection).await.map_err(db_write)?;
             }
-            AcquisitionConfiguration::Unconfigured(_)
-            | AcquisitionConfiguration::WebCrawl
-            | AcquisitionConfiguration::PartnerApi => {}
+            AcquisitionConfiguration::WebCrawl | AcquisitionConfiguration::PartnerApi => {}
         }
     }
     Ok(())
@@ -209,30 +208,49 @@ async fn read_configuration(
         match row.acquisition_method.parse().map_err(invalid)? {
             AcquisitionMethod::WebCrawl => configs.push(AcquisitionConfiguration::WebCrawl),
             AcquisitionMethod::PartnerApi => configs.push(AcquisitionConfiguration::PartnerApi),
-            method @ AcquisitionMethod::Shopify => {
-                let row=sqlx::query_as::<_,(String,Option<String>,Option<String>)>("SELECT domain,currency,language FROM listing_source_shopify_configurations WHERE listing_source_id=$1").bind(id).fetch_optional(&mut *connection).await.map_err(db_read)?;
-                match row {
-                    Some(row) => configs.push(AcquisitionConfiguration::Shopify {
-                        domain: Domain::try_from(row.0).map_err(invalid)?,
-                        currency: parse_optional_currency(row.1.as_deref())?,
-                        language: parse_optional_language(row.2.as_deref())?,
-                    }),
-                    None => configs.push(AcquisitionConfiguration::Unconfigured(method)),
-                }
+            AcquisitionMethod::Shopify => {
+                let row=sqlx::query_as::<_,(String,Option<String>,Option<String>)>("SELECT domain,currency,language FROM listing_source_shopify_configurations WHERE listing_source_id=$1").bind(id).fetch_optional(&mut *connection).await.map_err(db_read)?.ok_or_else(|| invalid(AcquisitionConfigurationMismatch))?;
+                configs.push(AcquisitionConfiguration::Shopify {
+                    domain: Domain::try_from(row.0).map_err(invalid)?,
+                    currency: parse_optional_currency(row.1.as_deref())?,
+                    language: parse_optional_language(row.2.as_deref())?,
+                });
             }
-            method @ AcquisitionMethod::Woocommerce => {
-                let row=sqlx::query_as::<_,(Option<String>,Option<String>)>("SELECT currency,language FROM listing_source_woocommerce_configurations WHERE listing_source_id=$1").bind(id).fetch_optional(&mut *connection).await.map_err(db_read)?;
-                match row {
-                    Some(row) => configs.push(AcquisitionConfiguration::Woocommerce {
-                        currency: parse_optional_currency(row.0.as_deref())?,
-                        language: parse_optional_language(row.1.as_deref())?,
-                    }),
-                    None => configs.push(AcquisitionConfiguration::Unconfigured(method)),
-                }
+            AcquisitionMethod::Woocommerce => {
+                let row=sqlx::query_as::<_,(Option<String>,Option<String>)>("SELECT currency,language FROM listing_source_woocommerce_configurations WHERE listing_source_id=$1").bind(id).fetch_optional(&mut *connection).await.map_err(db_read)?.ok_or_else(|| invalid(AcquisitionConfigurationMismatch))?;
+                configs.push(AcquisitionConfiguration::Woocommerce {
+                    currency: parse_optional_currency(row.0.as_deref())?,
+                    language: parse_optional_language(row.1.as_deref())?,
+                });
             }
         }
     }
-    Ok(ListingSourceAcquisitionConfigurations(configs))
+    let methods = configs
+        .iter()
+        .map(AcquisitionConfiguration::method)
+        .collect::<HashSet<_>>();
+    let has_orphan_shopify = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM listing_source_shopify_configurations WHERE listing_source_id=$1)",
+    )
+    .bind(id)
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(db_read)?
+        && !methods.contains(&AcquisitionMethod::Shopify);
+    let has_orphan_woocommerce = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM listing_source_woocommerce_configurations WHERE listing_source_id=$1)",
+    )
+    .bind(id)
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(db_read)?
+        && !methods.contains(&AcquisitionMethod::Woocommerce);
+    if has_orphan_shopify || has_orphan_woocommerce {
+        return Err(invalid(AcquisitionConfigurationMismatch));
+    }
+    let configurations = ListingSourceAcquisitionConfigurations(configs);
+    configurations.methods().map_err(invalid)?;
+    Ok(configurations)
 }
 fn parse_optional_currency(
     value: Option<&str>,
@@ -327,7 +345,8 @@ mod tests {
 
         let source = ListingSource::create(NewListingSource {
             id: ListingSourceId::new(),
-            name: ListingSourceName::from("Provider Source"),
+            name: ListingSourceName::try_from("Provider Source")
+                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
             operator_party_id,
             acquisition_methods: HashSet::from([
                 AcquisitionMethod::WebCrawl,
@@ -370,6 +389,21 @@ mod tests {
             .commit()
             .await
             .unwrap_or_else(|error| panic!("commit transaction: {error}"));
+        let partnership_id = uuid::Uuid::new_v4();
+        sqlx::query("INSERT INTO partnerships (partnership_id, party_id) VALUES ($1, $2)")
+            .bind(partnership_id)
+            .bind(uuid::Uuid::from(operator_party_id))
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("insert operator partnership: {error}"));
+        sqlx::query(
+            "INSERT INTO partnership_listing_source_grants (partnership_id, listing_source_id) VALUES ($1, $2)",
+        )
+        .bind(partnership_id)
+        .bind(uuid::Uuid::from(source.id()))
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("insert listing source grant: {error}"));
 
         assert_eq!(source.id(), stored.source.id());
         assert_eq!(configuration, stored.configuration);
@@ -380,7 +414,11 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("read listing source details: {error}"))
             .unwrap_or_else(|| panic!("listing source details missing"));
-        assert_eq!(PartyName::from("Operator"), details.operator_name);
+        assert_eq!(
+            PartyName::try_from("Operator")
+                .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
+            details.operator_name
+        );
         assert_eq!(operator_party_id, details.operator_party_id);
         assert_eq!(source.acquisition_methods(), &details.acquisition_methods);
 
@@ -407,12 +445,11 @@ mod tests {
             .list_sources()
             .await
             .unwrap_or_else(|error| panic!("list webcrawl sources: {error}"));
-        assert!(
-            webcrawl
-                .iter()
-                .any(|candidate| candidate.listing_source_id == source.id()
-                    && candidate.url.as_str() == "https://provider.example/")
-        );
+        assert!(webcrawl.iter().any(|candidate| {
+            candidate.listing_source_id == source.id()
+                && candidate.listing_source_name == *source.name()
+                && candidate.listing_source_slug == *source.slug_id()
+        }));
 
         let body = b"payload";
         let signature = hmac_sha256(b"test-webhook-secret", body)

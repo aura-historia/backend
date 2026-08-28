@@ -193,7 +193,7 @@ impl
                     product_listing_id: Uuid::from(product_listing_id),
                     user_search_filter_id: Uuid::from(user_search_filter_id),
                     user_search_filter_name: user_search_filter_name.to_string(),
-                    listing_source_id: Uuid::from(snapshot.listing_source_id),
+                    listing_source_id: snapshot.listing_source_id,
                     source_listing_id: snapshot.source_listing_id.to_string(),
                     listing_source_slug_id: snapshot.listing_source_slug_id.to_string(),
                     product_listing_slug_id: snapshot.product_listing_slug_id.to_string(),

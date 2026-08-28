@@ -232,7 +232,7 @@ mod tests {
     use listing_source_service::ports::ShopifySource;
     use localization::Language;
     use money::Currency;
-    use party_core::party_id::PartyId;
+
     use std::sync::{Arc, Mutex};
 
     #[tokio::test]
@@ -349,7 +349,8 @@ mod tests {
         IngestShopifyProductListingCommand {
             source_domain: Domain::try_from("partner.example")
                 .unwrap_or_else(|error| panic!("invalid test domain: {error}")),
-            source_listing_id: SourceListingId::from("shopify-1"),
+            source_listing_id: SourceListingId::try_from("shopify-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: "Cabinet".to_owned(),
             description: Some("Cabinet description".to_owned()),
             handle: "cabinet".to_owned(),
@@ -362,7 +363,7 @@ mod tests {
     fn source(listing_source_id: ListingSourceId) -> ShopifySource {
         ShopifySource {
             listing_source_id,
-            operator_party_id: PartyId::new(),
+
             domain: Domain::try_from("partner.example")
                 .unwrap_or_else(|error| panic!("invalid test domain: {error}")),
             currency: Some(Currency::Usd),

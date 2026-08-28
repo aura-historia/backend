@@ -10,7 +10,6 @@ domain_primitives::version_newtype!(ListingSourceStorageVersion);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AcquisitionConfiguration {
-    Unconfigured(AcquisitionMethod),
     WebCrawl,
     Shopify {
         domain: Domain,
@@ -27,7 +26,6 @@ pub enum AcquisitionConfiguration {
 impl AcquisitionConfiguration {
     pub fn method(&self) -> AcquisitionMethod {
         match self {
-            Self::Unconfigured(method) => *method,
             Self::WebCrawl => AcquisitionMethod::WebCrawl,
             Self::Shopify { .. } => AcquisitionMethod::Shopify,
             Self::Woocommerce { .. } => AcquisitionMethod::Woocommerce,
@@ -40,20 +38,29 @@ impl AcquisitionConfiguration {
 pub struct ListingSourceAcquisitionConfigurations(pub Vec<AcquisitionConfiguration>);
 
 impl ListingSourceAcquisitionConfigurations {
-    pub fn validate_for(
+    pub fn methods(
         &self,
-        source: &ListingSource,
-    ) -> Result<(), AcquisitionConfigurationMismatch> {
-        let configured = self
+    ) -> Result<std::collections::HashSet<AcquisitionMethod>, AcquisitionConfigurationMismatch>
+    {
+        let methods = self
             .0
             .iter()
             .map(AcquisitionConfiguration::method)
             .collect::<std::collections::HashSet<_>>();
-        if configured.len() == self.0.len() && configured == *source.acquisition_methods() {
-            Ok(())
+        if methods.len() == self.0.len() {
+            Ok(methods)
         } else {
             Err(AcquisitionConfigurationMismatch)
         }
+    }
+
+    pub fn validate_for(
+        &self,
+        source: &ListingSource,
+    ) -> Result<(), AcquisitionConfigurationMismatch> {
+        (self.methods()? == *source.acquisition_methods())
+            .then_some(())
+            .ok_or(AcquisitionConfigurationMismatch)
     }
 
     pub fn has_woocommerce(&self) -> bool {

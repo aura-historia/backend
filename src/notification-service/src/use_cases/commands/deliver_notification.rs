@@ -555,8 +555,12 @@ mod tests {
             content: NotificationContent::PartnershipApplication {
                 partnership_application_id: PartnershipApplicationId::new(),
                 snapshot: PartnershipApplicationNotificationSnapshot {
-                    party_name: PartyName::from("Test Party"),
-                    listing_source_name: ListingSourceName::from("Test Listing Source"),
+                    party_name: PartyName::try_from("Test Party")
+                        .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
+                    listing_source_name: ListingSourceName::try_from("Test Listing Source")
+                        .unwrap_or_else(|error| {
+                            panic!("invalid test listing source name: {error}")
+                        }),
                     image: None,
                 },
                 decision: PartnershipApplicationDecision::Approved,

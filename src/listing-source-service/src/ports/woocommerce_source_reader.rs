@@ -1,14 +1,11 @@
+use super::ListingSourceReadError;
 use listing_source_core::ListingSourceId;
 use localization::Language;
 use money::Currency;
-use party_core::party_id::PartyId;
-
-use super::ListingSourceReadError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WoocommerceSource {
     pub listing_source_id: ListingSourceId,
-    pub operator_party_id: PartyId,
     pub currency: Option<Currency>,
     pub language: Option<Language>,
 }

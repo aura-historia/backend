@@ -27,6 +27,8 @@ pub enum ProductListingRepositoryError {
     ProductListingUpdateFailed,
     #[error("persisted product slug is invalid")]
     InvalidProductListingSlugPersisted,
+    #[error("persisted source listing ID is invalid")]
+    InvalidSourceListingIdPersisted,
     #[error("persisted title is incomplete")]
     IncompleteTitlePersisted,
     #[error("persisted title language is invalid")]

@@ -85,7 +85,9 @@ where
         source_domain: Domain,
         payload: ShopifyProductPayload,
     ) -> Result<(), ShopifyProductListingProcessingError> {
-        let source_listing_id = SourceListingId::from(payload.id.to_string());
+        let source_listing_id = SourceListingId::try_from(payload.id.to_string())
+            .map_err(ShopifyProductEventError::InvalidSourceListingId)
+            .map_err(ShopifyProductListingProcessingError::InvalidPayload)?;
         match kind
             .listing_action(source_domain.clone(), payload)
             .map_err(ShopifyProductListingProcessingError::InvalidPayload)?

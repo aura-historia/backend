@@ -164,10 +164,19 @@ fn redact_hidden_product_search_item(
     product.item.listing_source_id = ListingSourceId::from(nil);
     product.source = ListingSourceSummary {
         listing_source_id: ListingSourceId::from(nil),
-        name: ListingSourceName::from("Hidden"),
+        name: ListingSourceName::try_from("Hidden").map_err(|source| {
+            ProductListingSummaryPersonalizationError::HiddenProductListingSummaryInvalid {
+                source: box_error(source),
+            }
+        })?,
         slug_id: ListingSourceSlugId::from("hidden"),
     };
-    product.item.source_listing_id = SourceListingId::from(nil.to_string());
+    product.item.source_listing_id =
+        SourceListingId::try_from(nil.to_string()).map_err(|error| {
+            ProductListingSummaryPersonalizationError::HiddenProductListingSummaryInvalid {
+                source: box_error(error),
+            }
+        })?;
     product.item.title = Some(Localized::new(language, hidden_title(language)));
     product.item.display_price = None;
     product.item.availability = None;
@@ -255,7 +264,8 @@ mod tests {
             product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
             event_id: EventId::new(),
             listing_source_id,
-            source_listing_id: SourceListingId::from("cabinet-1"),
+            source_listing_id: SourceListingId::try_from("cabinet-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
             display_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
             price_valuation: ProductListingSummaryPriceValuation::Current {
@@ -284,7 +294,9 @@ mod tests {
                     source_one,
                     ListingSourceSummary {
                         listing_source_id: source_one,
-                        name: ListingSourceName::from("One"),
+                        name: ListingSourceName::try_from("One").unwrap_or_else(|error| {
+                            panic!("invalid test listing source name: {error}")
+                        }),
                         slug_id: ListingSourceSlugId::from("one"),
                     },
                 ),
@@ -292,7 +304,9 @@ mod tests {
                     source_two,
                     ListingSourceSummary {
                         listing_source_id: source_two,
-                        name: ListingSourceName::from("Two"),
+                        name: ListingSourceName::try_from("Two").unwrap_or_else(|error| {
+                            panic!("invalid test listing source name: {error}")
+                        }),
                         slug_id: ListingSourceSlugId::from("two"),
                     },
                 ),

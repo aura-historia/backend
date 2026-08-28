@@ -1,10 +1,10 @@
 use localization::Language;
 use std::collections::HashMap;
 
-use crate::url::append_utm_params;
+use crate::url::referral_configuration;
 use application::error::{BoxError, box_error, static_error};
 use domain_primitives::event_id::EventId;
-use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, outbound_url};
 use money::{Currency, MonetaryAmount, Price};
 use platform_postgres::SqlxTransaction;
 use product_listing_core::{
@@ -45,6 +45,7 @@ struct SourceRow {
     source_listing_id: String,
     listing_source_slug_id: String,
     listing_source_name: String,
+    listing_source_referral_configuration: Option<serde_json::Value>,
     title_text: Option<String>,
     title_language: Option<String>,
     product_images: serde_json::Value,
@@ -141,6 +142,7 @@ impl ProductListingWatchlistNotificationSourceReader
                 event.event_id, event.event_time, event.product_listing_id, event.event_type, event.payload,
                 product.product_listing_slug_id, product.listing_source_id, product.source_listing_id,
                 listing_source.listing_source_slug_id, listing_source.name AS listing_source_name,
+                listing_source.referral_configuration AS listing_source_referral_configuration,
                 product.title_text, product.title_language, product.product_images,
                 assessment.decision AS content_policy_decision,
                 assessment.category AS content_policy_category,
@@ -195,6 +197,17 @@ impl ProductListingWatchlistNotificationSourceReader
             .next();
         let url = url::Url::parse(&row.url)
             .map_err(WatchlistNotificationSourceMappingError::with_source)?;
+        let view_url = outbound_url(
+            referral_configuration(row.listing_source_referral_configuration.as_ref())
+                .map_err(|_| {
+                    WatchlistNotificationSourceMappingError::invalid(
+                        "persisted watchlist notification source referral configuration is invalid",
+                    )
+                })?
+                .as_ref(),
+            &url,
+        )
+        .map_err(WatchlistNotificationSourceMappingError::with_source)?;
         Ok(Some(ProductListingWatchlistNotificationSource {
             event_id: EventId::from(row.event_id),
             event_time: row.event_time,
@@ -203,18 +216,20 @@ impl ProductListingWatchlistNotificationSourceReader
                 .map_err(WatchlistNotificationSourceMappingError::with_source)?,
             source: ListingSourceSummary {
                 listing_source_id: ListingSourceId::from(row.listing_source_id),
-                name: ListingSourceName::from(row.listing_source_name),
+                name: ListingSourceName::try_from(row.listing_source_name)
+                    .map_err(WatchlistNotificationSourceMappingError::with_source)?,
                 slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id)
                     .map_err(WatchlistNotificationSourceMappingError::with_source)?,
             },
-            source_listing_id: SourceListingId::from(row.source_listing_id),
+            source_listing_id: SourceListingId::try_from(row.source_listing_id)
+                .map_err(WatchlistNotificationSourceMappingError::with_source)?,
             title: (!title.is_empty()).then_some(title),
             image,
             content_policy: content_policy(
                 row.content_policy_decision.as_deref(),
                 row.content_policy_category.as_deref(),
             )?,
-            view_url: append_utm_params(url.clone()),
+            view_url,
             url,
             change,
         }))

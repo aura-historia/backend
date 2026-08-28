@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS listing_sources (
     listing_source_id   UUID        PRIMARY KEY,
     listing_source_name TEXT        NOT NULL,
     listing_source_slug TEXT        NOT NULL,
-    present             BOOLEAN     NOT NULL DEFAULT TRUE,
+    crawl_enabled       BOOLEAN     NOT NULL DEFAULT TRUE,
     llm_calls_count     BIGINT      NOT NULL DEFAULT 0,
     url_pattern         TEXT,
     created             TIMESTAMPTZ NOT NULL DEFAULT NOW(),

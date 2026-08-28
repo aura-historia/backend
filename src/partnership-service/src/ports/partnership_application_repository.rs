@@ -37,6 +37,10 @@ pub trait PartnershipApplicationRepository: Send {
         &mut self,
         id: PartnershipApplicationId,
     ) -> Result<Option<VersionedPartnershipApplication>, PartnershipApplicationRepositoryError>;
+    async fn find_by_id_for_update(
+        &mut self,
+        id: PartnershipApplicationId,
+    ) -> Result<Option<VersionedPartnershipApplication>, PartnershipApplicationRepositoryError>;
     async fn find_by_user_and_id(
         &mut self,
         user_id: UserId,

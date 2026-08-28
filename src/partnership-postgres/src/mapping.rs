@@ -4,11 +4,12 @@ use listing_source_core::{
 };
 use partnership_core::{
     partnership_application::{
-        PartnershipApplication, PartnershipProposal, ProposedListingSource, ProposedParty,
-        RehydratedPartnershipApplicationState,
+        PartnershipApplication, PartnershipApplicationApprovalResult, PartnershipProposal,
+        ProposedListingSource, ProposedParty, RehydratedPartnershipApplicationState,
     },
     partnership_application_id::PartnershipApplicationId,
     partnership_application_state::PartnershipApplicationState,
+    partnership_id::PartnershipId,
 };
 use partnership_service::ports::{
     PartnershipApplicationStorageVersion, PartnershipApplicationView,
@@ -28,6 +29,8 @@ pub(crate) struct ApplicationRow {
     pub(crate) applicant_user_id: uuid::Uuid,
     pub(crate) business_state: String,
     pub(crate) proposal: serde_json::Value,
+    pub(crate) approved_partnership_id: Option<uuid::Uuid>,
+    pub(crate) approved_listing_source_id: Option<uuid::Uuid>,
     pub(crate) version: i64,
 }
 #[derive(Debug, thiserror::Error)]
@@ -38,6 +41,12 @@ pub(crate) enum MappingError {
     Proposal(#[source] serde_json::Error),
     #[error("invalid proposal value")]
     Value,
+    #[error("invalid application approval result")]
+    ApprovalResult,
+    #[error("inconsistent application approval result")]
+    Rehydration(
+        #[source] partnership_core::partnership_application::RehydratedPartnershipApplicationError,
+    ),
     #[error("invalid application version")]
     Version,
 }
@@ -134,14 +143,15 @@ impl TryFrom<ProposalV1> for PartnershipProposal {
                     .collect::<Result<HashSet<_>, _>>()?;
                 Ok(Self::ProposedListingSource {
                     party: ProposedParty {
-                        name: PartyName::from(party.name),
+                        name: PartyName::try_from(party.name).map_err(|_| MappingError::Value)?,
                         contact: PartyContact {
                             phone: party.phone,
                             email,
                         },
                     },
                     listing_source: ProposedListingSource {
-                        name: ListingSourceName::from(listing_source.name),
+                        name: ListingSourceName::try_from(listing_source.name)
+                            .map_err(|_| MappingError::Value)?,
                         presentation: ListingSourcePresentation {
                             url: listing_source
                                 .url
@@ -172,15 +182,28 @@ pub(crate) fn application(
     let proposal = serde_json::from_value::<ProposalV1>(row.proposal)
         .map_err(MappingError::Proposal)?
         .try_into()?;
+    let approval_result = match (row.approved_partnership_id, row.approved_listing_source_id) {
+        (Some(partnership_id), Some(listing_source_id)) => {
+            Some(PartnershipApplicationApprovalResult::new(
+                PartnershipId::from(partnership_id),
+                ListingSourceId::from(listing_source_id),
+            ))
+        }
+        (None, None) => None,
+        _ => return Err(MappingError::ApprovalResult),
+    };
     let version = PartnershipApplicationStorageVersion::try_from(row.version)
         .map_err(|_| MappingError::Version)?;
+    let application = PartnershipApplication::rehydrate(RehydratedPartnershipApplicationState {
+        id: PartnershipApplicationId::from(row.partnership_application_id),
+        applicant_user_id: UserId::from(row.applicant_user_id),
+        state,
+        proposal,
+        approval_result,
+    })
+    .map_err(MappingError::Rehydration)?;
     Ok(domain_primitives::versioned::Versioned::new(
-        PartnershipApplication::rehydrate(RehydratedPartnershipApplicationState {
-            id: PartnershipApplicationId::from(row.partnership_application_id),
-            applicant_user_id: UserId::from(row.applicant_user_id),
-            state,
-            proposal,
-        }),
+        application,
         version,
     ))
 }

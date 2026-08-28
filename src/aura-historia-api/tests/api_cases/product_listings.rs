@@ -113,9 +113,10 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
     let mut product = ProductListing::create(NewProductListing {
         id: product_listing_id,
         listing_source_id: ListingSourceId::new(),
-        source_listing_id: SourceListingId::from(
-            format!("timestamped-history-{product_listing_id}").as_str(),
-        ),
+        source_listing_id: SourceListingId::try_from(format!(
+            "timestamped-history-{product_listing_id}"
+        ))
+        .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
         title: Some(Localized::new(
             Language::En,
             Title::from("Timestamped history ProductListing"),

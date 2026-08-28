@@ -591,7 +591,8 @@ mod tests {
     fn command() -> Result<UpsertProductListingCommand, url::ParseError> {
         Ok(UpsertProductListingCommand {
             listing_source_id: ListingSourceId::new(),
-            source_listing_id: SourceListingId::from("prod-1"),
+            source_listing_id: SourceListingId::try_from("prod-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: Some(Localized::new(Language::De, Title::from("Ein Schrank"))),
             description: None,
             price: PatchField::Unchanged,
@@ -614,7 +615,8 @@ mod tests {
 
     fn push_item_with_id(id: &str) -> Result<ProductListingPushItem, url::ParseError> {
         let mut item = push_item()?;
-        item.command.source_listing_id = SourceListingId::from(id);
+        item.command.source_listing_id = SourceListingId::try_from(id)
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
         Ok(item)
     }
 
@@ -920,7 +922,8 @@ mod tests {
         assert!(merge_upsert_command(&mut current, newer).is_ok());
 
         let mut mismatched = current.clone();
-        mismatched.source_listing_id = SourceListingId::from("other-product");
+        mismatched.source_listing_id = SourceListingId::try_from("other-product")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
         assert_eq!(
             merge_upsert_command(&mut current, mismatched),
             Err(DuplicateProductListingCommandError::ProductListingKeyMismatch)
@@ -947,7 +950,8 @@ mod tests {
             last_scraped_availability: None,
         };
         let product = NormalizedProduct {
-            source_listing_id: SourceListingId::from("prod-1"),
+            source_listing_id: SourceListingId::try_from("prod-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: Localized::new(Language::De, Title::from("Ein Schrank")),
             description: None,
             price: None,

@@ -11221,6 +11221,7 @@ components:
           type: string
         name:
           type: string
+          description: ListingSource name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
         operator:
           $ref: "#/components/schemas/OperatorPartyData"
         acquisitionMethods:
@@ -11367,6 +11368,7 @@ components:
                 - NEW
             name:
               type: string
+              description: Party name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
             phone:
               type: string
             email:
@@ -11377,17 +11379,13 @@ components:
       required:
         - name
         - operator
-        - acquisitionMethods
         - acquisitionConfiguration
       properties:
         name:
           type: string
+          description: ListingSource name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
         operator:
           $ref: "#/components/schemas/ListingSourceOperatorInputData"
-        acquisitionMethods:
-          type: array
-          items:
-            $ref: "#/components/schemas/AcquisitionMethodData"
         acquisitionConfiguration:
           type: array
           items:
@@ -11408,13 +11406,7 @@ components:
       properties:
         name:
           type: string
-        operatorPartyId:
-          type: string
-          format: uuid
-        acquisitionMethods:
-          type: array
-          items:
-            $ref: "#/components/schemas/AcquisitionMethodData"
+          description: ListingSource name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
         acquisitionConfiguration:
           type: array
           items:
@@ -11469,6 +11461,7 @@ components:
       properties:
         name:
           type: string
+          description: Party name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
         phone:
           type: string
         email:
@@ -11482,6 +11475,7 @@ components:
       properties:
         name:
           type: string
+          description: ListingSource name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
         url:
           type: string
           format: uri

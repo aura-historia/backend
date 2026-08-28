@@ -112,7 +112,8 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         .unwrap();
     assert_eq!(
         result.product.source_listing_id,
-        SourceListingId::from("SKU-42")
+        SourceListingId::try_from("SKU-42")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"))
     );
 }
 

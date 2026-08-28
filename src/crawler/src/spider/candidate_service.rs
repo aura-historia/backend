@@ -63,7 +63,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                    sd.last_crawl_error_kind
             FROM listing_sources s
             JOIN listing_source_domains sd ON sd.listing_source_id = s.listing_source_id
-            WHERE s.active = TRUE
+            WHERE s.crawl_enabled = TRUE
               AND (sd.last_crawled IS NULL OR sd.last_crawled < NOW() - INTERVAL '7 days')
               AND (sd.next_crawl_at IS NULL OR sd.next_crawl_at <= NOW())
               AND NOT (sd.domain_id = ANY($2))

@@ -32,10 +32,10 @@ pub async fn update_products(
     let mapped = match products
         .into_iter()
         .map(|product| {
-            let source_listing_id = product.source_listing_id.clone();
+            let raw_source_listing_id = product.source_listing_id.clone();
             product
                 .into_key_and_command(listing_source_id)
-                .map(|(product_key, command)| (source_listing_id, product_key, command))
+                .map(|(product_key, command)| (raw_source_listing_id, product_key, command))
         })
         .collect::<Result<Vec<_>, ApiError>>()
     {

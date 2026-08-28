@@ -62,7 +62,7 @@ async fn should_retain_slug_when_renaming_party_and_replace_contact() {
 
     let mut renamed = stored.party;
     let original_slug = renamed.slug_id().clone();
-    let _ = renamed.rename(PartyName::from("Renamed party"));
+    let _ = renamed.rename(party_name("Renamed party"));
     let email = match Email::try_from("updated@example.com") {
         Ok(value) => value,
         Err(error) => panic!("invalid test email: {error}"),
@@ -137,7 +137,7 @@ async fn should_report_concurrency_conflict_for_stale_party_update() {
     commit(tx).await;
 
     let mut updated_party = stored.party.clone();
-    let _ = updated_party.rename(PartyName::from("Changed party"));
+    let _ = updated_party.rename(party_name("Changed party"));
     let mut tx = begin(&unit_of_work).await;
     match parties
         .in_transaction(&mut tx)
@@ -194,6 +194,76 @@ async fn should_reject_invalid_persisted_party_state() {
     ));
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reject_invalid_persisted_party_name() {
+    let pool = get_postgres_client().await;
+    let party_id = PartyId::new();
+
+    let inserted =
+        sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
+            .bind(uuid::Uuid::from(party_id))
+            .bind("invalid-name")
+            .bind("Valid name")
+            .execute(&pool)
+            .await;
+    assert!(inserted.is_ok());
+
+    let corrupted = sqlx::query("UPDATE parties SET name = $1 WHERE party_id = $2")
+        .bind("\u{2003}\u{00a0}")
+        .bind(uuid::Uuid::from(party_id))
+        .execute(&pool)
+        .await;
+    assert!(corrupted.is_ok());
+
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let mut tx = begin(&unit_of_work).await;
+    let result = SqlxPartyRepositoryFactory::new()
+        .in_transaction(&mut tx)
+        .find_by_id(party_id)
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(PartyRepositoryError::InvalidPersistedState { .. })
+    ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_enforce_party_name_and_slug_schema_constraints() {
+    let pool = get_postgres_client().await;
+
+    let blank_name =
+        sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
+            .bind(uuid::Uuid::new_v4())
+            .bind("valid-slug")
+            .bind("   ")
+            .execute(&pool)
+            .await;
+    assert!(blank_name.is_err());
+
+    let oversized_name =
+        sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
+            .bind(uuid::Uuid::new_v4())
+            .bind("another-valid-slug")
+            .bind("é".repeat(128))
+            .execute(&pool)
+            .await;
+    assert!(oversized_name.is_err());
+
+    let blank_slug =
+        sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
+            .bind(uuid::Uuid::new_v4())
+            .bind("")
+            .bind("Valid name")
+            .execute(&pool)
+            .await;
+    assert!(blank_slug.is_err());
+}
+
+fn party_name(value: &str) -> PartyName {
+    PartyName::try_from(value).unwrap_or_else(|error| panic!("invalid test party name: {error}"))
+}
+
 fn sample_party(name: &str) -> Party {
     let email = match Email::try_from(format!("{name}@example.com")) {
         Ok(value) => value,
@@ -201,7 +271,7 @@ fn sample_party(name: &str) -> Party {
     };
     Party::create(NewParty {
         id: PartyId::new(),
-        name: PartyName::from(name),
+        name: party_name(name),
         contact: PartyContact {
             phone: Some("+49 30 123456".to_owned()),
             email: Some(email),

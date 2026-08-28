@@ -254,7 +254,7 @@ async fn insert_demo_listing_source(
     let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
 
     sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, present, created, updated)
+        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated)
          VALUES ($1, 'Demo source', 'demo-source', TRUE, NOW(), NOW())
          ON CONFLICT (listing_source_id) DO NOTHING",
     )

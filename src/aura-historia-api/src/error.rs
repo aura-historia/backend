@@ -733,7 +733,8 @@ impl From<CreateListingSourceError> for ApiError {
                 ApiError::bad_request(BAD_BODY_VALUE)
                     .with_detail("Listing source acquisition configuration is invalid.")
             }
-            CreateListingSourceError::SlugConflict { .. }
+            CreateListingSourceError::OperatorPartySlugConflict { .. }
+            | CreateListingSourceError::SlugConflict { .. }
             | CreateListingSourceError::ShopifyDomainConflict { .. } => {
                 ApiError::conflict(CONFLICT)
                     .with_detail("Listing source conflicts with current state.")

@@ -2,7 +2,6 @@ use party_core::{
     party::{Party, PartyContact, RehydratedPartyState},
     party_id::PartyId,
     party_name::PartyName,
-    party_slug_id::PartySlugId,
 };
 use party_service::ports::{PartyStorageVersion, StoredParty};
 use serde_email::Email;
@@ -22,6 +21,8 @@ pub(crate) struct PartyRow {
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum PartyRowMappingError {
+    #[error("invalid party name persisted")]
+    Name,
     #[error("invalid party slug persisted")]
     Slug,
     #[error("invalid party email persisted")]
@@ -50,8 +51,8 @@ impl TryFrom<PartyRow> for StoredParty {
             .map_err(|_| PartyRowMappingError::Version)?;
         let party = Party::rehydrate(RehydratedPartyState {
             id: PartyId::from(row.party_id),
-            slug_id: PartySlugId::raw(row.party_slug_id).map_err(|_| PartyRowMappingError::Slug)?,
-            name: PartyName::from(row.name),
+            slug_id: row.party_slug_id,
+            name: PartyName::try_from(row.name).map_err(|_| PartyRowMappingError::Name)?,
             contact: PartyContact {
                 phone: row.phone,
                 email: row
@@ -61,7 +62,8 @@ impl TryFrom<PartyRow> for StoredParty {
                     .transpose()
                     .map_err(|_| PartyRowMappingError::Email)?,
             },
-        });
+        })
+        .map_err(|_| PartyRowMappingError::Slug)?;
 
         Ok(StoredParty {
             party,

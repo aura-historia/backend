@@ -270,7 +270,8 @@ fn upsert_command(
 ) -> UpsertProductListingCommand {
     UpsertProductListingCommand {
         listing_source_id,
-        source_listing_id: SourceListingId::from(source_listing_id),
+        source_listing_id: SourceListingId::try_from(source_listing_id)
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
         title: Some(Localized::new(Language::En, Title::from(title))),
         description: None,
         price: application::patch_field::PatchField::Set(Price::new(
@@ -386,7 +387,8 @@ fn sample_product_with_auction(
     match ProductListing::create(NewProductListing {
         id: ProductListingId::new(),
         listing_source_id,
-        source_listing_id: SourceListingId::from(slug),
+        source_listing_id: SourceListingId::try_from(slug)
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
         title: Some(Localized::new(Language::En, Title::from(slug))),
         description: Some(Localized::new(
             Language::En,

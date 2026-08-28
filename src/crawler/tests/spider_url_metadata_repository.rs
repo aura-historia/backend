@@ -14,7 +14,11 @@ async fn insert_shop_with_domain(
     listing_source_id_uuid: uuid::Uuid,
     domain: &str,
 ) -> uuid::Uuid {
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, created, updated) VALUES ($1, NOW(), NOW())")
+    sqlx::query(
+        "INSERT INTO listing_sources \
+         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+         VALUES ($1, 'Test source', 'test-source', TRUE, NOW(), NOW())",
+    )
         .bind(listing_source_id_uuid)
         .execute(pool)
         .await
@@ -158,10 +162,14 @@ async fn should_update_domain_id_when_url_is_upserted_with_different_domain() {
 async fn should_return_error_when_domain_id_does_not_exist_for_upsert_link() {
     let pool = get_postgres_client().await;
 
-    // Insert a shop but do NOT create a listing_source_domains row.
+    // Insert a ListingSource but do NOT create a listing_source_domains row.
     let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
     let listing_source_id_uuid: uuid::Uuid = listing_source_id.into();
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, created, updated) VALUES ($1, NOW(), NOW())")
+    sqlx::query(
+        "INSERT INTO listing_sources \
+         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+         VALUES ($1, 'Test source', 'test-source', TRUE, NOW(), NOW())",
+    )
         .bind(listing_source_id_uuid)
         .execute(&pool)
         .await
@@ -360,7 +368,11 @@ async fn should_return_error_when_domain_id_does_not_exist_for_upsert_links_batc
 
     let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
     let listing_source_id_uuid: uuid::Uuid = listing_source_id.into();
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, created, updated) VALUES ($1, NOW(), NOW())")
+    sqlx::query(
+        "INSERT INTO listing_sources \
+         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+         VALUES ($1, 'Test source', 'test-source', TRUE, NOW(), NOW())",
+    )
         .bind(listing_source_id_uuid)
         .execute(&pool)
         .await

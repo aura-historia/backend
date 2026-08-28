@@ -1,4 +1,8 @@
-use crate::{party_id::PartyId, party_name::PartyName, party_slug_id::PartySlugId};
+use crate::{
+    party_id::PartyId,
+    party_name::PartyName,
+    party_slug_id::{InvalidPartySlugId, PartySlugId},
+};
 use domain_primitives::change_outcome::ChangeOutcome;
 use serde_email::Email;
 
@@ -27,14 +31,20 @@ pub struct NewParty {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RehydratedPartyState {
     pub id: PartyId,
-    pub slug_id: PartySlugId,
+    pub slug_id: String,
     pub name: PartyName,
     pub contact: PartyContact,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum RehydratePartyError {
+    #[error("invalid persisted party slug")]
+    InvalidSlug(#[source] InvalidPartySlugId),
+}
+
 impl Party {
     pub fn create(input: NewParty) -> Self {
-        let slug_id = PartySlugId::from(input.name.as_ref());
+        let slug_id = PartySlugId::derive(input.name.as_ref(), input.id);
         Self {
             id: input.id,
             slug_id,
@@ -44,13 +54,13 @@ impl Party {
     }
 
     #[doc(hidden)]
-    pub fn rehydrate(state: RehydratedPartyState) -> Self {
-        Self {
+    pub fn rehydrate(state: RehydratedPartyState) -> Result<Self, RehydratePartyError> {
+        Ok(Self {
             id: state.id,
-            slug_id: state.slug_id,
+            slug_id: PartySlugId::raw(state.slug_id).map_err(RehydratePartyError::InvalidSlug)?,
             name: state.name,
             contact: state.contact,
-        }
+        })
     }
 
     pub fn rename(&mut self, name: PartyName) -> ChangeOutcome {
@@ -91,42 +101,74 @@ fn replace_if_changed<T: PartialEq>(current: &mut T, replacement: T) -> ChangeOu
 mod tests {
     use super::*;
 
+    fn party_name(value: &str) -> PartyName {
+        PartyName::try_from(value)
+            .unwrap_or_else(|error| panic!("invalid test party name: {error}"))
+    }
+
     #[test]
     fn should_derive_slug_once_when_creating_party() {
         let party = Party::create(NewParty {
             id: PartyId::new(),
-            name: PartyName::from("Antik und Stil"),
+            name: party_name("Antik und Stil"),
             contact: PartyContact::default(),
         });
 
         assert_eq!("antik-und-stil", party.slug_id().as_ref());
+    }
+
+    #[test]
+    fn should_use_stable_fallback_prefix_when_name_has_no_slug_characters() {
+        let party_id = PartyId::from(uuid::Uuid::nil());
+        let party = Party::create(NewParty {
+            id: party_id,
+            name: party_name("\u{10FFFF}"),
+            contact: PartyContact::default(),
+        });
+
+        assert_eq!(
+            "party-00000000-0000-0000-0000-000000000000",
+            party.slug_id().as_ref()
+        );
     }
 
     #[test]
     fn should_preserve_slug_when_renaming_party() {
         let mut party = Party::create(NewParty {
             id: PartyId::new(),
-            name: PartyName::from("Antik und Stil"),
+            name: party_name("Antik und Stil"),
             contact: PartyContact::default(),
         });
 
-        assert!(party.rename(PartyName::from("Neue Identität")).changed());
+        assert!(party.rename(party_name("Neue Identität")).changed());
 
         assert_eq!("antik-und-stil", party.slug_id().as_ref());
         assert_eq!("Neue Identität", party.name().as_ref());
     }
 
     #[test]
-    fn should_rehydrate_valid_persisted_slug_without_comparing_name() {
+    fn should_rehydrate_exact_valid_persisted_slug_without_comparing_name() {
         let party = Party::rehydrate(RehydratedPartyState {
             id: PartyId::new(),
-            slug_id: PartySlugId::raw("historic-party-slug").unwrap_or_else(|error| {
-                panic!("invalid test slug: {error}");
-            }),
-            name: PartyName::from("Renamed Party"),
+            slug_id: "historic-party-slug".to_owned(),
+            name: party_name("Renamed Party"),
             contact: PartyContact::default(),
         });
 
+        let party = party.unwrap_or_else(|error| panic!("failed to rehydrate party: {error}"));
+
         assert_eq!("historic-party-slug", party.slug_id().as_ref());
+    }
+
+    #[test]
+    fn should_reject_invalid_persisted_slug_when_rehydrating_party() {
+        let party = Party::rehydrate(RehydratedPartyState {
+            id: PartyId::new(),
+            slug_id: "historic--party".to_owned(),
+            name: party_name("Party"),
+            contact: PartyContact::default(),
+        });
+
+        assert!(matches!(party, Err(RehydratePartyError::InvalidSlug(_))));
     }
 }

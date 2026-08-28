@@ -1,17 +1,20 @@
-//! Synchronizes crawler-local ListingSource presence from business truth.
+//! Synchronizes crawler-local ListingSource crawl eligibility from business truth.
 
 use async_trait::async_trait;
-use listing_source_core::ListingSourceId;
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use sqlx::PgPool;
-use tracing::{error, info};
+use tracing::info;
 
-/// Crawler-safe business identity. It deliberately contains no Party, address, or provider data.
+/// Crawler-safe business identity.
+///
+/// The business reader supplies canonical ListingSource values. `crawl_enabled` is
+/// crawler-local state derived from the complete successful `WEB_CRAWL` source read.
 #[derive(Debug, Clone)]
 pub struct RegisteredListingSource {
     pub listing_source_id: ListingSourceId,
-    pub listing_source_name: String,
-    pub listing_source_slug: String,
-    pub present: bool,
+    pub listing_source_name: ListingSourceName,
+    pub listing_source_slug: ListingSourceSlugId,
+    pub crawl_enabled: bool,
 }
 
 /// Reads the authoritative crawler scope.
@@ -23,7 +26,7 @@ pub trait ListingSourceRegistrationSource: Send + Sync {
     ) -> Result<Vec<RegisteredListingSource>, ListingSourceSyncError>;
 }
 
-/// Writes only crawler-local ListingSource presence metadata.
+/// Writes crawler-local ListingSource identity and crawl eligibility.
 #[async_trait]
 #[mockall::automock]
 pub trait ListingSourceRegistrationRepository: Send + Sync {
@@ -31,9 +34,9 @@ pub trait ListingSourceRegistrationRepository: Send + Sync {
         &self,
         listing_source: &RegisteredListingSource,
     ) -> Result<(), sqlx::Error>;
-    async fn delete_listing_sources_not_in(
+    async fn disable_listing_sources_not_in(
         &self,
-        present_listing_source_ids: &[ListingSourceId],
+        crawl_enabled_listing_source_ids: &[ListingSourceId],
     ) -> Result<u64, sqlx::Error>;
 }
 
@@ -61,34 +64,30 @@ impl ListingSourceRegistrationService {
     #[tracing::instrument(name = "listing_source_registration_sync", skip(self))]
     pub async fn sync(&self) -> Result<usize, ListingSourceSyncError> {
         let listing_sources = self.source.fetch_registered_listing_sources().await?;
-        let present_listing_source_ids = listing_sources
+        let crawl_enabled_listing_source_ids = listing_sources
             .iter()
-            .filter(|listing_source| listing_source.present)
+            .filter(|listing_source| listing_source.crawl_enabled)
             .map(|listing_source| listing_source.listing_source_id)
             .collect::<Vec<_>>();
 
         for listing_source in &listing_sources {
-            if let Err(error) = self.repository.upsert_listing_source(listing_source).await {
-                error!(
-                    listing_source_id = %listing_source.listing_source_id,
-                    error = %error,
-                    "failed to sync crawler-local listing source"
-                );
-            }
+            self.repository
+                .upsert_listing_source(listing_source)
+                .await?;
         }
 
-        let deleted = self
+        let disabled = self
             .repository
-            .delete_listing_sources_not_in(&present_listing_source_ids)
+            .disable_listing_sources_not_in(&crawl_enabled_listing_source_ids)
             .await?;
-        if deleted > 0 {
+        if disabled > 0 {
             info!(
-                deleted,
-                "deleted crawler-local listing sources absent from business sync"
+                disabled,
+                "disabled crawler-local listing sources absent from business crawl scope"
             );
         }
 
-        Ok(present_listing_source_ids.len())
+        Ok(crawl_enabled_listing_source_ids.len())
     }
 }
 
@@ -110,36 +109,38 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "INSERT INTO listing_sources \
-                (listing_source_id, listing_source_name, listing_source_slug, present, created, updated) \
+                (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
              VALUES ($1, $2, $3, $4, NOW(), NOW()) \
              ON CONFLICT (listing_source_id) DO UPDATE SET \
                 listing_source_name = EXCLUDED.listing_source_name, \
                 listing_source_slug = EXCLUDED.listing_source_slug, \
-                present = EXCLUDED.present, \
+                crawl_enabled = EXCLUDED.crawl_enabled, \
                 updated = NOW()",
         )
         .bind(uuid::Uuid::from(listing_source.listing_source_id))
-        .bind(&listing_source.listing_source_name)
-        .bind(&listing_source.listing_source_slug)
-        .bind(listing_source.present)
+        .bind(listing_source.listing_source_name.as_ref())
+        .bind(listing_source.listing_source_slug.to_string())
+        .bind(listing_source.crawl_enabled)
         .execute(&self.pool)
         .await?;
 
         Ok(())
     }
 
-    async fn delete_listing_sources_not_in(
+    async fn disable_listing_sources_not_in(
         &self,
-        present_listing_source_ids: &[ListingSourceId],
+        crawl_enabled_listing_source_ids: &[ListingSourceId],
     ) -> Result<u64, sqlx::Error> {
-        let ids = present_listing_source_ids
+        let ids = crawl_enabled_listing_source_ids
             .iter()
             .copied()
             .map(uuid::Uuid::from)
             .collect::<Vec<_>>();
         let result = sqlx::query(
-            "DELETE FROM listing_sources \
-             WHERE NOT (listing_source_id = ANY($1::uuid[]))",
+            "UPDATE listing_sources \
+             SET crawl_enabled = FALSE, updated = NOW() \
+             WHERE crawl_enabled = TRUE \
+               AND NOT (listing_source_id = ANY($1::uuid[]))",
         )
         .bind(ids)
         .execute(&self.pool)
@@ -156,14 +157,15 @@ mod tests {
     fn listing_source() -> RegisteredListingSource {
         RegisteredListingSource {
             listing_source_id: ListingSourceId::new(),
-            listing_source_name: "Source".to_owned(),
-            listing_source_slug: "source".to_owned(),
-            present: true,
+            listing_source_name: ListingSourceName::try_from("Source")
+                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+            listing_source_slug: ListingSourceSlugId::from("source"),
+            crawl_enabled: true,
         }
     }
 
     #[tokio::test]
-    async fn should_delete_only_sources_absent_from_successful_sync() {
+    async fn should_disable_only_sources_absent_from_successful_sync() {
         let source_listing_source = listing_source();
         let mut source = MockListingSourceRegistrationSource::new();
         source
@@ -179,7 +181,7 @@ mod tests {
             .times(1)
             .returning(|_| Box::pin(async { Ok(()) }));
         repository
-            .expect_delete_listing_sources_not_in()
+            .expect_disable_listing_sources_not_in()
             .times(1)
             .withf(|ids| ids.len() == 1)
             .returning(|_| Box::pin(async { Ok(0) }));
@@ -191,7 +193,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_not_delete_when_business_read_fails() {
+    async fn should_not_disable_when_business_read_fails() {
         let mut source = MockListingSourceRegistrationSource::new();
         source
             .expect_fetch_registered_listing_sources()

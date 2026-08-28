@@ -1,5 +1,5 @@
 use application::operation_context::Principal;
-use party_core::party_id::PartyId;
+use listing_source_core::ListingSourceId;
 
 use super::ListingSourceReadError;
 
@@ -8,6 +8,6 @@ pub trait PartnershipGrantPolicy: Send + Sync {
     async fn can_access_source(
         &self,
         principal: &Principal,
-        operator_party_id: PartyId,
+        listing_source_id: ListingSourceId,
     ) -> Result<bool, ListingSourceReadError>;
 }

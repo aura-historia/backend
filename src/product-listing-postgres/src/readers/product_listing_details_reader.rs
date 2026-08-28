@@ -1,9 +1,9 @@
-use crate::url::append_utm_params;
+use crate::url::referral_configuration;
 use application::personalized::Personalized;
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
-use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, outbound_url};
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use notification_core::notification_id::NotificationId;
@@ -57,6 +57,7 @@ pub(super) struct ProductListingDetailsRow {
     source_listing_id: String,
     listing_source_name: String,
     listing_source_slug_id: String,
+    listing_source_referral_configuration: Option<serde_json::Value>,
     product_title_text: Option<String>,
     product_title_language: Option<String>,
     product_description_text: Option<String>,
@@ -195,6 +196,7 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
         p.listing_source_id, p.source_listing_id,
         listing_source.name AS listing_source_name,
         listing_source.listing_source_slug_id,
+        listing_source.referral_configuration AS listing_source_referral_configuration,
         p.title_text AS product_title_text, p.title_language AS product_title_language,
         p.description_text AS product_description_text,
         p.description_language AS product_description_language,
@@ -388,6 +390,11 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
         let sale_observation =
             sale_observation(row.sale_observed_at, row.sale_observation_fx_rate_id)?;
         let url = Url::parse(&row.url).map_err(|_| ())?;
+        let view_url = outbound_url(
+            referral_configuration(row.listing_source_referral_configuration.as_ref())?.as_ref(),
+            &url,
+        )
+        .map_err(|_| ())?;
 
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
@@ -397,11 +404,12 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                 event_id: EventId::from(row.event_id),
                 source: ListingSourceSummary {
                     listing_source_id: ListingSourceId::from(row.listing_source_id),
-                    name: ListingSourceName::from(row.listing_source_name),
+                    name: ListingSourceName::try_from(row.listing_source_name).map_err(|_| ())?,
                     slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id)
                         .map_err(|_| ())?,
                 },
-                source_listing_id: SourceListingId::from(row.source_listing_id),
+                source_listing_id: SourceListingId::try_from(row.source_listing_id)
+                    .map_err(|_| ())?,
                 product_title,
                 product_description,
                 title,
@@ -414,7 +422,7 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                 sale_observation,
                 availability: availability(row.availability.as_deref())?,
                 lifecycle: lifecycle(&row.lifecycle)?,
-                view_url: append_utm_params(url.clone()),
+                view_url,
                 url,
                 images: parsed_images,
                 content_policy,

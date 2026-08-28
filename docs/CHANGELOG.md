@@ -26,6 +26,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Breaking:** ProductListing `availability` is optional; absent means no current source assertion. `ProductState` and lifecycle filters are removed. Discovery and saved searches filter exact `availability`, derived `orderability`, and explicitly requested unspecified availability; exact availability and orderability intersect.
 - OAuth client administration now authorizes in the service layer: delegated reads require `access-tokens:read`; writes and authorization requests require `access-tokens:write`, and requested OAuth scopes cannot exceed delegated caller capabilities. OAuth client `client_id_issued_at` now uses persisted creation metadata consistently across create, update, get, and list responses.
 - OAuth redirect URI invariants are validated during domain construction and persisted-state rehydration; only non-empty HTTPS URIs without fragments are accepted.
+- Party names now trim outer Unicode whitespace, reject blank values, and reject values over 255 UTF-8 bytes without truncation. New Party slugs remain immutable and use `party-<partyId>` when slugification would be empty; nested ListingSource and PartnershipApplication Party inputs return `400 BAD_BODY_VALUE` for invalid names.
+- ListingSource names now trim outer Unicode whitespace, reject blank values, and reject values over 255 UTF-8 bytes without truncation. New ListingSource slugs remain immutable and use `listing-source-<listingSourceId>` when slugification would be empty; ListingSource create/update and proposed PartnershipApplication inputs return `400 BAD_BODY_VALUE` for invalid names.
 
 ### Removed
 

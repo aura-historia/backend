@@ -776,7 +776,8 @@ mod tests {
         ProductListingPushItem {
             command: UpsertProductListingCommand {
                 listing_source_id: ListingSourceId::from(uuid::Uuid::from(listing_source_id)),
-                source_listing_id: SourceListingId::from(product_id),
+                source_listing_id: SourceListingId::try_from(product_id)
+                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                 title: None,
                 description: None,
                 price: application::patch_field::PatchField::Unchanged,

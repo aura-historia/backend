@@ -427,10 +427,12 @@ pub fn redact_hidden_product(
     details.event_id = EventId::from(nil);
     details.source = ListingSourceSummary {
         listing_source_id: listing_source_core::ListingSourceId::from(nil),
-        name: listing_source_core::ListingSourceName::from("Hidden"),
+        name: listing_source_core::ListingSourceName::try_from("Hidden")
+            .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?,
         slug_id: ListingSourceSlugId::from("hidden"),
     };
-    details.source_listing_id = SourceListingId::from(nil.to_string());
+    details.source_listing_id = SourceListingId::try_from(nil.to_string())
+        .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?;
     details.product_title = None;
     details.product_description = None;
     details.title = Some(Localized::new(language, hidden_title(language)));
@@ -785,10 +787,14 @@ mod tests {
                 event_id: EventId::new(),
                 source: ListingSourceSummary {
                     listing_source_id: listing_source_core::ListingSourceId::new(),
-                    name: listing_source_core::ListingSourceName::from("Source"),
+                    name: listing_source_core::ListingSourceName::try_from("Source")
+                        .unwrap_or_else(|error| {
+                            panic!("invalid test listing source name: {error}")
+                        }),
                     slug_id: ListingSourceSlugId::from("source"),
                 },
-                source_listing_id: SourceListingId::from("cabinet-1"),
+                source_listing_id: SourceListingId::try_from("cabinet-1")
+                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                 product_title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
                 product_description: Some(Localized::new(
                     Language::En,

@@ -80,7 +80,7 @@ where
             .ok_or(GetShopifySourceError::NotFound)?;
         if !self
             .partnership_grants
-            .can_access_source(&context.principal, source.operator_party_id)
+            .can_access_source(&context.principal, source.listing_source_id)
             .await
             .map_err(map_read)?
         {
@@ -123,7 +123,6 @@ fn map_read(error: ListingSourceReadError) -> GetShopifySourceError {
 mod tests {
     use super::*;
     use application::operation_context::{CorrelationId, Principal, RequestId};
-    use party_core::party_id::PartyId;
     struct Reader(ShopifySource);
     #[async_trait::async_trait]
     impl ShopifySourceReader for Reader {
@@ -140,7 +139,7 @@ mod tests {
         async fn can_access_source(
             &self,
             _: &Principal,
-            _: PartyId,
+            _: listing_source_core::ListingSourceId,
         ) -> Result<bool, ListingSourceReadError> {
             Ok(self.0)
         }
@@ -148,7 +147,6 @@ mod tests {
     fn source() -> ShopifySource {
         ShopifySource {
             listing_source_id: listing_source_core::ListingSourceId::new(),
-            operator_party_id: PartyId::new(),
             domain: Domain::try_from("shop.example")
                 .unwrap_or_else(|error| panic!("valid test domain: {error}")),
             currency: None,

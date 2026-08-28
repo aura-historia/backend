@@ -133,14 +133,11 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
     ) -> Result<(), sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
 
-        // Upsert the shop row (url_pattern lives here)
         sqlx::query(
-            "INSERT INTO listing_sources (listing_source_id, url_pattern, created, updated)
-             VALUES ($1, $2, NOW(), NOW())
-             ON CONFLICT (listing_source_id)
-             DO UPDATE SET
-                 url_pattern = EXCLUDED.url_pattern,
-                 updated = NOW()",
+            "UPDATE listing_sources
+             SET url_pattern = $2,
+                 updated = NOW()
+             WHERE listing_source_id = $1",
         )
         .bind(listing_source_id_uuid)
         .bind(pattern)
@@ -167,16 +164,6 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
         listing_source_domain: &Domain,
     ) -> Result<(), sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
-
-        // Ensure the shop exists
-        sqlx::query(
-            "INSERT INTO listing_sources (listing_source_id, created, updated)
-             VALUES ($1, NOW(), NOW())
-             ON CONFLICT (listing_source_id) DO NOTHING",
-        )
-        .bind(listing_source_id_uuid)
-        .execute(&self.pool)
-        .await?;
 
         // Upsert domain and stamp last_crawled
         sqlx::query(

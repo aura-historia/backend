@@ -360,7 +360,8 @@ impl TryFrom<ProductListingRow> for Versioned<ProductListing, EventId> {
             slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
                 .map_err(|_| ProductListingRepositoryError::InvalidProductListingSlugPersisted)?,
             listing_source_id: ListingSourceId::from(row.listing_source_id),
-            source_listing_id: SourceListingId::from(row.source_listing_id),
+            source_listing_id: SourceListingId::try_from(row.source_listing_id)
+                .map_err(|_| ProductListingRepositoryError::InvalidSourceListingIdPersisted)?,
             title,
             description,
             pricing: ProductListingPricing {

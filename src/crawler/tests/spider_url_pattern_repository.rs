@@ -8,6 +8,18 @@ use test_api::*;
 
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
+async fn insert_listing_source(pool: &sqlx::PgPool, listing_source_id: ListingSourceId) {
+    sqlx::query(
+        "INSERT INTO listing_sources \
+         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+         VALUES ($1, 'Test source', 'test-source', TRUE, NOW(), NOW())",
+    )
+    .bind(uuid::Uuid::from(listing_source_id))
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 // ---------------------------------------------------------------------------
 // find_pattern
 // ---------------------------------------------------------------------------
@@ -32,6 +44,7 @@ async fn should_return_pattern_when_exists_for_find() {
     let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
     let listing_source_domain = Domain::try_from("example.com").unwrap();
     let pattern = r"/product/\d+";
+    insert_listing_source(&pool, listing_source_id).await;
 
     repository
         .save_pattern(&listing_source_id, &listing_source_domain, Some(pattern))
@@ -57,11 +70,12 @@ async fn should_return_pattern_when_exists_for_find() {
 #[serial_test::serial]
 async fn should_persist_and_return_pattern_for_insert() {
     let pool = get_postgres_client().await;
-    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool);
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
 
     let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
     let listing_source_domain = Domain::try_from("insert-example.com").unwrap();
     let pattern = r"/item/\w+";
+    insert_listing_source(&pool, listing_source_id).await;
 
     repository
         .save_pattern(&listing_source_id, &listing_source_domain, Some(pattern))
@@ -83,11 +97,12 @@ async fn should_persist_and_return_pattern_for_insert() {
 #[serial_test::serial]
 async fn should_preserve_created_and_updated_timestamps_for_insert() {
     let pool = get_postgres_client().await;
-    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool);
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
 
     let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
     let listing_source_domain = Domain::try_from("ts-example.com").unwrap();
     let pattern = "/ts-item";
+    insert_listing_source(&pool, listing_source_id).await;
 
     repository
         .save_pattern(&listing_source_id, &listing_source_domain, Some(pattern))
@@ -129,10 +144,11 @@ async fn should_preserve_created_and_updated_timestamps_for_insert() {
 #[serial_test::serial]
 async fn should_allow_clearing_pattern() {
     let pool = get_postgres_client().await;
-    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool);
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
 
     let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
     let listing_source_domain = Domain::try_from("clear-example.com").unwrap();
+    insert_listing_source(&pool, listing_source_id).await;
 
     repository
         .save_pattern(
@@ -168,10 +184,11 @@ async fn should_allow_clearing_pattern() {
 #[serial_test::serial]
 async fn should_mark_pattern_as_crawled() {
     let pool = get_postgres_client().await;
-    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool);
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
 
     let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
     let listing_source_domain = Domain::try_from("mark-example.com").unwrap();
+    insert_listing_source(&pool, listing_source_id).await;
 
     // Mark as crawled directly without a pattern
     repository

@@ -23,7 +23,7 @@ pub(super) const MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE: usize = 100;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct CreateProductListingData {
-    pub(super) source_listing_id: SourceListingId,
+    pub(super) source_listing_id: String,
     pub(super) title: LocalizedTextData,
     pub(super) description: LocalizedTextData,
     #[serde(default)]
@@ -45,7 +45,7 @@ pub(super) struct CreateProductListingData {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct UpdateProductListingData {
-    pub(super) source_listing_id: SourceListingId,
+    pub(super) source_listing_id: String,
     #[serde(default)]
     pub(super) price: PatchValue<PriceData>,
     #[serde(default)]
@@ -68,7 +68,7 @@ pub(super) struct UpdateProductListingData {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct UpsertProductListingData {
-    pub(super) source_listing_id: SourceListingId,
+    pub(super) source_listing_id: String,
     #[serde(default)]
     pub(super) title: Option<LocalizedTextData>,
     #[serde(default)]
@@ -95,14 +95,14 @@ pub(super) struct UpsertProductListingData {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct WithdrawProductListingData {
-    pub(super) source_listing_id: SourceListingId,
+    pub(super) source_listing_id: String,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct PartnerProductFailureData {
     listing_source_id: uuid::Uuid,
-    source_listing_id: SourceListingId,
+    source_listing_id: String,
     error: ApiErrorCode,
 }
 
@@ -128,10 +128,10 @@ impl CreateProductListingData {
     pub(super) fn into_command(
         self,
         listing_source_id: ListingSourceId,
-    ) -> CreateProductListingCommand {
-        CreateProductListingCommand {
+    ) -> Result<CreateProductListingCommand, ApiError> {
+        Ok(CreateProductListingCommand {
             listing_source_id,
-            source_listing_id: self.source_listing_id,
+            source_listing_id: source_listing_id(self.source_listing_id)?,
             title: Some(title(self.title)),
             description: Some(description(self.description)),
             pricing: ProductListingPricing {
@@ -146,7 +146,7 @@ impl CreateProductListingData {
                 start: self.auction_start,
                 end: self.auction_end,
             },
-        }
+        })
     }
 }
 
@@ -155,7 +155,10 @@ impl UpdateProductListingData {
         self,
         listing_source_id: ListingSourceId,
     ) -> Result<(ProductListingKey, UpdateProductListingCommand), ApiError> {
-        let product_key = ProductListingKey::new(listing_source_id, self.source_listing_id);
+        let product_key = ProductListingKey::new(
+            listing_source_id,
+            source_listing_id(self.source_listing_id)?,
+        );
         let command = UpdateProductListingCommand {
             price: clearable(self.price.map(price)),
             price_estimate_min: clearable(self.price_estimate_min.map(price)),
@@ -178,7 +181,7 @@ impl UpsertProductListingData {
     ) -> Result<UpsertProductListingCommand, ApiError> {
         Ok(UpsertProductListingCommand {
             listing_source_id,
-            source_listing_id: self.source_listing_id,
+            source_listing_id: source_listing_id(self.source_listing_id)?,
             title: self.title.map(title),
             description: self.description.map(description),
             price: clearable(self.price.map(price)),
@@ -194,15 +197,21 @@ impl UpsertProductListingData {
 }
 
 impl WithdrawProductListingData {
-    pub(super) fn into_product_key(self, listing_source_id: ListingSourceId) -> ProductListingKey {
-        ProductListingKey::new(listing_source_id, self.source_listing_id)
+    pub(super) fn into_product_key(
+        self,
+        listing_source_id: ListingSourceId,
+    ) -> Result<ProductListingKey, ApiError> {
+        Ok(ProductListingKey::new(
+            listing_source_id,
+            source_listing_id(self.source_listing_id)?,
+        ))
     }
 }
 
 impl PartnerProductFailureData {
     pub(super) fn new(
         listing_source_id: ListingSourceId,
-        source_listing_id: SourceListingId,
+        source_listing_id: String,
         error: ApiErrorCode,
     ) -> Self {
         Self {
@@ -229,4 +238,38 @@ fn price(value: PriceData) -> Price {
 
 fn product_images(values: Vec<Url>) -> indexmap::IndexSet<ProductListingImage> {
     values.into_iter().map(ProductListingImage::new).collect()
+}
+
+fn source_listing_id(value: String) -> Result<SourceListingId, ApiError> {
+    SourceListingId::try_from(value)
+        .map_err(|error| ApiError::bad_request(BAD_BODY_VALUE).with_detail(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{WithdrawProductListingData, source_listing_id};
+    use crate::error::BAD_BODY_VALUE;
+    use listing_source_core::ListingSourceId;
+
+    #[test]
+    fn should_parse_source_listing_id_without_slugifying_it() {
+        let data: WithdrawProductListingData =
+            serde_json::from_str(r#"{"sourceListingId":"\u2003SKU  #42/Blue\u2002"}"#)
+                .unwrap_or_else(|error| panic!("valid request data: {error}"));
+
+        let key = data
+            .into_product_key(ListingSourceId::new())
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
+
+        assert_eq!(key.source_listing_id.as_ref(), "SKU  #42/Blue");
+    }
+
+    #[test]
+    fn should_reject_blank_source_listing_id_at_api_mapping() {
+        let error = source_listing_id("\u{2003}\t".to_owned())
+            .err()
+            .unwrap_or_else(|| panic!("blank source listing ID must fail"));
+
+        assert_eq!(error.code(), BAD_BODY_VALUE);
+    }
 }

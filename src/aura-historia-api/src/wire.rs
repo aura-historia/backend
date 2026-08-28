@@ -127,6 +127,19 @@ where
     }
 }
 
+pub(crate) mod source_listing_id {
+    use product_listing_core::source_listing_id::SourceListingId;
+
+    use super::*;
+
+    pub(crate) fn serialize<S>(value: &SourceListingId, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(value.as_ref())
+    }
+}
+
 pub(crate) mod currency {
     use super::*;
     use money::Currency;

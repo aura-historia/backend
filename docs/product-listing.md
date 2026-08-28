@@ -155,9 +155,9 @@ Withdrawal replaces normal deletion. The HTTP partner route may remain `DELETE`,
 
 `title` and `description` are creation-only upsert inputs. For an existing listing, they preserve current state and emit no current-state history event. Responses always emit `"availability": null` when absent. Requests parse availability tri-state. Aura route and identifier vocabulary uses `product-listings`, `productListingId`, `productListingSlugId`, and `sourceListingId`.
 
-A ProductListing is identified by `(ListingSourceId, SourceListingId)`. It has no seller, auctioneer, Party attribution, address, or location state. The created event includes both immutable source identifiers. Actor attribution belongs to #1321; durable raw input to #1646; addresses to #1635.
+A ProductListing is identified by `(ListingSourceId, SourceListingId)`. `SourceListingId` is an opaque partner value: Aura trims outer Unicode whitespace, rejects blank values, preserves case, punctuation, and internal whitespace, and accepts at most 512 UTF-8 bytes. It has no seller, auctioneer, Party attribution, address, or location state. The created event includes both immutable source identifiers. Actor attribution belongs to #1321; durable raw input to #1646; addresses to #1635.
 
-Public listing discovery contains active listings only. Withdrawn listings are not found by public detail and are deleted from the OpenSearch projection; restore rebuilds the projection. Public discovery does not expose a lifecycle filter.
+Public listing discovery contains active listings only. Withdrawn listings are not found by public detail and are deleted from the OpenSearch projection; restore rebuilds the projection. Public discovery does not expose a lifecycle filter. Read models and OpenSearch retain each raw source `url` and derive a separate `view_url` from the joined current ListingSource referral configuration: Partnerize when configured, otherwise Aura UTM parameters.
 
 `ListingAvailabilityQuery` supports exact availability values, derived orderability values, and `include_unspecified`. Exact values OR together; orderability expands to detailed values; supplying both intersects them; unspecified values only match the missing field and are optionally ORed in. Contradictory exact/orderability filters yield no concrete matches.
 

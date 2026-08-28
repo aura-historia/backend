@@ -575,7 +575,8 @@ mod tests {
         NewProductListing {
             id: ProductListingId::new(),
             listing_source_id: ListingSourceId::new(),
-            source_listing_id: SourceListingId::new(),
+            source_listing_id: SourceListingId::try_from("source-listing-id")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: None,
             description: None,
             pricing: ProductListingPricing::default(),

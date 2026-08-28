@@ -43,7 +43,9 @@ impl Ord for ProductListingKey {
 #[cfg(feature = "test-data")]
 impl fake::Dummy<fake::Faker> for ProductListingKey {
     fn dummy_with_rng<R: fake::RngExt + ?Sized>(_: &fake::Faker, _: &mut R) -> Self {
-        Self::new(ListingSourceId::new(), SourceListingId::new())
+        let source_listing_id = SourceListingId::try_from("fake-source-listing-id")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
+        Self::new(ListingSourceId::new(), source_listing_id)
     }
 }
 
@@ -54,7 +56,8 @@ mod tests {
     #[test]
     fn should_create_key_from_listing_source_and_source_listing_ids() {
         let listing_source_id = ListingSourceId::new();
-        let source_listing_id = SourceListingId::new();
+        let source_listing_id = SourceListingId::try_from("source-listing-id")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
 
         let key = ProductListingKey::new(listing_source_id, source_listing_id.clone());
 

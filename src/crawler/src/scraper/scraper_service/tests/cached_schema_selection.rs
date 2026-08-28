@@ -191,7 +191,8 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
             let product = result.unwrap().unwrap();
             assert_eq!(
                 product.product.source_listing_id,
-                SourceListingId::from("SKU-42")
+                SourceListingId::try_from("SKU-42")
+                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}"))
             );
         }
         NormalizationFailureScope::External => {
@@ -325,7 +326,8 @@ async fn should_try_all_cached_schemas_before_fresh_generation() {
         .unwrap();
     assert_eq!(
         result.product.source_listing_id,
-        SourceListingId::from("SKU-42")
+        SourceListingId::try_from("SKU-42")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"))
     );
 }
 
@@ -418,7 +420,8 @@ async fn should_generate_fresh_schema_when_cached_data_fails() {
         .unwrap();
     assert_eq!(
         result.product.source_listing_id,
-        SourceListingId::from("SKU-42")
+        SourceListingId::try_from("SKU-42")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"))
     );
 }
 

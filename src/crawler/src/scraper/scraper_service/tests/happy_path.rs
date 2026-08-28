@@ -65,7 +65,8 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
 
     assert_eq!(
         result.product.source_listing_id,
-        SourceListingId::from("SKU-42")
+        SourceListingId::try_from("SKU-42")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"))
     );
     assert_eq!(
         result.product.availability,

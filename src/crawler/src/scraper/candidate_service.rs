@@ -341,7 +341,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
             su.last_scraped_availability
         FROM listing_source_urls su
         JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
-        WHERE s.present = TRUE
+        WHERE s.crawl_enabled = TRUE
           AND s.llm_calls_count < $3
           AND su.url_class = 'product'
           AND su.last_scraped_presence = 'PRESENT'
@@ -447,7 +447,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             SELECT su.url
             FROM listing_source_urls su
             JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
-            WHERE s.present = TRUE
+            WHERE s.crawl_enabled = TRUE
               AND su.listing_source_id = $1
               AND su.url_class = 'product'
               AND su.last_scraped_presence = 'PRESENT'
@@ -769,7 +769,8 @@ mod tests {
 
     fn product(availability: ListingAvailabilityMapping) -> NormalizedProduct {
         NormalizedProduct {
-            source_listing_id: SourceListingId::from("SKU-1"),
+            source_listing_id: SourceListingId::try_from("SKU-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: Localized::new(Language::En, Title::from("Test listing")),
             description: None,
             price: None,

@@ -22,7 +22,9 @@ use notification_service::ports::notification_creator::{
 };
 use partnership_core::{
     partnership::{NewPartnership, Partnership},
-    partnership_application::{PartnershipApplication, PartnershipProposal},
+    partnership_application::{
+        PartnershipApplication, PartnershipApplicationApprovalResult, PartnershipProposal,
+    },
     partnership_application_id::PartnershipApplicationId,
     partnership_application_state::PartnershipApplicationState,
     partnership_id::PartnershipId,
@@ -159,17 +161,22 @@ where
         let mut versioned = self
             .applications
             .in_transaction(&mut tx)
-            .find_by_id(command.application_id)
+            .find_by_id_for_update(command.application_id)
             .await?
             .ok_or(ApprovePartnershipApplicationError::NotFound)?;
         if versioned.value.state() == PartnershipApplicationState::Approved {
+            let approval_result = versioned.value.approval_result().ok_or(
+                ApprovePartnershipApplicationError::InvalidPersistedState {
+                    source: static_error("approved application missing approval result"),
+                },
+            )?;
             tx.commit()
                 .await
                 .map_err(|_| ApprovePartnershipApplicationError::CommitTransactionFailed)?;
             return Ok(ApprovePartnershipApplicationResult {
                 application: versioned.value,
-                partnership_id: None,
-                listing_source_id: None,
+                partnership_id: Some(approval_result.partnership_id()),
+                listing_source_id: Some(approval_result.listing_source_id()),
             });
         }
         if versioned.value.state() != PartnershipApplicationState::InReview {
@@ -215,22 +222,34 @@ where
                         .insert(&party)
                         .await?
                         .party;
+                    let config = ListingSourceAcquisitionConfigurations(
+                        listing_source
+                            .requested_acquisition_methods
+                            .iter()
+                            .filter_map(|method| match method {
+                                listing_source_core::AcquisitionMethod::WebCrawl => {
+                                    Some(AcquisitionConfiguration::WebCrawl)
+                                }
+                                listing_source_core::AcquisitionMethod::PartnerApi => {
+                                    Some(AcquisitionConfiguration::PartnerApi)
+                                }
+                                listing_source_core::AcquisitionMethod::Shopify
+                                | listing_source_core::AcquisitionMethod::Woocommerce => None,
+                            })
+                            .collect(),
+                    );
                     let source = ListingSource::create(NewListingSource {
                         id: ListingSourceId::new(),
                         name: listing_source.name,
                         operator_party_id: party.id(),
-                        acquisition_methods: listing_source.requested_acquisition_methods.clone(),
+                        acquisition_methods: config.methods().map_err(|source| {
+                            ApprovePartnershipApplicationError::InvalidPersistedState {
+                                source: application::error::box_error(source),
+                            }
+                        })?,
                         presentation: listing_source.presentation,
                         referral_configuration: None,
                     });
-                    let config = ListingSourceAcquisitionConfigurations(
-                        source
-                            .acquisition_methods()
-                            .iter()
-                            .copied()
-                            .map(AcquisitionConfiguration::Unconfigured)
-                            .collect(),
-                    );
                     let source = self
                         .sources
                         .in_transaction(&mut tx)
@@ -274,7 +293,10 @@ where
             .await?;
         versioned
             .value
-            .approve()
+            .approve(PartnershipApplicationApprovalResult::new(
+                partnership.id(),
+                source_id,
+            ))
             .map_err(|_| ApprovePartnershipApplicationError::ApplicationNotApprovable)?;
         let application = self
             .applications
@@ -638,6 +660,14 @@ mod tests {
                 .map(|application| Versioned::new(application, version)))
         }
 
+        async fn find_by_id_for_update(
+            &mut self,
+            id: PartnershipApplicationId,
+        ) -> Result<Option<VersionedPartnershipApplication>, PartnershipApplicationRepositoryError>
+        {
+            self.find_by_id(id).await
+        }
+
         async fn find_by_user_and_id(
             &mut self,
             user_id: user_core::user_id::UserId,
@@ -919,9 +949,11 @@ mod tests {
                 id: PartnershipApplicationId::new(),
                 applicant_user_id: user_core::user_id::UserId::new(),
                 state: PartnershipApplicationState::InReview,
+                approval_result: None,
                 proposal: PartnershipProposal::ProposedListingSource {
                     party: partnership_core::partnership_application::ProposedParty {
-                        name: PartyName::from("Northwind Antiques"),
+                        name: PartyName::try_from("Northwind Antiques")
+                            .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
                         contact: PartyContact {
                             phone: None,
                             email: None,
@@ -929,7 +961,9 @@ mod tests {
                     },
                     listing_source:
                         partnership_core::partnership_application::ProposedListingSource {
-                            name: ListingSourceName::from("Northwind Source"),
+                            name: ListingSourceName::try_from("Northwind Source").unwrap_or_else(
+                                |error| panic!("invalid test listing source name: {error}"),
+                            ),
                             presentation: ListingSourcePresentation {
                                 url: None,
                                 image: None,
@@ -941,6 +975,7 @@ mod tests {
                 },
             },
         )
+        .unwrap_or_else(|error| panic!("valid test application: {error}"))
     }
 
     fn handler(
@@ -1031,7 +1066,8 @@ mod tests {
         let party_id = PartyId::new();
         let party = Party::create(NewParty {
             id: party_id,
-            name: PartyName::from("Existing Operator"),
+            name: PartyName::try_from("Existing Operator")
+                .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
             contact: PartyContact {
                 phone: None,
                 email: None,
@@ -1039,7 +1075,8 @@ mod tests {
         });
         let source = ListingSource::create(NewListingSource {
             id: ListingSourceId::new(),
-            name: ListingSourceName::from("Existing Source"),
+            name: ListingSourceName::try_from("Existing Source")
+                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
             operator_party_id: party_id,
             acquisition_methods: HashSet::from([AcquisitionMethod::PartnerApi]),
             presentation: ListingSourcePresentation {
@@ -1064,8 +1101,10 @@ mod tests {
                 proposal: PartnershipProposal::ExistingListingSource {
                     listing_source_id: source.id(),
                 },
+                approval_result: None,
             },
-        );
+        )
+        .unwrap_or_else(|error| panic!("valid test application: {error}"));
         let application_id = application.id();
         let mut fake_state = FakeState::with_application(application);
         fake_state.existing_party = Some(StoredParty {
@@ -1185,8 +1224,10 @@ mod tests {
                 applicant_user_id: proposed.applicant_user_id(),
                 state: PartnershipApplicationState::Submitted,
                 proposal: proposed.proposal().clone(),
+                approval_result: None,
             },
-        );
+        )
+        .unwrap_or_else(|error| panic!("valid test application: {error}"));
         let application_id = application.id();
         let state = Arc::new(Mutex::new(FakeState::with_application(application)));
 

@@ -25,9 +25,14 @@ pub(super) async fn submit(
         Ok(value) => value,
         Err(error) => return error.into_response(),
     };
+    let proposal: partnership_core::partnership_application::PartnershipProposal =
+        match request.proposal.try_into() {
+            Ok(value) => value,
+            Err(error) => return error.into_response(),
+        };
     let command = SubmitPartnershipApplicationCommand {
         applicant_user_id,
-        proposal: request.proposal.into(),
+        proposal,
     };
 
     match state.submit.execute(&context, command).await {

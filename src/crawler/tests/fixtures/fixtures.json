@@ -186,10 +186,7 @@
         "type": "attribute",
         "name": "content"
       },
-        "selector": "input#ClientName",
-        "type": "attribute",
-        "name": "value"
-      },
+
       "state": {
         "selector": "input#lot-is-ended",
         "type": "attribute",
@@ -290,7 +287,7 @@
         "https://antik-und-stil.com/wp-content/uploads/2025/03/20250219_083320-scaled.jpg"
       ],
       "auction_start": null,
-      "auction_end": null,
+      "auction_end": null
     },
     "normalized": {
       "source_listing_id": "2025-0219-03",
@@ -371,7 +368,7 @@
       "auction_end": null
     },
     "normalized": {
-      "source_listing_id": "artikel-nr-02092",
+      "source_listing_id": "Artikel-Nr:\u00a002092",
       "title": "Franz. Art Deco Deckenlampe, signiert Degue",
       "description": "Die franz\u00f6sische Art Deco Deckenlampe aus Gusseisen ist signiert mit Degue. Die Tulpen und die halbrunde Mittelschale aus gesandstrahltem Glas sind mit floralen Mustern geometrisch stilisiert und wirken sehr plastisch. Die Lampe leuchtet auch im Inneren. Leider ist eines der Au\u00dfengl\u00e4ser leicht besch\u00e4digt. Die \u00e4u\u00dferen Gl\u00e4ser sind durch eine separate Aufh\u00e4ngung befestigt, die Leuchte wurde neu verkabelt.\n\nMa\u00dfe: H60 x D65 cm",
       "price": 68000,
@@ -496,9 +493,7 @@
         "selector": ".prixobj",
         "type": "text"
       },
-        "selector": ".container-display-right-contact-nom i",
-        "type": "text"
-      },
+
       "state": {
         "selector": "meta[property='product:availability']",
         "type": "attribute",

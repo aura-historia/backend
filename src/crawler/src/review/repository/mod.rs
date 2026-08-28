@@ -156,7 +156,7 @@ impl CrawlerReviewRepository {
                 FROM listing_source_urls
                 GROUP BY listing_source_id
              ) u ON u.listing_source_id = s.listing_source_id
-             WHERE s.present = TRUE
+             WHERE s.crawl_enabled = TRUE
              ORDER BY pending_reviews DESC, s.updated DESC
              LIMIT $1",
         )

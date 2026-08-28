@@ -35,7 +35,7 @@ async fn insert_listing_source_with_domain(
     domain: &str,
 ) -> uuid::Uuid {
     sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, present, created, updated) \
+        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
          VALUES ($1, $2, $3, TRUE, NOW(), NOW())",
     )
     .bind(listing_source_id_uuid)
@@ -187,12 +187,12 @@ async fn spider_should_return_candidate_when_crawled_more_than_7_days_ago() {
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates — inactive listing_sources are excluded
+// get_candidates — crawl-disabled listing_sources are excluded
 // ---------------------------------------------------------------------------
 
 #[serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn spider_should_not_return_candidate_when_shop_is_inactive() {
+async fn spider_should_not_return_candidate_when_listing_source_crawl_is_disabled() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
@@ -204,7 +204,7 @@ async fn spider_should_not_return_candidate_when_shop_is_inactive() {
     )
     .await;
 
-    sqlx::query("UPDATE listing_sources SET active = FALSE WHERE listing_source_id = $1")
+    sqlx::query("UPDATE listing_sources SET crawl_enabled = FALSE WHERE listing_source_id = $1")
         .bind(listing_source_id_uuid)
         .execute(&pool)
         .await
@@ -214,7 +214,7 @@ async fn spider_should_not_return_candidate_when_shop_is_inactive() {
 
     assert!(
         !candidates.iter().any(|c| c.domain_id == domain_id),
-        "candidates for inactive listing_sources should be excluded"
+        "candidates for crawl-disabled listing_sources should be excluded"
     );
 }
 
@@ -260,7 +260,7 @@ async fn spider_should_return_each_domain_separately_for_shop_with_multiple_doma
 
     let listing_source_id_uuid = uuid::Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, present, created, updated) \
+        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
          VALUES ($1, $2, $3, TRUE, NOW(), NOW())",
     )
     .bind(listing_source_id_uuid)
@@ -714,7 +714,7 @@ async fn scraper_should_persist_url_class_other_and_exclude_candidate_when_set_c
 
 #[serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn scraper_should_not_return_candidate_when_shop_is_inactive() {
+async fn scraper_should_not_return_candidate_when_listing_source_crawl_is_disabled() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
@@ -728,7 +728,7 @@ async fn scraper_should_not_return_candidate_when_shop_is_inactive() {
     let url = "https://scraper-inactive.example.com/p/1";
     insert_product_url(&pool, listing_source_id_uuid, domain_id, url).await;
 
-    sqlx::query("UPDATE listing_sources SET active = FALSE WHERE listing_source_id = $1")
+    sqlx::query("UPDATE listing_sources SET crawl_enabled = FALSE WHERE listing_source_id = $1")
         .bind(listing_source_id_uuid)
         .execute(&pool)
         .await
@@ -738,7 +738,7 @@ async fn scraper_should_not_return_candidate_when_shop_is_inactive() {
 
     assert!(
         !candidates.iter().any(|c| c.url.as_str() == url),
-        "candidate for inactive shop should be excluded"
+        "candidate for crawl-disabled listing source should be excluded"
     );
 }
 

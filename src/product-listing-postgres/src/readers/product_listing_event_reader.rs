@@ -341,7 +341,8 @@ fn listing_source_id(payload: &Value) -> Result<ListingSourceId, ProductListingE
 }
 
 fn source_listing_id(payload: &Value) -> Result<SourceListingId, ProductListingEventReadError> {
-    Ok(SourceListingId::from(string(payload, "sourceListingId")?))
+    SourceListingId::try_from(string(payload, "sourceListingId")?)
+        .map_err(|_| ProductListingEventReadError::ProductListingEventReadModelInvalid)
 }
 
 fn images(

@@ -16,11 +16,13 @@ ProductListing
 
 ## Party
 
-A Party contains only a stable ID, immutable slug, name, and optional phone/email contact. Creation derives its slug once. Rename and contact replacement do not alter the slug. Party has no type, role, lifecycle, merge, address, or REST API.
+A Party contains only a stable ID, immutable slug, name, and optional phone/email contact. Party names trim Unicode outer whitespace, reject blank values, and allow at most 255 UTF-8 bytes without truncation. Creation derives its slug once; an empty slugification falls back to stable `party-<partyId>`. Rename and contact replacement do not alter the slug. Party rehydration validates the exact persisted slug without deriving it from the name. Party has no type, role, lifecycle, merge, address, or REST API.
 
 ## ListingSource
 
-A ListingSource contains a stable ID, immutable slug, name, required operator Party ID, active acquisition methods, optional presentation URL/image, and optional referral configuration. It has no type, lifecycle, search, address, crawl configuration, provider secret, or attribution policy.
+A ListingSource contains a stable ID, immutable slug, name, required operator Party ID, active acquisition methods, optional presentation URL/image, and optional referral configuration. ListingSource names trim Unicode outer whitespace, reject blank values, and allow at most 255 UTF-8 bytes without truncation. Creation derives its slug once; an empty slugification falls back to stable `listing-source-<listingSourceId>`. Rename does not alter the slug. Rehydration validates exact persisted name and slug. It has no type, lifecycle, search, address, crawl configuration, provider secret, or attribution policy.
+
+ProductListing reads and projections retain the raw source URL and derive a separate outbound view URL from the current ListingSource referral configuration: Partnerize when configured, otherwise Aura UTM parameters.
 
 Supported acquisition codes are exact canonical values:
 

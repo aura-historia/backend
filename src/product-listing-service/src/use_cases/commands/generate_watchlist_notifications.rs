@@ -336,10 +336,12 @@ mod tests {
             product_listing_slug_id: ProductListingSlugId::from("product"),
             source: ListingSourceSummary {
                 listing_source_id: ListingSourceId::new(),
-                name: ListingSourceName::from("Source"),
+                name: ListingSourceName::try_from("Source")
+                    .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
                 slug_id: ListingSourceSlugId::from("source"),
             },
-            source_listing_id: SourceListingId::from("product-1"),
+            source_listing_id: SourceListingId::try_from("product-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: None,
             image: None,
             content_policy: None,

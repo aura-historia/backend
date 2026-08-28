@@ -32,10 +32,10 @@ pub async fn upsert_products(
     let mapped = match products
         .into_iter()
         .map(|product| {
-            let source_listing_id = product.source_listing_id.clone();
+            let raw_source_listing_id = product.source_listing_id.clone();
             product
                 .into_command(listing_source_id)
-                .map(|command| (source_listing_id, command))
+                .map(|command| (raw_source_listing_id, command))
         })
         .collect::<Result<Vec<_>, ApiError>>()
     {

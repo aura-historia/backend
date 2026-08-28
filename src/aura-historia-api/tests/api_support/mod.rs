@@ -588,7 +588,6 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     let update_listing_source = UpdateListingSourceHandler::new(
         unit_of_work.clone(),
         SqlxListingSourceRepositoryFactory::new(),
-        SqlxPartyRepositoryFactory::new(),
         CheckUserAdminHandler::new(
             unit_of_work.clone(),
             user_postgres::SqlxUserAdminReaderFactory::new(),

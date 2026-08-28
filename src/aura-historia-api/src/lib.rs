@@ -591,7 +591,6 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     let update_listing_source = UpdateListingSourceHandler::new(
         unit_of_work.clone(),
         SqlxListingSourceRepositoryFactory::new(),
-        SqlxPartyRepositoryFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
     let list_administered_listing_sources = ListAdministeredListingSourcesHandler::new(

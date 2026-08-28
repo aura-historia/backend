@@ -120,9 +120,14 @@ fn demo_listing_sources() -> Vec<RegisteredListingSource> {
                 uuid::Uuid::parse_str(&format!("a1000000-0000-0000-0000-{index:012}"))
                     .unwrap_or_else(|error| panic!("invalid demo ListingSource ID: {error}")),
             ),
-            listing_source_name: listing_source_name.to_owned(),
-            listing_source_slug: listing_source_slug.to_owned(),
-            present: true,
+            listing_source_name: listing_source_core::ListingSourceName::try_from(
+                listing_source_name,
+            )
+            .unwrap_or_else(|error| panic!("invalid demo ListingSource name: {error}")),
+            listing_source_slug: listing_source_core::ListingSourceSlugId::from(
+                listing_source_slug,
+            ),
+            crawl_enabled: true,
         },
     )
     .collect()

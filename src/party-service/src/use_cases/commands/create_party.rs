@@ -334,7 +334,8 @@ mod tests {
             .execute(
                 &context,
                 CreatePartyCommand {
-                    name: PartyName::from("Antik und Stil"),
+                    name: PartyName::try_from("Antik und Stil")
+                        .unwrap_or_else(|error| panic!("invalid test party name: {error}")),
                     contact: PartyContact::default(),
                 },
             )

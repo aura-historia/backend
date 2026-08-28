@@ -74,6 +74,16 @@ pub async fn post_woocommerce(
                 .into_response();
         }
     };
+    let source_listing_id = match product_listing_core::source_listing_id::SourceListingId::try_from(
+        payload.id.to_string(),
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return ApiError::bad_request(BAD_BODY_VALUE)
+                .with_detail(error.to_string())
+                .into_response();
+        }
+    };
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return *response,
@@ -87,9 +97,7 @@ pub async fn post_woocommerce(
                 kind,
                 signature,
                 raw_body: body.to_vec(),
-                source_listing_id: product_listing_core::source_listing_id::SourceListingId::from(
-                    payload.id.to_string(),
-                ),
+                source_listing_id,
                 title: payload.name,
                 permalink: payload.permalink,
                 description_html: payload.description,
