@@ -224,7 +224,7 @@ async fn should_create_access_token_for_current_user() {
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({
             "name": "acceptance token",
-            "scopes": ["shops:read", "watchlist:write"]
+            "scopes": ["product-listings:write", "watchlist:write"]
         }))
         .send()
         .await
@@ -303,7 +303,7 @@ async fn should_update_access_token_for_current_user() {
         .json(&serde_json::json!({
             "accessTokenId": access_token_id,
             "name": "renamed token",
-            "scopes": ["shops:read"]
+            "scopes": ["product-listings:write"]
         }))
         .send()
         .await
@@ -387,7 +387,7 @@ async fn create_access_token(token: &user_core::access_token::RawAccessToken) ->
     let response = reqwest::Client::new()
         .post(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
         .bearer_auth(String::from(token.clone()))
-        .json(&serde_json::json!({"name": "editable token", "scopes": ["shops:read"]}))
+        .json(&serde_json::json!({"name": "editable token", "scopes": ["product-listings:write"]}))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to create access token API: {error}"));

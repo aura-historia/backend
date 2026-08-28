@@ -1,17 +1,18 @@
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use url::Url;
 
 impl ScraperServiceImpl {
     #[allow(clippy::result_large_err)]
     pub(crate) async fn consume_llm_budget_or_err(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
     ) -> Result<(), ScraperError> {
-        self.consume_llm_budget_n_or_err(shop_id, url, 1).await
+        self.consume_llm_budget_n_or_err(listing_source_id, url, 1)
+            .await
     }
 
     /// Charge `n` LLM calls against the per-shop budget.  When `n` is zero
@@ -20,7 +21,7 @@ impl ScraperServiceImpl {
     #[allow(clippy::result_large_err)]
     pub(crate) async fn consume_llm_budget_n_or_err(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         n: u32,
     ) -> Result<(), ScraperError> {
@@ -29,10 +30,10 @@ impl ScraperServiceImpl {
         }
         let incremented = self
             .candidate_service
-            .try_increment_shop_llm_calls_with_limit(
-                shop_id,
+            .try_increment_listing_source_llm_calls_with_limit(
+                listing_source_id,
                 i64::from(n),
-                self.max_llm_calls_per_shop,
+                self.max_llm_calls_per_listing_source,
             )
             .await
             .map_err(|err| {
@@ -43,9 +44,9 @@ impl ScraperServiceImpl {
 
         if !incremented {
             return Err(ScraperError::LlmBudgetExceeded {
-                shop_id: *shop_id,
+                listing_source_id: *listing_source_id,
                 url: url.clone(),
-                max_calls: self.max_llm_calls_per_shop,
+                max_calls: self.max_llm_calls_per_listing_source,
             });
         }
 

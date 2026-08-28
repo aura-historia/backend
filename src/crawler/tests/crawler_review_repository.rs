@@ -4,15 +4,15 @@ use crawler::review::model::{
 };
 use crawler::review::repository::{CrawlerReviewRepository, SchemaReviewWithStatusInput};
 use crawler::scraper::css_selector::product_schema::{
-    ProductCssSelectorSchema, ShopsProductSchema,
+    ListingSourceProductSchema, ProductCssSelectorSchema,
 };
 use crawler::scraper::css_selector::product_schema_repository::{
-    ShopsProductSchemaRepository, ShopsProductSchemaRepositoryImpl,
+    ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
 };
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
+use listing_source_core::ListingSourceId;
 use regex::Regex;
 use serde_json::json;
-use shop_core::shop_id::ShopId;
 use sqlx::PgPool;
 use test_api::*;
 use time::OffsetDateTime;
@@ -40,13 +40,12 @@ fn image_rule(selector: &str) -> ExtractionRule {
 
 fn schema(title_selector: &str) -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
-        shop_listing_id: Some(rule("span.id")),
+        source_listing_id: Some(rule("span.id")),
         title: rule(title_selector),
         description: None,
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
-        seller_name: None,
         state: rule("span.state"),
         images: image_rule("img.product"),
         auction_start: None,
@@ -56,9 +55,9 @@ fn schema(title_selector: &str) -> ProductCssSelectorSchema {
     }
 }
 
-async fn insert_shop(pool: &PgPool, shop_id: ShopId) {
-    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
-        .bind(Uuid::from(shop_id))
+async fn insert_shop(pool: &PgPool, listing_source_id: ListingSourceId) {
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, created, updated) VALUES ($1, NOW(), NOW())")
+        .bind(Uuid::from(listing_source_id))
         .execute(pool)
         .await
         .unwrap();
@@ -76,12 +75,12 @@ fn review_pages() -> Vec<SchemaReviewPageInput> {
 async fn fresh_generation_review_page_role_is_persisted() {
     let pool = get_postgres_client().await;
     let review_repository = CrawlerReviewRepository::new(pool.clone());
-    let shop_id = ShopId::new();
-    insert_shop(&pool, shop_id).await;
+    let listing_source_id = ListingSourceId::new();
+    insert_shop(&pool, listing_source_id).await;
 
     let review_id = review_repository
         .create_schema_review_with_status(SchemaReviewWithStatusInput {
-            shop_id: &shop_id,
+            listing_source_id: &listing_source_id,
             reason: "fresh_schema_generation",
             schemas: &[schema("h1")],
             pages: vec![SchemaReviewPageInput {
@@ -99,13 +98,17 @@ async fn fresh_generation_review_page_role_is_persisted() {
     assert_eq!(review_page_count(&pool, review_id).await, 1);
 }
 
-async fn pending_review_count(pool: &PgPool, shop_id: ShopId, artifact_type: &str) -> i64 {
+async fn pending_review_count(
+    pool: &PgPool,
+    listing_source_id: ListingSourceId,
+    artifact_type: &str,
+) -> i64 {
     sqlx::query_scalar(
         "SELECT COUNT(*)
          FROM crawler_reviews
-         WHERE shop_id = $1 AND artifact_type = $2 AND status = 'PENDING_REVIEW'",
+         WHERE listing_source_id = $1 AND artifact_type = $2 AND status = 'PENDING_REVIEW'",
     )
-    .bind(Uuid::from(shop_id))
+    .bind(Uuid::from(listing_source_id))
     .bind(artifact_type)
     .fetch_one(pool)
     .await
@@ -132,17 +135,17 @@ async fn review_url_count(pool: &PgPool, review_id: Uuid) -> i64 {
 async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() {
     let pool = get_postgres_client().await;
     let review_repository = CrawlerReviewRepository::new(pool.clone());
-    let schema_repository = ShopsProductSchemaRepositoryImpl::new(&pool);
-    let shop_id = ShopId::new();
-    insert_shop(&pool, shop_id).await;
+    let schema_repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
+    let listing_source_id = ListingSourceId::new();
+    insert_shop(&pool, listing_source_id).await;
 
     let initial_schema = schema("h1.old");
     let now = OffsetDateTime::now_utc();
     schema_repository
         .insert_product_schema(
-            &shop_id,
-            &ShopsProductSchema {
-                shop_id,
+            &listing_source_id,
+            &ListingSourceProductSchema {
+                listing_source_id,
                 product_schemas: vec![initial_schema.clone()],
                 created: now,
                 updated: now,
@@ -153,7 +156,7 @@ async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() 
 
     let review_id = review_repository
         .create_schema_review_with_status(SchemaReviewWithStatusInput {
-            shop_id: &shop_id,
+            listing_source_id: &listing_source_id,
             reason: "initial_schema_generation",
             schemas: &[initial_schema],
             pages: vec![SchemaReviewPageInput {
@@ -182,7 +185,7 @@ async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() 
         .unwrap();
 
     let live = schema_repository
-        .find_product_schema(&shop_id)
+        .find_product_schema(&listing_source_id)
         .await
         .unwrap()
         .unwrap();
@@ -205,8 +208,8 @@ async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() 
 async fn concurrent_schema_reviews_return_same_pending_review_without_duplicate_pages() {
     let pool = get_postgres_client().await;
     let review_repository = CrawlerReviewRepository::new(pool.clone());
-    let shop_id = ShopId::new();
-    insert_shop(&pool, shop_id).await;
+    let listing_source_id = ListingSourceId::new();
+    insert_shop(&pool, listing_source_id).await;
 
     let schema = schema("h1");
     let first_repo = review_repository.clone();
@@ -218,7 +221,7 @@ async fn concurrent_schema_reviews_return_same_pending_review_without_duplicate_
         async move {
             first_repo
                 .create_schema_review(
-                    &shop_id,
+                    &listing_source_id,
                     "initial_schema_generation",
                     &[first_schema],
                     review_pages(),
@@ -229,7 +232,7 @@ async fn concurrent_schema_reviews_return_same_pending_review_without_duplicate_
         async move {
             second_repo
                 .create_schema_review(
-                    &shop_id,
+                    &listing_source_id,
                     "initial_schema_generation",
                     &[second_schema],
                     review_pages(),
@@ -244,7 +247,7 @@ async fn concurrent_schema_reviews_return_same_pending_review_without_duplicate_
 
     assert_eq!(first_id, second_id);
     assert_eq!(
-        pending_review_count(&pool, shop_id, "PRODUCT_SCHEMA").await,
+        pending_review_count(&pool, listing_source_id, "PRODUCT_SCHEMA").await,
         1
     );
     assert_eq!(review_page_count(&pool, first_id).await, 1);
@@ -254,8 +257,8 @@ async fn concurrent_schema_reviews_return_same_pending_review_without_duplicate_
 async fn concurrent_url_pattern_reviews_return_same_pending_review_without_duplicate_urls() {
     let pool = get_postgres_client().await;
     let review_repository = CrawlerReviewRepository::new(pool.clone());
-    let shop_id = ShopId::new();
-    insert_shop(&pool, shop_id).await;
+    let listing_source_id = ListingSourceId::new();
+    insert_shop(&pool, listing_source_id).await;
 
     let pattern = Regex::new("/product/").unwrap();
     let urls = vec![
@@ -271,7 +274,7 @@ async fn concurrent_url_pattern_reviews_return_same_pending_review_without_dupli
         async move {
             first_repo
                 .create_url_pattern_review(
-                    &shop_id,
+                    &listing_source_id,
                     None,
                     "url_pattern_generation",
                     Some(&pattern),
@@ -284,7 +287,7 @@ async fn concurrent_url_pattern_reviews_return_same_pending_review_without_dupli
             let pattern = Regex::new("/product/").unwrap();
             second_repo
                 .create_url_pattern_review(
-                    &shop_id,
+                    &listing_source_id,
                     None,
                     "url_pattern_generation",
                     Some(&pattern),
@@ -299,6 +302,9 @@ async fn concurrent_url_pattern_reviews_return_same_pending_review_without_dupli
     let second_id = second.unwrap();
 
     assert_eq!(first_id, second_id);
-    assert_eq!(pending_review_count(&pool, shop_id, "URL_PATTERN").await, 1);
+    assert_eq!(
+        pending_review_count(&pool, listing_source_id, "URL_PATTERN").await,
+        1
+    );
     assert_eq!(review_url_count(&pool, first_id).await, 2);
 }

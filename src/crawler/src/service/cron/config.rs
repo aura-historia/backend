@@ -1,5 +1,5 @@
 use crate::scraper::scraper_service::{
-    DEFAULT_MAX_LLM_CALLS_PER_SHOP, DEFAULT_SCHEMA_SEED_PAGES, ScraperAutoThrottleConfig,
+    DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, DEFAULT_SCHEMA_SEED_PAGES, ScraperAutoThrottleConfig,
 };
 use crate::spider::discovery::website_spider::CrawlerConfig as SpiderCrawlerConfig;
 use sqlx::PgPool;
@@ -10,7 +10,7 @@ use std::time::Duration;
 pub struct CrawlerCronConfig {
     pub spider_interval: Duration,
     pub scraper_interval: Duration,
-    pub shop_sync_interval: Duration,
+    pub listing_source_sync_interval: Duration,
     /// Optional number of domains fetched per scraper scheduler refill.
     /// Defaults to scraper concurrency.
     pub scraper_domain_batch_size: Option<usize>,
@@ -47,7 +47,7 @@ pub struct CrawlerCronConfig {
     /// Smoothing factor for per-domain scraper fetch latency.
     pub scraper_auto_throttle_alpha: f64,
     /// Hard per-shop budget for schema-generation LLM calls.
-    pub scraper_max_llm_calls_per_shop: i64,
+    pub scraper_max_llm_calls_per_listing_source: i64,
     /// Maximum Postgres connections for crawler queries.
     pub db_max_connections: Option<u32>,
 }
@@ -57,7 +57,7 @@ impl Default for CrawlerCronConfig {
         Self {
             spider_interval: Duration::from_secs(600), // 10 minutes
             scraper_interval: Duration::from_secs(60), // 1 minute
-            shop_sync_interval: Duration::from_secs(10800), // 3 hours
+            listing_source_sync_interval: Duration::from_secs(10800), // 3 hours
             scraper_domain_batch_size: None,
             scraper_urls_per_domain: 100,
             push_batch_size: 25,
@@ -74,7 +74,7 @@ impl Default for CrawlerCronConfig {
             scraper_auto_throttle_target_concurrency: 2.0,
             scraper_auto_throttle_max_delay: Duration::from_secs(10),
             scraper_auto_throttle_alpha: 0.15,
-            scraper_max_llm_calls_per_shop: DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+            scraper_max_llm_calls_per_listing_source: DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
             db_max_connections: None,
         }
     }

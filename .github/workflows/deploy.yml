@@ -154,31 +154,16 @@ jobs:
     strategy:
       matrix:
         resource:
-          - mjml/watchlist/product-update/price/de.mjml
-          - mjml/watchlist/product-update/price/en.mjml
-          - mjml/watchlist/product-update/price/es.mjml
-          - mjml/watchlist/product-update/price/fr.mjml
-          - mjml/watchlist/product-update/price/it.mjml
-          - mjml/watchlist/product-update/availability/de.mjml
-          - mjml/watchlist/product-update/availability/en.mjml
-          - mjml/watchlist/product-update/availability/es.mjml
-          - mjml/watchlist/product-update/availability/fr.mjml
-          - mjml/watchlist/product-update/availability/it.mjml
-          - mjml/search-filter/match/de.mjml
-          - mjml/search-filter/match/en.mjml
-          - mjml/search-filter/match/es.mjml
-          - mjml/search-filter/match/fr.mjml
-          - mjml/search-filter/match/it.mjml
-          - mjml/partner-application/approval/de.mjml
-          - mjml/partner-application/approval/en.mjml
-          - mjml/partner-application/approval/es.mjml
-          - mjml/partner-application/approval/fr.mjml
-          - mjml/partner-application/approval/it.mjml
-          - mjml/partner-application/rejection/de.mjml
-          - mjml/partner-application/rejection/en.mjml
-          - mjml/partner-application/rejection/es.mjml
-          - mjml/partner-application/rejection/fr.mjml
-          - mjml/partner-application/rejection/it.mjml
+          - mjml/partnership-application/approval/de.mjml
+          - mjml/partnership-application/approval/en.mjml
+          - mjml/partnership-application/approval/es.mjml
+          - mjml/partnership-application/approval/fr.mjml
+          - mjml/partnership-application/approval/it.mjml
+          - mjml/partnership-application/rejection/de.mjml
+          - mjml/partnership-application/rejection/en.mjml
+          - mjml/partnership-application/rejection/es.mjml
+          - mjml/partnership-application/rejection/fr.mjml
+          - mjml/partnership-application/rejection/it.mjml
 
     steps:
       - uses: actions/checkout@v7

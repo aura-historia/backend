@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS crawler_reviews (
     review_id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    shop_id            UUID        NOT NULL REFERENCES shops(shop_id) ON DELETE CASCADE,
-    domain_id          UUID        REFERENCES shop_domains(domain_id) ON DELETE SET NULL,
+    listing_source_id            UUID        NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
+    domain_id          UUID        REFERENCES listing_source_domains(domain_id) ON DELETE SET NULL,
     artifact_type      TEXT        NOT NULL CHECK (artifact_type IN ('URL_PATTERN', 'PRODUCT_SCHEMA')),
     status             TEXT        NOT NULL CHECK (status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED', 'NEEDS_REPAIR', 'SUPERSEDED')),
     reason             TEXT        NOT NULL,
@@ -19,7 +19,7 @@ CREATE INDEX IF NOT EXISTS idx_crawler_reviews_status
 DROP INDEX IF EXISTS idx_crawler_reviews_shop_pending;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_crawler_reviews_shop_pending_unique
-    ON crawler_reviews (shop_id, artifact_type)
+    ON crawler_reviews (listing_source_id, artifact_type)
     WHERE status = 'PENDING_REVIEW';
 
 CREATE TABLE IF NOT EXISTS crawler_review_pages (

@@ -361,11 +361,6 @@ fn mapping_with_inline_synonyms(mapping: &'static str) -> serde_json::Value {
     mapping
 }
 
-static SHOPS_INDEX_MAPPING_STR: &str = include_str!(concat!(
-    env!("CARGO_WORKSPACE_DIR"),
-    "opensearch/mappings/shops.json"
-));
-
 static USER_SEARCH_FILTER_INDEX_MAPPING_STR: &str = include_str!(concat!(
     env!("CARGO_WORKSPACE_DIR"),
     "opensearch/mappings/user_search_filters.json"
@@ -495,13 +490,6 @@ async fn set_up_indices() -> Result<(), Error> {
     .await?;
     ensure_index_exists(
         client,
-        "shops",
-        serde_json::from_str::<serde_json::Value>(SHOPS_INDEX_MAPPING_STR)
-            .expect("shouldn't fail parsing SHOPS_INDEX_MAPPING_STR as serde_json::Value"),
-    )
-    .await?;
-    ensure_index_exists(
-        client,
         "user_search_filters",
         mapping_with_inline_synonyms(USER_SEARCH_FILTER_INDEX_MAPPING_STR),
     )
@@ -532,7 +520,7 @@ async fn wait_until_indices_are_set_up() -> Result<(), Error> {
 /// `Cloudformation` service.
 pub(crate) async fn clear_all_indices() {
     let started = std::time::Instant::now();
-    const INDICES: &[&str] = &["product-listings", "shops", "user_search_filters", "users"];
+    const INDICES: &[&str] = &["product-listings", "user_search_filters", "users"];
     for index in INDICES {
         match clear_index_data(index).await {
             Ok(_) => refresh_index(index).await,

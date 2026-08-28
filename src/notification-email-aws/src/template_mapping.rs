@@ -3,7 +3,7 @@ use money::Price;
 use notification_core::{
     notification::{
         LocalizedNotificationContent, LocalizedNotificationWatchlistChange, NotificationContent,
-        NotificationWatchlistChange, PartnerApplicationDecision, PartnershipApplicationDecision,
+        NotificationWatchlistChange, PartnershipApplicationDecision,
     },
     presentation::present_image,
 };
@@ -66,8 +66,6 @@ pub(crate) enum EmailTemplateType {
     WatchlistUpdatePrice,
     WatchlistUpdateAvailability,
     SearchFilterMatch,
-    PartnerApplicationApproval,
-    PartnerApplicationRejection,
     PartnershipApplicationApproval,
     PartnershipApplicationRejection,
 }
@@ -80,13 +78,6 @@ pub(crate) const fn template_type(content: &NotificationContent) -> EmailTemplat
         } => EmailTemplateType::WatchlistUpdatePrice,
         NotificationContent::Watchlist { .. } => EmailTemplateType::WatchlistUpdateAvailability,
         NotificationContent::SearchFilter { .. } => EmailTemplateType::SearchFilterMatch,
-        NotificationContent::PartnerApplication {
-            decision: PartnerApplicationDecision::Approved,
-            ..
-        } => EmailTemplateType::PartnerApplicationApproval,
-        NotificationContent::PartnerApplication { .. } => {
-            EmailTemplateType::PartnerApplicationRejection
-        }
         NotificationContent::PartnershipApplication {
             decision: PartnershipApplicationDecision::Approved,
             ..
@@ -104,8 +95,6 @@ pub(crate) const fn template_directory(template_type: EmailTemplateType) -> &'st
             "mjml/watchlist/product-update/availability"
         }
         EmailTemplateType::SearchFilterMatch => "mjml/search-filter/match",
-        EmailTemplateType::PartnerApplicationApproval => "mjml/partner-application/approval",
-        EmailTemplateType::PartnerApplicationRejection => "mjml/partner-application/rejection",
         EmailTemplateType::PartnershipApplicationApproval => {
             "mjml/partnership-application/approval"
         }
@@ -133,8 +122,6 @@ pub(crate) const fn ses_template_tag_value(template_type: EmailTemplateType) -> 
         EmailTemplateType::WatchlistUpdatePrice => "WATCHLIST_UPDATE_PRICE",
         EmailTemplateType::WatchlistUpdateAvailability => "WATCHLIST_UPDATE_AVAILABILITY",
         EmailTemplateType::SearchFilterMatch => "SEARCH_FILTER_MATCH",
-        EmailTemplateType::PartnerApplicationApproval => "PARTNER_APPLICATION_APPROVAL",
-        EmailTemplateType::PartnerApplicationRejection => "PARTNER_APPLICATION_REJECTION",
         EmailTemplateType::PartnershipApplicationApproval => "PARTNERSHIP_APPLICATION_APPROVAL",
         EmailTemplateType::PartnershipApplicationRejection => "PARTNERSHIP_APPLICATION_REJECTION",
     }
@@ -153,8 +140,6 @@ pub(crate) const fn subject(
                 "Die Verfügbarkeit eines Artikels auf deiner Merkliste hat sich geändert"
             }
             EmailTemplateType::SearchFilterMatch => "Neuer Treffer für deinen Suchfilter",
-            EmailTemplateType::PartnerApplicationApproval => "Partnerantrag genehmigt",
-            EmailTemplateType::PartnerApplicationRejection => "Update zu deinem Partnerantrag",
             EmailTemplateType::PartnershipApplicationApproval => "Partnerschaftsantrag genehmigt",
             EmailTemplateType::PartnershipApplicationRejection => {
                 "Update zu deinem Partnerschaftsantrag"
@@ -170,10 +155,6 @@ pub(crate) const fn subject(
             EmailTemplateType::SearchFilterMatch => {
                 "Nouveau résultat pour votre filtre de recherche"
             }
-            EmailTemplateType::PartnerApplicationApproval => "Demande de partenariat approuvée",
-            EmailTemplateType::PartnerApplicationRejection => {
-                "Mise à jour de votre demande de partenariat"
-            }
             EmailTemplateType::PartnershipApplicationApproval => "Demande de partenariat approuvée",
             EmailTemplateType::PartnershipApplicationRejection => {
                 "Mise à jour de votre demande de partenariat"
@@ -187,10 +168,6 @@ pub(crate) const fn subject(
                 "La disponibilidad de un artículo de tu lista de deseos ha cambiado"
             }
             EmailTemplateType::SearchFilterMatch => "Nuevo resultado para tu filtro de búsqueda",
-            EmailTemplateType::PartnerApplicationApproval => "Solicitud de asociación aprobada",
-            EmailTemplateType::PartnerApplicationRejection => {
-                "Actualización de tu solicitud de asociación"
-            }
             EmailTemplateType::PartnershipApplicationApproval => "Solicitud de asociación aprobada",
             EmailTemplateType::PartnershipApplicationRejection => {
                 "Actualización de tu solicitud de asociación"
@@ -204,10 +181,6 @@ pub(crate) const fn subject(
                 "La disponibilità di un articolo nella tua lista dei desideri è cambiata"
             }
             EmailTemplateType::SearchFilterMatch => "Nuovo risultato per il tuo filtro di ricerca",
-            EmailTemplateType::PartnerApplicationApproval => "Richiesta di partnership approvata",
-            EmailTemplateType::PartnerApplicationRejection => {
-                "Aggiornamento della tua richiesta di partnership"
-            }
             EmailTemplateType::PartnershipApplicationApproval => {
                 "Richiesta di partnership approvata"
             }
@@ -221,8 +194,6 @@ pub(crate) const fn subject(
                 "Your watchlist item's availability changed"
             }
             EmailTemplateType::SearchFilterMatch => "New search filter match",
-            EmailTemplateType::PartnerApplicationApproval => "Partner application approved",
-            EmailTemplateType::PartnerApplicationRejection => "Partner application update",
             EmailTemplateType::PartnershipApplicationApproval => "Partnership application approved",
             EmailTemplateType::PartnershipApplicationRejection => "Partnership application update",
         },
@@ -304,19 +275,6 @@ pub(crate) fn template_data(
             data["notification_type"] = json!("search_filter_match");
             add_recipient_data(data, first_name)
         }
-        LocalizedNotificationContent::PartnerApplication {
-            snapshot, decision, ..
-        } => add_recipient_data(
-            json!({
-                "shop_name": snapshot.shop_name.to_string(),
-                "image_url": snapshot.image.map(|image| image.to_string()),
-                "notification_type": match decision {
-                    PartnerApplicationDecision::Approved => "partner_application_approval",
-                    PartnerApplicationDecision::Rejected => "partner_application_rejection",
-                },
-            }),
-            first_name,
-        ),
         LocalizedNotificationContent::PartnershipApplication {
             snapshot, decision, ..
         } => add_recipient_data(
@@ -346,7 +304,7 @@ fn product_template_data(
     image_url: Option<String>,
     view_url: String,
 ) -> Value {
-    json!({ "shop_name": listing_source_name, "shop_slug_id": listing_source_slug_id, "product_listing_slug_id": product_listing_slug_id, "title": title, "image_url": image_url, "view_url": view_url })
+    json!({ "listing_source_name": listing_source_name, "listing_source_slug_id": listing_source_slug_id, "product_listing_slug_id": product_listing_slug_id, "title": title, "image_url": image_url, "view_url": view_url })
 }
 fn price_text(price: Option<Price>) -> Option<String> {
     price.map(|price| price.format_human_readable())
@@ -529,22 +487,6 @@ mod tests {
         "Nouveau résultat pour votre filtre de recherche",
         "Nuevo resultado para tu filtro de búsqueda",
         "Nuovo risultato per il tuo filtro di ricerca"
-    )]
-    #[case(
-        EmailTemplateType::PartnerApplicationApproval,
-        "Partnerantrag genehmigt",
-        "Partner application approved",
-        "Demande de partenariat approuvée",
-        "Solicitud de asociación aprobada",
-        "Richiesta di partnership approvata"
-    )]
-    #[case(
-        EmailTemplateType::PartnerApplicationRejection,
-        "Update zu deinem Partnerantrag",
-        "Partner application update",
-        "Mise à jour de votre demande de partenariat",
-        "Actualización de tu solicitud de asociación",
-        "Aggiornamento della tua richiesta di partnership"
     )]
     #[case(
         EmailTemplateType::PartnershipApplicationApproval,

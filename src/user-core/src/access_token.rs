@@ -562,14 +562,6 @@ mod access_token_state_tests {
     fn should_render_all_scope_strings() {
         for (scope, value) in [
             (Scope::ProductListingsWrite, "product-listings:write"),
-            (Scope::ShopsRead, "shops:read"),
-            (Scope::ShopsWrite, "shops:write"),
-            (
-                Scope::PartnerShopApplicationsWrite,
-                "partner-shop-applications:write",
-            ),
-            (Scope::PartnerShopsRead, "partner-shops:read"),
-            (Scope::PartnerShopsWrite, "partner-shops:write"),
             (Scope::UsersRead, "users:read"),
             (Scope::UsersWrite, "users:write"),
             (Scope::AccessTokensRead, "access-tokens:read"),
@@ -587,7 +579,7 @@ mod access_token_state_tests {
         let token = access_token(None, HashSet::from([Scope::ProductListingsWrite]));
 
         assert!(token.has_scope(Scope::ProductListingsWrite));
-        assert!(!token.has_scope(Scope::ShopsWrite));
+        assert!(!token.has_scope(Scope::UsersWrite));
     }
 
     #[test]

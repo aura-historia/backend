@@ -82,8 +82,6 @@ async fn insert_notifications(
         "WATCHLIST_PRICE_CHANGED",
         "WATCHLIST_AVAILABILITY_CHANGED",
         "SEARCH_FILTER_MATCH",
-        "PARTNER_APPLICATION_APPROVED",
-        "PARTNER_APPLICATION_REJECTED",
         "PARTNERSHIP_APPLICATION_APPROVED",
         "PARTNERSHIP_APPLICATION_REJECTED",
     ] {
@@ -95,7 +93,7 @@ async fn insert_notifications(
             continue;
         }
         let mut query = QueryBuilder::<Postgres>::new(
-            "INSERT INTO notifications (notification_id, user_id, kind, origin_event_id, product_listing_id, user_search_filter_id, partner_shop_application_id, partnership_application_id, payload_version, payload, seen) ",
+            "INSERT INTO notifications (notification_id, user_id, kind, origin_event_id, product_listing_id, user_search_filter_id, partnership_application_id, payload_version, payload, seen) ",
         );
         query.push_values(group, |mut row, value| {
             row.push_bind(value.notification_id)
@@ -104,7 +102,6 @@ async fn insert_notifications(
                 .push_bind(value.origin_event_id)
                 .push_bind(value.product_listing_id)
                 .push_bind(value.user_search_filter_id)
-                .push_bind(value.partner_shop_application_id)
                 .push_bind(value.partnership_application_id)
                 .push_bind(PAYLOAD_VERSION)
                 .push_bind(&value.payload)
@@ -113,7 +110,6 @@ async fn insert_notifications(
         match kind {
             "WATCHLIST_PRICE_CHANGED" | "WATCHLIST_AVAILABILITY_CHANGED" => query.push(" ON CONFLICT (user_id, origin_event_id, kind) WHERE kind IN ('WATCHLIST_PRICE_CHANGED', 'WATCHLIST_AVAILABILITY_CHANGED') DO NOTHING"),
             "SEARCH_FILTER_MATCH" => query.push(" ON CONFLICT (user_id, user_search_filter_id, product_listing_id, origin_event_id) WHERE kind = 'SEARCH_FILTER_MATCH' DO NOTHING"),
-            "PARTNER_APPLICATION_APPROVED" | "PARTNER_APPLICATION_REJECTED" => query.push(" ON CONFLICT (user_id, partner_shop_application_id) WHERE kind IN ('PARTNER_APPLICATION_APPROVED', 'PARTNER_APPLICATION_REJECTED') DO NOTHING"),
             "PARTNERSHIP_APPLICATION_APPROVED" | "PARTNERSHIP_APPLICATION_REJECTED" => query.push(" ON CONFLICT (user_id, partnership_application_id) WHERE kind IN ('PARTNERSHIP_APPLICATION_APPROVED', 'PARTNERSHIP_APPLICATION_REJECTED') DO NOTHING"),
             _ => return Err(NotificationCreationError::CreateFailed {
                 source: box_error(std::io::Error::other("unsupported notification kind")),
@@ -205,7 +201,7 @@ mod tests {
         ));
 
         let row = match sqlx::query_as::<_, crate::mapping::NotificationRow>(
-            "SELECT notification_id, user_id, kind, origin_event_id, product_listing_id, user_search_filter_id, partner_shop_application_id, partnership_application_id, payload_version, payload, seen, created, updated FROM notifications WHERE notification_id = $1",
+            "SELECT notification_id, user_id, kind, origin_event_id, product_listing_id, user_search_filter_id, partnership_application_id, payload_version, payload, seen, created, updated FROM notifications WHERE notification_id = $1",
         )
         .bind(uuid::Uuid::from(notification.notification_id()))
         .fetch_one(&pool)

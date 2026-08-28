@@ -13,10 +13,10 @@ use listing_source_core::ListingSourceId;
 pub async fn create_products(
     State(state): State<PartnerProductListingsState>,
     headers: HeaderMap,
-    Path(raw_shop_id): Path<String>,
+    Path(raw_listing_source_id): Path<String>,
     body: String,
 ) -> Response {
-    let listing_source_id = match parse_listing_source_id(&raw_shop_id) {
+    let listing_source_id = match parse_listing_source_id(&raw_listing_source_id) {
         Ok(listing_source_id) => listing_source_id,
         Err(error) => return error.into_response(),
     };
@@ -68,7 +68,7 @@ fn parse_listing_source_id(value: &str) -> Result<ListingSourceId, ApiError> {
         .map_err(|_| {
             ApiError::bad_request(INVALID_UUID)
                 .with_path_field("listingSourceId")
-                .with_detail("Path parameter 'shopId' must be a UUID.")
+                .with_detail("Path parameter 'listingSourceId' must be a UUID.")
         })
 }
 
@@ -150,11 +150,11 @@ mod tests {
             .times(2)
             .returning(|_, _| Ok(created()));
         let app = app(create);
-        let shop_id = ListingSourceId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{},{}]", product("first"), product("second")),
             true,
         )
@@ -175,13 +175,13 @@ mod tests {
             .withf(|_, command| command.availability.is_none())
             .returning(|_, _| Ok(created()));
         let app = app(create);
-        let shop_id = ListingSourceId::new();
+        let listing_source_id = ListingSourceId::new();
         let omitted = product("omitted").replace(",\"availability\":\"AVAILABLE\"", "");
         let explicit_null = product("null").replace("\"AVAILABLE\"", "null");
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{omitted},{explicit_null}]"),
             true,
         )
@@ -204,11 +204,11 @@ mod tests {
             }
         });
         let app = app(create);
-        let shop_id = ListingSourceId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{},{}]", product("created"), product("failed")),
             true,
         )
@@ -217,7 +217,7 @@ mod tests {
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
             json!([{
-                "listingSourceId": shop_id.to_string(),
+                "listingSourceId": listing_source_id.to_string(),
                 "sourceListingId": "failed",
                 "error": "CONFLICT"
             }]),
@@ -235,11 +235,11 @@ mod tests {
             .times(1)
             .returning(|_, _| Err(CreateProductListingError::SourceListingAlreadyExists));
         let app = app(create);
-        let shop_id = ListingSourceId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{}]", product("duplicate")),
             true,
         )
@@ -256,7 +256,7 @@ mod tests {
         let mut create = MockCreateUseCase::new();
         create.expect_execute().never();
         let app = app(create);
-        let shop_id = ListingSourceId::new();
+        let listing_source_id = ListingSourceId::new();
         let body = format!(
             "[{}]",
             (0..=MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE)
@@ -267,7 +267,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             body,
             true,
         )
@@ -284,11 +284,11 @@ mod tests {
         let mut create = MockCreateUseCase::new();
         create.expect_execute().never();
         let app = app(create);
-        let shop_id = ListingSourceId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let missing_auth = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{}]", product("created")),
             false,
         )
@@ -297,7 +297,7 @@ mod tests {
 
         let invalid_body = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             "{".to_owned(),
             true,
         )
@@ -316,7 +316,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/shops/{shop_id}/product-listings",
+                "/api/v1/listing-sources/{listing_source_id}/product-listings",
                 axum::routing::post(create_products),
             )
             .with_state(state)
@@ -362,7 +362,7 @@ mod tests {
 
     fn product(source_listing_id: &str) -> String {
         format!(
-            r#"{{"sourceListingId":"{source_listing_id}","title":{{"text":"Cabinet","language":"en"}},"description":{{"text":"Old cabinet","language":"en"}},"availability":"AVAILABLE","url":"https://shop.example/product-listings/{source_listing_id}","images":[]}}"#
+            r#"{{"sourceListingId":"{source_listing_id}","title":{{"text":"Cabinet","language":"en"}},"description":{{"text":"Old cabinet","language":"en"}},"availability":"AVAILABLE","url":"https://source.example/product-listings/{source_listing_id}","images":[]}}"#
         )
     }
 }

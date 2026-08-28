@@ -32,7 +32,7 @@
 //! cargo run --bin demo-spider -p crawler -- https://www.christies.com/en
 //! ```
 
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use std::env;
 use std::fs::File;
 use std::io::BufWriter;
@@ -44,7 +44,7 @@ use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::spider::SpiderRunResult;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
-use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepositoryImpl;
+use crawler::spider::classification::url_pattern_repository::ListingSourceUrlPatternRepositoryImpl;
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceError;
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderDiscoveryError;
@@ -142,7 +142,7 @@ async fn main() {
             url_repository,
         );
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
         let shop_url_parsed = url::Url::parse(&shop_url)
             .unwrap_or_else(|_| url::Url::parse("https://demo.invalid").unwrap());
         let demo_domain = shop_url_parsed
@@ -150,17 +150,18 @@ async fn main() {
             .unwrap_or("demo.invalid")
             .to_string();
 
-        let demo_domain_id = match insert_demo_shop(&pool, &shop_id, &demo_domain).await {
-            Ok(id) => id,
-            Err(error) => {
-                error!(error = ?error, "Failed to insert demo shop rows into DB");
-                return;
-            }
-        };
+        let demo_domain_id =
+            match insert_demo_listing_source(&pool, &listing_source_id, &demo_domain).await {
+                Ok(id) => id,
+                Err(error) => {
+                    error!(error = ?error, "Failed to insert demo shop rows into DB");
+                    return;
+                }
+            };
 
         match spider
             .run(
-                &shop_id,
+                &listing_source_id,
                 &demo_domain_id,
                 &shop_url,
                 DEFAULT_CLASSIFY_THRESHOLD,
@@ -203,8 +204,8 @@ fn read_shop_url() -> String {
 }
 
 #[tracing::instrument(skip(pool))]
-fn build_pattern_repository(pool: PgPool) -> Arc<ShopUrlPatternRepositoryImpl> {
-    Arc::new(ShopUrlPatternRepositoryImpl::new(pool))
+fn build_pattern_repository(pool: PgPool) -> Arc<ListingSourceUrlPatternRepositoryImpl> {
+    Arc::new(ListingSourceUrlPatternRepositoryImpl::new(pool))
 }
 
 #[tracing::instrument(skip(pool))]
@@ -240,38 +241,38 @@ async fn connect_and_migrate() -> Result<PgPool, DemoError> {
     Ok(pool)
 }
 
-/// Inserts a demo `shops` row and a `shop_domains` row, returning the generated `domain_id`.
+/// Inserts a demo `listing_sources` row and a `listing_source_domains` row, returning the generated `domain_id`.
 ///
 /// Uses `ON CONFLICT DO NOTHING` so the function is idempotent if called multiple times
-/// with the same `shop_id` / `shop_domain`.
-#[tracing::instrument(skip(pool), fields(shop_id = %shop_id, shop_domain = %shop_domain))]
-async fn insert_demo_shop(
+/// with the same `listing_source_id` / `listing_source_domain`.
+#[tracing::instrument(skip(pool), fields(listing_source_id = %listing_source_id, listing_source_domain = %listing_source_domain))]
+async fn insert_demo_listing_source(
     pool: &PgPool,
-    shop_id: &ShopId,
-    shop_domain: &str,
+    listing_source_id: &ListingSourceId,
+    listing_source_domain: &str,
 ) -> Result<uuid::Uuid, DemoError> {
-    let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+    let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
 
     sqlx::query(
-        "INSERT INTO shops (shop_id, shop_name, shop_slug, shop_type, active, created, updated)
-         VALUES ($1, 'Demo Shop', 'demo-shop', 'COMMERCIAL_DEALER', TRUE, NOW(), NOW())
-         ON CONFLICT (shop_id) DO NOTHING",
+        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, present, created, updated)
+         VALUES ($1, 'Demo source', 'demo-source', TRUE, NOW(), NOW())
+         ON CONFLICT (listing_source_id) DO NOTHING",
     )
-    .bind(shop_id_uuid)
+    .bind(listing_source_id_uuid)
     .execute(pool)
     .await?;
 
     // Insert the domain row if it doesn't exist yet and return the domain_id.
-    // Because `shop_domain` is UNIQUE, a second run with the same domain would hit the conflict
+    // Because `listing_source_domain` is UNIQUE, a second run with the same domain would hit the conflict
     // path — we return the existing domain_id in that case.
     let domain_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO shop_domains (shop_id, shop_domain, last_crawled)
+        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain, last_crawled)
          VALUES ($1, $2, NULL)
-         ON CONFLICT (shop_domain) DO UPDATE SET shop_id = EXCLUDED.shop_id
+         ON CONFLICT (listing_source_domain) DO UPDATE SET listing_source_id = EXCLUDED.listing_source_id
          RETURNING domain_id",
     )
-    .bind(shop_id_uuid)
-    .bind(shop_domain)
+    .bind(listing_source_id_uuid)
+    .bind(listing_source_domain)
     .fetch_one(pool)
     .await?;
 

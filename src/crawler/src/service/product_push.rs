@@ -500,8 +500,8 @@ pub fn normalize_to_upsert(
     candidate: &ScraperCandidate,
 ) -> Option<UpsertProductListingCommand> {
     Some(UpsertProductListingCommand {
-        listing_source_id: ListingSourceId::from(uuid::Uuid::from(candidate.shop_id)),
-        source_listing_id: product.shop_listing_id,
+        listing_source_id: ListingSourceId::from(uuid::Uuid::from(candidate.listing_source_id)),
+        source_listing_id: product.source_listing_id,
         title: Some(product.title),
         description: product.description,
         price: match product.price {
@@ -544,7 +544,7 @@ mod tests {
         update_product_listing::UpdateProductListingResult,
         upsert_product_listing::{UpsertProductListingError, UpsertProductListingResult},
     };
-    use shop_core::{shop_id::ShopId, shop_type::ShopType};
+
     use std::sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -931,9 +931,8 @@ mod tests {
     #[test]
     fn should_map_normalized_product_to_listing_source_handoff() -> Result<(), url::ParseError> {
         let candidate = ScraperCandidate {
-            shop_id: ShopId::new(),
-            shop_name: "Test Shop".to_owned(),
-            shop_type: ShopType::CommercialDealer,
+            listing_source_id: ListingSourceId::new(),
+            listing_source_name: "Test source".to_owned(),
             url_pattern: None,
             url: Url::parse("https://example.com/product/1")?,
             last_scraped_hash: None,
@@ -948,13 +947,12 @@ mod tests {
             last_scraped_availability: None,
         };
         let product = NormalizedProduct {
-            shop_listing_id: SourceListingId::from("prod-1"),
+            source_listing_id: SourceListingId::from("prod-1"),
             title: Localized::new(Language::De, Title::from("Ein Schrank")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             availability: crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping::Availability(ListingAvailability::Available),
             url: candidate.url.clone(),
             images: Vec::new(),
@@ -967,7 +965,9 @@ mod tests {
 
         assert_eq!(
             command.as_ref().map(|command| command.listing_source_id),
-            Some(ListingSourceId::from(uuid::Uuid::from(candidate.shop_id)))
+            Some(ListingSourceId::from(uuid::Uuid::from(
+                candidate.listing_source_id
+            )))
         );
         assert_eq!(
             command

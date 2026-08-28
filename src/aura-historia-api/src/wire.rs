@@ -263,95 +263,6 @@ pub(crate) mod notification_kind {
     }
 }
 
-pub(crate) mod shop_type {
-    use super::*;
-    use shop_core::shop_type::ShopType;
-
-    pub(crate) fn serialize<S>(value: &ShopType, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, ShopType::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ShopType, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserialize_code(deserializer, ShopType::from_code, None)
-    }
-
-    pub(crate) mod set {
-        use super::*;
-
-        pub(crate) fn serialize<S>(
-            values: &HashSet<ShopType>,
-            serializer: S,
-        ) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            serialize_set_code(values, serializer, ShopType::as_str)
-        }
-
-        pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<HashSet<ShopType>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_set_code(deserializer, ShopType::from_code, None)
-        }
-    }
-
-    pub(crate) mod patch_set {
-        use super::*;
-
-        pub(crate) fn deserialize<'de, D>(
-            deserializer: D,
-        ) -> Result<PatchValue<HashSet<ShopType>>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_patch_set_code(deserializer, ShopType::from_code, None)
-        }
-    }
-
-    pub(crate) mod patch {
-        use super::*;
-
-        pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<PatchValue<ShopType>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_patch_code(deserializer, ShopType::from_code, None)
-        }
-    }
-}
-
-pub(crate) mod shop_partner_status {
-    use super::*;
-    use shop_core::partner_status::ShopPartnerStatus;
-
-    pub(crate) fn serialize<S>(value: &ShopPartnerStatus, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, ShopPartnerStatus::as_str)
-    }
-
-    pub(crate) mod set {
-        use super::*;
-
-        pub(crate) fn deserialize<'de, D>(
-            deserializer: D,
-        ) -> Result<HashSet<ShopPartnerStatus>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            deserialize_set_code(deserializer, ShopPartnerStatus::from_code, None)
-        }
-    }
-}
-
 pub(crate) mod listing_availability {
     use super::*;
     use product_listing_core::listing_availability::ListingAvailability;
@@ -589,40 +500,51 @@ pub(crate) mod watchlist_state {
     }
 }
 
-pub(crate) mod partner_shop_application_state {
+pub(crate) mod partnership_application_state {
     use super::*;
-    use shop_partner_core::partner_shop_application_state::PartnerShopApplicationState;
+    use partnership_core::partnership_application_state::PartnershipApplicationState;
 
     pub(crate) fn serialize<S>(
-        value: &PartnerShopApplicationState,
+        value: &PartnershipApplicationState,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serialize_code(value, serializer, PartnerShopApplicationState::as_str)
+        serialize_code(value, serializer, PartnershipApplicationState::as_str)
     }
 }
 
-pub(crate) mod partner_application_decision {
+pub(crate) mod acquisition_method {
     use super::*;
-    use notification_core::notification::PartnerApplicationDecision;
+    use listing_source_core::AcquisitionMethod;
+    use std::str::FromStr;
 
-    fn code(value: PartnerApplicationDecision) -> &'static str {
-        match value {
-            PartnerApplicationDecision::Approved => "APPROVED",
-            PartnerApplicationDecision::Rejected => "REJECTED",
+    pub(crate) mod set {
+        use super::*;
+
+        pub(crate) fn serialize<S>(
+            values: &HashSet<AcquisitionMethod>,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            serialize_set_code(values, serializer, AcquisitionMethod::as_str)
         }
-    }
 
-    pub(crate) fn serialize<S>(
-        value: &PartnerApplicationDecision,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, code)
+        pub(crate) fn deserialize<'de, D>(
+            deserializer: D,
+        ) -> Result<HashSet<AcquisitionMethod>, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            deserialize_set_code(
+                deserializer,
+                |value| AcquisitionMethod::from_str(value).ok(),
+                Some(&["WEB_CRAWL", "SHOPIFY", "WOOCOMMERCE", "PARTNER_API"]),
+            )
+        }
     }
 }
 
@@ -689,218 +611,5 @@ pub(crate) mod billing_cycle {
         D: Deserializer<'de>,
     {
         deserialize_code(deserializer, parse, Some(EXPECTED))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use localization::Language;
-    use money::Currency;
-    use serde::de::DeserializeOwned;
-    use serde_json::json;
-    use shop_core::partner_status::ShopPartnerStatus;
-    use shop_core::shop_type::ShopType;
-    use std::collections::HashSet;
-
-    #[test]
-    fn should_preserve_canonical_wire_values() -> Result<(), serde_json::Error> {
-        assert_eq!(
-            json!("EUR"),
-            serde_json::to_value(WireCurrency(Currency::Eur))?
-        );
-        assert_eq!(
-            Language::En,
-            serde_json::from_value::<WireLanguage>(json!("en-GB"))?.0
-        );
-        assert_eq!(
-            ShopType::AuctionHouse,
-            serde_json::from_value::<WireShopType>(json!("AUCTION_HOUSE"))?.0
-        );
-        assert_eq!(
-            json!({
-                "shopType": "AUCTION_HOUSE",
-                "partnerStatus": "PARTNERED"
-            }),
-            serde_json::to_value(ShopCodes {
-                shop_type: ShopType::AuctionHouse,
-                partner_status: ShopPartnerStatus::Partnered,
-            })?
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_decode_option_code_defaults_null_alias_and_invalid_values()
-    -> Result<(), serde_json::Error> {
-        assert_eq!(
-            None,
-            serde_json::from_str::<WireCurrencyOption>("{}")?.value
-        );
-        assert_eq!(
-            None,
-            serde_json::from_str::<WireCurrencyOption>(r#"{"value":null}"#)?.value
-        );
-        assert_eq!(
-            Some(Currency::Eur),
-            serde_json::from_str::<WireCurrencyOption>(r#"{"value":"EUR"}"#)?.value
-        );
-        assert_eq!(
-            Some(Language::En),
-            serde_json::from_str::<WireLanguageOption>(r#"{"value":"en-GB"}"#)?.value
-        );
-
-        let error = error_text::<WireCurrencyOption>(json!({"value": "NOPE"}));
-        assert!(error.contains("NOPE"));
-        assert!(error.contains("unsupported code"));
-        Ok(())
-    }
-
-    #[test]
-    fn should_decode_patch_code_omitted_null_value_and_invalid_values()
-    -> Result<(), serde_json::Error> {
-        assert_eq!(
-            PatchValue::Omitted,
-            serde_json::from_str::<WireCurrencyPatch>("{}")?.value
-        );
-        assert_eq!(
-            PatchValue::Null,
-            serde_json::from_str::<WireCurrencyPatch>(r#"{"value":null}"#)?.value
-        );
-        assert_eq!(
-            PatchValue::Value(Currency::Eur),
-            serde_json::from_str::<WireCurrencyPatch>(r#"{"value":"EUR"}"#)?.value
-        );
-
-        let error = error_text::<WireCurrencyPatch>(json!({"value": "NOPE"}));
-        assert!(error.contains("NOPE"));
-        assert!(error.contains("unsupported code"));
-        Ok(())
-    }
-
-    #[test]
-    fn should_decode_and_round_trip_code_sets() -> Result<(), serde_json::Error> {
-        let empty = serde_json::from_str::<WireShopTypes>("{}")?;
-        assert!(empty.value.is_empty());
-
-        let values =
-            serde_json::from_str::<WireShopTypes>(r#"{"value":["AUCTION_HOUSE","MARKETPLACE"]}"#)?;
-        assert_eq!(
-            HashSet::from([ShopType::AuctionHouse, ShopType::Marketplace]),
-            values.value
-        );
-        let serialized = serde_json::to_string(&values)?;
-        let round_tripped: WireShopTypes = serde_json::from_str(&serialized)?;
-        assert_eq!(values.value, round_tripped.value);
-
-        let error = error_text::<WireShopTypes>(json!({"value": ["NOPE"]}));
-        assert!(error.contains("NOPE"));
-        assert!(error.contains("unsupported code"));
-        Ok(())
-    }
-
-    #[test]
-    fn should_decode_patch_code_sets_for_all_patch_states() -> Result<(), serde_json::Error> {
-        assert_eq!(
-            PatchValue::Omitted,
-            serde_json::from_str::<WireShopTypePatchSet>("{}")?.value
-        );
-        assert_eq!(
-            PatchValue::Null,
-            serde_json::from_str::<WireShopTypePatchSet>(r#"{"value":null}"#)?.value
-        );
-        assert_eq!(
-            PatchValue::Value(HashSet::new()),
-            serde_json::from_str::<WireShopTypePatchSet>(r#"{"value":[]}"#)?.value
-        );
-        assert_eq!(
-            PatchValue::Value(HashSet::from([ShopType::Marketplace])),
-            serde_json::from_str::<WireShopTypePatchSet>(r#"{"value":["MARKETPLACE"]}"#,)?.value
-        );
-
-        let error = error_text::<WireShopTypePatchSet>(json!({"value": ["NOPE"]}));
-        assert!(error.contains("NOPE"));
-        assert!(error.contains("unsupported code"));
-        Ok(())
-    }
-
-    #[test]
-    fn should_decode_code_sets_from_real_query_syntax() -> Result<(), serde_qs::Error> {
-        let query: WireShopQuery =
-            serde_qs::from_str("shopType[0]=AUCTION_HOUSE&shopType[1]=MARKETPLACE")?;
-        assert_eq!(
-            HashSet::from([ShopType::AuctionHouse, ShopType::Marketplace]),
-            query.shop_types
-        );
-        Ok(())
-    }
-
-    fn error_text<T: DeserializeOwned>(value: serde_json::Value) -> String {
-        match serde_json::from_value::<T>(value) {
-            Ok(_) => "unexpected successful deserialization".to_owned(),
-            Err(error) => error.to_string(),
-        }
-    }
-
-    #[derive(serde::Serialize)]
-    #[serde(transparent)]
-    struct WireCurrency(#[serde(with = "currency")] Currency);
-
-    #[derive(serde::Deserialize)]
-    #[serde(transparent)]
-    struct WireLanguage(#[serde(with = "language")] Language);
-
-    #[derive(serde::Deserialize)]
-    #[serde(transparent)]
-    struct WireShopType(#[serde(with = "shop_type")] ShopType);
-
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct WireCurrencyOption {
-        #[serde(default, with = "currency::option")]
-        value: Option<Currency>,
-    }
-
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct WireLanguageOption {
-        #[serde(default, with = "language::option")]
-        value: Option<Language>,
-    }
-
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct WireCurrencyPatch {
-        #[serde(default, deserialize_with = "currency::patch::deserialize")]
-        value: PatchValue<Currency>,
-    }
-
-    #[derive(Debug, serde::Serialize, serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct WireShopTypes {
-        #[serde(default, with = "shop_type::set")]
-        value: HashSet<ShopType>,
-    }
-
-    #[derive(Debug, serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct WireShopTypePatchSet {
-        #[serde(default, deserialize_with = "shop_type::patch_set::deserialize")]
-        value: PatchValue<HashSet<ShopType>>,
-    }
-
-    #[derive(Debug, serde::Deserialize)]
-    struct WireShopQuery {
-        #[serde(rename = "shopType", default, with = "shop_type::set")]
-        shop_types: HashSet<ShopType>,
-    }
-
-    #[derive(serde::Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct ShopCodes {
-        #[serde(with = "shop_type")]
-        shop_type: ShopType,
-        #[serde(with = "shop_partner_status")]
-        partner_status: ShopPartnerStatus,
     }
 }

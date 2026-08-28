@@ -1,6 +1,6 @@
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -110,9 +110,12 @@ impl UrlLock {
 pub struct ShopLock(#[allow(dead_code)] AdvisoryLock);
 
 impl ShopLock {
-    pub fn try_acquire(lock_manager: &LocalLockManager, shop_id: ShopId) -> Option<Self> {
+    pub fn try_acquire(
+        lock_manager: &LocalLockManager,
+        listing_source_id: ListingSourceId,
+    ) -> Option<Self> {
         lock_manager
-            .try_acquire(format!("shop:{shop_id}"))
+            .try_acquire(format!("shop:{listing_source_id}"))
             .map(Self)
     }
 }
@@ -205,17 +208,17 @@ mod tests {
     #[test]
     fn should_lock_and_unlock_shop_key_via_drop() {
         let manager = LocalLockManager::new();
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
-        let first = ShopLock::try_acquire(&manager, shop_id);
+        let first = ShopLock::try_acquire(&manager, listing_source_id);
         assert!(first.is_some());
 
-        let second = ShopLock::try_acquire(&manager, shop_id);
+        let second = ShopLock::try_acquire(&manager, listing_source_id);
         assert!(second.is_none());
 
         drop(first);
 
-        let third = ShopLock::try_acquire(&manager, shop_id);
+        let third = ShopLock::try_acquire(&manager, listing_source_id);
         assert!(third.is_some());
     }
 }

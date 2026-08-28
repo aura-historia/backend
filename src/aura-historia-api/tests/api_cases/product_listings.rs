@@ -1,7 +1,7 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
-    assert_problem, aura_api_app_with_failed_search_embedding, json_response, product_route_slugs,
+    assert_problem, aura_api_app_with_failed_search_embedding, json_response,
     seed_current_fx_snapshot, seed_product,
 };
 use application::transaction::{Transaction, UnitOfWork};
@@ -70,24 +70,6 @@ async fn should_get_product_details_by_id() {
     assert_eq!(
         Some("public, max-age=180, s-maxage=900".to_owned()),
         cache_control
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_get_product_details_by_slug() {
-    let product_listing_id = seed_product().await;
-    let (shop_slug_id, product_listing_slug_id) = product_route_slugs(product_listing_id).await;
-
-    let (response, _) = get_json(format!(
-        "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}"
-    ))
-    .await;
-    let (status, body) = json_response(response).await;
-
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(
-        json!(product_listing_id.to_string()),
-        body["item"]["productListingId"]
     );
 }
 
@@ -253,24 +235,6 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_get_product_history_by_slug() {
-    let product_listing_id = seed_product().await;
-    let (shop_slug_id, product_listing_slug_id) = product_route_slugs(product_listing_id).await;
-
-    let (response, _) = get_json(format!(
-        "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/history"
-    ))
-    .await;
-    let (status, body) = json_response(response).await;
-
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(
-        json!(product_listing_id.to_string()),
-        body[0]["productListingId"]
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_pending_similar_products_by_id() {
     let product_listing_id = seed_product().await;
 
@@ -300,57 +264,34 @@ async fn should_return_pending_similar_products_by_id() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_return_pending_similar_products_by_slug() {
-    let product_listing_id = seed_product().await;
-    let (shop_slug_id, product_listing_slug_id) = product_route_slugs(product_listing_id).await;
-
-    let (response, _) = get_json(format!(
-        "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar"
-    ))
-    .await;
-
-    assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
-    assert_eq!(
-        Some(format!(
-            "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar"
-        )),
-        response
-            .headers()
-            .get(reqwest::header::LOCATION)
-            .and_then(|value| value.to_str().ok())
-            .map(ToOwned::to_owned)
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_page_product_search_without_duplicates_when_using_cursor() {
     let products = [
         search_document(
             "Price page cabinet",
             100,
             "AVAILABLE",
-            "Price Shop",
+            "Price Listing Source",
             "2025-01-01T00:00:00Z",
         ),
         search_document(
             "Price page cabinet",
             200,
             "AVAILABLE",
-            "Price Shop",
+            "Price Listing Source",
             "2025-01-02T00:00:00Z",
         ),
         search_document(
             "Price page cabinet",
             300,
             "AVAILABLE",
-            "Price Shop",
+            "Price Listing Source",
             "2025-01-03T00:00:00Z",
         ),
         search_document(
             "Price page cabinet",
             400,
             "AVAILABLE",
-            "Price Shop",
+            "Price Listing Source",
             "2025-01-04T00:00:00Z",
         ),
     ];
@@ -411,14 +352,14 @@ async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_s
             "Pinned FX cursor cabinet",
             100,
             "AVAILABLE",
-            "Pinned FX Shop",
+            "Pinned FX Listing Source",
             "2025-01-01T00:00:00Z",
         ),
         search_document(
             "Pinned FX cursor cabinet",
             100,
             "AVAILABLE",
-            "Pinned FX Shop",
+            "Pinned FX Listing Source",
             "2025-01-02T00:00:00Z",
         ),
     ];
@@ -485,7 +426,7 @@ async fn should_keep_sold_display_when_fx_snapshot_changes() {
         "Immutable sold cabinet",
         1_000,
         "SOLD_OUT",
-        "Sold FX Shop",
+        "Sold FX Listing Source",
         "2025-01-01T00:00:00Z",
     );
     document["sourcePrice"] = Value::Null;
@@ -536,14 +477,14 @@ async fn should_return_matching_product_search_summary() {
         "Renaissance walnut cabinet",
         125,
         "AVAILABLE",
-        "Cabinet Shop",
+        "Cabinet Listing Source",
         "2025-01-01T00:00:00Z",
     );
     let unrelated = search_document(
         "Bronze garden sculpture",
         130,
         "AVAILABLE",
-        "Cabinet Shop",
+        "Cabinet Listing Source",
         "2025-01-01T00:00:00Z",
     );
     index_search_documents([target.1.clone(), unrelated.1]).await;
@@ -580,14 +521,14 @@ async fn should_hybrid_search_products_when_mock_embedding_succeeds() {
         "Ornate candle holder",
         125,
         "AVAILABLE",
-        "Semantic Shop",
+        "Semantic Listing Source",
         "2025-01-01T00:00:00Z",
     );
     let unrelated = search_document(
         "Bronze garden sculpture",
         130,
         "AVAILABLE",
-        "Semantic Shop",
+        "Semantic Listing Source",
         "2025-01-01T00:00:00Z",
     );
     let unrelated_embedding = std::iter::once(1.0)
@@ -620,7 +561,7 @@ async fn should_fall_back_to_bm25_when_mock_embedding_fails() {
         "Vintage brass lamp",
         125,
         "AVAILABLE",
-        "Fallback Shop",
+        "Fallback Listing Source",
         "2025-01-01T00:00:00Z",
     );
     index_search_documents([target.1.clone()]).await;
@@ -647,7 +588,7 @@ async fn should_intersect_product_search_filters() {
         "imperial-antiques",
         "2025-01-01T00:00:00Z",
     );
-    let wrong_shop = search_document_with_source(
+    let wrong_listing_source = search_document_with_source(
         "Filter cabinet",
         550,
         "AVAILABLE",
@@ -673,7 +614,7 @@ async fn should_intersect_product_search_filters() {
     );
     index_search_documents([
         target.1.clone(),
-        wrong_shop.1,
+        wrong_listing_source.1,
         wrong_availability.1,
         wrong_price.1,
     ])
@@ -708,7 +649,7 @@ async fn should_return_projected_product_listings_from_default_search() {
         "Lifecycle fixture",
         100,
         "AVAILABLE",
-        "Lifecycle Shop",
+        "Lifecycle Listing Source",
         "2025-01-01T00:00:00Z",
     );
 
@@ -731,14 +672,14 @@ async fn should_filter_product_search_by_availability() {
         "Availability fixture",
         100,
         "AVAILABLE",
-        "Availability Shop",
+        "Availability Listing Source",
         "2025-01-01T00:00:00Z",
     );
     let sold_out = search_document(
         "Availability fixture",
         200,
         "SOLD_OUT",
-        "Availability Shop",
+        "Availability Listing Source",
         "2025-01-01T00:00:00Z",
     );
     index_search_documents([available.1, sold_out.1.clone()]).await;
@@ -760,14 +701,14 @@ async fn should_filter_product_search_by_created_date_range() {
         "Date fixture",
         100,
         "AVAILABLE",
-        "Date Shop",
+        "Date Listing Source",
         "2025-01-15T12:00:00Z",
     );
     let june = search_document(
         "Date fixture",
         200,
         "AVAILABLE",
-        "Date Shop",
+        "Date Listing Source",
         "2025-06-15T12:00:00Z",
     );
     index_search_documents([january.1.clone(), june.1]).await;
@@ -792,20 +733,6 @@ async fn should_reject_invalid_product_listing_id() {
         &body,
         reqwest::StatusCode::BAD_REQUEST,
         "INVALID_UUID",
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_reject_invalid_product_slug() {
-    let (response, _) =
-        get_json("/api/v1/by-slug/shops/Invalid/product-listings/product-a1b2c3".to_owned()).await;
-    let (status, body) = json_response(response).await;
-
-    assert_problem(
-        status,
-        &body,
-        reqwest::StatusCode::BAD_REQUEST,
-        "BAD_PATH_PARAMETER_VALUE",
     );
 }
 
@@ -952,15 +879,15 @@ fn search_document(
     title: &str,
     price_usd: u64,
     availability: &str,
-    shop_name: &str,
+    listing_source_name: &str,
     created: &str,
 ) -> (String, Value) {
     search_document_with_source(
         title,
         price_usd,
         availability,
-        shop_name,
-        "search-shop",
+        listing_source_name,
+        "search-listing-source",
         created,
     )
 }
@@ -969,8 +896,8 @@ fn search_document_with_source(
     title: &str,
     price_usd: u64,
     availability: &str,
-    _shop_name: &str,
-    _shop_slug_id: &str,
+    _listing_source_name: &str,
+    _listing_source_slug_id: &str,
     created: &str,
 ) -> (String, Value) {
     let product_listing_id = uuid::Uuid::new_v4().to_string();
@@ -993,7 +920,7 @@ fn search_document_with_source(
             "titleIt": null,
             "sourcePrice": { "amount": price_usd, "currency": "USD" },
             "availability": availability,
-            "url": "https://shop.example/product",
+            "url": "https://listing-source.example/product",
             "viewUrl": "https://aura.example/product",
             "images": [],
             "embedding": null,

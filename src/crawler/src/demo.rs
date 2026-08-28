@@ -1,5 +1,5 @@
 //! Demo binary — runs the full crawler pipeline (spider + scraper) against a set of hardcoded
-//! antique shops without needing a running shop-service.
+//! antique listing_sources without needing a running shop-service.
 //!
 //! On startup the demo automatically runs `docker compose up -d` (using the
 //! `docker-compose.yml` inside the `crawler` crate) and waits for Postgres to
@@ -35,8 +35,7 @@
 //!
 //! Scraped products are written to `scraped_products.json` instead of calling the ProductListing upsert use case.
 
-use shop_core::shop_id::ShopId;
-use std::collections::HashSet;
+use listing_source_core::ListingSourceId;
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
@@ -48,7 +47,7 @@ use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::review::repository::CrawlerReviewRepository;
 use crawler::review::server::{ReviewServer, ReviewServerConfig};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
-use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
+use crawler::scraper::css_selector::product_schema_repository::ListingSourceProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
 use crawler::scraper::normalization::listing_availability_mapping_repository::ListingAvailabilityMappingRepositoryImpl;
@@ -58,36 +57,37 @@ use crawler::scraper::scraper_service::{
     DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
-use crawler::service::product_push::FileProductListingPushService;
-use crawler::service::shop_registration::{
-    RegisteredShop, ShopRegistrationRepositoryImpl, ShopRegistrationService,
-    ShopRegistrationSource, ShopSyncError,
+use crawler::service::listing_source_registration::{
+    ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
+    ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
 };
+use crawler::service::product_push::FileProductListingPushService;
 use crawler::spider::advisory_lock::LocalLockManager;
 use crawler::spider::candidate_service::SpiderCandidateServiceImpl;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
-use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepositoryImpl;
+use crawler::spider::classification::url_pattern_repository::ListingSourceUrlPatternRepositoryImpl;
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
 use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
-use shop_core::domain::Domain;
-use shop_core::shop_type::ShopType;
+
 use tracing::{Instrument, error, info};
 
 // ---------------------------------------------------------------------------
-// Demo shop source — returns hardcoded shops (no OpenSearch needed)
+// Demo shop source — returns hardcoded listing_sources (no OpenSearch needed)
 // ---------------------------------------------------------------------------
 
-struct DemoShopSource {
-    shops: Vec<RegisteredShop>,
+struct DemoListingSourceSource {
+    listing_sources: Vec<RegisteredListingSource>,
 }
 
 #[async_trait]
-impl ShopRegistrationSource for DemoShopSource {
-    async fn fetch_registered_shops(&self) -> Result<Vec<RegisteredShop>, ShopSyncError> {
-        Ok(self.shops.clone())
+impl ListingSourceRegistrationSource for DemoListingSourceSource {
+    async fn fetch_registered_listing_sources(
+        &self,
+    ) -> Result<Vec<RegisteredListingSource>, ListingSourceSyncError> {
+        Ok(self.listing_sources.clone())
     }
 }
 
@@ -103,105 +103,29 @@ fn crawler_review_url_pattern_required() -> bool {
         .unwrap_or(false)
 }
 
-fn demo_shops() -> Vec<RegisteredShop> {
-    // UUIDs are stable across runs so the upsert-on-conflict keeps the same rows
-    // rather than creating a new shop row every time the demo starts.
-    // These demo domains intentionally focus on antique marketplaces and
-    // independent commercial dealers.
+fn demo_listing_sources() -> Vec<RegisteredListingSource> {
     [
-        (
-            1,
-            "Hingstons Antiques",
-            "hingstons-antiques",
-            "www.hingstons-antiques.co.uk",
-            ShopType::CommercialDealer,
-        ),
+        (1, "Hingstons Antiques", "hingstons-antiques"),
         (
             2,
             "Harrison Antique Furniture",
             "harrison-antique-furniture",
-            "www.harrisonantiquefurniture.co.uk",
-            ShopType::CommercialDealer,
         ),
-        (
-            3,
-            "Collinge Antiques",
-            "collinge-antiques",
-            "www.collingeantiques.com",
-            ShopType::CommercialDealer,
-        ),
-        (
-            4,
-            "Jonathan Horne Antiques",
-            "jonathan-horne-antiques",
-            "www.jonathanhorne.com",
-            ShopType::CommercialDealer,
-        ),
-        (
-            5,
-            "William Cook Antiques",
-            "william-cook-antiques",
-            "www.williamcookantiques.com",
-            ShopType::CommercialDealer,
-        ),
-        (
-            6,
-            "Georgian Antiques",
-            "georgian-antiques",
-            "www.georgianantiques.net",
-            ShopType::CommercialDealer,
-        ),
-        (
-            7,
-            "Antik & Stil",
-            "antik-und-stil",
-            "antik-und-stil.com",
-            ShopType::CommercialDealer,
-        ),
-        (
-            8,
-            "Smeerling Antiques",
-            "smeerling-antiques",
-            "www.smeerling-antiques.com",
-            ShopType::CommercialDealer,
-        ),
-        (
-            9,
-            "Antichita San Felice",
-            "antichita-san-felice",
-            "internationalantiques.eu",
-            ShopType::CommercialDealer,
-        ),
-        (10, "Antiga", "antiga", "antiga.es", ShopType::Marketplace),
-        (
-            11,
-            "Galerie Vauclair",
-            "galerie-vauclair",
-            "galerie-vauclair.fr",
-            ShopType::CommercialDealer,
-        ),
+        (3, "Collinge Antiques", "collinge-antiques"),
     ]
     .into_iter()
-    .map(|(index, shop_name, shop_slug, domain, shop_type)| {
-        demo_shop(index, shop_name, shop_slug, domain, shop_type)
-    })
+    .map(
+        |(index, listing_source_name, listing_source_slug)| RegisteredListingSource {
+            listing_source_id: ListingSourceId::from(
+                uuid::Uuid::parse_str(&format!("a1000000-0000-0000-0000-{index:012}"))
+                    .unwrap_or_else(|error| panic!("invalid demo ListingSource ID: {error}")),
+            ),
+            listing_source_name: listing_source_name.to_owned(),
+            listing_source_slug: listing_source_slug.to_owned(),
+            present: true,
+        },
+    )
     .collect()
-}
-
-fn demo_shop(
-    index: u8,
-    shop_name: &str,
-    shop_slug: &str,
-    domain: &str,
-    shop_type: ShopType,
-) -> RegisteredShop {
-    RegisteredShop {
-        shop_id: ShopId::try_from(format!("a1000000-0000-0000-0000-{index:012}")).unwrap(),
-        shop_name: shop_name.to_string(),
-        shop_slug: shop_slug.to_string(),
-        shop_type,
-        domains: HashSet::from([Domain::try_from(domain).unwrap()]),
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -314,9 +238,9 @@ async fn main() {
             }
         };
 
-        let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
-            pool.clone(),
-        ))));
+        let schema_repo = Box::new(ListingSourceProductSchemaRepositoryImpl::new(Box::leak(
+            Box::new(pool.clone()),
+        )));
         let schema_svc = ProductListingSchemaServiceImpl::new(
             create_schema_llm,
             single_schema_llm,
@@ -328,9 +252,9 @@ async fn main() {
         )));
 
         let scraper_candidates = Box::new(
-            ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
+            ScraperCandidateServiceImpl::new_with_max_llm_calls_per_listing_source(
                 pool.clone(),
-                config.scraper_max_llm_calls_per_shop,
+                config.scraper_max_llm_calls_per_listing_source,
             ),
         );
 
@@ -343,20 +267,20 @@ async fn main() {
                 Box::new(schema_svc),
                 Box::new(normalization_svc),
                 Arc::new(
-                    ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
+                    ScraperCandidateServiceImpl::new_with_max_llm_calls_per_listing_source(
                         pool.clone(),
-                        config.scraper_max_llm_calls_per_shop,
+                        config.scraper_max_llm_calls_per_listing_source,
                     ),
                 ),
                 config.scraper_schema_seed_pages,
-                config.scraper_max_llm_calls_per_shop,
+                config.scraper_max_llm_calls_per_listing_source,
             )
             .with_removed_page_schema_repository(removed_page_schema_repo)
             .with_review_gate(review_repo.clone(), review_required),
         );
 
         let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
-        let url_pattern_repo = Box::new(ShopUrlPatternRepositoryImpl::new(pool.clone()));
+        let url_pattern_repo = Box::new(ListingSourceUrlPatternRepositoryImpl::new(pool.clone()));
 
         let classification_llm =
             match vertex_ai_config.create_model(vertex_ai_models.url_classification.clone()) {
@@ -388,11 +312,13 @@ async fn main() {
         ));
         let spider_candidates = Box::new(SpiderCandidateServiceImpl::new(pool.clone()));
 
-        let shop_source = Box::new(DemoShopSource {
-            shops: demo_shops(),
+        let listing_source_source = Box::new(DemoListingSourceSource {
+            listing_sources: demo_listing_sources(),
         });
-        let shop_repo = Box::new(ShopRegistrationRepositoryImpl::new(pool.clone()));
-        let shop_registration = ShopRegistrationService::new(shop_source, shop_repo);
+        let listing_source_repo =
+            Box::new(ListingSourceRegistrationRepositoryImpl::new(pool.clone()));
+        let listing_source_registration =
+            ListingSourceRegistrationService::new(listing_source_source, listing_source_repo);
         let product_push = Box::new(FileProductListingPushService::new("scraped_products.json"));
 
         let cron_job = CrawlerCronJob::new(
@@ -402,12 +328,12 @@ async fn main() {
             spider_svc,
             scraper_candidates,
             scraper_svc,
-            shop_registration,
+            listing_source_registration,
             product_push,
         );
 
         info!(
-            shop_count = demo_shops().len(),
+            shop_count = demo_listing_sources().len(),
             llm_provider = "vertex_ai",
             schema_model = %vertex_ai_models.product_schema,
             listing_availability_mapping_model = %vertex_ai_models.listing_availability_mapping,

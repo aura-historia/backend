@@ -28,7 +28,6 @@ struct NotificationListRow {
     origin_event_id: Option<uuid::Uuid>,
     product_listing_id: Option<uuid::Uuid>,
     user_search_filter_id: Option<uuid::Uuid>,
-    partner_shop_application_id: Option<uuid::Uuid>,
     partnership_application_id: Option<uuid::Uuid>,
     payload_version: Option<i16>,
     payload: Option<serde_json::Value>,
@@ -47,7 +46,6 @@ impl NotificationListRow {
             origin_event_id,
             product_listing_id,
             user_search_filter_id,
-            partner_shop_application_id,
             partnership_application_id,
             payload_version,
             payload,
@@ -88,7 +86,6 @@ impl NotificationListRow {
             origin_event_id,
             product_listing_id,
             user_search_filter_id,
-            partner_shop_application_id,
             partnership_application_id,
             payload_version,
             payload,
@@ -113,7 +110,7 @@ impl NotificationListReader for SqlxNotificationListReader {
                 source: box_error(source),
             })?;
         let rows = sqlx::query_as::<_, NotificationListRow>(
-            "WITH notification_page AS (SELECT n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_listing_id, n.user_search_filter_id, n.partner_shop_application_id, n.partnership_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notifications n WHERE n.user_id = $1 AND ($2::timestamptz IS NULL OR (n.created, n.notification_id) < ($2, $3)) ORDER BY n.created DESC, n.notification_id DESC LIMIT $4) SELECT p.notification_id, p.user_id, p.kind, p.origin_event_id, p.product_listing_id, p.user_search_filter_id, p.partner_shop_application_id, p.partnership_application_id, p.payload_version, p.payload, p.seen, p.created, p.updated, u.show_unassessed_or_sensitive_content FROM users u LEFT JOIN notification_page p ON TRUE WHERE u.user_id = $1 ORDER BY p.created DESC NULLS LAST, p.notification_id DESC NULLS LAST",
+            "WITH notification_page AS (SELECT n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_listing_id, n.user_search_filter_id, n.partnership_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notifications n WHERE n.user_id = $1 AND ($2::timestamptz IS NULL OR (n.created, n.notification_id) < ($2, $3)) ORDER BY n.created DESC, n.notification_id DESC LIMIT $4) SELECT p.notification_id, p.user_id, p.kind, p.origin_event_id, p.product_listing_id, p.user_search_filter_id, p.partnership_application_id, p.payload_version, p.payload, p.seen, p.created, p.updated, u.show_unassessed_or_sensitive_content FROM users u LEFT JOIN notification_page p ON TRUE WHERE u.user_id = $1 ORDER BY p.created DESC NULLS LAST, p.notification_id DESC NULLS LAST",
         )
         .bind(uuid::Uuid::from(user_id))
         .bind(cursor.map(|cursor| cursor.created))

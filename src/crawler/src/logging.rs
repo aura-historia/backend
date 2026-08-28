@@ -7,7 +7,7 @@ pub const HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE: &str = "html5ever::tree_builder=
 pub enum CrawlerComponent {
     Startup,
     Cron,
-    ShopSync,
+    ListingSourceSync,
     Spider,
     Scraper,
     Llm,
@@ -18,7 +18,7 @@ impl CrawlerComponent {
         match self {
             Self::Startup => "startup",
             Self::Cron => "cron",
-            Self::ShopSync => "shop_sync",
+            Self::ListingSourceSync => "listing_source_sync",
             Self::Spider => "spider",
             Self::Scraper => "scraper",
             Self::Llm => "llm",
@@ -35,7 +35,7 @@ impl std::fmt::Display for CrawlerComponent {
 pub const COMPONENT_CRON: &str = CrawlerComponent::Cron.as_str();
 pub const COMPONENT_LLM: &str = CrawlerComponent::Llm.as_str();
 pub const COMPONENT_SCRAPER: &str = CrawlerComponent::Scraper.as_str();
-pub const COMPONENT_SHOP_SYNC: &str = CrawlerComponent::ShopSync.as_str();
+pub const COMPONENT_SHOP_SYNC: &str = CrawlerComponent::ListingSourceSync.as_str();
 pub const COMPONENT_SPIDER: &str = CrawlerComponent::Spider.as_str();
 pub const COMPONENT_STARTUP: &str = CrawlerComponent::Startup.as_str();
 

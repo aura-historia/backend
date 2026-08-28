@@ -1,14 +1,14 @@
 use super::*;
 use crate::scraper::css_selector::removed_page_schema::{
-    RemovedPageSchema, ShopsRemovedPageSchema,
+    ListingSourceRemovedPageSchema, RemovedPageSchema,
 };
 use crate::scraper::css_selector::removed_page_schema_repository::MockRemovedPageSchemaRepository;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 
-fn removed_schema_set(shop_id: ShopId) -> ShopsRemovedPageSchema {
-    ShopsRemovedPageSchema {
-        shop_id,
+fn removed_schema_set(listing_source_id: ListingSourceId) -> ListingSourceRemovedPageSchema {
+    ListingSourceRemovedPageSchema {
+        listing_source_id,
         removed_page_schemas: vec![RemovedPageSchema {
             selector: CssSelector::from("#mainCatCol h1"),
             text: Some("Sorry, the page you're looking for couldn't be found".to_string()),
@@ -21,7 +21,7 @@ fn removed_schema_set(shop_id: ShopId) -> ShopsRemovedPageSchema {
 
 #[tokio::test]
 async fn should_mark_product_removed_when_stored_removed_page_schema_matches() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
     let html = r#"<main id="mainCatCol"><h1>Sorry, the page you're looking for couldn't be found</h1></main>"#;
 
@@ -50,11 +50,13 @@ async fn should_mark_product_removed_when_stored_removed_page_schema_matches() {
     cand_svc
         .expect_set_presence()
         .once()
-        .withf(move |received_shop_id, received_url, received_state| {
-            *received_shop_id == id
-                && received_url == &url_for_state
-                && *received_state == UrlPresence::Withdrawn
-        })
+        .withf(
+            move |received_listing_source_id, received_url, received_state| {
+                *received_listing_source_id == id
+                    && received_url == &url_for_state
+                    && *received_state == UrlPresence::Withdrawn
+            },
+        )
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -63,7 +65,7 @@ async fn should_mark_product_removed_when_stored_removed_page_schema_matches() {
         Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     )
     .with_removed_page_schema_repository(Box::new(removed_repo));
 

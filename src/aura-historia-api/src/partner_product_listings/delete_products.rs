@@ -13,10 +13,10 @@ use listing_source_core::ListingSourceId;
 pub async fn delete_products(
     State(state): State<PartnerProductListingsState>,
     headers: HeaderMap,
-    Path(raw_shop_id): Path<String>,
+    Path(raw_listing_source_id): Path<String>,
     body: String,
 ) -> Response {
-    let listing_source_id = match parse_listing_source_id(&raw_shop_id) {
+    let listing_source_id = match parse_listing_source_id(&raw_listing_source_id) {
         Ok(listing_source_id) => listing_source_id,
         Err(error) => return error.into_response(),
     };
@@ -68,7 +68,7 @@ fn parse_listing_source_id(value: &str) -> Result<ListingSourceId, ApiError> {
         .map_err(|_| {
             ApiError::bad_request(INVALID_UUID)
                 .with_path_field("listingSourceId")
-                .with_detail("Path parameter 'shopId' must be a UUID.")
+                .with_detail("Path parameter 'listingSourceId' must be a UUID.")
         })
 }
 
@@ -107,14 +107,14 @@ mod tests {
     #[tokio::test]
     async fn should_delete_each_collection_item_by_product_key()
     -> Result<(), Box<dyn std::error::Error>> {
-        let shop_id = ListingSourceId::new();
-        let expected_shop_id = shop_id;
+        let listing_source_id = ListingSourceId::new();
+        let expected_listing_source_id = listing_source_id;
         let mut withdraw = MockWithdrawUseCase::new();
         withdraw
             .expect_execute_by_key()
             .times(2)
             .withf(move |_, key| {
-                key.listing_source_id == expected_shop_id
+                key.listing_source_id == expected_listing_source_id
                     && (key.source_listing_id.as_ref() == "first"
                         || key.source_listing_id.as_ref() == "second")
             })
@@ -123,7 +123,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{"sourceListingId":"first"},{"sourceListingId":"second"}]"#,
             true,
         )
@@ -137,7 +137,7 @@ mod tests {
     #[tokio::test]
     async fn should_return_failed_key_when_delete_batch_partially_succeeds()
     -> Result<(), Box<dyn std::error::Error>> {
-        let shop_id = ListingSourceId::new();
+        let listing_source_id = ListingSourceId::new();
         let mut withdraw = MockWithdrawUseCase::new();
         withdraw
             .expect_execute_by_key()
@@ -153,7 +153,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{"sourceListingId":"present"},{"sourceListingId":"missing"}]"#,
             true,
         )
@@ -162,7 +162,7 @@ mod tests {
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
             json!([{
-                "listingSourceId": shop_id.to_string(),
+                "listingSourceId": listing_source_id.to_string(),
                 "sourceListingId": "missing",
                 "error": "PRODUCT_LISTING_NOT_FOUND"
             }]),
@@ -172,7 +172,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_map_all_missing_deletes_to_not_found_and_leave_legacy_item_route_absent()
+    async fn should_map_all_missing_deletes_to_not_found_and_leave_legacy_shop_route_absent()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut withdraw = MockWithdrawUseCase::new();
         withdraw
@@ -180,11 +180,11 @@ mod tests {
             .times(1)
             .returning(|_, _| Err(WithdrawProductListingError::NotFound));
         let app = app(withdraw);
-        let shop_id = ListingSourceId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let missing = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{"sourceListingId":"missing"}]"#,
             true,
         )
@@ -197,7 +197,7 @@ mod tests {
 
         let old_route = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings/missing"),
+            &format!("/api/v1/shops/{listing_source_id}/product-listings"),
             "",
             true,
         )
@@ -216,7 +216,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/shops/{shop_id}/product-listings",
+                "/api/v1/listing-sources/{listing_source_id}/product-listings",
                 axum::routing::delete(delete_products),
             )
             .with_state(state)

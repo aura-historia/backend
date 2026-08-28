@@ -19,7 +19,7 @@ let collapsedShopGroups = new Set(JSON.parse(localStorage.getItem('crawlerReview
 let previewUrlOverride = '';
 
 const selectorFields = [
-    'shops_product_id', 'title', 'description', 'price', 'price_estimate_min',
+    'source_listing_id', 'title', 'description', 'price', 'price_estimate_min',
     'price_estimate_max', 'seller_name', 'state', 'images', 'auction_start', 'auction_end'
 ];
 const optionalFields = new Set([
@@ -27,7 +27,7 @@ const optionalFields = new Set([
     'seller_name', 'auction_start', 'auction_end'
 ]);
 const schemaHighlightColors = {
-    shops_product_id: '#2563eb',
+    source_listing_id: '#2563eb',
     title: '#7c3aed',
     description: '#0891b2',
     price: '#16a34a',
@@ -87,11 +87,11 @@ function renderReviewGroups(reviews) {
     const byShop = new Map();
     for (const review of reviews) {
         if (query && !reviewMatchesSearch(review, query)) continue;
-        const shopKey = review.shop_id || 'unknown-shop';
+        const shopKey = review.listing_source_id || 'unknown-shop';
         if (!byShop.has(shopKey)) {
             const group = {
                 shopId: shopKey,
-                shopName: review.shop_name || review.shop_id || 'Unknown shop',
+                shopName: review.listing_source_name || review.listing_source_id || 'Unknown shop',
                 reviews: []
             };
             byShop.set(shopKey, group);
@@ -128,8 +128,8 @@ function renderReviewGroups(reviews) {
 
 function reviewMatchesSearch(review, query) {
     return [
-        review.shop_name,
-        review.shop_id,
+        review.listing_source_name,
+        review.listing_source_id,
         review.artifact_type,
         review.status,
         review.reason,
@@ -205,7 +205,7 @@ function renderDetail(detail, matrix) {
       <div class="review-topbar">
         <div>
           <div class="review-title">
-            <strong>${escapeHtml(review.shop_name || review.shop_id)}</strong>
+            <strong>${escapeHtml(review.listing_source_name || review.listing_source_id)}</strong>
             ${statusBadge(review.status)}
             ${statusBadge(review.artifact_type)}
           </div>
@@ -743,13 +743,12 @@ function defaultRuleFor(field) {
 
 function defaultSchema() {
     return {
-        shops_product_id: defaultRuleFor('shops_product_id'),
+        source_listing_id: defaultRuleFor('source_listing_id'),
         title: defaultRuleFor('title'),
         description: null,
         price: null,
         price_estimate_min: null,
         price_estimate_max: null,
-        seller_name: null,
         state: defaultRuleFor('state'),
         images: defaultRuleFor('images'),
         auction_start: null,

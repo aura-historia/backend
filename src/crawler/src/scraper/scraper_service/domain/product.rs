@@ -1,7 +1,7 @@
 use crate::scraper::candidate_service::ProductListingSnapshot;
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use url::Url;
 
 /// Result of a successful scrape — the normalized product together with the
@@ -26,13 +26,13 @@ pub struct ScrapedProduct {
 #[mockall::automock]
 pub trait ScraperService: Send + Sync {
     /// Fetch the product page at `url`, extract structured data using the CSS
-    /// selector schema for `shop_id`, normalise the raw data, and return a
+    /// selector schema for `listing_source_id`, normalise the raw data, and return a
     /// [`ScrapedProduct`].  The caller is responsible for calling
     /// [`crate::scraper::candidate_service::ScraperCandidateService::mark_as_scraped`]
     /// once the product has been successfully pushed to the backend.
     async fn scrape(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         product_url_pattern: Option<&str>,
         last_scraped_hash: Option<&str>,

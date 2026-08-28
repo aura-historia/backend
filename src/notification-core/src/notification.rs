@@ -13,8 +13,6 @@ use product_listing_core::{
 use search_filter_core::{
     user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
 };
-use shop_core::shop_name::ShopName;
-use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use std::collections::HashMap;
 use url::Url;
 use user_core::user_id::UserId;
@@ -107,11 +105,6 @@ pub enum NotificationContent {
         snapshot: ProductListingNotificationSnapshot,
         user_search_filter_name: UserSearchFilterName,
     },
-    PartnerApplication {
-        partner_shop_application_id: PartnerShopApplicationId,
-        snapshot: PartnerApplicationNotificationSnapshot,
-        decision: PartnerApplicationDecision,
-    },
     PartnershipApplication {
         partnership_application_id: PartnershipApplicationId,
         snapshot: PartnershipApplicationNotificationSnapshot,
@@ -131,14 +124,6 @@ impl NotificationContent {
                 ..
             } => NotificationKind::WatchlistAvailabilityChanged,
             Self::SearchFilter { .. } => NotificationKind::SearchFilterMatch,
-            Self::PartnerApplication {
-                decision: PartnerApplicationDecision::Approved,
-                ..
-            } => NotificationKind::PartnerApplicationApproved,
-            Self::PartnerApplication {
-                decision: PartnerApplicationDecision::Rejected,
-                ..
-            } => NotificationKind::PartnerApplicationRejected,
             Self::PartnershipApplication {
                 decision: PartnershipApplicationDecision::Approved,
                 ..
@@ -158,7 +143,7 @@ impl NotificationContent {
             | Self::SearchFilter {
                 origin_event_id, ..
             } => Some(*origin_event_id),
-            Self::PartnerApplication { .. } | Self::PartnershipApplication { .. } => None,
+            Self::PartnershipApplication { .. } => None,
         }
     }
 
@@ -170,7 +155,7 @@ impl NotificationContent {
             | Self::SearchFilter {
                 product_listing_id, ..
             } => Some(*product_listing_id),
-            Self::PartnerApplication { .. } | Self::PartnershipApplication { .. } => None,
+            Self::PartnershipApplication { .. } => None,
         }
     }
 
@@ -200,15 +185,6 @@ impl NotificationContent {
                 snapshot: snapshot.localized(preferred_languages),
                 user_search_filter_id,
                 user_search_filter_name,
-            },
-            Self::PartnerApplication {
-                partner_shop_application_id,
-                snapshot,
-                decision,
-            } => LocalizedNotificationContent::PartnerApplication {
-                partner_shop_application_id,
-                snapshot,
-                decision,
             },
             Self::PartnershipApplication {
                 partnership_application_id,
@@ -257,18 +233,6 @@ impl ProductListingNotificationSnapshot {
             view_url: self.view_url,
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct PartnerApplicationNotificationSnapshot {
-    pub shop_name: ShopName,
-    pub image: Option<Url>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PartnerApplicationDecision {
-    Approved,
-    Rejected,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -329,11 +293,6 @@ pub enum LocalizedNotificationContent {
         snapshot: LocalizedProductListingNotificationSnapshot,
         user_search_filter_id: UserSearchFilterId,
         user_search_filter_name: UserSearchFilterName,
-    },
-    PartnerApplication {
-        partner_shop_application_id: PartnerShopApplicationId,
-        snapshot: PartnerApplicationNotificationSnapshot,
-        decision: PartnerApplicationDecision,
     },
     PartnershipApplication {
         partnership_application_id: PartnershipApplicationId,

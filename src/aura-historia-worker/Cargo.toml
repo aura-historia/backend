@@ -53,7 +53,6 @@ tracing = { workspace = true }
 rstest = { workspace = true }
 listing-source-core = { workspace = true }
 search-filter-core = { workspace = true }
-shop-core = { workspace = true }
 indexmap = { workspace = true }
 time = { workspace = true }
 serial_test = { workspace = true }

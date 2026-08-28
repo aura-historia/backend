@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -11,7 +11,7 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
         .once()
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
-    let schema = shops_product_schema(id);
+    let schema = listing_source_product_schemas(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
     let mut schema_svc = MockProductListingSchemaService::new();
@@ -54,7 +54,7 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service
@@ -64,8 +64,8 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
         .unwrap();
 
     assert_eq!(
-        result.product.shop_listing_id,
-        ShopListingId::from("SKU-42")
+        result.product.source_listing_id,
+        SourceListingId::from("SKU-42")
     );
     assert_eq!(
         result.product.availability,
@@ -76,7 +76,7 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
 
 #[tokio::test]
 async fn should_return_normalized_product_with_all_fields_when_normalization_produces_full_data() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -84,7 +84,7 @@ async fn should_return_normalized_product_with_all_fields_when_normalization_pro
         .expect_fetch()
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
-    let schema = shops_product_schema(id);
+    let schema = listing_source_product_schemas(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
     let mut schema_svc = MockProductListingSchemaService::new();
@@ -125,7 +125,7 @@ async fn should_return_normalized_product_with_all_fields_when_normalization_pro
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service
@@ -139,7 +139,7 @@ async fn should_return_normalized_product_with_all_fields_when_normalization_pro
 
 #[tokio::test]
 async fn should_filter_invalid_thumbnail_images_before_normalization() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
     let html = r#"<!DOCTYPE html>
     <html>
@@ -161,7 +161,7 @@ async fn should_filter_invalid_thumbnail_images_before_normalization() {
         Box::pin(async move { Ok(fetch_result(html)) })
     });
 
-    let schema = shops_product_schema(id);
+    let schema = listing_source_product_schemas(id);
     let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
@@ -194,7 +194,7 @@ async fn should_filter_invalid_thumbnail_images_before_normalization() {
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service

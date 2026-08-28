@@ -271,16 +271,18 @@ mod tests {
         },
     };
     use application::error::box_error;
+    use listing_source_core::ListingSourceName;
     use localization::Language;
     use notification_core::notification_id::NotificationId;
     use notification_core::{
         notification::{
-            NotificationContent, PartnerApplicationDecision, PartnerApplicationNotificationSnapshot,
+            NotificationContent, PartnershipApplicationDecision,
+            PartnershipApplicationNotificationSnapshot,
         },
         notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
     };
-    use shop_core::shop_name::ShopName;
-    use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
+    use partnership_core::partnership_application_id::PartnershipApplicationId;
+    use party_core::party_name::PartyName;
     use std::sync::{Arc, Mutex};
     use user_core::user_id::UserId;
 
@@ -550,13 +552,14 @@ mod tests {
             user_id: UserId::new(),
             channel: NotificationDeliveryChannel::Email,
             target_key: NotificationDeliveryTargetKey::primary(),
-            content: NotificationContent::PartnerApplication {
-                partner_shop_application_id: PartnerShopApplicationId::new(),
-                snapshot: PartnerApplicationNotificationSnapshot {
-                    shop_name: ShopName::from("Test Shop"),
+            content: NotificationContent::PartnershipApplication {
+                partnership_application_id: PartnershipApplicationId::new(),
+                snapshot: PartnershipApplicationNotificationSnapshot {
+                    party_name: PartyName::from("Test Party"),
+                    listing_source_name: ListingSourceName::from("Test Listing Source"),
                     image: None,
                 },
-                decision: PartnerApplicationDecision::Approved,
+                decision: PartnershipApplicationDecision::Approved,
             },
             presentation_preferences: crate::presentation::NotificationPresentationPreferences {
                 language: Language::En,

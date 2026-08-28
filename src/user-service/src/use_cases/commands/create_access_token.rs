@@ -334,7 +334,7 @@ mod tests {
                 CreateAccessTokenCommand {
                     user_id,
                     name: AccessTokenName::from("created"),
-                    scopes: HashSet::from([Scope::ShopsWrite]),
+                    scopes: HashSet::from([Scope::ProductListingsWrite]),
                     expires: None,
                     origin: AccessTokenOrigin::User,
                 },

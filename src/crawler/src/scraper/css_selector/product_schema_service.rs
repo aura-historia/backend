@@ -1,20 +1,22 @@
 use crate::llm_runtime::{
     CrawlerLlmGovernor, ValidatedGenerationError, generate_validated_with_governor,
 };
-use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
-use crate::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepository;
+use crate::scraper::css_selector::product_schema::{
+    ListingSourceProductSchema, ProductCssSelectorSchema,
+};
+use crate::scraper::css_selector::product_schema_repository::ListingSourceProductSchemaRepository;
 use application::error::box_error;
 use large_language_model::{
     GenerationOptions, LargeLanguageModel, LargeLanguageModelError, LlmOperation,
     StructuredGenerationRequest,
 };
+use listing_source_core::ListingSourceId;
 use prompt::{build_create_schemas_instruction, build_single_schema_instruction};
 use response::{
     ProductListingSchemaGenerationResponse, ProductListingSchemaResponseValidationError,
     product_schema_generation_response_json_schema, single_schema_generation_response_json_schema,
 };
 use schemars::schema_for;
-use shop_core::shop_id::ShopId;
 use std::{sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tracing::{debug, info};
@@ -74,40 +76,40 @@ pub trait ProductListingSchemaService {
 
     async fn find_product_schema(
         &self,
-        shop_id: &ShopId,
-    ) -> Result<Option<ShopsProductSchema>, ProductListingSchemaServiceError>;
+        listing_source_id: &ListingSourceId,
+    ) -> Result<Option<ListingSourceProductSchema>, ProductListingSchemaServiceError>;
 
     async fn save_product_schema(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         product_schema: ProductCssSelectorSchema,
-    ) -> Result<ShopsProductSchema, ProductListingSchemaServiceError>;
+    ) -> Result<ListingSourceProductSchema, ProductListingSchemaServiceError>;
 
     async fn save_product_schemas(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         product_schemas: Vec<ProductCssSelectorSchema>,
-    ) -> Result<ShopsProductSchema, ProductListingSchemaServiceError>;
+    ) -> Result<ListingSourceProductSchema, ProductListingSchemaServiceError>;
 
     async fn get_product_schema(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         html_pages: &[String],
-    ) -> Result<ShopsProductSchema, ProductListingSchemaServiceError>;
+    ) -> Result<ListingSourceProductSchema, ProductListingSchemaServiceError>;
 }
 
 pub struct ProductListingSchemaServiceImpl<CreateLlm, SingleLlm> {
     create_llm: CreateLlm,
     single_schema_llm: SingleLlm,
     governor: Option<Arc<CrawlerLlmGovernor>>,
-    repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
+    repository: Box<dyn ListingSourceProductSchemaRepository + Send + Sync>,
 }
 
 impl<CreateLlm, SingleLlm> ProductListingSchemaServiceImpl<CreateLlm, SingleLlm> {
     pub fn new(
         create_llm: CreateLlm,
         single_schema_llm: SingleLlm,
-        repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
+        repository: Box<dyn ListingSourceProductSchemaRepository + Send + Sync>,
         governor: Option<Arc<CrawlerLlmGovernor>>,
     ) -> Self {
         Self {
@@ -305,60 +307,63 @@ where
 
     async fn find_product_schema(
         &self,
-        shop_id: &ShopId,
-    ) -> Result<Option<ShopsProductSchema>, ProductListingSchemaServiceError> {
+        listing_source_id: &ListingSourceId,
+    ) -> Result<Option<ListingSourceProductSchema>, ProductListingSchemaServiceError> {
         self.repository
-            .find_product_schema(shop_id)
+            .find_product_schema(listing_source_id)
             .await
             .map_err(ProductListingSchemaServiceError::DatabaseError)
     }
 
     async fn save_product_schema(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         product_schema: ProductCssSelectorSchema,
-    ) -> Result<ShopsProductSchema, ProductListingSchemaServiceError> {
-        self.save_product_schemas(shop_id, vec![product_schema])
+    ) -> Result<ListingSourceProductSchema, ProductListingSchemaServiceError> {
+        self.save_product_schemas(listing_source_id, vec![product_schema])
             .await
     }
 
     #[tracing::instrument(
         name = "scraper_save_product_schemas",
         skip(self, product_schemas),
-        fields(shop_id = %shop_id, schema_count = product_schemas.len())
+        fields(listing_source_id = %listing_source_id, schema_count = product_schemas.len())
     )]
     async fn save_product_schemas(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         product_schemas: Vec<ProductCssSelectorSchema>,
-    ) -> Result<ShopsProductSchema, ProductListingSchemaServiceError> {
+    ) -> Result<ListingSourceProductSchema, ProductListingSchemaServiceError> {
         if product_schemas.is_empty() {
             return Err(ProductListingSchemaServiceError::NoTextResponse(
                 "LLM produced zero schemas".to_string(),
             ));
         }
 
-        let existing = self.repository.find_product_schema(shop_id).await?;
+        let existing = self
+            .repository
+            .find_product_schema(listing_source_id)
+            .await?;
 
         match existing {
             Some(_) => {
                 debug!("Updating existing product schema");
                 self.repository
-                    .update_product_schema(shop_id, &product_schemas)
+                    .update_product_schema(listing_source_id, &product_schemas)
                     .await
                     .map_err(ProductListingSchemaServiceError::DatabaseError)
             }
             None => {
                 debug!("Inserting new product schema");
                 let now = OffsetDateTime::now_utc();
-                let schema = ShopsProductSchema {
-                    shop_id: *shop_id,
+                let schema = ListingSourceProductSchema {
+                    listing_source_id: *listing_source_id,
                     product_schemas,
                     created: now,
                     updated: now,
                 };
                 self.repository
-                    .insert_product_schema(shop_id, &schema)
+                    .insert_product_schema(listing_source_id, &schema)
                     .await
                     .map_err(ProductListingSchemaServiceError::DatabaseError)
             }
@@ -367,21 +372,22 @@ where
 
     #[tracing::instrument(
         skip(self, html_pages),
-        fields(shop_id = %shop_id, html_pages = html_pages.len())
+        fields(listing_source_id = %listing_source_id, html_pages = html_pages.len())
     )]
     async fn get_product_schema(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         html_pages: &[String],
-    ) -> Result<ShopsProductSchema, ProductListingSchemaServiceError> {
-        if let Some(existing) = self.find_product_schema(shop_id).await? {
+    ) -> Result<ListingSourceProductSchema, ProductListingSchemaServiceError> {
+        if let Some(existing) = self.find_product_schema(listing_source_id).await? {
             debug!("Found existing product schema");
             return Ok(existing);
         }
 
         info!("No product schema found for shop, creating via LLM");
         let generated = self.create_product_schemas(html_pages).await?;
-        self.save_product_schemas(shop_id, generated.schemas).await
+        self.save_product_schemas(listing_source_id, generated.schemas)
+            .await
     }
 }
 
@@ -392,7 +398,7 @@ mod tests {
     use super::response::parse_product_schemas_response;
     use super::response::parse_single_schema_response;
     use super::*;
-    use crate::scraper::css_selector::product_schema_repository::MockShopsProductSchemaRepository;
+    use crate::scraper::css_selector::product_schema_repository::MockListingSourceProductSchemaRepository;
     use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
     use crate::scraper::css_selector::rule::{
         ExtractionCardinality, ExtractionKind, ExtractionRule,
@@ -403,7 +409,7 @@ mod tests {
 
     fn sample_css_schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
-            shop_listing_id: Some(ExtractionRule {
+            source_listing_id: Some(ExtractionRule {
                 selector: "span.product-id".into(),
                 additional_selectors: vec![],
                 extract: ExtractionKind::Text,
@@ -419,7 +425,6 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: ExtractionRule {
                 selector: "span.state".into(),
                 additional_selectors: vec![],
@@ -439,10 +444,12 @@ mod tests {
         }
     }
 
-    fn sample_shops_product_schema(shop_id: ShopId) -> ShopsProductSchema {
+    fn sample_listing_source_product_schemas(
+        listing_source_id: ListingSourceId,
+    ) -> ListingSourceProductSchema {
         let now = OffsetDateTime::now_utc();
-        ShopsProductSchema {
-            shop_id,
+        ListingSourceProductSchema {
+            listing_source_id,
             product_schemas: vec![sample_css_schema()],
             created: now,
             updated: now,
@@ -660,14 +667,14 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_schema_when_found_in_repository_for_find() {
-        let shop_id = ShopId::new();
-        let expected = sample_shops_product_schema(shop_id);
+        let listing_source_id = ListingSourceId::new();
+        let expected = sample_listing_source_product_schemas(listing_source_id);
         let expected_clone = expected.clone();
 
-        let mut repository = MockShopsProductSchemaRepository::new();
+        let mut repository = MockListingSourceProductSchemaRepository::new();
         repository
             .expect_find_product_schema()
-            .withf(move |id| *id == shop_id)
+            .withf(move |id| *id == listing_source_id)
             .return_once(move |_| Box::pin(async move { Ok(Some(expected_clone)) }));
 
         let service = ProductListingSchemaServiceImpl {
@@ -677,18 +684,21 @@ mod tests {
             repository: Box::new(repository),
         };
 
-        let result = service.find_product_schema(&shop_id).await.unwrap();
+        let result = service
+            .find_product_schema(&listing_source_id)
+            .await
+            .unwrap();
         assert!(result.is_some());
         let result = result.unwrap();
-        assert_eq!(result.shop_id, expected.shop_id);
+        assert_eq!(result.listing_source_id, expected.listing_source_id);
         assert_eq!(result.product_schemas, expected.product_schemas);
     }
 
     #[tokio::test]
     async fn should_return_none_when_not_found_in_repository_for_find() {
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
-        let mut repository = MockShopsProductSchemaRepository::new();
+        let mut repository = MockListingSourceProductSchemaRepository::new();
         repository
             .expect_find_product_schema()
             .return_once(|_| Box::pin(async { Ok(None) }));
@@ -700,15 +710,18 @@ mod tests {
             repository: Box::new(repository),
         };
 
-        let result = service.find_product_schema(&shop_id).await.unwrap();
+        let result = service
+            .find_product_schema(&listing_source_id)
+            .await
+            .unwrap();
         assert!(result.is_none());
     }
 
     #[tokio::test]
     async fn should_propagate_database_error_for_find() {
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
-        let mut repository = MockShopsProductSchemaRepository::new();
+        let mut repository = MockListingSourceProductSchemaRepository::new();
         repository
             .expect_find_product_schema()
             .return_once(|_| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
@@ -720,7 +733,7 @@ mod tests {
             repository: Box::new(repository),
         };
 
-        let result = service.find_product_schema(&shop_id).await;
+        let result = service.find_product_schema(&listing_source_id).await;
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -734,18 +747,18 @@ mod tests {
 
     #[tokio::test]
     async fn should_insert_schema_when_not_existing_for_save() {
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
         let css_schema = sample_css_schema();
-        let expected = sample_shops_product_schema(shop_id);
+        let expected = sample_listing_source_product_schemas(listing_source_id);
         let expected_clone = expected.clone();
 
-        let mut repository = MockShopsProductSchemaRepository::new();
+        let mut repository = MockListingSourceProductSchemaRepository::new();
         repository
             .expect_find_product_schema()
             .return_once(|_| Box::pin(async { Ok(None) }));
         repository
             .expect_insert_product_schema()
-            .withf(move |id, _| *id == shop_id)
+            .withf(move |id, _| *id == listing_source_id)
             .return_once(move |_, _| Box::pin(async move { Ok(expected_clone) }));
 
         let service = ProductListingSchemaServiceImpl {
@@ -756,29 +769,29 @@ mod tests {
         };
 
         let result = service
-            .save_product_schema(&shop_id, css_schema)
+            .save_product_schema(&listing_source_id, css_schema)
             .await
             .unwrap();
-        assert_eq!(result.shop_id, expected.shop_id);
+        assert_eq!(result.listing_source_id, expected.listing_source_id);
         assert_eq!(result.product_schemas, expected.product_schemas);
     }
 
     #[tokio::test]
     async fn should_update_schema_when_already_existing_for_save() {
-        let shop_id = ShopId::new();
-        let existing = sample_shops_product_schema(shop_id);
+        let listing_source_id = ListingSourceId::new();
+        let existing = sample_listing_source_product_schemas(listing_source_id);
         let existing_clone = existing.clone();
         let css_schema = sample_css_schema();
-        let updated = sample_shops_product_schema(shop_id);
+        let updated = sample_listing_source_product_schemas(listing_source_id);
         let updated_clone = updated.clone();
 
-        let mut repository = MockShopsProductSchemaRepository::new();
+        let mut repository = MockListingSourceProductSchemaRepository::new();
         repository
             .expect_find_product_schema()
             .return_once(move |_| Box::pin(async move { Ok(Some(existing_clone)) }));
         repository
             .expect_update_product_schema()
-            .withf(move |id, _| *id == shop_id)
+            .withf(move |id, _| *id == listing_source_id)
             .return_once(move |_, _| Box::pin(async move { Ok(updated_clone) }));
 
         let service = ProductListingSchemaServiceImpl {
@@ -789,18 +802,18 @@ mod tests {
         };
 
         let result = service
-            .save_product_schema(&shop_id, css_schema)
+            .save_product_schema(&listing_source_id, css_schema)
             .await
             .unwrap();
-        assert_eq!(result.shop_id, updated.shop_id);
+        assert_eq!(result.listing_source_id, updated.listing_source_id);
     }
 
     #[tokio::test]
     async fn should_propagate_database_error_when_find_fails_for_save() {
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
         let css_schema = sample_css_schema();
 
-        let mut repository = MockShopsProductSchemaRepository::new();
+        let mut repository = MockListingSourceProductSchemaRepository::new();
         repository
             .expect_find_product_schema()
             .return_once(|_| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
@@ -812,7 +825,9 @@ mod tests {
             repository: Box::new(repository),
         };
 
-        let result = service.save_product_schema(&shop_id, css_schema).await;
+        let result = service
+            .save_product_schema(&listing_source_id, css_schema)
+            .await;
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -822,10 +837,10 @@ mod tests {
 
     #[tokio::test]
     async fn should_propagate_database_error_when_insert_fails_for_save() {
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
         let css_schema = sample_css_schema();
 
-        let mut repository = MockShopsProductSchemaRepository::new();
+        let mut repository = MockListingSourceProductSchemaRepository::new();
         repository
             .expect_find_product_schema()
             .return_once(|_| Box::pin(async { Ok(None) }));
@@ -840,7 +855,9 @@ mod tests {
             repository: Box::new(repository),
         };
 
-        let result = service.save_product_schema(&shop_id, css_schema).await;
+        let result = service
+            .save_product_schema(&listing_source_id, css_schema)
+            .await;
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -854,11 +871,11 @@ mod tests {
 
     #[tokio::test]
     async fn should_return_existing_schema_without_llm_call_for_get() {
-        let shop_id = ShopId::new();
-        let existing = sample_shops_product_schema(shop_id);
+        let listing_source_id = ListingSourceId::new();
+        let existing = sample_listing_source_product_schemas(listing_source_id);
         let existing_clone = existing.clone();
 
-        let mut repository = MockShopsProductSchemaRepository::new();
+        let mut repository = MockListingSourceProductSchemaRepository::new();
         repository
             .expect_find_product_schema()
             .return_once(move |_| Box::pin(async move { Ok(Some(existing_clone)) }));
@@ -875,21 +892,21 @@ mod tests {
 
         let html_pages = vec!["<html></html>".to_string()];
         let result = service
-            .get_product_schema(&shop_id, &html_pages)
+            .get_product_schema(&listing_source_id, &html_pages)
             .await
             .unwrap();
-        assert_eq!(result.shop_id, existing.shop_id);
+        assert_eq!(result.listing_source_id, existing.listing_source_id);
         assert_eq!(result.product_schemas, existing.product_schemas);
     }
 
     #[tokio::test]
     async fn should_create_and_save_schema_when_not_found_for_get() {
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
         let css_schema = sample_css_schema();
-        let saved = sample_shops_product_schema(shop_id);
+        let saved = sample_listing_source_product_schemas(listing_source_id);
         let saved_clone = saved.clone();
 
-        let mut repository = MockShopsProductSchemaRepository::new();
+        let mut repository = MockListingSourceProductSchemaRepository::new();
 
         // First call from get_product_schema -> find_product_schema
         repository
@@ -916,10 +933,10 @@ mod tests {
 
         let html_pages = vec!["<html></html>".to_string()];
         let result = service
-            .get_product_schema(&shop_id, &html_pages)
+            .get_product_schema(&listing_source_id, &html_pages)
             .await
             .unwrap();
-        assert_eq!(result.shop_id, saved.shop_id);
+        assert_eq!(result.listing_source_id, saved.listing_source_id);
     }
 
     #[tokio::test]
@@ -929,7 +946,7 @@ mod tests {
             create_llm: MockLlmProviderReturning(css_schema),
             single_schema_llm: MockLlmProvider,
             governor: None,
-            repository: Box::new(MockShopsProductSchemaRepository::new()),
+            repository: Box::new(MockListingSourceProductSchemaRepository::new()),
         };
 
         let result = service
@@ -1007,9 +1024,9 @@ mod tests {
 
     #[tokio::test]
     async fn should_propagate_database_error_when_find_fails_for_get() {
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
-        let mut repository = MockShopsProductSchemaRepository::new();
+        let mut repository = MockListingSourceProductSchemaRepository::new();
         repository
             .expect_find_product_schema()
             .return_once(|_| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
@@ -1022,7 +1039,9 @@ mod tests {
         };
 
         let html_pages = vec!["<html></html>".to_string()];
-        let result = service.get_product_schema(&shop_id, &html_pages).await;
+        let result = service
+            .get_product_schema(&listing_source_id, &html_pages)
+            .await;
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -1506,7 +1525,7 @@ mod tests {
         let service = ProductListingSchemaServiceImpl::new(
             llm,
             MockLlmProvider,
-            Box::new(MockShopsProductSchemaRepository::new()),
+            Box::new(MockListingSourceProductSchemaRepository::new()),
             None,
         );
 

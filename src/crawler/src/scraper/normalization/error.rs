@@ -11,16 +11,16 @@ pub enum NormalizationError {
     #[error("failed to resolve product state: {0}")]
     ListingAvailabilityMappingError(#[from] ListingAvailabilityMappingServiceError),
 
-    /// Emitted by the strict (test-only) `normalize_shop_listing_id` function
+    /// Emitted by the strict (test-only) `normalize_source_listing_id` function
     /// when the extracted value is empty after trimming.
     ///
     /// **Unreachable from the main pipeline.**  The production normalization
-    /// path calls `normalize_shop_listing_id_with_url_sha_fallback` instead,
+    /// path calls `normalize_source_listing_id_with_url_sha_fallback` instead,
     /// which substitutes a SHA-256 hash of the product page URL when the
     /// extracted ID is blank.
     /// This variant is retained so that unit tests can exercise the strict
     /// variant.
-    #[error("failed to normalize `shop_listing_id`: value is empty after trimming")]
+    #[error("failed to normalize `source_listing_id`: value is empty after trimming")]
     ShopsProductIdEmpty,
 
     #[error("failed to normalize `title`: value is empty after trimming")]
@@ -99,7 +99,7 @@ impl NormalizationError {
                     "state_database_error_after_llm"
                 }
             },
-            Self::ShopsProductIdEmpty => "shop_listing_id_empty",
+            Self::ShopsProductIdEmpty => "source_listing_id_empty",
             Self::TitleEmpty => "title_empty",
             Self::TitleUnknownLanguage { .. } => "title_unknown_language",
             Self::DescriptionUnknownLanguage { .. } => "description_unknown_language",

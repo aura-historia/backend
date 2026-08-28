@@ -1,16 +1,14 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
-use crate::error::{
-    ApiError, BAD_PATH_PARAMETER_VALUE, INVALID_UUID, PRODUCT_LISTING_INTERNAL_ERROR,
-};
+use crate::error::{ApiError, INVALID_UUID, PRODUCT_LISTING_INTERNAL_ERROR};
 use crate::product_listings::product_event_data::ProductListingEventData;
 use crate::state::ProductListingsState;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use listing_source_core::ListingSourceSlugId;
+
 use product_listing_core::product_listing_id::ProductListingId;
-use product_listing_core::product_listing_slug_id::ProductListingSlugId;
+
 use product_listing_service::use_cases::{
     GetProductListingEventsRequest, ProductListingEventLookup,
 };
@@ -35,40 +33,6 @@ pub async fn get_product_listing_events_by_id(
         state,
         headers,
         ProductListingEventLookup::ById(product_listing_id),
-    )
-    .await
-}
-
-pub async fn get_product_listing_events_by_slug(
-    State(state): State<ProductListingsState>,
-    headers: HeaderMap,
-    Path((raw_shop_slug_id, raw_product_listing_slug_id)): Path<(String, String)>,
-) -> Response {
-    let listing_source_slug_id = match ListingSourceSlugId::raw(&raw_shop_slug_id) {
-        Ok(value) => value,
-        Err(_) => {
-            return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
-                .with_path_field("shopSlugId")
-                .with_detail("Path parameter 'shopSlugId' is invalid.")
-                .into_response();
-        }
-    };
-    let product_listing_slug_id = match ProductListingSlugId::raw(&raw_product_listing_slug_id) {
-        Ok(value) => value,
-        Err(_) => {
-            return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
-                .with_path_field("productListingSlugId")
-                .with_detail("Path parameter 'productListingSlugId' is invalid.")
-                .into_response();
-        }
-    };
-    history_response(
-        state,
-        headers,
-        ProductListingEventLookup::BySlug {
-            listing_source_slug_id,
-            product_listing_slug_id,
-        },
     )
     .await
 }

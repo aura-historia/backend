@@ -15,6 +15,7 @@
 
 - This doc rule `docs/**`.
 - Keep public docs aligned with shipped behavior. No wish-doc.
+- Use `ListingSource`, `Partnership`, and `PartnershipApplication` for active contracts. Legacy names belong only in dated `CHANGELOG.md` entries.
 
 ## Local Contracts
 
@@ -38,7 +39,7 @@
 
 - `product-listing.md` — canonical ProductListing domain contract.
 - `product-listing-inventory.md` — ProductListing rewrite scope and final scan checklist.
-- `shop-model-rewrite-inventory.md` — Shop rewrite inventory and iteration 1 Party slice.
+- `listing-source-partnership-rewrite-inventory.md` — ListingSource and Partnership rewrite completion checklist.
 - `storage.md` — canonical storage contracts.
 - `events/flow.md` — durable event and scheduled-flow contracts.
 - `swagger.yaml` — public REST contract

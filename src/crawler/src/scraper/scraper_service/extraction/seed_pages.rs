@@ -1,6 +1,6 @@
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
 use tracing::warn;
 use url::Url;
@@ -17,11 +17,11 @@ impl ScraperServiceImpl {
     /// skipped.
     #[tracing::instrument(
         skip(self, primary_html),
-        fields(shop_id = %shop_id, url = %url, schema_seed_pages = self.schema_seed_pages)
+        fields(listing_source_id = %listing_source_id, url = %url, schema_seed_pages = self.schema_seed_pages)
     )]
     pub(crate) async fn collect_schema_seed_pages(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         product_url_pattern: Option<&str>,
         primary_html: &str,
@@ -37,7 +37,7 @@ impl ScraperServiceImpl {
         let extra_limit = (self.schema_seed_pages - 1) as i64;
         let sample_urls = match self
             .candidate_service
-            .get_random_product_urls_for_schema_seed(shop_id, url, extra_limit)
+            .get_random_product_urls_for_schema_seed(listing_source_id, url, extra_limit)
             .await
         {
             Ok(urls) => urls,

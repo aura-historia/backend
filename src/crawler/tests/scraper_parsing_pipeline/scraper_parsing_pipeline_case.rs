@@ -107,7 +107,7 @@ fn parse_availability_record(s: &str) -> Option<ListingAvailability> {
 
 fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectation {
     NormalizedExpectation {
-        shop_listing_id: data.shop_listing_id,
+        source_listing_id: data.source_listing_id,
         title: data.title,
         description: data.description.map(|description| {
             product_listing_core::description::Description::from(description.as_str()).to_string()
@@ -121,7 +121,7 @@ fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectatio
             data.price_estimate_max,
             data.price_estimate_max_currency.as_deref(),
         ),
-        seller_name: data.seller_name,
+
         availability: parse_availability(data.availability.as_deref()),
         url: data.url,
         images: data.images,

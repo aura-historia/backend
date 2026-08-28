@@ -1,42 +1,44 @@
-use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
-use shop_core::shop_id::ShopId;
+use crate::scraper::css_selector::product_schema::{
+    ListingSourceProductSchema, ProductCssSelectorSchema,
+};
+use listing_source_core::ListingSourceId;
 use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
 #[mockall::automock]
-pub trait ShopsProductSchemaRepository {
+pub trait ListingSourceProductSchemaRepository {
     async fn find_product_schema(
         &self,
-        shop_id: &ShopId,
-    ) -> Result<Option<ShopsProductSchema>, sqlx::Error>;
+        listing_source_id: &ListingSourceId,
+    ) -> Result<Option<ListingSourceProductSchema>, sqlx::Error>;
 
     async fn insert_product_schema(
         &self,
-        shop_id: &ShopId,
-        schema: &ShopsProductSchema,
-    ) -> Result<ShopsProductSchema, sqlx::Error>;
+        listing_source_id: &ListingSourceId,
+        schema: &ListingSourceProductSchema,
+    ) -> Result<ListingSourceProductSchema, sqlx::Error>;
 
     async fn update_product_schema(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         product_schemas: &[ProductCssSelectorSchema],
-    ) -> Result<ShopsProductSchema, sqlx::Error>;
+    ) -> Result<ListingSourceProductSchema, sqlx::Error>;
 }
 
-pub struct ShopsProductSchemaRepositoryImpl<'a> {
+pub struct ListingSourceProductSchemaRepositoryImpl<'a> {
     pool: &'a PgPool,
 }
 
-impl<'a> ShopsProductSchemaRepositoryImpl<'a> {
+impl<'a> ListingSourceProductSchemaRepositoryImpl<'a> {
     pub fn new(pool: &'a PgPool) -> Self {
         Self { pool }
     }
 }
 
-fn row_to_schema(row: sqlx::postgres::PgRow) -> Result<ShopsProductSchema, sqlx::Error> {
-    let shop_id_uuid: Uuid = row.try_get("shop_id")?;
+fn row_to_schema(row: sqlx::postgres::PgRow) -> Result<ListingSourceProductSchema, sqlx::Error> {
+    let listing_source_id_uuid: Uuid = row.try_get("listing_source_id")?;
     let product_schema_json: serde_json::Value = row.try_get("product_schema")?;
     let created: OffsetDateTime = row.try_get("created")?;
     let updated: OffsetDateTime = row.try_get("updated")?;
@@ -51,8 +53,8 @@ fn row_to_schema(row: sqlx::postgres::PgRow) -> Result<ShopsProductSchema, sqlx:
                 .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
         ],
     };
-    Ok(ShopsProductSchema {
-        shop_id: ShopId::from(shop_id_uuid),
+    Ok(ListingSourceProductSchema {
+        listing_source_id: ListingSourceId::from(listing_source_id_uuid),
         product_schemas,
         created,
         updated,
@@ -60,17 +62,17 @@ fn row_to_schema(row: sqlx::postgres::PgRow) -> Result<ShopsProductSchema, sqlx:
 }
 
 #[async_trait::async_trait]
-impl<'a> ShopsProductSchemaRepository for ShopsProductSchemaRepositoryImpl<'a> {
+impl<'a> ListingSourceProductSchemaRepository for ListingSourceProductSchemaRepositoryImpl<'a> {
     async fn find_product_schema(
         &self,
-        shop_id: &ShopId,
-    ) -> Result<Option<ShopsProductSchema>, sqlx::Error> {
+        listing_source_id: &ListingSourceId,
+    ) -> Result<Option<ListingSourceProductSchema>, sqlx::Error> {
         sqlx::query(
-            "SELECT shop_id, product_schema, created, updated
-             FROM shops_product_schema
-             WHERE shop_id = $1",
+            "SELECT listing_source_id, product_schema, created, updated
+             FROM listing_source_product_schemas
+             WHERE listing_source_id = $1",
         )
-        .bind(Uuid::from(*shop_id))
+        .bind(Uuid::from(*listing_source_id))
         .fetch_optional(self.pool)
         .await?
         .map(row_to_schema)
@@ -79,19 +81,19 @@ impl<'a> ShopsProductSchemaRepository for ShopsProductSchemaRepositoryImpl<'a> {
 
     async fn insert_product_schema(
         &self,
-        shop_id: &ShopId,
-        schema: &ShopsProductSchema,
-    ) -> Result<ShopsProductSchema, sqlx::Error> {
+        listing_source_id: &ListingSourceId,
+        schema: &ListingSourceProductSchema,
+    ) -> Result<ListingSourceProductSchema, sqlx::Error> {
         let schemas = schema.product_schemas.clone();
         let product_schema_json =
             serde_json::to_value(&schemas).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
         sqlx::query(
-            "INSERT INTO shops_product_schema (shop_id, product_schema, created, updated)
+            "INSERT INTO listing_source_product_schemas (listing_source_id, product_schema, created, updated)
              VALUES ($1, $2, $3, $4)
-             RETURNING shop_id, product_schema, created, updated",
+             RETURNING listing_source_id, product_schema, created, updated",
         )
-        .bind(Uuid::from(*shop_id))
+        .bind(Uuid::from(*listing_source_id))
         .bind(product_schema_json)
         .bind(schema.created)
         .bind(schema.updated)
@@ -102,19 +104,19 @@ impl<'a> ShopsProductSchemaRepository for ShopsProductSchemaRepositoryImpl<'a> {
 
     async fn update_product_schema(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         product_schemas: &[ProductCssSelectorSchema],
-    ) -> Result<ShopsProductSchema, sqlx::Error> {
+    ) -> Result<ListingSourceProductSchema, sqlx::Error> {
         let product_schema_json =
             serde_json::to_value(product_schemas).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
         sqlx::query(
-            "UPDATE shops_product_schema
+            "UPDATE listing_source_product_schemas
              SET product_schema = $2, updated = NOW()
-             WHERE shop_id = $1
-             RETURNING shop_id, product_schema, created, updated",
+             WHERE listing_source_id = $1
+             RETURNING listing_source_id, product_schema, created, updated",
         )
-        .bind(Uuid::from(*shop_id))
+        .bind(Uuid::from(*listing_source_id))
         .bind(product_schema_json)
         .fetch_one(self.pool)
         .await

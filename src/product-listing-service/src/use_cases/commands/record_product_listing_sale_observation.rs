@@ -593,13 +593,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_reject_delegated_partner_shops_write_scope_before_starting_transaction() {
+    async fn should_reject_delegated_unsupported_scope_before_starting_transaction() {
         let state = Arc::new(Mutex::new(State::default()));
         let context = context(Principal::DelegatedUser {
             user_id: UserId::new(),
-            capabilities: [CredentialCapability::PartnerShopsWrite]
-                .into_iter()
-                .collect(),
+            capabilities: [CredentialCapability::UsersRead].into_iter().collect(),
         });
 
         let result = handler(&state)

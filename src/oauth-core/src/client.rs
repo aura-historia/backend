@@ -231,7 +231,7 @@ mod tests {
             "https://client.example/new-callback",
         )]))
         .unwrap_or_else(|error| panic!("test redirect URI must be valid: {error}"));
-        let scopes = HashSet::from([Scope::ShopsRead]);
+        let scopes = HashSet::from([Scope::UsersRead]);
 
         assert_eq!(
             ChangeOutcome::Changed,

@@ -14,7 +14,7 @@ See `docs/hetzner_postgres_sequin_migration.md` for the ADR.
 | Sequin | CDC | Delivers committed Postgres changes to worker ingestion. |
 | `aura-historia-worker` router | Rust process | Maps CDC rows to domain jobs and fans them out to queues. |
 | In-memory sub-worker queues | Worker buffers | Bounded execution buffers. Not durable. |
-| OpenSearch | Search projection | Rebuildable ProductListing/shop/search-filter projection. |
+| OpenSearch | Search projection | Rebuildable ProductListing and search-filter projection. |
 
 | FxRate Lambda | AWS Lambda | Captures immutable canonical EUR-base FX snapshots in Postgres. |
 | `aura-historia-cron` | Rust process | UTC scheduled triggers for service-owned use cases. |
@@ -30,12 +30,10 @@ flowchart TD
     API["aura-historia-api"]
     SHOPIFY["Shopify Lambda"]
     STRIPE["Stripe Lambda"]
-    SFN["Step Functions Lambda"]
     PG[(Postgres)]
     SEQ["Sequin CDC"]
     ROUTER["aura-historia-worker router"]
     PQ["ProductListing queues"]
-    SQ["shop queues"]
     UFQ["user/search-filter queues"]
     OS[(OpenSearch)]
     SES["SES"]
@@ -44,14 +42,14 @@ flowchart TD
     API -->|"sync business transaction"| PG
     SHOPIFY -->|"sync ProductListing/event transaction"| PG
     STRIPE -->|"sync user update"| PG
-    SFN -->|"sync partner-app/shop/user update"| PG
+
 
     PG -->|"committed row changes"| SEQ
     SEQ -->|"deliver CDC"| ROUTER
     ROUTER -->|"ack after all fanout succeeds"| SEQ
 
     ROUTER --> PQ
-    ROUTER --> SQ
+
     ROUTER --> UFQ
 
     PQ -->|"ProductListing projections"| OS
@@ -59,7 +57,7 @@ flowchart TD
     ROUTER -->|"notification_deliveries INSERT"| NQ[bounded in-memory delivery queue]
     NQ -->|"claim, send, finalize"| PG
     NQ --> SES
-    SQ -->|"shop projections"| OS
+
     UFQ -->|"search-filter docs"| OS
     UFQ -->|"tier/search-filter updates"| PG
 
@@ -128,13 +126,13 @@ Crash rule:
 |---|---|---|
 | `product_listing_events` | INSERT | ProductListing projector for every event; content assessment only for `PRODUCT_LISTING_CREATED`; percolator only for `DOMAIN`/`ENRICHMENT`; watchlist notifications for `PRODUCT_LISTING_PRICE_CHANGED` / `PRODUCT_LISTING_AVAILABILITY_CHANGED`; embedding for `PRODUCT_LISTING_CREATED`; translation for `ENRICHMENT_EMBEDDED`. `PRODUCT_LISTING_WITHDRAWN` and `PRODUCT_LISTING_RESTORED` go only to the ProductListing projector. |
 | `product_listings` | INSERT/MODIFY/DELETE | No default downstream route. ProductListing events are the projection trigger to avoid double-firing. Use listing CDC only for future explicit non-event projections. |
-| `shops` | INSERT/MODIFY/DELETE | Shop OpenSearch projector. Domains are inline in `shops.shop_domains`. Idempotency: `(shop_id, version, op)`. |
+
 | `search_filters` | INSERT/MODIFY/DELETE | Search-filter OpenSearch sync for every persisted change; handlers reread the complete authoritative record. Idempotency: `(user_search_filter_id, version, op)`. |
 | `search_filter_matches` | INSERT | Search-filter match notification worker. It rereads the exact persisted match and ProductListing source, then inserts one PostgreSQL SearchFilter notification for that matching filter. Idempotency: `(user_id, user_search_filter_id, product_listing_id, origin_event_id)`. |
 | `notification_deliveries` | INSERT | Notification-delivery worker. It validates initial `EMAIL`/`PENDING` shape, claims the durable delivery lease with joined source in PostgreSQL, sends through S3 templates and SES, then finalizes that lease. Idempotency: `notification-delivery:{delivery_id}`; ordering: `notification:{notification_id}`; external delivery remains at-least-once across a send/finalize crash. |
 | `users` | MODIFY | User tier enforcement for tier changes; no user OpenSearch projection. Idempotency: `(user_id, version)`. |
 | `product_listing_watchlist` | INSERT/MODIFY/DELETE | No default downstream route; ProductListing events drive notifications. |
-| `partner_shop_applications` | INSERT/MODIFY | No generic worker route unless notification behavior requires it. |
+| `partnership_applications` | INSERT/MODIFY | No generic worker route. Decision writes create canonical notification delivery intents in the same PostgreSQL transaction.
 
 ## Domain jobs
 
@@ -146,7 +144,7 @@ Examples:
 
 - `ProductListingEventJob`
 - `SearchFilterChangedJob`
-- `ShopChangedJob`
+
 - `UserTierChangedJob`
 - `PeriodicMatcherJob`
 
@@ -162,7 +160,7 @@ Examples:
 | ProductListing content assessment | `PRODUCT_LISTING_CREATED` events | ProductListing event job | Reads current listing text and writes a content-source-revision guarded assessment row. It emits no ProductListing event and never writes OpenSearch. |
 | ProductListing embed | legacy `product-pipeline-embed-text` | `PRODUCT_LISTING_CREATED` job | Postgres enrichment event + ProductListing update. Embedding stored in Postgres only. |
 | ProductListing translate | legacy `product-pipeline-translate` | Enrichment embedded job | Postgres `product_listing_translations` upsert plus one translated-titles enrichment event and ProductListing revision update. |
-| Shop OpenSearch projector | `aura-historia-worker` | Shop changed job | OpenSearch shop document write. |
+
 | Search-filter OpenSearch sync | `aura-historia-worker` | Search-filter changed job | OpenSearch percolator document write/delete from complete Postgres state, with external source-version protection. Search-filter embedding stays in Postgres. |
 | User tier enforcement | `aura-historia-worker` | User tier changed job | Postgres watchlist/search-filter state updates. |
 | Periodic matcher | retired ECS periodic matcher | `aura-historia-cron` native UTC cron daemon | Runs `RunPeriodicSearchFilterMatching`; it writes only idempotent `search_filter_matches`. CDC remains the sole notification trigger. |
@@ -259,7 +257,7 @@ Minimum unique keys:
 | Product materialized state | `product_listings.event_id` |
 | Product worker job | `product_listing_events.event_id` |
 | Scheduled or deployment-bootstrap FX snapshot | `fx_rates.source_event_id` |
-| Shop worker job | `(shop_id, version, op)` |
+
 | Search-filter worker job | `(user_search_filter_id, version, op)` |
 | User tier worker job | `(user_id, version)` |
 | Search-filter match job | `(user_id, user_search_filter_id, product_listing_id, origin_event_id)` |

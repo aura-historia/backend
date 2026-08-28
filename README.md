@@ -36,7 +36,7 @@
 ## Overview
 
 Aura Historia Backend is a Rust-based serverless application on AWS. 
-It provides the APIs, event-driven pipelines, and data services that power the Aura Historia antiques marketplace — from product search and shop discovery to user management and real-time notifications.
+It provides the APIs, event-driven pipelines, and data services that power the Aura Historia antiques marketplace — from ProductListing discovery and ListingSource integrations to user management and real-time notifications.
 
 ## Development
 

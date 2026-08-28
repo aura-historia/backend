@@ -7,8 +7,7 @@ use money::Price;
 use notification_core::{
     notification::{
         LocalizedNotificationContent, LocalizedNotificationWatchlistChange,
-        LocalizedProductListingNotificationSnapshot, PartnerApplicationDecision,
-        PartnershipApplicationDecision,
+        LocalizedProductListingNotificationSnapshot, PartnershipApplicationDecision,
     },
     notification_id::NotificationId,
     notification_kind::NotificationKind,
@@ -71,7 +70,6 @@ impl From<(ListedNotification, NotificationPresentationPreferences)> for Notific
 enum NotificationContentData {
     Watchlist(WatchlistNotificationPayloadData),
     SearchFilter(SearchFilterNotificationPayloadData),
-    PartnerApplication(PartnerApplicationNotificationPayloadData),
     PartnershipApplication(PartnershipApplicationNotificationPayloadData),
 }
 
@@ -83,7 +81,6 @@ impl Serialize for NotificationContentData {
         match self {
             Self::Watchlist(payload) => payload.serialize(serializer),
             Self::SearchFilter(payload) => payload.serialize(serializer),
-            Self::PartnerApplication(payload) => payload.serialize(serializer),
             Self::PartnershipApplication(payload) => payload.serialize(serializer),
         }
     }
@@ -139,16 +136,6 @@ struct SearchFilterNotificationPayloadData {
     image: Option<ProductListingImageData>,
     url: Url,
     view_url: Url,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PartnerApplicationNotificationPayloadData {
-    partner_shop_application_id: Uuid,
-    #[serde(with = "crate::wire::partner_application_decision")]
-    decision: PartnerApplicationDecision,
-    shop_name: String,
-    image: Option<Url>,
 }
 
 #[derive(Debug, Serialize)]
@@ -217,16 +204,7 @@ impl
                     view_url: snapshot.view_url,
                 })
             }
-            LocalizedNotificationContent::PartnerApplication {
-                partner_shop_application_id,
-                snapshot,
-                decision,
-            } => Self::PartnerApplication(PartnerApplicationNotificationPayloadData {
-                partner_shop_application_id: Uuid::from(partner_shop_application_id),
-                decision,
-                shop_name: snapshot.shop_name.to_string(),
-                image: snapshot.image,
-            }),
+
             LocalizedNotificationContent::PartnershipApplication {
                 partnership_application_id,
                 snapshot,

@@ -41,7 +41,7 @@ use url::Url;
 /// - `www.example.co.uk`   → `"example"`
 /// - `shop.mysite.com`     → `"mysite"`
 /// - `example.com`         → `"example"`
-fn shop_name_from_host(host: &str) -> &str {
+fn listing_source_name_from_host(host: &str) -> &str {
     // Strategy:
     //  1. Split into labels.
     //  2. Count how many trailing labels look like TLD parts (short, all-alpha).
@@ -126,7 +126,7 @@ async fn main() {
         std::process::exit(1);
     });
 
-    let shop = shop_name_from_host(host);
+    let shop = listing_source_name_from_host(host);
     let state = normalize_state_slug(raw_state).unwrap_or_else(|| {
         eprintln!("Error: invalid STATE '{raw_state}'. Use a non-empty value.");
         std::process::exit(1);
@@ -175,23 +175,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shop_name_strips_www_and_tld() {
-        assert_eq!(shop_name_from_host("www.weitze.net"), "weitze");
+    fn listing_source_name_strips_www_and_tld() {
+        assert_eq!(listing_source_name_from_host("www.weitze.net"), "weitze");
     }
 
     #[test]
-    fn shop_name_strips_subdomain_and_two_part_tld() {
-        assert_eq!(shop_name_from_host("shop.example.co.uk"), "example");
+    fn listing_source_name_strips_subdomain_and_two_part_tld() {
+        assert_eq!(
+            listing_source_name_from_host("shop.example.co.uk"),
+            "example"
+        );
     }
 
     #[test]
-    fn shop_name_bare_domain() {
-        assert_eq!(shop_name_from_host("example.com"), "example");
+    fn listing_source_name_bare_domain() {
+        assert_eq!(listing_source_name_from_host("example.com"), "example");
     }
 
     #[test]
-    fn shop_name_multi_subdomain() {
-        assert_eq!(shop_name_from_host("a.b.mysite.com"), "mysite");
+    fn listing_source_name_multi_subdomain() {
+        assert_eq!(listing_source_name_from_host("a.b.mysite.com"), "mysite");
     }
 
     #[test]

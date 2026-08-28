@@ -6,6 +6,9 @@ use billing_service::use_cases::{
     CreateBillingCheckoutSessionError, CreateBillingManagementSessionError,
     CreateBillingPortalSessionError,
 };
+use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceError;
+use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceError;
+use listing_source_service::use_cases::queries::get_listing_source::GetListingSourceError;
 use notification_service::use_cases::commands::delete_notification::DeleteNotificationError;
 use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsError;
 use notification_service::use_cases::commands::update_all_notifications_seen::UpdateAllNotificationsSeenError;
@@ -13,6 +16,22 @@ use notification_service::use_cases::commands::update_notification_seen::UpdateN
 use notification_service::use_cases::commands::update_notifications_seen::UpdateNotificationsSeenError;
 use notification_service::use_cases::queries::list_notifications::ListNotificationsError;
 use oauth_service::error::OAuthServiceError;
+use partnership_service::use_cases::queries::list_administered_listing_sources::ListAdministeredListingSourcesError;
+use partnership_service::use_cases::{
+    commands::{
+        approve_partnership_application::ApprovePartnershipApplicationError,
+        mark_partnership_application_in_review::MarkPartnershipApplicationInReviewError,
+        reject_partnership_application::RejectPartnershipApplicationError,
+        submit_partnership_application::SubmitPartnershipApplicationError,
+        withdraw_partnership_application::WithdrawPartnershipApplicationError,
+    },
+    queries::{
+        get_own_partnership_application::GetOwnPartnershipApplicationError,
+        get_partnership_application::GetPartnershipApplicationError,
+        list_admin_partnership_applications::ListAdminPartnershipApplicationsError,
+        list_own_partnership_applications::ListOwnPartnershipApplicationsError,
+    },
+};
 use product_listing_service::use_cases::{
     CreateProductListingError, GetProductListingError, GetProductListingEventsError,
     GetSimilarProductListingsError, IngestWoocommerceProductListingError,
@@ -25,18 +44,7 @@ use search_filter_service::use_cases::{
     UpdateSearchFilterMatchFeedbackError,
 };
 use serde::Serialize;
-use shop_partner_service::use_cases::{
-    AdminDecidePartnerShopApplicationError, AdminGetPartnerShopApplicationError,
-    AdminListPartnerShopApplicationsError, AdminUpdatePartnerShopApplicationError,
-    CreatePartnerShopApplicationError, GetPartnerShopApplicationError,
-    ListPartnerShopApplicationsError, WithdrawPartnerShopApplicationError,
-};
-use shop_service::use_cases::commands::create_shop::CreateShopError;
-use shop_service::use_cases::commands::update_shop::UpdateShopError;
-use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopError;
-use shop_service::use_cases::queries::get_shop::GetShopError;
-use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsError;
-use shop_service::use_cases::queries::search_shops::SearchShopsError;
+
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleError;
@@ -86,8 +94,6 @@ pub(crate) const ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
 pub(crate) const INVALID_CREDENTIALS: ApiErrorCode = ApiErrorCode("INVALID_CREDENTIALS");
 pub(crate) const BAD_BODY_VALUE: ApiErrorCode = ApiErrorCode("BAD_BODY_VALUE");
 pub(crate) const BAD_HEADER_VALUE: ApiErrorCode = ApiErrorCode("BAD_HEADER_VALUE");
-pub(crate) const PARTNER_SHOP_NOT_PARTNERED: ApiErrorCode =
-    ApiErrorCode("PARTNER_SHOP_NOT_PARTNERED");
 pub(crate) const BILLING_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("BILLING_INTERNAL_ERROR");
 pub(crate) const BILLING_PROVIDER_FAILURE: ApiErrorCode = ApiErrorCode("BILLING_PROVIDER_FAILURE");
 pub(crate) const BILLING_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
@@ -106,11 +112,11 @@ pub(crate) const BAD_SORT_VALUE: ApiErrorCode = ApiErrorCode("BAD_SORT_VALUE");
 pub(crate) const CONFLICT: ApiErrorCode = ApiErrorCode("CONFLICT");
 pub(crate) const FORBIDDEN: ApiErrorCode = ApiErrorCode("FORBIDDEN");
 pub(crate) const INVALID_UUID: ApiErrorCode = ApiErrorCode("INVALID_UUID");
-pub(crate) const SHOP_EXISTS_ALREADY: ApiErrorCode = ApiErrorCode("SHOP_EXISTS_ALREADY");
-pub(crate) const SHOP_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("SHOP_INTERNAL_ERROR");
-pub(crate) const SHOP_NOT_FOUND: ApiErrorCode = ApiErrorCode("SHOP_NOT_FOUND");
-pub(crate) const SHOP_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
-    ApiErrorCode("SHOP_TEMPORARILY_UNAVAILABLE");
+pub(crate) const LISTING_SOURCE_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("LISTING_SOURCE_INTERNAL_ERROR");
+pub(crate) const LISTING_SOURCE_NOT_FOUND: ApiErrorCode = ApiErrorCode("LISTING_SOURCE_NOT_FOUND");
+pub(crate) const LISTING_SOURCE_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("LISTING_SOURCE_TEMPORARILY_UNAVAILABLE");
 pub(crate) const PRODUCT_LISTING_INTERNAL_ERROR: ApiErrorCode =
     ApiErrorCode("PRODUCT_LISTING_INTERNAL_ERROR");
 pub(crate) const PRODUCT_LISTING_NOT_FOUND: ApiErrorCode =
@@ -150,12 +156,14 @@ pub(crate) const WATCHLIST_QUOTA_EXCEEDED: ApiErrorCode = ApiErrorCode("WATCHLIS
 pub(crate) const WATCHLIST_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("WATCHLIST_INTERNAL_ERROR");
 pub(crate) const WATCHLIST_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("WATCHLIST_TEMPORARILY_UNAVAILABLE");
-pub(crate) const PARTNER_SHOP_APPLICATION_NOT_FOUND: ApiErrorCode =
-    ApiErrorCode("PARTNER_SHOP_APPLICATION_NOT_FOUND");
-pub(crate) const PARTNER_SHOP_APPLICATION_INTERNAL_ERROR: ApiErrorCode =
-    ApiErrorCode("PARTNER_SHOP_APPLICATION_INTERNAL_ERROR");
-pub(crate) const PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
-    ApiErrorCode("PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE");
+pub(crate) const PARTNERSHIP_APPLICATION_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("PARTNERSHIP_APPLICATION_NOT_FOUND");
+pub(crate) const PARTNERSHIP_APPLICATION_LISTING_SOURCE_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("PARTNERSHIP_APPLICATION_LISTING_SOURCE_NOT_FOUND");
+pub(crate) const PARTNERSHIP_APPLICATION_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("PARTNERSHIP_APPLICATION_INTERNAL_ERROR");
+pub(crate) const PARTNERSHIP_APPLICATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("PARTNERSHIP_APPLICATION_TEMPORARILY_UNAVAILABLE");
 pub(crate) const OAUTH_AUTHORIZATION_CODE_EXPIRED: ApiErrorCode =
     ApiErrorCode("OAUTH_AUTHORIZATION_CODE_EXPIRED");
 pub(crate) const OAUTH_AUTHORIZATION_CODE_NOT_FOUND: ApiErrorCode =
@@ -706,6 +714,137 @@ impl From<UpdateSearchFilterMatchFeedbackError> for ApiError {
     }
 }
 
+impl From<CreateListingSourceError> for ApiError {
+    fn from(error: CreateListingSourceError) -> Self {
+        match error {
+            CreateListingSourceError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            CreateListingSourceError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            CreateListingSourceError::OperatorPartyNotFound => {
+                ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
+                    .with_detail("Listing source operator was not found.")
+            }
+            CreateListingSourceError::AcquisitionConfigurationMismatch => {
+                ApiError::bad_request(BAD_BODY_VALUE)
+                    .with_detail("Listing source acquisition configuration is invalid.")
+            }
+            CreateListingSourceError::SlugConflict { .. }
+            | CreateListingSourceError::ShopifyDomainConflict { .. } => {
+                ApiError::conflict(CONFLICT)
+                    .with_detail("Listing source conflicts with current state.")
+            }
+            CreateListingSourceError::TemporarilyUnavailable { .. }
+            | CreateListingSourceError::BeginTransactionFailed
+            | CreateListingSourceError::CommitTransactionFailed => {
+                ApiError::service_unavailable(LISTING_SOURCE_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Listing source could not be created right now.")
+            }
+            CreateListingSourceError::InvalidPersistedState { .. }
+            | CreateListingSourceError::Internal { .. } => {
+                ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
+                    .with_detail("Listing source create failed internally.")
+            }
+        }
+    }
+}
+
+impl From<UpdateListingSourceError> for ApiError {
+    fn from(error: UpdateListingSourceError) -> Self {
+        match error {
+            UpdateListingSourceError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdateListingSourceError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateListingSourceError::NotFound => ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
+                .with_detail("Listing source was not found."),
+            UpdateListingSourceError::OperatorPartyNotFound => {
+                ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
+                    .with_detail("Listing source operator was not found.")
+            }
+            UpdateListingSourceError::AcquisitionConfigurationMismatch => {
+                ApiError::bad_request(BAD_BODY_VALUE)
+                    .with_detail("Listing source acquisition configuration is invalid.")
+            }
+            UpdateListingSourceError::ConcurrencyConflict
+            | UpdateListingSourceError::SlugConflict { .. }
+            | UpdateListingSourceError::ShopifyDomainConflict { .. } => {
+                ApiError::conflict(CONFLICT)
+                    .with_detail("Listing source conflicts with current state.")
+            }
+            UpdateListingSourceError::TemporarilyUnavailable { .. }
+            | UpdateListingSourceError::BeginTransactionFailed
+            | UpdateListingSourceError::CommitTransactionFailed => {
+                ApiError::service_unavailable(LISTING_SOURCE_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Listing source could not be updated right now.")
+            }
+            UpdateListingSourceError::InvalidPersistedState { .. }
+            | UpdateListingSourceError::Internal { .. } => {
+                ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
+                    .with_detail("Listing source update failed internally.")
+            }
+        }
+    }
+}
+
+impl From<GetListingSourceError> for ApiError {
+    fn from(error: GetListingSourceError) -> Self {
+        match error {
+            GetListingSourceError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            GetListingSourceError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            GetListingSourceError::NotFound => ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
+                .with_detail("Listing source was not found."),
+            GetListingSourceError::TemporarilyUnavailable { .. } => {
+                ApiError::service_unavailable(LISTING_SOURCE_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Listing source details are temporarily unavailable.")
+            }
+            GetListingSourceError::InvalidReadModel { .. }
+            | GetListingSourceError::Internal { .. } => {
+                ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
+                    .with_detail("Listing source details failed internally.")
+            }
+        }
+    }
+}
+
+impl From<ListAdministeredListingSourcesError> for ApiError {
+    fn from(error: ListAdministeredListingSourcesError) -> Self {
+        match error {
+            ListAdministeredListingSourcesError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            ListAdministeredListingSourcesError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            ListAdministeredListingSourcesError::TemporarilyUnavailable { .. } => {
+                ApiError::service_unavailable(LISTING_SOURCE_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Administered listing sources are temporarily unavailable.")
+            }
+            ListAdministeredListingSourcesError::InvalidReadModel { .. }
+            | ListAdministeredListingSourcesError::Internal { .. } => {
+                ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
+                    .with_detail("Administered listing sources failed internally.")
+            }
+        }
+    }
+}
+
 impl From<CreateProductListingError> for ApiError {
     fn from(error: CreateProductListingError) -> Self {
         match error {
@@ -718,7 +857,8 @@ impl From<CreateProductListingError> for ApiError {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
             CreateProductListingError::ListingSourceNotFound => {
-                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Listing source was not found.")
+                ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
+                    .with_detail("Listing source was not found.")
             }
             CreateProductListingError::SourceListingAlreadyExists
             | CreateProductListingError::ProductListingSlugAlreadyExists => {
@@ -758,7 +898,8 @@ impl From<UpdateProductListingError> for ApiError {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
             UpdateProductListingError::ListingSourceNotFound => {
-                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Listing source was not found.")
+                ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
+                    .with_detail("Listing source was not found.")
             }
             UpdateProductListingError::NotFound => ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
                 .with_detail("ProductListing was not found."),
@@ -800,7 +941,8 @@ impl From<WithdrawProductListingError> for ApiError {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
             WithdrawProductListingError::ListingSourceNotFound => {
-                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Listing source was not found.")
+                ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
+                    .with_detail("Listing source was not found.")
             }
             WithdrawProductListingError::NotFound => ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
                 .with_detail("ProductListing was not found."),
@@ -831,7 +973,7 @@ impl From<IngestWoocommerceProductListingError> for ApiError {
             }
             IngestWoocommerceProductListingError::MissingListingSourceCurrency
             | IngestWoocommerceProductListingError::MissingListingSourceLanguage => {
-                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
+                ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
                     .with_detail("WooCommerce listing source configuration is incomplete.")
             }
             IngestWoocommerceProductListingError::AuthenticatedActorRequired => {
@@ -841,14 +983,15 @@ impl From<IngestWoocommerceProductListingError> for ApiError {
             }
             IngestWoocommerceProductListingError::Forbidden
             | IngestWoocommerceProductListingError::ActorMayNotIngestForListingSource => {
-                ApiError::forbidden(PARTNER_SHOP_NOT_PARTNERED)
+                ApiError::forbidden(FORBIDDEN)
                     .with_detail("Actor is not a partner of this listing source.")
             }
             IngestWoocommerceProductListingError::ListingSourceNotFound => {
-                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Listing source was not found.")
+                ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
+                    .with_detail("Listing source was not found.")
             }
             IngestWoocommerceProductListingError::WebhookSecretNotConfigured => {
-                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
+                ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
                     .with_detail("WooCommerce webhook secret is not configured.")
             }
             IngestWoocommerceProductListingError::InvalidSignature => {
@@ -861,11 +1004,11 @@ impl From<IngestWoocommerceProductListingError> for ApiError {
             }
             | IngestWoocommerceProductListingError::ListingSourceTemporarilyUnavailable {
                 ..
-            } => ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
+            } => ApiError::service_unavailable(LISTING_SOURCE_TEMPORARILY_UNAVAILABLE)
                 .with_detail("WooCommerce webhook validation is temporarily unavailable."),
             IngestWoocommerceProductListingError::PartnerAuthorizationInternal { .. }
             | IngestWoocommerceProductListingError::InvalidListingSourceReadModel { .. } => {
-                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
+                ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
                     .with_detail("WooCommerce webhook validation failed internally.")
             }
             IngestWoocommerceProductListingError::InvalidProductListing { .. } => {
@@ -898,7 +1041,8 @@ impl From<UpsertProductListingError> for ApiError {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
             UpsertProductListingError::ListingSourceNotFound => {
-                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Listing source was not found.")
+                ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
+                    .with_detail("Listing source was not found.")
             }
             UpsertProductListingError::ListingWithdrawn => {
                 ApiError::conflict(CONFLICT).with_detail("ProductListing has been withdrawn.")
@@ -1573,84 +1717,133 @@ impl From<UnwatchProductListingError> for ApiError {
     }
 }
 
-impl From<CreatePartnerShopApplicationError> for ApiError {
-    fn from(error: CreatePartnerShopApplicationError) -> Self {
+fn partnership_application_internal_error() -> ApiError {
+    ApiError::internal_server_error(PARTNERSHIP_APPLICATION_INTERNAL_ERROR)
+        .with_detail("Partnership application failed internally.")
+}
+
+fn partnership_application_temporarily_unavailable() -> ApiError {
+    ApiError::service_unavailable(PARTNERSHIP_APPLICATION_TEMPORARILY_UNAVAILABLE)
+        .with_detail("Partnership application is temporarily unavailable.")
+}
+
+fn partnership_application_forbidden() -> ApiError {
+    ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+}
+
+fn partnership_application_not_found() -> ApiError {
+    ApiError::not_found(PARTNERSHIP_APPLICATION_NOT_FOUND)
+        .with_detail("Partnership application was not found.")
+}
+
+impl From<SubmitPartnershipApplicationError> for ApiError {
+    fn from(error: SubmitPartnershipApplicationError) -> Self {
         match error {
-            CreatePartnerShopApplicationError::AuthenticatedActorRequired => {
+            SubmitPartnershipApplicationError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
                     .with_detail("Bearer token is required.")
             }
-            CreatePartnerShopApplicationError::Forbidden => {
-                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            SubmitPartnershipApplicationError::Forbidden => partnership_application_forbidden(),
+            SubmitPartnershipApplicationError::TemporarilyUnavailable { .. }
+            | SubmitPartnershipApplicationError::BeginTransactionFailed
+            | SubmitPartnershipApplicationError::CommitTransactionFailed => {
+                partnership_application_temporarily_unavailable()
             }
-            CreatePartnerShopApplicationError::ShopNotFound => {
-                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
-            }
-            CreatePartnerShopApplicationError::ShopNotEligible => ApiError::conflict(CONFLICT)
-                .with_detail("Shop is not eligible for a partner application."),
-            CreatePartnerShopApplicationError::SlugConflict { .. } => {
-                ApiError::conflict(SHOP_EXISTS_ALREADY).with_detail("Shop exists already.")
-            }
-            CreatePartnerShopApplicationError::InvalidAddress => {
-                ApiError::bad_request(BAD_BODY_VALUE).with_detail("Shop address is invalid.")
-            }
-            CreatePartnerShopApplicationError::TemporarilyUnavailable { .. }
-            | CreatePartnerShopApplicationError::BeginTransactionFailed
-            | CreatePartnerShopApplicationError::CommitTransactionFailed => {
-                ApiError::service_unavailable(PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Partner shop application is temporarily unavailable.")
-            }
-            CreatePartnerShopApplicationError::InvalidPersistedState { .. }
-            | CreatePartnerShopApplicationError::Internal { .. } => {
-                ApiError::internal_server_error(PARTNER_SHOP_APPLICATION_INTERNAL_ERROR)
-                    .with_detail("Partner shop application failed internally.")
+            SubmitPartnershipApplicationError::InvalidPersistedState { .. }
+            | SubmitPartnershipApplicationError::Internal { .. } => {
+                partnership_application_internal_error()
             }
         }
     }
 }
-macro_rules! impl_partner_shop_application_error {
-    ($error:ident, $not_found:ident, $conflict:ident) => {
-        impl From<$error> for ApiError {
-            fn from(error: $error) -> Self {
-                match error {
-                    $error::Forbidden => {
-                        ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
-                    }
-                    $error::$not_found => ApiError::not_found(PARTNER_SHOP_APPLICATION_NOT_FOUND)
-                        .with_detail("Partner shop application was not found."),
-                    $error::$conflict => ApiError::conflict(CONFLICT)
-                        .with_detail("Partner shop application was changed concurrently."),
-                    $error::TemporarilyUnavailable { .. }
-                    | $error::BeginTransactionFailed
-                    | $error::CommitTransactionFailed => ApiError::service_unavailable(
-                        PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE,
-                    )
-                    .with_detail("Partner shop application is temporarily unavailable."),
-                    $error::InvalidPersistedState { .. } | $error::Internal { .. } => {
-                        ApiError::internal_server_error(PARTNER_SHOP_APPLICATION_INTERNAL_ERROR)
-                            .with_detail("Partner shop application failed internally.")
-                    }
-                }
+
+impl From<ListOwnPartnershipApplicationsError> for ApiError {
+    fn from(error: ListOwnPartnershipApplicationsError) -> Self {
+        match error {
+            ListOwnPartnershipApplicationsError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            ListOwnPartnershipApplicationsError::Forbidden => partnership_application_forbidden(),
+            ListOwnPartnershipApplicationsError::TemporarilyUnavailable { .. }
+            | ListOwnPartnershipApplicationsError::BeginTransactionFailed
+            | ListOwnPartnershipApplicationsError::CommitTransactionFailed => {
+                partnership_application_temporarily_unavailable()
+            }
+            ListOwnPartnershipApplicationsError::InvalidReadModel { .. }
+            | ListOwnPartnershipApplicationsError::Internal { .. } => {
+                partnership_application_internal_error()
             }
         }
-    };
-    ($error:ident) => {
+    }
+}
+
+impl From<GetOwnPartnershipApplicationError> for ApiError {
+    fn from(error: GetOwnPartnershipApplicationError) -> Self {
+        match error {
+            GetOwnPartnershipApplicationError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            GetOwnPartnershipApplicationError::Forbidden => partnership_application_forbidden(),
+            GetOwnPartnershipApplicationError::NotFound => partnership_application_not_found(),
+            GetOwnPartnershipApplicationError::TemporarilyUnavailable { .. }
+            | GetOwnPartnershipApplicationError::BeginTransactionFailed
+            | GetOwnPartnershipApplicationError::CommitTransactionFailed => {
+                partnership_application_temporarily_unavailable()
+            }
+            GetOwnPartnershipApplicationError::InvalidPersistedState { .. }
+            | GetOwnPartnershipApplicationError::Internal { .. } => {
+                partnership_application_internal_error()
+            }
+        }
+    }
+}
+
+impl From<WithdrawPartnershipApplicationError> for ApiError {
+    fn from(error: WithdrawPartnershipApplicationError) -> Self {
+        match error {
+            WithdrawPartnershipApplicationError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            WithdrawPartnershipApplicationError::Forbidden => partnership_application_forbidden(),
+            WithdrawPartnershipApplicationError::NotFound => partnership_application_not_found(),
+            WithdrawPartnershipApplicationError::ApplicationNotWithdrawable
+            | WithdrawPartnershipApplicationError::ConcurrencyConflict => ApiError::conflict(
+                CONFLICT,
+            )
+            .with_detail("Partnership application cannot be withdrawn in its current state."),
+            WithdrawPartnershipApplicationError::TemporarilyUnavailable { .. }
+            | WithdrawPartnershipApplicationError::BeginTransactionFailed
+            | WithdrawPartnershipApplicationError::CommitTransactionFailed => {
+                partnership_application_temporarily_unavailable()
+            }
+            WithdrawPartnershipApplicationError::InvalidPersistedState { .. }
+            | WithdrawPartnershipApplicationError::Internal { .. } => {
+                partnership_application_internal_error()
+            }
+        }
+    }
+}
+
+macro_rules! impl_partnership_application_admin_read_error {
+    ($error:ident, $invalid:ident) => {
         impl From<$error> for ApiError {
             fn from(error: $error) -> Self {
                 match error {
-                    $error::Forbidden => {
-                        ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
-                    }
+                    $error::Forbidden => partnership_application_forbidden(),
                     $error::TemporarilyUnavailable { .. }
                     | $error::BeginTransactionFailed
-                    | $error::CommitTransactionFailed => ApiError::service_unavailable(
-                        PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE,
-                    )
-                    .with_detail("Partner shop application is temporarily unavailable."),
-                    $error::InvalidPersistedState { .. } | $error::Internal { .. } => {
-                        ApiError::internal_server_error(PARTNER_SHOP_APPLICATION_INTERNAL_ERROR)
-                            .with_detail("Partner shop application failed internally.")
+                    | $error::CommitTransactionFailed => {
+                        partnership_application_temporarily_unavailable()
+                    }
+                    $error::$invalid { .. } | $error::Internal { .. } => {
+                        partnership_application_internal_error()
                     }
                 }
             }
@@ -1658,107 +1851,111 @@ macro_rules! impl_partner_shop_application_error {
     };
 }
 
-impl_partner_shop_application_error!(ListPartnerShopApplicationsError);
-impl_partner_shop_application_error!(AdminListPartnerShopApplicationsError);
-impl_partner_shop_application_error!(
-    GetPartnerShopApplicationError,
-    NotFound,
-    ConcurrencyConflict
+impl_partnership_application_admin_read_error!(
+    ListAdminPartnershipApplicationsError,
+    InvalidReadModel
 );
-impl From<WithdrawPartnerShopApplicationError> for ApiError {
-    fn from(error: WithdrawPartnerShopApplicationError) -> Self {
+
+impl From<GetPartnershipApplicationError> for ApiError {
+    fn from(error: GetPartnershipApplicationError) -> Self {
         match error {
-            WithdrawPartnerShopApplicationError::Forbidden => {
-                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            GetPartnershipApplicationError::Forbidden => partnership_application_forbidden(),
+            GetPartnershipApplicationError::NotFound => partnership_application_not_found(),
+            GetPartnershipApplicationError::TemporarilyUnavailable { .. }
+            | GetPartnershipApplicationError::BeginTransactionFailed
+            | GetPartnershipApplicationError::CommitTransactionFailed => {
+                partnership_application_temporarily_unavailable()
             }
-            WithdrawPartnerShopApplicationError::NotFound => {
-                ApiError::not_found(PARTNER_SHOP_APPLICATION_NOT_FOUND)
-                    .with_detail("Partner shop application was not found.")
-            }
-            WithdrawPartnerShopApplicationError::ApplicationNotWithdrawable
-            | WithdrawPartnerShopApplicationError::ConcurrencyConflict => ApiError::conflict(
-                CONFLICT,
-            )
-            .with_detail("Partner shop application cannot be withdrawn in its current state."),
-            WithdrawPartnerShopApplicationError::TemporarilyUnavailable { .. }
-            | WithdrawPartnerShopApplicationError::BeginTransactionFailed
-            | WithdrawPartnerShopApplicationError::CommitTransactionFailed => {
-                ApiError::service_unavailable(PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Partner shop application is temporarily unavailable.")
-            }
-            WithdrawPartnerShopApplicationError::ShopNotFound
-            | WithdrawPartnerShopApplicationError::DraftShopNotDiscardable
-            | WithdrawPartnerShopApplicationError::InvalidPersistedState { .. }
-            | WithdrawPartnerShopApplicationError::Internal { .. } => {
-                ApiError::internal_server_error(PARTNER_SHOP_APPLICATION_INTERNAL_ERROR)
-                    .with_detail("Partner shop application failed internally.")
+            GetPartnershipApplicationError::InvalidPersistedState { .. }
+            | GetPartnershipApplicationError::Internal { .. } => {
+                partnership_application_internal_error()
             }
         }
     }
 }
-impl_partner_shop_application_error!(
-    AdminGetPartnerShopApplicationError,
-    NotFound,
-    ConcurrencyConflict
-);
-impl From<AdminUpdatePartnerShopApplicationError> for ApiError {
-    fn from(error: AdminUpdatePartnerShopApplicationError) -> Self {
-        match error {
-            AdminUpdatePartnerShopApplicationError::Forbidden => {
-                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
-            }
-            AdminUpdatePartnerShopApplicationError::NotFound => {
-                ApiError::not_found(PARTNER_SHOP_APPLICATION_NOT_FOUND)
-                    .with_detail("Partner shop application was not found.")
-            }
-            AdminUpdatePartnerShopApplicationError::ApplicationNotReviewable
-            | AdminUpdatePartnerShopApplicationError::ConcurrencyConflict => ApiError::conflict(
-                CONFLICT,
-            )
-            .with_detail("Partner shop application cannot enter review in its current state."),
-            AdminUpdatePartnerShopApplicationError::TemporarilyUnavailable { .. }
-            | AdminUpdatePartnerShopApplicationError::BeginTransactionFailed
-            | AdminUpdatePartnerShopApplicationError::CommitTransactionFailed => {
-                ApiError::service_unavailable(PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Partner shop application is temporarily unavailable.")
-            }
-            AdminUpdatePartnerShopApplicationError::InvalidPersistedState { .. }
-            | AdminUpdatePartnerShopApplicationError::Internal { .. } => {
-                ApiError::internal_server_error(PARTNER_SHOP_APPLICATION_INTERNAL_ERROR)
-                    .with_detail("Partner shop application failed internally.")
+
+macro_rules! impl_partnership_application_admin_transition_error {
+    ($error:ident, $invalid_state:ident) => {
+        impl From<$error> for ApiError {
+            fn from(error: $error) -> Self {
+                match error {
+                    $error::Forbidden => partnership_application_forbidden(),
+                    $error::NotFound => partnership_application_not_found(),
+                    $error::$invalid_state | $error::ConcurrencyConflict => ApiError::conflict(
+                        CONFLICT,
+                    )
+                    .with_detail("Partnership application cannot change in its current state."),
+                    $error::TemporarilyUnavailable { .. }
+                    | $error::BeginTransactionFailed
+                    | $error::CommitTransactionFailed => {
+                        partnership_application_temporarily_unavailable()
+                    }
+                    $error::InvalidPersistedState { .. } | $error::Internal { .. } => {
+                        partnership_application_internal_error()
+                    }
+                }
             }
         }
-    }
+    };
 }
-impl From<AdminDecidePartnerShopApplicationError> for ApiError {
-    fn from(error: AdminDecidePartnerShopApplicationError) -> Self {
+
+impl_partnership_application_admin_transition_error!(
+    MarkPartnershipApplicationInReviewError,
+    ApplicationNotReviewable
+);
+
+impl From<ApprovePartnershipApplicationError> for ApiError {
+    fn from(error: ApprovePartnershipApplicationError) -> Self {
         match error {
-            AdminDecidePartnerShopApplicationError::Forbidden => {
-                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            ApprovePartnershipApplicationError::Forbidden => partnership_application_forbidden(),
+            ApprovePartnershipApplicationError::NotFound => partnership_application_not_found(),
+            ApprovePartnershipApplicationError::ListingSourceNotFound => {
+                ApiError::not_found(PARTNERSHIP_APPLICATION_LISTING_SOURCE_NOT_FOUND)
+                    .with_detail("Listing source was not found.")
             }
-            AdminDecidePartnerShopApplicationError::NotFound => {
-                ApiError::not_found(PARTNER_SHOP_APPLICATION_NOT_FOUND)
-                    .with_detail("Partner shop application was not found.")
-            }
-            AdminDecidePartnerShopApplicationError::ApplicationNotDecidable
-            | AdminDecidePartnerShopApplicationError::ConcurrencyConflict => {
+            ApprovePartnershipApplicationError::ApplicationNotApprovable
+            | ApprovePartnershipApplicationError::ConcurrencyConflict
+            | ApprovePartnershipApplicationError::SlugConflict { .. } => {
                 ApiError::conflict(CONFLICT)
-                    .with_detail("Partner shop application cannot be decided in its current state.")
+                    .with_detail("Partnership application cannot be approved in its current state.")
             }
-            AdminDecidePartnerShopApplicationError::NotificationCreateFailed { .. }
-            | AdminDecidePartnerShopApplicationError::TemporarilyUnavailable { .. }
-            | AdminDecidePartnerShopApplicationError::BeginTransactionFailed
-            | AdminDecidePartnerShopApplicationError::CommitTransactionFailed => {
-                ApiError::service_unavailable(PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Partner shop application is temporarily unavailable.")
+            ApprovePartnershipApplicationError::NotificationCreateFailed { .. }
+            | ApprovePartnershipApplicationError::TemporarilyUnavailable { .. }
+            | ApprovePartnershipApplicationError::BeginTransactionFailed
+            | ApprovePartnershipApplicationError::CommitTransactionFailed => {
+                partnership_application_temporarily_unavailable()
             }
-            AdminDecidePartnerShopApplicationError::ShopNotFound
-            | AdminDecidePartnerShopApplicationError::ShopNotPublishable
-            | AdminDecidePartnerShopApplicationError::DraftShopNotDiscardable
-            | AdminDecidePartnerShopApplicationError::InvalidPersistedState { .. }
-            | AdminDecidePartnerShopApplicationError::Internal { .. } => {
-                ApiError::internal_server_error(PARTNER_SHOP_APPLICATION_INTERNAL_ERROR)
-                    .with_detail("Partner shop application failed internally.")
+            ApprovePartnershipApplicationError::InvalidPersistedState { .. }
+            | ApprovePartnershipApplicationError::Internal { .. } => {
+                partnership_application_internal_error()
+            }
+        }
+    }
+}
+
+impl From<RejectPartnershipApplicationError> for ApiError {
+    fn from(error: RejectPartnershipApplicationError) -> Self {
+        match error {
+            RejectPartnershipApplicationError::Forbidden => partnership_application_forbidden(),
+            RejectPartnershipApplicationError::NotFound => partnership_application_not_found(),
+            RejectPartnershipApplicationError::ListingSourceNotFound => {
+                ApiError::not_found(PARTNERSHIP_APPLICATION_LISTING_SOURCE_NOT_FOUND)
+                    .with_detail("Listing source was not found.")
+            }
+            RejectPartnershipApplicationError::ApplicationNotRejectable
+            | RejectPartnershipApplicationError::ConcurrencyConflict => {
+                ApiError::conflict(CONFLICT)
+                    .with_detail("Partnership application cannot be rejected in its current state.")
+            }
+            RejectPartnershipApplicationError::NotificationCreateFailed { .. }
+            | RejectPartnershipApplicationError::TemporarilyUnavailable { .. }
+            | RejectPartnershipApplicationError::BeginTransactionFailed
+            | RejectPartnershipApplicationError::CommitTransactionFailed => {
+                partnership_application_temporarily_unavailable()
+            }
+            RejectPartnershipApplicationError::InvalidPersistedState { .. }
+            | RejectPartnershipApplicationError::Internal { .. } => {
+                partnership_application_internal_error()
             }
         }
     }
@@ -1804,156 +2001,6 @@ impl From<OAuthServiceError> for ApiError {
             OAuthServiceError::InvalidPersistedState { .. }
             | OAuthServiceError::Internal { .. } => {
                 ApiError::internal_server_error(OAUTH_INTERNAL_ERROR)
-            }
-        }
-    }
-}
-
-impl From<GetShopError> for ApiError {
-    fn from(error: GetShopError) -> Self {
-        match error {
-            GetShopError::NotFound => {
-                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
-            }
-            GetShopError::TemporarilyUnavailable { .. }
-            | GetShopError::BeginTransactionFailed
-            | GetShopError::CommitTransactionFailed => {
-                ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Shop details are temporarily unavailable.")
-            }
-            GetShopError::InvalidReadModel { .. } | GetShopError::Internal { .. } => {
-                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
-                    .with_detail("Shop details failed internally.")
-            }
-        }
-    }
-}
-
-impl From<SearchShopsError> for ApiError {
-    fn from(error: SearchShopsError) -> Self {
-        match error {
-            SearchShopsError::TemporarilyUnavailable { .. }
-            | SearchShopsError::BeginTransactionFailed
-            | SearchShopsError::CommitTransactionFailed => {
-                ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Shop search is temporarily unavailable.")
-            }
-            SearchShopsError::InvalidReadModel { .. } | SearchShopsError::Internal { .. } => {
-                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
-                    .with_detail("Shop search failed internally.")
-            }
-        }
-    }
-}
-
-impl From<CreateShopError> for ApiError {
-    fn from(error: CreateShopError) -> Self {
-        match error {
-            CreateShopError::AuthenticatedActorRequired => {
-                ApiError::unauthorized(INVALID_CREDENTIALS)
-                    .with_header_field("Authorization")
-                    .with_detail("Bearer token is required.")
-            }
-            CreateShopError::Forbidden => {
-                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
-            }
-            CreateShopError::SlugConflict { .. } => {
-                ApiError::conflict(SHOP_EXISTS_ALREADY).with_detail("Shop exists already.")
-            }
-            CreateShopError::InvalidAddress => {
-                ApiError::bad_request(BAD_BODY_VALUE).with_detail("Shop address is invalid.")
-            }
-            CreateShopError::TemporarilyUnavailable { .. }
-            | CreateShopError::BeginTransactionFailed
-            | CreateShopError::CommitTransactionFailed => {
-                ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Shop could not be saved right now.")
-            }
-            CreateShopError::InvalidPersistedState { .. } | CreateShopError::Internal { .. } => {
-                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
-                    .with_detail("Shop creation failed internally.")
-            }
-        }
-    }
-}
-
-impl From<UpdateShopError> for ApiError {
-    fn from(error: UpdateShopError) -> Self {
-        match error {
-            UpdateShopError::AuthenticatedActorRequired => {
-                ApiError::unauthorized(INVALID_CREDENTIALS)
-                    .with_header_field("Authorization")
-                    .with_detail("Bearer token is required.")
-            }
-            UpdateShopError::Forbidden => {
-                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
-            }
-            UpdateShopError::ShopNotFound => {
-                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
-            }
-            UpdateShopError::ConcurrencyConflict => {
-                ApiError::conflict(CONFLICT).with_detail("Shop was changed concurrently.")
-            }
-            UpdateShopError::SlugConflict { .. } => {
-                ApiError::conflict(SHOP_EXISTS_ALREADY).with_detail("Shop exists already.")
-            }
-            UpdateShopError::ShopTypeRequired
-            | UpdateShopError::DomainsRequired
-            | UpdateShopError::ShopifyDomainRequired
-            | UpdateShopError::InvalidAddress => {
-                ApiError::bad_request(BAD_BODY_VALUE).with_detail("Shop update is invalid.")
-            }
-            UpdateShopError::TemporarilyUnavailable { .. }
-            | UpdateShopError::BeginTransactionFailed
-            | UpdateShopError::CommitTransactionFailed => {
-                ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Shop could not be updated right now.")
-            }
-            UpdateShopError::InvalidPersistedState { .. } | UpdateShopError::Internal { .. } => {
-                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
-                    .with_detail("Shop update failed internally.")
-            }
-        }
-    }
-}
-
-impl From<ListUserPartnerShopsError> for ApiError {
-    fn from(error: ListUserPartnerShopsError) -> Self {
-        match error {
-            ListUserPartnerShopsError::Forbidden => {
-                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
-            }
-            ListUserPartnerShopsError::TemporarilyUnavailable { .. }
-            | ListUserPartnerShopsError::BeginTransactionFailed
-            | ListUserPartnerShopsError::CommitTransactionFailed => {
-                ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Partner shop details are temporarily unavailable.")
-            }
-            ListUserPartnerShopsError::InvalidReadModel { .. }
-            | ListUserPartnerShopsError::Internal { .. } => {
-                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
-                    .with_detail("Partner shop details failed internally.")
-            }
-        }
-    }
-}
-
-impl From<CheckUserPartnerShopError> for ApiError {
-    fn from(error: CheckUserPartnerShopError) -> Self {
-        match error {
-            CheckUserPartnerShopError::Forbidden => {
-                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
-            }
-            CheckUserPartnerShopError::TemporarilyUnavailable { .. }
-            | CheckUserPartnerShopError::BeginTransactionFailed
-            | CheckUserPartnerShopError::CommitTransactionFailed => {
-                ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("Partner shop details are temporarily unavailable.")
-            }
-            CheckUserPartnerShopError::InvalidReadModel { .. }
-            | CheckUserPartnerShopError::Internal { .. } => {
-                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
-                    .with_detail("Partner shop details failed internally.")
             }
         }
     }
