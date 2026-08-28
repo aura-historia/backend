@@ -436,7 +436,7 @@ paths:
         \ — omitted or `null` availability, price, estimates, and auction timestamps\n  create no value; a concrete value\
         \ sets it.\n- **Existing listing** — availability, price, each price estimate, and each auction timestamp\n  are tri-state:\
         \ omitted preserves, `null` clears, and a concrete value sets. A withdrawn\n  listing is restored before current facts\
-        \ apply.\n- `title`, `description`, `structuredAddress`, and `geoAddress` apply only on creation. For an\n  existing\
+        \ apply.\n- `title` and `description` apply only on creation. For an\n  existing\
         \ listing they preserve current state and emit no current-state history event.\n- `images` is separate: omit to preserve,\
         \ send `[]` to clear, or send an array to replace.\n  `null` is invalid. `url` is non-clearable: omit or send `null`\
         \ to preserve it; send a URL\n  value to replace it.\n\nThe response returns HTTP 200 with failures as `{ listingSourceId,\
@@ -2501,19 +2501,18 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PersonalizedProductListingSearchResultData"
+                $ref: "#/components/schemas/SearchFilterMatchProductCollectionData"
               example:
                 items:
                   - item:
                       productListingId: 550e8400-e29b-41d4-a716-446655440000
                       productListingSlugId: golden-cufflinks-a1b2c3
-                      listingSourceSlugId: curated-antiques
                       eventId: 550e8400-e29b-41d4-a716-446655440001
-                      listingSourceId: 550e8400-e29b-41d4-a716-446655440000
+                      source:
+                        listingSourceId: 550e8400-e29b-41d4-a716-446655440000
+                        name: Curated Antiques
+                        slugId: curated-antiques
                       sourceListingId: 6ba7b810
-                      listingSourceName: Curated Antiques
-                      sellerName: Curated Antiques
-                      listingSourceType: COMMERCIAL_DEALER
                       title:
                         text: Pair of Golden Cufflinks
                         language: en
@@ -5284,12 +5283,12 @@ paths:
                 item:
                   productListingId: 550e8400-e29b-41d4-a716-446655440000
                   productListingSlugId: smartphone-case-a1b2c3
-                  listingSourceSlugId: tech-store
                   eventId: 550e8400-e29b-41d4-a716-446655440001
-                  listingSourceId: 550e8400-e29b-41d4-a716-446655440000
+                  source:
+                    listingSourceId: 550e8400-e29b-41d4-a716-446655440000
+                    name: Tech Store
+                    slugId: tech-store
                   sourceListingId: 6ba7b810-9dad-11d1-80b4-00c04fd430c8
-                  listingSourceName: Tech Store
-                  listingSourceType: COMMERCIAL_DEALER
                   title:
                     text: Smartphone Case
                     language: en
@@ -5772,6 +5771,70 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: NEWSLETTER_INTERNAL_ERROR
+  /api/v1/listing-sources:
+    post:
+      summary: Create a ListingSource
+      operationId: postListingSource
+      tags:
+        - ListingSources
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateListingSourceData"
+      responses:
+        "201":
+          description: ListingSource created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListingSourceReferenceData"
+        "400":
+          description: Problem response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Problem response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Problem response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Problem response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Problem response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: Problem response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Problem response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
   /api/v1/listing-sources/{listingSourceId}:
     get:
       summary: Get a ListingSource
@@ -5831,76 +5894,7 @@ paths:
       security:
         - BearerAuth: []
         - AccessTokenAuth: []
-    post:
-      summary: Create a ListingSource
-      operationId: postListingSource
-      tags:
-        - ListingSources
-      parameters:
-        - name: listingSourceId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateListingSourceData"
-      responses:
-        "201":
-          description: ListingSource created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ListingSourceReferenceData"
-        "400":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "401":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "404":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "409":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "500":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "503":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-      security:
-        - BearerAuth: []
-        - AccessTokenAuth: []
+
     patch:
       summary: Update a ListingSource
       operationId: patchListingSource
@@ -11215,9 +11209,7 @@ components:
         - listingSourceId
         - listingSourceSlugId
         - name
-        - operatorPartyId
-        - operatorSlugId
-        - operatorName
+        - operator
         - acquisitionMethods
         - created
         - updated
@@ -11229,13 +11221,8 @@ components:
           type: string
         name:
           type: string
-        operatorPartyId:
-          type: string
-          format: uuid
-        operatorSlugId:
-          type: string
-        operatorName:
-          type: string
+        operator:
+          $ref: "#/components/schemas/OperatorPartyData"
         acquisitionMethods:
           type: array
           items:
@@ -11341,19 +11328,62 @@ components:
             - PARTNERIZE
         camref:
           type: string
+    OperatorPartyData:
+      type: object
+      required:
+        - partyId
+        - partySlugId
+        - name
+      properties:
+        partyId:
+          type: string
+          format: uuid
+        partySlugId:
+          type: string
+        name:
+          type: string
+    ListingSourceOperatorInputData:
+      oneOf:
+        - type: object
+          required:
+            - type
+            - partyId
+          properties:
+            type:
+              type: string
+              enum:
+                - EXISTING
+            partyId:
+              type: string
+              format: uuid
+        - type: object
+          required:
+            - type
+            - name
+          properties:
+            type:
+              type: string
+              enum:
+                - NEW
+            name:
+              type: string
+            phone:
+              type: string
+            email:
+              type: string
+              format: email
     CreateListingSourceData:
       type: object
       required:
         - name
-        - operatorPartyId
+        - operator
         - acquisitionMethods
         - acquisitionConfiguration
       properties:
         name:
           type: string
-        operatorPartyId:
-          type: string
-          format: uuid
+        operator:
+          $ref: "#/components/schemas/ListingSourceOperatorInputData"
         acquisitionMethods:
           type: array
           items:

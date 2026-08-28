@@ -37,6 +37,7 @@
 
 ## Child DOX Index
 
+- `party-and-listing-source.md` — Party, ListingSource, and Partnership contract.
 - `product-listing.md` — canonical ProductListing domain contract.
 - `product-listing-inventory.md` — ProductListing rewrite scope and final scan checklist.
 - `listing-source-partnership-rewrite-inventory.md` — ListingSource and Partnership rewrite completion checklist.

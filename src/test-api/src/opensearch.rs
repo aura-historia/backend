@@ -643,10 +643,7 @@ mod tests {
 
     #[rstest::rstest]
     #[case::product(PRODUCT_LISTINGS_INDEX_MAPPING_STR)]
-    #[case::product(USER_SEARCH_FILTER_INDEX_MAPPING_STR)]
-    fn should_set_search_analyzer_on_title_fields_in_products_mapping(
-        #[case] mapping: &'static str,
-    ) {
+    fn should_set_search_analyzer_on_product_listing_title_fields(#[case] mapping: &'static str) {
         let mapping = mapping_with_inline_synonyms(mapping);
 
         let title_fields = ["titleEn", "titleDe", "titleFr", "titleEs", "titleIt"];

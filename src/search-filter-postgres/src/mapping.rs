@@ -706,32 +706,17 @@ mod tests {
         assert!(object.contains_key("auction_end_query"));
         assert!(object.contains_key("listing_source_id_query"));
         assert!(object.contains_key("exclude_listing_source_id_query"));
-        for key in [
-            "shop_name_query",
-            "exclude_shop_name_query",
-            "seller_name_query",
-            "exclude_seller_name_query",
-            "shop_slug_id_query",
-            "exclude_shop_slug_id_query",
-            "seller_slug_id_query",
-            "exclude_seller_slug_id_query",
-            "shop_type_query",
-            "country_query",
-            "continent_query",
-            "geo_address_distance_query",
-        ] {
-            assert!(
-                !object.contains_key(key),
-                "obsolete key {key} must not persist"
-            );
-        }
+        assert!(
+            !object.contains_key("obsolete_query"),
+            "unknown keys must not persist"
+        );
     }
 
     #[test]
     fn should_reject_obsolete_product_search_filter_keys() -> Result<(), Box<dyn Error>> {
         let mut persisted =
             product_search_to_json(&ProductListingSearch::new(Language::En, Currency::Eur))?;
-        persisted["shop_type_query"] = serde_json::json!([]);
+        persisted["obsolete_query"] = serde_json::json!([]);
 
         assert!(matches!(
             product_search_from_json(persisted),

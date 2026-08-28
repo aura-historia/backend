@@ -107,10 +107,10 @@ CREATE TABLE partnership_members (
 );
 
 CREATE TABLE partnership_listing_source_grants (
-    user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    partnership_id uuid NOT NULL REFERENCES partnerships(partnership_id) ON DELETE CASCADE,
     listing_source_id uuid NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
     created timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, listing_source_id)
+    PRIMARY KEY (partnership_id, listing_source_id)
 );
 
 CREATE TABLE partnership_applications (
@@ -141,7 +141,8 @@ CREATE TABLE partnership_applications (
 );
 
 CREATE INDEX partnership_members_partnership_id_idx ON partnership_members (partnership_id);
-CREATE INDEX partnership_listing_source_grants_listing_source_id_idx ON partnership_listing_source_grants (listing_source_id);
+CREATE INDEX partnership_listing_source_grants_listing_source_id_idx
+    ON partnership_listing_source_grants (listing_source_id, partnership_id);
 CREATE INDEX partnership_applications_applicant_created_idx ON partnership_applications (applicant_user_id, created DESC);
 CREATE INDEX partnership_applications_business_state_created_idx ON partnership_applications (business_state, created DESC);
 

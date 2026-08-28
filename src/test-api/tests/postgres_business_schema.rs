@@ -183,9 +183,9 @@ async fn should_support_core_business_relations() {
             '60000000-0000-0000-0000-000000000001'
         );
 
-        INSERT INTO partnership_listing_source_grants (user_id, listing_source_id)
+        INSERT INTO partnership_listing_source_grants (partnership_id, listing_source_id)
         VALUES (
-            '10000000-0000-0000-0000-000000000001',
+            '60000000-0000-0000-0000-000000000001',
             '20000000-0000-0000-0000-000000000002'
         );
 

@@ -270,7 +270,7 @@ where
             .await?;
         self.grants
             .in_transaction(&mut tx)
-            .grant_source_access(versioned.value.applicant_user_id(), source_id)
+            .grant_source_access(partnership.id(), source_id)
             .await?;
         versioned
             .value
@@ -842,12 +842,12 @@ mod tests {
     impl ListingSourceGrantRepository for FakeGrantRepository {
         async fn grant_source_access(
             &mut self,
-            user_id: user_core::user_id::UserId,
+            partnership_id: PartnershipId,
             listing_source_id: ListingSourceId,
         ) -> Result<(), PartnershipGrantError> {
             lock(&self.state)
                 .grants
-                .insert((user_id, listing_source_id));
+                .insert((partnership_id, listing_source_id));
             Ok(())
         }
     }
@@ -858,7 +858,7 @@ mod tests {
         existing_party: Option<StoredParty>,
         partnership: Option<Partnership>,
         memberships: HashSet<(user_core::user_id::UserId, PartnershipId)>,
-        grants: HashSet<(user_core::user_id::UserId, ListingSourceId)>,
+        grants: HashSet<(PartnershipId, ListingSourceId)>,
         party_insert_fails: bool,
         commit_fails: bool,
         begun: usize,

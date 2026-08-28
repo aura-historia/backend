@@ -12,7 +12,7 @@ use user_core::user_id::UserId;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_authorize_admin_for_existing_listing_source() {
+async fn should_reject_admin_without_partnership_membership_and_listing_source_grant() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let authorizer = SqlxPartnerProductListingAuthorizerFactory::new();
@@ -28,46 +28,39 @@ async fn should_authorize_admin_for_existing_listing_source() {
         .authorize(admin_id, listing_source_id)
         .await;
 
-    assert!(matches!(result, Ok(())));
+    assert!(matches!(
+        result,
+        Err(PartnerProductListingAuthorizationError::Forbidden)
+    ));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_authorize_partnership_member_or_grantee_and_reject_unrelated_user() {
+async fn should_require_partnership_membership_and_listing_source_grant() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let authorizer = SqlxPartnerProductListingAuthorizerFactory::new();
     let member_id = seed_user(&pool, "USER").await;
-    let grantee_id = seed_user(&pool, "USER").await;
+    let ungranted_member_id = seed_user(&pool, "USER").await;
     let unrelated_user_id = seed_user(&pool, "USER").await;
     let (listing_source_id, partnership_id) =
         seed_partnership_listing_source(&pool, "partner-product-authorizer-source").await;
 
-    sqlx::query("INSERT INTO partnership_members (user_id, partnership_id) VALUES ($1, $2)")
-        .bind(uuid::Uuid::from(member_id))
-        .bind(partnership_id)
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|error| panic!("seed partnership membership: {error}"));
+    for user_id in [member_id, ungranted_member_id] {
+        sqlx::query("INSERT INTO partnership_members (user_id, partnership_id) VALUES ($1, $2)")
+            .bind(uuid::Uuid::from(user_id))
+            .bind(partnership_id)
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("seed partnership membership: {error}"));
+    }
     sqlx::query(
-        "INSERT INTO partnership_listing_source_grants (user_id, listing_source_id) VALUES ($1, $2)",
+        "INSERT INTO partnership_listing_source_grants (partnership_id, listing_source_id) VALUES ($1, $2)",
     )
-    .bind(uuid::Uuid::from(grantee_id))
+    .bind(partnership_id)
     .bind(uuid::Uuid::from(listing_source_id))
     .execute(&pool)
     .await
     .unwrap_or_else(|error| panic!("seed listing-source grant: {error}"));
-
-    for actor_id in [member_id, grantee_id] {
-        let mut tx = unit_of_work
-            .begin()
-            .await
-            .unwrap_or_else(|error| panic!("begin authorization transaction: {error}"));
-        let result = authorizer
-            .in_transaction(&mut tx)
-            .authorize(actor_id, listing_source_id)
-            .await;
-        assert!(matches!(result, Ok(())));
-    }
 
     let mut tx = unit_of_work
         .begin()
@@ -75,12 +68,32 @@ async fn should_authorize_partnership_member_or_grantee_and_reject_unrelated_use
         .unwrap_or_else(|error| panic!("begin authorization transaction: {error}"));
     let result = authorizer
         .in_transaction(&mut tx)
-        .authorize(unrelated_user_id, listing_source_id)
+        .authorize(member_id, listing_source_id)
         .await;
-    assert!(matches!(
-        result,
-        Err(PartnerProductListingAuthorizationError::Forbidden)
-    ));
+    assert!(matches!(result, Ok(())));
+
+    let ungranted_source_id = seed_listing_source(&pool, "ungranted-source").await;
+    for actor_id in [ungranted_member_id, unrelated_user_id] {
+        let mut tx = unit_of_work
+            .begin()
+            .await
+            .unwrap_or_else(|error| panic!("begin authorization transaction: {error}"));
+        let result = authorizer
+            .in_transaction(&mut tx)
+            .authorize(
+                actor_id,
+                if actor_id == ungranted_member_id {
+                    ungranted_source_id
+                } else {
+                    listing_source_id
+                },
+            )
+            .await;
+        assert!(matches!(
+            result,
+            Err(PartnerProductListingAuthorizationError::Forbidden)
+        ));
+    }
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]

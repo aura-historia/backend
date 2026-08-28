@@ -353,6 +353,7 @@ pub async fn seed_partnership_membership(user_id: UserId, listing_source_id: uui
         FROM listing_sources source
         JOIN partnerships partnership ON partnership.party_id = source.operator_party_id
         WHERE source.listing_source_id = $2
+        ON CONFLICT DO NOTHING
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
@@ -361,6 +362,22 @@ pub async fn seed_partnership_membership(user_id: UserId, listing_source_id: uui
     .await
     {
         panic!("failed to seed partnership membership: {error}");
+    }
+    if let Err(error) = sqlx::query(
+        r#"
+        INSERT INTO partnership_listing_source_grants (partnership_id, listing_source_id)
+        SELECT partnership.partnership_id, source.listing_source_id
+        FROM listing_sources source
+        JOIN partnerships partnership ON partnership.party_id = source.operator_party_id
+        WHERE source.listing_source_id = $1
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(listing_source_id)
+    .execute(&pool)
+    .await
+    {
+        panic!("failed to seed listing-source grant: {error}");
     }
 }
 

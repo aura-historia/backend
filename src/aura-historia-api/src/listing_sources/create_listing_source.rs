@@ -6,9 +6,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use listing_source_core::ListingSourcePresentation;
-use listing_source_service::use_cases::commands::create_listing_source::{
-    CreateListingSourceCommand, ListingSourceOperator,
-};
+use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceCommand;
 
 pub async fn create_listing_source(
     State(state): State<ListingSourcesState>,
@@ -34,7 +32,7 @@ pub async fn create_listing_source(
     };
     let command = CreateListingSourceCommand {
         name: data.name.into(),
-        operator: ListingSourceOperator::Existing(data.operator_party_id.into()),
+        operator: data.operator.into(),
         acquisition_methods: data.acquisition_methods,
         acquisition_configuration,
         woocommerce_webhook_secret: data.woocommerce_webhook_secret,

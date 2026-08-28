@@ -52,18 +52,8 @@ WITH candidates AS (
             WHEN $3 = 'PRO' THEN enhanced_search_description IS NULL
             WHEN $3 = 'FREE' THEN
                 enhanced_search_description IS NULL
-                AND coalesce(jsonb_array_length(search -> 'shop_name_query'), 0) = 0
-                AND coalesce(jsonb_array_length(search -> 'exclude_shop_name_query'), 0) = 0
-                AND coalesce(jsonb_array_length(search -> 'seller_name_query'), 0) = 0
-                AND coalesce(jsonb_array_length(search -> 'exclude_seller_name_query'), 0) = 0
-                AND coalesce(jsonb_array_length(search -> 'shop_slug_id_query'), 0) = 0
-                AND coalesce(jsonb_array_length(search -> 'exclude_shop_slug_id_query'), 0) = 0
-                AND coalesce(jsonb_array_length(search -> 'seller_slug_id_query'), 0) = 0
-                AND coalesce(jsonb_array_length(search -> 'exclude_seller_slug_id_query'), 0) = 0
-                AND coalesce(jsonb_array_length(search -> 'shop_type_query'), 0) = 0
-                AND coalesce(jsonb_array_length(search -> 'country_query'), 0) = 0
-                AND coalesce(jsonb_array_length(search -> 'continent_query'), 0) = 0
-                AND search ->> 'geo_address_distance_query' IS NULL
+                AND coalesce(jsonb_array_length(search -> 'listing_source_id_query'), 0) = 0
+                AND coalesce(jsonb_array_length(search -> 'exclude_listing_source_id_query'), 0) = 0
                 AND search ->> 'created_query' IS NULL
                 AND search ->> 'updated_query' IS NULL
                 AND search ->> 'auction_start_query' IS NULL

@@ -134,7 +134,7 @@ pub trait PartnershipMembershipRepositoryFactory<Tx>: Send + Sync {
 pub trait ListingSourceGrantRepository: Send {
     async fn grant_source_access(
         &mut self,
-        user_id: UserId,
+        partnership_id: PartnershipId,
         listing_source_id: ListingSourceId,
     ) -> Result<(), PartnershipGrantError>;
 }

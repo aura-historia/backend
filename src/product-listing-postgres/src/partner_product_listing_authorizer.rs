@@ -49,26 +49,13 @@ impl PartnerProductListingAuthorizer for SqlxPartnerProductListingAuthorizer<'_>
                     FROM listing_sources
                     WHERE listing_source_id = $2
                 ) THEN 'LISTING_SOURCE_NOT_FOUND'
+
                 WHEN EXISTS (
                     SELECT 1
-                    FROM users
-                    WHERE user_id = $1
-                      AND role = 'ADMIN'
-                ) THEN 'ALLOWED'
-                WHEN EXISTS (
-                    SELECT 1
-                    FROM listing_sources source
-                    JOIN partnerships partnership
-                      ON partnership.party_id = source.operator_party_id
-                    JOIN partnership_members member
-                      ON member.partnership_id = partnership.partnership_id
-                    WHERE source.listing_source_id = $2
-                      AND member.user_id = $1
-                ) THEN 'ALLOWED'
-                WHEN EXISTS (
-                    SELECT 1
-                    FROM partnership_listing_source_grants source_grant
-                    WHERE source_grant.user_id = $1
+                    FROM partnership_members member
+                    JOIN partnership_listing_source_grants source_grant
+                      ON source_grant.partnership_id = member.partnership_id
+                    WHERE member.user_id = $1
                       AND source_grant.listing_source_id = $2
                 ) THEN 'ALLOWED'
                 ELSE 'FORBIDDEN'

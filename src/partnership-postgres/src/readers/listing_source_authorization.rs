@@ -19,7 +19,23 @@ impl ListingSourceAuthorization for SqlxListingSourceAuthorization {
         user_id: UserId,
         listing_source_id: ListingSourceId,
     ) -> Result<bool, SourceAuthorizationError> {
-        sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM partnership_listing_source_grants WHERE user_id=$1 AND listing_source_id=$2)").bind(uuid::Uuid::from(user_id)).bind(uuid::Uuid::from(listing_source_id)).fetch_one(&self.pool).await.map_err(|e|SourceAuthorizationError::TemporarilyUnavailable{source:box_error(e)})
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(\
+                SELECT 1 \
+                FROM partnership_members member \
+                JOIN partnership_listing_source_grants source_grant \
+                  ON source_grant.partnership_id = member.partnership_id \
+                WHERE member.user_id = $1 \
+                  AND source_grant.listing_source_id = $2\
+            )",
+        )
+        .bind(uuid::Uuid::from(user_id))
+        .bind(uuid::Uuid::from(listing_source_id))
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|source| SourceAuthorizationError::TemporarilyUnavailable {
+            source: box_error(source),
+        })
     }
     async fn list_sources_user_administers(
         &self,
@@ -31,7 +47,22 @@ impl ListingSourceAuthorization for SqlxListingSourceAuthorization {
             listing_source_slug_id: String,
             name: String,
         }
-        let rows=sqlx::query_as::<_,Row>("SELECT s.listing_source_id,s.listing_source_slug_id,s.name FROM partnership_listing_source_grants g JOIN listing_sources s ON s.listing_source_id=g.listing_source_id WHERE g.user_id=$1 ORDER BY s.name").bind(uuid::Uuid::from(user_id)).fetch_all(&self.pool).await.map_err(|e|SourceAuthorizationError::TemporarilyUnavailable{source:box_error(e)})?;
+        let rows = sqlx::query_as::<_, Row>(
+            "SELECT DISTINCT s.listing_source_id, s.listing_source_slug_id, s.name \
+             FROM partnership_members member \
+             JOIN partnership_listing_source_grants source_grant \
+               ON source_grant.partnership_id = member.partnership_id \
+             JOIN listing_sources s \
+               ON s.listing_source_id = source_grant.listing_source_id \
+             WHERE member.user_id = $1 \
+             ORDER BY s.name",
+        )
+        .bind(uuid::Uuid::from(user_id))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|source| SourceAuthorizationError::TemporarilyUnavailable {
+            source: box_error(source),
+        })?;
         rows.into_iter()
             .map(|row| {
                 Ok(AdministeredListingSource {

@@ -5,7 +5,13 @@ use listing_source_core::{AcquisitionMethod, Domain, ListingSourceId, ReferralCo
 use listing_source_service::ports::{
     AcquisitionConfiguration, ListingSourceAcquisitionConfigurations, ListingSourceDetails,
 };
+use listing_source_service::use_cases::commands::create_listing_source::ListingSourceOperator;
 use partnership_service::ports::AdministeredListingSource;
+use party_core::{
+    party::{NewParty, PartyContact},
+    party_id::PartyId,
+    party_name::PartyName,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::str::FromStr;
@@ -16,7 +22,7 @@ use uuid::Uuid;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CreateListingSourceData {
     pub(crate) name: String,
-    pub(crate) operator_party_id: Uuid,
+    pub(crate) operator: ListingSourceOperatorData,
     #[serde(deserialize_with = "deserialize_acquisition_methods")]
     pub(crate) acquisition_methods: HashSet<AcquisitionMethod>,
     pub(crate) acquisition_configuration: Vec<AcquisitionConfigurationData>,
@@ -28,6 +34,37 @@ pub(crate) struct CreateListingSourceData {
     pub(crate) image: Option<Url>,
     #[serde(default)]
     pub(crate) referral_configuration: Option<ReferralConfigurationData>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum ListingSourceOperatorData {
+    Existing {
+        #[serde(rename = "partyId")]
+        party_id: Uuid,
+    },
+    New {
+        name: String,
+        #[serde(default)]
+        phone: Option<String>,
+        #[serde(default)]
+        email: Option<serde_email::Email>,
+    },
+}
+
+impl From<ListingSourceOperatorData> for ListingSourceOperator {
+    fn from(value: ListingSourceOperatorData) -> Self {
+        match value {
+            ListingSourceOperatorData::Existing { party_id } => {
+                Self::Existing(PartyId::from(party_id))
+            }
+            ListingSourceOperatorData::New { name, phone, email } => Self::New(NewParty {
+                id: PartyId::new(),
+                name: PartyName::from(name),
+                contact: PartyContact { phone, email },
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,9 +205,7 @@ pub(crate) struct ListingSourceData {
     listing_source_id: String,
     listing_source_slug_id: String,
     name: String,
-    operator_party_id: String,
-    operator_slug_id: String,
-    operator_name: String,
+    operator: OperatorPartyData,
     acquisition_methods: Vec<AcquisitionMethodData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<Url>,
@@ -188,9 +223,11 @@ impl From<ListingSourceDetails> for ListingSourceData {
             listing_source_id: value.listing_source_id.to_string(),
             listing_source_slug_id: value.slug_id.to_string(),
             name: value.name.to_string(),
-            operator_party_id: value.operator_party_id.to_string(),
-            operator_slug_id: value.operator_slug_id.to_string(),
-            operator_name: value.operator_name.to_string(),
+            operator: OperatorPartyData {
+                party_id: value.operator_party_id.to_string(),
+                party_slug_id: value.operator_slug_id.to_string(),
+                name: value.operator_name.to_string(),
+            },
             acquisition_methods: methods_data(value.acquisition_methods),
             url: value.url,
             image: value.image,
@@ -198,6 +235,14 @@ impl From<ListingSourceDetails> for ListingSourceData {
             updated: value.updated,
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OperatorPartyData {
+    party_id: String,
+    party_slug_id: String,
+    name: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -358,7 +403,7 @@ mod tests {
         let source: CreateListingSourceData = serde_json::from_str(
             r#"{
                 "name":"Source",
-                "operatorPartyId":"550e8400-e29b-41d4-a716-446655440000",
+                "operator":{"type":"EXISTING","partyId":"550e8400-e29b-41d4-a716-446655440000"},
                 "acquisitionMethods":["WEB_CRAWL","PARTNER_API"],
                 "acquisitionConfiguration":[{"type":"WEB_CRAWL"},{"type":"PARTNER_API"}]
             }"#,
