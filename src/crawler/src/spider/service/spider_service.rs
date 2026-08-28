@@ -1,4 +1,4 @@
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use std::sync::Arc;
 
 use crate::spider::classification::url_metadata_repository::UrlMetadataRepository;
@@ -99,7 +99,7 @@ impl Default for SpiderServiceConfig {
 pub trait SpiderService: Send + Sync {
     async fn run(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         domain_id: &uuid::Uuid,
         _shop_url: &str,
         classify_threshold: usize,
@@ -130,7 +130,7 @@ impl SpiderServiceImpl {
 
     async fn persist_url_metadata_batch(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         domain_id: &uuid::Uuid,
         pages: &[CrawledPage],
         pattern: &ProductListingPattern,
@@ -153,7 +153,7 @@ impl SpiderServiceImpl {
         if !urls.is_empty() {
             let records = self
                 .url_metadata_repository
-                .upsert_links_batch(shop_id, domain_id, &urls, &classes)
+                .upsert_links_batch(listing_source_id, domain_id, &urls, &classes)
                 .await?;
             Ok(records.len())
         } else {
@@ -164,7 +164,7 @@ impl SpiderServiceImpl {
     async fn process_buffer(
         &self,
         buffer: &mut Vec<CrawledPage>,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         domain_id: &uuid::Uuid,
         pattern: &ProductListingPattern,
     ) -> Result<usize, SpiderServiceError> {
@@ -176,7 +176,7 @@ impl SpiderServiceImpl {
                     .is_some_and(|regex| p.url.matches_pattern(regex))
             })
             .count();
-        self.persist_url_metadata_batch(shop_id, domain_id, buffer, pattern)
+        self.persist_url_metadata_batch(listing_source_id, domain_id, buffer, pattern)
             .await?;
         buffer.clear();
         Ok(count)
@@ -185,12 +185,12 @@ impl SpiderServiceImpl {
     #[tracing::instrument(
         name = "spider_classify_and_save_for_stage",
         skip(self, state),
-        fields(shop_id = %shop_id, shop_url = %shop_url, stage)
+        fields(listing_source_id = %listing_source_id, shop_url = %shop_url, stage)
     )]
     async fn classify_and_save_for_stage(
         &self,
         state: &mut CrawlRunState,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         shop_url: &str,
         stage: &'static str,
     ) -> Result<(), SpiderServiceError> {
@@ -205,7 +205,7 @@ impl SpiderServiceImpl {
 
         state.pattern = self
             .pattern_service
-            .classify_and_save(shop_id, shop_url, &state.inference_sample)
+            .classify_and_save(listing_source_id, shop_url, &state.inference_sample)
             .await
             .map(|pattern| {
                 pattern
@@ -223,12 +223,12 @@ impl SpiderServiceImpl {
     #[tracing::instrument(
         name = "spider_maybe_classify_at_threshold",
         skip(self, state),
-        fields(shop_id = %shop_id, shop_url = %shop_url, classify_threshold)
+        fields(listing_source_id = %listing_source_id, shop_url = %shop_url, classify_threshold)
     )]
     async fn maybe_classify_at_threshold(
         &self,
         state: &mut CrawlRunState,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         shop_url: &str,
         classify_threshold: usize,
     ) -> Result<(), SpiderServiceError> {
@@ -238,7 +238,7 @@ impl SpiderServiceImpl {
                 "Threshold reached, requesting product URL pattern"
             );
 
-            self.classify_and_save_for_stage(state, shop_id, shop_url, "threshold")
+            self.classify_and_save_for_stage(state, listing_source_id, shop_url, "threshold")
                 .await?;
 
             state.classification_done = true;
@@ -251,12 +251,17 @@ impl SpiderServiceImpl {
     async fn flush_batch_if_needed(
         &self,
         state: &mut CrawlRunState,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         domain_id: &uuid::Uuid,
     ) -> Result<(), SpiderServiceError> {
         if state.classification_done && state.page_buffer.len() >= self.config.db_batch_size {
             state.products_found += self
-                .process_buffer(&mut state.page_buffer, shop_id, domain_id, &state.pattern)
+                .process_buffer(
+                    &mut state.page_buffer,
+                    listing_source_id,
+                    domain_id,
+                    &state.pattern,
+                )
                 .await?;
         }
         Ok(())
@@ -276,12 +281,12 @@ impl SpiderServiceImpl {
     #[tracing::instrument(
         name = "spider_classify_at_end_if_needed",
         skip(self, state),
-        fields(shop_id = %shop_id, shop_url = %shop_url)
+        fields(listing_source_id = %listing_source_id, shop_url = %shop_url)
     )]
     async fn classify_at_end_if_needed(
         &self,
         state: &mut CrawlRunState,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         shop_url: &str,
     ) -> Result<(), SpiderServiceError> {
         if !state.classification_done && !state.page_buffer.is_empty() {
@@ -290,7 +295,7 @@ impl SpiderServiceImpl {
                 "Threshold not reached, classifying collected URLs"
             );
 
-            self.classify_and_save_for_stage(state, shop_id, shop_url, "end_of_crawl")
+            self.classify_and_save_for_stage(state, listing_source_id, shop_url, "end_of_crawl")
                 .await?;
 
             state.classification_done = true;
@@ -301,12 +306,12 @@ impl SpiderServiceImpl {
     #[tracing::instrument(
         name = "spider_reclassify_if_persisted_pattern_failed",
         skip(self, state),
-        fields(shop_id = %shop_id, shop_url = %shop_url)
+        fields(listing_source_id = %listing_source_id, shop_url = %shop_url)
     )]
     async fn reclassify_if_persisted_pattern_failed(
         &self,
         state: &mut CrawlRunState,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         shop_url: &str,
     ) -> Result<(), SpiderServiceError> {
         if state.pattern_loaded_from_store
@@ -315,7 +320,7 @@ impl SpiderServiceImpl {
         {
             warn!("Persisted product URL pattern did not match crawl results, reclassifying");
 
-            self.classify_and_save_for_stage(state, shop_id, shop_url, "refresh")
+            self.classify_and_save_for_stage(state, listing_source_id, shop_url, "refresh")
                 .await?;
         }
 
@@ -325,12 +330,17 @@ impl SpiderServiceImpl {
     async fn flush_remaining_pages(
         &self,
         state: &mut CrawlRunState,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         domain_id: &uuid::Uuid,
     ) -> Result<(), SpiderServiceError> {
         if !state.page_buffer.is_empty() {
             state.products_found += self
-                .process_buffer(&mut state.page_buffer, shop_id, domain_id, &state.pattern)
+                .process_buffer(
+                    &mut state.page_buffer,
+                    listing_source_id,
+                    domain_id,
+                    &state.pattern,
+                )
                 .await?;
         }
         Ok(())
@@ -339,12 +349,16 @@ impl SpiderServiceImpl {
     #[tracing::instrument(
         name = "spider_mark_as_crawled_best_effort",
         skip(self),
-        fields(shop_id = %shop_id, shop_url = %shop_url)
+        fields(listing_source_id = %listing_source_id, shop_url = %shop_url)
     )]
-    async fn mark_as_crawled_best_effort(&self, shop_id: &ShopId, shop_url: &str) {
+    async fn mark_as_crawled_best_effort(
+        &self,
+        listing_source_id: &ListingSourceId,
+        shop_url: &str,
+    ) {
         if let Err(error) = self
             .pattern_service
-            .mark_as_crawled(shop_id, shop_url)
+            .mark_as_crawled(listing_source_id, shop_url)
             .await
         {
             warn!(error = ?error, "Failed to mark shop as crawled");
@@ -355,7 +369,7 @@ impl SpiderServiceImpl {
         name = "spider_run_locked",
         skip(self),
         fields(
-            shop_id = %shop_id,
+            listing_source_id = %listing_source_id,
             domain_id = %domain_id,
             shop_url = %shop_url,
             classify_threshold
@@ -363,7 +377,7 @@ impl SpiderServiceImpl {
     )]
     async fn run_locked(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         domain_id: &uuid::Uuid,
         shop_url: &str,
         classify_threshold: usize,
@@ -372,7 +386,10 @@ impl SpiderServiceImpl {
         let diagnostics_rx = crawl.diagnostics;
         let mut crawl_rx = crawl.pages;
 
-        let initial_pattern = self.pattern_service.load_pattern_for_shop(shop_id).await?;
+        let initial_pattern = self
+            .pattern_service
+            .load_pattern_for_shop(listing_source_id)
+            .await?;
         let mut state = CrawlRunState::new(initial_pattern);
 
         if state.pattern_loaded_from_store {
@@ -388,10 +405,15 @@ impl SpiderServiceImpl {
 
             state.page_buffer.push(page.clone());
 
-            self.maybe_classify_at_threshold(&mut state, shop_id, shop_url, classify_threshold)
-                .await?;
+            self.maybe_classify_at_threshold(
+                &mut state,
+                listing_source_id,
+                shop_url,
+                classify_threshold,
+            )
+            .await?;
 
-            self.flush_batch_if_needed(&mut state, shop_id, domain_id)
+            self.flush_batch_if_needed(&mut state, listing_source_id, domain_id)
                 .await?;
             self.log_progress(&state);
         }
@@ -403,11 +425,11 @@ impl SpiderServiceImpl {
             return Err(error);
         }
 
-        self.classify_at_end_if_needed(&mut state, shop_id, shop_url)
+        self.classify_at_end_if_needed(&mut state, listing_source_id, shop_url)
             .await?;
-        self.reclassify_if_persisted_pattern_failed(&mut state, shop_id, shop_url)
+        self.reclassify_if_persisted_pattern_failed(&mut state, listing_source_id, shop_url)
             .await?;
-        self.flush_remaining_pages(&mut state, shop_id, domain_id)
+        self.flush_remaining_pages(&mut state, listing_source_id, domain_id)
             .await?;
 
         let product_pattern = state
@@ -415,7 +437,8 @@ impl SpiderServiceImpl {
             .as_regex()
             .map(|regex| regex.as_str().to_string());
 
-        self.mark_as_crawled_best_effort(shop_id, shop_url).await;
+        self.mark_as_crawled_best_effort(listing_source_id, shop_url)
+            .await;
 
         info!(
             total_crawled = state.total_crawled,
@@ -439,7 +462,7 @@ impl SpiderService for SpiderServiceImpl {
         name = "spider_run",
         skip(self),
         fields(
-            shop_id = %shop_id,
+            listing_source_id = %listing_source_id,
             domain_id = %domain_id,
             shop_url = %shop_url,
             classify_threshold
@@ -447,14 +470,14 @@ impl SpiderService for SpiderServiceImpl {
     )]
     async fn run(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         domain_id: &uuid::Uuid,
         shop_url: &str,
         classify_threshold: usize,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         debug!("Starting crawl");
 
-        self.run_locked(shop_id, domain_id, shop_url, classify_threshold)
+        self.run_locked(listing_source_id, domain_id, shop_url, classify_threshold)
             .await
     }
 }
@@ -618,7 +641,7 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
         let domain_id = uuid::Uuid::new_v4();
         let shop_url = "https://example.com";
 
@@ -643,7 +666,9 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 20).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, shop_url, 20)
+            .await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
         assert_eq!(run_result.product_urls_count, 1);
@@ -656,7 +681,7 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
         let domain_id = uuid::Uuid::new_v4();
         let shop_url = "https://example.com";
 
@@ -683,7 +708,9 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 25).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, shop_url, 25)
+            .await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
         assert_eq!(run_result.product_urls_count, 1);
@@ -695,7 +722,7 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
         let domain_id = uuid::Uuid::new_v4();
         let shop_url = "https://example.com";
 
@@ -723,7 +750,9 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 25).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, shop_url, 25)
+            .await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
         assert_eq!(run_result.product_urls_count, 20);
@@ -735,7 +764,7 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
         let domain_id = uuid::Uuid::new_v4();
         let shop_url = "https://example.com";
 
@@ -770,7 +799,9 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, shop_url, 10)
+            .await;
 
         assert!(matches!(
             result,
@@ -784,7 +815,7 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
         let domain_id = uuid::Uuid::new_v4();
         let shop_url = "https://example.com";
 
@@ -806,7 +837,9 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, shop_url, 10)
+            .await;
 
         assert!(matches!(
             result,
@@ -823,7 +856,7 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
         let domain_id = uuid::Uuid::new_v4();
         let shop_url = "https://example.com";
 
@@ -844,7 +877,9 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, shop_url, 10)
+            .await;
 
         assert!(matches!(
             result,
@@ -863,7 +898,7 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
         let domain_id = uuid::Uuid::new_v4();
         let shop_url = "https://example.com";
 
@@ -896,7 +931,9 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, shop_url, 10)
+            .await;
 
         assert!(matches!(
             result,
@@ -915,7 +952,7 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
         let domain_id = uuid::Uuid::new_v4();
         let shop_url = "https://example.com";
 
@@ -945,7 +982,9 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, shop_url, 10)
+            .await;
 
         assert!(matches!(
             result,
@@ -959,7 +998,7 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
         let domain_id = uuid::Uuid::new_v4();
         let shop_url = "https://example.com";
 
@@ -980,7 +1019,9 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, shop_url, 10)
+            .await;
 
         assert!(matches!(
             result,

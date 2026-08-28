@@ -166,11 +166,6 @@ fn parse_scopes(values: Vec<String>) -> Result<HashSet<Scope>, AccessTokenRowMap
         .into_iter()
         .map(|value| match value.as_str() {
             "product-listings:write" => Ok(Scope::ProductListingsWrite),
-            "shops:read" => Ok(Scope::ShopsRead),
-            "shops:write" => Ok(Scope::ShopsWrite),
-            "partner-shop-applications:write" => Ok(Scope::PartnerShopApplicationsWrite),
-            "partner-shops:read" => Ok(Scope::PartnerShopsRead),
-            "partner-shops:write" => Ok(Scope::PartnerShopsWrite),
             "users:read" => Ok(Scope::UsersRead),
             "users:write" => Ok(Scope::UsersWrite),
             "access-tokens:read" => Ok(Scope::AccessTokensRead),

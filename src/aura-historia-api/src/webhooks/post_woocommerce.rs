@@ -46,19 +46,13 @@ struct WoocommerceImageDto {
 pub async fn post_woocommerce(
     State(state): State<WebhooksState>,
     headers: HeaderMap,
-    Path(raw_shop_id): Path<String>,
+    Path(raw_listing_source_id): Path<String>,
     body: Bytes,
 ) -> Response {
-    let listing_source_id =
-        match uuid::Uuid::parse_str(raw_shop_id.as_str()).map(ListingSourceId::from) {
-            Ok(value) => value,
-            Err(_) => {
-                return ApiError::bad_request(INVALID_UUID)
-                    .with_path_field("shopId")
-                    .with_detail("Path parameter 'shopId' must be a UUID.")
-                    .into_response();
-            }
-        };
+    let listing_source_id = match parse_listing_source_id(&raw_listing_source_id) {
+        Ok(value) => value,
+        Err(error) => return error.into_response(),
+    };
     if body.is_empty() {
         return ApiError::bad_request(BAD_BODY_VALUE)
             .with_detail("Body cannot be empty.")
@@ -117,6 +111,16 @@ pub async fn post_woocommerce(
     }
 }
 
+fn parse_listing_source_id(value: &str) -> Result<ListingSourceId, ApiError> {
+    uuid::Uuid::parse_str(value)
+        .map(ListingSourceId::from)
+        .map_err(|_| {
+            ApiError::bad_request(INVALID_UUID)
+                .with_path_field("listingSourceId")
+                .with_detail("Path parameter 'listingSourceId' must be a UUID.")
+        })
+}
+
 fn event_kind(headers: &HeaderMap) -> Result<WoocommerceProductEventKind, ApiError> {
     match headers
         .get(TOPIC_HEADER)
@@ -156,6 +160,22 @@ fn signature(headers: &HeaderMap) -> Result<Vec<u8>, ApiError> {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
+
+    #[test]
+    fn should_parse_listing_source_id() {
+        let listing_source_id = ListingSourceId::new();
+
+        let parsed = parse_listing_source_id(&listing_source_id.to_string());
+
+        assert!(matches!(parsed, Ok(actual) if actual == listing_source_id));
+    }
+
+    #[test]
+    fn should_reject_invalid_listing_source_id() {
+        let error = parse_listing_source_id("not-a-uuid");
+
+        assert!(matches!(error, Err(error) if error.code() == INVALID_UUID));
+    }
 
     #[test]
     fn should_map_supported_woocommerce_topics() {

@@ -83,7 +83,7 @@ fn should_not_reject_non_homepage_redirect_when_pattern_is_invalid() {
 
 #[tokio::test]
 async fn should_withdraw_product_when_product_url_redirects_to_homepage() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
     let homepage = Url::parse("https://example.com/").unwrap();
 
@@ -102,11 +102,13 @@ async fn should_withdraw_product_when_product_url_redirects_to_homepage() {
     cand_svc
         .expect_set_presence()
         .once()
-        .withf(move |received_shop_id, received_url, received_state| {
-            *received_shop_id == id
-                && received_url == &url_for_set_presence
-                && *received_state == UrlPresence::Withdrawn
-        })
+        .withf(
+            move |received_listing_source_id, received_url, received_state| {
+                *received_listing_source_id == id
+                    && received_url == &url_for_set_presence
+                    && *received_state == UrlPresence::Withdrawn
+            },
+        )
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -115,7 +117,7 @@ async fn should_withdraw_product_when_product_url_redirects_to_homepage() {
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();
@@ -125,7 +127,7 @@ async fn should_withdraw_product_when_product_url_redirects_to_homepage() {
 
 #[tokio::test]
 async fn should_withdraw_product_when_redirected_url_does_not_match_product_pattern() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = Url::parse("https://www.ebth.com/items/7055109-digital-print-television-poster-dirt")
         .unwrap();
     let category = Url::parse(
@@ -148,11 +150,13 @@ async fn should_withdraw_product_when_redirected_url_does_not_match_product_patt
     cand_svc
         .expect_set_presence()
         .once()
-        .withf(move |received_shop_id, received_url, received_state| {
-            *received_shop_id == id
-                && received_url == &url_for_set_presence
-                && *received_state == UrlPresence::Withdrawn
-        })
+        .withf(
+            move |received_listing_source_id, received_url, received_state| {
+                *received_listing_source_id == id
+                    && received_url == &url_for_set_presence
+                    && *received_state == UrlPresence::Withdrawn
+            },
+        )
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -161,7 +165,7 @@ async fn should_withdraw_product_when_redirected_url_does_not_match_product_patt
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let err = service

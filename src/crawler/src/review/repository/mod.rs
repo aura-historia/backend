@@ -2,14 +2,14 @@ use crate::review::model::*;
 use crate::review::schema_evaluation::evaluate_schema_matrix_for_live_review_pages;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::product_schema_repository::{
-    ShopsProductSchemaRepository, ShopsProductSchemaRepositoryImpl,
+    ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
 };
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::spider::utils::url::CrawledUrl;
+use listing_source_core::ListingSourceId;
 use regex::Regex;
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use shop_core::shop_id::ShopId;
 use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
 use tracing::info;
@@ -50,7 +50,7 @@ struct PendingReviewInsert {
 }
 
 pub struct SchemaReviewWithStatusInput<'a> {
-    pub shop_id: &'a ShopId,
+    pub listing_source_id: &'a ListingSourceId,
     pub reason: &'a str,
     pub schemas: &'a [ProductCssSelectorSchema],
     pub pages: Vec<SchemaReviewPageInput>,
@@ -60,7 +60,7 @@ pub struct SchemaReviewWithStatusInput<'a> {
 }
 
 struct ReviewWithStatusInsert<'a> {
-    shop_id: &'a ShopId,
+    listing_source_id: &'a ListingSourceId,
     domain_id: Option<&'a uuid::Uuid>,
     artifact_type: &'a str,
     status: &'a str,
@@ -77,16 +77,16 @@ impl CrawlerReviewRepository {
 
     pub async fn has_pending_review(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         artifact_type: &str,
     ) -> Result<bool, sqlx::Error> {
         let exists = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS (
                 SELECT 1 FROM crawler_reviews
-                WHERE shop_id = $1 AND artifact_type = $2 AND status = 'PENDING_REVIEW'
+                WHERE listing_source_id = $1 AND artifact_type = $2 AND status = 'PENDING_REVIEW'
             )",
         )
-        .bind(uuid::Uuid::from(*shop_id))
+        .bind(uuid::Uuid::from(*listing_source_id))
         .bind(artifact_type)
         .fetch_one(&self.pool)
         .await?;
@@ -95,17 +95,17 @@ impl CrawlerReviewRepository {
 
     pub async fn latest_pending_review_id(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         artifact_type: &str,
     ) -> Result<Option<uuid::Uuid>, sqlx::Error> {
         sqlx::query_scalar::<_, uuid::Uuid>(
             "SELECT review_id
              FROM crawler_reviews
-             WHERE shop_id = $1 AND artifact_type = $2 AND status = 'PENDING_REVIEW'
+             WHERE listing_source_id = $1 AND artifact_type = $2 AND status = 'PENDING_REVIEW'
              ORDER BY created DESC
              LIMIT 1",
         )
-        .bind(uuid::Uuid::from(*shop_id))
+        .bind(uuid::Uuid::from(*listing_source_id))
         .bind(artifact_type)
         .fetch_optional(&self.pool)
         .await
@@ -113,10 +113,10 @@ impl CrawlerReviewRepository {
 
     pub async fn list_reviews(&self, limit: i64) -> Result<Vec<CrawlerReview>, sqlx::Error> {
         let rows = sqlx::query(
-            "SELECT r.review_id, r.shop_id, s.shop_name, r.domain_id, r.artifact_type, r.status, r.reason,
+            "SELECT r.review_id, r.listing_source_id, s.listing_source_name, r.domain_id, r.artifact_type, r.status, r.reason,
                     r.candidate_payload, r.validation_summary, r.reviewer_notes, r.created, r.updated, r.reviewed
              FROM crawler_reviews r
-             LEFT JOIN shops s ON s.shop_id = r.shop_id
+             LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
              ORDER BY
                CASE WHEN r.status = 'PENDING_REVIEW' THEN 0 ELSE 1 END,
                r.created DESC
@@ -129,31 +129,34 @@ impl CrawlerReviewRepository {
         rows.into_iter().map(row_to_review).collect()
     }
 
-    pub async fn list_shops(&self, limit: i64) -> Result<Vec<ShopOverview>, sqlx::Error> {
+    pub async fn list_listing_sources(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<ListingSourceOverview>, sqlx::Error> {
         let rows = sqlx::query(
             "SELECT
-                s.shop_id,
-                s.shop_name,
+                s.listing_source_id,
+                s.listing_source_name,
                 s.llm_calls_count,
                 s.url_pattern,
                 COALESCE(r.pending_reviews, 0) AS pending_reviews,
                 COALESCE(u.product_urls, 0) AS product_urls,
                 COALESCE(u.blocked_urls, 0) AS blocked_urls
-             FROM shops s
+             FROM listing_sources s
              LEFT JOIN (
-                SELECT shop_id, COUNT(*) AS pending_reviews
+                SELECT listing_source_id, COUNT(*) AS pending_reviews
                 FROM crawler_reviews
                 WHERE status = 'PENDING_REVIEW'
-                GROUP BY shop_id
-             ) r ON r.shop_id = s.shop_id
+                GROUP BY listing_source_id
+             ) r ON r.listing_source_id = s.listing_source_id
              LEFT JOIN (
-                SELECT shop_id,
+                SELECT listing_source_id,
                        COUNT(*) FILTER (WHERE url_class = 'product') AS product_urls,
                        COUNT(*) FILTER (WHERE last_error_kind IN ('PendingSchemaReview', 'PendingUrlPatternReview')) AS blocked_urls
-                FROM shop_urls
-                GROUP BY shop_id
-             ) u ON u.shop_id = s.shop_id
-             WHERE s.active = TRUE
+                FROM listing_source_urls
+                GROUP BY listing_source_id
+             ) u ON u.listing_source_id = s.listing_source_id
+             WHERE s.present = TRUE
              ORDER BY pending_reviews DESC, s.updated DESC
              LIMIT $1",
         )
@@ -161,11 +164,13 @@ impl CrawlerReviewRepository {
             .fetch_all(&self.pool)
             .await?;
 
-        let mut shops = Vec::with_capacity(rows.len());
+        let mut listing_sources = Vec::with_capacity(rows.len());
         for row in rows {
-            shops.push(ShopOverview {
-                shop_id: ShopId::from(row.try_get::<uuid::Uuid, _>("shop_id")?),
-                shop_name: row.try_get("shop_name")?,
+            listing_sources.push(ListingSourceOverview {
+                listing_source_id: ListingSourceId::from(
+                    row.try_get::<uuid::Uuid, _>("listing_source_id")?,
+                ),
+                listing_source_name: row.try_get("listing_source_name")?,
                 llm_calls_count: row.try_get("llm_calls_count")?,
                 url_pattern: row.try_get("url_pattern")?,
                 pending_reviews: row.try_get("pending_reviews")?,
@@ -173,7 +178,7 @@ impl CrawlerReviewRepository {
                 blocked_urls: row.try_get("blocked_urls")?,
             });
         }
-        Ok(shops)
+        Ok(listing_sources)
     }
 
     pub async fn get_review(
@@ -181,10 +186,10 @@ impl CrawlerReviewRepository {
         review_id: uuid::Uuid,
     ) -> Result<ReviewDetail, ReviewRepositoryError> {
         let row = sqlx::query(
-            "SELECT r.review_id, r.shop_id, s.shop_name, r.domain_id, r.artifact_type, r.status, r.reason,
+            "SELECT r.review_id, r.listing_source_id, s.listing_source_name, r.domain_id, r.artifact_type, r.status, r.reason,
                     r.candidate_payload, r.validation_summary, r.reviewer_notes, r.created, r.updated, r.reviewed
              FROM crawler_reviews r
-             LEFT JOIN shops s ON s.shop_id = r.shop_id
+             LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
              WHERE r.review_id = $1",
         )
             .bind(review_id)
@@ -264,7 +269,7 @@ impl CrawlerReviewRepository {
 
     pub async fn create_url_pattern_review(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         domain_id: Option<&uuid::Uuid>,
         reason: &str,
         candidate_pattern: Option<&Regex>,
@@ -284,7 +289,7 @@ impl CrawlerReviewRepository {
 
         let insert = self
             .insert_pending_review_or_get_existing(
-                shop_id,
+                listing_source_id,
                 domain_id,
                 ARTIFACT_URL_PATTERN,
                 reason,
@@ -320,14 +325,14 @@ impl CrawlerReviewRepository {
 
     pub async fn create_schema_review(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         reason: &str,
         schemas: &[ProductCssSelectorSchema],
         pages: Vec<SchemaReviewPageInput>,
         validation_summary: serde_json::Value,
     ) -> Result<uuid::Uuid, ReviewRepositoryError> {
         self.insert_schema_review(SchemaReviewWithStatusInput {
-            shop_id,
+            listing_source_id,
             reason,
             schemas,
             pages,
@@ -350,7 +355,7 @@ impl CrawlerReviewRepository {
         input: SchemaReviewWithStatusInput<'_>,
     ) -> Result<uuid::Uuid, ReviewRepositoryError> {
         let SchemaReviewWithStatusInput {
-            shop_id,
+            listing_source_id,
             reason,
             schemas,
             pages,
@@ -361,7 +366,7 @@ impl CrawlerReviewRepository {
         let candidate_payload = json!({ "schemas": schemas });
         let insert = if status == STATUS_PENDING_REVIEW {
             self.insert_pending_review_or_get_existing(
-                shop_id,
+                listing_source_id,
                 None,
                 ARTIFACT_PRODUCT_SCHEMA,
                 reason,
@@ -373,7 +378,7 @@ impl CrawlerReviewRepository {
             PendingReviewInsert {
                 review_id: self
                     .insert_review_with_status(ReviewWithStatusInsert {
-                        shop_id,
+                        listing_source_id,
                         domain_id: None,
                         artifact_type: ARTIFACT_PRODUCT_SCHEMA,
                         status,
@@ -396,7 +401,7 @@ impl CrawlerReviewRepository {
 
     async fn insert_pending_review_or_get_existing(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         domain_id: Option<&uuid::Uuid>,
         artifact_type: &str,
         reason: &str,
@@ -405,15 +410,15 @@ impl CrawlerReviewRepository {
     ) -> Result<PendingReviewInsert, sqlx::Error> {
         let inserted = sqlx::query_scalar::<_, uuid::Uuid>(
             "INSERT INTO crawler_reviews (
-                shop_id, domain_id, artifact_type, status, reason, candidate_payload,
+                listing_source_id, domain_id, artifact_type, status, reason, candidate_payload,
                 validation_summary, reviewer_notes, reviewed
              ) VALUES ($1, $2, $3, 'PENDING_REVIEW', $4, $5, $6, NULL, NULL)
-             ON CONFLICT (shop_id, artifact_type)
+             ON CONFLICT (listing_source_id, artifact_type)
              WHERE status = 'PENDING_REVIEW'
              DO NOTHING
              RETURNING review_id",
         )
-        .bind(uuid::Uuid::from(*shop_id))
+        .bind(uuid::Uuid::from(*listing_source_id))
         .bind(domain_id.copied())
         .bind(artifact_type)
         .bind(reason)
@@ -430,7 +435,7 @@ impl CrawlerReviewRepository {
         }
 
         let review_id = self
-            .latest_pending_review_id(shop_id, artifact_type)
+            .latest_pending_review_id(listing_source_id, artifact_type)
             .await?
             .ok_or(sqlx::Error::RowNotFound)?;
 
@@ -489,19 +494,24 @@ impl CrawlerReviewRepository {
         candidate_payload: serde_json::Value,
     ) -> Result<(), ReviewRepositoryError> {
         let schemas = parse_schemas_payload(&candidate_payload)?;
-        let repo = ShopsProductSchemaRepositoryImpl::new(&self.pool);
-        if repo.find_product_schema(&review.shop_id).await?.is_some() {
-            repo.update_product_schema(&review.shop_id, &schemas)
+        let repo = ListingSourceProductSchemaRepositoryImpl::new(&self.pool);
+        if repo
+            .find_product_schema(&review.listing_source_id)
+            .await?
+            .is_some()
+        {
+            repo.update_product_schema(&review.listing_source_id, &schemas)
                 .await?;
         } else {
             let now = OffsetDateTime::now_utc();
-            let schema = crate::scraper::css_selector::product_schema::ShopsProductSchema {
-                shop_id: review.shop_id,
+            let schema = crate::scraper::css_selector::product_schema::ListingSourceProductSchema {
+                listing_source_id: review.listing_source_id,
                 product_schemas: schemas.clone(),
                 created: now,
                 updated: now,
             };
-            repo.insert_product_schema(&review.shop_id, &schema).await?;
+            repo.insert_product_schema(&review.listing_source_id, &schema)
+                .await?;
         }
 
         let validation_summary =
@@ -519,7 +529,7 @@ impl CrawlerReviewRepository {
 
         info!(
             review_id = %review.review_id,
-            shop_id = %review.shop_id,
+            listing_source_id = %review.listing_source_id,
             schema_count = schemas.len(),
             "Approved product schema edited from review console"
         );
@@ -578,11 +588,11 @@ impl CrawlerReviewRepository {
                     .and_then(serde_json::Value::as_str);
                 if let Some(pattern) = pattern {
                     sqlx::query(
-                        "UPDATE shops
+                        "UPDATE listing_sources
                          SET url_pattern = $2, updated = NOW()
-                         WHERE shop_id = $1",
+                         WHERE listing_source_id = $1",
                     )
-                    .bind(uuid::Uuid::from(detail.review.shop_id))
+                    .bind(uuid::Uuid::from(detail.review.listing_source_id))
                     .bind(pattern)
                     .execute(&self.pool)
                     .await?;
@@ -590,25 +600,28 @@ impl CrawlerReviewRepository {
             }
             ARTIFACT_PRODUCT_SCHEMA => {
                 let reviewed_schemas = parse_schemas_payload(&detail.review.candidate_payload)?;
-                let repo = ShopsProductSchemaRepositoryImpl::new(&self.pool);
-                let existing = repo.find_product_schema(&detail.review.shop_id).await?;
+                let repo = ListingSourceProductSchemaRepositoryImpl::new(&self.pool);
+                let existing = repo
+                    .find_product_schema(&detail.review.listing_source_id)
+                    .await?;
                 let schemas = approval_product_schemas(
                     &detail.review.reason,
                     existing.as_ref(),
                     reviewed_schemas,
                 )?;
                 if existing.is_some() {
-                    repo.update_product_schema(&detail.review.shop_id, &schemas)
+                    repo.update_product_schema(&detail.review.listing_source_id, &schemas)
                         .await?;
                 } else {
                     let now = OffsetDateTime::now_utc();
-                    let schema = crate::scraper::css_selector::product_schema::ShopsProductSchema {
-                        shop_id: detail.review.shop_id,
-                        product_schemas: schemas,
-                        created: now,
-                        updated: now,
-                    };
-                    repo.insert_product_schema(&detail.review.shop_id, &schema)
+                    let schema =
+                        crate::scraper::css_selector::product_schema::ListingSourceProductSchema {
+                            listing_source_id: detail.review.listing_source_id,
+                            product_schemas: schemas,
+                            created: now,
+                            updated: now,
+                        };
+                    repo.insert_product_schema(&detail.review.listing_source_id, &schema)
                         .await?;
                 }
             }
@@ -623,7 +636,7 @@ impl CrawlerReviewRepository {
         self.set_review_status(review_id, STATUS_APPROVED, notes)
             .await?;
         self.supersede_other_pending_reviews(
-            &detail.review.shop_id,
+            &detail.review.listing_source_id,
             &detail.review.artifact_type,
             review_id,
         )
@@ -695,8 +708,8 @@ impl CrawlerReviewRepository {
             return Ok(());
         }
 
-        let repo = ShopsProductSchemaRepositoryImpl::new(&self.pool);
-        let Some(existing) = repo.find_product_schema(&review.shop_id).await? else {
+        let repo = ListingSourceProductSchemaRepositoryImpl::new(&self.pool);
+        let Some(existing) = repo.find_product_schema(&review.listing_source_id).await? else {
             return Ok(());
         };
         let merged = approval_product_schemas(&review.reason, Some(&existing), reviewed_schemas)?;
@@ -709,7 +722,7 @@ impl CrawlerReviewRepository {
         input: ReviewWithStatusInsert<'_>,
     ) -> Result<uuid::Uuid, sqlx::Error> {
         let ReviewWithStatusInsert {
-            shop_id,
+            listing_source_id,
             domain_id,
             artifact_type,
             status,
@@ -720,14 +733,14 @@ impl CrawlerReviewRepository {
         } = input;
         sqlx::query_scalar::<_, uuid::Uuid>(
             "INSERT INTO crawler_reviews (
-                shop_id, domain_id, artifact_type, status, reason, candidate_payload,
+                listing_source_id, domain_id, artifact_type, status, reason, candidate_payload,
                 validation_summary, reviewer_notes, reviewed
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
                 CASE WHEN $4 = 'PENDING_REVIEW' THEN NULL ELSE NOW() END
              )
              RETURNING review_id",
         )
-        .bind(uuid::Uuid::from(*shop_id))
+        .bind(uuid::Uuid::from(*listing_source_id))
         .bind(domain_id.copied())
         .bind(artifact_type)
         .bind(status)
@@ -787,19 +800,19 @@ impl CrawlerReviewRepository {
 
     async fn supersede_other_pending_reviews(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         artifact_type: &str,
         approved_review_id: uuid::Uuid,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE crawler_reviews
              SET status = 'SUPERSEDED', reviewed = NOW(), updated = NOW()
-             WHERE shop_id = $1
+             WHERE listing_source_id = $1
                AND artifact_type = $2
                AND status = 'PENDING_REVIEW'
                AND review_id <> $3",
         )
-        .bind(uuid::Uuid::from(*shop_id))
+        .bind(uuid::Uuid::from(*listing_source_id))
         .bind(artifact_type)
         .bind(approved_review_id)
         .execute(&self.pool)
@@ -811,27 +824,27 @@ impl CrawlerReviewRepository {
         match review.artifact_type.as_str() {
             ARTIFACT_PRODUCT_SCHEMA => {
                 sqlx::query(
-                    "UPDATE shop_urls
+                    "UPDATE listing_source_urls
                      SET next_retry_at = NULL,
                          last_error_kind = NULL,
                          last_error_message = NULL,
                          updated = NOW()
-                     WHERE shop_id = $1
+                     WHERE listing_source_id = $1
                        AND last_error_kind = 'PendingSchemaReview'",
                 )
-                .bind(uuid::Uuid::from(review.shop_id))
+                .bind(uuid::Uuid::from(review.listing_source_id))
                 .execute(&self.pool)
                 .await?;
             }
             ARTIFACT_URL_PATTERN => {
                 sqlx::query(
-                    "UPDATE shop_domains
+                    "UPDATE listing_source_domains
                      SET next_crawl_at = NULL,
                          last_crawl_error_kind = NULL
-                     WHERE shop_id = $1
+                     WHERE listing_source_id = $1
                        AND last_crawl_error_kind = 'PendingUrlPatternReview'",
                 )
-                .bind(uuid::Uuid::from(review.shop_id))
+                .bind(uuid::Uuid::from(review.listing_source_id))
                 .execute(&self.pool)
                 .await?;
             }
@@ -844,8 +857,10 @@ impl CrawlerReviewRepository {
 fn row_to_review(row: sqlx::postgres::PgRow) -> Result<CrawlerReview, sqlx::Error> {
     Ok(CrawlerReview {
         review_id: row.try_get("review_id")?,
-        shop_id: ShopId::from(row.try_get::<uuid::Uuid, _>("shop_id")?),
-        shop_name: row.try_get("shop_name")?,
+        listing_source_id: ListingSourceId::from(
+            row.try_get::<uuid::Uuid, _>("listing_source_id")?,
+        ),
+        listing_source_name: row.try_get("listing_source_name")?,
         domain_id: row.try_get("domain_id")?,
         artifact_type: row.try_get("artifact_type")?,
         status: row.try_get("status")?,

@@ -1,16 +1,16 @@
 pub mod auth;
 pub mod billing;
 pub mod error;
+pub mod listing_sources;
 pub mod newsletter;
 pub mod notifications;
 pub mod oauth;
 pub(crate) mod pagination_data;
-pub mod partner_applications;
 pub mod partner_product_listings;
+pub(crate) mod partnership_applications;
 pub(crate) mod patch_value;
 pub mod product_listings;
 pub mod search_filters;
-pub mod shops;
 pub mod state;
 pub mod transport;
 pub mod users;
@@ -24,9 +24,9 @@ use crate::auth::{
     CognitoJwtConfig, JwksProvider, ReqwestJwksProvider, TokenAuthenticator,
 };
 use crate::state::{
-    AppState, BillingState, NewsletterState, NotificationsState, OAuthState,
-    PartnerApplicationsState, PartnerProductListingsState, ProductListingsState, ReadinessCheck,
-    SearchFiltersState, ShopsState, UsersState, WatchlistState, WebhooksState,
+    AppState, BillingState, ListingSourcesState, NewsletterState, NotificationsState, OAuthState,
+    PartnerProductListingsState, PartnershipApplicationsState, ProductListingsState,
+    ReadinessCheck, SearchFiltersState, UsersState, WatchlistState, WebhooksState,
 };
 use crate::transport::with_transport_middleware;
 use axum::Router;
@@ -38,7 +38,6 @@ use billing_service::use_cases::{
 use billing_stripe::{StripeBillingClient, StripeBillingConfig};
 use embedding::{EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
-use geo::{GoogleGeocoder, GoogleGeocoderConfig};
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use notification_postgres::{
     SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
@@ -71,7 +70,32 @@ use opensearch::{
 };
 use platform_postgres::{PostgresConnectError, PostgresPoolConfig, SqlxUnitOfWork};
 
-use listing_source_postgres::SqlxListingSourceReaders;
+use listing_source_postgres::{SqlxListingSourceReaders, SqlxListingSourceRepositoryFactory};
+use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceHandler;
+use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceHandler;
+use listing_source_service::use_cases::queries::get_listing_source::GetListingSourceHandler;
+use partnership_postgres::{
+    SqlxListingSourceAuthorization, SqlxListingSourceGrantRepositoryFactory,
+    SqlxPartnershipApplicationReaderFactory, SqlxPartnershipApplicationRepositoryFactory,
+    SqlxPartnershipRepositoryFactory,
+};
+use partnership_service::use_cases::{
+    commands::{
+        approve_partnership_application::ApprovePartnershipApplicationHandler,
+        mark_partnership_application_in_review::MarkPartnershipApplicationInReviewHandler,
+        reject_partnership_application::RejectPartnershipApplicationHandler,
+        submit_partnership_application::SubmitPartnershipApplicationHandler,
+        withdraw_partnership_application::WithdrawPartnershipApplicationHandler,
+    },
+    queries::{
+        get_own_partnership_application::GetOwnPartnershipApplicationHandler,
+        get_partnership_application::GetPartnershipApplicationHandler,
+        list_admin_partnership_applications::ListAdminPartnershipApplicationsHandler,
+        list_administered_listing_sources::ListAdministeredListingSourcesHandler,
+        list_own_partnership_applications::ListOwnPartnershipApplicationsHandler,
+    },
+};
+use party_postgres::SqlxPartyRepositoryFactory;
 use product_listing_opensearch::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
 };
@@ -98,25 +122,7 @@ use search_filter_service::use_cases::{
     ListOwnedSearchFiltersHandler, ListSearchFilterMatchesHandler, UpdateOwnedSearchFilterHandler,
     UpdateSearchFilterMatchFeedbackHandler,
 };
-use shop_partner_postgres::{
-    SqlxPartnerShopApplicationReaderFactory, SqlxPartnerShopApplicationRepositoryFactory,
-    SqlxUserPartnerShopMembershipRepositoryFactory,
-};
-use shop_partner_service::use_cases::{
-    AdminDecidePartnerShopApplicationHandler, AdminGetPartnerShopApplicationHandler,
-    AdminListPartnerShopApplicationsHandler, AdminUpdatePartnerShopApplicationHandler,
-    CreatePartnerShopApplicationHandler, GetPartnerShopApplicationHandler,
-    ListPartnerShopApplicationsHandler, WithdrawPartnerShopApplicationHandler,
-};
-use shop_postgres::{
-    SqlxPartnerShopReaderFactory, SqlxShopDetailsReaderFactory, SqlxShopRepositoryFactory,
-    SqlxShopSearchReaderFactory,
-};
-use shop_service::use_cases::commands::create_shop::CreateShopHandler;
-use shop_service::use_cases::commands::update_shop::UpdateShopHandler;
-use shop_service::use_cases::queries::get_shop::GetShopHandler;
-use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsHandler;
-use shop_service::use_cases::queries::search_shops::SearchShopsHandler;
+
 use sqlx::PgPool;
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
@@ -159,7 +165,6 @@ pub const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
 pub const COGNITO_ISSUER_ENV: &str = "AURA_HISTORIA_COGNITO_ISSUER";
 pub const COGNITO_JWKS_URL_ENV: &str = "AURA_HISTORIA_COGNITO_JWKS_URL";
 pub const COGNITO_APP_CLIENT_IDS_ENV: &str = "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS";
-pub const GOOGLE_GEOCODING_API_KEY_ENV: &str = "GOOGLE_GEOCODING_API_KEY";
 pub const STRIPE_API_KEY_ENV: &str = "STRIPE_API_KEY";
 pub const STRIPE_CHECKOUT_SUCCESS_URL_ENV: &str = "STRIPE_CHECKOUT_SUCCESS_URL";
 pub const STRIPE_CHECKOUT_CANCEL_URL_ENV: &str = "STRIPE_CHECKOUT_CANCEL_URL";
@@ -194,7 +199,6 @@ pub struct ApiConfig {
     bind_addr: SocketAddr,
     cognito_jwt: CognitoJwtConfig,
     vertex_ai_embedding: VertexAiEmbeddingConfig,
-    google_geocoder: GoogleGeocoderConfig,
     stripe_billing: StripeBillingConfig,
     billing_prices: BillingPriceIds,
     zoho: ZohoConfig,
@@ -235,11 +239,6 @@ impl ApiConfig {
                 .unwrap_or_else(|| DEFAULT_VERTEX_AI_PROJECT_ID.to_owned()),
             get(VERTEX_AI_LOCATION_ENV).unwrap_or_else(|| DEFAULT_VERTEX_AI_LOCATION.to_owned()),
         );
-        let google_geocoder = GoogleGeocoderConfig::new(
-            get(GOOGLE_GEOCODING_API_KEY_ENV)
-                .filter(|api_key| !api_key.trim().is_empty())
-                .ok_or(ApiConfigError::MissingGoogleGeocodingApiKey)?,
-        );
         let stripe_billing = StripeBillingConfig {
             api_key: required_config(&mut get, STRIPE_API_KEY_ENV)?,
             checkout_success_url: required_url_config(&mut get, STRIPE_CHECKOUT_SUCCESS_URL_ENV)?,
@@ -266,7 +265,6 @@ impl ApiConfig {
             bind_addr,
             cognito_jwt: CognitoJwtConfig::new(issuer, jwks_url, app_client_ids),
             vertex_ai_embedding,
-            google_geocoder,
             stripe_billing,
             billing_prices,
             zoho,
@@ -283,10 +281,6 @@ impl ApiConfig {
 
     pub fn vertex_ai_embedding(&self) -> &VertexAiEmbeddingConfig {
         &self.vertex_ai_embedding
-    }
-
-    fn google_geocoder(&self) -> &GoogleGeocoderConfig {
-        &self.google_geocoder
     }
 
     fn stripe_billing(&self) -> &StripeBillingConfig {
@@ -346,11 +340,6 @@ pub enum ApiConfigError {
     },
     #[error("{COGNITO_APP_CLIENT_IDS_ENV} must contain at least one client id")]
     EmptyCognitoAppClientIds,
-    #[error(
-        "missing required environment variable {env_name}",
-        env_name = GOOGLE_GEOCODING_API_KEY_ENV
-    )]
-    MissingGoogleGeocodingApiKey,
 }
 
 pub fn app(state: AppState) -> Router {
@@ -358,25 +347,7 @@ pub fn app(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/ready", get(ready))
         .with_state(Arc::clone(&state.readiness));
-    let shop_routes = Router::new()
-        .route(
-            "/api/v1/me/partner-shops",
-            get(shops::get_partner_shops::get_partner_shops),
-        )
-        .route(
-            "/api/v1/by-slug/shops/{shop_slug_id}",
-            get(shops::get_shop_by_slug::get_shop_by_slug),
-        )
-        .route(
-            "/api/v1/shops",
-            get(shops::search_shops::get_shops).post(shops::create_shop::create_shop),
-        )
-        .route(
-            "/api/v1/shops/{shop_id}",
-            get(shops::get_shop::get_shop).patch(shops::update_shop::update_shop),
-        )
-        .with_state(state.shops);
-    let mut routes = health_routes.merge(shop_routes);
+    let mut routes = health_routes;
 
     if let Some(products) = state.product_listings {
         routes = routes.merge(
@@ -397,18 +368,6 @@ pub fn app(state: AppState) -> Router {
                     "/api/v1/product-listings/{product_listing_id}/similar",
                     get(product_listings::get_similar_products::get_similar_products_by_id),
                 )
-                .route(
-                    "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}",
-                    get(product_listings::get_product_by_slug::get_product_by_slug),
-                )
-                .route(
-                    "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/history",
-                    get(product_listings::get_product_history::get_product_listing_events_by_slug),
-                )
-                .route(
-                    "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar",
-                    get(product_listings::get_similar_products::get_similar_products_by_slug),
-                )
                 .with_state(products),
         );
     }
@@ -417,7 +376,7 @@ pub fn app(state: AppState) -> Router {
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/webhooks/woocommerce/{shop_id}",
+                    "/api/v1/webhooks/woocommerce/{listing_source_id}",
                     post(webhooks::post_woocommerce::post_woocommerce),
                 )
                 .with_state(webhooks),
@@ -428,13 +387,34 @@ pub fn app(state: AppState) -> Router {
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/shops/{shop_id}/product-listings",
+                    "/api/v1/listing-sources/{listing_source_id}/product-listings",
                     post(partner_product_listings::create_products::create_products)
                         .patch(partner_product_listings::update_products::update_products)
                         .put(partner_product_listings::upsert_products::upsert_products)
                         .delete(partner_product_listings::delete_products::delete_products),
                 )
                 .with_state(partner_product_listings),
+        );
+    }
+
+    if let Some(listing_sources) = state.listing_sources {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/listing-sources/{listing_source_id}",
+                    get(listing_sources::get_listing_source::get_listing_source)
+                        .post(listing_sources::create_listing_source::create_listing_source)
+                        .patch(listing_sources::update_listing_source::update_listing_source),
+                )
+                .route(
+                    "/api/v1/listing-sources/by-slug/{listing_source_slug_id}",
+                    get(listing_sources::get_listing_source_by_slug::get_listing_source_by_slug),
+                )
+                .route(
+                    "/api/v1/me/listing-sources",
+                    get(listing_sources::list_my_listing_sources::list_my_listing_sources),
+                )
+                .with_state(listing_sources),
         );
     }
 
@@ -542,34 +522,8 @@ pub fn app(state: AppState) -> Router {
         );
     }
 
-    if let Some(partner_applications) = state.partner_applications {
-        routes = routes.merge(
-            Router::new()
-                .route(
-                    "/api/v1/me/partner-applications",
-                    get(partner_applications::personal::list_me)
-                        .post(partner_applications::personal::post_me),
-                )
-                .route(
-                    "/api/v1/me/partner-applications/{partner_application_id}",
-                    get(partner_applications::personal::get_me)
-                        .delete(partner_applications::personal::delete_me),
-                )
-                .route(
-                    "/api/v1/partner-applications",
-                    get(partner_applications::admin::admin_list),
-                )
-                .route(
-                    "/api/v1/partner-applications/{partner_application_id}",
-                    get(partner_applications::admin::admin_get)
-                        .patch(partner_applications::admin::admin_patch),
-                )
-                .route(
-                    "/api/v1/partner-applications/{partner_application_id}/decision",
-                    post(partner_applications::admin::admin_decision),
-                )
-                .with_state(partner_applications),
-        );
+    if let Some(partnership_applications) = state.partnership_applications {
+        routes = routes.merge(partnership_applications::router(partnership_applications));
     }
 
     with_transport_middleware(routes)
@@ -621,27 +575,25 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         google_application_default_credentials()?,
     ));
 
-    let get_shop = GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new());
-    let search_shops =
-        SearchShopsHandler::new(unit_of_work.clone(), SqlxShopSearchReaderFactory::new());
-    let check_user_admin =
-        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new());
-    let geocoder = Arc::new(GoogleGeocoder::new(config.google_geocoder().clone()));
-    let create_shop = CreateShopHandler::new(
+    let create_listing_source = CreateListingSourceHandler::new(
         unit_of_work.clone(),
-        SqlxShopRepositoryFactory::new(),
-        Arc::clone(&geocoder),
-        check_user_admin,
-    );
-    let update_shop = UpdateShopHandler::new(
-        unit_of_work.clone(),
-        SqlxShopRepositoryFactory::new(),
-        Arc::clone(&geocoder),
+        SqlxListingSourceRepositoryFactory::new(),
+        SqlxPartyRepositoryFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
-        SqlxPartnerShopReaderFactory::new(),
     );
-    let list_user_partner_shops =
-        ListUserPartnerShopsHandler::new(unit_of_work.clone(), SqlxPartnerShopReaderFactory::new());
+    let get_listing_source = GetListingSourceHandler::new(
+        SqlxListingSourceReaders::new(pool.clone()),
+        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
+    );
+    let update_listing_source = UpdateListingSourceHandler::new(
+        unit_of_work.clone(),
+        SqlxListingSourceRepositoryFactory::new(),
+        SqlxPartyRepositoryFactory::new(),
+        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
+    );
+    let list_administered_listing_sources = ListAdministeredListingSourcesHandler::new(
+        SqlxListingSourceAuthorization::new(pool.clone()),
+    );
     let get_own_user =
         GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new());
     let stripe_billing = StripeBillingClient::new(config.stripe_billing().clone())
@@ -705,46 +657,57 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     );
     let unwatch_product =
         UnwatchProductListingHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
-    let create_partner_application = CreatePartnerShopApplicationHandler::new(
+    let submit_partnership_application = SubmitPartnershipApplicationHandler::new(
         unit_of_work.clone(),
-        SqlxPartnerShopApplicationRepositoryFactory::new(),
-        SqlxShopRepositoryFactory::new(),
-        geocoder,
+        SqlxPartnershipApplicationRepositoryFactory::new(),
     );
-    let list_partner_applications = ListPartnerShopApplicationsHandler::new(
+    let list_own_partnership_applications = ListOwnPartnershipApplicationsHandler::new(
         unit_of_work.clone(),
-        SqlxPartnerShopApplicationReaderFactory::new(),
+        SqlxPartnershipApplicationReaderFactory::new(),
     );
-    let get_partner_application = GetPartnerShopApplicationHandler::new(
+    let get_own_partnership_application = GetOwnPartnershipApplicationHandler::new(
         unit_of_work.clone(),
-        SqlxPartnerShopApplicationRepositoryFactory::new(),
+        SqlxPartnershipApplicationRepositoryFactory::new(),
     );
-    let delete_partner_application = WithdrawPartnerShopApplicationHandler::new(
+    let withdraw_partnership_application = WithdrawPartnershipApplicationHandler::new(
         unit_of_work.clone(),
-        SqlxPartnerShopApplicationRepositoryFactory::new(),
-        SqlxShopRepositoryFactory::new(),
+        SqlxPartnershipApplicationRepositoryFactory::new(),
     );
-    let admin_list_partner_applications = AdminListPartnerShopApplicationsHandler::new(
+    let list_admin_partnership_applications = ListAdminPartnershipApplicationsHandler::new(
         unit_of_work.clone(),
-        SqlxPartnerShopApplicationReaderFactory::new(),
+        SqlxPartnershipApplicationReaderFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
-    let admin_get_partner_application = AdminGetPartnerShopApplicationHandler::new(
+    let get_partnership_application = GetPartnershipApplicationHandler::new(
         unit_of_work.clone(),
-        SqlxPartnerShopApplicationRepositoryFactory::new(),
+        SqlxPartnershipApplicationRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
-    let admin_update_partner_application = AdminUpdatePartnerShopApplicationHandler::new(
+    let mark_partnership_application_in_review = MarkPartnershipApplicationInReviewHandler::new(
         unit_of_work.clone(),
-        SqlxPartnerShopApplicationRepositoryFactory::new(),
+        SqlxPartnershipApplicationRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
-
-    let admin_decide_partner_application = AdminDecidePartnerShopApplicationHandler::new(
+    let approve_partnership_application = ApprovePartnershipApplicationHandler::new(
         unit_of_work.clone(),
-        SqlxPartnerShopApplicationRepositoryFactory::new(),
-        SqlxShopRepositoryFactory::new(),
-        SqlxUserPartnerShopMembershipRepositoryFactory::new(),
+        SqlxPartnershipApplicationRepositoryFactory::new(),
+        SqlxPartyRepositoryFactory::new(),
+        SqlxListingSourceRepositoryFactory::new(),
+        SqlxPartnershipRepositoryFactory::new(),
+        SqlxPartnershipRepositoryFactory::new(),
+        SqlxListingSourceGrantRepositoryFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+        NotificationCreationCoordinatorFactory::new(
+            SqlxNotificationRepositoryFactory::new(),
+            InitialExternalDeliveryPlanReaderFactory,
+            SqlxNotificationDeliveryIntentRepositoryFactory::new(),
+        ),
+    );
+    let reject_partnership_application = RejectPartnershipApplicationHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipApplicationRepositoryFactory::new(),
+        SqlxPartyRepositoryFactory::new(),
+        SqlxListingSourceRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
         NotificationCreationCoordinatorFactory::new(
             SqlxNotificationRepositoryFactory::new(),
@@ -883,6 +846,13 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         Arc::new(withdraw_product),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
+    let listing_sources_state = ListingSourcesState::new(
+        Arc::new(create_listing_source),
+        Arc::new(get_listing_source),
+        Arc::new(update_listing_source),
+        Arc::new(list_administered_listing_sources),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
     let users_state = UsersState {
         get_own_user: Arc::new(get_own_user),
         admin_get_user: Arc::new(admin_get_user),
@@ -1003,59 +973,53 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         )),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
-    let partner_state = PartnerApplicationsState {
-        create: Arc::new(create_partner_application),
-        list: Arc::new(list_partner_applications),
-        get: Arc::new(get_partner_application),
-        delete: Arc::new(delete_partner_application),
-        admin_list: Arc::new(admin_list_partner_applications),
-        admin_get: Arc::new(admin_get_partner_application),
-        admin_update: Arc::new(admin_update_partner_application),
-        admin_decide: Arc::new(admin_decide_partner_application),
-        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
-    };
+
+    let partnership_state = PartnershipApplicationsState::new(
+        Arc::new(submit_partnership_application),
+        Arc::new(list_own_partnership_applications),
+        Arc::new(get_own_partnership_application),
+        Arc::new(withdraw_partnership_application),
+        Arc::new(list_admin_partnership_applications),
+        Arc::new(get_partnership_application),
+        Arc::new(mark_partnership_application_in_review),
+        Arc::new(approve_partnership_application),
+        Arc::new(reject_partnership_application),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
 
     let readiness = Arc::new(RuntimeReadiness {
         postgres: pool,
         opensearch: opensearch_client.clone(),
     });
 
-    Ok(AppState::new(
-        ShopsState::new(
-            Arc::new(get_shop),
-            Arc::new(search_shops),
-            Arc::new(create_shop),
-            Arc::new(update_shop),
-            Arc::new(list_user_partner_shops),
-            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
-        ),
-        users_state,
-        watchlist_state,
-        partner_state,
-    )
-    .with_products(
-        ProductListingsState::new(
-            Arc::new(get_product),
-            Arc::new(get_similar_products),
-            Arc::new(search_products),
-            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    Ok(AppState::new()
+        .with_users(users_state)
+        .with_watchlist(watchlist_state)
+        .with_partnership_applications(partnership_state)
+        .with_products(
+            ProductListingsState::new(
+                Arc::new(get_product),
+                Arc::new(get_similar_products),
+                Arc::new(search_products),
+                Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+            )
+            .with_product_listing_events(Arc::new(get_product_listing_events)),
         )
-        .with_product_listing_events(Arc::new(get_product_listing_events)),
-    )
-    .with_partner_product_listings(partner_product_listings_state)
-    .with_webhooks(WebhooksState::new(
-        Arc::new(ingest_woocommerce_product),
-        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
-    ))
-    .with_oauth(oauth_state)
-    .with_search_filters(search_filters_state)
-    .with_notifications(notifications_state)
-    .with_billing(billing_state)
-    .with_newsletter(NewsletterState::new(
-        Arc::new(upsert_newsletter_subscription),
-        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
-    ))
-    .with_readiness(readiness))
+        .with_partner_product_listings(partner_product_listings_state)
+        .with_listing_sources(listing_sources_state)
+        .with_webhooks(WebhooksState::new(
+            Arc::new(ingest_woocommerce_product),
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        ))
+        .with_oauth(oauth_state)
+        .with_search_filters(search_filters_state)
+        .with_notifications(notifications_state)
+        .with_billing(billing_state)
+        .with_newsletter(NewsletterState::new(
+            Arc::new(upsert_newsletter_subscription),
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        ))
+        .with_readiness(readiness))
 }
 
 async fn postgres_pool_from_env() -> Result<PgPool, ApiStateError> {
@@ -1211,821 +1175,3 @@ pub enum ApiRunError {
     Serve(#[source] std::io::Error),
 }
 
-#[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-    use super::*;
-    use crate::auth::{
-        AuthMethod, JsonWebKey, JsonWebKeySet, JwksProvider, RequestMetadata, TransportPrincipal,
-    };
-    use crate::state::ReadinessCheck;
-    use application::operation_context::CredentialCapability;
-    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-    use http::StatusCode;
-    use jsonwebtokens::{Algorithm, AlgorithmID};
-    use openssl::rsa::Rsa;
-    use serde_json::json;
-    use user_core::user_id::UserId;
-
-    use std::collections::BTreeSet;
-    use time::OffsetDateTime;
-    use tokio::sync::oneshot;
-
-    fn env(values: &[(&'static str, &str)]) -> HashMap<&'static str, String> {
-        let mut environment = HashMap::from([
-            (COGNITO_ISSUER_ENV, "https://issuer.example/pool".to_owned()),
-            (
-                COGNITO_JWKS_URL_ENV,
-                "https://issuer.example/pool/.well-known/jwks.json".to_owned(),
-            ),
-            (COGNITO_APP_CLIENT_IDS_ENV, "audience-1".to_owned()),
-            (GOOGLE_GEOCODING_API_KEY_ENV, "api-key".to_owned()),
-            (STRIPE_API_KEY_ENV, "stripe-api-key".to_owned()),
-            (
-                STRIPE_CHECKOUT_SUCCESS_URL_ENV,
-                "https://app.example/billing/success".to_owned(),
-            ),
-            (
-                STRIPE_CHECKOUT_CANCEL_URL_ENV,
-                "https://app.example/billing/cancel".to_owned(),
-            ),
-            (
-                STRIPE_PORTAL_RETURN_URL_ENV,
-                "https://app.example/billing".to_owned(),
-            ),
-            (
-                STRIPE_PRO_MONTHLY_PRICE_ID_ENV,
-                "price_pro_monthly".to_owned(),
-            ),
-            (
-                STRIPE_PRO_YEARLY_PRICE_ID_ENV,
-                "price_pro_yearly".to_owned(),
-            ),
-            (
-                STRIPE_ULTIMATE_MONTHLY_PRICE_ID_ENV,
-                "price_ultimate_monthly".to_owned(),
-            ),
-            (
-                STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV,
-                "price_ultimate_yearly".to_owned(),
-            ),
-            (ZOHO_LIST_KEY_ENV, "zoho-list-key".to_owned()),
-            (ZOHO_CLIENT_ID_ENV, "zoho-client-id".to_owned()),
-            (ZOHO_CLIENT_SECRET_ENV, "zoho-client-secret".to_owned()),
-            (ZOHO_REFRESH_TOKEN_ENV, "zoho-refresh-token".to_owned()),
-            (
-                ZOHO_ACCOUNTS_URL_ENV,
-                "https://accounts.zoho.example".to_owned(),
-            ),
-            (
-                ZOHO_CAMPAIGNS_URL_ENV,
-                "https://campaigns.zoho.example".to_owned(),
-            ),
-        ]);
-        environment.extend(
-            values
-                .iter()
-                .map(|(key, value)| (*key, (*value).to_owned())),
-        );
-        environment
-    }
-
-    #[test]
-    fn should_use_default_bind_addr_when_env_missing() -> Result<(), Box<dyn std::error::Error>> {
-        let values = env(&[(GOOGLE_GEOCODING_API_KEY_ENV, "api-key")]);
-
-        let config = ApiConfig::from_getter(|name| values.get(name).cloned())?;
-
-        assert_eq!("0.0.0.0:8080".parse::<SocketAddr>()?, config.bind_addr());
-        Ok(())
-    }
-
-    #[test]
-    fn should_read_bind_addr_from_env() -> Result<(), Box<dyn std::error::Error>> {
-        let values = env(&[
-            (API_BIND_ADDR_ENV, "127.0.0.1:9000"),
-            (GOOGLE_GEOCODING_API_KEY_ENV, "api-key"),
-        ]);
-
-        let config = ApiConfig::from_getter(|name| values.get(name).cloned())?;
-
-        assert_eq!("127.0.0.1:9000".parse::<SocketAddr>()?, config.bind_addr());
-        Ok(())
-    }
-
-    #[test]
-    fn should_read_vertex_ai_embedding_config_from_environment()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let values = env(&[
-            (VERTEX_AI_PROJECT_ID_ENV, "embedding-project"),
-            (VERTEX_AI_LOCATION_ENV, "europe-west3"),
-            (GOOGLE_GEOCODING_API_KEY_ENV, "api-key"),
-        ]);
-
-        let config = ApiConfig::from_getter(|name| values.get(name).cloned())?;
-
-        assert_eq!(
-            "embedding-project",
-            config.vertex_ai_embedding().project_id()
-        );
-        assert_eq!("europe-west3", config.vertex_ai_embedding().location());
-        Ok(())
-    }
-
-    #[test]
-    fn should_read_cognito_config_from_environment() -> Result<(), Box<dyn std::error::Error>> {
-        let values = env(&[
-            (
-                COGNITO_ISSUER_ENV,
-                "https://cognito-idp.eu-west-1.amazonaws.com/pool",
-            ),
-            (
-                COGNITO_JWKS_URL_ENV,
-                "https://cognito-idp.eu-west-1.amazonaws.com/pool/.well-known/jwks.json",
-            ),
-            (COGNITO_APP_CLIENT_IDS_ENV, "client-1, client-2"),
-        ]);
-
-        let config = ApiConfig::from_getter(|name| values.get(name).cloned())?;
-
-        assert_eq!(
-            "https://cognito-idp.eu-west-1.amazonaws.com/pool",
-            config.cognito_jwt().issuer
-        );
-        assert_eq!(
-            "https://cognito-idp.eu-west-1.amazonaws.com/pool/.well-known/jwks.json",
-            config.cognito_jwt().jwks_url
-        );
-        assert_eq!(
-            std::collections::HashSet::from(["client-1".to_owned(), "client-2".to_owned()]),
-            config.cognito_jwt().app_client_ids
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_fail_when_cognito_config_missing() {
-        let values = HashMap::<&'static str, String>::new();
-
-        let config = ApiConfig::from_getter(|name| values.get(name).cloned());
-
-        assert!(matches!(
-            config,
-            Err(ApiConfigError::MissingRequiredConfig {
-                name: COGNITO_ISSUER_ENV
-            })
-        ));
-    }
-
-    #[test]
-    fn should_fail_when_google_geocoding_api_key_is_missing() {
-        let mut values = env(&[]);
-        values.remove(GOOGLE_GEOCODING_API_KEY_ENV);
-
-        let config = ApiConfig::from_getter(|name| values.get(name).cloned());
-
-        assert!(matches!(
-            config,
-            Err(ApiConfigError::MissingGoogleGeocodingApiKey)
-        ));
-    }
-
-    #[test]
-    fn should_read_google_geocoding_api_key_from_environment()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let values = env(&[(GOOGLE_GEOCODING_API_KEY_ENV, "configured-api-key")]);
-
-        let config = ApiConfig::from_getter(|name| values.get(name).cloned())?;
-
-        assert!(config.google_geocoder() == &GoogleGeocoderConfig::new("configured-api-key"));
-        Ok(())
-    }
-
-    #[test]
-    fn should_fail_when_bind_addr_is_invalid() {
-        let values = env(&[(API_BIND_ADDR_ENV, "not-an-addr")]);
-
-        let config = ApiConfig::from_getter(|name| values.get(name).cloned());
-
-        assert!(matches!(
-            config,
-            Err(ApiConfigError::InvalidBindAddr { .. })
-        ));
-    }
-
-    #[derive(Clone)]
-    struct StaticJwksProvider {
-        jwks: JsonWebKeySet,
-    }
-
-    #[async_trait::async_trait]
-    impl JwksProvider for StaticJwksProvider {
-        async fn fetch_jwks(&self, _jwks_url: &str) -> Result<JsonWebKeySet, AuthError> {
-            Ok(self.jwks.clone())
-        }
-    }
-
-    #[tokio::test]
-    async fn should_authenticate_cognito_and_aura_tokens_from_composed_authenticator()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let rsa = Rsa::generate(2048)?;
-        let private_pem = rsa.private_key_to_pem()?;
-        let algorithm = Algorithm::new_rsa_pem_signer(AlgorithmID::RS256, &private_pem)?;
-        let user_id = UserId::new();
-        let now = OffsetDateTime::now_utc().unix_timestamp();
-        let token = jsonwebtokens::encode(
-            &json!({ "alg": algorithm.name(), "kid": "kid-1" }),
-            &json!({
-                "iss": "https://issuer.example/pool",
-                "sub": user_id.to_string(),
-                "token_use": "access",
-                "client_id": "audience-1",
-                "iat": now,
-                "exp": now + 3_600,
-            }),
-            &algorithm,
-        )?;
-        let config_values = env(&[]);
-        let config = ApiConfig::from_getter(|name| config_values.get(name).cloned())?;
-        let authenticator = compose_authenticator(
-            &config,
-            StaticJwksProvider {
-                jwks: JsonWebKeySet {
-                    keys: vec![JsonWebKey {
-                        kid: "kid-1".to_owned(),
-                        alg: Some("RS256".to_owned()),
-                        n: URL_SAFE_NO_PAD.encode(rsa.n().to_vec()),
-                        e: URL_SAFE_NO_PAD.encode(rsa.e().to_vec()),
-                    }],
-                },
-            },
-            StaticAuthenticator,
-        )?;
-
-        let cognito_principal = authenticator
-            .authenticate(&token, &RequestMetadata::new("req-1", "corr-1"))
-            .await?;
-        let aura_principal = authenticator
-            .authenticate(
-                "aurahistoria_accesstoken_short_long",
-                &RequestMetadata::new("req-2", "corr-2"),
-            )
-            .await?;
-
-        assert!(matches!(
-            cognito_principal,
-            TransportPrincipal::User {
-                user_id: actual,
-                auth_method: AuthMethod::CognitoJwt,
-                ..
-            } if actual == user_id
-        ));
-        assert!(matches!(
-            aura_principal,
-            TransportPrincipal::User {
-                auth_method: AuthMethod::AuraAccessToken,
-                ..
-            }
-        ));
-        Ok(())
-    }
-
-    #[derive(Clone, Copy)]
-    struct Unready;
-
-    #[async_trait::async_trait]
-    impl ReadinessCheck for Unready {
-        async fn check(&self) -> Result<(), ()> {
-            Err(())
-        }
-    }
-
-    #[tokio::test]
-    async fn should_return_service_unavailable_when_dependency_readiness_fails()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let response = app(test_state().with_readiness(Arc::new(Unready)))
-            .oneshot(http::Request::get("/ready").body(axum::body::Body::empty())?)
-            .await?;
-
-        assert_eq!(StatusCode::SERVICE_UNAVAILABLE, response.status());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_route_health_endpoints() -> Result<(), Box<dyn std::error::Error>> {
-        for (path, status_code, body) in [
-            ("/health", StatusCode::OK, "ok\n"),
-            ("/ready", StatusCode::NO_CONTENT, ""),
-        ] {
-            let response = app(test_state())
-                .oneshot(http::Request::get(path).body(axum::body::Body::empty())?)
-                .await?;
-
-            assert_eq!(status_code, response.status());
-            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
-            assert_eq!(body.as_bytes(), bytes.as_ref());
-        }
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_serve_health_endpoint_until_shutdown() -> Result<(), Box<dyn std::error::Error>>
-    {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = tokio::spawn(serve(listener, app(test_state()), async move {
-            let _ = shutdown_rx.await;
-        }));
-
-        let response = reqwest::get(format!("http://{addr}/health")).await?;
-        let _send_result = shutdown_tx.send(());
-        server.await??;
-
-        assert_eq!(StatusCode::OK, response.status());
-        assert_eq!("ok\n", response.text().await?);
-        Ok(())
-    }
-
-    fn test_state() -> AppState {
-        let authenticator = Arc::new(StaticAuthenticator);
-        AppState::new(
-            ShopsState::new(
-                Arc::new(RejectGetShopUseCase),
-                Arc::new(UnusedUseCase),
-                Arc::new(UnusedUseCase),
-                Arc::new(UnusedUseCase),
-                Arc::new(UnusedUseCase),
-                authenticator.clone(),
-            ),
-            UsersState {
-                get_own_user: Arc::new(UnusedUseCase),
-                admin_get_user: Arc::new(UnusedUseCase),
-                search_users: Arc::new(UnusedUseCase),
-                update_user_profile: Arc::new(UnusedUseCase),
-                change_user_role: Arc::new(UnusedUseCase),
-                change_user_tier: Arc::new(UnusedUseCase),
-                delete_user: Arc::new(UnusedUseCase),
-                create_access_token: Arc::new(UnusedUseCase),
-                list_access_tokens: Arc::new(UnusedUseCase),
-                get_access_token: Arc::new(UnusedUseCase),
-                update_access_token: Arc::new(UnusedUseCase),
-                delete_access_token: Arc::new(UnusedUseCase),
-                authenticator: authenticator.clone(),
-            },
-            WatchlistState {
-                list_watchlist: Arc::new(UnusedUseCase),
-                watch_product: Arc::new(UnusedUseCase),
-                update_watchlist_product: Arc::new(UnusedUseCase),
-                unwatch_product: Arc::new(UnusedUseCase),
-                authenticator: authenticator.clone(),
-            },
-            PartnerApplicationsState {
-                create: Arc::new(UnusedUseCase),
-                list: Arc::new(UnusedUseCase),
-                get: Arc::new(UnusedUseCase),
-                delete: Arc::new(UnusedUseCase),
-                admin_list: Arc::new(UnusedUseCase),
-                admin_get: Arc::new(UnusedUseCase),
-                admin_update: Arc::new(UnusedUseCase),
-                admin_decide: Arc::new(UnusedUseCase),
-                authenticator,
-            },
-        )
-    }
-
-    struct RejectGetShopUseCase;
-
-    #[async_trait::async_trait]
-    impl shop_service::use_cases::queries::get_shop::GetShopUseCase for RejectGetShopUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _request: shop_service::use_cases::queries::get_shop::GetShopRequest,
-        ) -> Result<
-            shop_service::use_cases::queries::get_shop::ShopDetailsView,
-            shop_service::use_cases::queries::get_shop::GetShopError,
-        > {
-            Err(shop_service::use_cases::queries::get_shop::GetShopError::NotFound)
-        }
-    }
-
-    struct UnusedUseCase;
-
-    #[async_trait::async_trait]
-    impl shop_service::use_cases::queries::search_shops::SearchShopsUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _request: shop_service::use_cases::queries::search_shops::SearchShopsRequest,
-        ) -> Result<
-            shop_service::use_cases::queries::search_shops::SearchShopsResult,
-            shop_service::use_cases::queries::search_shops::SearchShopsError,
-        > {
-            unreachable!("unused search use case")
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl shop_service::use_cases::commands::create_shop::CreateShopUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: shop_service::use_cases::commands::create_shop::CreateShopCommand,
-        ) -> Result<
-            shop_service::use_cases::commands::create_shop::CreateShopResult,
-            shop_service::use_cases::commands::create_shop::CreateShopError,
-        > {
-            unreachable!("unused create shop use case")
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl shop_service::use_cases::commands::update_shop::UpdateShopUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: shop_service::use_cases::commands::update_shop::UpdateShopCommand,
-        ) -> Result<
-            shop_service::use_cases::commands::update_shop::UpdateShopResult,
-            shop_service::use_cases::commands::update_shop::UpdateShopError,
-        > {
-            unreachable!("unused update shop use case")
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsUseCase
-        for UnusedUseCase
-    {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _request: shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsRequest,
-        ) -> Result<
-            shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsResult,
-            shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsError,
-        > {
-            unreachable!("unused partner shops use case")
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl user_service::use_cases::queries::get_own_user::GetOwnUserUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _request: user_service::use_cases::queries::get_own_user::GetOwnUserRequest,
-        ) -> Result<
-            user_service::ports::UserDetailsView,
-            user_service::use_cases::queries::get_own_user::GetOwnUserError,
-        > {
-            unreachable!("unused get own user")
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl user_service::use_cases::queries::admin_get_user::AdminGetUserUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _request: user_service::use_cases::queries::admin_get_user::AdminGetUserRequest,
-        ) -> Result<
-            user_service::ports::UserDetailsView,
-            user_service::use_cases::queries::admin_get_user::AdminGetUserError,
-        > {
-            unreachable!("unused admin get user")
-        }
-    }
-    #[async_trait::async_trait]
-    impl user_service::use_cases::queries::search_users::SearchUsersUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _request: user_service::use_cases::queries::search_users::SearchUsersRequest,
-        ) -> Result<
-            user_service::use_cases::queries::search_users::SearchUsersResult,
-            user_service::use_cases::queries::search_users::SearchUsersError,
-        > {
-            unreachable!("unused search users")
-        }
-    }
-    #[async_trait::async_trait]
-    impl user_service::use_cases::commands::update_user_profile::UpdateUserProfileUseCase
-        for UnusedUseCase
-    {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: user_service::use_cases::commands::update_user_profile::UpdateUserProfileCommand,
-        ) -> Result<
-            user_service::use_cases::commands::update_user_profile::UpdateUserProfileResult,
-            user_service::use_cases::commands::update_user_profile::UpdateUserProfileError,
-        > {
-            unreachable!("unused update user profile")
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl user_service::use_cases::commands::change_user_role::ChangeUserRoleUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: user_service::use_cases::commands::change_user_role::ChangeUserRoleCommand,
-        ) -> Result<
-            user_service::use_cases::commands::change_user_role::ChangeUserRoleResult,
-            user_service::use_cases::commands::change_user_role::ChangeUserRoleError,
-        > {
-            unreachable!("unused change user role")
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl user_service::use_cases::commands::change_user_tier::ChangeUserTierUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: user_service::use_cases::commands::change_user_tier::ChangeUserTierCommand,
-        ) -> Result<
-            user_service::use_cases::commands::change_user_tier::ChangeUserTierResult,
-            user_service::use_cases::commands::change_user_tier::ChangeUserTierError,
-        > {
-            unreachable!("unused change user tier")
-        }
-    }
-    #[async_trait::async_trait]
-    impl user_service::use_cases::commands::delete_user::DeleteUserUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: user_service::use_cases::commands::delete_user::DeleteUserCommand,
-        ) -> Result<
-            user_service::use_cases::commands::delete_user::DeleteUserResult,
-            user_service::use_cases::commands::delete_user::DeleteUserError,
-        > {
-            unreachable!("unused delete user")
-        }
-    }
-    #[async_trait::async_trait]
-    impl user_service::use_cases::queries::check_user_admin::CheckUserAdminUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _request: user_service::use_cases::queries::check_user_admin::CheckUserAdminRequest,
-        ) -> Result<
-            user_service::use_cases::queries::check_user_admin::CheckUserAdminResult,
-            user_service::use_cases::queries::check_user_admin::CheckUserAdminError,
-        > {
-            unreachable!("unused check admin")
-        }
-    }
-    #[async_trait::async_trait]
-    impl user_service::use_cases::commands::create_access_token::CreateAccessTokenUseCase
-        for UnusedUseCase
-    {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: user_service::use_cases::commands::create_access_token::CreateAccessTokenCommand,
-        ) -> Result<
-            user_service::use_cases::commands::create_access_token::CreateAccessTokenResult,
-            user_service::use_cases::commands::create_access_token::CreateAccessTokenError,
-        > {
-            unreachable!("unused create token")
-        }
-    }
-    #[async_trait::async_trait]
-    impl user_service::use_cases::queries::list_access_tokens::ListAccessTokensUseCase
-        for UnusedUseCase
-    {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _request: user_service::use_cases::queries::list_access_tokens::ListAccessTokensRequest,
-        ) -> Result<
-            user_service::use_cases::queries::list_access_tokens::ListAccessTokensResult,
-            user_service::use_cases::queries::list_access_tokens::ListAccessTokensError,
-        > {
-            unreachable!("unused list tokens")
-        }
-    }
-    #[async_trait::async_trait]
-    impl user_service::use_cases::queries::get_access_token::GetAccessTokenUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _request: user_service::use_cases::queries::get_access_token::GetAccessTokenRequest,
-        ) -> Result<
-            user_service::use_cases::queries::get_access_token::AccessTokenView,
-            user_service::use_cases::queries::get_access_token::GetAccessTokenError,
-        > {
-            unreachable!("unused get token")
-        }
-    }
-    #[async_trait::async_trait]
-    impl user_service::use_cases::commands::update_access_token::UpdateAccessTokenUseCase
-        for UnusedUseCase
-    {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: user_service::use_cases::commands::update_access_token::UpdateAccessTokenCommand,
-        ) -> Result<
-            user_service::use_cases::commands::update_access_token::UpdateAccessTokenResult,
-            user_service::use_cases::commands::update_access_token::UpdateAccessTokenError,
-        > {
-            unreachable!("unused update token")
-        }
-    }
-    #[async_trait::async_trait]
-    impl user_service::use_cases::commands::delete_access_token::DeleteAccessTokenUseCase
-        for UnusedUseCase
-    {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: user_service::use_cases::commands::delete_access_token::DeleteAccessTokenCommand,
-        ) -> Result<
-            user_service::use_cases::commands::delete_access_token::DeleteAccessTokenResult,
-            user_service::use_cases::commands::delete_access_token::DeleteAccessTokenError,
-        > {
-            unreachable!("unused delete token")
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl watchlist_service::use_cases::ListWatchlistUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _request: watchlist_service::use_cases::ListWatchlistRequest,
-        ) -> Result<
-            watchlist_service::use_cases::ListWatchlistResult,
-            watchlist_service::use_cases::ListWatchlistError,
-        > {
-            unreachable!("unused list watchlist")
-        }
-    }
-    #[async_trait::async_trait]
-    impl watchlist_service::use_cases::WatchProductListingUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: watchlist_service::use_cases::WatchProductListingCommand,
-        ) -> Result<
-            watchlist_service::use_cases::WatchProductListingResult,
-            watchlist_service::use_cases::WatchProductListingError,
-        > {
-            unreachable!("unused watch product")
-        }
-    }
-    #[async_trait::async_trait]
-    impl watchlist_service::use_cases::UpdateWatchlistProductListingUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: watchlist_service::use_cases::UpdateWatchlistProductListingCommand,
-        ) -> Result<
-            watchlist_service::use_cases::UpdateWatchlistProductListingResult,
-            watchlist_service::use_cases::UpdateWatchlistProductListingError,
-        > {
-            unreachable!("unused update watchlist")
-        }
-    }
-    #[async_trait::async_trait]
-    impl watchlist_service::use_cases::UnwatchProductListingUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: watchlist_service::use_cases::UnwatchProductListingCommand,
-        ) -> Result<
-            watchlist_service::use_cases::UnwatchProductListingResult,
-            watchlist_service::use_cases::UnwatchProductListingError,
-        > {
-            unreachable!("unused delete watchlist")
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl shop_partner_service::use_cases::CreatePartnerShopApplicationUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: shop_partner_service::use_cases::CreatePartnerShopApplicationCommand,
-        ) -> Result<
-            shop_partner_service::use_cases::CreatePartnerShopApplicationResult,
-            shop_partner_service::use_cases::CreatePartnerShopApplicationError,
-        > {
-            unreachable!("unused create application")
-        }
-    }
-    #[async_trait::async_trait]
-    impl shop_partner_service::use_cases::ListPartnerShopApplicationsUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _request: shop_partner_service::use_cases::ListPartnerShopApplicationsRequest,
-        ) -> Result<
-            shop_partner_service::use_cases::ListPartnerShopApplicationsResult,
-            shop_partner_service::use_cases::ListPartnerShopApplicationsError,
-        > {
-            unreachable!("unused list applications")
-        }
-    }
-    #[async_trait::async_trait]
-    impl shop_partner_service::use_cases::GetPartnerShopApplicationUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _request: shop_partner_service::use_cases::GetPartnerShopApplicationRequest,
-        ) -> Result<
-            shop_partner_service::use_cases::GetPartnerShopApplicationResult,
-            shop_partner_service::use_cases::GetPartnerShopApplicationError,
-        > {
-            unreachable!("unused get application")
-        }
-    }
-    #[async_trait::async_trait]
-    impl shop_partner_service::use_cases::WithdrawPartnerShopApplicationUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: shop_partner_service::use_cases::WithdrawPartnerShopApplicationCommand,
-        ) -> Result<(), shop_partner_service::use_cases::WithdrawPartnerShopApplicationError>
-        {
-            unreachable!("unused delete application")
-        }
-    }
-    #[async_trait::async_trait]
-    impl shop_partner_service::use_cases::AdminListPartnerShopApplicationsUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _request: shop_partner_service::use_cases::AdminListPartnerShopApplicationsRequest,
-        ) -> Result<
-            shop_partner_service::use_cases::AdminListPartnerShopApplicationsResult,
-            shop_partner_service::use_cases::AdminListPartnerShopApplicationsError,
-        > {
-            unreachable!("unused admin list applications")
-        }
-    }
-    #[async_trait::async_trait]
-    impl shop_partner_service::use_cases::AdminGetPartnerShopApplicationUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _request: shop_partner_service::use_cases::AdminGetPartnerShopApplicationRequest,
-        ) -> Result<
-            shop_partner_service::use_cases::AdminGetPartnerShopApplicationResult,
-            shop_partner_service::use_cases::AdminGetPartnerShopApplicationError,
-        > {
-            unreachable!("unused admin get application")
-        }
-    }
-    #[async_trait::async_trait]
-    impl shop_partner_service::use_cases::AdminUpdatePartnerShopApplicationUseCase for UnusedUseCase {
-        async fn mark_in_review(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: shop_partner_service::use_cases::AdminMarkPartnerShopApplicationInReviewCommand,
-        ) -> Result<
-            shop_partner_service::use_cases::AdminUpdatePartnerShopApplicationResult,
-            shop_partner_service::use_cases::AdminUpdatePartnerShopApplicationError,
-        > {
-            unreachable!("unused admin update application")
-        }
-    }
-    #[async_trait::async_trait]
-    impl shop_partner_service::use_cases::AdminDecidePartnerShopApplicationUseCase for UnusedUseCase {
-        async fn execute(
-            &self,
-            _context: &application::operation_context::OperationContext,
-            _command: shop_partner_service::use_cases::AdminDecidePartnerShopApplicationCommand,
-        ) -> Result<
-            shop_partner_service::use_cases::AdminDecidePartnerShopApplicationResult,
-            shop_partner_service::use_cases::AdminDecidePartnerShopApplicationError,
-        > {
-            unreachable!("unused admin decide application")
-        }
-    }
-
-    struct StaticAuthenticator;
-
-    #[async_trait::async_trait]
-    impl TokenAuthenticator for StaticAuthenticator {
-        async fn authenticate(
-            &self,
-            _bearer_token: &str,
-            _metadata: &RequestMetadata,
-        ) -> Result<TransportPrincipal, AuthError> {
-            Ok(TransportPrincipal::User {
-                user_id: UserId::new(),
-                auth_method: AuthMethod::AuraAccessToken,
-                capabilities: BTreeSet::from([CredentialCapability::ShopsRead]),
-            })
-        }
-    }
-
-    use tower::ServiceExt;
-}

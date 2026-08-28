@@ -5,11 +5,17 @@ edition = "2024"
 
 [dependencies]
 domain-primitives = { workspace = true }
+fake = { workspace = true, optional = true }
 party-core = { workspace = true }
 percent-encoding = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 slug = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
+
+[features]
+default = []
+test-data = ["fake"]

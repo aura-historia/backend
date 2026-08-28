@@ -13,10 +13,10 @@ use listing_source_core::ListingSourceId;
 pub async fn update_products(
     State(state): State<PartnerProductListingsState>,
     headers: HeaderMap,
-    Path(raw_shop_id): Path<String>,
+    Path(raw_listing_source_id): Path<String>,
     body: String,
 ) -> Response {
-    let listing_source_id = match parse_listing_source_id(&raw_shop_id) {
+    let listing_source_id = match parse_listing_source_id(&raw_listing_source_id) {
         Ok(listing_source_id) => listing_source_id,
         Err(error) => return error.into_response(),
     };
@@ -81,7 +81,7 @@ fn parse_listing_source_id(value: &str) -> Result<ListingSourceId, ApiError> {
         .map_err(|_| {
             ApiError::bad_request(INVALID_UUID)
                 .with_path_field("listingSourceId")
-                .with_detail("Path parameter 'shopId' must be a UUID.")
+                .with_detail("Path parameter 'listingSourceId' must be a UUID.")
         })
 }
 
@@ -120,14 +120,14 @@ mod tests {
     #[tokio::test]
     async fn should_call_key_update_for_each_successful_batch_item()
     -> Result<(), Box<dyn std::error::Error>> {
-        let shop_id = ListingSourceId::new();
-        let expected_shop_id = shop_id;
+        let listing_source_id = ListingSourceId::new();
+        let expected_listing_source_id = listing_source_id;
         let mut update = MockUpdateUseCase::new();
         update
             .expect_execute_by_key()
             .times(2)
             .withf(move |_, key, command| {
-                key.listing_source_id == expected_shop_id
+                key.listing_source_id == expected_listing_source_id
                     && (key.source_listing_id.as_ref() == "first"
                         || key.source_listing_id.as_ref() == "second")
                     && !matches!(
@@ -138,7 +138,7 @@ mod tests {
             .returning(|_, _, _| Ok(updated()));
         let app = app(update);
 
-        let response = request(&app, &format!("/api/v1/shops/{shop_id}/product-listings"), r#"[{"sourceListingId":"first","availability":"AVAILABLE"},{"sourceListingId":"second","availability":"SOLD_OUT"}]"#, true).await?;
+        let response = request(&app, &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"), r#"[{"sourceListingId":"first","availability":"AVAILABLE"},{"sourceListingId":"second","availability":"SOLD_OUT"}]"#, true).await?;
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(json!([]), body_json(response).await?);
@@ -148,7 +148,7 @@ mod tests {
     #[tokio::test]
     async fn should_return_failed_key_when_update_batch_partially_succeeds()
     -> Result<(), Box<dyn std::error::Error>> {
-        let shop_id = ListingSourceId::new();
+        let listing_source_id = ListingSourceId::new();
         let mut update = MockUpdateUseCase::new();
         update
             .expect_execute_by_key()
@@ -162,12 +162,12 @@ mod tests {
             });
         let app = app(update);
 
-        let response = request(&app, &format!("/api/v1/shops/{shop_id}/product-listings"), r#"[{"sourceListingId":"present","availability":"AVAILABLE"},{"sourceListingId":"missing","availability":"AVAILABLE"}]"#, true).await?;
+        let response = request(&app, &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"), r#"[{"sourceListingId":"present","availability":"AVAILABLE"},{"sourceListingId":"missing","availability":"AVAILABLE"}]"#, true).await?;
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
             json!([{
-                "listingSourceId": shop_id.to_string(),
+                "listingSourceId": listing_source_id.to_string(),
                 "sourceListingId": "missing",
                 "error": "PRODUCT_LISTING_NOT_FOUND"
             }]),
@@ -185,11 +185,11 @@ mod tests {
             .times(1)
             .returning(|_, _, _| Err(UpdateProductListingError::NotFound));
         let app = app(update);
-        let shop_id = ListingSourceId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{"sourceListingId":"missing","availability":"AVAILABLE"}]"#,
             true,
         )
@@ -218,11 +218,11 @@ mod tests {
             })
             .returning(|_, _, _| Ok(updated()));
         let app = app(update);
-        let shop_id = ListingSourceId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{"sourceListingId":"listing","availability":null}]"#,
             true,
         )
@@ -239,11 +239,11 @@ mod tests {
         let mut update = MockUpdateUseCase::new();
         update.expect_execute_by_key().never();
         let app = app(update);
-        let shop_id = ListingSourceId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             "{",
             true,
         )
@@ -263,7 +263,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/shops/{shop_id}/product-listings",
+                "/api/v1/listing-sources/{listing_source_id}/product-listings",
                 axum::routing::patch(update_products),
             )
             .with_state(state)

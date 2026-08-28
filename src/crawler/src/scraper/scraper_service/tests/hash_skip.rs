@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 
 #[tokio::test]
 async fn should_skip_fetching_and_return_none_when_hashes_match() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
     let html = sample_html();
     let matching_hash = hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html));
@@ -29,7 +29,7 @@ async fn should_skip_fetching_and_return_none_when_hashes_match() {
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service

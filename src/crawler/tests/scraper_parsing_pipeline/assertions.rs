@@ -47,8 +47,8 @@ pub fn assert_extraction(
         .unwrap_or_else(|e| panic!("schema apply failed: {e}"));
 
     assert_eq!(
-        result.shop_listing_id, expected.shop_listing_id,
-        "shop_listing_id"
+        result.source_listing_id, expected.source_listing_id,
+        "source_listing_id"
     );
     assert_eq!(result.title, expected.title, "title");
     assert_eq!(result.description, expected.description, "description");
@@ -62,11 +62,6 @@ pub fn assert_extraction(
         result.price_estimate_max.as_deref(),
         expected.price_estimate_max.as_deref(),
         "price_estimate_max"
-    );
-    assert_eq!(
-        result.seller_name.as_deref(),
-        expected.seller_name.as_deref(),
-        "seller_name"
     );
     assert_eq!(result.state, expected.state, "state");
     assert_eq!(result.images, expected.images, "images");
@@ -112,9 +107,9 @@ pub async fn assert_normalized(
         .product;
 
     assert_eq!(
-        result.shop_listing_id.to_string(),
-        expected.shop_listing_id,
-        "shop_listing_id"
+        result.source_listing_id.to_string(),
+        expected.source_listing_id,
+        "source_listing_id"
     );
     assert_eq!(result.title.payload.as_ref(), expected.title, "title");
     assert_eq!(
@@ -130,11 +125,6 @@ pub async fn assert_normalized(
     assert_eq!(
         result.price_estimate_max, expected.price_estimate_max,
         "price_estimate_max"
-    );
-    assert_eq!(
-        result.seller_name.as_deref(),
-        expected.seller_name.as_deref(),
-        "seller_name"
     );
     assert_eq!(
         result.availability.availability(),

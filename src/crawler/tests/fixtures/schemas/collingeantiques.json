@@ -1,6 +1,6 @@
 [
   {
-    "shop_listing_id": {
+    "source_listing_id": {
       "selector": "article",
       "type": "attribute",
       "name": "id"
@@ -30,7 +30,7 @@
     "default_currency": "GBP"
   },
   {
-    "shop_listing_id": {
+    "source_listing_id": {
       "selector": "article",
       "type": "attribute",
       "name": "id"

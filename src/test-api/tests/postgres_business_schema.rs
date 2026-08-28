@@ -20,9 +20,11 @@ async fn should_apply_business_schema_migrations() {
 
     for expected in [
         "users",
-        "shops",
-        "user_partner_shops",
-        "partner_shop_applications",
+        "parties",
+        "listing_sources",
+        "partnerships",
+        "partnership_members",
+        "partnership_listing_source_grants",
         "fx_rate_quotes",
         "fx_rates",
         "product_listings",
@@ -101,16 +103,16 @@ async fn should_apply_intentional_secondary_index_definitions() {
             "(user_search_filter_id, created DESC, product_listing_id)",
         ),
         (
-            "shops_published_name_shop_id_idx",
-            "(name, shop_id) WHERE (lifecycle = 'PUBLISHED'::text)",
+            "listing_sources_operator_party_id_idx",
+            "(operator_party_id)",
         ),
         (
-            "shops_published_updated_shop_id_idx",
-            "(updated DESC, shop_id) WHERE (lifecycle = 'PUBLISHED'::text)",
+            "product_listings_listing_source_id_idx",
+            "(listing_source_id)",
         ),
         (
-            "shops_published_created_shop_id_idx",
-            "(created DESC, shop_id) WHERE (lifecycle = 'PUBLISHED'::text)",
+            "product_listings_lifecycle_updated_idx",
+            "(lifecycle, updated DESC)",
         ),
         (
             "product_listing_events_product_listing_time_event_idx",
@@ -154,35 +156,37 @@ async fn should_support_core_business_relations() {
         INSERT INTO users (user_id, email, tier, role)
         VALUES ('10000000-0000-0000-0000-000000000001', 'user@example.com', 'FREE', 'USER');
 
-        INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains)
+        INSERT INTO parties (party_id, party_slug_id, name)
         VALUES (
             '20000000-0000-0000-0000-000000000001',
-            'shop-one',
-            'Shop One',
-            'AUCTION_HOUSE',
-            'PARTNERED',
-            ARRAY['shop.example.com']
+            'source-operator',
+            'Source Operator'
         );
 
-        INSERT INTO user_partner_shops (user_id, shop_id)
+        INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id)
         VALUES (
-            '10000000-0000-0000-0000-000000000001',
+            '20000000-0000-0000-0000-000000000002',
+            'source-one',
+            'Source One',
             '20000000-0000-0000-0000-000000000001'
         );
 
-        INSERT INTO partner_shop_applications (
-            partner_shop_application_id,
-            applicant_user_id,
-            business_state,
-            payload_type,
-            shop_id
-        )
+        INSERT INTO partnerships (partnership_id, party_id)
         VALUES (
             '60000000-0000-0000-0000-000000000001',
-            '10000000-0000-0000-0000-000000000001',
-            'APPROVED',
-            'EXISTING',
             '20000000-0000-0000-0000-000000000001'
+        );
+
+        INSERT INTO partnership_members (user_id, partnership_id)
+        VALUES (
+            '10000000-0000-0000-0000-000000000001',
+            '60000000-0000-0000-0000-000000000001'
+        );
+
+        INSERT INTO partnership_listing_source_grants (user_id, listing_source_id)
+        VALUES (
+            '10000000-0000-0000-0000-000000000001',
+            '20000000-0000-0000-0000-000000000002'
         );
 
         BEGIN;
@@ -192,9 +196,8 @@ async fn should_support_core_business_relations() {
             product_listing_slug_id,
             event_id,
             content_source_event_id,
-            shop_id,
-            seller_id,
-            shop_listing_id,
+            listing_source_id,
+            source_listing_id,
             title_text,
             title_language,
             availability,
@@ -207,8 +210,7 @@ async fn should_support_core_business_relations() {
             'product-one',
             '40000000-0000-0000-0000-000000000001',
             '40000000-0000-0000-0000-000000000001',
-            '20000000-0000-0000-0000-000000000001',
-            '20000000-0000-0000-0000-000000000001',
+            '20000000-0000-0000-0000-000000000002',
             'external-1',
             'A vase',
             'en',

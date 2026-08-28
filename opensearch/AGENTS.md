@@ -6,8 +6,8 @@
 
 ## Core Design
 
-- `analysis/` hold synonym lists. `mappings/` hold index mappings for ProductListings, shops, and user search filters.
-- Runtime crates and infra depend on these files staying aligned with actual indexed documents. ProductListing mapping source identity is only `listingSourceId` and `sourceListingId`; source presentation is hydrated from PostgreSQL.
+- `analysis/` hold synonym lists. `mappings/` hold index mappings for ProductListings and user search filters.
+- Runtime crates and infra depend on these files staying aligned with actual indexed documents. ProductListing mapping source identity is only `listingSourceId` and `sourceListingId`; source presentation is hydrated from PostgreSQL. No ListingSource index exists.
 
 ## Ownership
 

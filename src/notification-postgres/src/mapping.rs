@@ -4,10 +4,9 @@ use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugI
 use money::{Currency, MonetaryAmount, Price};
 use notification_core::{
     notification::{
-        Notification, NotificationContent, NotificationWatchlistChange, PartnerApplicationDecision,
-        PartnerApplicationNotificationSnapshot, PartnershipApplicationDecision,
-        PartnershipApplicationNotificationSnapshot, ProductListingNotificationSnapshot,
-        RehydratedNotificationState,
+        Notification, NotificationContent, NotificationWatchlistChange,
+        PartnershipApplicationDecision, PartnershipApplicationNotificationSnapshot,
+        ProductListingNotificationSnapshot, RehydratedNotificationState,
     },
     notification_id::NotificationId,
     notification_kind::NotificationKind,
@@ -26,8 +25,7 @@ use search_filter_core::{
     user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
 };
 use serde::{Deserialize, Serialize};
-use shop_core::shop_name::ShopName;
-use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
+
 use std::collections::{HashMap, HashSet};
 use strum::IntoEnumIterator;
 use time::OffsetDateTime;
@@ -44,7 +42,6 @@ pub(crate) struct NotificationRow {
     pub(crate) origin_event_id: Option<uuid::Uuid>,
     pub(crate) product_listing_id: Option<uuid::Uuid>,
     pub(crate) user_search_filter_id: Option<uuid::Uuid>,
-    pub(crate) partner_shop_application_id: Option<uuid::Uuid>,
     pub(crate) partnership_application_id: Option<uuid::Uuid>,
     pub(crate) payload_version: i16,
     pub(crate) payload: serde_json::Value,
@@ -87,9 +84,6 @@ enum NotificationPayloadV1 {
     SearchFilter {
         snapshot: ProductListingNotificationSnapshotV1,
         user_search_filter_name: UserSearchFilterName,
-    },
-    PartnerApplication {
-        snapshot: PartnerApplicationNotificationSnapshotV1,
     },
     PartnershipApplication {
         snapshot: PartnershipApplicationNotificationSnapshotV1,
@@ -267,13 +261,6 @@ enum NotificationWatchlistChangeV1 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PartnerApplicationNotificationSnapshotV1 {
-    shop_name: ShopName,
-    image: Option<Url>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct PartnershipApplicationNotificationSnapshotV1 {
     party_name: String,
     listing_source_name: String,
@@ -413,24 +400,6 @@ impl From<NotificationWatchlistChangeV1> for NotificationWatchlistChange {
     }
 }
 
-impl From<&PartnerApplicationNotificationSnapshot> for PartnerApplicationNotificationSnapshotV1 {
-    fn from(snapshot: &PartnerApplicationNotificationSnapshot) -> Self {
-        Self {
-            shop_name: snapshot.shop_name.clone(),
-            image: snapshot.image.clone(),
-        }
-    }
-}
-
-impl From<PartnerApplicationNotificationSnapshotV1> for PartnerApplicationNotificationSnapshot {
-    fn from(snapshot: PartnerApplicationNotificationSnapshotV1) -> Self {
-        Self {
-            shop_name: snapshot.shop_name,
-            image: snapshot.image,
-        }
-    }
-}
-
 impl From<&PartnershipApplicationNotificationSnapshot>
     for PartnershipApplicationNotificationSnapshotV1
 {
@@ -462,7 +431,6 @@ pub(crate) struct NotificationWriteValues {
     pub(crate) origin_event_id: Option<uuid::Uuid>,
     pub(crate) product_listing_id: Option<uuid::Uuid>,
     pub(crate) user_search_filter_id: Option<uuid::Uuid>,
-    pub(crate) partner_shop_application_id: Option<uuid::Uuid>,
     pub(crate) partnership_application_id: Option<uuid::Uuid>,
     pub(crate) payload: serde_json::Value,
 }
@@ -475,7 +443,6 @@ impl TryFrom<&Notification> for NotificationWriteValues {
             origin_event_id,
             product_listing_id,
             user_search_filter_id,
-            partner_shop_application_id,
             partnership_application_id,
             payload,
         ) = match notification.content() {
@@ -487,7 +454,6 @@ impl TryFrom<&Notification> for NotificationWriteValues {
             } => (
                 Some(uuid::Uuid::from(*origin_event_id)),
                 Some(uuid::Uuid::from(*product_listing_id)),
-                None,
                 None,
                 None,
                 NotificationPayloadV1::Watchlist {
@@ -506,24 +472,9 @@ impl TryFrom<&Notification> for NotificationWriteValues {
                 Some(uuid::Uuid::from(*product_listing_id)),
                 Some(uuid::Uuid::from(*user_search_filter_id)),
                 None,
-                None,
                 NotificationPayloadV1::SearchFilter {
                     snapshot: snapshot.into(),
                     user_search_filter_name: user_search_filter_name.clone(),
-                },
-            ),
-            NotificationContent::PartnerApplication {
-                partner_shop_application_id,
-                snapshot,
-                ..
-            } => (
-                None,
-                None,
-                None,
-                Some(uuid::Uuid::from(*partner_shop_application_id)),
-                None,
-                NotificationPayloadV1::PartnerApplication {
-                    snapshot: snapshot.into(),
                 },
             ),
             NotificationContent::PartnershipApplication {
@@ -531,7 +482,6 @@ impl TryFrom<&Notification> for NotificationWriteValues {
                 snapshot,
                 ..
             } => (
-                None,
                 None,
                 None,
                 None,
@@ -550,7 +500,6 @@ impl TryFrom<&Notification> for NotificationWriteValues {
             origin_event_id,
             product_listing_id,
             user_search_filter_id,
-            partner_shop_application_id,
             partnership_application_id,
             payload,
         })
@@ -575,7 +524,6 @@ impl TryFrom<NotificationRow> for Notification {
             row.origin_event_id,
             row.product_listing_id,
             row.user_search_filter_id,
-            row.partner_shop_application_id,
             row.partnership_application_id,
         ) {
             (
@@ -584,7 +532,6 @@ impl TryFrom<NotificationRow> for Notification {
                 NotificationPayloadV1::Watchlist { snapshot, change },
                 Some(origin_event_id),
                 Some(product_listing_id),
-                None,
                 None,
                 None,
             ) => {
@@ -609,7 +556,6 @@ impl TryFrom<NotificationRow> for Notification {
                 Some(product_listing_id),
                 Some(user_search_filter_id),
                 None,
-                None,
             ) => NotificationContent::SearchFilter {
                 origin_event_id: EventId::from(origin_event_id),
                 product_listing_id: ProductListingId::from(product_listing_id),
@@ -618,30 +564,9 @@ impl TryFrom<NotificationRow> for Notification {
                 user_search_filter_name,
             },
             (
-                NotificationKind::PartnerApplicationApproved
-                | NotificationKind::PartnerApplicationRejected,
-                NotificationPayloadV1::PartnerApplication { snapshot },
-                None,
-                None,
-                None,
-                Some(partner_shop_application_id),
-                None,
-            ) => NotificationContent::PartnerApplication {
-                partner_shop_application_id: PartnerShopApplicationId::from(
-                    partner_shop_application_id,
-                ),
-                snapshot: snapshot.into(),
-                decision: if kind == NotificationKind::PartnerApplicationApproved {
-                    PartnerApplicationDecision::Approved
-                } else {
-                    PartnerApplicationDecision::Rejected
-                },
-            },
-            (
                 NotificationKind::PartnershipApplicationApproved
                 | NotificationKind::PartnershipApplicationRejected,
                 NotificationPayloadV1::PartnershipApplication { snapshot },
-                None,
                 None,
                 None,
                 None,
@@ -657,10 +582,9 @@ impl TryFrom<NotificationRow> for Notification {
                     PartnershipApplicationDecision::Rejected
                 },
             },
-            (_, NotificationPayloadV1::Watchlist { .. }, _, _, _, _, _)
-            | (_, NotificationPayloadV1::SearchFilter { .. }, _, _, _, _, _)
-            | (_, NotificationPayloadV1::PartnerApplication { .. }, _, _, _, _, _)
-            | (_, NotificationPayloadV1::PartnershipApplication { .. }, _, _, _, _, _) => {
+            (_, NotificationPayloadV1::Watchlist { .. }, _, _, _, _)
+            | (_, NotificationPayloadV1::SearchFilter { .. }, _, _, _, _)
+            | (_, NotificationPayloadV1::PartnershipApplication { .. }, _, _, _, _) => {
                 return Err(NotificationMappingError::SourceShapeMismatch);
             }
         };
@@ -940,7 +864,6 @@ mod tests {
             origin_event_id: values.origin_event_id,
             product_listing_id: values.product_listing_id,
             user_search_filter_id: values.user_search_filter_id,
-            partner_shop_application_id: values.partner_shop_application_id,
             partnership_application_id: values.partnership_application_id,
             payload_version: PAYLOAD_VERSION,
             payload: values.payload,
@@ -978,7 +901,6 @@ mod tests {
             origin_event_id: values.origin_event_id,
             product_listing_id: values.product_listing_id,
             user_search_filter_id: values.user_search_filter_id,
-            partner_shop_application_id: values.partner_shop_application_id,
             partnership_application_id: None,
             payload_version: PAYLOAD_VERSION,
             payload: values.payload,

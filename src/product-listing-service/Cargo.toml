@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 listing-source-core = { workspace = true }
 listing-source-service = { workspace = true }
-shop-partner-core = { workspace = true }
 fake = { workspace = true, optional = true }
 async-trait = { workspace = true }
 application = { workspace = true }
@@ -39,4 +38,4 @@ strum = { workspace = true }
 
 [features]
 default = []
-test-data = ["fake", "product-listing-core/test-data", "search-filter-core/test-data", "shop-partner-core/test-data"]
+test-data = ["fake", "product-listing-core/test-data", "search-filter-core/test-data"]

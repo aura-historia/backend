@@ -212,7 +212,7 @@ aura-historia-api/
         └── <endpoint>.rs    # one controller endpoint plus unit tests
 ```
 
-Each durable route unit SHOULD have its own module, for example `shops/`. Each endpoint SHOULD live in one file, for example `shops/get_shop.rs`. Unit tests for that endpoint SHOULD live in that endpoint file. Shared public response payloads that are used by many endpoints MAY live in a focused file such as `shops/shop_data.rs`; keep shared enum/value DTOs in `shops/types.rs`.
+Each durable route unit SHOULD have its own module, for example `listing_sources/`. Each endpoint SHOULD live in one file, for example `listing_sources/get_listing_source.rs`. Unit tests for that endpoint SHOULD live in that endpoint file. Shared public response payloads that are used by many endpoints MAY live in a focused file such as `listing_sources/listing_source_data.rs`; keep shared enum/value DTOs in `listing_sources/types.rs`.
 
 The runtime/composition-root crate constructs concrete adapters and injects them into service-owned handlers:
 
@@ -1165,7 +1165,7 @@ api/record/mapping.rs
 
 Small mappings used by only one controller MAY live in the controller file.
 
-REST enum/value DTOs shared by multiple endpoints in the same unit SHOULD live in that unit's `types.rs`, for example `shops/types.rs`. Do not put endpoint-specific request or response DTOs there. Keep endpoint payload DTOs beside the endpoint unless they are genuinely shared public REST shapes. A unit-local `types.rs` MAY instead hold wire codecs for canonical semantic leaf types; REST keeps its wire contract without duplicating the semantic type.
+REST enum/value DTOs shared by multiple endpoints in the same unit SHOULD live in that unit's `types.rs`, for example `listing_sources/types.rs`. Do not put endpoint-specific request or response DTOs there. Keep endpoint payload DTOs beside the endpoint unless they are genuinely shared public REST shapes. A unit-local `types.rs` MAY instead hold wire codecs for canonical semantic leaf types; REST keeps its wire contract without duplicating the semantic type.
 
 The service MUST NOT know REST DTOs or HTTP status codes.
 
@@ -1729,8 +1729,8 @@ PostgreSQL owns business truth for:
 
 * users;
 * parties;
-* shops;
-* partner-shop applications;
+* listing sources;
+* partnerships and partnership applications;
 * product listings;
 * product-listing events;
 * immutable canonical FX snapshots with generation and EUR-base `units_per_eur` quotes;
@@ -1847,8 +1847,6 @@ Use stable domain identifiers where possible:
 product-listing jobs:
     product_listing_events.event_id
 
-shop jobs:
-    (shop_id, version, operation)
 
 search-filter jobs:
     (user_search_filter_id, version, operation)
@@ -2345,7 +2343,7 @@ Domain methods MAY receive an already-resolved permission or policy value when a
 
 ### 15.6 Credential scopes
 
-Scopes belong to delegated Aura Historia access tokens, not Cognito JWTs. Cognito-authenticated users, service principals, and system principals use an open-world assumption for credential capability checks; business constraints such as admin role, same-user access, partner-shop relation, or ownership still MUST be enforced separately by use cases or service policies.
+Scopes belong to delegated Aura Historia access tokens, not Cognito JWTs. Cognito-authenticated users, service principals, and system principals use an open-world assumption for credential capability checks; business constraints such as admin role, same-user access, partnership membership, or ownership still MUST be enforced separately by use cases or service policies.
 
 Aura Historia access tokens use a closed-world assumption: a delegated principal has only the scopes stored on the token. Use cases that protect a state change or private read MUST check the narrowest matching `CredentialCapability` before executing protected work.
 
@@ -2353,11 +2351,9 @@ Scope names SHOULD use `resource:action` with plural resources and coarse, stabl
 
 ```text
 product-listings:write
-shops:read
-shops:write
-partner-shops:read
-partner-shops:write
-partner-shop-applications:write
+listing-sources:read
+listing-sources:write
+partnership-applications:write
 users:read
 users:write
 access-tokens:read
@@ -2472,7 +2468,7 @@ A controller MUST NOT:
 - build SQL or search DSL;
 - compose multiple data sources;
 - construct concrete adapters;
-- enforce business authorization policy such as admin role, ownership, or partner-shop relation;
+- enforce business authorization policy such as admin role, ownership, or partnership relation;
 - enforce domain invariants;
 - mutate aggregates;
 - return storage types;
@@ -2679,9 +2675,9 @@ const POSTGRES: test_api::Postgres = test_api::Postgres::new("migrations");
 static AURA_API: test_api::AuraHistoriaApi = test_api::AuraHistoriaApi::new(aura_api_app);
 
 #[test_api::aura_integration_test(services = [POSTGRES, &AURA_API])]
-async fn should_get_shop_by_id_with_aura_access_token() {
+async fn should_get_listing_source_by_id_with_aura_access_token() {
     let response = match reqwest::Client::new()
-        .get(format!("{}/api/v1/shops/{shop_id}", AURA_API.base_url()))
+        .get(format!("{}/api/v1/listing-sources/{listing_source_id}", AURA_API.base_url()))
         .bearer_auth(token)
         .send()
         .await

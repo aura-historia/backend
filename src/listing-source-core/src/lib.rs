@@ -11,7 +11,9 @@ use strum_macros::EnumIter;
 use url::Url;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(into = "String", try_from = "String")]
 pub struct ListingSourceId(Uuid);
 impl ListingSourceId {
     pub fn new() -> Self {
@@ -36,6 +38,25 @@ impl From<Uuid> for ListingSourceId {
 impl From<ListingSourceId> for Uuid {
     fn from(value: ListingSourceId) -> Self {
         value.0
+    }
+}
+impl TryFrom<String> for ListingSourceId {
+    type Error = uuid::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Uuid::parse_str(&value).map(Self)
+    }
+}
+impl TryFrom<&str> for ListingSourceId {
+    type Error = uuid::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Uuid::parse_str(value).map(Self)
+    }
+}
+impl From<ListingSourceId> for String {
+    fn from(value: ListingSourceId) -> Self {
+        value.0.to_string()
     }
 }
 

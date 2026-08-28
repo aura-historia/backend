@@ -44,9 +44,6 @@ members = [
     "src/watchlist-service",
     "src/watchlist-postgres",
     "src/test-api",
-    "src/shop-core",
-    "src/shop-service",
-    "src/shop-postgres",
     "src/party-core",
     "src/party-service",
     "src/party-postgres",
@@ -56,9 +53,6 @@ members = [
     "src/partnership-core",
     "src/partnership-service",
     "src/partnership-postgres",
-    "src/shop-partner-core",
-    "src/shop-partner-service",
-    "src/shop-partner-postgres",
     "src/shopify-lambda",
     "src/stripe-lambda",
     "src/user-core",
@@ -116,9 +110,6 @@ search-filter-service = { path = "src/search-filter-service" }
 search-filter-postgres = { path = "src/search-filter-postgres" }
 search-filter-opensearch = { path = "src/search-filter-opensearch" }
 large-language-model = { path = "src/large-language-model" }
-shop-core = { path = "src/shop-core" }
-shop-service = { path = "src/shop-service" }
-shop-postgres = { path = "src/shop-postgres" }
 party-core = { path = "src/party-core" }
 party-service = { path = "src/party-service" }
 party-postgres = { path = "src/party-postgres" }
@@ -128,9 +119,6 @@ listing-source-postgres = { path = "src/listing-source-postgres" }
 partnership-core = { path = "src/partnership-core" }
 partnership-service = { path = "src/partnership-service" }
 partnership-postgres = { path = "src/partnership-postgres" }
-shop-partner-core = { path = "src/shop-partner-core" }
-shop-partner-service = { path = "src/shop-partner-service" }
-shop-partner-postgres = { path = "src/shop-partner-postgres" }
 notification-core = { path = "src/notification-core" }
 notification-email = { path = "src/notification-email" }
 notification-email-aws = { path = "src/notification-email-aws" }

@@ -109,10 +109,12 @@ impl ReviewServer {
             ("GET", "/assets/app.js") => HttpResponse::javascript(200, APP_JS),
             ("GET", "/assets/styles.css") => HttpResponse::css(200, STYLES_CSS),
             ("GET", "/api/health") => HttpResponse::json(200, &json!({ "ok": true })),
-            ("GET", "/api/shops") => match self.repository.list_shops(200).await {
-                Ok(shops) => HttpResponse::json(200, &shops),
-                Err(err) => internal_error(err),
-            },
+            ("GET", "/api/listing_sources") => {
+                match self.repository.list_listing_sources(200).await {
+                    Ok(listing_sources) => HttpResponse::json(200, &listing_sources),
+                    Err(err) => internal_error(err),
+                }
+            }
             ("GET", "/api/reviews") => match self.repository.list_reviews(200).await {
                 Ok(reviews) => HttpResponse::json(200, &reviews),
                 Err(err) => internal_error(err),

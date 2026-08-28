@@ -3,7 +3,7 @@ use crate::scraper::scraper_service::domain::errors::ScraperError;
 
 #[tokio::test]
 async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_generation() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -22,7 +22,7 @@ async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_
     let norm_svc = MockProductListingNormalizationService::new();
     let mut cand_svc = MockScraperCandidateService::new();
     cand_svc
-        .expect_try_increment_shop_llm_calls_with_limit()
+        .expect_try_increment_listing_source_llm_calls_with_limit()
         .once()
         .returning(|_, _, _| Box::pin(async { Ok(false) }));
 
@@ -32,17 +32,17 @@ async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();
     assert!(matches!(
         err,
         ScraperError::LlmBudgetExceeded {
-            shop_id,
+            listing_source_id,
             max_calls,
             ..
-        } if shop_id == id && max_calls == DEFAULT_MAX_LLM_CALLS_PER_SHOP
+        } if listing_source_id == id && max_calls == DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE
     ));
 }
 
@@ -52,7 +52,7 @@ async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_
 #[tokio::test]
 async fn should_charge_budget_for_listing_availability_mapping_llm_call_when_normalization_uses_llm()
  {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -61,7 +61,7 @@ async fn should_charge_budget_for_listing_availability_mapping_llm_call_when_nor
         .once()
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
-    let schema = shops_product_schema(id);
+    let schema = listing_source_product_schemas(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
     let mut schema_svc = MockProductListingSchemaService::new();
@@ -106,7 +106,7 @@ async fn should_charge_budget_for_listing_availability_mapping_llm_call_when_nor
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service
@@ -125,7 +125,7 @@ async fn should_charge_budget_for_listing_availability_mapping_llm_call_when_nor
 /// successfully normalised.
 #[tokio::test]
 async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_cap() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -134,7 +134,7 @@ async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_c
         .once()
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
-    let schema = shops_product_schema(id);
+    let schema = listing_source_product_schemas(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
@@ -175,7 +175,7 @@ async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_c
     // returns false → budget exhausted.
     let call_counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     cand_svc
-        .expect_try_increment_shop_llm_calls_with_limit()
+        .expect_try_increment_listing_source_llm_calls_with_limit()
         .times(2)
         .returning(move |_, delta, _| {
             let counter = call_counter.clone();
@@ -191,7 +191,7 @@ async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_c
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();
@@ -204,7 +204,7 @@ async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_c
 #[tokio::test]
 async fn should_charge_budget_for_listing_availability_mapping_llm_call_when_normalization_fails_and_next_schema_succeeds()
  {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -213,8 +213,8 @@ async fn should_charge_budget_for_listing_availability_mapping_llm_call_when_nor
         .once()
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
-    let schema = ShopsProductSchema {
-        shop_id: id,
+    let schema = ListingSourceProductSchema {
+        listing_source_id: id,
         product_schemas: vec![minimal_schema(), minimal_schema()],
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
@@ -258,7 +258,7 @@ async fn should_charge_budget_for_listing_availability_mapping_llm_call_when_nor
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service
@@ -274,7 +274,7 @@ async fn should_charge_budget_for_listing_availability_mapping_llm_call_when_nor
 
 #[tokio::test]
 async fn should_return_llm_budget_exceeded_when_failed_normalization_usage_exceeds_cap() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -283,7 +283,7 @@ async fn should_return_llm_budget_exceeded_when_failed_normalization_usage_excee
         .once()
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
-    let schema = shops_product_schema(id);
+    let schema = listing_source_product_schemas(id);
     let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
         .expect_find_product_schema()
@@ -302,7 +302,7 @@ async fn should_return_llm_budget_exceeded_when_failed_normalization_usage_excee
 
     let mut cand_svc = MockScraperCandidateService::new();
     cand_svc
-        .expect_try_increment_shop_llm_calls_with_limit()
+        .expect_try_increment_listing_source_llm_calls_with_limit()
         .once()
         .returning(|_, delta, _| Box::pin(async move { Ok(delta != 1) }));
 
@@ -312,7 +312,7 @@ async fn should_return_llm_budget_exceeded_when_failed_normalization_usage_excee
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();

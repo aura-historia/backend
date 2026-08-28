@@ -477,7 +477,7 @@ mod tests {
                 },
                 availability: Some(ListingAvailability::Available),
                 lifecycle: ListingLifecycle::Active,
-                url: Url::parse("https://shop.example/product-listings/1")?,
+                url: Url::parse("https://source.example/product-listings/1")?,
                 view_url: Url::parse("https://aura.example/product-listings/cabinet-abcdef")?,
                 images: Default::default(),
                 content_policy: None,

@@ -1,4 +1,6 @@
-use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
+use crate::scraper::css_selector::product_schema::{
+    ListingSourceProductSchema, ProductCssSelectorSchema,
+};
 use crate::scraper::css_selector::rule::ExtractionRule;
 
 use super::ReviewRepositoryError;
@@ -16,7 +18,7 @@ pub(super) fn parse_schemas_payload(
 
 pub(super) fn approval_product_schemas(
     reason: &str,
-    existing: Option<&ShopsProductSchema>,
+    existing: Option<&ListingSourceProductSchema>,
     reviewed_schemas: Vec<ProductCssSelectorSchema>,
 ) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
     let should_backfill_existing = matches!(
@@ -41,7 +43,7 @@ pub(super) fn update_schema_rule(
     rule: Option<ExtractionRule>,
 ) -> Result<(), ReviewRepositoryError> {
     match field {
-        "shop_listing_id" => schema.shop_listing_id = rule,
+        "source_listing_id" => schema.source_listing_id = rule,
         "title" => {
             schema.title =
                 rule.ok_or_else(|| ReviewRepositoryError::RequiredSchemaField(field.into()))?;
@@ -58,7 +60,6 @@ pub(super) fn update_schema_rule(
         "price" => schema.price = rule,
         "price_estimate_min" => schema.price_estimate_min = rule,
         "price_estimate_max" => schema.price_estimate_max = rule,
-        "seller_name" => schema.seller_name = rule,
         "auction_start" => schema.auction_start = rule,
         "auction_end" => schema.auction_end = rule,
         other => return Err(ReviewRepositoryError::InvalidSchemaField(other.into())),
@@ -114,13 +115,12 @@ mod tests {
 
     fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule(title_selector),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: image_rule("img"),
             auction_start: None,

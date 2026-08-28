@@ -17,7 +17,7 @@ fn schema_with_description() -> ProductCssSelectorSchema {
 
 #[tokio::test]
 async fn should_select_richer_schema_even_when_it_is_later_in_order() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -30,8 +30,8 @@ async fn should_select_richer_schema_even_when_it_is_later_in_order() {
     let rich_schema = schema_with_description();
     // Insert the richer schema at index 1 — first in stored order is the
     // poorer schema, so naive first-success selection would pick it.
-    let schema = ShopsProductSchema {
-        shop_id: id,
+    let schema = ListingSourceProductSchema {
+        listing_source_id: id,
         product_schemas: vec![poor_schema.clone(), rich_schema.clone()],
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
@@ -68,7 +68,7 @@ async fn should_select_richer_schema_even_when_it_is_later_in_order() {
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service.scrape(&id, &url, None, None).await.unwrap();
@@ -77,7 +77,7 @@ async fn should_select_richer_schema_even_when_it_is_later_in_order() {
 
 #[tokio::test]
 async fn should_pick_earlier_schema_when_it_extracts_more_data() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -90,8 +90,8 @@ async fn should_pick_earlier_schema_when_it_extracts_more_data() {
     let rich_first = schema_with_description();
     let poor_second = minimal_schema();
 
-    let schema = ShopsProductSchema {
-        shop_id: id,
+    let schema = ListingSourceProductSchema {
+        listing_source_id: id,
         product_schemas: vec![rich_first, poor_second],
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
@@ -128,7 +128,7 @@ async fn should_pick_earlier_schema_when_it_extracts_more_data() {
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service.scrape(&id, &url, None, None).await.unwrap();
@@ -137,7 +137,7 @@ async fn should_pick_earlier_schema_when_it_extracts_more_data() {
 
 #[tokio::test]
 async fn should_generate_fresh_schema_when_no_cached_schema_applies() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -150,8 +150,8 @@ async fn should_generate_fresh_schema_when_no_cached_schema_applies() {
     // cached schema will apply.
     let mut invalid = minimal_schema();
     invalid.title.selector = CssSelector::from("missing-title");
-    let schema = ShopsProductSchema {
-        shop_id: id,
+    let schema = ListingSourceProductSchema {
+        listing_source_id: id,
         product_schemas: vec![invalid],
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
@@ -181,8 +181,8 @@ async fn should_generate_fresh_schema_when_no_cached_schema_applies() {
         .once()
         .returning(move |_, schemas| {
             Box::pin(async move {
-                Ok(ShopsProductSchema {
-                    shop_id: id,
+                Ok(ListingSourceProductSchema {
+                    listing_source_id: id,
                     product_schemas: schemas,
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
@@ -210,7 +210,7 @@ async fn should_generate_fresh_schema_when_no_cached_schema_applies() {
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service.scrape(&id, &url, None, None).await.unwrap();
@@ -222,7 +222,7 @@ async fn should_generate_fresh_schema_when_no_cached_schema_applies() {
 
 #[tokio::test]
 async fn should_generate_fresh_schema_when_richer_candidate_normalization_fails_fixably() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -235,8 +235,8 @@ async fn should_generate_fresh_schema_when_richer_candidate_normalization_fails_
     // fail with candidate-data errors, so fresh schema generation must run.
     let poor = minimal_schema();
     let rich = schema_with_description();
-    let schema = ShopsProductSchema {
-        shop_id: id,
+    let schema = ListingSourceProductSchema {
+        listing_source_id: id,
         product_schemas: vec![poor, rich],
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
@@ -266,8 +266,8 @@ async fn should_generate_fresh_schema_when_richer_candidate_normalization_fails_
         .once()
         .returning(move |_, schemas| {
             Box::pin(async move {
-                Ok(ShopsProductSchema {
-                    shop_id: id,
+                Ok(ListingSourceProductSchema {
+                    listing_source_id: id,
                     product_schemas: schemas,
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
@@ -304,7 +304,7 @@ async fn should_generate_fresh_schema_when_richer_candidate_normalization_fails_
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service.scrape(&id, &url, None, None).await.unwrap();
@@ -313,7 +313,7 @@ async fn should_generate_fresh_schema_when_richer_candidate_normalization_fails_
 
 #[tokio::test]
 async fn should_not_persist_generated_schema_when_normalization_keeps_failing_fixably() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -325,8 +325,8 @@ async fn should_not_persist_generated_schema_when_normalization_keeps_failing_fi
     // No cached schema applies, so we go straight to fresh generation.
     let mut invalid = minimal_schema();
     invalid.title.selector = CssSelector::from("missing-title");
-    let schema = ShopsProductSchema {
-        shop_id: id,
+    let schema = ListingSourceProductSchema {
+        listing_source_id: id,
         product_schemas: vec![invalid],
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
@@ -367,7 +367,7 @@ async fn should_not_persist_generated_schema_when_normalization_keeps_failing_fi
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();

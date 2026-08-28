@@ -1,7 +1,7 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
-    assert_problem, aura_api_app_with_failed_search_embedding, json_response, product_route_slugs,
+    assert_problem, aura_api_app_with_failed_search_embedding, json_response,
     seed_current_fx_snapshot, seed_product,
 };
 use application::transaction::{Transaction, UnitOfWork};
@@ -70,24 +70,6 @@ async fn should_get_product_details_by_id() {
     assert_eq!(
         Some("public, max-age=180, s-maxage=900".to_owned()),
         cache_control
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_get_product_details_by_slug() {
-    let product_listing_id = seed_product().await;
-    let (shop_slug_id, product_listing_slug_id) = product_route_slugs(product_listing_id).await;
-
-    let (response, _) = get_json(format!(
-        "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}"
-    ))
-    .await;
-    let (status, body) = json_response(response).await;
-
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(
-        json!(product_listing_id.to_string()),
-        body["item"]["productListingId"]
     );
 }
 
@@ -253,24 +235,6 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_get_product_history_by_slug() {
-    let product_listing_id = seed_product().await;
-    let (shop_slug_id, product_listing_slug_id) = product_route_slugs(product_listing_id).await;
-
-    let (response, _) = get_json(format!(
-        "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/history"
-    ))
-    .await;
-    let (status, body) = json_response(response).await;
-
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(
-        json!(product_listing_id.to_string()),
-        body[0]["productListingId"]
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_pending_similar_products_by_id() {
     let product_listing_id = seed_product().await;
 
@@ -296,29 +260,6 @@ async fn should_return_pending_similar_products_by_id() {
             .headers()
             .get(reqwest::header::CACHE_CONTROL)
             .and_then(|value| value.to_str().ok())
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_return_pending_similar_products_by_slug() {
-    let product_listing_id = seed_product().await;
-    let (shop_slug_id, product_listing_slug_id) = product_route_slugs(product_listing_id).await;
-
-    let (response, _) = get_json(format!(
-        "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar"
-    ))
-    .await;
-
-    assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
-    assert_eq!(
-        Some(format!(
-            "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar"
-        )),
-        response
-            .headers()
-            .get(reqwest::header::LOCATION)
-            .and_then(|value| value.to_str().ok())
-            .map(ToOwned::to_owned)
     );
 }
 
@@ -792,20 +733,6 @@ async fn should_reject_invalid_product_listing_id() {
         &body,
         reqwest::StatusCode::BAD_REQUEST,
         "INVALID_UUID",
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_reject_invalid_product_slug() {
-    let (response, _) =
-        get_json("/api/v1/by-slug/shops/Invalid/product-listings/product-a1b2c3".to_owned()).await;
-    let (status, body) = json_response(response).await;
-
-    assert_problem(
-        status,
-        &body,
-        reqwest::StatusCode::BAD_REQUEST,
-        "BAD_PATH_PARAMETER_VALUE",
     );
 }
 

@@ -3,16 +3,16 @@ use crate::scraper::css_selector::rule::{
     ExtractionError, ExtractionRule, split_image_candidate_group,
 };
 
+use listing_source_core::ListingSourceId;
 use schemars::JsonSchema;
 use scraper::Html;
 use serde::{Deserialize, Serialize};
-use shop_core::shop_id::ShopId;
 use std::collections::BTreeMap;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ShopsProductSchema {
-    pub shop_id: ShopId,
+pub struct ListingSourceProductSchema {
+    pub listing_source_id: ListingSourceId,
     pub product_schemas: Vec<ProductCssSelectorSchema>,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -27,10 +27,10 @@ mod faker {
     use super::*;
     use fake::{Dummy, Fake, Faker, RngExt};
 
-    impl Dummy<Faker> for ShopsProductSchema {
+    impl Dummy<Faker> for ListingSourceProductSchema {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            ShopsProductSchema {
-                shop_id: config.fake_with_rng(rng),
+            ListingSourceProductSchema {
+                listing_source_id: config.fake_with_rng(rng),
                 product_schemas: vec![],
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
@@ -52,7 +52,7 @@ pub struct ProductCssSelectorSchema {
         description = "ID of the product on the shop's website. Optional: leave null when the page has no stable product ID."
     )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub shop_listing_id: Option<ExtractionRule>,
+    pub source_listing_id: Option<ExtractionRule>,
 
     #[schemars(description = "Title of the product")]
     pub title: ExtractionRule,
@@ -80,12 +80,6 @@ pub struct ProductCssSelectorSchema {
     )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_estimate_max: Option<ExtractionRule>,
-
-    #[schemars(
-        description = "Displayed secondary seller name for marketplace or auction-platform listings. Extract the actual seller or auction house responsible for this product, not the platform brand. For example, on Lotissimo the platform/shop is Lotissimo but seller_name is the listed auction house such as 'Kunstauktionshaus Leipzig | Schütte'. Leave null for direct commercial dealers or auction houses where the shop itself is the seller."
-    )]
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub seller_name: Option<ExtractionRule>,
 
     #[schemars(
         description = "Availability state of the product. E.g. 'in stock', 'out of stock', 'preorder', 'add to cart', etc. Prioritize state sources in this order: (1) clear explicit state text such as 'available', 'sold', or 'out of stock'; (2) visible text from a product-specific add-to-cart or buy button; (3) visible text from other product-specific buttons that clearly indicate availability such as preorder, reserve, or sold-out actions. Prefer dedicated availability labels or visible button text over generic class names or whole script blobs. IMPORTANT: Never use price elements, image galleries, or generic layout wrappers as the state selector. Select only the availability/cart action element; exclude price text and avoid containers that combine action text with price."
@@ -136,8 +130,8 @@ pub struct ProductCssSelectorSchema {
 /// Errors that can occur when applying a [`ProductCssSelectorSchema`] to an HTML document.
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum ApplySchemaError {
-    #[error("failed to extract `shop_listing_id`: {0}")]
-    ShopListingId(#[source] ExtractionError),
+    #[error("failed to extract `source_listing_id`: {0}")]
+    SourceListingId(#[source] ExtractionError),
 
     #[error("failed to extract `title`: {0}")]
     Title(#[source] ExtractionError),
@@ -153,9 +147,6 @@ pub enum ApplySchemaError {
 
     #[error("failed to extract `price_estimate_max`: {0}")]
     PriceEstimateMax(#[source] ExtractionError),
-
-    #[error("failed to extract `seller_name`: {0}")]
-    SellerName(#[source] ExtractionError),
 
     #[error("failed to extract `state`: {0}")]
     State(#[source] ExtractionError),
@@ -200,16 +191,16 @@ impl ProductCssSelectorSchema {
     /// is `None`. When a field is present but its rule fails (e.g. no element matched),
     /// the corresponding [`ApplySchemaError`] variant is returned immediately.
     ///
-    /// For single-valued fields (`shop_listing_id`, `title`, `state`) the first
+    /// For single-valued fields (`source_listing_id`, `title`, `state`) the first
     /// element of the extraction result is used. For multi-valued fields
     /// (`description`, `images`) all results are kept as a `Vec<String>`.
     pub fn apply(&self, html: &Html) -> Result<RawExtractedProduct, ApplySchemaError> {
-        let shop_listing_id = match &self.shop_listing_id {
+        let source_listing_id = match &self.source_listing_id {
             None => String::new(),
             Some(rule) => match rule.apply(html) {
                 Ok(values) => values.into_iter().next().unwrap_or_default(),
                 Err(ExtractionError::NoElementMatched { .. }) => String::new(),
-                Err(err) => return Err(ApplySchemaError::ShopListingId(err)),
+                Err(err) => return Err(ApplySchemaError::SourceListingId(err)),
             },
         };
 
@@ -250,14 +241,6 @@ impl ProductCssSelectorSchema {
             Some(rule) => match rule.apply(html) {
                 Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
                 Err(e) => return Err(ApplySchemaError::PriceEstimateMax(e)),
-            },
-        };
-
-        let seller_name = match &self.seller_name {
-            None => None,
-            Some(rule) => match rule.apply(html) {
-                Ok(vals) => Some(vals.into_iter().next().unwrap_or_default()),
-                Err(e) => return Err(ApplySchemaError::SellerName(e)),
             },
         };
 
@@ -320,13 +303,12 @@ impl ProductCssSelectorSchema {
         }
 
         Ok(RawExtractedProduct {
-            shop_listing_id,
+            source_listing_id,
             title,
             description,
             price,
             price_estimate_min,
             price_estimate_max,
-            seller_name,
             state,
             images,
             auction_start,
@@ -399,13 +381,12 @@ fn element_has_image_like_evidence(element: &scraper::ElementRef<'_>) -> bool {
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RawExtractedProduct {
-    pub shop_listing_id: String,
+    pub source_listing_id: String,
     pub title: String,
     pub description: Vec<String>,
     pub price: Option<String>,
     pub price_estimate_min: Option<String>,
     pub price_estimate_max: Option<String>,
-    pub seller_name: Option<String>,
     pub state: String,
     pub images: Vec<String>,
     pub auction_start: Option<String>,
@@ -484,13 +465,12 @@ mod tests {
     fn minimal_schema(html: &str) -> (Html, ProductCssSelectorSchema) {
         let parsed = Html::parse_document(html);
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -523,13 +503,12 @@ mod tests {
 
     fn full_schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: Some(text_rule_all("p.desc")),
             price: Some(text_rule("span.price")),
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: Some(text_rule("span.seller")),
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: Some(attr_rule("time#auction-start", "datetime")),
@@ -551,13 +530,12 @@ mod tests {
     #[test]
     fn should_deserialize_schema_when_raw_attributes_are_absent() {
         let raw = r##"{
-            "shop_listing_id": null,
+            "source_listing_id": null,
             "title": {"selector": "h1", "additional_selectors": [], "type": "text", "cardinality": "first"},
             "description": null,
             "price": null,
             "price_estimate_min": null,
             "price_estimate_max": null,
-            "seller_name": null,
             "state": {"selector": "#state", "additional_selectors": [], "type": "text", "cardinality": "first"},
             "images": {"selector": "img", "additional_selectors": [], "type": "attribute", "name": "src", "cardinality": "all"},
             "auction_start": null,
@@ -573,13 +551,12 @@ mod tests {
     #[test]
     fn should_deserialize_schema_when_raw_attributes_use_camel_case_alias() {
         let raw = r##"{
-            "shop_listing_id": null,
+            "source_listing_id": null,
             "title": {"selector": "h1", "additional_selectors": [], "type": "text", "cardinality": "first"},
             "description": null,
             "price": null,
             "price_estimate_min": null,
             "price_estimate_max": null,
-            "seller_name": null,
             "state": {"selector": "#state", "additional_selectors": [], "type": "text", "cardinality": "first"},
             "images": {"selector": "img", "additional_selectors": [], "type": "attribute", "name": "src", "cardinality": "all"},
             "auction_start": null,
@@ -600,10 +577,10 @@ mod tests {
     // -------------------------------------------------------------------------
 
     #[test]
-    fn should_extract_shop_listing_id_when_element_present() {
+    fn should_extract_source_listing_id_when_element_present() {
         let html = Html::parse_document(product_html());
         let result = full_schema().apply(&html).unwrap();
-        assert_eq!(result.shop_listing_id, "SKU-42");
+        assert_eq!(result.source_listing_id, "SKU-42");
     }
 
     #[test]
@@ -657,13 +634,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: image_rule_all("#wpgs-gallery img, .wcgs-woocommerce-product-gallery img"),
             auction_start: None,
@@ -690,13 +666,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: image_rule_all("#wrong-gallery img"),
             auction_start: None,
@@ -728,13 +703,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: image_rule_all("#wpgs-gallery img"),
             auction_start: None,
@@ -788,16 +762,6 @@ mod tests {
     }
 
     #[test]
-    fn should_extract_seller_name_when_rule_present() {
-        let html = Html::parse_document(product_html());
-        let result = full_schema().apply(&html).unwrap();
-        assert_eq!(
-            result.seller_name,
-            Some("Kunstauktionshaus Leipzig | Schütte".to_string())
-        );
-    }
-
-    #[test]
     fn should_extract_price_estimate_min_when_rule_present() {
         let html = Html::parse_document(
             r#"<html><body>
@@ -807,13 +771,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: Some(text_rule("#est-min")),
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -836,13 +799,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: Some(text_rule("#est-max")),
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -942,13 +904,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: Some(text_rule("span.price")),
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -976,13 +937,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: Some(text_rule_all("p.desc")),
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1016,13 +976,12 @@ mod tests {
             cardinality: ExtractionCardinality::All,
         };
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: images_rule,
             auction_start: None,
@@ -1039,29 +998,29 @@ mod tests {
     // -------------------------------------------------------------------------
 
     #[test]
-    fn should_return_empty_shop_listing_id_when_selector_matches_nothing() {
+    fn should_return_empty_source_listing_id_when_selector_matches_nothing() {
         let html = Html::parse_document(
             r#"<html><body><h1>T</h1><span id="state">ok</span><img src="x.jpg"></body></html>"#,
         );
         let (_, schema) = minimal_schema("<ignored>");
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             ..schema
         };
         let result = schema.apply(&html).unwrap();
-        assert_eq!(result.shop_listing_id, "");
+        assert_eq!(result.source_listing_id, "");
     }
 
     #[test]
-    fn should_return_empty_shop_listing_id_when_rule_is_absent() {
+    fn should_return_empty_source_listing_id_when_rule_is_absent() {
         let html = Html::parse_document(product_html());
         let (_, schema) = minimal_schema("<ignored>");
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: None,
+            source_listing_id: None,
             ..schema
         };
         let result = schema.apply(&html).unwrap();
-        assert_eq!(result.shop_listing_id, "");
+        assert_eq!(result.source_listing_id, "");
     }
 
     // -------------------------------------------------------------------------
@@ -1076,13 +1035,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1105,13 +1063,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1134,13 +1091,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1168,13 +1124,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: Some(text_rule_all("p.desc")),
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1198,13 +1153,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: Some(text_rule("span.price")),
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1228,13 +1182,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: Some(text_rule("#est-min")),
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1258,13 +1211,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: Some(text_rule("#est-max")),
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1280,36 +1232,6 @@ mod tests {
     }
 
     #[test]
-    fn should_return_err_seller_name_when_rule_present_but_selector_matches_nothing() {
-        let html = Html::parse_document(
-            r#"<html><body>
-                <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
-                <img src="x.jpg">
-            </body></html>"#,
-        );
-        let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
-            description: None,
-            price: None,
-            price_estimate_min: None,
-            price_estimate_max: None,
-            seller_name: Some(text_rule(".seller")),
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
-            auction_start: None,
-            auction_end: None,
-            default_currency: None,
-            raw_attributes: Default::default(),
-        };
-        let err = schema.apply(&html).unwrap_err();
-        assert!(
-            matches!(err, ApplySchemaError::SellerName(_)),
-            "unexpected variant: {err}"
-        );
-    }
-
-    #[test]
     fn should_return_err_auction_start_when_rule_present_but_selector_matches_nothing() {
         let html = Html::parse_document(
             r#"<html><body>
@@ -1318,13 +1240,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: Some(attr_rule("time#auction-start", "datetime")),
@@ -1348,13 +1269,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1374,7 +1294,7 @@ mod tests {
     // -------------------------------------------------------------------------
 
     #[rstest]
-    #[case("shop_listing_id")]
+    #[case("source_listing_id")]
     #[case("title")]
     #[case("state")]
     #[case("images")]
@@ -1389,14 +1309,13 @@ mod tests {
         let good_img = attr_rule_all("img", "src");
 
         let schema = match field {
-            "shop_listing_id" => ProductCssSelectorSchema {
-                shop_listing_id: Some(bad),
+            "source_listing_id" => ProductCssSelectorSchema {
+                source_listing_id: Some(bad),
                 title: good_h1,
                 description: None,
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
-                seller_name: None,
                 state: good_state,
                 images: good_img,
                 auction_start: None,
@@ -1405,13 +1324,12 @@ mod tests {
                 raw_attributes: Default::default(),
             },
             "title" => ProductCssSelectorSchema {
-                shop_listing_id: Some(good_id),
+                source_listing_id: Some(good_id),
                 title: bad,
                 description: None,
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
-                seller_name: None,
                 state: good_state,
                 images: good_img,
                 auction_start: None,
@@ -1420,13 +1338,12 @@ mod tests {
                 raw_attributes: Default::default(),
             },
             "state" => ProductCssSelectorSchema {
-                shop_listing_id: Some(good_id),
+                source_listing_id: Some(good_id),
                 title: good_h1,
                 description: None,
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
-                seller_name: None,
                 state: bad,
                 images: good_img,
                 auction_start: None,
@@ -1435,13 +1352,12 @@ mod tests {
                 raw_attributes: Default::default(),
             },
             "images" => ProductCssSelectorSchema {
-                shop_listing_id: Some(good_id),
+                source_listing_id: Some(good_id),
                 title: good_h1,
                 description: None,
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
-                seller_name: None,
                 state: good_state,
                 images: bad,
                 auction_start: None,
@@ -1465,16 +1381,15 @@ mod tests {
     // -------------------------------------------------------------------------
 
     #[test]
-    fn should_include_field_name_in_error_message_for_shop_listing_id() {
+    fn should_include_field_name_in_error_message_for_source_listing_id() {
         let html = Html::parse_document(product_html());
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("!!! invalid !!!")),
+            source_listing_id: Some(text_rule("!!! invalid !!!")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1484,7 +1399,7 @@ mod tests {
         };
         // We only care that the error exists and mentions the field name.
         let err = schema.apply(&html).unwrap_err();
-        assert!(err.to_string().contains("shop_listing_id"), "{err}");
+        assert!(err.to_string().contains("source_listing_id"), "{err}");
     }
 
     #[test]
@@ -1496,13 +1411,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: Some(text_rule(".price")),
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1529,13 +1443,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("div.gallery img", "src"),
             auction_start: None,
@@ -1556,13 +1469,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1586,13 +1498,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: ExtractionRule {
                 selector: CssSelector::from("img"),
@@ -1621,7 +1532,7 @@ mod tests {
         let html = Html::parse_document(product_html());
         let result = full_schema().apply(&html).unwrap();
 
-        assert_eq!(result.shop_listing_id, "SKU-42");
+        assert_eq!(result.source_listing_id, "SKU-42");
         assert_eq!(result.title, "Biedermeier Chair");
         assert_eq!(
             result.description,
@@ -1653,13 +1564,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -1669,13 +1579,12 @@ mod tests {
         };
         let result = schema.apply(&html).unwrap();
 
-        assert_eq!(result.shop_listing_id, "ITEM-1");
+        assert_eq!(result.source_listing_id, "ITEM-1");
         assert_eq!(result.title, "Vintage Vase");
         assert!(result.description.is_empty());
         assert_eq!(result.price, None);
         assert_eq!(result.price_estimate_min, None);
         assert_eq!(result.price_estimate_max, None);
-        assert_eq!(result.seller_name, None);
         assert_eq!(result.state, "sold");
         assert_eq!(result.images, vec!["vase.jpg"]);
         assert_eq!(result.auction_start, None);

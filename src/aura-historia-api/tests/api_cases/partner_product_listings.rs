@@ -523,8 +523,8 @@ fn product_listings_write_scope() -> HashSet<Scope> {
     HashSet::from([Scope::ProductListingsWrite])
 }
 
-fn products_path(shop_id: &str) -> String {
-    format!("/api/v1/shops/{shop_id}/product-listings")
+fn products_path(listing_source_id: &str) -> String {
+    format!("/api/v1/listing-sources/{listing_source_id}/product-listings")
 }
 
 fn product(source_listing_id: &str) -> Value {

@@ -11,7 +11,7 @@ use crate::scraper::scraper_service::extraction::schema_candidates::{
 };
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use tracing::debug;
 use url::Url;
 
@@ -65,14 +65,14 @@ impl ScraperServiceImpl {
     #[tracing::instrument(
         skip(self, schemas, html),
         fields(
-            shop_id = %shop_id,
+            listing_source_id = %listing_source_id,
             url = %url,
             schema_count = schemas.len()
         )
     )]
     pub(crate) async fn select_existing_schema_with_normalization(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         html: &str,
         schemas: &[ProductCssSelectorSchema],
@@ -163,7 +163,7 @@ impl ScraperServiceImpl {
         for candidate in prepared_candidates {
             let raw = candidate.raw;
             match self
-                .normalize_applied_schema(shop_id, url, candidate.schema, raw)
+                .normalize_applied_schema(listing_source_id, url, candidate.schema, raw)
                 .await
             {
                 Ok(product) => {
@@ -213,7 +213,7 @@ impl ScraperServiceImpl {
 
     async fn normalize_applied_schema(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         selected_schema: &ProductCssSelectorSchema,
         raw: RawExtractedProduct,
@@ -231,7 +231,7 @@ impl ScraperServiceImpl {
                 product,
                 llm_calls_used,
             }) => {
-                self.consume_llm_budget_n_or_err(shop_id, url, llm_calls_used)
+                self.consume_llm_budget_n_or_err(listing_source_id, url, llm_calls_used)
                     .await?;
                 Ok(product)
             }
@@ -239,7 +239,7 @@ impl ScraperServiceImpl {
                 error,
                 llm_calls_used,
             }) => {
-                self.consume_llm_budget_n_or_err(shop_id, url, llm_calls_used)
+                self.consume_llm_budget_n_or_err(listing_source_id, url, llm_calls_used)
                     .await?;
                 Err(ScraperError::NormalizationError(error))
             }

@@ -10,8 +10,6 @@ application = { workspace = true }
 localization = { workspace = true }
 notification-core = { workspace = true }
 user-core = { workspace = true }
-shop-core = { workspace = true }
-shop-partner-core = { workspace = true }
 
 thiserror = { workspace = true }
 time = { workspace = true }
@@ -22,6 +20,9 @@ mockall = { workspace = true, optional = true }
 
 [dev-dependencies]
 notification-service = { workspace = true, features = ["test-data", "mock"] }
+listing-source-core = { workspace = true }
+partnership-core = { workspace = true }
+party-core = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 

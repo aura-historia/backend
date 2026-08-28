@@ -37,7 +37,7 @@
         "cardinality": "first"
       }
     },
-    "shop_listing_id": {
+    "source_listing_id": {
       "type": "text",
       "selector": ".summary .sku",
       "cardinality": "first"
@@ -77,7 +77,7 @@
       }
     },
     "default_currency": "GBP",
-    "shop_listing_id": {
+    "source_listing_id": {
       "type": "text",
       "selector": ".sku",
       "cardinality": "first"
@@ -112,7 +112,7 @@
       }
     },
     "default_currency": "GBP",
-    "shop_listing_id": {
+    "source_listing_id": {
       "type": "text",
       "selector": ".sku",
       "cardinality": "first"

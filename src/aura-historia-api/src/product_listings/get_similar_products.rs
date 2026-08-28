@@ -1,18 +1,15 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
-use crate::error::{
-    ApiError, BAD_PATH_PARAMETER_VALUE, INVALID_UUID, PRODUCT_LISTING_INTERNAL_ERROR,
-};
+use crate::error::{ApiError, INVALID_UUID, PRODUCT_LISTING_INTERNAL_ERROR};
 use crate::product_listings::product_data::personalized_product_summary_data;
 use crate::state::ProductListingsState;
 use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use listing_source_core::ListingSourceSlugId;
+
 use localization::Language;
 use money::Currency;
 use product_listing_core::product_listing_id::ProductListingId;
-use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_service::ports::ProductListingEmbeddingLookup;
 use product_listing_service::use_cases::{
     GetSimilarProductListingsRequest, GetSimilarProductListingsResult,
@@ -54,46 +51,6 @@ pub async fn get_similar_products_by_id(
         state,
         headers,
         ProductListingEmbeddingLookup::ById(product_listing_id),
-        query,
-    )
-    .await
-}
-
-pub async fn get_similar_products_by_slug(
-    State(state): State<ProductListingsState>,
-    headers: HeaderMap,
-    Path((raw_shop_slug_id, raw_product_listing_slug_id)): Path<(String, String)>,
-    RawQuery(raw_query): RawQuery,
-) -> Response {
-    let listing_source_slug_id = match ListingSourceSlugId::raw(&raw_shop_slug_id) {
-        Ok(value) => value,
-        Err(_) => {
-            return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
-                .with_path_field("shopSlugId")
-                .with_detail("Path parameter 'shopSlugId' is invalid.")
-                .into_response();
-        }
-    };
-    let product_listing_slug_id = match ProductListingSlugId::raw(&raw_product_listing_slug_id) {
-        Ok(value) => value,
-        Err(_) => {
-            return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
-                .with_path_field("productListingSlugId")
-                .with_detail("Path parameter 'productListingSlugId' is invalid.")
-                .into_response();
-        }
-    };
-    let query = match parse_query(raw_query.as_deref()) {
-        Ok(query) => query,
-        Err(error) => return error.into_response(),
-    };
-    similar_response(
-        state,
-        headers,
-        ProductListingEmbeddingLookup::BySlug {
-            listing_source_slug_id,
-            product_listing_slug_id,
-        },
         query,
     )
     .await
@@ -168,12 +125,11 @@ fn pending_response(lookup: ProductListingEmbeddingLookup) -> Response {
         ProductListingEmbeddingLookup::ById(product_listing_id) => {
             format!("/api/v1/product-listings/{product_listing_id}/similar")
         }
-        ProductListingEmbeddingLookup::BySlug {
-            listing_source_slug_id,
-            product_listing_slug_id,
-        } => format!(
-            "/api/v1/by-slug/shops/{listing_source_slug_id}/product-listings/{product_listing_slug_id}/similar"
-        ),
+        ProductListingEmbeddingLookup::BySlug { .. } => {
+            return ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
+                .with_detail("Similar product polling location is unavailable for a slug lookup.")
+                .into_response();
+        }
     };
     let location = match HeaderValue::from_str(&location_path) {
         Ok(value) => value,
@@ -424,39 +380,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_pending_response_with_slug_location_and_cache_header()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let shop_slug_id = "antique-depot";
-        let product_listing_slug_id = "cabinet-a1b2c3";
-        let app = app(
-            FakeSimilarProductListingsResult::Pending,
-            TransportPrincipal::Anonymous,
-        );
-
-        let response = app
-            .oneshot(
-                Request::get(format!(
-                    "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar"
-                ))
-                .body(Body::empty())?,
-            )
-            .await?;
-
-        assert_eq!(StatusCode::ACCEPTED, response.status());
-        assert_eq!(
-            format!(
-                "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar"
-            ),
-            response.headers()[header::LOCATION]
-        );
-        assert_eq!(
-            PENDING_CACHE_CONTROL,
-            response.headers()[header::CACHE_CONTROL]
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn should_map_similar_product_not_found_error() -> Result<(), Box<dyn std::error::Error>>
     {
         let app = app(
@@ -520,10 +443,6 @@ mod tests {
                 "/api/v1/product-listings/{product_listing_id}/similar",
                 axum::routing::get(get_similar_products_by_id),
             )
-            .route(
-                "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar",
-                axum::routing::get(get_similar_products_by_slug),
-            )
             .with_state(state)
     }
 
@@ -557,7 +476,7 @@ mod tests {
                 },
                 availability: Some(ListingAvailability::Available),
                 lifecycle: ListingLifecycle::Active,
-                url: Url::parse("https://shop.example/product-listings/1")?,
+                url: Url::parse("https://source.example/product-listings/1")?,
                 view_url: Url::parse("https://aura.example/product-listings/cabinet-abcdef")?,
                 images: Default::default(),
                 content_policy: None,

@@ -4,18 +4,20 @@ use crate::review::repository::SchemaReviewWithStatusInput;
 use crate::review::schema_evaluation::{
     evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage, unused_schema_indices,
 };
-use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
+use crate::scraper::css_selector::product_schema::{
+    ListingSourceProductSchema, ProductCssSelectorSchema,
+};
 use crate::scraper::css_selector::product_schema_service::{
     ProductListingSchemaServiceError, SchemaLlmEvaluation,
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
+use listing_source_core::ListingSourceId;
 use serde_json::{Value, json};
-use shop_core::shop_id::ShopId;
 use tracing::info;
 
 pub(crate) enum GeneratedSchemaReviewOutcome {
-    Persisted(ShopsProductSchema),
+    Persisted(ListingSourceProductSchema),
     PendingReview(uuid::Uuid),
 }
 
@@ -23,7 +25,7 @@ impl ScraperServiceImpl {
     #[allow(clippy::result_large_err)]
     pub(crate) async fn handle_generated_schema_review(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         reason: &str,
         schemas: Vec<ProductCssSelectorSchema>,
         evaluation: SchemaLlmEvaluation,
@@ -33,14 +35,14 @@ impl ScraperServiceImpl {
         let Some(review_repository) = &self.review_repository else {
             let saved = self
                 .schema_service
-                .save_product_schemas(shop_id, schemas)
+                .save_product_schemas(listing_source_id, schemas)
                 .await?;
             return Ok(GeneratedSchemaReviewOutcome::Persisted(saved));
         };
         if !self.review_required {
             let saved = self
                 .schema_service
-                .save_product_schemas(shop_id, schemas)
+                .save_product_schemas(listing_source_id, schemas)
                 .await?;
             return Ok(GeneratedSchemaReviewOutcome::Persisted(saved));
         }
@@ -69,11 +71,11 @@ impl ScraperServiceImpl {
         if approved_by_llm {
             let saved = self
                 .schema_service
-                .save_product_schemas(shop_id, schemas.clone())
+                .save_product_schemas(listing_source_id, schemas.clone())
                 .await?;
             review_repository
                 .create_schema_review_with_status(SchemaReviewWithStatusInput {
-                    shop_id,
+                    listing_source_id,
                     reason,
                     schemas: &schemas,
                     pages,
@@ -87,7 +89,13 @@ impl ScraperServiceImpl {
         }
 
         let review_id = review_repository
-            .create_schema_review(shop_id, reason, &schemas, pages, validation_summary)
+            .create_schema_review(
+                listing_source_id,
+                reason,
+                &schemas,
+                pages,
+                validation_summary,
+            )
             .await
             .map_err(review_error_to_schema_service_error)?;
         Ok(GeneratedSchemaReviewOutcome::PendingReview(review_id))

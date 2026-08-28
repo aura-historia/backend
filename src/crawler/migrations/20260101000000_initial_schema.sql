@@ -120,41 +120,40 @@ INSERT INTO listing_availability_mapping (raw, availability, mapping_type) VALUE
 INSERT INTO listing_availability_mapping (raw, availability, mapping_type) VALUES ('\b0\s+disponibles?\b',   'OUT_OF_STOCK', 'REGEX') ON CONFLICT (raw) DO NOTHING;
 INSERT INTO listing_availability_mapping (raw, availability, mapping_type) VALUES ('\b0\s+disponibili\b',    'OUT_OF_STOCK', 'REGEX') ON CONFLICT (raw) DO NOTHING;
 
-CREATE TABLE IF NOT EXISTS shops (
-    shop_id     UUID        PRIMARY KEY,
-    shop_name   TEXT,
-    shop_slug   TEXT,
-    shop_type   TEXT        CHECK (shop_type IN ('AUCTION_HOUSE', 'AUCTION_PLATFORM', 'COMMERCIAL_DEALER', 'MARKETPLACE')),
-    active      BOOLEAN     NOT NULL DEFAULT TRUE,
-    llm_calls_count BIGINT  NOT NULL DEFAULT 0,
-    url_pattern TEXT,
-    created     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS listing_sources (
+    listing_source_id   UUID        PRIMARY KEY,
+    listing_source_name TEXT        NOT NULL,
+    listing_source_slug TEXT        NOT NULL,
+    present             BOOLEAN     NOT NULL DEFAULT TRUE,
+    llm_calls_count     BIGINT      NOT NULL DEFAULT 0,
+    url_pattern         TEXT,
+    created             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS shops_product_schema (
-    shop_id         UUID        PRIMARY KEY REFERENCES shops(shop_id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS listing_source_product_schemas (
+    listing_source_id         UUID        PRIMARY KEY REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
     product_schema  JSONB       NOT NULL,
     created         TIMESTAMPTZ NOT NULL,
     updated         TIMESTAMPTZ NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS shop_domains (
+CREATE TABLE IF NOT EXISTS listing_source_domains (
     domain_id   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    shop_id     UUID        NOT NULL REFERENCES shops(shop_id) ON DELETE CASCADE,
-    shop_domain TEXT        NOT NULL,
+    listing_source_id     UUID        NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
+    listing_source_domain TEXT        NOT NULL,
     last_crawled TIMESTAMPTZ,
     crawl_failure_count INT NOT NULL DEFAULT 0,
     last_crawl_error_kind TEXT,
     next_crawl_at TIMESTAMPTZ,
-    UNIQUE (shop_domain)
+    UNIQUE (listing_source_domain)
 );
 
-CREATE INDEX IF NOT EXISTS idx_shop_domains_shop_id ON shop_domains (shop_id);
+CREATE INDEX IF NOT EXISTS idx_listing_source_domains_listing_source_id ON listing_source_domains (listing_source_id);
 
-CREATE TABLE IF NOT EXISTS shop_urls (
-    shop_id           UUID        NOT NULL REFERENCES shops(shop_id) ON DELETE CASCADE,
-    domain_id         UUID        NOT NULL REFERENCES shop_domains(domain_id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS listing_source_urls (
+    listing_source_id           UUID        NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
+    domain_id         UUID        NOT NULL REFERENCES listing_source_domains(domain_id) ON DELETE CASCADE,
     url               TEXT        NOT NULL,
     url_class         TEXT        NOT NULL,
     last_scraped_presence             TEXT        NOT NULL DEFAULT 'PRESENT',
@@ -182,7 +181,7 @@ CREATE TABLE IF NOT EXISTS shop_urls (
     PRIMARY KEY (url)
 );
 
-CREATE INDEX IF NOT EXISTS idx_shop_urls_class_last_scraped ON shop_urls (url_class, last_scraped);
-CREATE INDEX IF NOT EXISTS idx_shop_urls_domain_id ON shop_urls (domain_id);
-CREATE INDEX IF NOT EXISTS idx_shop_urls_next_retry_at ON shop_urls (next_retry_at);
-CREATE INDEX IF NOT EXISTS idx_shop_domains_next_crawl_at ON shop_domains (next_crawl_at);
+CREATE INDEX IF NOT EXISTS idx_listing_source_urls_class_last_scraped ON listing_source_urls (url_class, last_scraped);
+CREATE INDEX IF NOT EXISTS idx_listing_source_urls_domain_id ON listing_source_urls (domain_id);
+CREATE INDEX IF NOT EXISTS idx_listing_source_urls_next_retry_at ON listing_source_urls (next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_listing_source_domains_next_crawl_at ON listing_source_domains (next_crawl_at);

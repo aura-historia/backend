@@ -43,7 +43,7 @@
 //! cargo run --bin demo-scraper -p crawler
 //! ```
 
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufWriter;
@@ -53,7 +53,7 @@ use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
 use crawler::local_db::{DEMO_SCRAPER_DB_NAME, bootstrap_local_database, demo_scraper_db_url};
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
-use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
+use crawler::scraper::css_selector::product_schema_repository::ListingSourceProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
 use crawler::scraper::normalization::listing_availability_mapping_repository::ListingAvailabilityMappingRepositoryImpl;
@@ -61,14 +61,15 @@ use crawler::scraper::normalization::listing_availability_mapping_service::Listi
 use crawler::scraper::normalization::product::NormalizedProduct;
 use crawler::scraper::normalization::product_normalization_service::ProductListingNormalizationServiceImpl;
 use crawler::scraper::scraper_service::{
-    DEFAULT_MAX_LLM_CALLS_PER_SHOP, ReqwestHtmlFetcher, ScraperService, ScraperServiceImpl,
+    DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, ReqwestHtmlFetcher, ScraperService,
+    ScraperServiceImpl,
 };
 use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
 use localization::{Language, Localized};
 use money::Price;
 use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_image::ProductListingImage,
-    source_listing_id::SourceListingId as ShopListingId,
+    source_listing_id::SourceListingId,
 };
 
 use sqlx::PgPool;
@@ -89,7 +90,7 @@ const DEMO_POOL_MAX_CONNECTIONS: u32 = 5;
 // ---------------------------------------------------------------------------
 
 struct ScrapeTarget {
-    shop_id: ShopId,
+    listing_source_id: ListingSourceId,
     url: &'static str,
 }
 
@@ -158,7 +159,7 @@ impl From<ProductListingImage> for ProductListingImageData {
 
 #[derive(serde::Serialize)]
 pub struct DemoProduct {
-    pub shop_listing_id: ShopListingId,
+    pub source_listing_id: SourceListingId,
     pub title: LocalizedTextData,
     pub description: Option<LocalizedTextData>,
     pub price: Option<PriceData>,
@@ -176,7 +177,7 @@ pub struct DemoProduct {
 impl From<NormalizedProduct> for DemoProduct {
     fn from(p: NormalizedProduct) -> Self {
         Self {
-            shop_listing_id: p.shop_listing_id,
+            source_listing_id: p.source_listing_id,
             title: p.title.into(),
             description: p.description.map(Into::into),
             price: p.price.map(Into::into),
@@ -198,35 +199,35 @@ async fn main() {
 
     let targets: &[ScrapeTarget] = &[
         ScrapeTarget {
-            shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5a".try_into().unwrap(),
+            listing_source_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5a".try_into().unwrap(),
             url: "https://www.antiquitaeten-tuebingen.de/weichholzschrank-mit-orig-bemalung-salzburg-um-1800-art-7001/",
         },
         ScrapeTarget {
-            shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5a".try_into().unwrap(),
+            listing_source_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5a".try_into().unwrap(),
             url: "https://www.antiquitaeten-tuebingen.de/bildnis-in-oel-der-gattin-von-samuel-de-la-roche1947-art-g1475/",
         },
         ScrapeTarget {
-            shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5b".try_into().unwrap(),
+            listing_source_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5b".try_into().unwrap(),
             url: "https://20thcenturymilitaria.com/shop.php?code=51609",
         },
         ScrapeTarget {
-            shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5b".try_into().unwrap(),
+            listing_source_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5b".try_into().unwrap(),
             url: "https://20thcenturymilitaria.com/shop.php?code=52012",
         },
         ScrapeTarget {
-            shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5b".try_into().unwrap(),
+            listing_source_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5b".try_into().unwrap(),
             url: "https://20thcenturymilitaria.com/shop.php?code=52014",
         },
         ScrapeTarget {
-            shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5a".try_into().unwrap(),
+            listing_source_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5a".try_into().unwrap(),
             url: "https://www.antiquitaeten-tuebingen.de/https-www-antiquitaeten-tuebingen-de-gemaelde-artnr-g-58-oelgemaelde-landschaftsmalerei-mitte-19-jh/",
         },
         ScrapeTarget {
-            shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5c".try_into().unwrap(),
+            listing_source_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5c".try_into().unwrap(),
             url: "https://nostalgie-palast.de/couchtisch-uebersee-mit-glasplatte-113-m-x-053-m/",
         },
         ScrapeTarget {
-            shop_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5d".try_into().unwrap(),
+            listing_source_id: "8ded4706-dc72-4b0b-9357-9192e18e3d5d".try_into().unwrap(),
             url: "https://www.lot-tissimo.com/de-de/auction-catalogues/chiswick-auctions/catalogue-id-srchis11168/lot-61a5b754-6fc7-435b-80b3-b3fa0141c94e",
         },
     ];
@@ -240,7 +241,7 @@ async fn main() {
 
         let mut products: Vec<DemoProduct> = vec![];
         for target in targets {
-            let shop_id = target.shop_id;
+            let listing_source_id = target.listing_source_id;
             let url = match Url::parse(target.url) {
                 Ok(u) => u,
                 Err(e) => {
@@ -255,18 +256,18 @@ async fn main() {
 
             let scrape_span = tracing::info_span!(
                 "scraper_demo_target",
-                shop_id = %shop_id,
+                listing_source_id = %listing_source_id,
                 url = %url
             );
             match service
-                .scrape(&shop_id, &url, None, None)
+                .scrape(&listing_source_id, &url, None, None)
                 .instrument(scrape_span)
                 .await
             {
                 Ok(Some(scraped)) => {
                     info!(
                         title = %scraped.product.title.payload,
-                        shop_listing_id = %scraped.product.shop_listing_id,
+                        source_listing_id = %scraped.product.source_listing_id,
                         "Scrape succeeded"
                     );
                     products.push(scraped.product.into());
@@ -391,7 +392,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         ProductListingNormalizationServiceImpl::new(Box::new(listing_availability_mapping_svc));
 
     // Schema service (DB-backed + initial/fresh LLM generation).
-    let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(pool));
+    let schema_repo = Box::new(ListingSourceProductSchemaRepositoryImpl::new(pool));
     let removed_page_schema_repo = Box::new(RemovedPageSchemaRepositoryImpl::new(pool));
     let schema_svc = ProductListingSchemaServiceImpl::new(
         create_schema_llm,
@@ -411,7 +412,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         Box::new(normalization_svc),
         candidate_service,
         3,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     )
     .with_removed_page_schema_repository(removed_page_schema_repo)
 }

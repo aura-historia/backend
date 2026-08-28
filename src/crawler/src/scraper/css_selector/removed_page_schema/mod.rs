@@ -1,6 +1,6 @@
+mod listing_sources_removed;
 mod page_match;
 mod removed;
-mod shops_removed;
 
+pub use listing_sources_removed::ListingSourceRemovedPageSchema;
 pub use removed::RemovedPageSchema;
-pub use shops_removed::ShopsRemovedPageSchema;

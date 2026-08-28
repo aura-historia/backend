@@ -1,8 +1,8 @@
 use crawler::spider::classification::url_pattern_repository::{
-    ShopUrlPatternRepository, ShopUrlPatternRepositoryImpl,
+    ListingSourceUrlPatternRepository, ListingSourceUrlPatternRepositoryImpl,
 };
-use shop_core::domain::Domain;
-use shop_core::shop_id::ShopId;
+use listing_source_core::Domain;
+use listing_source_core::ListingSourceId;
 
 use test_api::*;
 
@@ -16,10 +16,10 @@ const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 #[serial_test::serial]
 async fn should_return_none_when_no_pattern_exists_for_find() {
     let pool = get_postgres_client().await;
-    let repository = ShopUrlPatternRepositoryImpl::new(pool);
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool);
+    let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
 
-    let result = repository.find_pattern(&shop_id).await.unwrap();
+    let result = repository.find_pattern(&listing_source_id).await.unwrap();
 
     assert!(result.is_none());
 }
@@ -28,20 +28,24 @@ async fn should_return_none_when_no_pattern_exists_for_find() {
 #[serial_test::serial]
 async fn should_return_pattern_when_exists_for_find() {
     let pool = get_postgres_client().await;
-    let repository = ShopUrlPatternRepositoryImpl::new(pool.clone());
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_domain = Domain::try_from("example.com").unwrap();
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
+    let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+    let listing_source_domain = Domain::try_from("example.com").unwrap();
     let pattern = r"/product/\d+";
 
     repository
-        .save_pattern(&shop_id, &shop_domain, Some(pattern))
+        .save_pattern(&listing_source_id, &listing_source_domain, Some(pattern))
         .await
         .unwrap();
 
-    let result = repository.find_pattern(&shop_id).await.unwrap().unwrap();
+    let result = repository
+        .find_pattern(&listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
 
-    assert_eq!(result.shop_id, shop_id);
-    assert_eq!(result.shop_domain, shop_domain);
+    assert_eq!(result.listing_source_id, listing_source_id);
+    assert_eq!(result.listing_source_domain, listing_source_domain);
     assert_eq!(result.url_pattern.unwrap(), pattern);
 }
 
@@ -53,21 +57,25 @@ async fn should_return_pattern_when_exists_for_find() {
 #[serial_test::serial]
 async fn should_persist_and_return_pattern_for_insert() {
     let pool = get_postgres_client().await;
-    let repository = ShopUrlPatternRepositoryImpl::new(pool);
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool);
 
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_domain = Domain::try_from("insert-example.com").unwrap();
+    let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+    let listing_source_domain = Domain::try_from("insert-example.com").unwrap();
     let pattern = r"/item/\w+";
 
     repository
-        .save_pattern(&shop_id, &shop_domain, Some(pattern))
+        .save_pattern(&listing_source_id, &listing_source_domain, Some(pattern))
         .await
         .unwrap();
 
-    let returned = repository.find_pattern(&shop_id).await.unwrap().unwrap();
+    let returned = repository
+        .find_pattern(&listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
 
-    assert_eq!(returned.shop_id, shop_id);
-    assert_eq!(returned.shop_domain, shop_domain);
+    assert_eq!(returned.listing_source_id, listing_source_id);
+    assert_eq!(returned.listing_source_domain, listing_source_domain);
     assert_eq!(returned.url_pattern.unwrap(), pattern);
 }
 
@@ -75,25 +83,37 @@ async fn should_persist_and_return_pattern_for_insert() {
 #[serial_test::serial]
 async fn should_preserve_created_and_updated_timestamps_for_insert() {
     let pool = get_postgres_client().await;
-    let repository = ShopUrlPatternRepositoryImpl::new(pool);
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool);
 
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_domain = Domain::try_from("ts-example.com").unwrap();
+    let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+    let listing_source_domain = Domain::try_from("ts-example.com").unwrap();
     let pattern = "/ts-item";
 
     repository
-        .save_pattern(&shop_id, &shop_domain, Some(pattern))
+        .save_pattern(&listing_source_id, &listing_source_domain, Some(pattern))
         .await
         .unwrap();
-    let record1 = repository.find_pattern(&shop_id).await.unwrap().unwrap();
+    let record1 = repository
+        .find_pattern(&listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
 
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
     repository
-        .save_pattern(&shop_id, &shop_domain, Some("/ts-item-new"))
+        .save_pattern(
+            &listing_source_id,
+            &listing_source_domain,
+            Some("/ts-item-new"),
+        )
         .await
         .unwrap();
-    let record2 = repository.find_pattern(&shop_id).await.unwrap().unwrap();
+    let record2 = repository
+        .find_pattern(&listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
 
     assert!(
         (record2.created - record1.created).abs() < time::Duration::microseconds(1000),
@@ -109,26 +129,34 @@ async fn should_preserve_created_and_updated_timestamps_for_insert() {
 #[serial_test::serial]
 async fn should_allow_clearing_pattern() {
     let pool = get_postgres_client().await;
-    let repository = ShopUrlPatternRepositoryImpl::new(pool);
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool);
 
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_domain = Domain::try_from("clear-example.com").unwrap();
+    let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+    let listing_source_domain = Domain::try_from("clear-example.com").unwrap();
 
     repository
-        .save_pattern(&shop_id, &shop_domain, Some("/clear-item"))
+        .save_pattern(
+            &listing_source_id,
+            &listing_source_domain,
+            Some("/clear-item"),
+        )
         .await
         .unwrap();
 
     // Explicitly clear pattern
     repository
-        .save_pattern(&shop_id, &shop_domain, None)
+        .save_pattern(&listing_source_id, &listing_source_domain, None)
         .await
         .unwrap();
 
-    let returned = repository.find_pattern(&shop_id).await.unwrap().unwrap();
+    let returned = repository
+        .find_pattern(&listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
 
-    assert_eq!(returned.shop_id, shop_id);
-    assert_eq!(returned.shop_domain, shop_domain);
+    assert_eq!(returned.listing_source_id, listing_source_id);
+    assert_eq!(returned.listing_source_domain, listing_source_domain);
     assert!(returned.url_pattern.is_none());
 }
 
@@ -140,18 +168,22 @@ async fn should_allow_clearing_pattern() {
 #[serial_test::serial]
 async fn should_mark_pattern_as_crawled() {
     let pool = get_postgres_client().await;
-    let repository = ShopUrlPatternRepositoryImpl::new(pool);
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool);
 
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_domain = Domain::try_from("mark-example.com").unwrap();
+    let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+    let listing_source_domain = Domain::try_from("mark-example.com").unwrap();
 
     // Mark as crawled directly without a pattern
     repository
-        .mark_as_crawled(&shop_id, &shop_domain)
+        .mark_as_crawled(&listing_source_id, &listing_source_domain)
         .await
         .unwrap();
 
-    let record = repository.find_pattern(&shop_id).await.unwrap().unwrap();
+    let record = repository
+        .find_pattern(&listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(record.last_crawled.is_some());
     assert!(record.url_pattern.is_none());
 
@@ -159,10 +191,14 @@ async fn should_mark_pattern_as_crawled() {
 
     // Mark again
     repository
-        .mark_as_crawled(&shop_id, &shop_domain)
+        .mark_as_crawled(&listing_source_id, &listing_source_domain)
         .await
         .unwrap();
 
-    let record2 = repository.find_pattern(&shop_id).await.unwrap().unwrap();
+    let record2 = repository
+        .find_pattern(&listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(record2.last_crawled.unwrap() > record.last_crawled.unwrap());
 }

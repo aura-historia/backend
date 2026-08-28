@@ -26,7 +26,7 @@ use url::Url;
 // ---------------------------------------------------------------------------
 
 pub const DEFAULT_SCHEMA_SEED_PAGES: usize = 4;
-pub const DEFAULT_MAX_LLM_CALLS_PER_SHOP: i64 = 20;
+pub const DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE: i64 = 20;
 
 const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
 
@@ -265,7 +265,7 @@ pub struct ScraperServiceImpl {
     /// `1` means current page only; values >1 trigger best-effort sampling/fetch.
     pub(crate) schema_seed_pages: usize,
     /// Hard limit for total LLM calls per shop across the whole scrape.
-    pub(crate) max_llm_calls_per_shop: i64,
+    pub(crate) max_llm_calls_per_listing_source: i64,
     pub(crate) review_repository: Option<CrawlerReviewRepository>,
     pub(crate) review_required: bool,
     pub(crate) schema_llm_review_mode: SchemaLlmReviewMode,
@@ -326,7 +326,7 @@ impl ScraperServiceImpl {
             normalization_service,
             candidate_service,
             DEFAULT_SCHEMA_SEED_PAGES,
-            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+            DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
         )
     }
 
@@ -336,7 +336,7 @@ impl ScraperServiceImpl {
         normalization_service: Box<dyn ProductListingNormalizationService + Send + Sync>,
         candidate_service: Arc<dyn ScraperCandidateService>,
         schema_seed_pages: usize,
-        max_llm_calls_per_shop: i64,
+        max_llm_calls_per_listing_source: i64,
     ) -> Self {
         Self {
             html_fetcher,
@@ -346,7 +346,7 @@ impl ScraperServiceImpl {
             candidate_service,
             removed_page_schema_repository: Box::new(NullRemovedPageSchemaRepository),
             schema_seed_pages: schema_seed_pages.max(1),
-            max_llm_calls_per_shop,
+            max_llm_calls_per_listing_source,
             review_repository: None,
             review_required: false,
             schema_llm_review_mode: SchemaLlmReviewMode::HumanOnly,
@@ -379,7 +379,7 @@ impl ScraperServiceImpl {
 
     pub(crate) async fn pending_product_schema_review_id(
         &self,
-        shop_id: &shop_core::shop_id::ShopId,
+        listing_source_id: &listing_source_core::ListingSourceId,
     ) -> Result<Option<uuid::Uuid>, ProductListingSchemaServiceError> {
         if !self.review_required {
             return Ok(None);
@@ -390,7 +390,7 @@ impl ScraperServiceImpl {
         };
 
         review_repository
-            .latest_pending_review_id(shop_id, ARTIFACT_PRODUCT_SCHEMA)
+            .latest_pending_review_id(listing_source_id, ARTIFACT_PRODUCT_SCHEMA)
             .await
             .map_err(ProductListingSchemaServiceError::DatabaseError)
     }

@@ -8,7 +8,7 @@ use crate::service::product_push::{
     ProductListingPushItem, ProductListingPushService, normalize_to_upsert,
 };
 use crate::spider::advisory_lock::{LocalLockManager, ShopLock, UrlLock};
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,15 +23,15 @@ struct ScrapeDomainContext {
     scraper_candidates: Arc<dyn ScraperCandidateService>,
     lock_manager: Arc<LocalLockManager>,
     command_tx: mpsc::Sender<QueuedProductListingPush>,
-    budget_exhausted_shops: Arc<Mutex<HashSet<ShopId>>>,
-    schema_pending_shops: Arc<Mutex<HashSet<ShopId>>>,
+    budget_exhausted_listing_sources: Arc<Mutex<HashSet<ListingSourceId>>>,
+    schema_pending_listing_sources: Arc<Mutex<HashSet<ListingSourceId>>>,
 }
 
 /// Metadata carried alongside a [`UpsertProductListingCommand`] so the push-collector
 /// can call [`ScraperCandidateService::mark_as_scraped`] only after the push
 /// has been confirmed.
 struct CandidateMeta {
-    shop_id: shop_core::shop_id::ShopId,
+    listing_source_id: listing_source_core::ListingSourceId,
     url: url::Url,
     hash: String,
     snapshot: ProductListingSnapshot,
@@ -115,13 +115,18 @@ async fn flush_batch(
     for (meta, succeeded) in metas.into_iter().zip(succeeded) {
         if succeeded {
             match scraper_candidates
-                .mark_as_scraped(&meta.shop_id, &meta.url, &meta.hash, &meta.snapshot)
+                .mark_as_scraped(
+                    &meta.listing_source_id,
+                    &meta.url,
+                    &meta.hash,
+                    &meta.snapshot,
+                )
                 .await
             {
                 Ok(()) => mark_as_scraped_count += 1,
                 Err(error) => {
                     mark_as_scraped_failure_count += 1;
-                    warn!(shop_id = %meta.shop_id, error = %error, url = %meta.url, "Failed to mark product as scraped after push");
+                    warn!(listing_source_id = %meta.listing_source_id, error = %error, url = %meta.url, "Failed to mark product as scraped after push");
                 }
             }
         }
@@ -163,7 +168,7 @@ async fn enqueue_product_push(
     name = "crawler_scrape_candidate",
     skip(candidate, ctx),
     fields(
-        shop_id = %candidate.shop_id,
+        listing_source_id = %candidate.listing_source_id,
         url = %candidate.url
     )
 )]
@@ -171,10 +176,10 @@ async fn scrape_candidate(
     candidate: ScraperCandidate,
     ctx: &ScrapeDomainContext,
 ) -> ScrapeCandidateOutcome {
-    // Skip URLs from shops with already-exhausted budgets
+    // Skip URLs from listing_sources with already-exhausted budgets
     {
-        let exhausted = ctx.budget_exhausted_shops.lock().await;
-        if exhausted.contains(&candidate.shop_id) {
+        let exhausted = ctx.budget_exhausted_listing_sources.lock().await;
+        if exhausted.contains(&candidate.listing_source_id) {
             debug!("Skipping URL — shop LLM budget already exhausted in this batch");
             return ScrapeCandidateOutcome {
                 command: None,
@@ -185,8 +190,8 @@ async fn scrape_candidate(
     }
 
     {
-        let pending = ctx.schema_pending_shops.lock().await;
-        if pending.contains(&candidate.shop_id) {
+        let pending = ctx.schema_pending_listing_sources.lock().await;
+        if pending.contains(&candidate.listing_source_id) {
             debug!("Skipping URL because shop has pending schema review in this batch");
             return ScrapeCandidateOutcome {
                 command: None,
@@ -205,7 +210,8 @@ async fn scrape_candidate(
         };
     };
 
-    let Some(_shop_lock) = ShopLock::try_acquire(&ctx.lock_manager, candidate.shop_id) else {
+    let Some(_shop_lock) = ShopLock::try_acquire(&ctx.lock_manager, candidate.listing_source_id)
+    else {
         debug!("Skipping URL because another worker is scraping this shop");
         return ScrapeCandidateOutcome {
             command: None,
@@ -217,7 +223,7 @@ async fn scrape_candidate(
     match ctx
         .scraper
         .scrape(
-            &candidate.shop_id,
+            &candidate.listing_source_id,
             &candidate.url,
             candidate.url_pattern.as_deref(),
             candidate.last_scraped_hash.as_deref(),
@@ -227,7 +233,7 @@ async fn scrape_candidate(
         Ok(Some(scraped)) => {
             let raw_attributes = scraped.product.raw_attributes.clone();
             let meta = CandidateMeta {
-                shop_id: candidate.shop_id,
+                listing_source_id: candidate.listing_source_id,
                 url: candidate.url.clone(),
                 hash: scraped.hash,
                 snapshot: scraped.snapshot,
@@ -267,7 +273,7 @@ async fn scrape_candidate(
                 if let Err(mark_err) = ctx
                     .scraper_candidates
                     .mark_fetch_failure(
-                        &candidate.shop_id,
+                        &candidate.listing_source_id,
                         &candidate.url,
                         &format!("{kind:?}"),
                         &error_message,
@@ -297,7 +303,7 @@ async fn scrape_candidate(
                         if let Err(mark_err) = ctx
                             .scraper_candidates
                             .mark_fetch_failure(
-                                &candidate.shop_id,
+                                &candidate.listing_source_id,
                                 &candidate.url,
                                 error_kind,
                                 &error_message,
@@ -316,7 +322,7 @@ async fn scrape_candidate(
                         if let Err(mark_err) = ctx
                             .scraper_candidates
                             .mark_scraper_failure(
-                                &candidate.shop_id,
+                                &candidate.listing_source_id,
                                 &candidate.url,
                                 error_kind,
                                 &error_message,
@@ -335,23 +341,25 @@ async fn scrape_candidate(
             // Log LLM budget exhaustion at INFO level only once per shop per batch
             if is_llm_budget_exceeded {
                 if let ScraperError::LlmBudgetExceeded {
-                    shop_id, max_calls, ..
+                    listing_source_id,
+                    max_calls,
+                    ..
                 } = &e
                 {
-                    let mut exhausted = ctx.budget_exhausted_shops.lock().await;
-                    if exhausted.insert(*shop_id) {
+                    let mut exhausted = ctx.budget_exhausted_listing_sources.lock().await;
+                    if exhausted.insert(*listing_source_id) {
                         info!(
-                            shop_id = %shop_id,
+                            listing_source_id = %listing_source_id,
                             max_calls,
                             "LLM call budget exhausted for shop; skipping remaining URLs in batch"
                         );
                     }
                 }
             } else if is_pending_schema_review {
-                let mut pending = ctx.schema_pending_shops.lock().await;
-                if pending.insert(candidate.shop_id) {
+                let mut pending = ctx.schema_pending_listing_sources.lock().await;
+                if pending.insert(candidate.listing_source_id) {
                     info!(
-                        shop_id = %candidate.shop_id,
+                        listing_source_id = %candidate.listing_source_id,
                         "ProductListing schema review pending for shop; skipping remaining URLs in batch"
                     );
                 }
@@ -376,7 +384,7 @@ async fn scrape_candidate(
 
 /// Returns a short, stable, machine-readable kind label for a [`ScraperError`].
 ///
-/// These labels are persisted in `shop_urls.last_error_kind` so that
+/// These labels are persisted in `listing_source_urls.last_error_kind` so that
 /// operators can filter / aggregate by error category without having to parse
 /// the free-text message.  The `HttpError` variant is included for completeness
 /// even though the caller currently only invokes this helper for non-HTTP errors.
@@ -545,10 +553,10 @@ impl CrawlerCronJob {
         let (command_tx, command_rx) =
             mpsc::channel::<QueuedProductListingPush>(self.config.effective_push_queue_capacity());
 
-        let budget_exhausted_shops = Arc::new(Mutex::new(HashSet::new()));
-        let schema_pending_shops = Arc::new(Mutex::new(HashSet::new()));
+        let budget_exhausted_listing_sources = Arc::new(Mutex::new(HashSet::new()));
+        let schema_pending_listing_sources = Arc::new(Mutex::new(HashSet::new()));
 
-        let mut unique_shop_ids = HashSet::new();
+        let mut unique_listing_source_ids = HashSet::new();
         let mut total = 0usize;
         let mut succeeded = 0usize;
         let mut failed = 0usize;
@@ -575,8 +583,10 @@ impl CrawlerCronJob {
                     let scraper_candidates = Arc::clone(&self.scraper_candidates);
                     let lock_manager = Arc::clone(&self.lock_manager);
                     let domain_tx = command_tx.clone();
-                    let budget_exhausted_shops = Arc::clone(&budget_exhausted_shops);
-                    let schema_pending_shops = Arc::clone(&schema_pending_shops);
+                    let budget_exhausted_listing_sources =
+                        Arc::clone(&budget_exhausted_listing_sources);
+                    let schema_pending_listing_sources =
+                        Arc::clone(&schema_pending_listing_sources);
                     let span = tracing::info_span!("scrape_domain", domain = %domain);
                     active_domains.insert(domain.clone());
                     total += candidates.len();
@@ -588,8 +598,8 @@ impl CrawlerCronJob {
                                 scraper_candidates,
                                 lock_manager,
                                 command_tx: domain_tx,
-                                budget_exhausted_shops,
-                                schema_pending_shops,
+                                budget_exhausted_listing_sources,
+                                schema_pending_listing_sources,
                             };
 
                             ScheduledScrapeDomainOutcome {
@@ -650,7 +660,7 @@ impl CrawlerCronJob {
 
                 let mut by_domain: HashMap<String, Vec<ScraperCandidate>> = HashMap::new();
                 for candidate in candidates {
-                    unique_shop_ids.insert(candidate.shop_id);
+                    unique_listing_source_ids.insert(candidate.listing_source_id);
                     let domain = candidate.url.host_str().unwrap_or("").to_ascii_lowercase();
                     seen_domains.insert(domain.clone());
                     by_domain.entry(domain).or_default().push(candidate);
@@ -701,16 +711,16 @@ impl CrawlerCronJob {
         {
             match self
                 .scraper_candidates
-                .get_shop_llm_usage(unique_shop_ids.into_iter().collect())
+                .get_listing_source_llm_usage(unique_listing_source_ids.into_iter().collect())
                 .await
             {
                 Ok(usages) => {
                     for usage in usages {
                         debug!(
-                            shop_name = %usage.shop_name,
+                            listing_source_name = %usage.listing_source_name,
                             llm_calls_count = usage.llm_calls_count,
-                            llm_calls_cap = self.config.scraper_max_llm_calls_per_shop,
-                            llm_budget_exhausted = usage.llm_calls_count >= self.config.scraper_max_llm_calls_per_shop,
+                            llm_calls_cap = self.config.scraper_max_llm_calls_per_listing_source,
+                            llm_budget_exhausted = usage.llm_calls_count >= self.config.scraper_max_llm_calls_per_listing_source,
                             "Shop LLM usage summary"
                         );
                     }
@@ -731,7 +741,7 @@ mod tests {
     use crate::scraper::candidate_service::MockScraperCandidateService;
     use crate::scraper::scraper_service::MockScraperService;
     use crate::service::cron::config::CrawlerCronConfig;
-    use crate::service::cron::test_support::{noop_shop_registration, scraper_candidate};
+    use crate::service::cron::test_support::{noop_listing_source_registration, scraper_candidate};
     use crate::service::product_push::MockProductListingPushService;
     use crate::spider::advisory_lock::LocalLockManager;
     use crate::spider::candidate_service::MockSpiderCandidateService;
@@ -739,7 +749,6 @@ mod tests {
     use listing_source_core::ListingSourceId;
     use product_listing_core::source_listing_id::SourceListingId;
     use product_listing_service::use_cases::commands::upsert_product_listing::UpsertProductListingCommand;
-    use shop_core::{shop_id::ShopId, shop_type::ShopType};
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -763,10 +772,10 @@ mod tests {
         Box::new(push_service)
     }
 
-    fn item(shop_id: ShopId, product_id: &str) -> ProductListingPushItem {
+    fn item(listing_source_id: ListingSourceId, product_id: &str) -> ProductListingPushItem {
         ProductListingPushItem {
             command: UpsertProductListingCommand {
-                listing_source_id: ListingSourceId::from(uuid::Uuid::from(shop_id)),
+                listing_source_id: ListingSourceId::from(uuid::Uuid::from(listing_source_id)),
                 source_listing_id: SourceListingId::from(product_id),
                 title: None,
                 description: None,
@@ -783,9 +792,9 @@ mod tests {
         }
     }
 
-    fn meta(shop_id: ShopId, url: &str, hash: &str) -> CandidateMeta {
+    fn meta(listing_source_id: ListingSourceId, url: &str, hash: &str) -> CandidateMeta {
         CandidateMeta {
-            shop_id,
+            listing_source_id,
             url: url::Url::parse(url).unwrap(),
             hash: hash.to_owned(),
             snapshot: ProductListingSnapshot {
@@ -803,8 +812,8 @@ mod tests {
 
     #[tokio::test]
     async fn should_mark_only_the_matching_successful_push_input_as_scraped() {
-        let first_shop_id = ShopId::new();
-        let second_shop_id = ShopId::new();
+        let first_listing_source_id = ListingSourceId::new();
+        let second_listing_source_id = ListingSourceId::new();
         let first_url = url::Url::parse("https://first.example/product").unwrap();
         let mut push_service = MockProductListingPushService::new();
         push_service.expect_push().once().returning(|products| {
@@ -816,8 +825,10 @@ mod tests {
         scraper_candidates
             .expect_mark_as_scraped()
             .once()
-            .withf(move |shop_id, url, hash, _| {
-                *shop_id == first_shop_id && url == &first_url && hash == "first"
+            .withf(move |listing_source_id, url, hash, _| {
+                *listing_source_id == first_listing_source_id
+                    && url == &first_url
+                    && hash == "first"
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
@@ -829,13 +840,21 @@ mod tests {
             &scraper_candidates,
             vec![
                 QueuedProductListingPush {
-                    item: item(first_shop_id, "same-product-id"),
-                    meta: meta(first_shop_id, "https://first.example/product", "first"),
+                    item: item(first_listing_source_id, "same-product-id"),
+                    meta: meta(
+                        first_listing_source_id,
+                        "https://first.example/product",
+                        "first",
+                    ),
                     enqueued_at: tokio::time::Instant::now(),
                 },
                 QueuedProductListingPush {
-                    item: item(second_shop_id, "same-product-id"),
-                    meta: meta(second_shop_id, "https://second.example/product", "second"),
+                    item: item(second_listing_source_id, "same-product-id"),
+                    meta: meta(
+                        second_listing_source_id,
+                        "https://second.example/product",
+                        "second",
+                    ),
                     enqueued_at: tokio::time::Instant::now(),
                 },
             ],
@@ -846,8 +865,8 @@ mod tests {
 
     #[tokio::test]
     async fn should_default_missing_product_push_results_to_failure() {
-        let first_shop_id = ShopId::new();
-        let second_shop_id = ShopId::new();
+        let first_listing_source_id = ListingSourceId::new();
+        let second_listing_source_id = ListingSourceId::new();
         let first_url = url::Url::parse("https://first.example/product").unwrap();
         let mut push_service = MockProductListingPushService::new();
         push_service.expect_push().once().returning(|products| {
@@ -859,8 +878,10 @@ mod tests {
         scraper_candidates
             .expect_mark_as_scraped()
             .once()
-            .withf(move |shop_id, url, hash, _| {
-                *shop_id == first_shop_id && url == &first_url && hash == "first"
+            .withf(move |listing_source_id, url, hash, _| {
+                *listing_source_id == first_listing_source_id
+                    && url == &first_url
+                    && hash == "first"
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
@@ -872,13 +893,21 @@ mod tests {
             &scraper_candidates,
             vec![
                 QueuedProductListingPush {
-                    item: item(first_shop_id, "first"),
-                    meta: meta(first_shop_id, "https://first.example/product", "first"),
+                    item: item(first_listing_source_id, "first"),
+                    meta: meta(
+                        first_listing_source_id,
+                        "https://first.example/product",
+                        "first",
+                    ),
                     enqueued_at: tokio::time::Instant::now(),
                 },
                 QueuedProductListingPush {
-                    item: item(second_shop_id, "second"),
-                    meta: meta(second_shop_id, "https://second.example/product", "second"),
+                    item: item(second_listing_source_id, "second"),
+                    meta: meta(
+                        second_listing_source_id,
+                        "https://second.example/product",
+                        "second",
+                    ),
                     enqueued_at: tokio::time::Instant::now(),
                 },
             ],
@@ -890,13 +919,17 @@ mod tests {
     #[tokio::test]
     async fn should_apply_backpressure_when_product_push_queue_is_full() {
         let (command_tx, mut command_rx) = mpsc::channel::<QueuedProductListingPush>(1);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
         enqueue_product_push(
             &command_tx,
             (
-                item(shop_id, "first"),
-                meta(shop_id, "https://example.com/product/first", "first"),
+                item(listing_source_id, "first"),
+                meta(
+                    listing_source_id,
+                    "https://example.com/product/first",
+                    "first",
+                ),
             ),
         )
         .await
@@ -907,8 +940,12 @@ mod tests {
             enqueue_product_push(
                 &second_tx,
                 (
-                    item(shop_id, "second"),
-                    meta(shop_id, "https://example.com/product/second", "second"),
+                    item(listing_source_id, "second"),
+                    meta(
+                        listing_source_id,
+                        "https://example.com/product/second",
+                        "second",
+                    ),
                 ),
             )
             .await
@@ -960,12 +997,12 @@ mod tests {
             Duration::from_secs(5),
         ));
 
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
         enqueue_product_push(
             &tx,
             (
-                item(shop_id, "one"),
-                meta(shop_id, "https://example.com/product/one", "one"),
+                item(listing_source_id, "one"),
+                meta(listing_source_id, "https://example.com/product/one", "one"),
             ),
         )
         .await
@@ -1012,12 +1049,12 @@ mod tests {
             Duration::from_secs(5),
         ));
 
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
         enqueue_product_push(
             &tx,
             (
-                item(shop_id, "one"),
-                meta(shop_id, "https://example.com/product/one", "one"),
+                item(listing_source_id, "one"),
+                meta(listing_source_id, "https://example.com/product/one", "one"),
             ),
         )
         .await
@@ -1025,8 +1062,8 @@ mod tests {
         enqueue_product_push(
             &tx,
             (
-                item(shop_id, "two"),
-                meta(shop_id, "https://example.com/product/two", "two"),
+                item(listing_source_id, "two"),
+                meta(listing_source_id, "https://example.com/product/two", "two"),
             ),
         )
         .await
@@ -1076,7 +1113,7 @@ mod tests {
             Box::new(spider_service),
             Box::new(scraper_candidates),
             Box::new(scraper_service),
-            noop_shop_registration(),
+            noop_listing_source_registration(),
             no_push_service(),
         )
     }
@@ -1092,8 +1129,8 @@ mod tests {
             scraper_candidates: Arc::new(scraper_candidates),
             lock_manager: Arc::new(LocalLockManager::new()),
             command_tx,
-            budget_exhausted_shops: Arc::new(Mutex::new(HashSet::new())),
-            schema_pending_shops: Arc::new(Mutex::new(HashSet::new())),
+            budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
+            schema_pending_listing_sources: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -1105,7 +1142,6 @@ mod tests {
             .returning(get_candidates_once_by_domain(|| {
                 vec![scraper_candidate(
                     "Test Shop",
-                    ShopType::CommercialDealer,
                     url::Url::parse("https://example.com/product/1").unwrap(),
                 )]
             }));
@@ -1133,7 +1169,6 @@ mod tests {
             .returning(get_candidates_once_by_domain(|| {
                 vec![scraper_candidate(
                     "Test Shop",
-                    ShopType::CommercialDealer,
                     url::Url::parse("https://example.com/product/1").unwrap(),
                 )]
             }));
@@ -1177,16 +1212,16 @@ mod tests {
     #[tokio::test]
     async fn should_mark_same_domain_500_fetch_failure() {
         let url = url::Url::parse("https://same-domain.com/product/1").unwrap();
-        let candidate = scraper_candidate("Shop", ShopType::CommercialDealer, url.clone());
-        let shop_id = candidate.shop_id;
+        let candidate = scraper_candidate("Shop", url.clone());
+        let listing_source_id = candidate.listing_source_id;
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
             .withf(
-                move |received_shop_id, received_url, _, _, status_code, _| {
-                    *received_shop_id == shop_id
+                move |received_listing_source_id, received_url, _, _, status_code, _| {
+                    *received_listing_source_id == listing_source_id
                         && received_url == &url
                         && *status_code == Some(500)
                 },
@@ -1218,16 +1253,16 @@ mod tests {
     #[tokio::test]
     async fn should_mark_same_domain_429_fetch_failure() {
         let url = url::Url::parse("https://same-domain.com/product/1").unwrap();
-        let candidate = scraper_candidate("Shop", ShopType::CommercialDealer, url.clone());
-        let shop_id = candidate.shop_id;
+        let candidate = scraper_candidate("Shop", url.clone());
+        let listing_source_id = candidate.listing_source_id;
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
             .withf(
-                move |received_shop_id, received_url, _, _, status_code, _| {
-                    *received_shop_id == shop_id
+                move |received_listing_source_id, received_url, _, _, status_code, _| {
+                    *received_listing_source_id == listing_source_id
                         && received_url == &url
                         && *status_code == Some(429)
                 },
@@ -1270,8 +1305,8 @@ mod tests {
                 let first_candidate_url = first_candidate_url.clone();
                 let second_candidate_url = second_candidate_url.clone();
                 vec![
-                    scraper_candidate("Shop", ShopType::CommercialDealer, first_candidate_url),
-                    scraper_candidate("Shop", ShopType::CommercialDealer, second_candidate_url),
+                    scraper_candidate("Shop", first_candidate_url),
+                    scraper_candidate("Shop", second_candidate_url),
                 ]
             }));
         scraper_candidates
@@ -1332,8 +1367,8 @@ mod tests {
                 let first_candidate_url = first_candidate_url.clone();
                 let second_candidate_url = second_candidate_url.clone();
                 vec![
-                    scraper_candidate("Shop", ShopType::CommercialDealer, first_candidate_url),
-                    scraper_candidate("Shop", ShopType::CommercialDealer, second_candidate_url),
+                    scraper_candidate("Shop", first_candidate_url),
+                    scraper_candidate("Shop", second_candidate_url),
                 ]
             }));
         scraper_candidates
@@ -1387,7 +1422,6 @@ mod tests {
             .returning(get_candidates_once_by_domain(|| {
                 vec![scraper_candidate(
                     "Test Shop",
-                    ShopType::CommercialDealer,
                     url::Url::parse("https://example.com/product/1").unwrap(),
                 )]
             }));
@@ -1399,12 +1433,12 @@ mod tests {
         let mut scraper_service = MockScraperService::new();
         scraper_service
             .expect_scrape()
-            .returning(|shop_id, url, _, _| {
+            .returning(|listing_source_id, url, _, _| {
                 let url = url.clone();
-                let shop_id = *shop_id;
+                let listing_source_id = *listing_source_id;
                 Box::pin(async move {
                     Err(ScraperError::LlmBudgetExceeded {
-                        shop_id,
+                        listing_source_id,
                         url,
                         max_calls: 5,
                     })
@@ -1422,7 +1456,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_skip_remaining_shop_candidates_when_schema_review_is_pending() {
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
         let first_url = url::Url::parse("https://example.com/product/1").unwrap();
         let second_url = url::Url::parse("https://example.com/product/2").unwrap();
 
@@ -1433,28 +1467,22 @@ mod tests {
         scraper_candidates
             .expect_get_candidates()
             .returning(get_candidates_once_by_domain(move || {
-                let mut first = scraper_candidate(
-                    "Test Shop",
-                    ShopType::CommercialDealer,
-                    first_url_for_candidates.clone(),
-                );
-                first.shop_id = shop_id;
-                let mut second = scraper_candidate(
-                    "Test Shop",
-                    ShopType::CommercialDealer,
-                    second_url_for_candidates.clone(),
-                );
-                second.shop_id = shop_id;
+                let mut first = scraper_candidate("Test Shop", first_url_for_candidates.clone());
+                first.listing_source_id = listing_source_id;
+                let mut second = scraper_candidate("Test Shop", second_url_for_candidates.clone());
+                second.listing_source_id = listing_source_id;
                 vec![first, second]
             }));
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
-            .withf(move |received_shop_id, received_url, kind, _, _, _| {
-                *received_shop_id == shop_id
-                    && received_url == &first_url
-                    && kind == "PendingSchemaReview"
-            })
+            .withf(
+                move |received_listing_source_id, received_url, kind, _, _, _| {
+                    *received_listing_source_id == listing_source_id
+                        && received_url == &first_url
+                        && kind == "PendingSchemaReview"
+                },
+            )
             .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut scraper_service = MockScraperService::new();
@@ -1491,7 +1519,6 @@ mod tests {
             .returning(get_candidates_once_by_domain(|| {
                 vec![scraper_candidate(
                     "Test Shop",
-                    ShopType::CommercialDealer,
                     url::Url::parse("https://example.com/product/1").unwrap(),
                 )]
             }));
@@ -1534,13 +1561,7 @@ mod tests {
             .expect_get_candidates()
             .returning(get_candidates_once_by_domain({
                 let url = url.clone();
-                move || {
-                    vec![scraper_candidate(
-                        "Test Shop",
-                        ShopType::CommercialDealer,
-                        url.clone(),
-                    )]
-                }
+                move || vec![scraper_candidate("Test Shop", url.clone())]
             }));
         scraper_candidates
             .expect_mark_fetch_failure()
@@ -1588,12 +1609,10 @@ mod tests {
                 vec![
                     scraper_candidate(
                         "Shop A",
-                        ShopType::CommercialDealer,
                         url::Url::parse("https://domain-a.com/product/1").unwrap(),
                     ),
                     scraper_candidate(
                         "Shop B",
-                        ShopType::CommercialDealer,
                         url::Url::parse("https://domain-b.com/product/2").unwrap(),
                     ),
                 ]
@@ -1634,18 +1653,14 @@ mod tests {
                 Box::pin(async move {
                     if excluded_domains.is_empty() {
                         Ok(vec![
-                            scraper_candidate("Slow", ShopType::CommercialDealer, slow_url),
-                            scraper_candidate("Fast", ShopType::CommercialDealer, fast_url),
+                            scraper_candidate("Slow", slow_url),
+                            scraper_candidate("Fast", fast_url),
                         ])
                     } else if excluded_domains.contains(&"domain-a.com".to_string())
                         && excluded_domains.contains(&"domain-b.com".to_string())
                         && !excluded_domains.contains(&"domain-c.com".to_string())
                     {
-                        Ok(vec![scraper_candidate(
-                            "Refill",
-                            ShopType::CommercialDealer,
-                            refill_url,
-                        )])
+                        Ok(vec![scraper_candidate("Refill", refill_url)])
                     } else {
                         Ok(vec![])
                     }
@@ -1708,7 +1723,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_skip_same_shop_candidate_already_scraping_on_another_domain() {
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
         let first_url = url::Url::parse("https://domain-a.com/product/1").unwrap();
         let second_url = url::Url::parse("https://domain-b.com/product/2").unwrap();
 
@@ -1716,12 +1731,10 @@ mod tests {
         scraper_candidates
             .expect_get_candidates()
             .returning(get_candidates_once_by_domain(move || {
-                let mut first =
-                    scraper_candidate("Same Shop", ShopType::CommercialDealer, first_url.clone());
-                first.shop_id = shop_id;
-                let mut second =
-                    scraper_candidate("Same Shop", ShopType::CommercialDealer, second_url.clone());
-                second.shop_id = shop_id;
+                let mut first = scraper_candidate("Same Shop", first_url.clone());
+                first.listing_source_id = listing_source_id;
+                let mut second = scraper_candidate("Same Shop", second_url.clone());
+                second.listing_source_id = listing_source_id;
                 vec![first, second]
             }));
 
@@ -1761,8 +1774,8 @@ mod tests {
                 let locked_url = locked_url.clone();
                 let open_url = open_url.clone();
                 vec![
-                    scraper_candidate("Shop A", ShopType::CommercialDealer, locked_url),
-                    scraper_candidate("Shop A", ShopType::CommercialDealer, open_url),
+                    scraper_candidate("Shop A", locked_url),
+                    scraper_candidate("Shop A", open_url),
                 ]
             }));
 
@@ -1784,7 +1797,7 @@ mod tests {
             Box::new(spider_service),
             Box::new(scraper_candidates),
             Box::new(scraper_service),
-            noop_shop_registration(),
+            noop_listing_source_registration(),
             no_push_service(),
         );
 
@@ -1800,17 +1813,14 @@ mod tests {
                 vec![
                     scraper_candidate(
                         "Shop",
-                        ShopType::CommercialDealer,
                         url::Url::parse("https://same-domain.com/product/1").unwrap(),
                     ),
                     scraper_candidate(
                         "Shop",
-                        ShopType::CommercialDealer,
                         url::Url::parse("https://same-domain.com/product/2").unwrap(),
                     ),
                     scraper_candidate(
                         "Shop",
-                        ShopType::CommercialDealer,
                         url::Url::parse("https://same-domain.com/product/3").unwrap(),
                     ),
                 ]

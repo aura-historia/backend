@@ -55,7 +55,7 @@ pub enum CdcOperation {
 }
 
 impl WorkerQueue {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 10] = [
         Self::ProductListingOpenSearch,
         Self::WatchlistNotification,
         Self::SearchFilterPercolator,
@@ -63,7 +63,6 @@ impl WorkerQueue {
         Self::ProductListingContentAssessment,
         Self::ProductListingEmbed,
         Self::ProductListingTranslate,
-        Self::ShopOpenSearch,
         Self::SearchFilterOpenSearch,
         Self::UserTierEnforcement,
         Self::NotificationDelivery,
@@ -126,7 +125,6 @@ pub enum WorkerQueue {
     ProductListingContentAssessment,
     ProductListingEmbed,
     ProductListingTranslate,
-    ShopOpenSearch,
     SearchFilterOpenSearch,
     UserTierEnforcement,
     NotificationDelivery,
@@ -161,7 +159,6 @@ impl OrderingKey {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainJobPayload {
     ProductListingEvent(ProductListingEventJob),
-    ShopChanged(ShopChangedJob),
     SearchFilterChanged(SearchFilterChangedJob),
     SearchFilterMatchCreated(SearchFilterMatchCreatedJob),
     UserTierChanged(UserTierChangedJob),
@@ -174,13 +171,6 @@ pub struct ProductListingEventJob {
     pub product_listing_id: String,
     pub event_type: String,
     pub event_group: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ShopChangedJob {
-    pub shop_id: String,
-    pub version: i64,
-    pub operation: CdcOperation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -650,7 +640,6 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
     match (table, change.operation) {
         (CdcTable::ProductListingEvents, CdcOperation::Insert) => product_event_jobs(change),
         (CdcTable::ProductListingEvents, _) => Ok(Vec::new()),
-        (CdcTable::Shops, operation) => shop_changed_job(change, operation),
         (CdcTable::SearchFilters, operation) => search_filter_changed_job(change, operation),
         (CdcTable::SearchFilterMatches, CdcOperation::Insert) => {
             search_filter_match_created_job(change)
@@ -666,13 +655,7 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
             warn!(%table, operation = %change.operation, "ignoring unregistered CDC table");
             Ok(Vec::new())
         }
-        (
-            CdcTable::ProductListings
-            | CdcTable::ProductListingWatchlist
-            | CdcTable::UserPartnerShops
-            | CdcTable::PartnerShopApplications,
-            _,
-        ) => Ok(Vec::new()),
+        (CdcTable::ProductListings | CdcTable::ProductListingWatchlist, _) => Ok(Vec::new()),
     }
 }
 
@@ -680,13 +663,10 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
 enum CdcTable {
     ProductListingEvents,
     ProductListings,
-    Shops,
     SearchFilters,
     SearchFilterMatches,
     Users,
     ProductListingWatchlist,
-    UserPartnerShops,
-    PartnerShopApplications,
     NotificationDeliveries,
     Unknown(String),
 }
@@ -696,13 +676,10 @@ impl From<&str> for CdcTable {
         match value {
             "product_listing_events" => Self::ProductListingEvents,
             "product_listings" => Self::ProductListings,
-            "shops" => Self::Shops,
             "search_filters" => Self::SearchFilters,
             "search_filter_matches" => Self::SearchFilterMatches,
             "users" => Self::Users,
             "product_listing_watchlist" => Self::ProductListingWatchlist,
-            "user_partner_shops" => Self::UserPartnerShops,
-            "partner_shop_applications" => Self::PartnerShopApplications,
             "notification_deliveries" => Self::NotificationDeliveries,
             other => Self::Unknown(other.to_owned()),
         }
@@ -780,26 +757,6 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
     }
 
     Ok(jobs)
-}
-
-fn shop_changed_job(
-    change: &CdcChange,
-    operation: CdcOperation,
-) -> Result<Vec<DomainJob>, CdcRouteError> {
-    let row = row_for_operation(change)?;
-    let shop_id = required_string(row, "shop_id")?;
-    let version = integer_field(row, "version").unwrap_or(0);
-
-    Ok(vec![domain_job(
-        WorkerQueue::ShopOpenSearch,
-        IdempotencyKey::new(format!("shop:{shop_id}:{version}:{operation}")),
-        OrderingKey::new(format!("shop:{shop_id}")),
-        DomainJobPayload::ShopChanged(ShopChangedJob {
-            shop_id,
-            version,
-            operation,
-        }),
-    )])
 }
 
 fn search_filter_changed_job(
@@ -1107,33 +1064,6 @@ mod tests {
         })?;
 
         assert!(jobs.is_empty());
-        Ok(())
-    }
-
-    #[test]
-    fn should_route_shop_change_with_domain_id_version_key()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let jobs = route_change(&CdcChange {
-            schema: Some("public".to_owned()),
-            table: "shops".to_owned(),
-            operation: CdcOperation::Update,
-            primary_key: BTreeMap::new(),
-            record: Some(serde_json::json!({
-                "shop_id": "20000000-0000-0000-0000-000000000001",
-                "version": 7,
-            })),
-            old_record: None,
-            changed_columns: vec!["name".to_owned()],
-            commit_lsn: None,
-            commit_timestamp: None,
-        })?;
-
-        assert_eq!(1, jobs.len());
-        assert_eq!(WorkerQueue::ShopOpenSearch, jobs[0].target_queue);
-        assert_eq!(
-            "shop:20000000-0000-0000-0000-000000000001:7:update",
-            jobs[0].idempotency_key.as_str()
-        );
         Ok(())
     }
 

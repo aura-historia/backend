@@ -2,13 +2,13 @@ use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, Raw
 use crate::scraper::css_selector::product_schema_service::{
     GeneratedSingleSchema, SchemaLlmEvaluation,
 };
+use crate::scraper::css_selector::removed_page_schema::ListingSourceRemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
-use crate::scraper::css_selector::removed_page_schema::ShopsRemovedPageSchema;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::engine::try_apply_schemas;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use time::OffsetDateTime;
 use tracing::warn;
 use url::Url;
@@ -30,13 +30,13 @@ impl ScraperServiceImpl {
     #[tracing::instrument(
         skip(self, html),
         fields(
-            shop_id = %shop_id,
+            listing_source_id = %listing_source_id,
             url = %url,
         )
     )]
     pub(crate) async fn generate_single_schema_for_page(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         html: &str,
     ) -> Result<
@@ -47,14 +47,18 @@ impl ScraperServiceImpl {
         ),
         ScraperError,
     > {
-        if let Some(review_id) = self.pending_product_schema_review_id(shop_id).await? {
+        if let Some(review_id) = self
+            .pending_product_schema_review_id(listing_source_id)
+            .await?
+        {
             return Err(ScraperError::PendingSchemaReview {
                 url: url.clone(),
                 review_id,
             });
         }
 
-        self.consume_llm_budget_or_err(shop_id, url).await?;
+        self.consume_llm_budget_or_err(listing_source_id, url)
+            .await?;
 
         let generated = self
             .schema_service
@@ -77,8 +81,10 @@ impl ScraperServiceImpl {
                         ),
                     );
                 }
-                self.save_removed_page_schema(shop_id, schema).await?;
-                self.mark_product_removed_best_effort(shop_id, url).await;
+                self.save_removed_page_schema(listing_source_id, schema)
+                    .await?;
+                self.mark_product_removed_best_effort(listing_source_id, url)
+                    .await;
                 return Err(ScraperError::ProductListingRemoved {
                     url: url.clone(),
                     details: "fresh schema generation classified page as removed".to_string(),
@@ -91,7 +97,8 @@ impl ScraperServiceImpl {
                         details: "not-product classification requires HIGH confidence".to_string(),
                     });
                 }
-                self.mark_url_other_best_effort(shop_id, url).await;
+                self.mark_url_other_best_effort(listing_source_id, url)
+                    .await;
                 return Err(ScraperError::NotProductPage {
                     url: url.clone(),
                     details: reason,
@@ -116,12 +123,12 @@ impl ScraperServiceImpl {
 
     pub(crate) async fn save_removed_page_schema(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         schema: RemovedPageSchema,
     ) -> Result<(), ScraperError> {
         let existing = self
             .removed_page_schema_repository
-            .find_removed_page_schema(shop_id)
+            .find_removed_page_schema(listing_source_id)
             .await
             .map_err(ScraperError::RemovedPageSchemaDatabaseError)?;
 
@@ -132,20 +139,20 @@ impl ScraperServiceImpl {
                     schemas.push(schema);
                 }
                 self.removed_page_schema_repository
-                    .update_removed_page_schema(shop_id, &schemas)
+                    .update_removed_page_schema(listing_source_id, &schemas)
                     .await
                     .map_err(ScraperError::RemovedPageSchemaDatabaseError)?;
             }
             None => {
                 let now = OffsetDateTime::now_utc();
-                let row = ShopsRemovedPageSchema {
-                    shop_id: *shop_id,
+                let row = ListingSourceRemovedPageSchema {
+                    listing_source_id: *listing_source_id,
                     removed_page_schemas: vec![schema],
                     created: now,
                     updated: now,
                 };
                 self.removed_page_schema_repository
-                    .insert_removed_page_schema(shop_id, &row)
+                    .insert_removed_page_schema(listing_source_id, &row)
                     .await
                     .map_err(ScraperError::RemovedPageSchemaDatabaseError)?;
             }

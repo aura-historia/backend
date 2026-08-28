@@ -5,7 +5,7 @@ use crate::spider::candidate_service::SpiderCandidate;
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
 use crate::spider::service::{SpiderService, SpiderServiceError};
 #[cfg(test)]
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
@@ -100,15 +100,15 @@ fn spawn_spider_candidate(
     lock_manager: Arc<crate::spider::advisory_lock::LocalLockManager>,
     threshold: usize,
 ) {
-    let shop_url = if candidate.shop_domain.starts_with("http") {
-        candidate.shop_domain.clone()
+    let shop_url = if candidate.listing_source_domain.starts_with("http") {
+        candidate.listing_source_domain.clone()
     } else {
-        format!("https://{}", candidate.shop_domain)
+        format!("https://{}", candidate.listing_source_domain)
     };
     let domain_id = candidate.domain_id;
     let span = tracing::info_span!(
         "spider_candidate",
-        shop_id = %candidate.shop_id,
+        listing_source_id = %candidate.listing_source_id,
         domain_id = %candidate.domain_id,
         shop_url = %shop_url
     );
@@ -117,7 +117,7 @@ fn spawn_spider_candidate(
         async move {
             let Some(_lock) = DomainLock::try_acquire(&lock_manager, candidate.domain_id) else {
                 warn!(
-                    shop_id = %candidate.shop_id,
+                    listing_source_id = %candidate.listing_source_id,
                     domain_id = %candidate.domain_id,
                     "Skipping domain - lock held by another worker"
                 );
@@ -130,7 +130,7 @@ fn spawn_spider_candidate(
 
             match spider_service
                 .run(
-                    &candidate.shop_id,
+                    &candidate.listing_source_id,
                     &candidate.domain_id,
                     &shop_url,
                     threshold,
@@ -144,7 +144,7 @@ fn spawn_spider_candidate(
                     {
                         warn!(
                             error = ?err,
-                            domain = %candidate.shop_domain,
+                            domain = %candidate.listing_source_domain,
                             "Failed to reset crawl failure metadata"
                         );
                     }
@@ -172,13 +172,13 @@ fn spawn_spider_candidate(
                     {
                         warn!(
                             error = ?err,
-                            domain = %candidate.shop_domain,
+                            domain = %candidate.listing_source_domain,
                             "Failed to persist crawl failure metadata"
                         );
                     }
                     match &e {
                         crate::spider::service::SpiderServiceError::EmptyCrawl { .. } => warn!(
-                            domain = %candidate.shop_domain,
+                            domain = %candidate.listing_source_domain,
                             error = %e,
                             error_kind,
                             failure_count,
@@ -192,7 +192,7 @@ fn spawn_spider_candidate(
                             total_links,
                             ..
                         } => warn!(
-                            domain = %candidate.shop_domain,
+                            domain = %candidate.listing_source_domain,
                             error = %e,
                             error_kind,
                             failure_count,
@@ -208,7 +208,7 @@ fn spawn_spider_candidate(
                             min_sample_size,
                             ..
                         } => warn!(
-                            domain = %candidate.shop_domain,
+                            domain = %candidate.listing_source_domain,
                             error = %e,
                             error_kind,
                             failure_count,
@@ -227,7 +227,7 @@ fn spawn_spider_candidate(
                             diagnostic_reason,
                             ..
                         } => warn!(
-                            domain = %candidate.shop_domain,
+                            domain = %candidate.listing_source_domain,
                             error = %e,
                             error_kind,
                             failure_count,
@@ -241,7 +241,7 @@ fn spawn_spider_candidate(
                             "Spider run failed"
                         ),
                         _ => warn!(
-                            domain = %candidate.shop_domain,
+                            domain = %candidate.listing_source_domain,
                             error = %e,
                             error_kind,
                             failure_count,
@@ -382,7 +382,7 @@ mod tests {
     use crate::scraper::candidate_service::MockScraperCandidateService;
     use crate::scraper::scraper_service::MockScraperService;
     use crate::service::cron::config::CrawlerCronConfig;
-    use crate::service::cron::test_support::{noop_product_push, noop_shop_registration};
+    use crate::service::cron::test_support::{noop_listing_source_registration, noop_product_push};
     use crate::spider::advisory_lock::LocalLockManager;
     use crate::spider::candidate_service::{MockSpiderCandidateService, SpiderCandidate};
     use crate::spider::discovery::website_spider::CrawlFailureKind;
@@ -392,9 +392,9 @@ mod tests {
 
     fn spider_candidate(domain_id: uuid::Uuid) -> SpiderCandidate {
         SpiderCandidate {
-            shop_id: ShopId::new(),
+            listing_source_id: ListingSourceId::new(),
             domain_id,
-            shop_domain: "example.com".to_string(),
+            listing_source_domain: "example.com".to_string(),
             crawl_failure_count: 0,
             last_crawl_error_kind: None,
         }
@@ -551,7 +551,7 @@ mod tests {
             Box::new(spider_service),
             Box::new(scraper_candidates),
             Box::new(scraper_service),
-            noop_shop_registration(),
+            noop_listing_source_registration(),
             noop_product_push(),
         );
 
@@ -645,7 +645,7 @@ mod tests {
             Box::new(spider_service),
             Box::new(scraper_candidates),
             Box::new(scraper_service),
-            noop_shop_registration(),
+            noop_listing_source_registration(),
             noop_product_push(),
         );
 
@@ -699,7 +699,7 @@ mod tests {
             Box::new(spider_service),
             Box::new(scraper_candidates),
             Box::new(scraper_service),
-            noop_shop_registration(),
+            noop_listing_source_registration(),
             noop_product_push(),
         );
 
@@ -750,7 +750,7 @@ mod tests {
             Box::new(spider_service),
             Box::new(scraper_candidates),
             Box::new(scraper_service),
-            noop_shop_registration(),
+            noop_listing_source_registration(),
             noop_product_push(),
         );
 
@@ -798,7 +798,7 @@ mod tests {
             Box::new(spider_service),
             Box::new(scraper_candidates),
             Box::new(scraper_service),
-            noop_shop_registration(),
+            noop_listing_source_registration(),
             noop_product_push(),
         );
 
@@ -853,7 +853,7 @@ mod tests {
             Box::new(spider_service),
             Box::new(scraper_candidates),
             Box::new(scraper_service),
-            noop_shop_registration(),
+            noop_listing_source_registration(),
             noop_product_push(),
         );
 
@@ -906,7 +906,7 @@ mod tests {
             Box::new(spider_service),
             Box::new(scraper_candidates),
             Box::new(scraper_service),
-            noop_shop_registration(),
+            noop_listing_source_registration(),
             noop_product_push(),
         );
 
@@ -967,7 +967,7 @@ mod tests {
             Box::new(spider_service),
             Box::new(scraper_candidates),
             Box::new(scraper_service),
-            noop_shop_registration(),
+            noop_listing_source_registration(),
             noop_product_push(),
         );
 
@@ -1029,7 +1029,7 @@ mod tests {
             Box::new(spider_service),
             Box::new(scraper_candidates),
             Box::new(scraper_service),
-            noop_shop_registration(),
+            noop_listing_source_registration(),
             noop_product_push(),
         );
 
@@ -1111,7 +1111,7 @@ mod tests {
             Box::new(spider_service),
             Box::new(scraper_candidates),
             Box::new(scraper_service),
-            noop_shop_registration(),
+            noop_listing_source_registration(),
             noop_product_push(),
         );
 
@@ -1147,7 +1147,7 @@ mod tests {
             Box::new(spider_service),
             Box::new(scraper_candidates),
             Box::new(scraper_service),
-            noop_shop_registration(),
+            noop_listing_source_registration(),
             noop_product_push(),
         );
 

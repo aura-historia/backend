@@ -4,8 +4,8 @@
 
 PostgreSQL is the sole production owner of notifications and external-delivery intent. Notification storage has no TTL.
 
-- `notifications` stores one immutable typed content snapshot per semantic reason. `origin_event_id` is provenance only and is absent for partner-application notifications.
-- Watchlist idempotency is `(user_id, origin_event_id, kind)`. Search-filter idempotency is `(user_id, user_search_filter_id, product_listing_id, origin_event_id)`. Partner-application idempotency is `(user_id, partner_shop_application_id)`.
+- `notifications` stores one immutable typed content snapshot per semantic reason. `origin_event_id` is provenance only and is absent for partnership-application notifications.
+- Watchlist idempotency is `(user_id, origin_event_id, kind)`. Search-filter idempotency is `(user_id, user_search_filter_id, product_listing_id, origin_event_id)`. Partnership-application idempotency is `(user_id, partnership_application_id)`.
 - A single Product event may create a watchlist notification and one distinct notification for every matching search filter.
 - `notification_deliveries` owns durable external-delivery state, separate from a Notification. One Notification may have several delivery rows. Each row is unique per `(notification_id, channel, target_key)` and contains no copied notification payload or target value. The application planner selects channels and inserts requested rows in the same PostgreSQL transaction as newly inserted notifications; each channel adapter resolves its own target. EMAIL/PRIMARY is the sole production plan.
 - The generic delivery worker consumes committed `notification_deliveries` INSERT rows through one Sequin subscription, claims a lease, dispatches by channel, and finalizes that same lease. EMAIL is the only valid stored channel now; a future channel needs a core enum and schema migration plus its sender. EMAIL resolves its current target and performs S3/SES I/O after the claim transaction commits. A send/finalize crash can duplicate an external delivery, so delivery is at-least-once, not exactly-once. The bounded in-memory worker queue remains non-durable by design; its post-ack loss window is tracked by #1558.
@@ -36,7 +36,7 @@ The initial business schema requires a provisioned and preloaded `pg_ttl_index` 
 ## Indexed read paths
 
 - User watchlist lists use `created DESC, product_listing_id ASC`; reverse product watcher reads use `product_listing_id, user_id ASC`.
-- Public shop search resolves an existing UUID cursor to its active sort value, then uses a keyset predicate. Default published-name plus descending updated and created ordering have partial indexes with `shop_id ASC` as the tie-breaker.
+
 - Saved-filter matches support both `created ASC, product_listing_id ASC` and `created DESC, product_listing_id ASC` for a fixed filter.
 - Product domain-event history orders by `event_time ASC, event_id ASC` for one product.
 

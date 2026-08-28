@@ -14,7 +14,7 @@ async fn scrape_with_schema_service(
     Option<crate::scraper::scraper_service::ScrapedProduct>,
     crate::scraper::scraper_service::domain::errors::ScraperError,
 > {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -43,7 +43,7 @@ async fn scrape_with_schema_service(
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     service.scrape(&id, &url, None, None).await
@@ -51,8 +51,8 @@ async fn scrape_with_schema_service(
 
 #[tokio::test]
 async fn should_use_yaml_schema_when_yaml_schema_is_high_confidence_and_covers_pages() {
-    let id = shop_id();
-    let schema = shops_product_schema(id);
+    let id = listing_source_id();
+    let schema = listing_source_product_schemas(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
 
@@ -82,8 +82,8 @@ async fn should_use_yaml_schema_when_yaml_schema_is_high_confidence_and_covers_p
 
 #[tokio::test]
 async fn should_use_yaml_schema_when_yaml_confidence_is_low() {
-    let id = shop_id();
-    let schema = shops_product_schema(id);
+    let id = listing_source_id();
+    let schema = listing_source_product_schemas(id);
     let yaml_schema = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
 
@@ -113,8 +113,8 @@ async fn should_use_yaml_schema_when_yaml_confidence_is_low() {
 
 #[tokio::test]
 async fn should_generate_fresh_schema_after_yaml_schema_does_not_cover_raw_html() {
-    let id = shop_id();
-    let schema = shops_product_schema(id);
+    let id = listing_source_id();
+    let schema = listing_source_product_schemas(id);
     let generated_schema = schema.product_schemas.first().cloned().unwrap();
 
     let mut schema_svc = MockProductListingSchemaService::new();
@@ -145,20 +145,19 @@ async fn should_generate_fresh_schema_after_yaml_schema_does_not_cover_raw_html(
                 ))
             })
         });
-    schema_svc
-        .expect_save_product_schemas()
-        .times(2)
-        .returning(move |shop_id, product_schemas| {
-            let shop_id = *shop_id;
+    schema_svc.expect_save_product_schemas().times(2).returning(
+        move |listing_source_id, product_schemas| {
+            let listing_source_id = *listing_source_id;
             Box::pin(async move {
-                Ok(ShopsProductSchema {
-                    shop_id,
+                Ok(ListingSourceProductSchema {
+                    listing_source_id,
                     product_schemas,
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
                 })
             })
-        });
+        },
+    );
 
     let result = scrape_with_schema_service(schema_svc, 2).await.unwrap();
     assert!(result.is_some());
@@ -166,8 +165,8 @@ async fn should_generate_fresh_schema_after_yaml_schema_does_not_cover_raw_html(
 
 #[tokio::test]
 async fn should_not_fallback_only_because_one_extra_schema_is_unused() {
-    let id = shop_id();
-    let schema = shops_product_schema(id);
+    let id = listing_source_id();
+    let schema = listing_source_product_schemas(id);
     let valid_schema = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
 
@@ -202,8 +201,8 @@ async fn should_not_fallback_only_because_one_extra_schema_is_unused() {
 
 #[tokio::test]
 async fn should_not_consume_second_budget_call_when_yaml_confidence_is_low() {
-    let id = shop_id();
-    let schema = shops_product_schema(id);
+    let id = listing_source_id();
+    let schema = listing_source_product_schemas(id);
     let yaml_schema = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
 
