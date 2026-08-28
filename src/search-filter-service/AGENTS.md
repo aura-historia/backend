@@ -10,7 +10,7 @@
 - Depends on `search-filter-core`, owning core identifiers and values, pure `money`/`localization` values, shared `application` contracts, canonical ProductListing identifiers and availability/orderability query types from `product-listing-core`, canonical `listing-source-core` identifiers, plus canonical `user-service` tier-entitlements contracts.
 - Write use cases own transactions.
 - Postgres and OpenSearch hidden behind ports. Create/update pass typed semantic query text to `embedding::EmbeddingGenerator::embed_search_query`; the configured provider adapter owns model-specific prompt format. The crate-private shared ProductListing match evaluator owns the enhanced-match prompt, response schema, typed response mapping, retry classification, ordered batch mapping, bounded concurrency, and first-five-image policy; matching use cases call the neutral generic `large-language-model::LargeLanguageModel` capability. Provider/model selection stays in runtime/provider configuration.
-- Repository writes return persisted search-filter state.
+- Repository writes return persisted search-filter state. Each aggregate repository capability has its own port file.
 - User list reads live in dedicated reader port, not repository.
 - Create and update lock the authoritative user tier through transaction-scoped `UserTierEntitlements` before tier checks, active-filter counts, and writes; reactivation rechecks the stored full search and active-filter quota.
 - Update generates an external embedding before the short write transaction, then revalidates the derived search state before persisting.
