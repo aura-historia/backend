@@ -17,6 +17,7 @@ use product_listing_core::{
     product_listing_image::ProductListingImage,
     product_listing_slug_id::ProductListingSlugId,
     source_listing_id::SourceListingId,
+    source_listing_slug_id::SourceListingSlugId,
     title::Title,
 };
 use product_listing_service::ports::{
@@ -52,6 +53,7 @@ struct SourceRow {
     listing_source_name: String,
     listing_source_referral_configuration: Option<serde_json::Value>,
     source_listing_id: String,
+    source_listing_slug_id: String,
     product_title_text: Option<String>,
     product_title_language: Option<String>,
     product_description_text: Option<String>,
@@ -189,6 +191,7 @@ impl ProductListingSearchFilterMatchSourceReader
                 listing_source.name AS listing_source_name,
                 listing_source.referral_configuration AS listing_source_referral_configuration,
                 product.source_listing_id,
+                product.source_listing_slug_id,
                 product.title_text AS product_title_text,
                 product.title_language AS product_title_language,
                 product.description_text AS product_description_text,
@@ -280,6 +283,13 @@ fn source_from_rows(
         row.product_description_text.as_deref(),
         row.product_description_language.as_deref(),
     )?;
+    let source_listing_id =
+        SourceListingId::try_from(row.source_listing_id.clone()).map_err(|_| ())?;
+    let source_listing_slug_id =
+        SourceListingSlugId::raw(&row.source_listing_slug_id).map_err(|_| ())?;
+    if source_listing_slug_id != SourceListingSlugId::from_source_listing_id(&source_listing_id) {
+        return Err(());
+    }
     let (titles, descriptions) =
         translations(&rows, product_title.as_ref(), product_description.as_ref())?;
     let pricing = ProductListingPricing {
@@ -316,8 +326,8 @@ fn source_from_rows(
             name: ListingSourceName::try_from(row.listing_source_name.clone()).map_err(|_| ())?,
             slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id).map_err(|_| ())?,
         },
-        source_listing_id: SourceListingId::try_from(row.source_listing_id.clone())
-            .map_err(|_| ())?,
+        source_listing_id,
+        source_listing_slug_id,
         product_title,
         product_description,
         titles,

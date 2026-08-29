@@ -15,6 +15,9 @@ pub enum InvalidSourceListingId {
 
     #[error("source listing ID exceeds {MAX_SOURCE_LISTING_ID_BYTES} UTF-8 bytes")]
     TooLong,
+
+    #[error("source listing ID cannot contain a NUL character")]
+    ContainsNul,
 }
 
 impl SourceListingId {
@@ -22,6 +25,9 @@ impl SourceListingId {
         let value = value.trim();
         if value.is_empty() {
             return Err(InvalidSourceListingId::Blank);
+        }
+        if value.contains('\0') {
+            return Err(InvalidSourceListingId::ContainsNul);
         }
         if value.len() > MAX_SOURCE_LISTING_ID_BYTES {
             return Err(InvalidSourceListingId::TooLong);
@@ -97,6 +103,14 @@ mod tests {
         let source_listing_id = SourceListingId::try_from(value);
 
         assert!(source_listing_id.is_ok());
+    }
+
+    #[test]
+    fn should_reject_embedded_nul_before_persistence() {
+        assert_eq!(
+            SourceListingId::try_from("sku\0-42"),
+            Err(InvalidSourceListingId::ContainsNul)
+        );
     }
 
     #[test]

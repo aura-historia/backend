@@ -15,6 +15,7 @@ indexmap = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_fields = { workspace = true }
+sha2 = { workspace = true }
 listing-source-core = { workspace = true }
 strum_macros = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
@@ -27,6 +28,7 @@ fake = { workspace = true, optional = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+serde_json = { workspace = true }
 
 [features]
 default = []

@@ -615,6 +615,7 @@ mod tests {
                 },
                 source_listing_id: SourceListingId::try_from("product")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+                source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(&SourceListingId::try_from("product").unwrap_or_else(|error| panic!("valid source listing ID: {error}"))),
                 product_title: Some(Localized::new(Language::En, Title::from("ProductListing"))),
                 product_description: Some(Localized::new(
                     Language::En,

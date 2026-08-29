@@ -19,6 +19,7 @@ use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
 use product_listing_core::source_listing_id::SourceListingId;
+use product_listing_core::source_listing_slug_id::SourceListingSlugId;
 use product_listing_core::title::Title;
 use time::OffsetDateTime;
 use url::Url;
@@ -39,6 +40,7 @@ pub struct ProductListingDetailsReadModel {
     pub event_id: EventId,
     pub source: ListingSourceSummary,
     pub source_listing_id: SourceListingId,
+    pub source_listing_slug_id: SourceListingSlugId,
     pub product_title: Option<Localized<Language, Title>>,
     pub product_description: Option<Localized<Language, Description>>,
     pub title: Option<Localized<Language, Title>>,

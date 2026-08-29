@@ -710,6 +710,9 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("cabinet-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(
+                &SourceListingId::try_from("cabinet-1").unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            ),
             title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
             display_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
             price_valuation: ProductListingSummaryPriceValuation::Current {

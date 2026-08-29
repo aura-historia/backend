@@ -469,6 +469,7 @@ mod tests {
                 },
                 source_listing_id: SourceListingId::try_from("source-listing-id")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+                source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(&SourceListingId::try_from("source-listing-id").unwrap_or_else(|error| panic!("valid source listing ID: {error}"))),
                 title: Some(Localized {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),

@@ -185,6 +185,7 @@ fn map_summary_fields(
         event_id: document.event_id,
         listing_source_id: document.listing_source_id,
         source_listing_id: document.source_listing_id,
+        source_listing_slug_id: document.source_listing_slug_id,
         title,
         display_price,
         price_valuation,
@@ -854,6 +855,7 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("sku-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(&SourceListingId::try_from("sku-1").unwrap_or_else(|error| panic!("valid source listing ID: {error}"))),
             event_id: EventId::new(),
             title: TextDocument::new("Vase", Language::En),
             title_de: None,

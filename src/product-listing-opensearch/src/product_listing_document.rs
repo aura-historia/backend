@@ -9,6 +9,7 @@ use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_core::source_listing_id::SourceListingId;
+use product_listing_core::source_listing_slug_id::SourceListingSlugId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
@@ -257,6 +258,7 @@ pub(crate) struct ProductListingDocument {
     pub listing_source_id: ListingSourceId,
     #[serde(with = "source_listing_id")]
     pub source_listing_id: SourceListingId,
+    pub source_listing_slug_id: SourceListingSlugId,
     pub event_id: EventId,
     pub title: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -358,6 +360,10 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("sku-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            source_listing_slug_id: SourceListingSlugId::from_source_listing_id(
+                &SourceListingId::try_from("sku-1")
+                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            ),
             event_id: EventId::new(),
             title: TextDocument::new("Vase", Language::En),
             title_de: None,

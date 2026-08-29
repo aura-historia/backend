@@ -12,6 +12,7 @@ use product_listing_core::{
     product_listing_image::ProductListingImage,
     product_listing_slug_id::ProductListingSlugId,
     source_listing_id::SourceListingId,
+    source_listing_slug_id::SourceListingSlugId,
     title::Title,
 };
 use std::collections::HashMap;
@@ -54,6 +55,7 @@ pub struct ProductListingSearchFilterMatchSource {
     pub product_listing_slug_id: ProductListingSlugId,
     pub source: ListingSourceSummary,
     pub source_listing_id: SourceListingId,
+    pub source_listing_slug_id: SourceListingSlugId,
     pub product_title: Option<Localized<Language, Title>>,
     pub product_description: Option<Localized<Language, Description>>,
     /// Translations take precedence over the original text for the same language.

@@ -392,6 +392,7 @@ fn product_source(
         },
         source_listing_id: SourceListingId::try_from("test-product-1")
             .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+        source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(&SourceListingId::try_from("test-product-1").unwrap_or_else(|error| panic!("valid source listing ID: {error}"))),
         product_title: Some(Localized::new(Language::En, title.clone())),
         product_description: None,
         titles: std::collections::HashMap::from([(Language::En, title)]),

@@ -7990,6 +7990,7 @@ components:
         - eventId
         - source
         - sourceListingId
+        - sourceListingSlugId
         - priceValuation
         - availability
         - lifecycle
@@ -8010,6 +8011,10 @@ components:
           $ref: "#/components/schemas/ProductListingSourceData"
         sourceListingId:
           type: string
+        sourceListingSlugId:
+          type: string
+          maxLength: 255
+          description: Immutable Aura-owned, source-scoped public locator derived from the canonical raw sourceListingId and issued by the API.
         title:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
@@ -8086,6 +8091,7 @@ components:
         - eventId
         - source
         - sourceListingId
+        - sourceListingSlugId
         - pricing
         - availability
         - lifecycle
@@ -8108,6 +8114,10 @@ components:
           $ref: "#/components/schemas/ProductListingSourceData"
         sourceListingId:
           type: string
+        sourceListingSlugId:
+          type: string
+          maxLength: 255
+          description: Immutable Aura-owned, source-scoped public locator derived from the canonical raw sourceListingId and issued by the API.
         productTitle:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"

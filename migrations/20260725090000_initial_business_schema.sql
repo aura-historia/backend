@@ -225,7 +225,10 @@ CREATE TABLE product_listings (
         AND source_listing_id !~ '(^[[:space:]]|[[:space:]]$)'
     ),
     CONSTRAINT product_listings_source_listing_slug_id_format CHECK (
-        source_listing_slug_id ~ '^[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{12}$'
+        source_listing_slug_id ~ '^[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{20}$'
+    ),
+    CONSTRAINT product_listings_source_listing_slug_id_max_bytes CHECK (
+        octet_length(source_listing_slug_id) <= 255
     ),
     CONSTRAINT product_listings_availability_check CHECK (availability IS NULL OR availability IN ('AVAILABLE', 'IN_STOCK', 'LIMITED_AVAILABILITY', 'BACK_ORDER', 'MADE_TO_ORDER', 'PRE_ORDER', 'PRE_SALE', 'UNAVAILABLE', 'RESERVED', 'OUT_OF_STOCK', 'SOLD_OUT')),
     CONSTRAINT product_listings_lifecycle_check CHECK (lifecycle IN ('ACTIVE', 'WITHDRAWN')),

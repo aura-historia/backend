@@ -229,6 +229,7 @@ fn product_source(title: &str) -> ProductListingSearchFilterMatchSource {
         },
         source_listing_id: SourceListingId::try_from("sku-1")
             .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+        source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(&SourceListingId::try_from("sku-1").unwrap_or_else(|error| panic!("valid source listing ID: {error}"))),
         product_title: None,
         product_description: None,
         titles: HashMap::from([(Language::En, Title::from(title))]),

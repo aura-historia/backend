@@ -164,6 +164,9 @@
             "sourceListingId": {
                 "type": "keyword"
             },
+            "sourceListingSlugId": {
+                "type": "keyword"
+            },
             "eventId": {
                 "type": "keyword"
             },

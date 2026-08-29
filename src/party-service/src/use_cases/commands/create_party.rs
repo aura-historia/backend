@@ -341,9 +341,11 @@ mod tests {
             )
             .await;
 
-        assert!(
-            matches!(result, Ok(PartyDetailsView { ref party_slug_id, .. }) if party_slug_id.as_ref() == "antik-und-stil")
-        );
+        assert!(matches!(
+            result,
+            Ok(PartyDetailsView { ref party_slug_id, party_id, .. })
+                if party_slug_id.as_ref() == format!("antik-und-stil-{party_id}")
+        ));
         let state = match state.lock() {
             Ok(state) => state,
             Err(error) => panic!("fake state poisoned: {error}"),

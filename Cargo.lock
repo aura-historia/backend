@@ -5670,6 +5670,8 @@ dependencies = [
  "rstest",
  "serde",
  "serde_fields",
+ "serde_json",
+ "sha2 0.11.0",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "thiserror 2.0.20",

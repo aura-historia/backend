@@ -14,6 +14,7 @@ use money::Currency;
 use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_id::ProductListingId,
     product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
+    source_listing_slug_id::SourceListingSlugId,
 };
 use product_listing_service::ports::{
     ProductListingPercolationInput, ProductListingPricesByCurrency,
@@ -62,6 +63,7 @@ struct ProductListingPercolationDocument {
     listing_source_id: ListingSourceId,
     #[serde(with = "crate::product_listing_document::source_listing_id")]
     source_listing_id: SourceListingId,
+    source_listing_slug_id: SourceListingSlugId,
     event_id: EventId,
     title: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -145,6 +147,7 @@ fn build_product_listing_percolation_document(
         product_listing_slug_id: product.product_listing_slug_id.clone(),
         listing_source_id: product.source.listing_source_id,
         source_listing_id: product.source_listing_id.clone(),
+        source_listing_slug_id: product.source_listing_slug_id.clone(),
         event_id: product.current_event_id,
         title: TextDocument::new(title, language),
         title_de: translated_title(product, Language::De),
@@ -209,6 +212,7 @@ pub(crate) fn product_listing_document(
         product_listing_slug_id: product.product_listing_slug_id.clone(),
         listing_source_id: product.source.listing_source_id,
         source_listing_id: product.source_listing_id.clone(),
+        source_listing_slug_id: product.source_listing_slug_id.clone(),
         event_id: product.current_event_id,
         title: TextDocument::new(title, language),
         title_de: translated_title(product, Language::De),
@@ -400,6 +404,10 @@ mod tests {
             },
             source_listing_id: SourceListingId::try_from("sku-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            source_listing_slug_id: SourceListingSlugId::from_source_listing_id(
+                &SourceListingId::try_from("sku-1")
+                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            ),
             product_title: Some(Localized::new(Language::En, title.clone())),
             product_description: None,
             titles: HashMap::from([(Language::En, title)]),

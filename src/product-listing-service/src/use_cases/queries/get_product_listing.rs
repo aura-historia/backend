@@ -21,7 +21,8 @@ use product_listing_core::content_policy::{
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
-use product_listing_core::product_listing_slug_id::{ProductListingSlugId, SourceListingSlugId};
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
+use product_listing_core::source_listing_slug_id::SourceListingSlugId;
 
 use crate::ports::ListingSourceSummary;
 use listing_source_core::ListingSourceSlugId;
@@ -161,6 +162,7 @@ pub struct ProductListingDetailsView {
     pub event_id: EventId,
     pub source: ListingSourceSummary,
     pub source_listing_id: SourceListingId,
+    pub source_listing_slug_id: SourceListingSlugId,
     pub product_title: Option<Localized<Language, Title>>,
     pub product_description: Option<Localized<Language, Description>>,
     pub title: Option<Localized<Language, Title>>,
@@ -351,6 +353,7 @@ pub fn present_product_details(
             event_id: item.event_id,
             source: item.source,
             source_listing_id: item.source_listing_id,
+            source_listing_slug_id: item.source_listing_slug_id,
             product_title: item.product_title,
             product_description: item.product_description,
             title: item.title,
@@ -801,6 +804,9 @@ mod tests {
                 },
                 source_listing_id: SourceListingId::try_from("cabinet-1")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+                source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(
+                    &SourceListingId::try_from("cabinet-1").unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+                ),
                 product_title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
                 product_description: Some(Localized::new(
                     Language::En,

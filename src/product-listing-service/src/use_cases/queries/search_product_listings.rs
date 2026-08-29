@@ -35,6 +35,7 @@ use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use crate::ports::ListingSourceSummary;
 use listing_source_core::ListingSourceId;
 use product_listing_core::source_listing_id::SourceListingId;
+use product_listing_core::source_listing_slug_id::SourceListingSlugId;
 
 use crate::user_state::ProductListingUserState;
 use indexmap::IndexSet;
@@ -74,6 +75,7 @@ pub struct ProductListingSearchItem {
     pub event_id: EventId,
     pub listing_source_id: ListingSourceId,
     pub source_listing_id: SourceListingId,
+    pub source_listing_slug_id: SourceListingSlugId,
     pub title: Option<Localized<Language, Title>>,
     pub display_price: Option<Price>,
     pub price_valuation: ProductListingSummaryPriceValuation,
@@ -91,6 +93,7 @@ pub struct ProductListingSummary {
     pub event_id: EventId,
     pub source: ListingSourceSummary,
     pub source_listing_id: SourceListingId,
+    pub source_listing_slug_id: SourceListingSlugId,
     pub title: Option<Localized<Language, Title>>,
     pub display_price: Option<Price>,
     pub price_valuation: ProductListingSummaryPriceValuation,
@@ -368,6 +371,7 @@ where
                     event_id: product.item.item.event_id,
                     source: product.item.source,
                     source_listing_id: product.item.item.source_listing_id,
+                    source_listing_slug_id: product.item.item.source_listing_slug_id,
                     title: product.item.item.title,
                     display_price: product.item.item.display_price,
                     price_valuation: product.item.item.price_valuation,
@@ -971,6 +975,9 @@ mod tests {
                 listing_source_id: ListingSourceId::new(),
                 source_listing_id: SourceListingId::try_from("cabinet-1")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+                source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(
+                    &SourceListingId::try_from("cabinet-1").unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+                ),
                 title: Some(Localized {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),
