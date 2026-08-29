@@ -10,6 +10,7 @@ use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_core::source_listing_id::SourceListingId;
+use product_listing_core::source_listing_slug_id::SourceListingSlugId;
 use product_listing_service::ports::{
     CompiledProductListingSearch, ProductListingPriceFilterPlan, ProductListingSearchReadRequest,
     ProductListingSearchReader,
@@ -20,7 +21,8 @@ use serde_json::{Value, json};
 use std::io::{Error as IoError, ErrorKind};
 use strum::IntoEnumIterator;
 use test_api::{
-    IntegrationTestService, OpenSearch, aura_integration_test, get_opensearch_client, refresh_index,
+    IntegrationTestService, OpenSearch, aura_integration_test, get_opensearch_client,
+    refresh_index, serial,
 };
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -30,6 +32,7 @@ const PRODUCTS_INDEX: &str = "product-listings";
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 #[aura_integration_test(services = [OpenSearch()])]
+#[serial]
 async fn should_search_active_and_sold_products_with_one_pinned_price_plan() {
     assert_ok(should_search_active_and_sold_products_with_one_pinned_price_plan_impl().await);
 }
@@ -66,6 +69,7 @@ async fn should_search_active_and_sold_products_with_one_pinned_price_plan_impl(
 }
 
 #[aura_integration_test(services = [OpenSearch()])]
+#[serial]
 async fn should_return_sold_product_without_main_price_for_non_price_search_and_exclude_it_from_price_search()
  {
     assert_ok(
@@ -275,6 +279,10 @@ fn product_listing_document(
         "listingSourceId": ListingSourceId::new().to_string(),
         "sourceListingId": SourceListingId::try_from("sku-1")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+        "sourceListingSlugId": SourceListingSlugId::from_source_listing_id(
+            &SourceListingId::try_from("sku-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+        ),
         "eventId": EventId::new(),
         "title": { "text": "Blue vase", "language": "EN" },
         "titleEn": "Blue vase",
