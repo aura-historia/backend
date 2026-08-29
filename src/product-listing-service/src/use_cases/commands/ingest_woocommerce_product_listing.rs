@@ -368,7 +368,7 @@ where
                 Ok(UpsertProductListingResult::Created(
                     CreateProductListingResult {
                         product_listing_id: persisted.value.id(),
-                        product_listing_slug_id: persisted.value.slug_id().clone(),
+                        product_listing_title_slug_id: persisted.value.title_slug_id().clone(),
                         event_id,
                     },
                 ))

@@ -296,7 +296,7 @@ async fn should_return_localized_reason_specific_notification_payloads() {
             .is_some()
     );
     assert!(
-        price_change["payload"]["productListingSlugId"]
+        price_change["payload"]["productListingTitleSlugId"]
             .as_str()
             .is_some()
     );
@@ -739,7 +739,7 @@ async fn seed_unsafe_image_notification(
                 "listing_source_id": Uuid::new_v4(),
                 "source_listing_id": "unsafe-product",
                 "listing_source_slug_id": "unsafe-listing-source",
-                "product_listing_slug_id": "unsafe-product-abcdef",
+                "product_listing_title_slug_id": "unsafe-product-abcdef",
                 "listing_source_name": "Unsafe Listing Source",
                 "title": null,
                 "image": "https://unsafe.listing-source.example/image.jpg",
@@ -865,7 +865,7 @@ async fn seed_price_notification(
                 "listing_source_id": Uuid::new_v4(),
                 "source_listing_id": "source-currency-product",
                 "listing_source_slug_id": "source-currency-listing-source",
-                "product_listing_slug_id": "source-currency-product-a1b2c3",
+                "product_listing_title_slug_id": "source-currency-product-a1b2c3",
                 "listing_source_name": "Source Currency Listing Source",
                 "title": null,
                 "image": null,
@@ -889,7 +889,7 @@ async fn seed_notification_payloads(user_id: UserId) {
             "listing_source_id": Uuid::new_v4(),
             "source_listing_id": "listing-source-product-123",
             "listing_source_slug_id": "test-listing-source",
-            "product_listing_slug_id": "test-product-a1b2c3",
+            "product_listing_title_slug_id": "test-product-a1b2c3",
             "listing_source_name": "Snapshot Listing Source",
             "title": title,
             "image": image,

@@ -382,7 +382,7 @@ fn product_source(
         current_event_id: event_id,
         projection_version: 1,
         product_listing_id: ProductListingId::new(),
-        product_listing_slug_id: ProductListingSlugId::from("test-product"),
+        product_listing_title_slug_id: ProductListingSlugId::from("test-product"),
         source: ListingSourceSummary {
             listing_source_id: ListingSourceId::new(),
             name: ListingSourceName::try_from("Test source")
@@ -392,7 +392,6 @@ fn product_source(
         },
         source_listing_id: SourceListingId::try_from("test-product-1")
             .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-        source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(&SourceListingId::try_from("test-product-1").unwrap_or_else(|error| panic!("valid source listing ID: {error}"))),
         product_title: Some(Localized::new(Language::En, title.clone())),
         product_description: None,
         titles: std::collections::HashMap::from([(Language::En, title)]),

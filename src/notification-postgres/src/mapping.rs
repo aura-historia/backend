@@ -153,7 +153,7 @@ struct ProductListingNotificationSnapshotV1 {
         deserialize_with = "deserialize_listing_source_slug_id"
     )]
     listing_source_slug_id: ListingSourceSlugId,
-    product_listing_slug_id: ProductListingSlugId,
+    product_listing_title_slug_id: ProductListingSlugId,
     #[serde(
         serialize_with = "serialize_listing_source_name",
         deserialize_with = "deserialize_listing_source_name"
@@ -276,7 +276,7 @@ impl From<&ProductListingNotificationSnapshot> for ProductListingNotificationSna
             listing_source_id: snapshot.listing_source_id,
             source_listing_id: snapshot.source_listing_id.clone(),
             listing_source_slug_id: snapshot.listing_source_slug_id.clone(),
-            product_listing_slug_id: snapshot.product_listing_slug_id.clone(),
+            product_listing_title_slug_id: snapshot.product_listing_title_slug_id.clone(),
             listing_source_name: snapshot.listing_source_name.clone(),
             title: snapshot.title.as_ref().map(|titles| {
                 titles
@@ -321,7 +321,7 @@ impl TryFrom<ProductListingNotificationSnapshotV1> for ProductListingNotificatio
             listing_source_id: snapshot.listing_source_id,
             source_listing_id: snapshot.source_listing_id,
             listing_source_slug_id: snapshot.listing_source_slug_id,
-            product_listing_slug_id: snapshot.product_listing_slug_id,
+            product_listing_title_slug_id: snapshot.product_listing_title_slug_id,
             listing_source_name: snapshot.listing_source_name,
             title,
             image: snapshot.image,
@@ -753,7 +753,7 @@ mod tests {
             source_listing_id: SourceListingId::try_from("source-listing-42")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             listing_source_slug_id: ListingSourceSlugId::raw("northwind-source")?,
-            product_listing_slug_id: ProductListingSlugId::raw("rare-vase-000000")?,
+            product_listing_title_slug_id: ProductListingSlugId::raw("rare-vase-000000")?,
             listing_source_name: ListingSourceName::try_from("Northwind Source")
                 .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
             title: None,
@@ -770,7 +770,7 @@ mod tests {
                 "listing_source_id": "00000000-0000-0000-0000-000000000000",
                 "source_listing_id": "source-listing-42",
                 "listing_source_slug_id": "northwind-source",
-                "product_listing_slug_id": "rare-vase-000000",
+                "product_listing_title_slug_id": "rare-vase-000000",
                 "listing_source_name": "Northwind Source",
                 "title": null,
                 "image": null,
@@ -795,7 +795,7 @@ mod tests {
                 "listing_source_id": "00000000-0000-0000-0000-000000000000",
                 "source_listing_id": "source-listing-42",
                 "listing_source_slug_id": "northwind-source",
-                "product_listing_slug_id": "rare-vase-000000",
+                "product_listing_title_slug_id": "rare-vase-000000",
                 "listing_source_name": "\u{2003}",
                 "title": null,
                 "image": null,

@@ -14,7 +14,6 @@ use money::Currency;
 use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_id::ProductListingId,
     product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
-    source_listing_slug_id::SourceListingSlugId,
 };
 use product_listing_service::ports::{
     ProductListingPercolationInput, ProductListingPricesByCurrency,
@@ -58,12 +57,11 @@ struct ProductListingPercolationPricesDocument {
 #[serde(rename_all = "camelCase")]
 struct ProductListingPercolationDocument {
     product_listing_id: ProductListingId,
-    product_listing_slug_id: ProductListingSlugId,
+    product_listing_title_slug_id: ProductListingSlugId,
     #[serde(with = "crate::product_listing_document::listing_source_id")]
     listing_source_id: ListingSourceId,
     #[serde(with = "crate::product_listing_document::source_listing_id")]
     source_listing_id: SourceListingId,
-    source_listing_slug_id: SourceListingSlugId,
     event_id: EventId,
     title: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -144,10 +142,9 @@ fn build_product_listing_percolation_document(
 
     ProductListingPercolationDocument {
         product_listing_id: product.product_listing_id,
-        product_listing_slug_id: product.product_listing_slug_id.clone(),
+        product_listing_title_slug_id: product.product_listing_title_slug_id.clone(),
         listing_source_id: product.source.listing_source_id,
         source_listing_id: product.source_listing_id.clone(),
-        source_listing_slug_id: product.source_listing_slug_id.clone(),
         event_id: product.current_event_id,
         title: TextDocument::new(title, language),
         title_de: translated_title(product, Language::De),
@@ -209,10 +206,9 @@ pub(crate) fn product_listing_document(
 
     Ok(ProductListingDocument {
         product_listing_id: product.product_listing_id,
-        product_listing_slug_id: product.product_listing_slug_id.clone(),
+        product_listing_title_slug_id: product.product_listing_title_slug_id.clone(),
         listing_source_id: product.source.listing_source_id,
         source_listing_id: product.source_listing_id.clone(),
-        source_listing_slug_id: product.source_listing_slug_id.clone(),
         event_id: product.current_event_id,
         title: TextDocument::new(title, language),
         title_de: translated_title(product, Language::De),
@@ -394,7 +390,7 @@ mod tests {
             current_event_id: event_id,
             projection_version: 1,
             product_listing_id: ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from("blue-vase"),
+            product_listing_title_slug_id: ProductListingSlugId::from("blue-vase"),
             source: ListingSourceSummary {
                 listing_source_id: ListingSourceId::new(),
                 name: ListingSourceName::try_from("Source")
@@ -404,10 +400,6 @@ mod tests {
             },
             source_listing_id: SourceListingId::try_from("sku-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            source_listing_slug_id: SourceListingSlugId::from_source_listing_id(
-                &SourceListingId::try_from("sku-1")
-                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            ),
             product_title: Some(Localized::new(Language::En, title.clone())),
             product_description: None,
             titles: HashMap::from([(Language::En, title)]),
@@ -546,8 +538,11 @@ mod tests {
         assert!(document.get("salePrices").is_none());
         assert!(document.get("priceEstimateMin").is_none());
         assert!(document.get("priceEstimateMax").is_none());
+        assert!(document.get("productListingTitleSlugId").is_some());
+        assert!(document.get("productListingSlugId").is_none());
         assert!(document.get("listingSourceId").is_some());
         assert!(document.get("sourceListingId").is_some());
+        assert!(document.get("sourceListingSlugId").is_none());
         for field in [
             "listingSourceName",
             "listingSourceSlugId",

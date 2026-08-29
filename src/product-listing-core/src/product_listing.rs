@@ -3,7 +3,7 @@ use crate::listing_availability::ListingAvailability;
 use crate::listing_lifecycle::ListingLifecycle;
 use crate::product_listing_id::ProductListingId;
 use crate::product_listing_image::ProductListingImage;
-use crate::product_listing_slug_id::{ProductListingSlugId, SourceListingSlugId};
+use crate::product_listing_slug_id::ProductListingSlugId;
 use crate::source_listing_id::SourceListingId;
 use crate::title::Title;
 use domain_primitives::change_outcome::ChangeOutcome;
@@ -18,8 +18,7 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListing {
     id: ProductListingId,
-    slug_id: ProductListingSlugId,
-    source_listing_slug_id: SourceListingSlugId,
+    title_slug_id: ProductListingSlugId,
     listing_source_id: ListingSourceId,
     source_listing_id: SourceListingId,
     title: Option<Localized<Language, Title>>,
@@ -52,7 +51,7 @@ pub struct NewProductListing {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RehydratedProductListingState {
     pub id: ProductListingId,
-    pub slug_id: ProductListingSlugId,
+    pub title_slug_id: ProductListingSlugId,
     pub listing_source_id: ListingSourceId,
     pub source_listing_id: SourceListingId,
     pub title: Option<Localized<Language, Title>>,
@@ -260,11 +259,21 @@ pub enum RecordListingSaleObservationError {
 
 impl ProductListing {
     pub fn create(input: NewProductListing) -> Result<Self, RehydrateProductListingError> {
-        let slug_id = product_listing_slug_id(input.id, input.title.as_ref());
+        let title_slug_id = product_listing_slug_id(input.title.as_ref());
+        Self::create_with_title_slug_id(input, title_slug_id)
+    }
 
+    /// Creates a listing with the title slug selected by the application.
+    ///
+    /// This lets the service retry a database-enforced title-slug collision
+    /// without changing the canonical listing or source identities.
+    pub fn create_with_title_slug_id(
+        input: NewProductListing,
+        title_slug_id: ProductListingSlugId,
+    ) -> Result<Self, RehydrateProductListingError> {
         let mut listing = Self::rehydrate(RehydratedProductListingState {
             id: input.id,
-            slug_id,
+            title_slug_id,
             listing_source_id: input.listing_source_id,
             source_listing_id: input.source_listing_id.clone(),
             title: input.title.clone(),
@@ -303,10 +312,7 @@ impl ProductListing {
         }
         Ok(Self {
             id: state.id,
-            slug_id: state.slug_id,
-            source_listing_slug_id: SourceListingSlugId::from_source_listing_id(
-                &state.source_listing_id,
-            ),
+            title_slug_id: state.title_slug_id,
             listing_source_id: state.listing_source_id,
             source_listing_id: state.source_listing_id,
             title: state.title,
@@ -484,11 +490,8 @@ impl ProductListing {
     pub fn id(&self) -> ProductListingId {
         self.id
     }
-    pub fn slug_id(&self) -> &ProductListingSlugId {
-        &self.slug_id
-    }
-    pub fn source_listing_slug_id(&self) -> &SourceListingSlugId {
-        &self.source_listing_slug_id
+    pub fn title_slug_id(&self) -> &ProductListingSlugId {
+        &self.title_slug_id
     }
     pub fn listing_source_id(&self) -> ListingSourceId {
         self.listing_source_id
@@ -556,14 +559,8 @@ impl ProductListing {
     }
 }
 
-fn product_listing_slug_id(
-    product_listing_id: ProductListingId,
-    title: Option<&Localized<Language, Title>>,
-) -> ProductListingSlugId {
-    match title {
-        Some(title) => ProductListingSlugId::from(title.payload.as_ref()),
-        None => ProductListingSlugId::from(product_listing_id.to_string()),
-    }
+fn product_listing_slug_id(title: Option<&Localized<Language, Title>>) -> ProductListingSlugId {
+    ProductListingSlugId::from_title(title.map_or("", |title| title.payload.as_ref()))
 }
 
 fn validate_auction(auction: ProductListingAuction) -> Result<(), ProductListingInvariantError> {
@@ -605,12 +602,29 @@ mod tests {
             ProductListing::create(input).unwrap_or_else(|error| panic!("create: {error}"));
         assert_eq!(ListingLifecycle::Active, listing.lifecycle());
         assert_eq!(None, listing.availability());
+        assert!(listing.title_slug_id().as_ref().starts_with("listing-"));
         let [ProductListingEventPayload::Created(created)] = listing.pending_event_payloads()
         else {
             panic!("expected product listing created event");
         };
         assert_eq!(listing_source_id, created.listing_source_id);
         assert_eq!(&source_listing_id, &created.source_listing_id);
+    }
+
+    #[test]
+    fn should_create_title_slug_from_listing_title() {
+        let mut input = input();
+        input.title = Some(Localized::new(Language::En, Title::from("Vintage Cabinet")));
+
+        let listing =
+            ProductListing::create(input).unwrap_or_else(|error| panic!("create: {error}"));
+
+        assert!(
+            listing
+                .title_slug_id()
+                .as_ref()
+                .starts_with("vintage-cabinet-")
+        );
     }
 
     #[test]
@@ -705,7 +719,7 @@ mod tests {
         let source = input();
         let result = ProductListing::rehydrate(RehydratedProductListingState {
             id: source.id,
-            slug_id: product_listing_slug_id(source.id, source.title.as_ref()),
+            title_slug_id: product_listing_slug_id(source.title.as_ref()),
             listing_source_id: source.listing_source_id,
             source_listing_id: source.source_listing_id,
             title: source.title,
@@ -771,7 +785,7 @@ mod tests {
             Err(RehydrateProductListingError::AuctionStartAfterEnd),
             ProductListing::rehydrate(RehydratedProductListingState {
                 id: source.id,
-                slug_id: product_listing_slug_id(source.id, source.title.as_ref()),
+                title_slug_id: product_listing_slug_id(source.title.as_ref()),
                 listing_source_id: source.listing_source_id,
                 source_listing_id: source.source_listing_id,
                 title: source.title,

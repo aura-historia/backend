@@ -455,14 +455,16 @@ async fn seed_watchlist_entries(
         .await
         .unwrap_or_else(|error| panic!("failed to seed product-listing event: {error:?}"));
         sqlx::query(
-            "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, availability, lifecycle, url, source_listing_slug_id) VALUES ($1, $2, $3, $3, $4, $5, 'AVAILABLE', 'ACTIVE', 'https://example.com/product-listings', $6)",
+            "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, availability, lifecycle, url) VALUES ($1, $2, $3, $3, $4, $5, 'AVAILABLE', 'ACTIVE', 'https://example.com/product-listings')",
         )
         .bind(product_listing_id)
-        .bind(format!("tier-entitlements-product-{product_listing_id}"))
+        .bind(product_listing_title_slug_id(
+            "tier-entitlements-product",
+            product_listing_id,
+        ))
         .bind(event_id)
         .bind(listing_source_id)
         .bind(format!("tier-entitlements-{index}"))
-        .bind(source_listing_slug_id(format!("tier-entitlements-{index}")))
         .execute(&mut *tx)
         .await
         .unwrap_or_else(|error| panic!("failed to seed product listing: {error:?}"));
@@ -566,12 +568,6 @@ async fn count_state(
         .unwrap_or_else(|error| panic!("failed to count resource state: {error:?}"))
 }
 
-fn source_listing_slug_id(raw: impl AsRef<str>) -> String {
-    let source_listing_id =
-        product_listing_core::source_listing_id::SourceListingId::try_from(raw.as_ref())
-            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
-    product_listing_core::product_listing_slug_id::SourceListingSlugId::from_source_listing_id(
-        &source_listing_id,
-    )
-    .to_string()
+fn product_listing_title_slug_id(prefix: &str, product_listing_id: uuid::Uuid) -> String {
+    format!("{prefix}-{}", &product_listing_id.simple().to_string()[..6])
 }

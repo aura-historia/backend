@@ -18,7 +18,6 @@ use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
 use product_listing_core::content_policy::ContentPolicyDecision;
 use product_listing_core::source_listing_id::SourceListingId;
-use product_listing_core::source_listing_slug_id::SourceListingSlugId;
 use product_listing_service::ports::ListingSourceSummary;
 use product_listing_service::use_cases::{
     DisplayProductListingPricing, PersonalizedProductListingDetailsView,
@@ -49,12 +48,12 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductListingDetailsData {
     product_listing_id: ProductListingId,
-    product_listing_slug_id: ProductListingSlugId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    product_listing_title_slug_id: Option<ProductListingSlugId>,
     event_id: EventId,
     source: ListingSourceSummaryData,
     #[serde(serialize_with = "crate::wire::source_listing_id::serialize")]
     source_listing_id: SourceListingId,
-    source_listing_slug_id: SourceListingSlugId,
     #[serde(skip_serializing_if = "Option::is_none")]
     product_title: Option<LocalizedTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -144,12 +143,12 @@ impl From<ListingSourceSummary> for ListingSourceSummaryData {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductListingSummaryData {
     product_listing_id: ProductListingId,
-    product_listing_slug_id: ProductListingSlugId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    product_listing_title_slug_id: Option<ProductListingSlugId>,
     event_id: EventId,
     source: ListingSourceSummaryData,
     #[serde(serialize_with = "crate::wire::source_listing_id::serialize")]
     source_listing_id: SourceListingId,
-    source_listing_slug_id: SourceListingSlugId,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<LocalizedTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -259,11 +258,10 @@ impl ProductListingDetailsData {
     fn from_view(view: ProductListingDetailsView) -> Self {
         Self {
             product_listing_id: view.product_listing_id,
-            product_listing_slug_id: view.product_listing_slug_id,
+            product_listing_title_slug_id: view.product_listing_title_slug_id,
             event_id: view.event_id,
             source: view.source.into(),
             source_listing_id: view.source_listing_id,
-            source_listing_slug_id: view.source_listing_slug_id,
             product_title: view.product_title.map(Into::into),
             product_description: view.product_description.map(Into::into),
             title: view.title.map(Into::into),
@@ -418,11 +416,10 @@ impl ProductListingSummaryData {
     fn from_view(summary: ProductListingSummary) -> Self {
         Self {
             product_listing_id: summary.product_listing_id,
-            product_listing_slug_id: summary.product_listing_slug_id,
+            product_listing_title_slug_id: summary.product_listing_title_slug_id,
             event_id: summary.event_id,
             source: summary.source.into(),
             source_listing_id: summary.source_listing_id,
-            source_listing_slug_id: summary.source_listing_slug_id,
             title: summary.title.map(Into::into),
             display_price: summary.display_price.map(Into::into),
             price_valuation: summary.price_valuation.into(),

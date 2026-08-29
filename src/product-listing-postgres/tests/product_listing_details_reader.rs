@@ -1,7 +1,7 @@
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
 use indexmap::IndexSet;
-use listing_source_core::{ListingSourceId, ListingSourceSlugId};
+use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use notification_core::notification_id::NotificationId;
@@ -150,11 +150,7 @@ async fn should_fall_back_to_de_then_deterministic_remaining_translation_for_slu
     let view = find_details(
         &pool,
         ProductListingDetailsReadRequest {
-            lookup: ProductListingLookup::BySlug {
-                listing_source_slug_id: ListingSourceSlugId::raw(listing_source_slug)
-                    .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
-                product_listing_slug_id: product.slug_id().clone(),
-            },
+            lookup: ProductListingLookup::ByTitleSlug(product.title_slug_id().clone()),
             language: Language::It,
             user_id: None,
         },

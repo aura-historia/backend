@@ -465,7 +465,7 @@ pub async fn seed_listing_source() -> uuid::Uuid {
 pub async fn seed_product() -> ProductListingId {
     let listing_source_id = seed_listing_source().await;
     let product_listing_id = ProductListingId::new();
-    let product_listing_slug_id = format!(
+    let product_listing_title_slug_id = format!(
         "acceptance-product-{}",
         &product_listing_id.to_string()[..6]
     );
@@ -479,20 +479,17 @@ pub async fn seed_product() -> ProductListingId {
     if let Err(error) = sqlx::query(
         r#"
         INSERT INTO product_listings (
-            product_listing_id, product_listing_slug_id, event_id, content_source_event_id,
+            product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id,
             listing_source_id, source_listing_id, availability, lifecycle, url
-        , source_listing_slug_id) VALUES ($1, $2, $3, $3, $4, $5, 'AVAILABLE', 'ACTIVE', $6, $7)
+        ) VALUES ($1, $2, $3, $3, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
         "#,
     )
     .bind(uuid::Uuid::from(product_listing_id))
-    .bind(product_listing_slug_id)
+    .bind(product_listing_title_slug_id)
     .bind(event_id)
     .bind(listing_source_id)
     .bind(format!("listing-source-product-{product_listing_id}"))
     .bind("https://api-acceptance.example/product")
-    .bind(source_listing_slug_id(format!(
-        "listing-source-product-{product_listing_id}"
-    )))
     .execute(&mut *tx)
     .await
     {
@@ -1028,14 +1025,4 @@ impl TokenAuthenticator for RejectJwtAuthenticator {
     ) -> Result<TransportPrincipal, AuthError> {
         Err(AuthError::InvalidCredentials)
     }
-}
-
-fn source_listing_slug_id(raw: impl AsRef<str>) -> String {
-    let source_listing_id =
-        product_listing_core::source_listing_id::SourceListingId::try_from(raw.as_ref())
-            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
-    product_listing_core::product_listing_slug_id::SourceListingSlugId::from_source_listing_id(
-        &source_listing_id,
-    )
-    .to_string()
 }

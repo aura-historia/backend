@@ -155,7 +155,7 @@
             "productListingId": {
                 "type": "keyword"
             },
-            "productListingSlugId": {
+            "productListingTitleSlugId": {
                 "type": "keyword"
             },
             "listingSourceId": {
@@ -164,9 +164,7 @@
             "sourceListingId": {
                 "type": "keyword"
             },
-            "sourceListingSlugId": {
-                "type": "keyword"
-            },
+
             "eventId": {
                 "type": "keyword"
             },

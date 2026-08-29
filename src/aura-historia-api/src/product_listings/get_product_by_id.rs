@@ -92,9 +92,7 @@ mod tests {
     use product_listing_core::listing_availability::ListingAvailability;
     use product_listing_core::listing_lifecycle::ListingLifecycle;
     use product_listing_core::product_listing::{ProductListingAuction, ProductListingPricing};
-    use product_listing_core::product_listing_slug_id::{
-        ProductListingSlugId, SourceListingSlugId,
-    };
+    use product_listing_core::product_listing_slug_id::ProductListingSlugId;
     use product_listing_core::source_listing_id::SourceListingId;
     use product_listing_core::title::Title;
     use product_listing_service::ports::ListingSourceSummary;
@@ -200,6 +198,7 @@ mod tests {
         let mut view = product_details_view()?;
         view.item.availability = None;
         let product_listing_id = view.item.product_listing_id;
+        let product_listing_title_slug_id = view.item.product_listing_title_slug_id.clone();
         let (app, calls) = app(view, false, None);
 
         let response = app
@@ -222,6 +221,11 @@ mod tests {
             json!(product_listing_id.to_string()),
             body["item"]["productListingId"]
         );
+        assert_eq!(
+            json!(product_listing_title_slug_id.map(|slug| slug.to_string())),
+            body["item"]["productListingTitleSlugId"]
+        );
+        assert!(body["item"].get("sourceListingSlugId").is_none());
         assert!(body["item"].get("createdBy").is_none());
         assert!(body["item"].get("updatedBy").is_none());
         assert_eq!(
@@ -280,21 +284,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_map_source_scoped_slug_path_to_source_slug_lookup()
+    async fn should_map_title_slug_path_to_title_slug_lookup()
     -> Result<(), Box<dyn std::error::Error>> {
         let view = product_details_view()?;
-        let source_listing_id = SourceListingId::try_from("source-listing-id")
-            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
-        let source_listing_slug_id =
-            SourceListingSlugId::from_source_listing_id(&source_listing_id);
-        let expected_listing_source_slug_id = ListingSourceSlugId::raw("source")
-            .unwrap_or_else(|error| panic!("valid listing source slug: {error}"));
+        let product_listing_title_slug_id = ProductListingSlugId::raw("cabinet-a1b2c3")
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}"));
         let (app, calls) = app(view, false, None);
 
         let response = app
             .oneshot(
                 Request::get(format!(
-                    "/api/v1/listing-sources/source/product-listings/{source_listing_slug_id}?language=de&currency=USD"
+                    "/api/v1/product-listings/by-slug/{product_listing_title_slug_id}?language=de&currency=USD"
                 ))
                 .body(Body::empty())?,
             )
@@ -304,14 +304,10 @@ mod tests {
         assert!(matches!(
             &lock(&calls)[0].1,
             GetProductListingRequest {
-                lookup: ProductListingLookup::BySourceListingSlug {
-                    listing_source_slug_id,
-                    source_listing_slug_id: actual_source_listing_slug_id,
-                },
+                lookup: ProductListingLookup::ByTitleSlug(actual),
                 language: Language::De,
                 currency: Currency::Usd,
-            } if listing_source_slug_id == &expected_listing_source_slug_id
-                && actual_source_listing_slug_id == &source_listing_slug_id
+            } if actual == &product_listing_title_slug_id
         ));
         Ok(())
     }
@@ -471,9 +467,9 @@ mod tests {
                     axum::routing::get(get_product_by_id),
                 )
                 .route(
-                    "/api/v1/listing-sources/{listing_source_slug_id}/product-listings/{source_listing_slug_id}",
+                    "/api/v1/product-listings/by-slug/{product_listing_title_slug_id}",
                     axum::routing::get(
-                        crate::product_listings::get_product_by_source_slug::get_product_by_source_slug,
+                        crate::product_listings::get_product_by_title_slug::get_product_by_title_slug,
                     ),
                 )
                 .with_state(state),
@@ -490,7 +486,7 @@ mod tests {
         Ok(Personalized {
             item: ProductListingDetailsView {
                 product_listing_id: ProductListingId::new(),
-                product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+                product_listing_title_slug_id: Some(ProductListingSlugId::from("cabinet-abcdef")),
                 event_id: EventId::new(),
                 source: ListingSourceSummary {
                     listing_source_id: ListingSourceId::new(),
@@ -502,7 +498,6 @@ mod tests {
                 },
                 source_listing_id: SourceListingId::try_from("source-listing-id")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-                source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(&SourceListingId::try_from("source-listing-id").unwrap_or_else(|error| panic!("valid source listing ID: {error}"))),
                 product_title: None,
                 product_description: None,
                 title: Some(Localized {

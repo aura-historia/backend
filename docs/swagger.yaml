@@ -1022,31 +1022,23 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/listing-sources/{listingSourceSlugId}/product-listings/{sourceListingSlugId}:
+  /api/v1/product-listings/by-slug/{productListingTitleSlugId}:
     get:
-      summary: Get a single product by source-scoped source listing slug
+      summary: Get a single product by title slug
       description: >-
-        Retrieves an active ProductListing by its ListingSource slug and immutable,
-        deterministic `sourceListingSlugId`. `sourceListingSlugId` derives from the
-        raw `sourceListingId`; clients must not treat it as the raw provider key.
-      operationId: getProductListingBySourceListingSlug
+        Retrieves an active ProductListing by its immutable Aura-owned
+        `productListingTitleSlugId`, derived from its title.
+      operationId: getProductListingByTitleSlug
       tags:
         - ProductListings
       parameters:
-        - name: listingSourceSlugId
+        - name: productListingTitleSlugId
           in: path
           required: true
-          description: Canonical ListingSource slug
+          description: Immutable Aura-owned public locator derived from the listing title
           schema:
             type: string
-            pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
-        - name: sourceListingSlugId
-          in: path
-          required: true
-          description: Source-scoped deterministic slug for the raw source listing ID
-          schema:
-            type: string
-            pattern: "^[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{12}$"
+            pattern: "^[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{6}$"
         - name: language
           in: query
           required: false
@@ -2575,7 +2567,7 @@ paths:
                 items:
                   - item:
                       productListingId: 550e8400-e29b-41d4-a716-446655440000
-                      productListingSlugId: golden-cufflinks-a1b2c3
+                      productListingTitleSlugId: golden-cufflinks-a1b2c3
                       eventId: 550e8400-e29b-41d4-a716-446655440001
                       source:
                         listingSourceId: 550e8400-e29b-41d4-a716-446655440000
@@ -2768,7 +2760,7 @@ paths:
                 items:
                   - item:
                       productListingId: 550e8400-e29b-41d4-a716-446655440111
-                      productListingSlugId: golden-accessory
+                      productListingTitleSlugId: golden-accessory
                       eventId: 550e8400-e29b-41d4-a716-446655440222
                       source:
                         listingSourceId: 550e8400-e29b-41d4-a716-446655440333
@@ -3189,7 +3181,7 @@ paths:
                 items:
                   - item:
                       productListingId: 550e8400-e29b-41d4-a716-446655440000
-                      productListingSlugId: smartphone-case-a1b2c3
+                      productListingTitleSlugId: smartphone-case-a1b2c3
                       eventId: 550e8400-e29b-41d4-a716-446655440001
                       listingSourceId: 550e8400-e29b-41d4-a716-446655440000
                       sourceListingId: 6ba7b810
@@ -5351,7 +5343,7 @@ paths:
               example:
                 item:
                   productListingId: 550e8400-e29b-41d4-a716-446655440000
-                  productListingSlugId: smartphone-case-a1b2c3
+                  productListingTitleSlugId: smartphone-case-a1b2c3
                   eventId: 550e8400-e29b-41d4-a716-446655440001
                   source:
                     listingSourceId: 550e8400-e29b-41d4-a716-446655440000
@@ -7986,11 +7978,10 @@ components:
       description: Lightweight ProductListing summary for search and similar-listing results.
       required:
         - productListingId
-        - productListingSlugId
+        - productListingTitleSlugId
         - eventId
         - source
         - sourceListingId
-        - sourceListingSlugId
         - priceValuation
         - availability
         - lifecycle
@@ -8002,7 +7993,7 @@ components:
         productListingId:
           type: string
           format: uuid
-        productListingSlugId:
+        productListingTitleSlugId:
           type: string
         eventId:
           type: string
@@ -8011,10 +8002,6 @@ components:
           $ref: "#/components/schemas/ProductListingSourceData"
         sourceListingId:
           type: string
-        sourceListingSlugId:
-          type: string
-          maxLength: 255
-          description: Immutable Aura-owned, source-scoped public locator derived from the canonical raw sourceListingId and issued by the API.
         title:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
@@ -8087,11 +8074,10 @@ components:
       description: Canonical ProductListing detail inside a personalized response wrapper.
       required:
         - productListingId
-        - productListingSlugId
+        - productListingTitleSlugId
         - eventId
         - source
         - sourceListingId
-        - sourceListingSlugId
         - pricing
         - availability
         - lifecycle
@@ -8105,7 +8091,7 @@ components:
         productListingId:
           type: string
           format: uuid
-        productListingSlugId:
+        productListingTitleSlugId:
           type: string
         eventId:
           type: string
@@ -8114,10 +8100,6 @@ components:
           $ref: "#/components/schemas/ProductListingSourceData"
         sourceListingId:
           type: string
-        sourceListingSlugId:
-          type: string
-          maxLength: 255
-          description: Immutable Aura-owned, source-scoped public locator derived from the canonical raw sourceListingId and issued by the API.
         productTitle:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
@@ -10664,7 +10646,7 @@ components:
         - listingSourceId
         - sourceListingId
         - listingSourceSlugId
-        - productListingSlugId
+        - productListingTitleSlugId
         - listingSourceName
         - title
         - image
@@ -10682,7 +10664,7 @@ components:
           type: string
         listingSourceSlugId:
           type: string
-        productListingSlugId:
+        productListingTitleSlugId:
           type: string
         listingSourceName:
           type: string
@@ -10755,7 +10737,7 @@ components:
         - listingSourceId
         - sourceListingId
         - listingSourceSlugId
-        - productListingSlugId
+        - productListingTitleSlugId
         - listingSourceName
         - title
         - image
@@ -10777,7 +10759,7 @@ components:
           type: string
         listingSourceSlugId:
           type: string
-        productListingSlugId:
+        productListingTitleSlugId:
           type: string
         listingSourceName:
           type: string

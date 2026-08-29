@@ -80,14 +80,10 @@ impl ProductListingEventReader for SqlxProductListingEventReader<'_> {
                 .fetch_optional(&mut *self.connection)
                 .await
             }
-            ProductListingEventLookup::BySlug {
-                listing_source_slug_id,
-                product_listing_slug_id,
-            } => sqlx::query_scalar::<_, uuid::Uuid>(
-                "SELECT p.product_listing_id FROM product_listings p JOIN listing_sources source ON source.listing_source_id = p.listing_source_id WHERE source.listing_source_slug_id = $1 AND p.product_listing_slug_id = $2",
+            ProductListingEventLookup::ByTitleSlug(product_listing_title_slug_id) => sqlx::query_scalar::<_, uuid::Uuid>(
+                "SELECT p.product_listing_id FROM product_listings p WHERE p.product_listing_title_slug_id = $1",
             )
-            .bind(listing_source_slug_id.as_ref())
-            .bind(product_listing_slug_id.as_ref())
+            .bind(product_listing_title_slug_id.as_ref())
             .fetch_optional(&mut *self.connection)
             .await,
         }

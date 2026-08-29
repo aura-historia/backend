@@ -336,7 +336,7 @@ async fn create_notification(
                     listing_source_id: product.source.listing_source_id,
                     source_listing_id: product.source_listing_id,
                     listing_source_slug_id: product.source.slug_id,
-                    product_listing_slug_id: product.product_listing_slug_id,
+                    product_listing_title_slug_id: product.product_listing_title_slug_id,
                     listing_source_name: product.source.name,
                     title: (!product.titles.is_empty()).then_some(product.titles),
                     image: product.image.map(|image| image.url().clone()),
@@ -803,7 +803,7 @@ mod tests {
             current_event_id: origin_event_id,
             projection_version: 1,
             product_listing_id,
-            product_listing_slug_id: ProductListingSlugId::from("product"),
+            product_listing_title_slug_id: ProductListingSlugId::from("product"),
             source: ListingSourceSummary {
                 listing_source_id: ListingSourceId::new(),
                 name: ListingSourceName::try_from("Source")
@@ -813,7 +813,6 @@ mod tests {
             },
             source_listing_id: SourceListingId::try_from("sku-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(&SourceListingId::try_from("sku-1").unwrap_or_else(|error| panic!("valid source listing ID: {error}"))),
             product_title: None,
             product_description: None,
             titles: Default::default(),

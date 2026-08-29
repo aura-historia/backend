@@ -227,7 +227,7 @@ pub(crate) fn template_data(
             let mut data = product_template_data(
                 snapshot.listing_source_name.to_string(),
                 snapshot.listing_source_slug_id.to_string(),
-                snapshot.product_listing_slug_id.to_string(),
+                snapshot.product_listing_title_slug_id.to_string(),
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
                 snapshot.view_url.to_string(),
@@ -265,7 +265,7 @@ pub(crate) fn template_data(
             let mut data = product_template_data(
                 snapshot.listing_source_name.to_string(),
                 snapshot.listing_source_slug_id.to_string(),
-                snapshot.product_listing_slug_id.to_string(),
+                snapshot.product_listing_title_slug_id.to_string(),
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
                 snapshot.view_url.to_string(),
@@ -299,12 +299,12 @@ fn add_recipient_data(mut data: Value, first_name: Option<&str>) -> Value {
 fn product_template_data(
     listing_source_name: String,
     listing_source_slug_id: String,
-    product_listing_slug_id: String,
+    product_listing_title_slug_id: String,
     title: Option<String>,
     image_url: Option<String>,
     view_url: String,
 ) -> Value {
-    json!({ "listing_source_name": listing_source_name, "listing_source_slug_id": listing_source_slug_id, "product_listing_slug_id": product_listing_slug_id, "title": title, "image_url": image_url, "view_url": view_url })
+    json!({ "listing_source_name": listing_source_name, "listing_source_slug_id": listing_source_slug_id, "product_listing_title_slug_id": product_listing_title_slug_id, "title": title, "image_url": image_url, "view_url": view_url })
 }
 fn price_text(price: Option<Price>) -> Option<String> {
     price.map(|price| price.format_human_readable())
@@ -698,7 +698,7 @@ mod tests {
                         .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                     listing_source_slug_id: ListingSourceSlugId::raw("test-source")
                         .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
-                    product_listing_slug_id: ProductListingSlugId::from("product"),
+                    product_listing_title_slug_id: ProductListingSlugId::from("product"),
                     listing_source_name: ListingSourceName::try_from("Test Listing Source")
                         .unwrap_or_else(|error| {
                             panic!("invalid test listing source name: {error}")

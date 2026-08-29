@@ -35,7 +35,6 @@ use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use crate::ports::ListingSourceSummary;
 use listing_source_core::ListingSourceId;
 use product_listing_core::source_listing_id::SourceListingId;
-use product_listing_core::source_listing_slug_id::SourceListingSlugId;
 
 use crate::user_state::ProductListingUserState;
 use indexmap::IndexSet;
@@ -71,11 +70,10 @@ pub struct ProductListingSearchCursor {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingSearchItem {
     pub product_listing_id: ProductListingId,
-    pub product_listing_slug_id: ProductListingSlugId,
+    pub product_listing_title_slug_id: ProductListingSlugId,
     pub event_id: EventId,
     pub listing_source_id: ListingSourceId,
     pub source_listing_id: SourceListingId,
-    pub source_listing_slug_id: SourceListingSlugId,
     pub title: Option<Localized<Language, Title>>,
     pub display_price: Option<Price>,
     pub price_valuation: ProductListingSummaryPriceValuation,
@@ -89,11 +87,10 @@ pub struct ProductListingSearchItem {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingSummary {
     pub product_listing_id: ProductListingId,
-    pub product_listing_slug_id: ProductListingSlugId,
+    pub product_listing_title_slug_id: Option<ProductListingSlugId>,
     pub event_id: EventId,
     pub source: ListingSourceSummary,
     pub source_listing_id: SourceListingId,
-    pub source_listing_slug_id: SourceListingSlugId,
     pub title: Option<Localized<Language, Title>>,
     pub display_price: Option<Price>,
     pub price_valuation: ProductListingSummaryPriceValuation,
@@ -367,11 +364,14 @@ where
             Personalized {
                 item: ProductListingSummary {
                     product_listing_id: product.item.item.product_listing_id,
-                    product_listing_slug_id: product.item.item.product_listing_slug_id,
+                    product_listing_title_slug_id: (!product
+                        .user_state
+                        .as_ref()
+                        .is_some_and(|state| state.search_filter.hidden))
+                    .then_some(product.item.item.product_listing_title_slug_id),
                     event_id: product.item.item.event_id,
                     source: product.item.source,
                     source_listing_id: product.item.item.source_listing_id,
-                    source_listing_slug_id: product.item.item.source_listing_slug_id,
                     title: product.item.item.title,
                     display_price: product.item.item.display_price,
                     price_valuation: product.item.item.price_valuation,
@@ -970,14 +970,11 @@ mod tests {
         Ok(ProductListingSearchReadResult {
             items: vec![ProductListingSearchItem {
                 product_listing_id: ProductListingId::new(),
-                product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+                product_listing_title_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
                 event_id: EventId::new(),
                 listing_source_id: ListingSourceId::new(),
                 source_listing_id: SourceListingId::try_from("cabinet-1")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-                source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(
-                    &SourceListingId::try_from("cabinet-1").unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-                ),
                 title: Some(Localized {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),
@@ -1446,10 +1443,8 @@ mod tests {
             .execute(&user_context(user_id), request())
             .await?;
 
-        assert_eq!(
-            ProductListingId::from(uuid::Uuid::nil()),
-            result.items[0].item.product_listing_id
-        );
+        assert_eq!(product_listing_id, result.items[0].item.product_listing_id);
+        assert_eq!(None, result.items[0].item.product_listing_title_slug_id);
         assert_eq!(
             Some(true),
             result.items[0]

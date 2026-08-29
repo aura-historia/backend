@@ -943,14 +943,14 @@ fn search_document_with_source(
     let product_listing_id = uuid::Uuid::new_v4().to_string();
     let event_id = uuid::Uuid::new_v4().to_string();
     let listing_source_id = uuid::Uuid::new_v4().to_string();
-    let product_listing_slug_id = format!("search-{}", &product_listing_id[..6]);
+    let product_listing_title_slug_id = format!("search-{}", &product_listing_id[..6]);
     (
         product_listing_id.clone(),
         json!({
             "productListingId": product_listing_id,
-            "productListingSlugId": product_listing_slug_id,
+            "productListingTitleSlugId": product_listing_title_slug_id,
             "listingSourceId": listing_source_id,
-            "sourceListingId": product_listing_slug_id,
+            "sourceListingId": product_listing_title_slug_id,
             "eventId": event_id,
             "title": { "text": title, "language": "EN" },
             "titleDe": null,

@@ -603,7 +603,7 @@ mod tests {
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
                 product_listing_id,
-                product_listing_slug_id: ProductListingSlugId::from("product"),
+                product_listing_title_slug_id: ProductListingSlugId::from("product"),
                 event_id: EventId::new(),
                 source: ListingSourceSummary {
                     listing_source_id: ListingSourceId::new(),
@@ -615,7 +615,6 @@ mod tests {
                 },
                 source_listing_id: SourceListingId::try_from("product")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-                source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(&SourceListingId::try_from("product").unwrap_or_else(|error| panic!("valid source listing ID: {error}"))),
                 product_title: Some(Localized::new(Language::En, Title::from("ProductListing"))),
                 product_description: Some(Localized::new(
                     Language::En,

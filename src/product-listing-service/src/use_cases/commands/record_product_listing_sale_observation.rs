@@ -508,7 +508,7 @@ mod tests {
     ) -> Result<ProductListing, Box<dyn std::error::Error>> {
         Ok(ProductListing::rehydrate(RehydratedProductListingState {
             id: ProductListingId::new(),
-            slug_id: ProductListingSlugId::from("listing"),
+            title_slug_id: ProductListingSlugId::from("listing"),
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("listing")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),

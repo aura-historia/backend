@@ -17,7 +17,6 @@ use product_listing_core::{
     product_listing_image::ProductListingImage,
     product_listing_slug_id::ProductListingSlugId,
     source_listing_id::SourceListingId,
-    source_listing_slug_id::SourceListingSlugId,
     title::Title,
 };
 use product_listing_service::ports::{
@@ -47,13 +46,12 @@ struct SourceRow {
     current_event_id: uuid::Uuid,
     projection_version: i64,
     product_listing_id: uuid::Uuid,
-    product_listing_slug_id: String,
+    product_listing_title_slug_id: String,
     listing_source_id: uuid::Uuid,
     listing_source_slug_id: String,
     listing_source_name: String,
     listing_source_referral_configuration: Option<serde_json::Value>,
     source_listing_id: String,
-    source_listing_slug_id: String,
     product_title_text: Option<String>,
     product_title_language: Option<String>,
     product_description_text: Option<String>,
@@ -185,13 +183,12 @@ impl ProductListingSearchFilterMatchSourceReader
                 product.event_id AS current_event_id,
                 product.projection_version,
                 product.product_listing_id,
-                product.product_listing_slug_id,
+                product.product_listing_title_slug_id,
                 listing_source.listing_source_id,
                 listing_source.listing_source_slug_id,
                 listing_source.name AS listing_source_name,
                 listing_source.referral_configuration AS listing_source_referral_configuration,
                 product.source_listing_id,
-                product.source_listing_slug_id,
                 product.title_text AS product_title_text,
                 product.title_language AS product_title_language,
                 product.description_text AS product_description_text,
@@ -285,11 +282,6 @@ fn source_from_rows(
     )?;
     let source_listing_id =
         SourceListingId::try_from(row.source_listing_id.clone()).map_err(|_| ())?;
-    let source_listing_slug_id =
-        SourceListingSlugId::raw(&row.source_listing_slug_id).map_err(|_| ())?;
-    if source_listing_slug_id != SourceListingSlugId::from_source_listing_id(&source_listing_id) {
-        return Err(());
-    }
     let (titles, descriptions) =
         translations(&rows, product_title.as_ref(), product_description.as_ref())?;
     let pricing = ProductListingPricing {
@@ -319,15 +311,16 @@ fn source_from_rows(
         current_event_id: EventId::from(row.current_event_id),
         projection_version: row.projection_version,
         product_listing_id: ProductListingId::from(row.product_listing_id),
-        product_listing_slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
-            .map_err(|_| ())?,
+        product_listing_title_slug_id: ProductListingSlugId::raw(
+            &row.product_listing_title_slug_id,
+        )
+        .map_err(|_| ())?,
         source: ListingSourceSummary {
             listing_source_id: ListingSourceId::from(row.listing_source_id),
             name: ListingSourceName::try_from(row.listing_source_name.clone()).map_err(|_| ())?,
             slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id).map_err(|_| ())?,
         },
         source_listing_id,
-        source_listing_slug_id,
         product_title,
         product_description,
         titles,

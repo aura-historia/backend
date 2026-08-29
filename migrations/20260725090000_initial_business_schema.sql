@@ -187,8 +187,7 @@ CREATE TABLE fx_rate_quotes (
 
 CREATE TABLE product_listings (
     product_listing_id uuid PRIMARY KEY,
-    product_listing_slug_id text NOT NULL,
-    source_listing_slug_id text NOT NULL,
+    product_listing_title_slug_id text NOT NULL,
     event_id uuid NOT NULL,
     content_source_event_id uuid NOT NULL,
     listing_source_id uuid NOT NULL
@@ -218,17 +217,16 @@ CREATE TABLE product_listings (
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT product_listings_listing_source_listing_unique UNIQUE (listing_source_id, source_listing_id),
-    CONSTRAINT product_listings_listing_source_slug_unique UNIQUE (listing_source_id, source_listing_slug_id),
-    CONSTRAINT product_listings_slug_unique UNIQUE (product_listing_slug_id),
+    CONSTRAINT product_listings_title_slug_unique UNIQUE (product_listing_title_slug_id),
     CONSTRAINT product_listings_source_listing_id_check CHECK (
         octet_length(source_listing_id) BETWEEN 1 AND 512
         AND source_listing_id !~ '(^[[:space:]]|[[:space:]]$)'
     ),
-    CONSTRAINT product_listings_source_listing_slug_id_format CHECK (
-        source_listing_slug_id ~ '^[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{20}$'
+    CONSTRAINT product_listings_title_slug_id_format CHECK (
+        product_listing_title_slug_id ~ '^[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{6}$'
     ),
-    CONSTRAINT product_listings_source_listing_slug_id_max_bytes CHECK (
-        octet_length(source_listing_slug_id) <= 255
+    CONSTRAINT product_listings_title_slug_id_max_bytes CHECK (
+        octet_length(product_listing_title_slug_id) <= 120
     ),
     CONSTRAINT product_listings_availability_check CHECK (availability IS NULL OR availability IN ('AVAILABLE', 'IN_STOCK', 'LIMITED_AVAILABILITY', 'BACK_ORDER', 'MADE_TO_ORDER', 'PRE_ORDER', 'PRE_SALE', 'UNAVAILABLE', 'RESERVED', 'OUT_OF_STOCK', 'SOLD_OUT')),
     CONSTRAINT product_listings_lifecycle_check CHECK (lifecycle IN ('ACTIVE', 'WITHDRAWN')),

@@ -396,20 +396,22 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     let product_result = sqlx::query(
         r#"
         INSERT INTO product_listings (
-            product_listing_id, product_listing_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id,
+            product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id,
             availability, lifecycle, url
-        , source_listing_slug_id) VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9)
+        ) VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8)
         "#,
     )
     .bind(raw_product_listing_id)
-    .bind(format!("product-user-state-{raw_product_listing_id}"))
+    .bind(format!(
+            "product-user-state-{}",
+            &raw_product_listing_id.simple().to_string()[..6]
+        ))
     .bind(uuid::Uuid::from(event_id))
     .bind(listing_source_id)
     .bind(raw_product_listing_id.to_string())
     .bind("AVAILABLE")
     .bind("ACTIVE")
     .bind("https://example.test/product")
-    .bind(source_listing_slug_id(raw_product_listing_id.to_string()))
         .execute(&mut *transaction)
     .await;
     if let Err(error) = product_result {
@@ -634,14 +636,4 @@ fn uuid_from_filter_id(filter_id: UserSearchFilterId) -> uuid::Uuid {
         Ok(value) => value,
         Err(error) => panic!("invalid user search filter ID: {error}"),
     }
-}
-
-fn source_listing_slug_id(raw: impl AsRef<str>) -> String {
-    let source_listing_id =
-        product_listing_core::source_listing_id::SourceListingId::try_from(raw.as_ref())
-            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
-    product_listing_core::product_listing_slug_id::SourceListingSlugId::from_source_listing_id(
-        &source_listing_id,
-    )
-    .to_string()
 }

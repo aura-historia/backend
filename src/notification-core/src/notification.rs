@@ -204,7 +204,7 @@ pub struct ProductListingNotificationSnapshot {
     pub listing_source_id: ListingSourceId,
     pub source_listing_id: SourceListingId,
     pub listing_source_slug_id: ListingSourceSlugId,
-    pub product_listing_slug_id: ProductListingSlugId,
+    pub product_listing_title_slug_id: ProductListingSlugId,
     pub listing_source_name: ListingSourceName,
     pub title: Option<HashMap<localization::Language, Title>>,
     pub image: Option<Url>,
@@ -222,7 +222,7 @@ impl ProductListingNotificationSnapshot {
             listing_source_id: self.listing_source_id,
             source_listing_id: self.source_listing_id,
             listing_source_slug_id: self.listing_source_slug_id,
-            product_listing_slug_id: self.product_listing_slug_id,
+            product_listing_title_slug_id: self.product_listing_title_slug_id,
             listing_source_name: self.listing_source_name,
             title: self
                 .title
@@ -306,7 +306,7 @@ pub struct LocalizedProductListingNotificationSnapshot {
     pub listing_source_id: ListingSourceId,
     pub source_listing_id: SourceListingId,
     pub listing_source_slug_id: ListingSourceSlugId,
-    pub product_listing_slug_id: ProductListingSlugId,
+    pub product_listing_title_slug_id: ProductListingSlugId,
     pub listing_source_name: ListingSourceName,
     pub title: Option<Localized<localization::Language, Title>>,
     pub image: Option<Url>,

@@ -9,7 +9,6 @@ use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_core::source_listing_id::SourceListingId;
-use product_listing_core::source_listing_slug_id::SourceListingSlugId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
@@ -253,12 +252,11 @@ pub(crate) enum ProductListingDocumentValidationError {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductListingDocument {
     pub product_listing_id: ProductListingId,
-    pub product_listing_slug_id: ProductListingSlugId,
+    pub product_listing_title_slug_id: ProductListingSlugId,
     #[serde(with = "listing_source_id")]
     pub listing_source_id: ListingSourceId,
     #[serde(with = "source_listing_id")]
     pub source_listing_id: SourceListingId,
-    pub source_listing_slug_id: SourceListingSlugId,
     pub event_id: EventId,
     pub title: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -356,14 +354,10 @@ mod tests {
     fn document() -> Result<ProductListingDocument, url::ParseError> {
         Ok(ProductListingDocument {
             product_listing_id: ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from("vase-abcdef"),
+            product_listing_title_slug_id: ProductListingSlugId::from("vase-abcdef"),
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("sku-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            source_listing_slug_id: SourceListingSlugId::from_source_listing_id(
-                &SourceListingId::try_from("sku-1")
-                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            ),
             event_id: EventId::new(),
             title: TextDocument::new("Vase", Language::En),
             title_de: None,
@@ -425,6 +419,9 @@ mod tests {
             Some(&serde_json::json!("AVAILABLE")),
             value.get("availability")
         );
+        assert!(value.get("productListingTitleSlugId").is_some());
+        assert!(value.get("productListingSlugId").is_none());
+        assert!(value.get("sourceListingSlugId").is_none());
         assert!(value.get("salePrices").is_none());
         assert!(value.get("priceEur").is_none());
         assert!(value.get("priceUsd").is_none());

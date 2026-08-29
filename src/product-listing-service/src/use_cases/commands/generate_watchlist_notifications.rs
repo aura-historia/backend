@@ -247,7 +247,7 @@ fn notification_content(
             listing_source_id: source.source.listing_source_id,
             source_listing_id: source.source_listing_id,
             listing_source_slug_id: source.source.slug_id,
-            product_listing_slug_id: source.product_listing_slug_id,
+            product_listing_title_slug_id: source.product_listing_title_slug_id,
             listing_source_name: source.source.name,
             title: source.title,
             image: source.image.map(|image| image.url().clone()),
@@ -333,7 +333,7 @@ mod tests {
             event_id,
             event_time,
             product_listing_id,
-            product_listing_slug_id: ProductListingSlugId::from("product"),
+            product_listing_title_slug_id: ProductListingSlugId::from("product"),
             source: ListingSourceSummary {
                 listing_source_id: ListingSourceId::new(),
                 name: ListingSourceName::try_from("Source")

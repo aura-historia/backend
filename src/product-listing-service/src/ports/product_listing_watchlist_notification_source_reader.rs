@@ -18,7 +18,7 @@ pub struct ProductListingWatchlistNotificationSource {
     pub event_id: EventId,
     pub event_time: OffsetDateTime,
     pub product_listing_id: ProductListingId,
-    pub product_listing_slug_id: ProductListingSlugId,
+    pub product_listing_title_slug_id: ProductListingSlugId,
     pub source: ListingSourceSummary,
     pub source_listing_id: SourceListingId,
     pub title: Option<HashMap<Language, Title>>,

@@ -729,7 +729,7 @@ fn notification_payload() -> serde_json::Value {
             "listing_source_id": uuid::Uuid::new_v4(),
             "source_listing_id": "worker-notification-delivery-product",
             "listing_source_slug_id": "worker-delivery-source",
-            "product_listing_slug_id": "worker-delivery-product-abcdef",
+            "product_listing_title_slug_id": "worker-delivery-product-abcdef",
             "listing_source_name": "Delivery test source",
             "title": null,
             "image": UNSAFE_IMAGE_URL,

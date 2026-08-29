@@ -861,10 +861,12 @@ impl From<CreateProductListingError> for ApiError {
                 ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
                     .with_detail("Listing source was not found.")
             }
-            CreateProductListingError::SourceListingAlreadyExists
-            | CreateProductListingError::ProductListingSlugAlreadyExists => {
-                ApiError::conflict(CONFLICT)
-                    .with_detail("ProductListing conflicts with current state.")
+            CreateProductListingError::SourceListingAlreadyExists => ApiError::conflict(CONFLICT)
+                .with_detail("ProductListing conflicts with current state."),
+            CreateProductListingError::ProductListingTitleSlugAlreadyExists
+            | CreateProductListingError::ProductListingTitleSlugGenerationExhausted => {
+                ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("ProductListing title slug generation is temporarily unavailable.")
             }
             CreateProductListingError::InvalidProductListing => {
                 ApiError::bad_request(BAD_BODY_VALUE)

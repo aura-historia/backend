@@ -540,7 +540,7 @@ mod tests {
         ) -> Result<Option<ProductListingEmbedding>, ProductListingEmbeddingReadError> {
             let product_listing_id = match lookup {
                 ProductListingEmbeddingLookup::ById(product_listing_id) => *product_listing_id,
-                ProductListingEmbeddingLookup::BySlug { .. } => ProductListingId::new(),
+                ProductListingEmbeddingLookup::ByTitleSlug(_) => ProductListingId::new(),
             };
             let mut state = lock_state(&self.state);
             state.requested_product_listing_ids.push(product_listing_id);
@@ -705,14 +705,11 @@ mod tests {
     ) -> Result<ProductListingSearchItem, url::ParseError> {
         Ok(ProductListingSearchItem {
             product_listing_id,
-            product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+            product_listing_title_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
             event_id: EventId::new(),
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("cabinet-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(
-                &SourceListingId::try_from("cabinet-1").unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            ),
             title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
             display_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
             price_valuation: ProductListingSummaryPriceValuation::Current {
@@ -763,7 +760,7 @@ mod tests {
         assert_eq!(
             vec![match request.lookup {
                 ProductListingEmbeddingLookup::ById(product_listing_id) => product_listing_id,
-                ProductListingEmbeddingLookup::BySlug { .. } => ProductListingId::new(),
+                ProductListingEmbeddingLookup::ByTitleSlug(_) => ProductListingId::new(),
             }],
             lock_state(&state).requested_product_listing_ids
         );

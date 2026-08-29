@@ -13,7 +13,7 @@ pub enum ProductListingRepositoryError {
     #[error("product already exists for source listing identity")]
     SourceListingAlreadyExists,
     #[error("product slug already exists")]
-    ProductListingSlugAlreadyExists,
+    ProductListingTitleSlugAlreadyExists,
     #[error("product lookup by id failed")]
     ProductListingLookupByIdFailed,
     #[error("product lookup by source listing identity failed")]

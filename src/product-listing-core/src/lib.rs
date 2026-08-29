@@ -12,5 +12,4 @@ pub mod product_listing_slug_id;
 pub mod sanitize;
 pub mod sort_product_listing_field;
 pub mod source_listing_id;
-pub mod source_listing_slug_id;
 pub mod title;

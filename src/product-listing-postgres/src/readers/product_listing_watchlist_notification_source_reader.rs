@@ -40,7 +40,7 @@ struct SourceRow {
     product_listing_id: uuid::Uuid,
     event_type: String,
     payload: serde_json::Value,
-    product_listing_slug_id: String,
+    product_listing_title_slug_id: String,
     listing_source_id: uuid::Uuid,
     source_listing_id: String,
     listing_source_slug_id: String,
@@ -140,7 +140,7 @@ impl ProductListingWatchlistNotificationSourceReader
             r#"
             SELECT
                 event.event_id, event.event_time, event.product_listing_id, event.event_type, event.payload,
-                product.product_listing_slug_id, product.listing_source_id, product.source_listing_id,
+                product.product_listing_title_slug_id, product.listing_source_id, product.source_listing_id,
                 listing_source.listing_source_slug_id, listing_source.name AS listing_source_name,
                 listing_source.referral_configuration AS listing_source_referral_configuration,
                 product.title_text, product.title_language, product.product_images,
@@ -212,8 +212,10 @@ impl ProductListingWatchlistNotificationSourceReader
             event_id: EventId::from(row.event_id),
             event_time: row.event_time,
             product_listing_id: ProductListingId::from(row.product_listing_id),
-            product_listing_slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
-                .map_err(WatchlistNotificationSourceMappingError::with_source)?,
+            product_listing_title_slug_id: ProductListingSlugId::raw(
+                &row.product_listing_title_slug_id,
+            )
+            .map_err(WatchlistNotificationSourceMappingError::with_source)?,
             source: ListingSourceSummary {
                 listing_source_id: ListingSourceId::from(row.listing_source_id),
                 name: ListingSourceName::try_from(row.listing_source_name)

@@ -534,7 +534,7 @@ mod tests {
             current_event_id: event_id,
             projection_version: 41,
             product_listing_id: ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from("cabinet"),
+            product_listing_title_slug_id: ProductListingSlugId::from("cabinet"),
             source: ListingSourceSummary {
                 listing_source_id: ListingSourceId::new(),
                 name: ListingSourceName::try_from("Source")
@@ -544,9 +544,6 @@ mod tests {
             },
             source_listing_id: SourceListingId::try_from("cabinet-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(
-                &SourceListingId::try_from("cabinet-1").unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            ),
             product_title: Some(Localized::new(Language::En, title.clone())),
             product_description: Some(Localized::new(
                 Language::En,

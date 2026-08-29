@@ -125,9 +125,11 @@ fn pending_response(lookup: ProductListingEmbeddingLookup) -> Response {
         ProductListingEmbeddingLookup::ById(product_listing_id) => {
             format!("/api/v1/product-listings/{product_listing_id}/similar")
         }
-        ProductListingEmbeddingLookup::BySlug { .. } => {
+        ProductListingEmbeddingLookup::ByTitleSlug(_) => {
             return ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
-                .with_detail("Similar product polling location is unavailable for a slug lookup.")
+                .with_detail(
+                    "Similar product polling location is unavailable for a title-slug lookup.",
+                )
                 .into_response();
         }
     };
@@ -457,7 +459,7 @@ mod tests {
         Ok(Personalized {
             item: ProductListingSummary {
                 product_listing_id: ProductListingId::new(),
-                product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+                product_listing_title_slug_id: Some(ProductListingSlugId::from("cabinet-abcdef")),
                 event_id: EventId::new(),
                 source: ListingSourceSummary {
                     listing_source_id: ListingSourceId::new(),
@@ -469,7 +471,6 @@ mod tests {
                 },
                 source_listing_id: SourceListingId::try_from("source-listing-id")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-                source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(&SourceListingId::try_from("source-listing-id").unwrap_or_else(|error| panic!("valid source listing ID: {error}"))),
                 title: Some(Localized {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),

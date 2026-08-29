@@ -346,7 +346,7 @@ mod tests {
     fn created() -> CreateProductListingResult {
         CreateProductListingResult {
             product_listing_id: ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from("created-product"),
+            product_listing_title_slug_id: ProductListingSlugId::from("created-product"),
             event_id: EventId::new(),
         }
     }

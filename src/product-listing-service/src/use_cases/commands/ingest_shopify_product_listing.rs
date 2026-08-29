@@ -338,7 +338,7 @@ mod tests {
                 crate::use_cases::CreateProductListingResult {
                     product_listing_id:
                         product_listing_core::product_listing_id::ProductListingId::new(),
-                    product_listing_slug_id: "shopify-product".into(),
+                    product_listing_title_slug_id: "shopify-product".into(),
                     event_id: domain_primitives::event_id::EventId::new(),
                 },
             ))

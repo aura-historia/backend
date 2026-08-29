@@ -19,7 +19,7 @@ use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_core::source_listing_id::SourceListingId;
-use product_listing_core::source_listing_slug_id::SourceListingSlugId;
+
 use product_listing_core::title::Title;
 use product_listing_service::ports::{
     ListingSourceSummary, PersonalizedProductListingDetailsReadModel,
@@ -52,11 +52,10 @@ struct SqlxProductListingDetailsReader<'tx> {
 #[derive(Debug, sqlx::FromRow)]
 pub(super) struct ProductListingDetailsRow {
     pub(super) product_listing_id: uuid::Uuid,
-    product_listing_slug_id: String,
+    product_listing_title_slug_id: String,
     event_id: uuid::Uuid,
     listing_source_id: uuid::Uuid,
     source_listing_id: String,
-    source_listing_slug_id: String,
     listing_source_name: String,
     listing_source_slug_id: String,
     listing_source_referral_configuration: Option<serde_json::Value>,
@@ -146,38 +145,16 @@ impl ProductListingDetailsReader for SqlxProductListingDetailsReader<'_> {
                     .await
             }
 
-            ProductListingLookup::BySlug {
-                listing_source_slug_id,
-                product_listing_slug_id,
-            } => {
+            ProductListingLookup::ByTitleSlug(product_listing_title_slug_id) => {
                 let mut query = QueryBuilder::<Postgres>::new(product_details_select(
                     DEFAULT_NOTIFICATION_STATES,
                 ));
-                query.push(" WHERE listing_source.listing_source_slug_id = $3 AND p.product_listing_slug_id = $4");
+                query.push(" WHERE p.product_listing_title_slug_id = $3");
                 query
                     .build_query_as::<ProductListingDetailsRow>()
                     .bind(requested_language)
                     .bind(user_id)
-                    .bind(listing_source_slug_id.as_ref())
-                    .bind(product_listing_slug_id.as_ref())
-                    .fetch_optional(&mut *self.connection)
-                    .await
-            }
-
-            ProductListingLookup::BySourceListingSlug {
-                listing_source_slug_id,
-                source_listing_slug_id,
-            } => {
-                let mut query = QueryBuilder::<Postgres>::new(product_details_select(
-                    DEFAULT_NOTIFICATION_STATES,
-                ));
-                query.push(" WHERE listing_source.listing_source_slug_id = $3 AND p.source_listing_slug_id = $4");
-                query
-                    .build_query_as::<ProductListingDetailsRow>()
-                    .bind(requested_language)
-                    .bind(user_id)
-                    .bind(listing_source_slug_id.as_ref())
-                    .bind(source_listing_slug_id.as_ref())
+                    .bind(product_listing_title_slug_id.as_ref())
                     .fetch_optional(&mut *self.connection)
                     .await
             }
@@ -212,8 +189,8 @@ pub(super) fn product_details_select(notification_states: &str) -> String {
 pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
     WITH /* NOTIFICATION_STATES */
     SELECT
-        p.product_listing_id, p.product_listing_slug_id, p.event_id,
-        p.listing_source_id, p.source_listing_id, p.source_listing_slug_id,
+        p.product_listing_id, p.product_listing_title_slug_id, p.event_id,
+        p.listing_source_id, p.source_listing_id,
         listing_source.name AS listing_source_name,
         listing_source.listing_source_slug_id,
         listing_source.referral_configuration AS listing_source_referral_configuration,
@@ -387,12 +364,6 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
     fn try_from(row: ProductListingDetailsRow) -> Result<Self, Self::Error> {
         let source_listing_id =
             SourceListingId::try_from(row.source_listing_id.clone()).map_err(|_| ())?;
-        let source_listing_slug_id =
-            SourceListingSlugId::raw(&row.source_listing_slug_id).map_err(|_| ())?;
-        if source_listing_slug_id != SourceListingSlugId::from_source_listing_id(&source_listing_id)
-        {
-            return Err(());
-        }
         let parsed_images = images(row.product_images.clone())?;
         let user_state = user_state(&row, &parsed_images)?;
         let content_policy = content_policy(
@@ -427,8 +398,10 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
                 product_listing_id: ProductListingId::from(row.product_listing_id),
-                product_listing_slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
-                    .map_err(|_| ())?,
+                product_listing_title_slug_id: ProductListingSlugId::raw(
+                    &row.product_listing_title_slug_id,
+                )
+                .map_err(|_| ())?,
                 event_id: EventId::from(row.event_id),
                 source: ListingSourceSummary {
                     listing_source_id: ListingSourceId::from(row.listing_source_id),
@@ -437,7 +410,6 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                         .map_err(|_| ())?,
                 },
                 source_listing_id,
-                source_listing_slug_id,
                 product_title,
                 product_description,
                 title,

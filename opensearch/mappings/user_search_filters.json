@@ -159,6 +159,77 @@
             "notifications": {"type": "boolean"},
             "state": {"type": "keyword"},
             "query": {"type": "percolator"},
+            "productListingId": {"type": "keyword"},
+            "productListingTitleSlugId": {"type": "keyword"},
+            "listingSourceId": {"type": "keyword"},
+            "sourceListingId": {"type": "keyword"},
+            "eventId": {"type": "keyword"},
+            "title": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "text"},
+                    "language": {"type": "keyword"}
+                }
+            },
+            "titleDe": {
+                "type": "text",
+                "analyzer": "german",
+                "search_analyzer": "german_with_synonyms"
+            },
+            "titleEn": {
+                "type": "text",
+                "analyzer": "english",
+                "search_analyzer": "english_with_synonyms"
+            },
+            "titleFr": {
+                "type": "text",
+                "analyzer": "french",
+                "search_analyzer": "french_with_synonyms"
+            },
+            "titleEs": {
+                "type": "text",
+                "analyzer": "spanish",
+                "search_analyzer": "spanish_with_synonyms"
+            },
+            "titleIt": {
+                "type": "text",
+                "analyzer": "italian",
+                "search_analyzer": "italian_with_synonyms"
+            },
+            "priceByCurrency": {
+                "type": "object",
+                "dynamic": "strict",
+                "properties": {
+                    "eur": {"type": "unsigned_long"},
+                    "gbp": {"type": "unsigned_long"},
+                    "usd": {"type": "unsigned_long"},
+                    "aud": {"type": "unsigned_long"},
+                    "cad": {"type": "unsigned_long"},
+                    "nzd": {"type": "unsigned_long"},
+                    "cny": {"type": "unsigned_long"},
+                    "brl": {"type": "unsigned_long"},
+                    "pln": {"type": "unsigned_long"},
+                    "try": {"type": "unsigned_long"},
+                    "jpy": {"type": "unsigned_long"},
+                    "czk": {"type": "unsigned_long"},
+                    "rub": {"type": "unsigned_long"},
+                    "aed": {"type": "unsigned_long"},
+                    "sar": {"type": "unsigned_long"},
+                    "hkd": {"type": "unsigned_long"},
+                    "sgd": {"type": "unsigned_long"},
+                    "chf": {"type": "unsigned_long"}
+                }
+            },
+            "availability": {"type": "keyword"},
+            "url": {"type": "keyword"},
+            "images": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "keyword"}
+                }
+            },
+            "auctionStart": {"type": "date", "format": "strict_date_time"},
+            "auctionEnd": {"type": "date", "format": "strict_date_time"},
             "embedding": {
                 "type": "knn_vector",
                 "dimension": 768,

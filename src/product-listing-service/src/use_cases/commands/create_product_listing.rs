@@ -43,7 +43,7 @@ pub struct CreateProductListingCommand {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateProductListingResult {
     pub product_listing_id: ProductListingId,
-    pub product_listing_slug_id: ProductListingSlugId,
+    pub product_listing_title_slug_id: ProductListingSlugId,
     pub event_id: EventId,
 }
 
@@ -67,8 +67,10 @@ pub enum CreateProductListingError {
     },
     #[error("product listing already exists for source listing identity")]
     SourceListingAlreadyExists,
-    #[error("product listing slug already exists")]
-    ProductListingSlugAlreadyExists,
+    #[error("product listing title slug already exists")]
+    ProductListingTitleSlugAlreadyExists,
+    #[error("product listing title slug generation was exhausted")]
+    ProductListingTitleSlugGenerationExhausted,
     #[error("new product listing is invalid")]
     InvalidProductListing,
     #[error("created product listing did not record a domain event")]
@@ -92,6 +94,8 @@ pub trait CreateProductListingUseCase: Send + Sync {
     ) -> Result<CreateProductListingResult, CreateProductListingError>;
 }
 
+const MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS: usize = 5;
+
 pub struct CreateProductListingHandler<U, R, E, A> {
     unit_of_work: U,
     products: R,
@@ -107,6 +111,66 @@ impl<U, R, E, A> CreateProductListingHandler<U, R, E, A> {
             events,
             authorizer,
         }
+    }
+}
+
+impl<U, R, E, A> CreateProductListingHandler<U, R, E, A>
+where
+    U: UnitOfWork,
+    R: ProductListingRepositoryFactory<U::Tx>,
+    E: ProductListingEventStoreFactory<U::Tx>,
+    A: PartnerProductListingAuthorizerFactory<U::Tx>,
+{
+    async fn persist_attempt(
+        &self,
+        context: &OperationContext,
+        command: &CreateProductListingCommand,
+        product_listing_id: ProductListingId,
+        title_slug_id: ProductListingSlugId,
+    ) -> Result<CreateProductListingResult, CreateProductListingError> {
+        let mut tx = self
+            .unit_of_work
+            .begin()
+            .await
+            .map_err(|_| CreateProductListingError::BeginTransactionFailed)?;
+        if let Some(actor_id) = partner_actor(&context.principal) {
+            self.authorizer
+                .in_transaction(&mut tx)
+                .authorize(actor_id, command.listing_source_id)
+                .await?;
+        }
+
+        let mut product = ProductListing::create_with_title_slug_id(
+            command.clone().into_new_product(product_listing_id),
+            title_slug_id,
+        )?;
+        let events = stamp_product_listing_events(
+            product.id(),
+            time::OffsetDateTime::now_utc(),
+            product.take_pending_event_payloads(),
+        );
+        let event_id = events
+            .last()
+            .map(|event| event.event_id)
+            .ok_or(CreateProductListingError::CreatedEventMissing)?;
+        let persisted = self
+            .products
+            .in_transaction(&mut tx)
+            .insert(&product, event_id)
+            .await?;
+        for event in &events {
+            self.events.in_transaction(&mut tx).append(event).await?;
+        }
+        tx.commit()
+            .await
+            .map_err(|_| CreateProductListingError::CommitTransactionFailed)?;
+
+        tracing::info!(event = "product_listing.created", actor_type = context.principal.kind(), actor_id = %context.principal.label(), product_listing_id = %persisted.value.id(), event_id = %event_id, outcome = "success");
+        Ok(CreateProductListingResult {
+            product_listing_id: persisted.value.id(),
+            product_listing_title_slug_id: persisted.value.title_slug_id().clone(),
+            event_id,
+        })
     }
 }
 
@@ -133,47 +197,44 @@ where
             tracing::field::display(context.principal.label()),
         );
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| CreateProductListingError::BeginTransactionFailed)?;
-        if let Some(actor_id) = partner_actor(&context.principal) {
-            self.authorizer
-                .in_transaction(&mut tx)
-                .authorize(actor_id, command.listing_source_id)
-                .await?;
+        let product_listing_id = ProductListingId::new();
+        for attempt in 1..=MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS {
+            let title_slug_id = ProductListingSlugId::from_title(
+                command
+                    .title
+                    .as_ref()
+                    .map_or("", |title| title.payload.as_ref()),
+            );
+            match self
+                .persist_attempt(context, &command, product_listing_id, title_slug_id)
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(CreateProductListingError::ProductListingTitleSlugAlreadyExists)
+                    if attempt < MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS =>
+                {
+                    tracing::warn!(
+                        product_listing_id = %product_listing_id,
+                        attempt,
+                        constraint_name = "product_listings_title_slug_unique",
+                        "product listing title slug collision; regenerating"
+                    );
+                }
+                Err(CreateProductListingError::ProductListingTitleSlugAlreadyExists) => {
+                    tracing::error!(
+                        product_listing_id = %product_listing_id,
+                        attempt,
+                        constraint_name = "product_listings_title_slug_unique",
+                        "product listing title slug generation exhausted"
+                    );
+                    return Err(
+                        CreateProductListingError::ProductListingTitleSlugGenerationExhausted,
+                    );
+                }
+                Err(error) => return Err(error),
+            }
         }
-
-        let mut product =
-            ProductListing::create(command.into_new_product(ProductListingId::new()))?;
-        let events = stamp_product_listing_events(
-            product.id(),
-            time::OffsetDateTime::now_utc(),
-            product.take_pending_event_payloads(),
-        );
-        let event_id = events
-            .last()
-            .map(|event| event.event_id)
-            .ok_or(CreateProductListingError::CreatedEventMissing)?;
-        let persisted = self
-            .products
-            .in_transaction(&mut tx)
-            .insert(&product, event_id)
-            .await?;
-        for event in &events {
-            self.events.in_transaction(&mut tx).append(event).await?;
-        }
-        tx.commit()
-            .await
-            .map_err(|_| CreateProductListingError::CommitTransactionFailed)?;
-
-        tracing::info!(event = "product_listing.created", actor_type = context.principal.kind(), actor_id = %context.principal.label(), product_listing_id = %persisted.value.id(), event_id = %event_id, outcome = "success");
-        Ok(CreateProductListingResult {
-            product_listing_id: persisted.value.id(),
-            product_listing_slug_id: persisted.value.slug_id().clone(),
-            event_id,
-        })
+        Err(CreateProductListingError::ProductListingTitleSlugGenerationExhausted)
     }
 }
 
@@ -242,8 +303,8 @@ impl From<ProductListingRepositoryError> for CreateProductListingError {
             ProductListingRepositoryError::SourceListingAlreadyExists => {
                 Self::SourceListingAlreadyExists
             }
-            ProductListingRepositoryError::ProductListingSlugAlreadyExists => {
-                Self::ProductListingSlugAlreadyExists
+            ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists => {
+                Self::ProductListingTitleSlugAlreadyExists
             }
             _ => Self::PersistenceFailed,
         }

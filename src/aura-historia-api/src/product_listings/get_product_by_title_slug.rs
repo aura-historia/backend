@@ -5,10 +5,9 @@ use crate::state::ProductListingsState;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use listing_source_core::ListingSourceSlugId;
 use localization::Language;
 use money::Currency;
-use product_listing_core::product_listing_slug_id::SourceListingSlugId;
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_service::use_cases::{GetProductListingRequest, ProductListingLookup};
 use serde::Deserialize;
 
@@ -21,10 +20,10 @@ struct ProductListingDetailsQuery {
     currency: Currency,
 }
 
-pub async fn get_product_by_source_slug(
+pub async fn get_product_by_title_slug(
     State(state): State<ProductListingsState>,
     headers: HeaderMap,
-    Path((raw_listing_source_slug_id, raw_source_listing_slug_id)): Path<(String, String)>,
+    Path(raw_product_listing_title_slug_id): Path<String>,
     RawQuery(raw_query): RawQuery,
 ) -> Response {
     let query: ProductListingDetailsQuery =
@@ -36,24 +35,16 @@ pub async fn get_product_by_source_slug(
                     .into_response();
             }
         };
-    let listing_source_slug_id = match ListingSourceSlugId::raw(&raw_listing_source_slug_id) {
-        Ok(value) => value,
-        Err(_) => {
-            return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
-                .with_path_field("listingSourceSlugId")
-                .with_detail("Path parameter 'listingSourceSlugId' is invalid.")
-                .into_response();
-        }
-    };
-    let source_listing_slug_id = match SourceListingSlugId::raw(&raw_source_listing_slug_id) {
-        Ok(value) => value,
-        Err(_) => {
-            return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
-                .with_path_field("sourceListingSlugId")
-                .with_detail("Path parameter 'sourceListingSlugId' is invalid.")
-                .into_response();
-        }
-    };
+    let product_listing_title_slug_id =
+        match ProductListingSlugId::raw(&raw_product_listing_title_slug_id) {
+            Ok(value) => value,
+            Err(_) => {
+                return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
+                    .with_path_field("productListingTitleSlugId")
+                    .with_detail("Path parameter 'productListingTitleSlugId' is invalid.")
+                    .into_response();
+            }
+        };
     let metadata = request_metadata(&headers);
     let principal = match OptionalAuthExtractor::new(state.authenticator.as_ref())
         .extract(&headers, &metadata)
@@ -69,10 +60,7 @@ pub async fn get_product_by_source_slug(
         .execute(
             &context,
             GetProductListingRequest {
-                lookup: ProductListingLookup::BySourceListingSlug {
-                    listing_source_slug_id,
-                    source_listing_slug_id,
-                },
+                lookup: ProductListingLookup::ByTitleSlug(product_listing_title_slug_id),
                 language: query.language,
                 currency: query.currency,
             },

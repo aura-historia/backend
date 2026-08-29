@@ -11,6 +11,7 @@ use domain_primitives::event_id::EventId;
 use localization::{Language, Localized};
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
+#[cfg(test)]
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
 use crate::ports::ListingSourceSummary;
@@ -173,8 +174,6 @@ fn redact_hidden_product_search_item(
         }
     })?;
 
-    product.item.product_listing_id = ProductListingId::from(nil);
-    product.item.product_listing_slug_id = ProductListingSlugId::from("Hidden");
     product.item.event_id = EventId::from(nil);
     product.item.listing_source_id = ListingSourceId::from(nil);
     product.source = ListingSourceSummary {
@@ -279,14 +278,11 @@ mod tests {
     fn search_item(listing_source_id: ListingSourceId) -> ProductListingSearchItem {
         ProductListingSearchItem {
             product_listing_id: ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+            product_listing_title_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
             event_id: EventId::new(),
             listing_source_id,
             source_listing_id: SourceListingId::try_from("cabinet-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            source_listing_slug_id: product_listing_core::source_listing_slug_id::SourceListingSlugId::from_source_listing_id(
-                &SourceListingId::try_from("cabinet-1").unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-            ),
             title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
             display_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
             price_valuation: ProductListingSummaryPriceValuation::Current {

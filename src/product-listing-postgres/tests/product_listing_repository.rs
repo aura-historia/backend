@@ -14,11 +14,11 @@ use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{
     ListingSaleObservation, NewProductListing, ProductListing, ProductListingAuction,
-    ProductListingPricing, RehydratedProductListingState,
+    ProductListingPricing,
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::product_listing_slug_id::{ProductListingSlugId, SourceListingSlugId};
+
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
 use product_listing_postgres::{
@@ -130,6 +130,20 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
 
     assert_eq!(None, loaded.value.pricing().price);
     assert_eq!(update_event.event_id, loaded.version);
+
+    let persisted_identity: (String, uuid::Uuid, String) = sqlx::query_as(
+        "SELECT product_listing_title_slug_id, listing_source_id, source_listing_id FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product.id()))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to load persisted product identity: {error}"));
+    assert_eq!(product.title_slug_id().as_ref(), persisted_identity.0);
+    assert_eq!(
+        uuid::Uuid::from(product.listing_source_id()),
+        persisted_identity.1
+    );
+    assert_eq!(product.source_listing_id().as_ref(), persisted_identity.2);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -325,7 +339,7 @@ async fn should_report_product_insert_conflict_when_source_listing_identity_or_s
     assert!(matches!(
         duplicate_product,
         Err(ProductListingRepositoryError::SourceListingAlreadyExists)
-            | Err(ProductListingRepositoryError::ProductListingSlugAlreadyExists)
+            | Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists)
             | Err(ProductListingRepositoryError::ProductListingInsertFailed)
     ));
 }
@@ -378,90 +392,6 @@ async fn should_report_product_update_conflict_when_event_id_is_stale() {
     assert!(matches!(
         result,
         Err(ProductListingRepositoryError::ProductListingCurrentEventIdConflict)
-    ));
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_report_identity_conflict_when_update_would_duplicate_source_listing_identity() {
-    let pool = get_postgres_client().await;
-    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let product_listings = SqlxProductListingRepositoryFactory::new();
-    let events = SqlxProductListingEventStoreFactory::new();
-    let listing_source_id =
-        seed_listing_source(&pool, "product-listing-postgres-update-key-source").await;
-    let first = sample_product("postgres-product-update-key-first", listing_source_id);
-    let second = sample_product("postgres-product-update-key-second", listing_source_id);
-    insert_product_with_event(&unit_of_work, &product_listings, &events, &first).await;
-    insert_product_with_event(&unit_of_work, &product_listings, &events, &second).await;
-    let conflict = rehydrate_product_for_update(
-        &second,
-        second.slug_id().clone(),
-        first.listing_source_id(),
-        first.source_listing_id().clone(),
-    );
-
-    let result = {
-        let mut tx = begin(&unit_of_work).await;
-        let expected_event_id = match product_listings
-            .in_transaction(&mut tx)
-            .find_by_id(second.id())
-            .await
-        {
-            Ok(Some(loaded)) => loaded.version,
-            Ok(None) => panic!("missing second listing"),
-            Err(error) => panic!("failed to find second listing: {error:?}"),
-        };
-        product_listings
-            .in_transaction(&mut tx)
-            .update(&conflict, expected_event_id, EventId::new())
-            .await
-    };
-
-    assert!(matches!(
-        result,
-        Err(ProductListingRepositoryError::SourceListingAlreadyExists)
-    ));
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_report_slug_conflict_when_update_would_duplicate_product_slug() {
-    let pool = get_postgres_client().await;
-    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let product_listings = SqlxProductListingRepositoryFactory::new();
-    let events = SqlxProductListingEventStoreFactory::new();
-    let listing_source_id =
-        seed_listing_source(&pool, "product-listing-postgres-update-slug-source").await;
-    let first = sample_product("postgres-product-update-slug-first", listing_source_id);
-    let second = sample_product("postgres-product-update-slug-second", listing_source_id);
-    insert_product_with_event(&unit_of_work, &product_listings, &events, &first).await;
-    insert_product_with_event(&unit_of_work, &product_listings, &events, &second).await;
-    let conflict = rehydrate_product_for_update(
-        &second,
-        first.slug_id().clone(),
-        second.listing_source_id(),
-        second.source_listing_id().clone(),
-    );
-
-    let result = {
-        let mut tx = begin(&unit_of_work).await;
-        let expected_event_id = match product_listings
-            .in_transaction(&mut tx)
-            .find_by_id(second.id())
-            .await
-        {
-            Ok(Some(loaded)) => loaded.version,
-            Ok(None) => panic!("missing second listing"),
-            Err(error) => panic!("failed to find second listing: {error:?}"),
-        };
-        product_listings
-            .in_transaction(&mut tx)
-            .update(&conflict, expected_event_id, EventId::new())
-            .await
-    };
-
-    assert!(matches!(
-        result,
-        Err(ProductListingRepositoryError::ProductListingSlugAlreadyExists)
     ));
 }
 
@@ -531,13 +461,11 @@ async fn insert_product_row(
     let mut tx = pool.begin().await?;
     let source_listing_id = SourceListingId::try_from(format!("{slug}-source-listing"))
         .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
-    let source_listing_slug_id = SourceListingSlugId::from_source_listing_id(&source_listing_id);
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, source_listing_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, lifecycle, url, sale_observation_fx_rate_id, sale_observed_at) VALUES ($1, $2, $3, $4, $4, $5, $6, 'ACTIVE', 'https://example.test/product', $7, $8)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, lifecycle, url, sale_observation_fx_rate_id, sale_observed_at) VALUES ($1, $2, $3, $3, $4, $5, 'ACTIVE', 'https://example.test/product', $6, $7)",
     )
     .bind(product_listing_id)
-    .bind(slug)
-    .bind(source_listing_slug_id.as_ref())
+    .bind(title_slug(slug, product_listing_id))
     .bind(event_id)
     .bind(uuid::Uuid::from(listing_source_id))
     .bind(source_listing_id.as_ref())
@@ -601,30 +529,8 @@ fn first_stamped_event(
     }
 }
 
-fn rehydrate_product_for_update(
-    product: &ProductListing,
-    slug_id: ProductListingSlugId,
-    listing_source_id: ListingSourceId,
-    source_listing_id: SourceListingId,
-) -> ProductListing {
-    match ProductListing::rehydrate(RehydratedProductListingState {
-        id: product.id(),
-        slug_id,
-        listing_source_id,
-        source_listing_id,
-        title: product.title().cloned(),
-        description: product.description().cloned(),
-        pricing: product.pricing(),
-        sale_observation: product.sale_observation(),
-        availability: product.availability(),
-        lifecycle: product.lifecycle(),
-        url: product.url().clone(),
-        images: product.images().clone(),
-        auction: product.auction(),
-    }) {
-        Ok(product) => product,
-        Err(error) => panic!("failed to rehydrate conflict product: {error:?}"),
-    }
+fn title_slug(prefix: &str, product_listing_id: uuid::Uuid) -> String {
+    format!("{prefix}-{}", &product_listing_id.simple().to_string()[..6])
 }
 
 fn sample_product(slug: &str, listing_source_id: ListingSourceId) -> ProductListing {

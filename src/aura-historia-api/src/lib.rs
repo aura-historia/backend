@@ -361,8 +361,8 @@ pub fn app(state: AppState) -> Router {
                     get(product_listings::get_product_by_id::get_product_by_id),
                 )
                 .route(
-                    "/api/v1/listing-sources/{listing_source_slug_id}/product-listings/{source_listing_slug_id}",
-                    get(product_listings::get_product_by_source_slug::get_product_by_source_slug),
+                    "/api/v1/product-listings/by-slug/{product_listing_title_slug_id}",
+                    get(product_listings::get_product_by_title_slug::get_product_by_title_slug),
                 )
                 .route(
                     "/api/v1/product-listings/{product_listing_id}/history",

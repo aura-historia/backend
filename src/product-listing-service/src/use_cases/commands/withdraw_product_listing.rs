@@ -245,7 +245,7 @@ impl From<ProductListingRepositoryError> for WithdrawProductListingError {
             | ProductListingRepositoryError::ProductListingUpdateFailed
             | ProductListingRepositoryError::ProductListingCurrentEventIdConflict
             | ProductListingRepositoryError::SourceListingAlreadyExists
-            | ProductListingRepositoryError::ProductListingSlugAlreadyExists
+            | ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists
             | ProductListingRepositoryError::InvalidProductListingSlugPersisted
             | ProductListingRepositoryError::InvalidSourceListingIdPersisted
             | ProductListingRepositoryError::IncompleteTitlePersisted

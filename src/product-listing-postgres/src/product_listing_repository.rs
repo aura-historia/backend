@@ -19,7 +19,7 @@ use product_listing_core::product_listing::{
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::product_listing_slug_id::{ProductListingSlugId, SourceListingSlugId};
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
 use listing_source_core::ListingSourceId;
 use product_listing_core::source_listing_id::SourceListingId;
@@ -44,8 +44,7 @@ struct SqlxProductListingRepository<'tx> {
 #[derive(Debug, sqlx::FromRow)]
 struct ProductListingRow {
     product_listing_id: uuid::Uuid,
-    product_listing_slug_id: String,
-    source_listing_slug_id: String,
+    product_listing_title_slug_id: String,
     event_id: uuid::Uuid,
     listing_source_id: uuid::Uuid,
     source_listing_id: String,
@@ -106,7 +105,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         let row = sqlx::query_as::<_, ProductListingRow>(
             r#"
             SELECT
-                product_listing_id, product_listing_slug_id, source_listing_slug_id, event_id, listing_source_id, source_listing_id,
+                product_listing_id, product_listing_title_slug_id, event_id, listing_source_id, source_listing_id,
                 title_text, title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
@@ -131,7 +130,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         let row = sqlx::query_as::<_, ProductListingRow>(
             r#"
             SELECT
-                product_listing_id, product_listing_slug_id, source_listing_slug_id, event_id, listing_source_id, source_listing_id,
+                product_listing_id, product_listing_title_slug_id, event_id, listing_source_id, source_listing_id,
                 title_text, title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
@@ -180,21 +179,20 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         sqlx::query(
             r#"
             INSERT INTO product_listings (
-                product_listing_id, product_listing_slug_id, source_listing_slug_id, event_id, content_source_event_id,
+                product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id,
                 listing_source_id, source_listing_id, title_text, title_language,
                 description_text, description_language, price_amount, price_currency,
                 price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at,
                 availability, lifecycle, url, product_images, auction_start, auction_end
             ) VALUES (
-                $1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                $16, $17, $18, $19, $20, $21, $22, $23, $24
+                $1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                $15, $16, $17, $18, $19, $20, $21, $22, $23
             )
             "#,
         )
         .bind(uuid::Uuid::from(product.id()))
-        .bind(product.slug_id().as_ref().to_owned())
-        .bind(product.source_listing_slug_id().as_ref().to_owned())
+        .bind(product.title_slug_id().as_ref().to_owned())
         .bind(uuid::Uuid::from(current_event_id))
         .bind(uuid::Uuid::from(product.listing_source_id()))
         .bind(product.source_listing_id().as_ref().to_owned())
@@ -270,37 +268,31 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
             r#"
             UPDATE product_listings
             SET
-                product_listing_slug_id = $1,
-                event_id = $2,
-                listing_source_id = $3,
-                source_listing_id = $4,
-                title_text = $5,
-                title_language = $6,
-                description_text = $7,
-                description_language = $8,
-                price_amount = $9,
-                price_currency = $10,
-                price_estimate_min_amount = $11,
-                price_estimate_min_currency = $12,
-                price_estimate_max_amount = $13,
-                price_estimate_max_currency = $14,
-                sale_observation_fx_rate_id = $15,
-                sale_observed_at = $16,
-                availability = $17,
-                lifecycle = $18,
-                url = $19,
-                product_images = $20,
-                auction_start = $21,
-                auction_end = $22,
+                event_id = $1,
+                title_text = $2,
+                title_language = $3,
+                description_text = $4,
+                description_language = $5,
+                price_amount = $6,
+                price_currency = $7,
+                price_estimate_min_amount = $8,
+                price_estimate_min_currency = $9,
+                price_estimate_max_amount = $10,
+                price_estimate_max_currency = $11,
+                sale_observation_fx_rate_id = $12,
+                sale_observed_at = $13,
+                availability = $14,
+                lifecycle = $15,
+                url = $16,
+                product_images = $17,
+                auction_start = $18,
+                auction_end = $19,
                 projection_version = projection_version + 1,
                 updated = now()
-            WHERE product_listing_id = $23 AND event_id = $24
+            WHERE product_listing_id = $20 AND event_id = $21
             "#,
         )
-        .bind(product.slug_id().as_ref().to_owned())
         .bind(uuid::Uuid::from(new_event_id))
-        .bind(uuid::Uuid::from(product.listing_source_id()))
-        .bind(product.source_listing_id().as_ref().to_owned())
         .bind(title.map(|value| value.payload.as_ref().to_owned()))
         .bind(title.map(|value| value.localization.as_str().to_owned()))
         .bind(description.map(|value| value.payload.as_ref().to_owned()))
@@ -359,17 +351,9 @@ impl TryFrom<ProductListingRow> for Versioned<ProductListing, EventId> {
         let description = localized_description_from_row(&row)?;
         let source_listing_id = SourceListingId::try_from(row.source_listing_id)
             .map_err(|_| ProductListingRepositoryError::InvalidSourceListingIdPersisted)?;
-        let persisted_source_listing_slug_id =
-            SourceListingSlugId::raw(&row.source_listing_slug_id)
-                .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;
-        if persisted_source_listing_slug_id
-            != SourceListingSlugId::from_source_listing_id(&source_listing_id)
-        {
-            return Err(ProductListingRepositoryError::InvalidAggregateStatePersisted);
-        }
         let product = ProductListing::rehydrate(RehydratedProductListingState {
             id: ProductListingId::from(row.product_listing_id),
-            slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
+            title_slug_id: ProductListingSlugId::raw(&row.product_listing_title_slug_id)
                 .map_err(|_| ProductListingRepositoryError::InvalidProductListingSlugPersisted)?,
             listing_source_id: ListingSourceId::from(row.listing_source_id),
             source_listing_id,
@@ -569,9 +553,9 @@ impl From<ProductListingInsertSqlxError> for ProductListingRepositoryError {
                 Self::SourceListingAlreadyExists
             }
             sqlx::Error::Database(db_error)
-                if db_error.constraint() == Some("product_listings_slug_unique") =>
+                if db_error.constraint() == Some("product_listings_title_slug_unique") =>
             {
-                Self::ProductListingSlugAlreadyExists
+                Self::ProductListingTitleSlugAlreadyExists
             }
             _ => Self::ProductListingInsertFailed,
         }
@@ -587,11 +571,6 @@ impl From<ProductListingUpdateSqlxError> for ProductListingRepositoryError {
                     == Some("product_listings_listing_source_listing_unique") =>
             {
                 Self::SourceListingAlreadyExists
-            }
-            sqlx::Error::Database(db_error)
-                if db_error.constraint() == Some("product_listings_slug_unique") =>
-            {
-                Self::ProductListingSlugAlreadyExists
             }
             _ => Self::ProductListingUpdateFailed,
         }
@@ -778,17 +757,14 @@ mod tests {
 
     fn product_row() -> ProductListingRow {
         let now = OffsetDateTime::now_utc();
-        let slug = ProductListingSlugId::from("unit product")
+        let title_slug = ProductListingSlugId::from_title("unit product")
             .as_ref()
             .to_owned();
         let source_listing_id = SourceListingId::try_from("unit-product")
             .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
-        let source_listing_slug_id =
-            SourceListingSlugId::from_source_listing_id(&source_listing_id).to_string();
         ProductListingRow {
             product_listing_id: uuid::Uuid::new_v4(),
-            product_listing_slug_id: slug,
-            source_listing_slug_id,
+            product_listing_title_slug_id: title_slug,
             event_id: uuid::Uuid::new_v4(),
             listing_source_id: uuid::Uuid::new_v4(),
             source_listing_id: source_listing_id.to_string(),

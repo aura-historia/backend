@@ -173,7 +173,7 @@ async fn insert_product_with_event(
         .bind(format!("content-assessment-worker-source-{listing_source_id}"))
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images, source_listing_slug_id) VALUES ($1, $2, $3, $3, $4, $5, $6, 'de', $7, 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]', $8)")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, $6, 'de', $7, 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(format!("content-assessment-worker-product-{product_listing_id}"))
         .bind(uuid::Uuid::from(event_id))
@@ -181,7 +181,7 @@ async fn insert_product_with_event(
         .bind(product_listing_id.to_string())
         .bind(title)
         .bind(description)
-        .bind(source_listing_slug_id(product_listing_id.to_string()))
+
         .execute(&mut *tx)
         .await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
@@ -235,14 +235,4 @@ async fn assessment(
     .bind(uuid::Uuid::from(product_listing_id))
     .fetch_optional(pool)
     .await
-}
-
-fn source_listing_slug_id(raw: impl AsRef<str>) -> String {
-    let source_listing_id =
-        product_listing_core::source_listing_id::SourceListingId::try_from(raw.as_ref())
-            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
-    product_listing_core::product_listing_slug_id::SourceListingSlugId::from_source_listing_id(
-        &source_listing_id,
-    )
-    .to_string()
 }

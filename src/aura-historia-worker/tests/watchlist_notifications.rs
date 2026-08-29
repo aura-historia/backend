@@ -625,13 +625,13 @@ async fn seed_product(
         .bind("Worker watchlist source")
         .execute(&mut **transaction)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images, source_listing_slug_id) VALUES ($1, $2, $3, $3, $4, $5, 'Worker watchlist product', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]', $6)")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Worker watchlist product', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-watchlist-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))
         .bind(listing_source_id)
         .bind(product_uuid.to_string())
-        .bind(source_listing_slug_id(product_uuid.to_string()))
+
         .execute(&mut **transaction)
         .await?;
     Ok(product_listing_id)
@@ -838,14 +838,4 @@ fn assert_price_change(
             .and_then(serde_json::Value::as_u64)
     );
     Ok(())
-}
-
-fn source_listing_slug_id(raw: impl AsRef<str>) -> String {
-    let source_listing_id =
-        product_listing_core::source_listing_id::SourceListingId::try_from(raw.as_ref())
-            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
-    product_listing_core::product_listing_slug_id::SourceListingSlugId::from_source_listing_id(
-        &source_listing_id,
-    )
-    .to_string()
 }

@@ -10,7 +10,6 @@ use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_core::source_listing_id::SourceListingId;
-use product_listing_core::source_listing_slug_id::SourceListingSlugId;
 use product_listing_service::ports::{
     CompiledProductListingSearch, ProductListingPriceFilterPlan, ProductListingSearchReadRequest,
     ProductListingSearchReader,
@@ -215,7 +214,7 @@ fn assert_ok(result: TestResult) {
 
 struct ProductListingSeed {
     product_listing_id: ProductListingId,
-    product_listing_slug_id: ProductListingSlugId,
+    product_listing_title_slug_id: ProductListingSlugId,
     source_price: Option<u64>,
     sale_price: Option<u64>,
     has_sale_observation: bool,
@@ -225,7 +224,7 @@ impl ProductListingSeed {
     fn active(slug: &str, source_price: u64) -> Self {
         Self {
             product_listing_id: ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from(slug),
+            product_listing_title_slug_id: ProductListingSlugId::from(slug),
             source_price: Some(source_price),
             sale_price: None,
             has_sale_observation: false,
@@ -235,7 +234,7 @@ impl ProductListingSeed {
     fn sold(slug: &str, sale_price: u64) -> Self {
         Self {
             product_listing_id: ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from(slug),
+            product_listing_title_slug_id: ProductListingSlugId::from(slug),
             source_price: None,
             sale_price: Some(sale_price),
             has_sale_observation: true,
@@ -245,7 +244,7 @@ impl ProductListingSeed {
     fn sold_without_main_price(slug: &str) -> Self {
         Self {
             product_listing_id: ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from(slug),
+            product_listing_title_slug_id: ProductListingSlugId::from(slug),
             source_price: None,
             sale_price: None,
             has_sale_observation: true,
@@ -275,14 +274,10 @@ fn product_listing_document(
         .transpose()?;
     let document = json!({
         "productListingId": seed.product_listing_id,
-        "productListingSlugId": seed.product_listing_slug_id,
+        "productListingTitleSlugId": seed.product_listing_title_slug_id,
         "listingSourceId": ListingSourceId::new().to_string(),
         "sourceListingId": SourceListingId::try_from("sku-1")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-        "sourceListingSlugId": SourceListingSlugId::from_source_listing_id(
-            &SourceListingId::try_from("sku-1")
-                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-        ),
         "eventId": EventId::new(),
         "title": { "text": "Blue vase", "language": "EN" },
         "titleEn": "Blue vase",
@@ -291,7 +286,7 @@ fn product_listing_document(
         "saleObservationFxRateId": seed.has_sale_observation.then(FxRateId::new),
         "saleObservedAt": sale_observed_at,
 
-        "url": format!("https://shop.example/product_listings/{}", seed.product_listing_slug_id),
+        "url": format!("https://shop.example/product_listings/{}", seed.product_listing_title_slug_id),
         "created": OffsetDateTime::UNIX_EPOCH.format(&Rfc3339)?,
         "updated": OffsetDateTime::UNIX_EPOCH.format(&Rfc3339)?
     });
