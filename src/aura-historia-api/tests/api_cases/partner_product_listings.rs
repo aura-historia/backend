@@ -452,7 +452,7 @@ async fn should_not_expose_legacy_partner_product_item_delete_route() -> TestRes
         )
         .await?;
 
-        assert_eq!(reqwest::StatusCode::METHOD_NOT_ALLOWED, response.status());
+        assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;

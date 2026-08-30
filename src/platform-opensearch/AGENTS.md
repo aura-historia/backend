@@ -6,7 +6,7 @@
 
 ## Core Design
 
-- Own generic wire envelopes only: search response metadata, hits, and timeout error.
+- Own generic wire envelopes and fully-read response helper: search response metadata, hits, timeout error, and status/body/source preservation.
 - Never own bounded-context documents, queries, mappings, or adapter behavior.
 - Public protocol types are for production adapter boundaries; document type `T` stays adapter-owned.
 

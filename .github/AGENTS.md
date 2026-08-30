@@ -8,7 +8,7 @@
 
 - `workflows/` drive integrate, deploy, and repo automation.
 - Workflows load the pinned Rust compiler and required components from the root `rust-toolchain.toml` through `rustup show`; Dependabot Cargo updates track that file.
-- Integrate workflow checks Rust dependency graph rules, runs Rust crate tests with required coverage, processes only `coverage-profraw` profiles, and uploads merged LCOV to SonarCloud. Profile search/generation errors, missing coverage input, or an empty report fail CI. Changes under `migrations/**` trigger integration validation.
+- Integrate workflow compiles every discovered MJML source, checks Rust dependency graph rules, runs Rust crate tests with required coverage, processes only `coverage-profraw` profiles, and uploads merged LCOV to SonarCloud. Profile search/generation errors, missing coverage input, or an empty report fail CI. Changes under `migrations/**` trigger integration validation.
 - Deploy workflow deploys split CDK stacks from one stage prefix, pushes active Lambda artifacts, publishes all 25 active MJML templates—10 `partnership-application`, 5 `search-filter/match`, and 10 `watchlist/product-update` (availability and price), each in `de`, `en`, `es`, `fr`, and `it`—and merges stack outputs for smoke tests. Changes under `migrations/**` trigger deployment validation.
 - Workflow change can change CI gate, deploy path, or DOX contract for many crates.
 - `workflows/test-images.yml` publishes only trusted-branch immutable test images; the pinned Postgres pg-ttl reference lives in `src/test-api/postgres/image-ref.txt`. Integration jobs use package-read access and `GITHUB_TOKEN` GHCR login to consume private images.

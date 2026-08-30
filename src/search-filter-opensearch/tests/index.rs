@@ -1,21 +1,29 @@
 use application::pagination::Cursor;
 use domain_primitives::event_id::EventId;
+use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
+use fxrate_core::{
+    FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot,
+};
 use indexmap::IndexSet;
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
-use localization::Language;
-use money::Currency;
+use localization::{Language, Localized};
+use money::{Currency, MonetaryAmount};
 use product_listing_core::{
     listing_availability::ListingAvailability,
     listing_lifecycle::ListingLifecycle,
-    product_listing::{ProductListingAuction, ProductListingPricing},
+    listing_orderability::ListingOrderability,
+    product_listing::{
+        ProductListingAuction, ProductListingPriceValuationBasis, ProductListingPricing,
+    },
     product_listing_image::ProductListingImage,
-    product_listing_search::ProductListingSearch,
+    product_listing_search::{ListingAvailabilityQuery, ProductListingSearch},
     source_listing_id::SourceListingId,
     title::Title,
 };
 use product_listing_service::ports::{
-    ListingSourceSummary, ProductListingPercolationInput, ProductListingSearchFilterMatchSource,
+    ListingSourceSummary, ProductListingPercolationInput, ProductListingPercolationValuation,
+    ProductListingPricesByCurrency, ProductListingSearchFilterMatchSource,
 };
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -26,6 +34,7 @@ use search_filter_service::ports::{
     SearchFilterProjectionWriteOutcome, SearchFilterView,
 };
 use std::collections::HashMap;
+use strum::IntoEnumIterator;
 use user_core::user_id::UserId;
 
 use test_api::{
@@ -140,6 +149,80 @@ async fn should_percolate_any_of_multiple_product_queries() {
 }
 
 #[aura_integration_test(services = [OpenSearch()])]
+async fn should_percolate_a_real_filter_covering_every_product_listing_field() {
+    let client = get_opensearch_client().await.clone();
+    let index = OpenSearchSearchFilterIndex::new(client);
+    let matching_product = maximal_percolation_input()
+        .unwrap_or_else(|error| panic!("maximal product input failed: {error}"));
+    let source = &matching_product.source;
+    let view = SearchFilterView {
+        search: ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_product_listing_query(text_query("maximal percolation cabinet"))
+            .with_enhanced_search_description(
+                "maximal percolation cabinet"
+                    .try_into()
+                    .unwrap_or_else(|error| panic!("invalid enhanced search description: {error}")),
+            )
+            .with_exclude_product_listing_id_query(
+                std::collections::HashSet::from([
+                    product_listing_core::product_listing_id::ProductListingId::new(),
+                ])
+                .into(),
+            )
+            .with_listing_source_id_query(
+                std::collections::HashSet::from([source.source.listing_source_id]).into(),
+            )
+            .with_exclude_listing_source_id_query(
+                std::collections::HashSet::from([ListingSourceId::new()]).into(),
+            )
+            .with_price_query(RangeQuery {
+                min: Some(MonetaryAmount::from(12_000_u64)),
+                max: Some(MonetaryAmount::from(13_000_u64)),
+            })
+            .with_availability_query(ListingAvailabilityQuery {
+                any_of: std::collections::HashSet::from([ListingAvailability::InStock]).into(),
+                orderability: std::collections::HashSet::from([ListingOrderability::OrderableNow])
+                    .into(),
+                include_unspecified: true,
+            })
+            .with_created_query(RangeQuery {
+                min: Some(datetime!(2026-01-01 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-01 00:00:00 UTC)),
+            })
+            .with_updated_query(RangeQuery {
+                min: Some(datetime!(2026-01-02 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-02 00:00:00 UTC)),
+            })
+            .with_auction_start_query(RangeQuery {
+                min: Some(datetime!(2026-01-03 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-03 00:00:00 UTC)),
+            })
+            .with_auction_end_query(RangeQuery {
+                min: Some(datetime!(2026-01-04 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-04 00:00:00 UTC)),
+            }),
+        ..sample_view("maximal percolation cabinet")
+    };
+
+    index
+        .upsert(&projection(&view, 1))
+        .await
+        .unwrap_or_else(|error| panic!("index failed: {error:?}"));
+    refresh_index("user_search_filters").await;
+
+    let matches = index
+        .percolate(&matching_product)
+        .await
+        .unwrap_or_else(|error| panic!("percolate failed: {error:?}"));
+    assert!(
+        matches
+            .iter()
+            .any(|item| item.search_filter_id == view.search_filter_id),
+        "maximal product did not match its all-fields saved filter"
+    );
+}
+
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_use_application_default_size_for_first_query_page() {
     let client = get_opensearch_client().await.clone();
     let index = OpenSearchSearchFilterIndex::new(client);
@@ -199,6 +282,61 @@ async fn should_filter_query_by_enhanced_description_presence() {
             .iter()
             .any(|item| item.search_filter_id == view.search_filter_id)
     );
+}
+
+fn maximal_percolation_input() -> Result<ProductListingPercolationInput, Box<dyn std::error::Error>>
+{
+    let snapshot = NewFxRateSnapshot::capture_eur(
+        FxRateId::new(),
+        datetime!(2026-01-01 00:00:00 UTC),
+        FxRateSource::FxRatesApi,
+        Currency::Eur,
+        Currency::iter().map(|currency| {
+            FxRateQuote::new(
+                currency,
+                if currency == Currency::Eur {
+                    FX_RATE_SCALE
+                } else {
+                    1_000_000
+                },
+            )
+        }),
+    )?
+    .into_persisted(FxRateGeneration::try_from(1)?);
+    let source_price = money::Price::new(12_500_u64.into(), Currency::Eur);
+    let mut source = product_source("maximal percolation cabinet");
+    source.product_title = Some(Localized::new(
+        Language::En,
+        Title::from("maximal percolation cabinet"),
+    ));
+    source.titles = HashMap::from([
+        (Language::De, Title::from("maximales Perkolationskabinett")),
+        (Language::En, Title::from("maximal percolation cabinet")),
+        (Language::Fr, Title::from("cabinet de percolation maximal")),
+        (Language::Es, Title::from("gabinete de percolación máximo")),
+        (Language::It, Title::from("mobile di percolazione massimo")),
+    ]);
+    source.pricing.price = Some(source_price);
+    source.availability = Some(ListingAvailability::InStock);
+    source.images = IndexSet::from([ProductListingImage::new(Url::parse(
+        "https://shop.example.test/product_listings/sku-1/image.jpg",
+    )?)]);
+    source.auction = ProductListingAuction {
+        start: Some(datetime!(2026-01-03 00:00:00 UTC)),
+        end: Some(datetime!(2026-01-04 00:00:00 UTC)),
+    };
+    source.created = datetime!(2026-01-01 00:00:00 UTC);
+    source.updated = datetime!(2026-01-02 00:00:00 UTC);
+
+    Ok(ProductListingPercolationInput {
+        valuation: Some(ProductListingPercolationValuation {
+            basis: ProductListingPriceValuationBasis::Event,
+            fx_rate_id: snapshot.id(),
+            effective_at: snapshot.captured_at(),
+            prices: ProductListingPricesByCurrency::convert_all(&snapshot, source_price)?,
+        }),
+        source,
+    })
 }
 
 fn percolation_input(title: &str) -> ProductListingPercolationInput {

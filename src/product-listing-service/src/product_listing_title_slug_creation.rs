@@ -1,7 +1,9 @@
 use product_listing_core::product_listing_slug_id::{
     InvalidProductListingSlugId, ProductListingSlugId,
 };
+#[cfg(test)]
 use std::collections::VecDeque;
+#[cfg(test)]
 use std::sync::Mutex;
 
 pub const MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS: usize = 5;
@@ -23,11 +25,13 @@ impl ProductListingTitleSlugGenerator for RandomProductListingTitleSlugGenerator
 }
 
 /// Deterministic title-slug generator for focused service tests.
+#[cfg(test)]
 #[derive(Debug)]
-pub struct SequenceProductListingTitleSlugGenerator {
+struct SequenceProductListingTitleSlugGenerator {
     candidates: Mutex<VecDeque<ProductListingSlugId>>,
 }
 
+#[cfg(test)]
 impl SequenceProductListingTitleSlugGenerator {
     pub fn new(candidates: impl IntoIterator<Item = ProductListingSlugId>) -> Self {
         Self {
@@ -36,6 +40,7 @@ impl SequenceProductListingTitleSlugGenerator {
     }
 }
 
+#[cfg(test)]
 impl ProductListingTitleSlugGenerator for SequenceProductListingTitleSlugGenerator {
     fn generate(&self, _title: &str) -> Result<ProductListingSlugId, InvalidProductListingSlugId> {
         let mut candidates = match self.candidates.lock() {

@@ -2,7 +2,7 @@ use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
     assert_problem, aura_api_app_with_failed_search_embedding, json_response,
-    seed_current_fx_snapshot, seed_product,
+    seed_access_token_for, seed_current_fx_snapshot, seed_product, seed_user,
 };
 use application::transaction::{Transaction, UnitOfWork};
 use fxrate_core::FxRateId;
@@ -77,10 +77,172 @@ async fn should_get_product_details_by_id() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_apply_listing_source_referral_policy_changes_to_product_listing_reads_without_reprojection()
+ {
+    let product_listing_id = seed_product().await;
+    let pool = get_postgres_client().await;
+    let (listing_source_id, title_slug, projection_version): (uuid::Uuid, String, i64) =
+        sqlx::query_as(
+            "SELECT listing_source_id, product_listing_title_slug_id, projection_version FROM product_listings WHERE product_listing_id = $1",
+        )
+        .bind(uuid::Uuid::from(product_listing_id))
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to load product listing fixture: {error}"));
+    let raw_url = "https://api-acceptance.example/product";
+    let aura_url =
+        "https://api-acceptance.example/product?utm_source=aura_historia&utm_medium=referral";
+    let partnerize_url = "https://prf.hn/click/camref:campaign/pubref:aurahistoria/destination:https%3A%2F%2Fapi-acceptance.example%2Fproduct";
+
+    sqlx::query("UPDATE product_listings SET embedding = $1 WHERE product_listing_id = $2")
+        .bind(vec![1.0_f32; embedding::EMBEDDING_DIMENSIONS])
+        .bind(uuid::Uuid::from(product_listing_id))
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed product embedding: {error}"));
+
+    let (_, mut candidate) = search_document(
+        "Referral policy candidate",
+        125,
+        "AVAILABLE",
+        "Referral Listing Source",
+        "2025-01-01T00:00:00Z",
+    );
+    candidate["listingSourceId"] = json!(listing_source_id.to_string());
+    candidate["url"] = json!(raw_url);
+    candidate = with_embedding(candidate, vec![1.0; embedding::EMBEDDING_DIMENSIONS]);
+    index_existing_listing_source_document(candidate).await;
+
+    let (before_response, _) =
+        get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
+    let (before_status, before_body) = json_response(before_response).await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        before_status,
+        "response body: {before_body}"
+    );
+    assert_product_view_urls(&before_body["item"], raw_url, aura_url);
+
+    let admin_id = seed_user("ADMIN").await;
+    let token = String::from(seed_access_token_for(admin_id, HashSet::new()).await);
+    let update_response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/listing-sources/{listing_source_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(&token)
+        .json(&json!({
+            "referralConfiguration": { "type": "PARTNERIZE", "camref": "campaign" }
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to update listing source referral policy: {error}"));
+    assert_eq!(reqwest::StatusCode::OK, update_response.status());
+
+    let projection_version_after: i64 = sqlx::query_scalar(
+        "SELECT projection_version FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to load product projection version: {error}"));
+    assert_eq!(projection_version, projection_version_after);
+
+    let (id_response, _) = get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
+    let (id_status, id_body) = json_response(id_response).await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        id_status,
+        "response body: {id_body}"
+    );
+    assert_product_view_urls(&id_body["item"], raw_url, partnerize_url);
+
+    let (slug_response, _) =
+        get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+    let (slug_status, slug_body) = json_response(slug_response).await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        slug_status,
+        "response body: {slug_body}"
+    );
+    assert_product_view_urls(&slug_body["item"], raw_url, partnerize_url);
+
+    let (search_response, _) = get_json(
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Referral%20policy%20candidate".to_owned(),
+    )
+    .await;
+    let (search_status, search_body) = json_response(search_response).await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        search_status,
+        "response body: {search_body}"
+    );
+    assert_product_view_urls(&search_body["items"][0]["item"], raw_url, partnerize_url);
+
+    let (similar_response, _) = get_json(format!(
+        "/api/v1/product-listings/{product_listing_id}/similar?language=en&currency=USD"
+    ))
+    .await;
+    let (similar_status, similar_body) = json_response(similar_response).await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        similar_status,
+        "response body: {similar_body}"
+    );
+    assert_product_view_urls(&similar_body[0]["item"], raw_url, partnerize_url);
+
+    let clear_response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/listing-sources/{listing_source_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(&token)
+        .json(&json!({ "referralConfiguration": null }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to clear listing source referral policy: {error}"));
+    assert_eq!(reqwest::StatusCode::OK, clear_response.status());
+
+    let projection_version_after_clear: i64 = sqlx::query_scalar(
+        "SELECT projection_version FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to load product projection version: {error}"));
+    assert_eq!(projection_version, projection_version_after_clear);
+
+    let (id_response, _) = get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
+    let (_, id_body) = json_response(id_response).await;
+    assert_product_view_urls(&id_body["item"], raw_url, aura_url);
+    let (slug_response, _) =
+        get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+    let (_, slug_body) = json_response(slug_response).await;
+    assert_product_view_urls(&slug_body["item"], raw_url, aura_url);
+    let (search_response, _) = get_json(
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Referral%20policy%20candidate".to_owned(),
+    )
+    .await;
+    let (_, search_body) = json_response(search_response).await;
+    assert_product_view_urls(&search_body["items"][0]["item"], raw_url, aura_url);
+    let (similar_response, _) = get_json(format!(
+        "/api/v1/product-listings/{product_listing_id}/similar?language=en&currency=USD"
+    ))
+    .await;
+    let (_, similar_body) = json_response(similar_response).await;
+    assert_product_view_urls(&similar_body[0]["item"], raw_url, aura_url);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_product_details_by_title_slug_equivalently_to_id() {
     let product_listing_id = seed_product().await;
 
     let (id_response, _) = get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
+    let id_cache_control = id_response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
     let (id_status, id_body) = json_response(id_response).await;
     assert_eq!(
         reqwest::StatusCode::OK,
@@ -93,6 +255,11 @@ async fn should_get_product_details_by_title_slug_equivalently_to_id() {
 
     let (slug_response, _) =
         get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+    let slug_cache_control = slug_response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
     let (slug_status, slug_body) = json_response(slug_response).await;
 
     assert_eq!(
@@ -101,6 +268,30 @@ async fn should_get_product_details_by_title_slug_equivalently_to_id() {
         "response body: {slug_body}"
     );
     assert_eq!(id_body, slug_body);
+    assert_eq!(id_cache_control, slug_cache_control);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_resolve_same_normalized_title_slugs_to_their_respective_product_ids() {
+    let first_product_listing_id = seed_product().await;
+    let second_product_listing_id = seed_product().await;
+
+    for product_listing_id in [first_product_listing_id, second_product_listing_id] {
+        let title_slug = ProductListingSlugId::from_title_and_suffix(
+            "acceptance product",
+            &uuid::Uuid::from(product_listing_id).simple().to_string()[..6],
+        )
+        .unwrap_or_else(|error| panic!("valid fixture title slug: {error}"));
+        let (response, _) =
+            get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+        let (status, body) = json_response(response).await;
+
+        assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+        assert_eq!(
+            json!(product_listing_id.to_string()),
+            body["item"]["productListingId"]
+        );
+    }
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -129,6 +320,129 @@ async fn should_return_not_found_for_missing_product_title_slug() {
         reqwest::StatusCode::NOT_FOUND,
         "PRODUCT_LISTING_NOT_FOUND",
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_not_found_for_withdrawn_product_title_slug() {
+    let product_listing_id = seed_product().await;
+    let title_slug = ProductListingSlugId::from_title_and_suffix(
+        "acceptance product",
+        &uuid::Uuid::from(product_listing_id).simple().to_string()[..6],
+    )
+    .unwrap_or_else(|error| panic!("valid fixture title slug: {error}"));
+    let pool = get_postgres_client().await;
+    sqlx::query(
+        "UPDATE product_listings SET lifecycle = 'WITHDRAWN', availability = NULL WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to withdraw product fixture: {error}"));
+
+    let (response, _) = get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "PRODUCT_LISTING_NOT_FOUND",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_omit_title_slug_for_hidden_product_when_looked_up_by_slug_or_id() {
+    let user_id = api_support::seed_user_with_tier("USER", user_core::tier::UserTier::Free).await;
+    let token = api_support::seed_access_token_for(user_id, HashSet::new()).await;
+    let filter_id = uuid::Uuid::new_v4();
+    let pool = get_postgres_client().await;
+    sqlx::query(
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, language, currency) VALUES ($1, $2, 'Hidden listing alerts', true, 'ACTIVE', '{}', 'en', 'EUR')",
+    )
+    .bind(filter_id)
+    .bind(uuid::Uuid::from(user_id))
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed search filter: {error}"));
+
+    let mut product_listing_ids = Vec::new();
+    for position in 0_i64..11 {
+        let product_listing_id = seed_product().await;
+        let event_id = sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT event_id FROM product_listings WHERE product_listing_id = $1",
+        )
+        .bind(uuid::Uuid::from(product_listing_id))
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to read product event ID: {error}"));
+        sqlx::query(
+            "INSERT INTO search_filter_matches (user_id, user_search_filter_id, product_listing_id, origin_event_id, user_search_filter_name, created) VALUES ($1, $2, $3, $4, 'Hidden listing alerts', now() - ($5 * interval '1 minute'))",
+        )
+        .bind(uuid::Uuid::from(user_id))
+        .bind(filter_id)
+        .bind(uuid::Uuid::from(product_listing_id))
+        .bind(event_id)
+        .bind(10 - position)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed search filter match: {error}"));
+        product_listing_ids.push(product_listing_id);
+    }
+    let product_listing_id = product_listing_ids
+        .last()
+        .copied()
+        .unwrap_or_else(|| panic!("hidden product fixture is missing"));
+    let title_slug = ProductListingSlugId::from_title_and_suffix(
+        "acceptance product",
+        &uuid::Uuid::from(product_listing_id).simple().to_string()[..6],
+    )
+    .unwrap_or_else(|error| panic!("valid fixture title slug: {error}"));
+    let client = reqwest::Client::new();
+
+    for path in [
+        format!("/api/v1/product-listings/{product_listing_id}"),
+        format!("/api/v1/product-listings/by-slug/{title_slug}"),
+    ] {
+        let response = client
+            .get(format!("{}{}", AURA_API.base_url(), path))
+            .bearer_auth(String::from(token.clone()))
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to get hidden product: {error}"));
+        let (status, body) = json_response(response).await;
+
+        assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+        assert_eq!(
+            json!(product_listing_id.to_string()),
+            body["item"]["productListingId"]
+        );
+        assert!(body["item"].get("productListingTitleSlugId").is_none());
+        assert_eq!(json!(true), body["userState"]["searchFilter"]["hidden"]);
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_not_expose_retired_source_composite_product_route() {
+    let product_listing_id = seed_product().await;
+    let pool = get_postgres_client().await;
+    let (listing_source_id, source_listing_id) = sqlx::query_as::<_, (uuid::Uuid, String)>(
+        "SELECT listing_source_id, source_listing_id FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read product source identity: {error}"));
+
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/listing-sources/{listing_source_id}/product-listings/{source_listing_id}",
+            AURA_API.base_url()
+        ))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get retired product route: {error}"));
+
+    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -889,6 +1203,30 @@ async fn capture_fx_snapshot(captured_at: OffsetDateTime, usd_units_per_eur: i64
     fx_rate_id
 }
 
+async fn index_existing_listing_source_document(document: Value) {
+    let client = get_opensearch_client().await;
+    ensure_canonical_product_listing_mapping(client).await;
+    let product_listing_id = document["productListingId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("search fixture has no productListingId"))
+        .to_owned();
+    let response = client
+        .index(IndexParts::IndexId(PRODUCTS_INDEX, &product_listing_id))
+        .body(document)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to index search fixture: {error}"));
+    if !response.status_code().is_success() {
+        let status = response.status_code();
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|error| panic!("failed to read index failure: {error}"));
+        panic!("failed to index search fixture: {status}: {body}");
+    }
+    refresh_index(PRODUCTS_INDEX).await;
+}
+
 async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
     let documents = documents.into_iter().collect::<Vec<_>>();
     let pool = get_postgres_client().await;
@@ -1035,6 +1373,11 @@ fn search_document_with_source(
 fn with_embedding(mut document: Value, embedding: Vec<f32>) -> Value {
     document["embedding"] = json!(embedding);
     document
+}
+
+fn assert_product_view_urls(item: &Value, raw_url: &str, view_url: &str) {
+    assert_eq!(json!(raw_url), item["url"]);
+    assert_eq!(json!(view_url), item["viewUrl"]);
 }
 
 fn product_listing_ids(body: &Value) -> Vec<String> {

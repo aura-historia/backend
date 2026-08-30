@@ -5520,6 +5520,7 @@ dependencies = [
 name = "platform-opensearch"
 version = "0.1.0"
 dependencies = [
+ "opensearch",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -6537,6 +6538,7 @@ dependencies = [
  "application",
  "async-trait",
  "domain-primitives",
+ "fxrate-core",
  "indexmap 2.14.0",
  "listing-source-core",
  "localization",

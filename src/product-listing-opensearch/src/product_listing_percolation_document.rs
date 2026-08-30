@@ -366,6 +366,7 @@ mod tests {
             ListingSaleObservation, ProductListingAuction, ProductListingPriceValuationBasis,
             ProductListingPricing,
         },
+        product_listing_image::ProductListingImage,
         product_listing_slug_id::ProductListingSlugId,
         source_listing_id::SourceListingId,
         title::Title,
@@ -375,7 +376,7 @@ mod tests {
         ProductListingPercolationValuation, ProductListingPriceFilterPlan,
         ProductListingPricesByCurrency, ProductListingSearchFilterMatchSourceEventKind,
     };
-    use std::collections::HashMap;
+    use std::collections::{BTreeSet, HashMap};
     use strum::IntoEnumIterator;
     use url::Url;
 
@@ -524,6 +525,113 @@ mod tests {
             .ok_or("percolation document has no mapped target price")?;
 
         Ok(matches_inclusive_range(amount, bounds))
+    }
+
+    #[test]
+    fn should_keep_every_maximal_temporary_percolation_document_path_mapping_compatible()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let snapshot = snapshot()?;
+        let source_price = money::Price::new(12_500_u64.into(), Currency::Gbp);
+        let prices = ProductListingPricesByCurrency::convert_all(&snapshot, source_price)?;
+        let mut product = source()?;
+        product.pricing.price = Some(source_price);
+        product.titles = HashMap::from([
+            (Language::De, Title::from("Blaue Vase")),
+            (Language::En, Title::from("Blue vase")),
+            (Language::Fr, Title::from("Vase bleu")),
+            (Language::Es, Title::from("Jarrón azul")),
+            (Language::It, Title::from("Vaso blu")),
+        ]);
+        product.images = IndexSet::from([ProductListingImage::new(Url::parse(
+            "https://shop.example.test/product_listings/blue-vase/image.jpg",
+        )?)]);
+        product.auction = ProductListingAuction {
+            start: Some(OffsetDateTime::UNIX_EPOCH),
+            end: Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1)),
+        };
+        product.created = OffsetDateTime::UNIX_EPOCH + time::Duration::days(1);
+        product.updated = OffsetDateTime::UNIX_EPOCH + time::Duration::days(2);
+
+        let document = product_listing_percolation_document(&ProductListingPercolationInput {
+            source: product,
+            valuation: Some(ProductListingPercolationValuation {
+                basis: ProductListingPriceValuationBasis::Event,
+                fx_rate_id: snapshot.id(),
+                effective_at: snapshot.captured_at(),
+                prices,
+            }),
+        })?;
+        let mapping: Value = serde_json::from_str(include_str!(
+            "../../../opensearch/mappings/user_search_filters.json"
+        ))?;
+
+        let mut paths = BTreeSet::new();
+        collect_mapping_compatible_paths(&document, "", &mapping, &mut paths)?;
+        assert!(paths.contains("priceByCurrency.chf"));
+        assert!(paths.contains("images.url"));
+        assert!(paths.contains("titleIt"));
+        Ok(())
+    }
+
+    fn collect_mapping_compatible_paths(
+        value: &Value,
+        path: &str,
+        mapping: &Value,
+        paths: &mut BTreeSet<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match value {
+            Value::Object(values) => {
+                for (key, value) in values {
+                    let field = if path.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{path}.{key}")
+                    };
+                    mapping_field(mapping, &field).ok_or_else(|| {
+                        format!("percolation field `{field}` is missing from mapping")
+                    })?;
+                    collect_mapping_compatible_paths(value, &field, mapping, paths)?;
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    collect_mapping_compatible_paths(value, path, mapping, paths)?;
+                }
+            }
+            Value::Null => {}
+            _ => {
+                let field_mapping = mapping_field(mapping, path)
+                    .ok_or_else(|| format!("percolation field `{path}` is missing from mapping"))?;
+                if !mapping_accepts_value(field_mapping, value) {
+                    return Err(
+                        format!("mapping for percolation field `{path}` rejects {value}").into(),
+                    );
+                }
+                paths.insert(path.to_owned());
+            }
+        }
+        Ok(())
+    }
+
+    fn mapping_field<'a>(mapping: &'a Value, path: &str) -> Option<&'a Value> {
+        let mut properties = mapping.pointer("/mappings/properties")?;
+        let mut segments = path.split('.').peekable();
+        while let Some(segment) = segments.next() {
+            let field = properties.get(segment)?;
+            if segments.peek().is_none() {
+                return Some(field);
+            }
+            properties = field.get("properties")?;
+        }
+        None
+    }
+
+    fn mapping_accepts_value(mapping: &Value, value: &Value) -> bool {
+        match mapping.get("type").and_then(Value::as_str) {
+            Some("keyword" | "text" | "date") => value.is_string(),
+            Some("unsigned_long") => value.is_number(),
+            _ => false,
+        }
     }
 
     #[test]

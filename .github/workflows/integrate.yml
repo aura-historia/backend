@@ -66,6 +66,33 @@ jobs:
       - name: Synthesize all stacks
         run: npm --prefix infra run synth:all
 
+  mjml-compile:
+    name: Compile MJML templates
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+
+      - name: Install MJML
+        run: npm install --global mjml
+
+      - name: Compile every MJML template
+        shell: bash
+        run: |
+          set -euo pipefail
+          template_count=0
+          while IFS= read -r -d '' template; do
+            mjml "$template" --output /dev/null
+            template_count=$((template_count + 1))
+          done < <(find mjml -type f -name '*.mjml' -print0)
+          test "$template_count" -gt 0
+
   lint:
     name: Lint Workspace
     permissions:

@@ -6,7 +6,10 @@ use domain_primitives::sort::{Sort, SortOrder};
 
 use localization::{Language, Localized};
 use money::Currency;
-use platform_opensearch::search_response::{SearchHit, SearchResponse};
+use platform_opensearch::{
+    response::read_response,
+    search_response::{SearchHit, SearchResponse},
+};
 
 use money::Price;
 use opensearch::http::Method;
@@ -79,13 +82,14 @@ impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
             .body(body)
             .send()
             .await
-            .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?
-            .error_for_status_code()
             .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?;
-        let payload = response
-            .text()
+        let response = read_response(response)
             .await
             .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?;
+        if !response.status().is_success() {
+            return Err(ProductListingSearchReadError::ProductListingSearchQueryFailed);
+        }
+        let payload = response.into_body();
         let search_response =
             serde_json::from_str::<SearchResponse<ProductListingDocument>>(&payload)
                 .map_err(|_| ProductListingSearchReadError::ProductListingSearchReadModelInvalid)?
@@ -116,13 +120,13 @@ impl ProductListingSearchReader for OpenSearchProductListingSearchReader {
             )
             .await
             .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?;
-        if !response.status_code().is_success() {
-            return Err(ProductListingSearchReadError::ProductListingSearchQueryFailed);
-        }
-        let payload = response
-            .text()
+        let response = read_response(response)
             .await
             .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)?;
+        if !response.status().is_success() {
+            return Err(ProductListingSearchReadError::ProductListingSearchQueryFailed);
+        }
+        let payload = response.into_body();
         let search_response =
             serde_json::from_str::<SearchResponse<ProductListingDocument>>(&payload)
                 .map_err(|_| ProductListingSearchReadError::ProductListingSearchReadModelInvalid)?

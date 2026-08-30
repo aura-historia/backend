@@ -137,6 +137,9 @@ async fn deliver_committed_notification_delivery() -> Result<(), Box<dyn std::er
         assert!(email.body.html_part.as_deref().is_some_and(|body| {
             body.contains("data-template-language=\"en\"")
                 && body.contains("Delivery test source")
+                && body.contains(
+                    "https://aura-historia.com/product-listings/worker-delivery-product-abcdef",
+                )
                 && body.contains("Available")
                 && body.contains("In stock")
         }));
@@ -606,7 +609,7 @@ impl Template {
     fn bytes(self) -> Vec<u8> {
         match self {
             Self::Valid => {
-                b"<html><body data-template-language=\"en\">{{shop_name}} {{old_availability}} {{new_availability}} <img src=\"{{image_url}}\"><a href=\"{{view_url}}\">View</a></body></html>"
+                b"<html><body data-template-language=\"en\">{{listing_source_name}} {{first_name}} {{old_availability}} {{new_availability}} <img src=\"{{image_url}}\"><a href=\"{{product_listing_url}}\">Listing</a><a href=\"{{view_url}}\">View</a></body></html>"
                     .to_vec()
             }
             Self::InvalidUtf8 => vec![0xff],
@@ -735,7 +738,7 @@ fn notification_payload() -> serde_json::Value {
             "image": UNSAFE_IMAGE_URL,
             "content_policy": null,
             "url": "https://example.test/product_listings/delivery",
-            "view_url": "https://aura-historia.test/product_listings/delivery"
+            "view_url": "https://aura-historia.com/product-listings/worker-delivery-product-abcdef"
         },
         "change": {
             "type": "AVAILABILITY_CHANGE",

@@ -166,7 +166,7 @@ impl<U, R, E, A> UpsertProductListingHandler<U, R, E, A, RandomProductListingTit
     }
 }
 impl<U, R, E, A, G> UpsertProductListingHandler<U, R, E, A, G> {
-    pub fn with_title_slug_generator(
+    pub(crate) fn with_title_slug_generator(
         unit_of_work: U,
         products: R,
         events: E,
@@ -196,7 +196,6 @@ where
         context: &OperationContext,
         command: UpsertProductListingCommand,
         new_product_listing_id: ProductListingId,
-        title_slug_id: ProductListingSlugId,
     ) -> Result<UpsertProductListingResult, UpsertAttemptError> {
         if let Some(actor_id) = partner_actor(&context.principal) {
             self.authorizer
@@ -238,6 +237,17 @@ where
                 ))
             }
             None => {
+                let title_slug_id = self
+                    .title_slug_generator
+                    .generate(
+                        command
+                            .title
+                            .as_ref()
+                            .map_or("", |title| title.payload.as_ref()),
+                    )
+                    .map_err(|_| UpsertProductListingError::InvalidProductListing {
+                        source: box_error(std::io::Error::other("invalid generated title slug")),
+                    })?;
                 let mut product = ProductListing::create(
                     command.into_new_product(new_product_listing_id, title_slug_id)?,
                 )?;
@@ -284,7 +294,6 @@ where
         context: &OperationContext,
         command: UpsertProductListingCommand,
         new_product_listing_id: ProductListingId,
-        title_slug_id: ProductListingSlugId,
     ) -> Result<UpsertProductListingResult, UpsertAttemptError> {
         context
             .require()
@@ -296,13 +305,7 @@ where
             .await
             .map_err(|_| UpsertProductListingError::BeginTransactionFailed)?;
         let result = self
-            .persist(
-                &mut tx,
-                context,
-                command,
-                new_product_listing_id,
-                title_slug_id,
-            )
+            .persist(&mut tx, context, command, new_product_listing_id)
             .await?;
         tx.commit()
             .await
@@ -333,24 +336,8 @@ where
         let mut source_listing_races = 0;
         let mut title_slug_attempts = 0;
         let result = loop {
-            let title_slug_id = self
-                .title_slug_generator
-                .generate(
-                    command
-                        .title
-                        .as_ref()
-                        .map_or("", |title| title.payload.as_ref()),
-                )
-                .map_err(|_| UpsertProductListingError::InvalidProductListing {
-                    source: box_error(std::io::Error::other("invalid generated title slug")),
-                })?;
             match self
-                .execute_attempt(
-                    context,
-                    command.clone(),
-                    new_product_listing_id,
-                    title_slug_id,
-                )
+                .execute_attempt(context, command.clone(), new_product_listing_id)
                 .await
             {
                 Ok(result) => break result,
@@ -880,5 +867,345 @@ mod tests {
             assert_eq!(new_listing.images, expected_images);
             assert_eq!(new_listing.auction, expected_auction);
         }
+    }
+
+    // Whole-handler tests deliberately keep their fakes here: they assert transaction,
+    // persistence, event, authorization, and candidate behavior together.
+    use application::operation_context::{CorrelationId, RequestId};
+    use application::transaction::TransactionError;
+    use domain_primitives::{event_id::EventId, versioned::Versioned};
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex, MutexGuard};
+
+    #[derive(Default)]
+    struct HandlerState {
+        candidates: Vec<ProductListingSlugId>,
+        begins: usize,
+        commits: usize,
+        rollbacks: usize,
+        finds: VecDeque<Option<Versioned<ProductListing, EventId>>>,
+        inserts: VecDeque<Result<(), ProductListingRepositoryError>>,
+        insert_calls: usize,
+        update_calls: usize,
+        event_calls: usize,
+        authorization_calls: usize,
+    }
+    type SharedHandlerState = Arc<Mutex<HandlerState>>;
+    #[derive(Clone)]
+    struct TestUow(SharedHandlerState);
+    struct TestTx(SharedHandlerState, bool);
+    impl Drop for TestTx {
+        fn drop(&mut self) {
+            if !self.1 {
+                test_lock(&self.0).rollbacks += 1;
+            }
+        }
+    }
+    #[derive(Clone)]
+    struct TestProducts(SharedHandlerState);
+    struct TestRepository(SharedHandlerState);
+    #[derive(Clone)]
+    struct TestEvents(SharedHandlerState);
+    struct TestEventStore(SharedHandlerState);
+    #[derive(Clone)]
+    struct TestAuthorizer(SharedHandlerState);
+    struct TestAuthorization(SharedHandlerState);
+    #[derive(Clone)]
+    struct TestGenerator(SharedHandlerState);
+    fn test_lock(state: &SharedHandlerState) -> MutexGuard<'_, HandlerState> {
+        match state.lock() {
+            Ok(state) => state,
+            Err(error) => error.into_inner(),
+        }
+    }
+    #[async_trait::async_trait]
+    impl UnitOfWork for TestUow {
+        type Tx = TestTx;
+        async fn begin(&self) -> Result<TestTx, TransactionError> {
+            test_lock(&self.0).begins += 1;
+            Ok(TestTx(Arc::clone(&self.0), false))
+        }
+    }
+    #[async_trait::async_trait]
+    impl Transaction for TestTx {
+        async fn commit(mut self) -> Result<(), TransactionError> {
+            self.1 = true;
+            test_lock(&self.0).commits += 1;
+            Ok(())
+        }
+    }
+    impl ProductListingRepositoryFactory<TestTx> for TestProducts {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TestTx,
+        ) -> impl ProductListingRepository + 'tx {
+            TestRepository(Arc::clone(&self.0))
+        }
+    }
+    #[async_trait::async_trait]
+    impl ProductListingRepository for TestRepository {
+        async fn find_by_id(
+            &mut self,
+            _: ProductListingId,
+        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
+        {
+            Ok(None)
+        }
+        async fn find_by_key(
+            &mut self,
+            _: &ProductListingKey,
+        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
+        {
+            Ok(test_lock(&self.0).finds.pop_front().flatten())
+        }
+        async fn insert(
+            &mut self,
+            listing: &ProductListing,
+            event: EventId,
+        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            let mut state = test_lock(&self.0);
+            state.insert_calls += 1;
+            match state.inserts.pop_front().unwrap_or(Ok(())) {
+                Ok(()) => Ok(Versioned::new(listing.clone(), event)),
+                Err(error) => Err(error),
+            }
+        }
+        async fn update(
+            &mut self,
+            listing: &ProductListing,
+            _: EventId,
+            event: EventId,
+        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            test_lock(&self.0).update_calls += 1;
+            Ok(Versioned::new(listing.clone(), event))
+        }
+    }
+    impl ProductListingEventStoreFactory<TestTx> for TestEvents {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TestTx,
+        ) -> impl ProductListingEventStore + 'tx {
+            TestEventStore(Arc::clone(&self.0))
+        }
+    }
+    #[async_trait::async_trait]
+    impl ProductListingEventStore for TestEventStore {
+        async fn append(
+            &mut self,
+            _: &crate::ports::product_listing_event_store::ProductListingEvent,
+        ) -> Result<(), ProductListingEventStoreError> {
+            test_lock(&self.0).event_calls += 1;
+            Ok(())
+        }
+    }
+    impl PartnerProductListingAuthorizerFactory<TestTx> for TestAuthorizer {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TestTx,
+        ) -> impl PartnerProductListingAuthorizer + 'tx {
+            TestAuthorization(Arc::clone(&self.0))
+        }
+    }
+    #[async_trait::async_trait]
+    impl PartnerProductListingAuthorizer for TestAuthorization {
+        async fn authorize(
+            &mut self,
+            _: UserId,
+            _: ListingSourceId,
+        ) -> Result<(), PartnerProductListingAuthorizationError> {
+            test_lock(&self.0).authorization_calls += 1;
+            Ok(())
+        }
+    }
+    impl ProductListingTitleSlugGenerator for TestGenerator {
+        fn generate(
+            &self,
+            _: &str,
+        ) -> Result<
+            ProductListingSlugId,
+            product_listing_core::product_listing_slug_id::InvalidProductListingSlugId,
+        > {
+            let candidate = ProductListingSlugId::from_title_and_suffix(
+                "listing",
+                &format!("{:06x}", test_lock(&self.0).candidates.len() + 1),
+            )?;
+            test_lock(&self.0).candidates.push(candidate.clone());
+            Ok(candidate)
+        }
+    }
+    fn handler_context() -> OperationContext {
+        OperationContext {
+            principal: Principal::User(UserId::new()),
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+    fn handler_command() -> UpsertProductListingCommand {
+        command(PatchField::Set(price(20)))
+    }
+    fn handler(
+        state: &SharedHandlerState,
+    ) -> UpsertProductListingHandler<TestUow, TestProducts, TestEvents, TestAuthorizer, TestGenerator>
+    {
+        UpsertProductListingHandler::with_title_slug_generator(
+            TestUow(Arc::clone(state)),
+            TestProducts(Arc::clone(state)),
+            TestEvents(Arc::clone(state)),
+            TestAuthorizer(Arc::clone(state)),
+            TestGenerator(Arc::clone(state)),
+        )
+    }
+    fn existing_listing() -> Versioned<ProductListing, EventId> {
+        let mut listing = listing_with_price(Some(price(10)));
+        listing.take_pending_event_payloads();
+        Versioned::new(listing, EventId::new())
+    }
+
+    #[tokio::test]
+    async fn should_retry_title_slug_collision_then_commit_new_upsert() {
+        let state = Arc::new(Mutex::new(HandlerState {
+            finds: VecDeque::from([None, None]),
+            inserts: VecDeque::from([
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+                Ok(()),
+            ]),
+            ..Default::default()
+        }));
+        assert!(matches!(
+            handler(&state)
+                .execute(&handler_context(), handler_command())
+                .await,
+            Ok(UpsertProductListingResult::Created(_))
+        ));
+        let state = test_lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.insert_calls,
+                state.event_calls,
+                state.authorization_calls
+            ),
+            (2, 2, 1, 1, 2, 1, 2)
+        );
+    }
+    #[tokio::test]
+    async fn should_exhaust_after_five_title_slug_collisions() {
+        let state = Arc::new(Mutex::new(HandlerState {
+            finds: VecDeque::from([None, None, None, None, None]),
+            inserts: VecDeque::from([
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+            ]),
+            ..Default::default()
+        }));
+        assert!(matches!(
+            handler(&state)
+                .execute(&handler_context(), handler_command())
+                .await,
+            Err(UpsertProductListingError::ProductListingTitleSlugGenerationExhausted)
+        ));
+        let state = test_lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.insert_calls
+            ),
+            (5, 5, 0, 5, 5)
+        );
+    }
+    #[tokio::test]
+    async fn should_not_generate_candidate_when_existing_listing_is_found() {
+        let state = Arc::new(Mutex::new(HandlerState {
+            finds: VecDeque::from([Some(existing_listing())]),
+            ..Default::default()
+        }));
+        assert!(matches!(
+            handler(&state)
+                .execute(&handler_context(), handler_command())
+                .await,
+            Ok(UpsertProductListingResult::Updated(_))
+        ));
+        let state = test_lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.insert_calls,
+                state.update_calls,
+                state.event_calls,
+                state.authorization_calls
+            ),
+            (0, 1, 1, 0, 0, 1, 1, 1)
+        );
+    }
+    #[tokio::test]
+    async fn should_rerun_source_race_without_new_candidate_when_winner_is_now_existing() {
+        let state = Arc::new(Mutex::new(HandlerState {
+            finds: VecDeque::from([None, Some(existing_listing())]),
+            inserts: VecDeque::from([Err(
+                ProductListingRepositoryError::SourceListingAlreadyExists,
+            )]),
+            ..Default::default()
+        }));
+        assert!(matches!(
+            handler(&state)
+                .execute(&handler_context(), handler_command())
+                .await,
+            Ok(UpsertProductListingResult::Updated(_))
+        ));
+        let state = test_lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.insert_calls,
+                state.update_calls,
+                state.authorization_calls
+            ),
+            (1, 2, 1, 1, 1, 1, 2)
+        );
+    }
+    #[tokio::test]
+    async fn should_keep_source_race_and_collision_counters_independent() {
+        let state = Arc::new(Mutex::new(HandlerState {
+            finds: VecDeque::from([None, None, None]),
+            inserts: VecDeque::from([
+                Err(ProductListingRepositoryError::SourceListingAlreadyExists),
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+                Ok(()),
+            ]),
+            ..Default::default()
+        }));
+        assert!(matches!(
+            handler(&state)
+                .execute(&handler_context(), handler_command())
+                .await,
+            Ok(UpsertProductListingResult::Created(_))
+        ));
+        let state = test_lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.insert_calls,
+                state.authorization_calls
+            ),
+            (3, 3, 1, 2, 3, 3)
+        );
     }
 }
