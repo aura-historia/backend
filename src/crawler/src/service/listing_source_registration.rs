@@ -3,18 +3,25 @@
 use async_trait::async_trait;
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use sqlx::PgPool;
-use tracing::info;
+use tracing::{info, warn};
 
 /// Crawler-safe business identity.
 ///
 /// The business reader supplies canonical ListingSource values. `crawl_enabled` is
-/// crawler-local state derived from the complete successful `WEB_CRAWL` source read.
+/// crawler-local state derived from a complete successful `WEB_CRAWL` source read.
 #[derive(Debug, Clone)]
 pub struct RegisteredListingSource {
     pub listing_source_id: ListingSourceId,
     pub listing_source_name: ListingSourceName,
     pub listing_source_slug: ListingSourceSlugId,
     pub crawl_enabled: bool,
+}
+
+/// Result of one atomically applied business snapshot.
+#[derive(Debug, Default)]
+pub struct ListingSourceSnapshotResult {
+    pub disabled: u64,
+    pub enabled_without_domains: Vec<RegisteredListingSource>,
 }
 
 /// Reads the authoritative crawler scope.
@@ -26,18 +33,14 @@ pub trait ListingSourceRegistrationSource: Send + Sync {
     ) -> Result<Vec<RegisteredListingSource>, ListingSourceSyncError>;
 }
 
-/// Writes crawler-local ListingSource identity and crawl eligibility.
+/// Applies a complete authoritative ListingSource snapshot to crawler-local state.
 #[async_trait]
 #[mockall::automock]
 pub trait ListingSourceRegistrationRepository: Send + Sync {
-    async fn upsert_listing_source(
+    async fn apply_snapshot(
         &self,
-        listing_source: &RegisteredListingSource,
-    ) -> Result<(), sqlx::Error>;
-    async fn disable_listing_sources_not_in(
-        &self,
-        crawl_enabled_listing_source_ids: &[ListingSourceId],
-    ) -> Result<u64, sqlx::Error>;
+        listing_sources: &[RegisteredListingSource],
+    ) -> Result<ListingSourceSnapshotResult, sqlx::Error>;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -64,30 +67,28 @@ impl ListingSourceRegistrationService {
     #[tracing::instrument(name = "listing_source_registration_sync", skip(self))]
     pub async fn sync(&self) -> Result<usize, ListingSourceSyncError> {
         let listing_sources = self.source.fetch_registered_listing_sources().await?;
-        let crawl_enabled_listing_source_ids = listing_sources
+        let enabled_count = listing_sources
             .iter()
             .filter(|listing_source| listing_source.crawl_enabled)
-            .map(|listing_source| listing_source.listing_source_id)
-            .collect::<Vec<_>>();
+            .count();
 
-        for listing_source in &listing_sources {
-            self.repository
-                .upsert_listing_source(listing_source)
-                .await?;
-        }
-
-        let disabled = self
-            .repository
-            .disable_listing_sources_not_in(&crawl_enabled_listing_source_ids)
-            .await?;
-        if disabled > 0 {
+        let result = self.repository.apply_snapshot(&listing_sources).await?;
+        if result.disabled > 0 {
             info!(
-                disabled,
+                disabled = result.disabled,
                 "disabled crawler-local listing sources absent from business crawl scope"
             );
         }
+        for listing_source in result.enabled_without_domains {
+            warn!(
+                event = "crawler.listing_source_unconfigured",
+                listing_source_id = %listing_source.listing_source_id,
+                listing_source_name = %listing_source.listing_source_name,
+                "enabled ListingSource has no crawler-local domains"
+            );
+        }
 
-        Ok(crawl_enabled_listing_source_ids.len())
+        Ok(enabled_count)
     }
 }
 
@@ -103,50 +104,75 @@ impl ListingSourceRegistrationRepositoryImpl {
 
 #[async_trait]
 impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepositoryImpl {
-    async fn upsert_listing_source(
+    async fn apply_snapshot(
         &self,
-        listing_source: &RegisteredListingSource,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "INSERT INTO listing_sources \
-                (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
-             VALUES ($1, $2, $3, $4, NOW(), NOW()) \
-             ON CONFLICT (listing_source_id) DO UPDATE SET \
-                listing_source_name = EXCLUDED.listing_source_name, \
-                listing_source_slug = EXCLUDED.listing_source_slug, \
-                crawl_enabled = EXCLUDED.crawl_enabled, \
-                updated = NOW()",
-        )
-        .bind(uuid::Uuid::from(listing_source.listing_source_id))
-        .bind(listing_source.listing_source_name.as_ref())
-        .bind(listing_source.listing_source_slug.to_string())
-        .bind(listing_source.crawl_enabled)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    async fn disable_listing_sources_not_in(
-        &self,
-        crawl_enabled_listing_source_ids: &[ListingSourceId],
-    ) -> Result<u64, sqlx::Error> {
-        let ids = crawl_enabled_listing_source_ids
+        listing_sources: &[RegisteredListingSource],
+    ) -> Result<ListingSourceSnapshotResult, sqlx::Error> {
+        let mut transaction = self.pool.begin().await?;
+        let enabled_ids = listing_sources
             .iter()
-            .copied()
-            .map(uuid::Uuid::from)
+            .filter(|listing_source| listing_source.crawl_enabled)
+            .map(|listing_source| uuid::Uuid::from(listing_source.listing_source_id))
             .collect::<Vec<_>>();
-        let result = sqlx::query(
+
+        for listing_source in listing_sources {
+            sqlx::query(
+                "INSERT INTO listing_sources \
+                    (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+                 VALUES ($1, $2, $3, $4, NOW(), NOW()) \
+                 ON CONFLICT (listing_source_id) DO UPDATE SET \
+                    listing_source_name = EXCLUDED.listing_source_name, \
+                    listing_source_slug = EXCLUDED.listing_source_slug, \
+                    crawl_enabled = EXCLUDED.crawl_enabled, \
+                    updated = NOW()",
+            )
+            .bind(uuid::Uuid::from(listing_source.listing_source_id))
+            .bind(listing_source.listing_source_name.as_ref())
+            .bind(listing_source.listing_source_slug.to_string())
+            .bind(listing_source.crawl_enabled)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
+        let disabled = sqlx::query(
             "UPDATE listing_sources \
              SET crawl_enabled = FALSE, updated = NOW() \
              WHERE crawl_enabled = TRUE \
                AND NOT (listing_source_id = ANY($1::uuid[]))",
         )
-        .bind(ids)
-        .execute(&self.pool)
+        .bind(&enabled_ids)
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+
+        let unconfigured_ids = sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT s.listing_source_id \
+             FROM listing_sources s \
+             WHERE s.crawl_enabled = TRUE \
+               AND NOT EXISTS ( \
+                   SELECT 1 FROM listing_source_domains sd \
+                   WHERE sd.listing_source_id = s.listing_source_id \
+               )",
+        )
+        .fetch_all(&mut *transaction)
         .await?;
 
-        Ok(result.rows_affected())
+        transaction.commit().await?;
+
+        let enabled_without_domains = listing_sources
+            .iter()
+            .filter(|listing_source| {
+                listing_source.crawl_enabled
+                    && unconfigured_ids
+                        .contains(&uuid::Uuid::from(listing_source.listing_source_id))
+            })
+            .cloned()
+            .collect();
+
+        Ok(ListingSourceSnapshotResult {
+            disabled,
+            enabled_without_domains,
+        })
     }
 }
 
@@ -166,7 +192,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_disable_only_sources_absent_from_successful_sync() {
+    async fn should_apply_one_complete_snapshot_after_a_successful_business_read() {
         let source_listing_source = listing_source();
         let mut source = MockListingSourceRegistrationSource::new();
         source
@@ -178,14 +204,10 @@ mod tests {
 
         let mut repository = MockListingSourceRegistrationRepository::new();
         repository
-            .expect_upsert_listing_source()
+            .expect_apply_snapshot()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(()) }));
-        repository
-            .expect_disable_listing_sources_not_in()
-            .times(1)
-            .withf(|ids| ids.len() == 1)
-            .returning(|_| Box::pin(async { Ok(0) }));
+            .withf(|sources| sources.len() == 1)
+            .returning(|_| Box::pin(async { Ok(ListingSourceSnapshotResult::default()) }));
 
         let count = ListingSourceRegistrationService::new(Box::new(source), Box::new(repository))
             .sync()
@@ -194,7 +216,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_not_disable_when_business_read_fails() {
+    async fn should_not_apply_snapshot_when_business_read_fails() {
         let mut source = MockListingSourceRegistrationSource::new();
         source
             .expect_fetch_registered_listing_sources()

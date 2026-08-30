@@ -67,6 +67,18 @@ async fn insert_shop(pool: &PgPool, listing_source_id: ListingSourceId) {
         .unwrap();
 }
 
+async fn insert_domain(pool: &PgPool, listing_source_id: ListingSourceId, domain: &str) -> Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain) \
+         VALUES ($1, $2) RETURNING domain_id",
+    )
+    .bind(Uuid::from(listing_source_id))
+    .bind(domain)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
 fn review_pages() -> Vec<SchemaReviewPageInput> {
     vec![SchemaReviewPageInput {
         url: "https://example.com/products/1".to_string(),
@@ -263,6 +275,7 @@ async fn concurrent_url_pattern_reviews_return_same_pending_review_without_dupli
     let review_repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_shop(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "review-pattern.example.com").await;
 
     let pattern = Regex::new("/product/").unwrap();
     let urls = vec![
@@ -279,7 +292,7 @@ async fn concurrent_url_pattern_reviews_return_same_pending_review_without_dupli
             first_repo
                 .create_url_pattern_review(
                     &listing_source_id,
-                    None,
+                    &domain_id,
                     "url_pattern_generation",
                     Some(&pattern),
                     &first_urls,
@@ -292,7 +305,7 @@ async fn concurrent_url_pattern_reviews_return_same_pending_review_without_dupli
             second_repo
                 .create_url_pattern_review(
                     &listing_source_id,
-                    None,
+                    &domain_id,
                     "url_pattern_generation",
                     Some(&pattern),
                     &second_urls,

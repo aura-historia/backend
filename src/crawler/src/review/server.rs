@@ -7,6 +7,10 @@ use crate::review::repository::CrawlerReviewRepository;
 use crate::review::repository::ReviewRepositoryError;
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::service::{FetchError, HtmlFetcher, ReqwestHtmlFetcher};
+use crate::service::crawler_domain_configuration::{
+    CrawlerDomainConfigurationError, CrawlerDomainConfigurationRepository,
+};
+use listing_source_core::{Domain, ListingSourceId};
 use serde::Deserialize;
 use serde_json::json;
 use std::net::SocketAddr;
@@ -40,14 +44,20 @@ impl ReviewServerConfig {
 #[derive(Clone)]
 pub struct ReviewServer {
     repository: CrawlerReviewRepository,
+    domain_configuration: Arc<dyn CrawlerDomainConfigurationRepository>,
     config: ReviewServerConfig,
     html_fetcher: Arc<dyn HtmlFetcher>,
 }
 
 impl ReviewServer {
-    pub fn new(repository: CrawlerReviewRepository, config: ReviewServerConfig) -> Self {
+    pub fn new(
+        repository: CrawlerReviewRepository,
+        domain_configuration: Arc<dyn CrawlerDomainConfigurationRepository>,
+        config: ReviewServerConfig,
+    ) -> Self {
         Self {
             repository,
+            domain_configuration,
             config,
             html_fetcher: Arc::new(ReqwestHtmlFetcher::new()),
         }
@@ -55,11 +65,13 @@ impl ReviewServer {
 
     pub fn new_with_fetcher(
         repository: CrawlerReviewRepository,
+        domain_configuration: Arc<dyn CrawlerDomainConfigurationRepository>,
         config: ReviewServerConfig,
         html_fetcher: Arc<dyn HtmlFetcher>,
     ) -> Self {
         Self {
             repository,
+            domain_configuration,
             config,
             html_fetcher,
         }
@@ -124,6 +136,102 @@ impl ReviewServer {
     }
 
     async fn route_dynamic(&self, request: ParsedRequest<'_>) -> HttpResponse {
+        if request.method == "GET"
+            && request.path.starts_with("/api/listing-sources/")
+            && request.path.ends_with("/domains")
+        {
+            let Some(listing_source_id) =
+                parse_listing_source_id_with_suffix(request.path, "/domains")
+            else {
+                return HttpResponse::json(400, &json!({ "error": "invalid ListingSource id" }));
+            };
+            return match self
+                .domain_configuration
+                .list_for_source(listing_source_id)
+                .await
+            {
+                Ok(domains) => HttpResponse::json(
+                    200,
+                    &domains
+                        .into_iter()
+                        .map(|domain| {
+                            json!({
+                                "domain_id": domain.domain_id,
+                                "listing_source_id": domain.listing_source_id,
+                                "domain": domain.domain.as_str(),
+                            })
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+                Err(error) => domain_configuration_error(error),
+            };
+        }
+
+        if request.method == "POST"
+            && request.path.starts_with("/api/listing-sources/")
+            && request.path.ends_with("/domains")
+        {
+            let Some(listing_source_id) =
+                parse_listing_source_id_with_suffix(request.path, "/domains")
+            else {
+                return HttpResponse::json(400, &json!({ "error": "invalid ListingSource id" }));
+            };
+            let payload: DomainPayload = match serde_json::from_str(request.body) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
+                }
+            };
+            let domain = match Domain::try_from(payload.domain) {
+                Ok(domain) => domain,
+                Err(error) => {
+                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
+                }
+            };
+            return match self
+                .domain_configuration
+                .register(listing_source_id, domain)
+                .await
+            {
+                Ok(domain) => HttpResponse::json(
+                    201,
+                    &json!({
+                        "domain_id": domain.domain_id,
+                        "listing_source_id": domain.listing_source_id,
+                        "domain": domain.domain.as_str(),
+                    }),
+                ),
+                Err(error) => domain_configuration_error(error),
+            };
+        }
+
+        if request.method == "DELETE"
+            && request.path.starts_with("/api/listing-sources/")
+            && request.path.contains("/domains/")
+        {
+            let Some((listing_source_id, domain_id)) = parse_listing_source_domain_id(request.path)
+            else {
+                return HttpResponse::json(
+                    400,
+                    &json!({ "error": "invalid ListingSource or domain id" }),
+                );
+            };
+            return match self
+                .domain_configuration
+                .remove(listing_source_id, domain_id)
+                .await
+            {
+                Ok(removal) => HttpResponse::json(
+                    200,
+                    &json!({
+                        "domain_id": removal.domain_id,
+                        "removed_url_count": removal.removed_url_count,
+                    }),
+                ),
+                Err(error) => domain_configuration_error(error),
+            };
+        }
+
         if request.method == "GET" && request.path == "/api/live-inspect" {
             let Some(url) = request.query.get("url") else {
                 return HttpResponse::json(400, &json!({ "error": "missing url" }));
@@ -465,6 +573,11 @@ struct SchemaFieldPayload {
     rule: Option<ExtractionRule>,
 }
 
+#[derive(Deserialize)]
+struct DomainPayload {
+    domain: String,
+}
+
 fn parse_action_payload(body: &str) -> ActionPayload {
     serde_json::from_str(body).unwrap_or_default()
 }
@@ -494,10 +607,38 @@ fn parse_review_id_with_suffix(path: &str, suffix: &str) -> Option<uuid::Uuid> {
     parse_review_id(without_suffix)
 }
 
+fn parse_listing_source_id_with_suffix(path: &str, suffix: &str) -> Option<ListingSourceId> {
+    let without_suffix = path.strip_suffix(suffix)?;
+    let id = without_suffix.strip_prefix("/api/listing-sources/")?;
+    uuid::Uuid::parse_str(id).ok().map(Into::into)
+}
+
+fn parse_listing_source_domain_id(path: &str) -> Option<(ListingSourceId, uuid::Uuid)> {
+    let rest = path.strip_prefix("/api/listing-sources/")?;
+    let (listing_source_id, domain_id) = rest.split_once("/domains/")?;
+    Some((
+        uuid::Uuid::parse_str(listing_source_id).ok()?.into(),
+        uuid::Uuid::parse_str(domain_id).ok()?,
+    ))
+}
+
 fn parse_page_id_with_suffix(path: &str, suffix: &str) -> Option<uuid::Uuid> {
     let without_suffix = path.strip_suffix(suffix)?;
     let id = without_suffix.strip_prefix("/api/review-pages/")?;
     uuid::Uuid::parse_str(id).ok()
+}
+
+fn domain_configuration_error(error: CrawlerDomainConfigurationError) -> HttpResponse {
+    match error {
+        CrawlerDomainConfigurationError::ListingSourceNotFound { .. }
+        | CrawlerDomainConfigurationError::DomainNotOwnedByListingSource { .. } => {
+            HttpResponse::json(404, &json!({ "error": error.to_string() }))
+        }
+        CrawlerDomainConfigurationError::DomainOwnedByAnotherListingSource { .. } => {
+            HttpResponse::json(409, &json!({ "error": error.to_string() }))
+        }
+        CrawlerDomainConfigurationError::Database { .. } => internal_error(error),
+    }
 }
 
 fn internal_error(error: impl std::fmt::Display + std::fmt::Debug) -> HttpResponse {

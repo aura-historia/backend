@@ -154,13 +154,13 @@ mod tests {
 
         let mut repository = MockListingSourceRegistrationRepository::new();
         repository
-            .expect_upsert_listing_source()
+            .expect_apply_snapshot()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(()) }));
-        repository
-            .expect_disable_listing_sources_not_in()
-            .times(1)
-            .returning(|_| Box::pin(async { Ok(0) }));
+            .returning(|_| {
+                Box::pin(async {
+                    Ok(crate::service::listing_source_registration::ListingSourceSnapshotResult::default())
+                })
+            });
 
         let listing_source_registration =
             ListingSourceRegistrationService::new(Box::new(source), Box::new(repository));

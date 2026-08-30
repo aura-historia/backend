@@ -1,18 +1,15 @@
 use crawler::spider::classification::url_pattern_repository::{
     ListingSourceUrlPatternRepository, ListingSourceUrlPatternRepositoryImpl,
 };
-use listing_source_core::Domain;
 use listing_source_core::ListingSourceId;
-
 use test_api::*;
 
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
-async fn insert_listing_source(pool: &sqlx::PgPool, listing_source_id: ListingSourceId) {
+async fn insert_source(pool: &sqlx::PgPool, listing_source_id: ListingSourceId) {
     sqlx::query(
-        "INSERT INTO listing_sources \
-         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
-         VALUES ($1, 'Test source', 'test-source', TRUE, NOW(), NOW())",
+        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled) \
+         VALUES ($1, 'Test source', 'test-source', TRUE)",
     )
     .bind(uuid::Uuid::from(listing_source_id))
     .execute(pool)
@@ -20,202 +17,97 @@ async fn insert_listing_source(pool: &sqlx::PgPool, listing_source_id: ListingSo
     .unwrap();
 }
 
-// ---------------------------------------------------------------------------
-// find_pattern
-// ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [POSTGRES])]
-#[serial_test::serial]
-async fn should_return_none_when_no_pattern_exists_for_find() {
-    let pool = get_postgres_client().await;
-    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool);
-    let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
-
-    let result = repository.find_pattern(&listing_source_id).await.unwrap();
-
-    assert!(result.is_none());
+async fn insert_domain(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+    domain: &str,
+) -> uuid::Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain) \
+         VALUES ($1, $2) RETURNING domain_id",
+    )
+    .bind(uuid::Uuid::from(listing_source_id))
+    .bind(domain)
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
-#[aura_integration_test(services = [POSTGRES])]
 #[serial_test::serial]
-async fn should_return_pattern_when_exists_for_find() {
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_store_patterns_independently_for_domains_of_one_listing_source() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
-    let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
-    let listing_source_domain = Domain::try_from("example.com").unwrap();
-    let pattern = r"/product/\d+";
-    insert_listing_source(&pool, listing_source_id).await;
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_a = insert_domain(&pool, listing_source_id, "a.example.com").await;
+    let domain_b = insert_domain(&pool, listing_source_id, "b.example.com").await;
 
     repository
-        .save_pattern(&listing_source_id, &listing_source_domain, Some(pattern))
+        .save_pattern(&listing_source_id, &domain_a, Some(r"/products/"))
         .await
         .unwrap();
+    repository
+        .save_pattern(&listing_source_id, &domain_b, Some(r"/objects/"))
+        .await
+        .unwrap();
+
+    let pattern_a = repository
+        .find_pattern(&listing_source_id, &domain_a)
+        .await
+        .unwrap()
+        .unwrap();
+    let pattern_b = repository
+        .find_pattern(&listing_source_id, &domain_b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(pattern_a.url_pattern.as_deref(), Some(r"/products/"));
+    assert_eq!(pattern_b.url_pattern.as_deref(), Some(r"/objects/"));
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_reject_pattern_write_for_domain_owned_by_another_listing_source() {
+    let pool = get_postgres_client().await;
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
+    let owner = ListingSourceId::new();
+    let other = ListingSourceId::new();
+    insert_source(&pool, owner).await;
+    insert_source(&pool, other).await;
+    let domain_id = insert_domain(&pool, owner, "owned.example.com").await;
 
     let result = repository
-        .find_pattern(&listing_source_id)
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(result.listing_source_id, listing_source_id);
-    assert_eq!(result.listing_source_domain, listing_source_domain);
-    assert_eq!(result.url_pattern.unwrap(), pattern);
+        .save_pattern(&other, &domain_id, Some(r"/items/"))
+        .await;
+    assert!(matches!(result, Err(sqlx::Error::RowNotFound)));
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT url_pattern FROM listing_source_domains WHERE domain_id = $1")
+            .bind(domain_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(stored.is_none());
 }
 
-// ---------------------------------------------------------------------------
-// save_pattern
-// ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [POSTGRES])]
 #[serial_test::serial]
-async fn should_persist_and_return_pattern_for_insert() {
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_reject_crawl_mark_for_domain_owned_by_another_listing_source() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
+    let owner = ListingSourceId::new();
+    let other = ListingSourceId::new();
+    insert_source(&pool, owner).await;
+    insert_source(&pool, other).await;
+    let domain_id = insert_domain(&pool, owner, "marked.example.com").await;
 
-    let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
-    let listing_source_domain = Domain::try_from("insert-example.com").unwrap();
-    let pattern = r"/item/\w+";
-    insert_listing_source(&pool, listing_source_id).await;
-
-    repository
-        .save_pattern(&listing_source_id, &listing_source_domain, Some(pattern))
-        .await
-        .unwrap();
-
-    let returned = repository
-        .find_pattern(&listing_source_id)
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(returned.listing_source_id, listing_source_id);
-    assert_eq!(returned.listing_source_domain, listing_source_domain);
-    assert_eq!(returned.url_pattern.unwrap(), pattern);
-}
-
-#[aura_integration_test(services = [POSTGRES])]
-#[serial_test::serial]
-async fn should_preserve_created_and_updated_timestamps_for_insert() {
-    let pool = get_postgres_client().await;
-    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
-
-    let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
-    let listing_source_domain = Domain::try_from("ts-example.com").unwrap();
-    let pattern = "/ts-item";
-    insert_listing_source(&pool, listing_source_id).await;
-
-    repository
-        .save_pattern(&listing_source_id, &listing_source_domain, Some(pattern))
-        .await
-        .unwrap();
-    let record1 = repository
-        .find_pattern(&listing_source_id)
-        .await
-        .unwrap()
-        .unwrap();
-
-    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-
-    repository
-        .save_pattern(
-            &listing_source_id,
-            &listing_source_domain,
-            Some("/ts-item-new"),
-        )
-        .await
-        .unwrap();
-    let record2 = repository
-        .find_pattern(&listing_source_id)
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert!(
-        (record2.created - record1.created).abs() < time::Duration::microseconds(1000),
-        "created timestamp drifted unexpectedly"
-    );
-    assert!(
-        record2.updated > record1.updated,
-        "updated timestamp should be strictly newer after an update"
-    );
-}
-
-#[aura_integration_test(services = [POSTGRES])]
-#[serial_test::serial]
-async fn should_allow_clearing_pattern() {
-    let pool = get_postgres_client().await;
-    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
-
-    let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
-    let listing_source_domain = Domain::try_from("clear-example.com").unwrap();
-    insert_listing_source(&pool, listing_source_id).await;
-
-    repository
-        .save_pattern(
-            &listing_source_id,
-            &listing_source_domain,
-            Some("/clear-item"),
-        )
-        .await
-        .unwrap();
-
-    // Explicitly clear pattern
-    repository
-        .save_pattern(&listing_source_id, &listing_source_domain, None)
-        .await
-        .unwrap();
-
-    let returned = repository
-        .find_pattern(&listing_source_id)
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(returned.listing_source_id, listing_source_id);
-    assert_eq!(returned.listing_source_domain, listing_source_domain);
-    assert!(returned.url_pattern.is_none());
-}
-
-// ---------------------------------------------------------------------------
-// mark_as_crawled
-// ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [POSTGRES])]
-#[serial_test::serial]
-async fn should_mark_pattern_as_crawled() {
-    let pool = get_postgres_client().await;
-    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
-
-    let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
-    let listing_source_domain = Domain::try_from("mark-example.com").unwrap();
-    insert_listing_source(&pool, listing_source_id).await;
-
-    // Mark as crawled directly without a pattern
-    repository
-        .mark_as_crawled(&listing_source_id, &listing_source_domain)
-        .await
-        .unwrap();
-
-    let record = repository
-        .find_pattern(&listing_source_id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(record.last_crawled.is_some());
-    assert!(record.url_pattern.is_none());
-
-    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-
-    // Mark again
-    repository
-        .mark_as_crawled(&listing_source_id, &listing_source_domain)
-        .await
-        .unwrap();
-
-    let record2 = repository
-        .find_pattern(&listing_source_id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(record2.last_crawled.unwrap() > record.last_crawled.unwrap());
+    let result = repository.mark_as_crawled(&other, &domain_id).await;
+    assert!(matches!(result, Err(sqlx::Error::RowNotFound)));
+    let crawled: Option<time::OffsetDateTime> =
+        sqlx::query_scalar("SELECT last_crawled FROM listing_source_domains WHERE domain_id = $1")
+            .bind(domain_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(crawled.is_none());
 }

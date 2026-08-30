@@ -24,8 +24,12 @@ pub(super) mod test_support {
             .returning(|| Box::pin(async { Ok(vec![]) }));
         let mut repository = MockListingSourceRegistrationRepository::new();
         repository
-            .expect_disable_listing_sources_not_in()
-            .returning(|_| Box::pin(async { Ok(0) }));
+            .expect_apply_snapshot()
+            .returning(|_| {
+                Box::pin(async {
+                    Ok(crate::service::listing_source_registration::ListingSourceSnapshotResult::default())
+                })
+            });
         ListingSourceRegistrationService::new(Box::new(source), Box::new(repository))
     }
 

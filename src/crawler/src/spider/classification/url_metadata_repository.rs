@@ -21,15 +21,16 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
     fn from_row(row: &sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let listing_source_id: uuid::Uuid = row.try_get("listing_source_id")?;
         let domain_id: uuid::Uuid = row.try_get("domain_id")?;
-        let url_str: String = row.try_get("url")?;
-        let url = url::Url::parse(&url_str).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-        let url_class_str: String = row.try_get("url_class")?;
-        let url_class = std::str::FromStr::from_str(&url_class_str)
-            .map_err(|e: String| sqlx::Error::Decode(e.into()))?;
-        let state_str: String = row.try_get("last_scraped_presence")?;
-        let state = std::str::FromStr::from_str(&state_str)
-            .map_err(|e: String| sqlx::Error::Decode(e.into()))?;
-
+        let url = url::Url::parse(&row.try_get::<String, _>("url")?)
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
+        let url_class = row
+            .try_get::<String, _>("url_class")?
+            .parse()
+            .map_err(|error: String| sqlx::Error::Decode(error.into()))?;
+        let state = row
+            .try_get::<String, _>("last_scraped_presence")?
+            .parse()
+            .map_err(|error: String| sqlx::Error::Decode(error.into()))?;
         Ok(Self {
             listing_source_id: listing_source_id.into(),
             domain_id,
@@ -44,6 +45,26 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum UrlMetadataRepositoryError {
+    #[error("crawler domain does not belong to ListingSource")]
+    DomainNotOwnedByListingSource {
+        listing_source_id: ListingSourceId,
+        domain_id: uuid::Uuid,
+    },
+    #[error("URL is already owned by another ListingSource")]
+    UrlOwnedByAnotherListingSource {
+        url: url::Url,
+        requested_listing_source_id: ListingSourceId,
+        current_listing_source_id: ListingSourceId,
+    },
+    #[error("crawler URL persistence failed")]
+    Database {
+        #[source]
+        source: sqlx::Error,
+    },
+}
+
 #[async_trait]
 #[mockall::automock]
 pub trait UrlMetadataRepository: Send + Sync {
@@ -53,7 +74,7 @@ pub trait UrlMetadataRepository: Send + Sync {
         domain_id: &uuid::Uuid,
         url: &url::Url,
         url_class: &UrlClass,
-    ) -> Result<SpiderUrlRecord, sqlx::Error>;
+    ) -> Result<SpiderUrlRecord, UrlMetadataRepositoryError>;
 
     async fn upsert_links_batch(
         &self,
@@ -61,7 +82,7 @@ pub trait UrlMetadataRepository: Send + Sync {
         domain_id: &uuid::Uuid,
         urls: &[url::Url],
         url_classes: &[UrlClass],
-    ) -> Result<Vec<SpiderUrlRecord>, sqlx::Error>;
+    ) -> Result<Vec<SpiderUrlRecord>, UrlMetadataRepositoryError>;
 
     async fn mark_as_scraped(
         &self,
@@ -86,6 +107,76 @@ impl UrlMetadataRepositoryImpl {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
+    async fn verify_domain_owner(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        listing_source_id: ListingSourceId,
+        domain_id: uuid::Uuid,
+    ) -> Result<(), UrlMetadataRepositoryError> {
+        let owned = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS ( \
+                SELECT 1 FROM listing_source_domains \
+                WHERE listing_source_id = $1 AND domain_id = $2 \
+             )",
+        )
+        .bind(uuid::Uuid::from(listing_source_id))
+        .bind(domain_id)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(database_error)?;
+        if owned {
+            Ok(())
+        } else {
+            Err(UrlMetadataRepositoryError::DomainNotOwnedByListingSource {
+                listing_source_id,
+                domain_id,
+            })
+        }
+    }
+
+    async fn conflicting_owner(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        listing_source_id: ListingSourceId,
+        urls: &[String],
+    ) -> Result<Option<(url::Url, ListingSourceId)>, UrlMetadataRepositoryError> {
+        let row = sqlx::query(
+            "SELECT url, listing_source_id FROM listing_source_urls \
+             WHERE url = ANY($1::text[]) AND listing_source_id <> $2 \
+             ORDER BY url LIMIT 1 FOR UPDATE",
+        )
+        .bind(urls)
+        .bind(uuid::Uuid::from(listing_source_id))
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(database_error)?;
+        row.map(|row| {
+            let raw_url = row.try_get::<String, _>("url").map_err(database_error)?;
+            let url = url::Url::parse(&raw_url).map_err(|error| {
+                UrlMetadataRepositoryError::Database {
+                    source: sqlx::Error::Decode(Box::new(error)),
+                }
+            })?;
+            let owner = row
+                .try_get::<uuid::Uuid, _>("listing_source_id")
+                .map_err(database_error)?;
+            Ok((url, owner.into()))
+        })
+        .transpose()
+    }
+
+    async fn owner_for_url(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        url: &url::Url,
+    ) -> Result<Option<ListingSourceId>, UrlMetadataRepositoryError> {
+        sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT listing_source_id FROM listing_source_urls WHERE url = $1",
+        )
+        .bind(url.as_str())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map(|owner| owner.map(Into::into))
+        .map_err(database_error)
+    }
 }
 
 #[async_trait]
@@ -96,27 +187,52 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         domain_id: &uuid::Uuid,
         url: &url::Url,
         url_class: &UrlClass,
-    ) -> Result<SpiderUrlRecord, sqlx::Error> {
-        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
-        let url_str = url.to_string();
-        let url_class_str = url_class.to_string();
+    ) -> Result<SpiderUrlRecord, UrlMetadataRepositoryError> {
+        let mut transaction = self.pool.begin().await.map_err(database_error)?;
+        Self::verify_domain_owner(&mut transaction, *listing_source_id, *domain_id).await?;
+        let urls = vec![url.to_string()];
+        if let Some((conflicting_url, current_listing_source_id)) =
+            Self::conflicting_owner(&mut transaction, *listing_source_id, &urls).await?
+        {
+            return Err(UrlMetadataRepositoryError::UrlOwnedByAnotherListingSource {
+                url: conflicting_url,
+                requested_listing_source_id: *listing_source_id,
+                current_listing_source_id,
+            });
+        }
 
-        sqlx::query_as::<_, SpiderUrlRecord>(
-            "INSERT INTO listing_source_urls (listing_source_id, domain_id, url, url_class, created, updated)
-             VALUES ($1, $2, $3, $4, NOW(), NOW())
-             ON CONFLICT (url)
-             DO UPDATE SET
-                 url_class = EXCLUDED.url_class,
-                 domain_id = EXCLUDED.domain_id,
-                 updated = NOW()
+        let record = sqlx::query_as::<_, SpiderUrlRecord>(
+            "INSERT INTO listing_source_urls (listing_source_id, domain_id, url, url_class, created, updated) \
+             VALUES ($1, $2, $3, $4, NOW(), NOW()) \
+             ON CONFLICT (url) DO UPDATE SET \
+                 url_class = EXCLUDED.url_class, \
+                 domain_id = EXCLUDED.domain_id, \
+                 updated = NOW() \
+             WHERE listing_source_urls.listing_source_id = EXCLUDED.listing_source_id \
              RETURNING listing_source_id, domain_id, url, url_class, last_scraped_presence, last_scraped_hash, last_scraped, created, updated",
         )
-        .bind(listing_source_id_uuid)
+        .bind(uuid::Uuid::from(*listing_source_id))
         .bind(domain_id)
-        .bind(url_str)
-        .bind(url_class_str)
-        .fetch_one(&self.pool)
+        .bind(url.as_str())
+        .bind(url_class.to_string())
+        .fetch_optional(&mut *transaction)
         .await
+        .map_err(database_error)?;
+
+        let Some(record) = record else {
+            let current_listing_source_id = Self::owner_for_url(&mut transaction, url)
+                .await?
+                .ok_or_else(|| UrlMetadataRepositoryError::Database {
+                    source: sqlx::Error::RowNotFound,
+                })?;
+            return Err(UrlMetadataRepositoryError::UrlOwnedByAnotherListingSource {
+                url: url.clone(),
+                requested_listing_source_id: *listing_source_id,
+                current_listing_source_id,
+            });
+        };
+        transaction.commit().await.map_err(database_error)?;
+        Ok(record)
     }
 
     async fn upsert_links_batch(
@@ -125,32 +241,69 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         domain_id: &uuid::Uuid,
         urls: &[url::Url],
         url_classes: &[UrlClass],
-    ) -> Result<Vec<SpiderUrlRecord>, sqlx::Error> {
+    ) -> Result<Vec<SpiderUrlRecord>, UrlMetadataRepositoryError> {
         if urls.is_empty() {
             return Ok(Vec::new());
         }
+        if urls.len() != url_classes.len() {
+            return Err(UrlMetadataRepositoryError::Database {
+                source: sqlx::Error::Protocol("URL and URL-class batch lengths differ".to_owned()),
+            });
+        }
 
-        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
-        let url_strs: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
-        let url_class_strs: Vec<String> = url_classes.iter().map(|c| c.to_string()).collect();
+        let mut transaction = self.pool.begin().await.map_err(database_error)?;
+        Self::verify_domain_owner(&mut transaction, *listing_source_id, *domain_id).await?;
+        let url_strings = urls.iter().map(ToString::to_string).collect::<Vec<_>>();
+        if let Some((conflicting_url, current_listing_source_id)) =
+            Self::conflicting_owner(&mut transaction, *listing_source_id, &url_strings).await?
+        {
+            return Err(UrlMetadataRepositoryError::UrlOwnedByAnotherListingSource {
+                url: conflicting_url,
+                requested_listing_source_id: *listing_source_id,
+                current_listing_source_id,
+            });
+        }
 
-        sqlx::query_as::<_, SpiderUrlRecord>(
-            "INSERT INTO listing_source_urls (listing_source_id, domain_id, url, url_class, created, updated)
-             SELECT $1, $2, t.url, t.url_class, NOW(), NOW()
-             FROM UNNEST($3::text[], $4::text[]) AS t(url, url_class)
-             ON CONFLICT (url)
-             DO UPDATE SET
-                 url_class = EXCLUDED.url_class,
-                 domain_id = EXCLUDED.domain_id,
-                 updated = NOW()
+        let records = sqlx::query_as::<_, SpiderUrlRecord>(
+            "INSERT INTO listing_source_urls (listing_source_id, domain_id, url, url_class, created, updated) \
+             SELECT $1, $2, input.url, input.url_class, NOW(), NOW() \
+             FROM UNNEST($3::text[], $4::text[]) AS input(url, url_class) \
+             ON CONFLICT (url) DO UPDATE SET \
+                 url_class = EXCLUDED.url_class, \
+                 domain_id = EXCLUDED.domain_id, \
+                 updated = NOW() \
+             WHERE listing_source_urls.listing_source_id = EXCLUDED.listing_source_id \
              RETURNING listing_source_id, domain_id, url, url_class, last_scraped_presence, last_scraped_hash, last_scraped, created, updated",
         )
-        .bind(listing_source_id_uuid)
+        .bind(uuid::Uuid::from(*listing_source_id))
         .bind(domain_id)
-        .bind(url_strs)
-        .bind(url_class_strs)
-        .fetch_all(&self.pool)
+        .bind(&url_strings)
+        .bind(url_classes.iter().map(ToString::to_string).collect::<Vec<_>>())
+        .fetch_all(&mut *transaction)
         .await
+        .map_err(database_error)?;
+
+        if records.len() != urls.len() {
+            for url in urls {
+                if let Some(current_listing_source_id) =
+                    Self::owner_for_url(&mut transaction, url).await?
+                    && current_listing_source_id != *listing_source_id
+                {
+                    return Err(UrlMetadataRepositoryError::UrlOwnedByAnotherListingSource {
+                        url: url.clone(),
+                        requested_listing_source_id: *listing_source_id,
+                        current_listing_source_id,
+                    });
+                }
+            }
+            return Err(UrlMetadataRepositoryError::Database {
+                source: sqlx::Error::Protocol(
+                    "crawler URL batch returned fewer rows than inputs".to_owned(),
+                ),
+            });
+        }
+        transaction.commit().await.map_err(database_error)?;
+        Ok(records)
     }
 
     async fn mark_as_scraped(
@@ -159,16 +312,14 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         url: &url::Url,
         hash: &str,
     ) -> Result<SpiderUrlRecord, sqlx::Error> {
-        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
-        let url_str = url.to_string();
         sqlx::query_as::<_, SpiderUrlRecord>(
-            "UPDATE listing_source_urls
-             SET last_scraped = NOW(), last_scraped_hash = $3, updated = NOW()
-             WHERE listing_source_id = $1 AND url = $2
+            "UPDATE listing_source_urls \
+             SET last_scraped = NOW(), last_scraped_hash = $3, updated = NOW() \
+             WHERE listing_source_id = $1 AND url = $2 \
              RETURNING listing_source_id, domain_id, url, url_class, last_scraped_presence, last_scraped_hash, last_scraped, created, updated",
         )
-        .bind(listing_source_id_uuid)
-        .bind(url_str)
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(url.as_str())
         .bind(hash)
         .fetch_one(&self.pool)
         .await
@@ -180,19 +331,20 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         url: &url::Url,
         state: &UrlPresence,
     ) -> Result<SpiderUrlRecord, sqlx::Error> {
-        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
-        let url_str = url.to_string();
-        let state_str = state.to_string();
         sqlx::query_as::<_, SpiderUrlRecord>(
-            "UPDATE listing_source_urls
-             SET last_scraped_presence = $3, updated = NOW()
-             WHERE listing_source_id = $1 AND url = $2
+            "UPDATE listing_source_urls \
+             SET last_scraped_presence = $3, updated = NOW() \
+             WHERE listing_source_id = $1 AND url = $2 \
              RETURNING listing_source_id, domain_id, url, url_class, last_scraped_presence, last_scraped_hash, last_scraped, created, updated",
         )
-        .bind(listing_source_id_uuid)
-        .bind(url_str)
-        .bind(state_str)
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(url.as_str())
+        .bind(state.to_string())
         .fetch_one(&self.pool)
         .await
     }
+}
+
+fn database_error(source: sqlx::Error) -> UrlMetadataRepositoryError {
+    UrlMetadataRepositoryError::Database { source }
 }

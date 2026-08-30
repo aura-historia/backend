@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS crawler_reviews (
     listing_source_id            UUID        NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
     domain_id          UUID        REFERENCES listing_source_domains(domain_id) ON DELETE SET NULL,
     artifact_type      TEXT        NOT NULL CHECK (artifact_type IN ('URL_PATTERN', 'PRODUCT_SCHEMA')),
+    CHECK (artifact_type <> 'URL_PATTERN' OR domain_id IS NOT NULL),
     status             TEXT        NOT NULL CHECK (status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED', 'NEEDS_REPAIR', 'SUPERSEDED')),
     reason             TEXT        NOT NULL,
     candidate_payload  JSONB       NOT NULL,
@@ -17,10 +18,17 @@ CREATE INDEX IF NOT EXISTS idx_crawler_reviews_status
     ON crawler_reviews (status, artifact_type, created);
 
 DROP INDEX IF EXISTS idx_crawler_reviews_shop_pending;
+DROP INDEX IF EXISTS idx_crawler_reviews_shop_pending_unique;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_crawler_reviews_shop_pending_unique
-    ON crawler_reviews (listing_source_id, artifact_type)
-    WHERE status = 'PENDING_REVIEW';
+CREATE UNIQUE INDEX IF NOT EXISTS crawler_reviews_pending_url_pattern_per_domain
+    ON crawler_reviews (domain_id)
+    WHERE status = 'PENDING_REVIEW'
+      AND artifact_type = 'URL_PATTERN';
+
+CREATE UNIQUE INDEX IF NOT EXISTS crawler_reviews_pending_product_schema_per_source
+    ON crawler_reviews (listing_source_id)
+    WHERE status = 'PENDING_REVIEW'
+      AND artifact_type = 'PRODUCT_SCHEMA';
 
 CREATE TABLE IF NOT EXISTS crawler_review_pages (
     review_page_id UUID        PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -56,6 +56,9 @@ use crawler::scraper::normalization::product_normalization_service::ProductListi
 use crawler::scraper::scraper_service::{
     DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
+use crawler::service::crawler_domain_configuration::{
+    CrawlerDomainConfigurationRepository, CrawlerDomainConfigurationRepositoryImpl,
+};
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
@@ -323,6 +326,29 @@ async fn main() {
             Box::new(ListingSourceRegistrationRepositoryImpl::new(pool.clone()));
         let listing_source_registration =
             ListingSourceRegistrationService::new(listing_source_source, listing_source_repo);
+        if let Err(error) = listing_source_registration.sync().await {
+            error!(error = ?error, "Failed to synchronize demo ListingSources");
+            return;
+        }
+        let domain_configuration =
+            Arc::new(CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()));
+        for (listing_source, domain) in demo_listing_sources().into_iter().zip([
+            "hingstons-antiques.co.uk",
+            "harrisonantiquefurniture.co.uk",
+            "collingeantiques.com",
+        ]) {
+            if let Err(error) = domain_configuration
+                .register(
+                    listing_source.listing_source_id,
+                    listing_source_core::Domain::try_from(domain)
+                        .unwrap_or_else(|error| panic!("invalid demo crawler domain: {error}")),
+                )
+                .await
+            {
+                error!(error = ?error, domain, "Failed to configure demo crawler domain");
+                return;
+            }
+        }
         let product_push = Box::new(FileProductListingPushService::new("scraped_products.json"));
 
         let cron_job = CrawlerCronJob::new(
@@ -347,7 +373,7 @@ async fn main() {
             review_bind_addr = %review_config.bind_addr,
             "Crawler demo is fully initialized. Starting background tasks. Press Ctrl+C to stop."
         );
-        let review_server = ReviewServer::new(review_repo, review_config);
+        let review_server = ReviewServer::new(review_repo, domain_configuration, review_config);
         let review_handle = tokio::spawn(async move {
             review_server
                 .run()

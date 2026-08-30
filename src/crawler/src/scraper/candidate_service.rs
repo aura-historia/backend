@@ -326,7 +326,7 @@ struct ScraperCandidateRow {
 const SCRAPER_CANDIDATE_QUERY: &str = r#"
     WITH eligible_urls AS (
         SELECT
-            su.listing_source_id, s.listing_source_name, s.url_pattern, su.url,
+            su.listing_source_id, s.listing_source_name, sd.url_pattern, su.url,
             lower(substring(su.url from '^[a-z][a-z0-9+.-]*://([^/:?#]+)')) AS normalized_host,
             su.last_scraped,
             su.last_scraped_hash,
@@ -341,6 +341,8 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
             su.last_scraped_availability
         FROM listing_source_urls su
         JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
+        JOIN listing_source_domains sd
+          ON sd.listing_source_id = su.listing_source_id AND sd.domain_id = su.domain_id
         WHERE s.crawl_enabled = TRUE
           AND s.llm_calls_count < $3
           AND su.url_class = 'product'

@@ -90,9 +90,11 @@ impl std::fmt::Display for HttpResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let reason = match self.status {
             200 => "OK",
+            201 => "Created",
             400 => "Bad Request",
             401 => "Unauthorized",
             404 => "Not Found",
+            409 => "Conflict",
             502 => "Bad Gateway",
             500 => "Internal Server Error",
             _ => "OK",

@@ -43,6 +43,11 @@ pub enum SpiderServiceError {
     #[error(transparent)]
     Database(#[from] sqlx::Error),
 
+    #[error(transparent)]
+    UrlMetadata(
+        #[from] crate::spider::classification::url_metadata_repository::UrlMetadataRepositoryError,
+    ),
+
     #[error("Spider crawl emitted no pages for shop URL '{shop_url}'")]
     EmptyCrawl { shop_url: String },
 
@@ -191,6 +196,7 @@ impl SpiderServiceImpl {
         &self,
         state: &mut CrawlRunState,
         listing_source_id: &ListingSourceId,
+        domain_id: &uuid::Uuid,
         shop_url: &str,
         stage: &'static str,
     ) -> Result<(), SpiderServiceError> {
@@ -205,7 +211,12 @@ impl SpiderServiceImpl {
 
         state.pattern = self
             .pattern_service
-            .classify_and_save(listing_source_id, shop_url, &state.inference_sample)
+            .classify_and_save(
+                listing_source_id,
+                domain_id,
+                shop_url,
+                &state.inference_sample,
+            )
             .await
             .map(|pattern| {
                 pattern
@@ -229,6 +240,7 @@ impl SpiderServiceImpl {
         &self,
         state: &mut CrawlRunState,
         listing_source_id: &ListingSourceId,
+        domain_id: &uuid::Uuid,
         shop_url: &str,
         classify_threshold: usize,
     ) -> Result<(), SpiderServiceError> {
@@ -238,8 +250,14 @@ impl SpiderServiceImpl {
                 "Threshold reached, requesting product URL pattern"
             );
 
-            self.classify_and_save_for_stage(state, listing_source_id, shop_url, "threshold")
-                .await?;
+            self.classify_and_save_for_stage(
+                state,
+                listing_source_id,
+                domain_id,
+                shop_url,
+                "threshold",
+            )
+            .await?;
 
             state.classification_done = true;
             state.pattern_loaded_from_store = false;
@@ -287,6 +305,7 @@ impl SpiderServiceImpl {
         &self,
         state: &mut CrawlRunState,
         listing_source_id: &ListingSourceId,
+        domain_id: &uuid::Uuid,
         shop_url: &str,
     ) -> Result<(), SpiderServiceError> {
         if !state.classification_done && !state.page_buffer.is_empty() {
@@ -295,8 +314,14 @@ impl SpiderServiceImpl {
                 "Threshold not reached, classifying collected URLs"
             );
 
-            self.classify_and_save_for_stage(state, listing_source_id, shop_url, "end_of_crawl")
-                .await?;
+            self.classify_and_save_for_stage(
+                state,
+                listing_source_id,
+                domain_id,
+                shop_url,
+                "end_of_crawl",
+            )
+            .await?;
 
             state.classification_done = true;
         }
@@ -312,6 +337,7 @@ impl SpiderServiceImpl {
         &self,
         state: &mut CrawlRunState,
         listing_source_id: &ListingSourceId,
+        domain_id: &uuid::Uuid,
         shop_url: &str,
     ) -> Result<(), SpiderServiceError> {
         if state.pattern_loaded_from_store
@@ -320,8 +346,14 @@ impl SpiderServiceImpl {
         {
             warn!("Persisted product URL pattern did not match crawl results, reclassifying");
 
-            self.classify_and_save_for_stage(state, listing_source_id, shop_url, "refresh")
-                .await?;
+            self.classify_and_save_for_stage(
+                state,
+                listing_source_id,
+                domain_id,
+                shop_url,
+                "refresh",
+            )
+            .await?;
         }
 
         Ok(())
@@ -354,11 +386,12 @@ impl SpiderServiceImpl {
     async fn mark_as_crawled_best_effort(
         &self,
         listing_source_id: &ListingSourceId,
+        domain_id: &uuid::Uuid,
         shop_url: &str,
     ) {
         if let Err(error) = self
             .pattern_service
-            .mark_as_crawled(listing_source_id, shop_url)
+            .mark_as_crawled(listing_source_id, domain_id)
             .await
         {
             warn!(error = ?error, "Failed to mark shop as crawled");
@@ -388,7 +421,7 @@ impl SpiderServiceImpl {
 
         let initial_pattern = self
             .pattern_service
-            .load_pattern_for_shop(listing_source_id)
+            .load_pattern_for_domain(listing_source_id, domain_id)
             .await?;
         let mut state = CrawlRunState::new(initial_pattern);
 
@@ -408,6 +441,7 @@ impl SpiderServiceImpl {
             self.maybe_classify_at_threshold(
                 &mut state,
                 listing_source_id,
+                domain_id,
                 shop_url,
                 classify_threshold,
             )
@@ -425,10 +459,15 @@ impl SpiderServiceImpl {
             return Err(error);
         }
 
-        self.classify_at_end_if_needed(&mut state, listing_source_id, shop_url)
+        self.classify_at_end_if_needed(&mut state, listing_source_id, domain_id, shop_url)
             .await?;
-        self.reclassify_if_persisted_pattern_failed(&mut state, listing_source_id, shop_url)
-            .await?;
+        self.reclassify_if_persisted_pattern_failed(
+            &mut state,
+            listing_source_id,
+            domain_id,
+            shop_url,
+        )
+        .await?;
         self.flush_remaining_pages(&mut state, listing_source_id, domain_id)
             .await?;
 
@@ -437,7 +476,7 @@ impl SpiderServiceImpl {
             .as_regex()
             .map(|regex| regex.as_str().to_string());
 
-        self.mark_as_crawled_best_effort(listing_source_id, shop_url)
+        self.mark_as_crawled_best_effort(listing_source_id, domain_id, shop_url)
             .await;
 
         info!(
@@ -569,12 +608,9 @@ mod service_tests {
             .returning(|_, _, _, _| Box::pin(async move { Ok(Vec::new()) }));
     }
 
-    fn setup_mock_mark_as_crawled(mock: &mut MockUrlPatternService, shop_url: &'static str) {
+    fn setup_mock_mark_as_crawled(mock: &mut MockUrlPatternService, _shop_url: &'static str) {
         mock.expect_mark_as_crawled()
-            .with(
-                mockall::predicate::always(),
-                mockall::predicate::eq(shop_url),
-            )
+            .with(mockall::predicate::always(), mockall::predicate::always())
             .times(1)
             .returning(|_, _| Box::pin(async { Ok(()) }));
     }
@@ -648,12 +684,14 @@ mod service_tests {
         setup_mock_crawl(&mut mock_spider, shop_url, one_product_and_listing_pages());
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
-            .returning(|_| Box::pin(async { Ok(None) }));
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
 
         mock_pattern_service
             .expect_classify_and_save()
-            .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .returning(|_, _, _, _| {
+                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+            });
 
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
@@ -688,14 +726,16 @@ mod service_tests {
         setup_mock_crawl(&mut mock_spider, shop_url, one_product_and_listing_pages());
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
-            .returning(|_| Box::pin(async { Ok(None) }));
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
 
         // It should classify at the end because threshold is above the crawl size.
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .returning(|_, _, _, _| {
+                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+            });
 
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
@@ -730,14 +770,14 @@ mod service_tests {
 
         // Persisted pattern expects /product/
         mock_pattern_service
-            .expect_load_pattern_for_shop()
-            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
         // Reclassification gives the correct /item/ pattern
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+            .returning(|_, _, _, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
 
         setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
 
@@ -784,9 +824,9 @@ mod service_tests {
             });
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
+            .expect_load_pattern_for_domain()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(None) }));
+            .returning(|_, _| Box::pin(async { Ok(None) }));
 
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
@@ -822,9 +862,9 @@ mod service_tests {
         setup_mock_crawl(&mut mock_spider, shop_url, vec!["/"]);
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
+            .expect_load_pattern_for_domain()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(None) }));
+            .returning(|_, _| Box::pin(async { Ok(None) }));
 
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
@@ -863,9 +903,9 @@ mod service_tests {
         setup_mock_crawl(&mut mock_spider, shop_url, vec!["/collections", "/about"]);
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
+            .expect_load_pattern_for_domain()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(None) }));
+            .returning(|_, _| Box::pin(async { Ok(None) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo.expect_upsert_links_batch().times(0);
@@ -916,9 +956,9 @@ mod service_tests {
         );
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
+            .expect_load_pattern_for_domain()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(None) }));
+            .returning(|_, _| Box::pin(async { Ok(None) }));
 
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
@@ -968,9 +1008,9 @@ mod service_tests {
         );
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
+            .expect_load_pattern_for_domain()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(None) }));
+            .returning(|_, _| Box::pin(async { Ok(None) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo.expect_upsert_links_batch().times(0);
@@ -1005,9 +1045,9 @@ mod service_tests {
         setup_mock_crawl(&mut mock_spider, shop_url, vec!["/item/1", "/item/2"]);
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
+            .expect_load_pattern_for_domain()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo.expect_upsert_links_batch().times(0);

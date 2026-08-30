@@ -124,9 +124,8 @@ CREATE TABLE IF NOT EXISTS listing_sources (
     listing_source_id   UUID        PRIMARY KEY,
     listing_source_name TEXT        NOT NULL,
     listing_source_slug TEXT        NOT NULL,
-    crawl_enabled       BOOLEAN     NOT NULL DEFAULT TRUE,
+    crawl_enabled       BOOLEAN     NOT NULL DEFAULT FALSE,
     llm_calls_count     BIGINT      NOT NULL DEFAULT 0,
-    url_pattern         TEXT,
     created             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -142,18 +141,23 @@ CREATE TABLE IF NOT EXISTS listing_source_domains (
     domain_id   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     listing_source_id     UUID        NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
     listing_source_domain TEXT        NOT NULL,
+    url_pattern TEXT,
     last_crawled TIMESTAMPTZ,
     crawl_failure_count INT NOT NULL DEFAULT 0,
     last_crawl_error_kind TEXT,
     next_crawl_at TIMESTAMPTZ,
-    UNIQUE (listing_source_domain)
+    UNIQUE (listing_source_domain),
+    UNIQUE (listing_source_id, domain_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_listing_source_domains_listing_source_id ON listing_source_domains (listing_source_id);
 
 CREATE TABLE IF NOT EXISTS listing_source_urls (
     listing_source_id           UUID        NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
-    domain_id         UUID        NOT NULL REFERENCES listing_source_domains(domain_id) ON DELETE CASCADE,
+    domain_id         UUID        NOT NULL,
+    FOREIGN KEY (listing_source_id, domain_id)
+        REFERENCES listing_source_domains (listing_source_id, domain_id)
+        ON DELETE CASCADE,
     url               TEXT        NOT NULL,
     url_class         TEXT        NOT NULL,
     last_scraped_presence             TEXT        NOT NULL DEFAULT 'PRESENT',

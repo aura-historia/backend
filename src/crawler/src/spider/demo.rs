@@ -41,6 +41,10 @@ use std::sync::Arc;
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
 use crawler::local_db::{DEMO_SPIDER_DB_NAME, bootstrap_local_database, demo_spider_db_url};
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
+use crawler::service::crawler_domain_configuration::{
+    CrawlerDomainConfigurationError, CrawlerDomainConfigurationRepository,
+    CrawlerDomainConfigurationRepositoryImpl,
+};
 use crawler::spider::SpiderRunResult;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
@@ -75,6 +79,9 @@ enum DemoError {
 
     #[error(transparent)]
     SpiderService(#[from] crawler::spider::SpiderServiceError),
+
+    #[error(transparent)]
+    DomainConfiguration(#[from] CrawlerDomainConfigurationError),
 }
 
 const DEFAULT_SHOP_URL: &str = "https://www.christies.com/en";
@@ -142,7 +149,8 @@ async fn main() {
             url_repository,
         );
 
-        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+        let listing_source_id: ListingSourceId =
+            uuid::Uuid::from_u128(0xa2000000000000000000000000000001).into();
         let shop_url_parsed = url::Url::parse(&shop_url)
             .unwrap_or_else(|_| url::Url::parse("https://demo.invalid").unwrap());
         let demo_domain = shop_url_parsed
@@ -151,7 +159,9 @@ async fn main() {
             .to_string();
 
         let demo_domain_id =
-            match insert_demo_listing_source(&pool, &listing_source_id, &demo_domain).await {
+            match insert_demo_listing_source_with_domain(&pool, &listing_source_id, &demo_domain)
+                .await
+            {
                 Ok(id) => id,
                 Err(error) => {
                     error!(error = ?error, "Failed to insert demo shop rows into DB");
@@ -241,12 +251,10 @@ async fn connect_and_migrate() -> Result<PgPool, DemoError> {
     Ok(pool)
 }
 
-/// Inserts a demo `listing_sources` row and a `listing_source_domains` row, returning the generated `domain_id`.
-///
-/// Uses `ON CONFLICT DO NOTHING` so the function is idempotent if called multiple times
-/// with the same `listing_source_id` / `listing_source_domain`.
+/// Inserts a stable demo ListingSource and registers its crawler domain through the
+/// same ownership boundary used by the production review API.
 #[tracing::instrument(skip(pool), fields(listing_source_id = %listing_source_id, listing_source_domain = %listing_source_domain))]
-async fn insert_demo_listing_source(
+async fn insert_demo_listing_source_with_domain(
     pool: &PgPool,
     listing_source_id: &ListingSourceId,
     listing_source_domain: &str,
@@ -262,19 +270,13 @@ async fn insert_demo_listing_source(
     .execute(pool)
     .await?;
 
-    // Insert the domain row if it doesn't exist yet and return the domain_id.
-    // Because `listing_source_domain` is UNIQUE, a second run with the same domain would hit the conflict
-    // path — we return the existing domain_id in that case.
-    let domain_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain, last_crawled)
-         VALUES ($1, $2, NULL)
-         ON CONFLICT (listing_source_domain) DO UPDATE SET listing_source_id = EXCLUDED.listing_source_id
-         RETURNING domain_id",
-    )
-    .bind(listing_source_id_uuid)
-    .bind(listing_source_domain)
-    .fetch_one(pool)
-    .await?;
+    let domain = listing_source_core::Domain::try_from(listing_source_domain)
+        .map_err(|error| DemoError::Demo(error.to_string()))?;
+    let configuration = CrawlerDomainConfigurationRepositoryImpl::new(pool.clone());
+    let domain_id = configuration
+        .register(*listing_source_id, domain)
+        .await?
+        .domain_id;
 
     Ok(domain_id)
 }
