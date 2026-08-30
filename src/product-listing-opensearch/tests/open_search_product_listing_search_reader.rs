@@ -224,7 +224,10 @@ impl ProductListingSeed {
     fn active(slug: &str, source_price: u64) -> Self {
         Self {
             product_listing_id: ProductListingId::new(),
-            product_listing_title_slug_id: ProductListingSlugId::from(slug),
+            product_listing_title_slug_id: ProductListingSlugId::from_title_and_suffix(
+                slug, "a1b2c3",
+            )
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             source_price: Some(source_price),
             sale_price: None,
             has_sale_observation: false,
@@ -234,7 +237,10 @@ impl ProductListingSeed {
     fn sold(slug: &str, sale_price: u64) -> Self {
         Self {
             product_listing_id: ProductListingId::new(),
-            product_listing_title_slug_id: ProductListingSlugId::from(slug),
+            product_listing_title_slug_id: ProductListingSlugId::from_title_and_suffix(
+                slug, "a1b2c3",
+            )
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             source_price: None,
             sale_price: Some(sale_price),
             has_sale_observation: true,
@@ -244,7 +250,10 @@ impl ProductListingSeed {
     fn sold_without_main_price(slug: &str) -> Self {
         Self {
             product_listing_id: ProductListingId::new(),
-            product_listing_title_slug_id: ProductListingSlugId::from(slug),
+            product_listing_title_slug_id: ProductListingSlugId::from_title_and_suffix(
+                slug, "a1b2c3",
+            )
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             source_price: None,
             sale_price: None,
             has_sale_observation: true,

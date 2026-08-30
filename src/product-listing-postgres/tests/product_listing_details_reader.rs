@@ -14,7 +14,7 @@ use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::title::Title;
 use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_id::ProductListingId,
-    source_listing_id::SourceListingId,
+    product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
 };
 use product_listing_postgres::{
     SqlxProductListingDetailsReaderFactory, SqlxProductListingEventStoreFactory,
@@ -857,6 +857,8 @@ fn sample_product(
 
     match ProductListing::create(NewProductListing {
         id: ProductListingId::new(),
+        title_slug_id: ProductListingSlugId::from_title_and_suffix(slug, "a1b2c3")
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
         listing_source_id,
         source_listing_id: SourceListingId::try_from(slug)
             .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),

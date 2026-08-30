@@ -596,7 +596,8 @@ mod tests {
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
                 product_listing_id,
-                product_listing_title_slug_id: ProductListingSlugId::from("product"),
+                product_listing_title_slug_id: ProductListingSlugId::raw("product-a1b2c3")
+                    .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
                 event_id: EventId::new(),
                 source: ListingSourceSummary {
                     listing_source_id: ListingSourceId::new(),

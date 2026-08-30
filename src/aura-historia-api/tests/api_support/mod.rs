@@ -77,6 +77,7 @@ use partnership_service::use_cases::{
 use party_postgres::SqlxPartyRepositoryFactory;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_opensearch::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
 };
@@ -465,10 +466,11 @@ pub async fn seed_listing_source() -> uuid::Uuid {
 pub async fn seed_product() -> ProductListingId {
     let listing_source_id = seed_listing_source().await;
     let product_listing_id = ProductListingId::new();
-    let product_listing_title_slug_id = format!(
-        "acceptance-product-{}",
-        &product_listing_id.to_string()[..6]
-    );
+    let product_listing_title_slug_id = ProductListingSlugId::from_title_and_suffix(
+        "acceptance product",
+        &uuid::Uuid::from(product_listing_id).simple().to_string()[..6],
+    )
+    .unwrap_or_else(|error| panic!("valid fixture title slug: {error}"));
     let event_id = uuid::Uuid::new_v4();
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;
@@ -485,7 +487,7 @@ pub async fn seed_product() -> ProductListingId {
         "#,
     )
     .bind(uuid::Uuid::from(product_listing_id))
-    .bind(product_listing_title_slug_id)
+    .bind(product_listing_title_slug_id.as_ref())
     .bind(event_id)
     .bind(listing_source_id)
     .bind(format!("listing-source-product-{product_listing_id}"))

@@ -319,28 +319,98 @@ async fn should_persist_canonical_source_listing_id_after_unicode_whitespace_inp
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_report_product_insert_conflict_when_source_listing_identity_or_slug_duplicates() {
+async fn should_map_source_listing_key_conflict_to_source_listing_already_exists() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
     let listing_source_id =
-        seed_listing_source(&pool, "product-listing-postgres-conflict-source").await;
-    let first = sample_product("postgres-product-conflict", listing_source_id);
-    let second = sample_product("postgres-product-conflict", listing_source_id);
+        seed_listing_source(&pool, "product-listing-postgres-source-key-conflict").await;
+    let first = sample_product("postgres-product-source-key-first", listing_source_id);
+    let second = sample_product_with_source_listing_id(
+        "postgres-product-source-key-second",
+        listing_source_id,
+        first.source_listing_id().clone(),
+    );
 
     insert_product_with_event(&unit_of_work, &product_listings, &events, &first).await;
 
     let mut tx = begin(&unit_of_work).await;
-    let duplicate_product = product_listings
+    let result = product_listings
         .in_transaction(&mut tx)
         .insert(&second, EventId::new())
         .await;
+
     assert!(matches!(
-        duplicate_product,
+        result,
         Err(ProductListingRepositoryError::SourceListingAlreadyExists)
-            | Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists)
-            | Err(ProductListingRepositoryError::ProductListingInsertFailed)
+    ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_map_title_slug_conflict_to_product_listing_title_slug_already_exists() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let product_listings = SqlxProductListingRepositoryFactory::new();
+    let events = SqlxProductListingEventStoreFactory::new();
+    let first_listing_source_id =
+        seed_listing_source(&pool, "product-listing-postgres-title-slug-first").await;
+    let second_listing_source_id =
+        seed_listing_source(&pool, "product-listing-postgres-title-slug-second").await;
+    let first = sample_product("postgres-product-title-slug-first", first_listing_source_id);
+    let second = sample_product_with_title_slug_id(
+        "postgres-product-title-slug-second",
+        second_listing_source_id,
+        SourceListingId::try_from("postgres-product-title-slug-second")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+        ProductListingId::new(),
+        first.title_slug_id().clone(),
+    );
+
+    insert_product_with_event(&unit_of_work, &product_listings, &events, &first).await;
+
+    let mut tx = begin(&unit_of_work).await;
+    let result = product_listings
+        .in_transaction(&mut tx)
+        .insert(&second, EventId::new())
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists)
+    ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_map_unclassified_insert_conflict_to_generic_fallback() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let product_listings = SqlxProductListingRepositoryFactory::new();
+    let events = SqlxProductListingEventStoreFactory::new();
+    let first_listing_source_id =
+        seed_listing_source(&pool, "product-listing-postgres-fallback-first").await;
+    let second_listing_source_id =
+        seed_listing_source(&pool, "product-listing-postgres-fallback-second").await;
+    let first = sample_product("postgres-product-fallback-first", first_listing_source_id);
+    let second = sample_product_with_id_and_source_listing_id(
+        "postgres-product-fallback-second",
+        second_listing_source_id,
+        SourceListingId::try_from("postgres-product-fallback-second")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+        first.id(),
+    );
+
+    insert_product_with_event(&unit_of_work, &product_listings, &events, &first).await;
+
+    let mut tx = begin(&unit_of_work).await;
+    let result = product_listings
+        .in_transaction(&mut tx)
+        .insert(&second, EventId::new())
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(ProductListingRepositoryError::ProductListingInsertFailed)
     ));
 }
 
@@ -544,12 +614,63 @@ fn sample_product_with_source_listing_id(
     listing_source_id: ListingSourceId,
     source_listing_id: SourceListingId,
 ) -> ProductListing {
+    sample_product_with_id_and_source_listing_id(
+        slug,
+        listing_source_id,
+        source_listing_id,
+        ProductListingId::new(),
+    )
+}
+
+fn sample_product_with_id_and_source_listing_id(
+    slug: &str,
+    listing_source_id: ListingSourceId,
+    source_listing_id: SourceListingId,
+    id: ProductListingId,
+) -> ProductListing {
+    match ProductListing::create(sample_new_product_listing(
+        slug,
+        listing_source_id,
+        source_listing_id,
+        id,
+    )) {
+        Ok(product) => product,
+        Err(error) => panic!("failed to create product: {error}"),
+    }
+}
+
+fn sample_product_with_title_slug_id(
+    slug: &str,
+    listing_source_id: ListingSourceId,
+    source_listing_id: SourceListingId,
+    id: ProductListingId,
+    title_slug_id: product_listing_core::product_listing_slug_id::ProductListingSlugId,
+) -> ProductListing {
+    let mut input = sample_new_product_listing(slug, listing_source_id, source_listing_id, id);
+    input.title_slug_id = title_slug_id;
+    match ProductListing::create(input) {
+        Ok(product) => product,
+        Err(error) => panic!("failed to create product: {error}"),
+    }
+}
+
+fn sample_new_product_listing(
+    slug: &str,
+    listing_source_id: ListingSourceId,
+    source_listing_id: SourceListingId,
+    id: ProductListingId,
+) -> NewProductListing {
     let mut images = IndexSet::new();
     images.insert(ProductListingImage::new(url(&format!(
         "https://example.com/{slug}.jpg"
     ))));
-    match ProductListing::create(NewProductListing {
-        id: product_listing_core::product_listing_id::ProductListingId::new(),
+    NewProductListing {
+        id,
+        title_slug_id: product_listing_core::product_listing_slug_id::ProductListingSlugId::from_title_and_suffix(
+            slug,
+            "a1b2c3",
+        )
+        .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
         listing_source_id,
         source_listing_id,
         title: Some(Localized::new(Language::En, Title::from(slug))),
@@ -566,9 +687,6 @@ fn sample_product_with_source_listing_id(
         url: url(&format!("https://example.com/{slug}")),
         images,
         auction: ProductListingAuction::default(),
-    }) {
-        Ok(product) => product,
-        Err(error) => panic!("failed to create product: {error}"),
     }
 }
 

@@ -36,6 +36,7 @@ pub struct ProductListing {
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewProductListing {
     pub id: ProductListingId,
+    pub title_slug_id: ProductListingSlugId,
     pub listing_source_id: ListingSourceId,
     pub source_listing_id: SourceListingId,
     pub title: Option<Localized<Language, Title>>,
@@ -260,34 +261,11 @@ pub enum RecordListingSaleObservationError {
 }
 
 impl ProductListing {
-    /// Creates a listing with a deterministic ID-derived suffix.
-    ///
-    /// Application creation paths should use `create_with_title_slug_id` so
-    /// their collision policy selects the candidate explicitly.
+    /// Creates a listing from explicit, deterministic identity values.
     pub fn create(input: NewProductListing) -> Result<Self, RehydrateProductListingError> {
-        let id: uuid::Uuid = input.id.into();
-        let compact_id = id.simple().to_string();
-        let title_slug_id = ProductListingSlugId::from_title_and_suffix(
-            input
-                .title
-                .as_ref()
-                .map_or("", |title| title.payload.as_ref()),
-            &compact_id[..6],
-        )
-        .map_err(|_| RehydrateProductListingError::InvalidTitleSlugId)?;
-        Self::create_with_title_slug_id(input, title_slug_id)
-    }
-
-    /// Creates a listing with the title slug selected by the application.
-    ///
-    /// This is deterministic: the caller supplies all identity values.
-    pub fn create_with_title_slug_id(
-        input: NewProductListing,
-        title_slug_id: ProductListingSlugId,
-    ) -> Result<Self, RehydrateProductListingError> {
         let mut listing = Self::rehydrate(RehydratedProductListingState {
             id: input.id,
-            title_slug_id,
+            title_slug_id: input.title_slug_id,
             listing_source_id: input.listing_source_id,
             source_listing_id: input.source_listing_id.clone(),
             title: input.title.clone(),
@@ -589,6 +567,8 @@ mod tests {
     fn input() -> NewProductListing {
         NewProductListing {
             id: ProductListingId::new(),
+            title_slug_id: ProductListingSlugId::raw("listing-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid test title slug: {error}")),
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("source-listing-id")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
@@ -625,6 +605,9 @@ mod tests {
     fn should_create_title_slug_from_listing_title() {
         let mut input = input();
         input.title = Some(Localized::new(Language::En, Title::from("Vintage Cabinet")));
+        input.title_slug_id =
+            ProductListingSlugId::from_title_and_suffix("Vintage Cabinet", "a1b2c3")
+                .unwrap_or_else(|error| panic!("valid test title slug: {error}"));
 
         let listing =
             ProductListing::create(input).unwrap_or_else(|error| panic!("create: {error}"));

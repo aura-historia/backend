@@ -407,6 +407,7 @@ mod tests {
     use product_listing_core::{
         product_listing::{NewProductListing, ProductListingAuction},
         product_listing_id::ProductListingId,
+        product_listing_slug_id::ProductListingSlugId,
         source_listing_id::SourceListingId,
         title::Title,
     };
@@ -417,6 +418,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("invalid URL: {error}"));
         let mut listing = ProductListing::create(NewProductListing {
             id: ProductListingId::new(),
+            title_slug_id: ProductListingSlugId::raw("listing-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("listing")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),

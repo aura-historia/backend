@@ -201,7 +201,8 @@ mod tests {
             current_event_id: event_id,
             projection_version: 1,
             product_listing_id: product_listing_core::product_listing_id::ProductListingId::new(),
-            product_listing_title_slug_id: ProductListingSlugId::from("product"),
+            product_listing_title_slug_id: ProductListingSlugId::raw("product-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             source: ListingSourceSummary {
                 listing_source_id: ListingSourceId::new(),
                 name: ListingSourceName::try_from("Source")

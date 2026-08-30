@@ -504,10 +504,14 @@ fn product_search_from_value(
 mod tests {
     use super::*;
     use domain_primitives::query::range_query::RangeQuery;
+    use domain_primitives::query::text_query::TextQuery;
     use listing_source_core::ListingSourceId;
     use localization::Language;
     use money::Currency;
+    use product_listing_core::product_listing_search::ListingAvailabilityQuery;
     use search_filter_service::ports::SearchFilterProjection;
+    use std::collections::BTreeSet;
+    use strum::IntoEnumIterator;
     use time::macros::datetime;
 
     fn projection(search: ProductListingSearch) -> SearchFilterProjection {
@@ -620,6 +624,236 @@ mod tests {
         );
         assert_eq!(expected.view, SearchFilterView::try_from(document)?);
         Ok(())
+    }
+
+    #[test]
+    fn should_keep_saved_filter_documents_and_percolator_fields_covered_by_mapping()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mapping: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../opensearch/mappings/user_search_filters.json"
+        ))?;
+        let representative = representative_search(Language::En, Currency::Usd)?;
+        let document = SearchFilterDocument::try_from(&projection(representative.clone()))?;
+        let document_value = serde_json::to_value(document)?;
+
+        let document_fields = document_field_paths(&document_value, "");
+        for field in &document_fields {
+            let Some(field_mapping) = mapping_field(&mapping, field) else {
+                return Err(format!(
+                    "saved-filter document field `{field}` is missing from mapping"
+                )
+                .into());
+            };
+            let value = document_value
+                .pointer(&format!("/{}", field.replace('.', "/")))
+                .ok_or_else(|| {
+                    format!("document field `{field}` disappeared while checking mapping")
+                })?;
+            if !mapping_accepts_value(field_mapping, value) {
+                return Err(format!(
+                    "mapping for saved-filter document field `{field}` rejects {value}"
+                )
+                .into());
+            }
+        }
+
+        let mut percolator_fields = BTreeSet::new();
+        for language in Language::iter() {
+            collect_query_field_paths(
+                &build_percolator_query(&representative_search(language, Currency::Eur)?)?,
+                &mut percolator_fields,
+            );
+        }
+        for currency in Currency::iter() {
+            collect_query_field_paths(
+                &build_percolator_query(&representative_search(Language::En, currency)?)?,
+                &mut percolator_fields,
+            );
+        }
+
+        for field in &percolator_fields {
+            if mapping_field(&mapping, field).is_none() {
+                return Err(
+                    format!("percolator query field `{field}` is missing from mapping").into(),
+                );
+            }
+        }
+
+        assert_eq!(
+            Some(&serde_json::json!("percolator")),
+            mapping_field(&mapping, "query").and_then(|field| field.get("type"))
+        );
+        assert_eq!(
+            Some(&serde_json::json!(768)),
+            mapping_field(&mapping, "embedding").and_then(|field| field.get("dimension"))
+        );
+        Ok(())
+    }
+
+    fn representative_search(
+        language: Language,
+        currency: Currency,
+    ) -> Result<ProductListingSearch, Box<dyn std::error::Error>> {
+        let product_listing_query = TextQuery::<1>::try_from("renaissance cabinet")?;
+        let enhanced_search_description =
+            EnhancedSearchDescription::try_from("renaissance furniture")?;
+        Ok(ProductListingSearch::new(language, currency)
+            .with_product_listing_query(product_listing_query)
+            .with_enhanced_search_description(enhanced_search_description)
+            .with_exclude_product_listing_id_query(
+                std::collections::HashSet::from([ProductListingId::new()]).into(),
+            )
+            .with_listing_source_id_query(
+                std::collections::HashSet::from([ListingSourceId::new()]).into(),
+            )
+            .with_exclude_listing_source_id_query(
+                std::collections::HashSet::from([ListingSourceId::new()]).into(),
+            )
+            .with_price_query(RangeQuery {
+                min: Some(MonetaryAmount::from(10_000_u64)),
+                max: Some(MonetaryAmount::from(50_000_u64)),
+            })
+            .with_availability_query(ListingAvailabilityQuery {
+                any_of: std::collections::HashSet::from([ListingAvailability::InStock]).into(),
+                orderability: std::collections::HashSet::from([ListingOrderability::OrderableNow])
+                    .into(),
+                include_unspecified: true,
+            })
+            .with_created_query(RangeQuery {
+                min: Some(datetime!(2026-01-01 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-02 00:00:00 UTC)),
+            })
+            .with_updated_query(RangeQuery {
+                min: Some(datetime!(2026-01-03 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-04 00:00:00 UTC)),
+            })
+            .with_auction_start_query(RangeQuery {
+                min: Some(datetime!(2026-01-05 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-06 00:00:00 UTC)),
+            })
+            .with_auction_end_query(RangeQuery {
+                min: Some(datetime!(2026-01-07 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-08 00:00:00 UTC)),
+            }))
+    }
+
+    fn document_field_paths(value: &serde_json::Value, prefix: &str) -> BTreeSet<String> {
+        let mut fields = BTreeSet::new();
+        collect_document_field_paths(value, prefix, &mut fields);
+        fields
+    }
+
+    fn collect_document_field_paths(
+        value: &serde_json::Value,
+        prefix: &str,
+        fields: &mut BTreeSet<String>,
+    ) {
+        match value {
+            serde_json::Value::Object(object) => {
+                for (key, value) in object {
+                    if prefix.is_empty() && key == "query" {
+                        continue;
+                    }
+                    let path = if prefix.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{prefix}.{key}")
+                    };
+                    collect_document_field_paths(value, &path, fields);
+                }
+            }
+            serde_json::Value::Array(values) if values.is_empty() => {}
+            serde_json::Value::Array(_)
+            | serde_json::Value::Bool(_)
+            | serde_json::Value::Number(_)
+            | serde_json::Value::String(_) => {
+                fields.insert(prefix.to_owned());
+            }
+            serde_json::Value::Null => {}
+        }
+    }
+
+    fn mapping_field<'a>(
+        mapping: &'a serde_json::Value,
+        path: &str,
+    ) -> Option<&'a serde_json::Value> {
+        let mut properties = mapping.pointer("/mappings/properties")?;
+        let mut segments = path.split('.').peekable();
+        while let Some(segment) = segments.next() {
+            let field = properties.get(segment)?;
+            if segments.peek().is_none() {
+                return Some(field);
+            }
+            properties = field.get("properties")?;
+        }
+        None
+    }
+
+    fn mapping_accepts_value(mapping: &serde_json::Value, value: &serde_json::Value) -> bool {
+        if let serde_json::Value::Array(values) = value {
+            return matches!(
+                mapping.get("type").and_then(serde_json::Value::as_str),
+                Some("knn_vector")
+            ) || values
+                .iter()
+                .all(|value| mapping_accepts_value(mapping, value));
+        }
+
+        match mapping.get("type").and_then(serde_json::Value::as_str) {
+            Some("keyword" | "text" | "date") => value.is_string(),
+            Some("boolean") => value.is_boolean(),
+            Some("long" | "unsigned_long") => value.is_number(),
+            Some("percolator") => value.is_object(),
+            _ => false,
+        }
+    }
+
+    fn collect_query_field_paths(query: &serde_json::Value, fields: &mut BTreeSet<String>) {
+        match query {
+            serde_json::Value::Object(object) => {
+                for operator in ["terms", "range", "match", "match_phrase"] {
+                    if let Some(clauses) =
+                        object.get(operator).and_then(serde_json::Value::as_object)
+                    {
+                        fields.extend(clauses.keys().cloned());
+                    }
+                }
+                if let Some(field) = object
+                    .get("exists")
+                    .and_then(|exists| exists.get("field"))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    fields.insert(field.to_owned());
+                }
+                if let Some(multi_match) = object.get("multi_match")
+                    && let Some(paths) = multi_match
+                        .get("fields")
+                        .and_then(serde_json::Value::as_array)
+                {
+                    fields.extend(
+                        paths
+                            .iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .map(strip_boost),
+                    );
+                }
+                for value in object.values() {
+                    collect_query_field_paths(value, fields);
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    collect_query_field_paths(value, fields);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn strip_boost(field: &str) -> String {
+        field
+            .split_once('^')
+            .map_or_else(|| field.to_owned(), |(field, _)| field.to_owned())
     }
 
     #[test]

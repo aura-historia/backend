@@ -426,7 +426,7 @@ pub fn redact_hidden_product(
         name: listing_source_core::ListingSourceName::try_from("Hidden")
             .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?,
         slug_id: ListingSourceSlugId::raw("hidden")
-            .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+            .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?,
     };
     details.source_listing_id = SourceListingId::try_from(nil.to_string())
         .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?;

@@ -354,7 +354,8 @@ mod tests {
     fn document() -> Result<ProductListingDocument, url::ParseError> {
         Ok(ProductListingDocument {
             product_listing_id: ProductListingId::new(),
-            product_listing_title_slug_id: ProductListingSlugId::from("vase-abcdef"),
+            product_listing_title_slug_id: ProductListingSlugId::raw("vase-abcdef")
+                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("sku-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),

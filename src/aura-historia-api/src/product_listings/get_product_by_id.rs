@@ -486,7 +486,11 @@ mod tests {
         Ok(Personalized {
             item: ProductListingDetailsView {
                 product_listing_id: ProductListingId::new(),
-                product_listing_title_slug_id: Some(ProductListingSlugId::from("cabinet-abcdef")),
+                product_listing_title_slug_id: Some(
+                    ProductListingSlugId::raw("cabinet-abcdef").unwrap_or_else(|error| {
+                        panic!("valid product listing title slug: {error}")
+                    }),
+                ),
                 event_id: EventId::new(),
                 source: ListingSourceSummary {
                     listing_source_id: ListingSourceId::new(),

@@ -5,7 +5,8 @@ use crate::ports::{
     ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
 };
 use crate::product_listing_title_slug_creation::{
-    MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS, next_product_listing_title_slug,
+    ProductListingTitleSlugGenerator, RandomProductListingTitleSlugGenerator,
+    TitleSlugCollisionRetry, title_slug_collision_retry,
 };
 use crate::use_cases::{CreateProductListingResult, UpdateProductListingResult};
 use application::error::{BoxError, box_error};
@@ -98,11 +99,12 @@ pub trait UpsertProductListingUseCase: Send + Sync {
         command: UpsertProductListingCommand,
     ) -> Result<UpsertProductListingResult, UpsertProductListingError>;
 }
-pub struct UpsertProductListingHandler<U, R, E, A> {
+pub struct UpsertProductListingHandler<U, R, E, A, G = RandomProductListingTitleSlugGenerator> {
     unit_of_work: U,
     products: R,
     events: E,
     authorizer: A,
+    title_slug_generator: G,
 }
 
 enum UpsertAttemptError {
@@ -152,22 +154,41 @@ impl From<RehydrateProductListingError> for UpsertAttemptError {
         Self::Failed(error.into())
     }
 }
-impl<U, R, E, A> UpsertProductListingHandler<U, R, E, A> {
+impl<U, R, E, A> UpsertProductListingHandler<U, R, E, A, RandomProductListingTitleSlugGenerator> {
     pub fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
+        Self::with_title_slug_generator(
+            unit_of_work,
+            products,
+            events,
+            authorizer,
+            RandomProductListingTitleSlugGenerator,
+        )
+    }
+}
+impl<U, R, E, A, G> UpsertProductListingHandler<U, R, E, A, G> {
+    pub fn with_title_slug_generator(
+        unit_of_work: U,
+        products: R,
+        events: E,
+        authorizer: A,
+        title_slug_generator: G,
+    ) -> Self {
         Self {
             unit_of_work,
             products,
             events,
             authorizer,
+            title_slug_generator,
         }
     }
 }
-impl<U, R, E, A> UpsertProductListingHandler<U, R, E, A>
+impl<U, R, E, A, G> UpsertProductListingHandler<U, R, E, A, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventStoreFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
+    G: ProductListingTitleSlugGenerator,
 {
     async fn persist(
         &self,
@@ -217,9 +238,8 @@ where
                 ))
             }
             None => {
-                let mut product = ProductListing::create_with_title_slug_id(
-                    command.into_new_product(new_product_listing_id)?,
-                    title_slug_id,
+                let mut product = ProductListing::create(
+                    command.into_new_product(new_product_listing_id, title_slug_id)?,
                 )?;
                 let events = stamp_product_listing_events(
                     product.id(),
@@ -291,12 +311,13 @@ where
     }
 }
 #[async_trait::async_trait]
-impl<U, R, E, A> UpsertProductListingUseCase for UpsertProductListingHandler<U, R, E, A>
+impl<U, R, E, A, G> UpsertProductListingUseCase for UpsertProductListingHandler<U, R, E, A, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventStoreFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
+    G: ProductListingTitleSlugGenerator,
 {
     #[tracing::instrument(name = "upsert_product_listing", skip_all, fields(listing_source_id = %command.listing_source_id, source_listing_id = %command.source_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
@@ -311,45 +332,53 @@ where
         let new_product_listing_id = ProductListingId::new();
         let mut source_listing_races = 0;
         let mut title_slug_attempts = 0;
-        let result =
-            loop {
-                let title_slug_id = next_product_listing_title_slug(command.title.as_ref())
-                    .map_err(|_| UpsertProductListingError::InvalidProductListing {
-                        source: box_error(std::io::Error::other("invalid generated title slug")),
-                    })?;
-                match self
-                    .execute_attempt(
-                        context,
-                        command.clone(),
-                        new_product_listing_id,
-                        title_slug_id,
-                    )
-                    .await
-                {
-                    Ok(result) => break result,
-                    Err(UpsertAttemptError::SourceListingInsertRace) => {
-                        source_listing_races += 1;
-                        if source_listing_races > 1 {
-                            return Err(UpsertProductListingError::PersistenceFailed);
-                        }
+        let result = loop {
+            let title_slug_id = self
+                .title_slug_generator
+                .generate(
+                    command
+                        .title
+                        .as_ref()
+                        .map_or("", |title| title.payload.as_ref()),
+                )
+                .map_err(|_| UpsertProductListingError::InvalidProductListing {
+                    source: box_error(std::io::Error::other("invalid generated title slug")),
+                })?;
+            match self
+                .execute_attempt(
+                    context,
+                    command.clone(),
+                    new_product_listing_id,
+                    title_slug_id,
+                )
+                .await
+            {
+                Ok(result) => break result,
+                Err(UpsertAttemptError::SourceListingInsertRace) => {
+                    source_listing_races += 1;
+                    if source_listing_races > 1 {
+                        return Err(UpsertProductListingError::PersistenceFailed);
                     }
-                    Err(UpsertAttemptError::TitleSlugCollision) => {
-                        title_slug_attempts += 1;
-                        if title_slug_attempts >= MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS {
-                            return Err(
+                }
+                Err(UpsertAttemptError::TitleSlugCollision) => {
+                    title_slug_attempts += 1;
+                    if title_slug_collision_retry(title_slug_attempts, true)
+                        == TitleSlugCollisionRetry::Exhausted
+                    {
+                        return Err(
                             UpsertProductListingError::ProductListingTitleSlugGenerationExhausted,
                         );
-                        }
-                        tracing::warn!(
-                            product_listing_id = %new_product_listing_id,
-                            attempt = title_slug_attempts,
-                            constraint_name = "product_listings_title_slug_unique",
-                            "product listing title slug collision; regenerating"
-                        );
                     }
-                    Err(UpsertAttemptError::Failed(error)) => return Err(error),
+                    tracing::warn!(
+                        product_listing_id = %new_product_listing_id,
+                        attempt = title_slug_attempts,
+                        constraint_name = "product_listings_title_slug_unique",
+                        "product listing title slug collision; regenerating"
+                    );
                 }
-            };
+                Err(UpsertAttemptError::Failed(error)) => return Err(error),
+            }
+        };
         let product_listing_id = match &result {
             UpsertProductListingResult::Created(value) => value.product_listing_id,
             UpsertProductListingResult::Updated(value) => value.product_listing_id,
@@ -362,6 +391,7 @@ impl UpsertProductListingCommand {
     fn into_new_product(
         self,
         id: ProductListingId,
+        title_slug_id: ProductListingSlugId,
     ) -> Result<NewProductListing, UpsertProductListingError> {
         let url = match self.url {
             Some(url) => url,
@@ -373,6 +403,7 @@ impl UpsertProductListingCommand {
         };
         Ok(NewProductListing {
             id,
+            title_slug_id,
             listing_source_id: self.listing_source_id,
             source_listing_id: self.source_listing_id,
             title: self.title,
@@ -562,6 +593,11 @@ mod tests {
         }
     }
 
+    fn test_title_slug() -> ProductListingSlugId {
+        ProductListingSlugId::raw("listing-a1b2c3")
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}"))
+    }
+
     fn listing_with_price(value: Option<Price>) -> ProductListing {
         listing_with_state(
             ProductListingPricing {
@@ -580,6 +616,7 @@ mod tests {
     ) -> ProductListing {
         ProductListing::create(NewProductListing {
             id: ProductListingId::new(),
+            title_slug_id: test_title_slug(),
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("listing")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
@@ -760,7 +797,7 @@ mod tests {
     #[test]
     fn should_preserve_absent_title_when_creating_listing() {
         let new_listing = command(PatchField::Unchanged)
-            .into_new_product(ProductListingId::new())
+            .into_new_product(ProductListingId::new(), test_title_slug())
             .unwrap_or_else(|error| panic!("new listing: {error}"));
 
         assert!(new_listing.title.is_none());
@@ -778,7 +815,7 @@ mod tests {
                 PatchField::Clear | PatchField::Unchanged => None,
             };
             let new_listing = command(patch)
-                .into_new_product(ProductListingId::new())
+                .into_new_product(ProductListingId::new(), test_title_slug())
                 .unwrap_or_else(|error| panic!("new listing: {error}"));
             assert_eq!(expected, new_listing.pricing.price);
         }
@@ -835,7 +872,7 @@ mod tests {
             upsert.auction_end = auction_end;
 
             let new_listing = upsert
-                .into_new_product(ProductListingId::new())
+                .into_new_product(ProductListingId::new(), test_title_slug())
                 .unwrap_or_else(|error| panic!("new listing: {error}"));
 
             assert_eq!(new_listing.pricing.price_estimate_min, expected_min);

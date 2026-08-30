@@ -346,7 +346,8 @@ mod tests {
     fn created() -> CreateProductListingResult {
         CreateProductListingResult {
             product_listing_id: ProductListingId::new(),
-            product_listing_title_slug_id: ProductListingSlugId::from("created-product"),
+            product_listing_title_slug_id: ProductListingSlugId::raw("created-product-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             event_id: EventId::new(),
         }
     }

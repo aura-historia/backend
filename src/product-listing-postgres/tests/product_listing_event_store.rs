@@ -15,6 +15,7 @@ use product_listing_core::product_listing::{
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
 use listing_source_core::ListingSourceId;
 use product_listing_core::source_listing_id::SourceListingId;
@@ -386,6 +387,8 @@ fn sample_product_with_auction(
     ))));
     match ProductListing::create(NewProductListing {
         id: ProductListingId::new(),
+        title_slug_id: ProductListingSlugId::from_title_and_suffix(slug, "a1b2c3")
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
         listing_source_id,
         source_listing_id: SourceListingId::try_from(slug)
             .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),

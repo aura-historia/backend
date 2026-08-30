@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use application::transaction::{Transaction, UnitOfWork};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_service::ports::{
     WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,
 };
@@ -136,6 +137,11 @@ async fn seed_user(pool: &sqlx::PgPool, label: &str) -> UserId {
 async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     let product_listing_id = ProductListingId::new();
     let product_uuid = uuid::Uuid::from(product_listing_id);
+    let title_slug_id = ProductListingSlugId::from_title_and_suffix(
+        "recipient product",
+        &product_uuid.simple().to_string()[..6],
+    )
+    .unwrap_or_else(|error| panic!("valid fixture title slug: {error}"));
     let event_id = uuid::Uuid::new_v4();
     let listing_source_id = uuid::Uuid::new_v4();
     let mut tx = pool
@@ -150,7 +156,7 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
         .unwrap_or_else(|error| panic!("seed source failed: {error:?}"));
     sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, availability, lifecycle, url) VALUES ($1, $2, $3, $3, $4, $5, NULL, 'ACTIVE', 'https://example.test/product')")
         .bind(product_uuid)
-        .bind(format!("recipient-product-{product_listing_id}"))
+        .bind(title_slug_id.as_ref())
         .bind(event_id)
         .bind(listing_source_id)
         .bind(product_uuid.to_string())

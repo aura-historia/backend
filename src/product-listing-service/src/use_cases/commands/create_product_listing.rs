@@ -5,7 +5,8 @@ use crate::ports::{
     ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
 };
 use crate::product_listing_title_slug_creation::{
-    MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS, next_product_listing_title_slug,
+    MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS, ProductListingTitleSlugGenerator,
+    RandomProductListingTitleSlugGenerator, TitleSlugCollisionRetry, title_slug_collision_retry,
 };
 use application::error::BoxError;
 use application::operation_context::{
@@ -97,30 +98,51 @@ pub trait CreateProductListingUseCase: Send + Sync {
     ) -> Result<CreateProductListingResult, CreateProductListingError>;
 }
 
-pub struct CreateProductListingHandler<U, R, E, A> {
+pub struct CreateProductListingHandler<U, R, E, A, G = RandomProductListingTitleSlugGenerator> {
     unit_of_work: U,
     products: R,
     events: E,
     authorizer: A,
+    title_slug_generator: G,
 }
 
-impl<U, R, E, A> CreateProductListingHandler<U, R, E, A> {
+impl<U, R, E, A> CreateProductListingHandler<U, R, E, A, RandomProductListingTitleSlugGenerator> {
     pub fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
+        Self::with_title_slug_generator(
+            unit_of_work,
+            products,
+            events,
+            authorizer,
+            RandomProductListingTitleSlugGenerator,
+        )
+    }
+}
+
+impl<U, R, E, A, G> CreateProductListingHandler<U, R, E, A, G> {
+    pub fn with_title_slug_generator(
+        unit_of_work: U,
+        products: R,
+        events: E,
+        authorizer: A,
+        title_slug_generator: G,
+    ) -> Self {
         Self {
             unit_of_work,
             products,
             events,
             authorizer,
+            title_slug_generator,
         }
     }
 }
 
-impl<U, R, E, A> CreateProductListingHandler<U, R, E, A>
+impl<U, R, E, A, G> CreateProductListingHandler<U, R, E, A, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventStoreFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
+    G: ProductListingTitleSlugGenerator,
 {
     async fn persist_attempt(
         &self,
@@ -141,9 +163,10 @@ where
                 .await?;
         }
 
-        let mut product = ProductListing::create_with_title_slug_id(
-            command.clone().into_new_product(product_listing_id),
-            title_slug_id,
+        let mut product = ProductListing::create(
+            command
+                .clone()
+                .into_new_product(product_listing_id, title_slug_id),
         )?;
         let events = stamp_product_listing_events(
             product.id(),
@@ -176,12 +199,13 @@ where
 }
 
 #[async_trait::async_trait]
-impl<U, R, E, A> CreateProductListingUseCase for CreateProductListingHandler<U, R, E, A>
+impl<U, R, E, A, G> CreateProductListingUseCase for CreateProductListingHandler<U, R, E, A, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventStoreFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
+    G: ProductListingTitleSlugGenerator,
 {
     #[tracing::instrument(name = "create_product_listing", skip_all, fields(listing_source_id = %command.listing_source_id, source_listing_id = %command.source_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
@@ -200,7 +224,14 @@ where
 
         let product_listing_id = ProductListingId::new();
         for attempt in 1..=MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS {
-            let title_slug_id = next_product_listing_title_slug(command.title.as_ref())
+            let title_slug_id = self
+                .title_slug_generator
+                .generate(
+                    command
+                        .title
+                        .as_ref()
+                        .map_or("", |title| title.payload.as_ref()),
+                )
                 .map_err(|_| CreateProductListingError::InvalidProductListing)?;
             match self
                 .persist_attempt(context, &command, product_listing_id, title_slug_id)
@@ -208,7 +239,8 @@ where
             {
                 Ok(result) => return Ok(result),
                 Err(CreateProductListingError::ProductListingTitleSlugAlreadyExists)
-                    if attempt < MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS =>
+                    if title_slug_collision_retry(attempt, true)
+                        == TitleSlugCollisionRetry::Retry =>
                 {
                     tracing::warn!(
                         product_listing_id = %product_listing_id,
@@ -236,9 +268,14 @@ where
 }
 
 impl CreateProductListingCommand {
-    fn into_new_product(self, id: ProductListingId) -> NewProductListing {
+    fn into_new_product(
+        self,
+        id: ProductListingId,
+        title_slug_id: ProductListingSlugId,
+    ) -> NewProductListing {
         NewProductListing {
             id,
+            title_slug_id,
             listing_source_id: self.listing_source_id,
             source_listing_id: self.source_listing_id,
             title: self.title,

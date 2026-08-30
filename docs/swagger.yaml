@@ -2763,7 +2763,7 @@ paths:
                 items:
                   - item:
                       productListingId: 550e8400-e29b-41d4-a716-446655440111
-                      productListingTitleSlugId: golden-accessory
+                      productListingTitleSlugId: golden-accessory-a1b2c3
                       eventId: 550e8400-e29b-41d4-a716-446655440222
                       source:
                         listingSourceId: 550e8400-e29b-41d4-a716-446655440333

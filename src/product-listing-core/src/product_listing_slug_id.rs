@@ -66,19 +66,6 @@ impl ProductListingSlugId {
     }
 }
 
-/// Deterministic compatibility conversion for title fixture inputs.
-///
-/// Production callers must use `raw` for an existing identifier or let the
-/// application service select a random candidate with `from_title_and_suffix`.
-impl From<&str> for ProductListingSlugId {
-    fn from(title: &str) -> Self {
-        // The fixed valid suffix keeps this conversion deterministic. The
-        // service creation path never uses it, because global collision retry
-        // requires a fresh candidate per attempt.
-        Self(Self::canonical_title_slug(title, "000000"))
-    }
-}
-
 impl TryFrom<String> for ProductListingSlugId {
     type Error = InvalidProductListingSlugId;
 

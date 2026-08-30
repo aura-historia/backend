@@ -20,6 +20,7 @@ use product_listing_core::{
         ProductListingPricing,
     },
     product_listing_id::ProductListingId,
+    product_listing_slug_id::ProductListingSlugId,
     source_listing_id::SourceListingId,
     title::Title,
 };
@@ -76,6 +77,61 @@ async fn should_get_product_details_by_id() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_get_product_details_by_title_slug_equivalently_to_id() {
+    let product_listing_id = seed_product().await;
+
+    let (id_response, _) = get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
+    let (id_status, id_body) = json_response(id_response).await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        id_status,
+        "response body: {id_body}"
+    );
+    let title_slug = id_body["item"]["productListingTitleSlugId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("product detail has no title slug: {id_body}"));
+
+    let (slug_response, _) =
+        get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+    let (slug_status, slug_body) = json_response(slug_response).await;
+
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        slug_status,
+        "response body: {slug_body}"
+    );
+    assert_eq!(id_body, slug_body);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_invalid_product_title_slug() {
+    let (response, _) =
+        get_json("/api/v1/product-listings/by-slug/listing--abcdef".to_owned()).await;
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_PATH_PARAMETER_VALUE",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_not_found_for_missing_product_title_slug() {
+    let (response, _) =
+        get_json("/api/v1/product-listings/by-slug/missing-listing-a1b2c3".to_owned()).await;
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "PRODUCT_LISTING_NOT_FOUND",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_product_history_by_id() {
     let product_listing_id = seed_product().await;
 
@@ -115,6 +171,11 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
     let auction_end = (auction_start + Duration::hours(3)).to_offset(source_offset);
     let mut product = ProductListing::create(NewProductListing {
         id: product_listing_id,
+        title_slug_id: ProductListingSlugId::from_title_and_suffix(
+            "Timestamped history ProductListing",
+            "a1b2c3",
+        )
+        .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
         listing_source_id: ListingSourceId::from(listing_source_id),
         source_listing_id: SourceListingId::try_from(format!(
             "timestamped-history-{product_listing_id}"

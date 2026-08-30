@@ -183,8 +183,11 @@ fn redact_hidden_product_search_item(
                 source: box_error(source),
             }
         })?,
-        slug_id: ListingSourceSlugId::raw("hidden")
-            .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+        slug_id: ListingSourceSlugId::raw("hidden").map_err(|source| {
+            ProductListingSummaryPersonalizationError::HiddenProductListingSummaryInvalid {
+                source: box_error(source),
+            }
+        })?,
     };
     product.item.source_listing_id =
         SourceListingId::try_from(nil.to_string()).map_err(|error| {

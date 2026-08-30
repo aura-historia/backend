@@ -5,7 +5,8 @@ use crate::ports::{
     ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
 };
 use crate::product_listing_title_slug_creation::{
-    MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS, next_product_listing_title_slug_from_text,
+    ProductListingTitleSlugGenerator, RandomProductListingTitleSlugGenerator,
+    TitleSlugCollisionRetry, title_slug_collision_retry,
 };
 use crate::use_cases::{
     CreateProductListingResult, UpdateProductListingResult, UpsertProductListingResult,
@@ -162,13 +163,22 @@ pub trait IngestWoocommerceProductListingUseCase: Send + Sync {
     ) -> Result<IngestWoocommerceProductListingResult, IngestWoocommerceProductListingError>;
 }
 
-pub struct IngestWoocommerceProductListingHandler<U, R, E, A, S, V> {
+pub struct IngestWoocommerceProductListingHandler<
+    U,
+    R,
+    E,
+    A,
+    S,
+    V,
+    G = RandomProductListingTitleSlugGenerator,
+> {
     unit_of_work: U,
     products: R,
     events: E,
     authorizer: A,
     sources: S,
     signature_verifier: V,
+    title_slug_generator: G,
 }
 
 enum WoocommerceIngestAttemptError {
@@ -213,7 +223,9 @@ impl From<RehydrateProductListingError> for WoocommerceIngestAttemptError {
     }
 }
 
-impl<U, R, E, A, S, V> IngestWoocommerceProductListingHandler<U, R, E, A, S, V> {
+impl<U, R, E, A, S, V>
+    IngestWoocommerceProductListingHandler<U, R, E, A, S, V, RandomProductListingTitleSlugGenerator>
+{
     pub fn new(
         unit_of_work: U,
         products: R,
@@ -222,6 +234,28 @@ impl<U, R, E, A, S, V> IngestWoocommerceProductListingHandler<U, R, E, A, S, V> 
         sources: S,
         signature_verifier: V,
     ) -> Self {
+        Self::with_title_slug_generator(
+            unit_of_work,
+            products,
+            events,
+            authorizer,
+            sources,
+            signature_verifier,
+            RandomProductListingTitleSlugGenerator,
+        )
+    }
+}
+
+impl<U, R, E, A, S, V, G> IngestWoocommerceProductListingHandler<U, R, E, A, S, V, G> {
+    pub fn with_title_slug_generator(
+        unit_of_work: U,
+        products: R,
+        events: E,
+        authorizer: A,
+        sources: S,
+        signature_verifier: V,
+        title_slug_generator: G,
+    ) -> Self {
         Self {
             unit_of_work,
             products,
@@ -229,11 +263,12 @@ impl<U, R, E, A, S, V> IngestWoocommerceProductListingHandler<U, R, E, A, S, V> 
             authorizer,
             sources,
             signature_verifier,
+            title_slug_generator,
         }
     }
 }
 
-impl<U, R, E, A, S, V> IngestWoocommerceProductListingHandler<U, R, E, A, S, V>
+impl<U, R, E, A, S, V, G> IngestWoocommerceProductListingHandler<U, R, E, A, S, V, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
@@ -241,6 +276,7 @@ where
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
     S: WoocommerceSourceReader,
     V: WoocommerceSignatureVerifier,
+    G: ProductListingTitleSlugGenerator,
 {
     async fn validate_webhook(
         &self,
@@ -328,31 +364,29 @@ where
                 ))
             }
             None => {
-                let mut listing = ProductListing::create_with_title_slug_id(
-                    NewProductListing {
-                        id: new_product_listing_id,
-                        listing_source_id: source.listing_source_id,
-                        source_listing_id: data.source_listing_id,
-                        title: Some(data.title),
-                        description: data.description,
-                        pricing: ProductListingPricing {
-                            price: match data.price {
-                                PatchField::Set(price) => Some(price),
-                                PatchField::Unchanged | PatchField::Clear => None,
-                            },
-                            price_estimate_min: None,
-                            price_estimate_max: None,
-                        },
-                        availability: match data.availability {
-                            PatchField::Set(availability) => Some(availability),
+                let mut listing = ProductListing::create(NewProductListing {
+                    id: new_product_listing_id,
+                    title_slug_id,
+                    listing_source_id: source.listing_source_id,
+                    source_listing_id: data.source_listing_id,
+                    title: Some(data.title),
+                    description: data.description,
+                    pricing: ProductListingPricing {
+                        price: match data.price {
+                            PatchField::Set(price) => Some(price),
                             PatchField::Unchanged | PatchField::Clear => None,
                         },
-                        url: data.url,
-                        images: data.images,
-                        auction: ProductListingAuction::default(),
+                        price_estimate_min: None,
+                        price_estimate_max: None,
                     },
-                    title_slug_id,
-                )?;
+                    availability: match data.availability {
+                        PatchField::Set(availability) => Some(availability),
+                        PatchField::Unchanged | PatchField::Clear => None,
+                    },
+                    url: data.url,
+                    images: data.images,
+                    auction: ProductListingAuction::default(),
+                })?;
                 let events = stamp_product_listing_events(
                     listing.id(),
                     time::OffsetDateTime::now_utc(),
@@ -492,8 +526,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<U, R, E, A, S, V> IngestWoocommerceProductListingUseCase
-    for IngestWoocommerceProductListingHandler<U, R, E, A, S, V>
+impl<U, R, E, A, S, V, G> IngestWoocommerceProductListingUseCase
+    for IngestWoocommerceProductListingHandler<U, R, E, A, S, V, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
@@ -501,6 +535,7 @@ where
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
     S: WoocommerceSourceReader,
     V: WoocommerceSignatureVerifier,
+    G: ProductListingTitleSlugGenerator,
 {
     #[tracing::instrument(name = "ingest_woocommerce_product_listing", skip_all, fields(listing_source_id = %command.listing_source_id, source_listing_id = %command.source_listing_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
@@ -512,14 +547,14 @@ where
         let mut source_listing_races = 0;
         let mut title_slug_attempts = 0;
         loop {
-            let title_slug_id = next_product_listing_title_slug_from_text(
-                command.title.as_deref().unwrap_or_default(),
-            )
-            .map_err(|_| {
-                IngestWoocommerceProductListingError::InvalidProductListing {
-                    source: box_error(std::io::Error::other("invalid generated title slug")),
-                }
-            })?;
+            let title_slug_id = self
+                .title_slug_generator
+                .generate(command.title.as_deref().unwrap_or_default())
+                .map_err(
+                    |_| IngestWoocommerceProductListingError::InvalidProductListing {
+                        source: box_error(std::io::Error::other("invalid generated title slug")),
+                    },
+                )?;
             match self
                 .execute_attempt(
                     context,
@@ -540,7 +575,9 @@ where
                 }
                 Err(WoocommerceIngestAttemptError::TitleSlugCollision) => {
                     title_slug_attempts += 1;
-                    if title_slug_attempts >= MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS {
+                    if title_slug_collision_retry(title_slug_attempts, true)
+                        == TitleSlugCollisionRetry::Exhausted
+                    {
                         return Err(
                             IngestWoocommerceProductListingError::ProductListingTitleSlugGenerationExhausted,
                         );
