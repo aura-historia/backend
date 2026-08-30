@@ -757,7 +757,8 @@ mod tests {
 
     fn product_row() -> ProductListingRow {
         let now = OffsetDateTime::now_utc();
-        let title_slug = ProductListingSlugId::from_title("unit product")
+        let title_slug = ProductListingSlugId::raw("unit-product-a1b2c3")
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}"))
             .as_ref()
             .to_owned();
         let source_listing_id = SourceListingId::try_from("unit-product")

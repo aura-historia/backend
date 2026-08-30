@@ -4,6 +4,9 @@ use crate::ports::{
     ProductListingEventStoreError, ProductListingEventStoreFactory, ProductListingRepository,
     ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
 };
+use crate::product_listing_title_slug_creation::{
+    MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS, next_product_listing_title_slug_from_text,
+};
 use crate::use_cases::{
     CreateProductListingResult, UpdateProductListingResult, UpsertProductListingResult,
     WithdrawProductListingResult,
@@ -31,6 +34,7 @@ use product_listing_core::{
     },
     product_listing_id::{ProductListingId, ProductListingKey},
     product_listing_image::ProductListingImage,
+    product_listing_slug_id::ProductListingSlugId,
     source_listing_id::SourceListingId,
     title::Title,
 };
@@ -137,6 +141,8 @@ pub enum IngestWoocommerceProductListingError {
         #[source]
         source: BoxError,
     },
+    #[error("product listing title slug generation was exhausted")]
+    ProductListingTitleSlugGenerationExhausted,
     #[error("product listing persistence failed")]
     ProductListingPersistenceFailed,
     #[error("product listing event storage failed")]
@@ -167,6 +173,7 @@ pub struct IngestWoocommerceProductListingHandler<U, R, E, A, S, V> {
 
 enum WoocommerceIngestAttemptError {
     SourceListingInsertRace,
+    TitleSlugCollision,
     Failed(IngestWoocommerceProductListingError),
 }
 
@@ -266,6 +273,8 @@ where
         tx: &mut U::Tx,
         source: &WoocommerceSource,
         data: WoocommerceListingData,
+        new_product_listing_id: ProductListingId,
+        title_slug_id: ProductListingSlugId,
     ) -> Result<UpsertProductListingResult, WoocommerceIngestAttemptError> {
         let key = ProductListingKey::new(source.listing_source_id, data.source_listing_id.clone());
         let existing = self.products.in_transaction(tx).find_by_key(&key).await?;
@@ -319,28 +328,31 @@ where
                 ))
             }
             None => {
-                let mut listing = ProductListing::create(NewProductListing {
-                    id: ProductListingId::new(),
-                    listing_source_id: source.listing_source_id,
-                    source_listing_id: data.source_listing_id,
-                    title: Some(data.title),
-                    description: data.description,
-                    pricing: ProductListingPricing {
-                        price: match data.price {
-                            PatchField::Set(price) => Some(price),
+                let mut listing = ProductListing::create_with_title_slug_id(
+                    NewProductListing {
+                        id: new_product_listing_id,
+                        listing_source_id: source.listing_source_id,
+                        source_listing_id: data.source_listing_id,
+                        title: Some(data.title),
+                        description: data.description,
+                        pricing: ProductListingPricing {
+                            price: match data.price {
+                                PatchField::Set(price) => Some(price),
+                                PatchField::Unchanged | PatchField::Clear => None,
+                            },
+                            price_estimate_min: None,
+                            price_estimate_max: None,
+                        },
+                        availability: match data.availability {
+                            PatchField::Set(availability) => Some(availability),
                             PatchField::Unchanged | PatchField::Clear => None,
                         },
-                        price_estimate_min: None,
-                        price_estimate_max: None,
+                        url: data.url,
+                        images: data.images,
+                        auction: ProductListingAuction::default(),
                     },
-                    availability: match data.availability {
-                        PatchField::Set(availability) => Some(availability),
-                        PatchField::Unchanged | PatchField::Clear => None,
-                    },
-                    url: data.url,
-                    images: data.images,
-                    auction: ProductListingAuction::default(),
-                })?;
+                    title_slug_id,
+                )?;
                 let events = stamp_product_listing_events(
                     listing.id(),
                     time::OffsetDateTime::now_utc(),
@@ -359,6 +371,9 @@ where
                     .map_err(|error| match error {
                         ProductListingRepositoryError::SourceListingAlreadyExists => {
                             WoocommerceIngestAttemptError::SourceListingInsertRace
+                        }
+                        ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists => {
+                            WoocommerceIngestAttemptError::TitleSlugCollision
                         }
                         error => WoocommerceIngestAttemptError::Failed(error.into()),
                     })?;
@@ -417,6 +432,8 @@ where
         &self,
         context: &OperationContext,
         command: IngestWoocommerceProductListingCommand,
+        new_product_listing_id: ProductListingId,
+        title_slug_id: ProductListingSlugId,
     ) -> Result<IngestWoocommerceProductListingResult, WoocommerceIngestAttemptError> {
         context
             .require()
@@ -460,6 +477,8 @@ where
                         &mut tx,
                         &source,
                         listing_data(command, availability, &source)?,
+                        new_product_listing_id,
+                        title_slug_id,
                     )
                     .await?,
                 )
@@ -489,18 +508,46 @@ where
         context: &OperationContext,
         command: IngestWoocommerceProductListingCommand,
     ) -> Result<IngestWoocommerceProductListingResult, IngestWoocommerceProductListingError> {
-        match self.execute_attempt(context, command.clone()).await {
-            Ok(result) => Ok(result),
-            Err(WoocommerceIngestAttemptError::SourceListingInsertRace) => {
-                match self.execute_attempt(context, command).await {
-                    Ok(result) => Ok(result),
-                    Err(WoocommerceIngestAttemptError::SourceListingInsertRace) => {
-                        Err(IngestWoocommerceProductListingError::ProductListingPersistenceFailed)
-                    }
-                    Err(WoocommerceIngestAttemptError::Failed(error)) => Err(error),
+        let new_product_listing_id = ProductListingId::new();
+        let mut source_listing_races = 0;
+        let mut title_slug_attempts = 0;
+        loop {
+            let title_slug_id = next_product_listing_title_slug_from_text(
+                command.title.as_deref().unwrap_or_default(),
+            )
+            .map_err(|_| {
+                IngestWoocommerceProductListingError::InvalidProductListing {
+                    source: box_error(std::io::Error::other("invalid generated title slug")),
                 }
+            })?;
+            match self
+                .execute_attempt(
+                    context,
+                    command.clone(),
+                    new_product_listing_id,
+                    title_slug_id,
+                )
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(WoocommerceIngestAttemptError::SourceListingInsertRace) => {
+                    source_listing_races += 1;
+                    if source_listing_races > 1 {
+                        return Err(
+                            IngestWoocommerceProductListingError::ProductListingPersistenceFailed,
+                        );
+                    }
+                }
+                Err(WoocommerceIngestAttemptError::TitleSlugCollision) => {
+                    title_slug_attempts += 1;
+                    if title_slug_attempts >= MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS {
+                        return Err(
+                            IngestWoocommerceProductListingError::ProductListingTitleSlugGenerationExhausted,
+                        );
+                    }
+                }
+                Err(WoocommerceIngestAttemptError::Failed(error)) => return Err(error),
             }
-            Err(WoocommerceIngestAttemptError::Failed(error)) => Err(error),
         }
     }
 }

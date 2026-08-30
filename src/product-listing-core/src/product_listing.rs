@@ -210,6 +210,8 @@ pub struct ListingSaleObservationRetracted {
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum RehydrateProductListingError {
+    #[error("product listing title slug is invalid")]
+    InvalidTitleSlugId,
     #[error("withdrawn listing has availability")]
     WithdrawnListingHasAvailability,
     #[error("product listing auction start is after its end")]
@@ -258,15 +260,27 @@ pub enum RecordListingSaleObservationError {
 }
 
 impl ProductListing {
+    /// Creates a listing with a deterministic ID-derived suffix.
+    ///
+    /// Application creation paths should use `create_with_title_slug_id` so
+    /// their collision policy selects the candidate explicitly.
     pub fn create(input: NewProductListing) -> Result<Self, RehydrateProductListingError> {
-        let title_slug_id = product_listing_slug_id(input.title.as_ref());
+        let id: uuid::Uuid = input.id.into();
+        let compact_id = id.simple().to_string();
+        let title_slug_id = ProductListingSlugId::from_title_and_suffix(
+            input
+                .title
+                .as_ref()
+                .map_or("", |title| title.payload.as_ref()),
+            &compact_id[..6],
+        )
+        .map_err(|_| RehydrateProductListingError::InvalidTitleSlugId)?;
         Self::create_with_title_slug_id(input, title_slug_id)
     }
 
     /// Creates a listing with the title slug selected by the application.
     ///
-    /// This lets the service retry a database-enforced title-slug collision
-    /// without changing the canonical listing or source identities.
+    /// This is deterministic: the caller supplies all identity values.
     pub fn create_with_title_slug_id(
         input: NewProductListing,
         title_slug_id: ProductListingSlugId,
@@ -559,10 +573,6 @@ impl ProductListing {
     }
 }
 
-fn product_listing_slug_id(title: Option<&Localized<Language, Title>>) -> ProductListingSlugId {
-    ProductListingSlugId::from_title(title.map_or("", |title| title.payload.as_ref()))
-}
-
 fn validate_auction(auction: ProductListingAuction) -> Result<(), ProductListingInvariantError> {
     if let (Some(start), Some(end)) = (auction.start, auction.end)
         && start > end
@@ -719,7 +729,14 @@ mod tests {
         let source = input();
         let result = ProductListing::rehydrate(RehydratedProductListingState {
             id: source.id,
-            title_slug_id: product_listing_slug_id(source.title.as_ref()),
+            title_slug_id: ProductListingSlugId::from_title_and_suffix(
+                source
+                    .title
+                    .as_ref()
+                    .map_or("", |title| title.payload.as_ref()),
+                "a1b2c3",
+            )
+            .unwrap_or_else(|error| panic!("valid test title slug: {error}")),
             listing_source_id: source.listing_source_id,
             source_listing_id: source.source_listing_id,
             title: source.title,
@@ -785,7 +802,14 @@ mod tests {
             Err(RehydrateProductListingError::AuctionStartAfterEnd),
             ProductListing::rehydrate(RehydratedProductListingState {
                 id: source.id,
-                title_slug_id: product_listing_slug_id(source.title.as_ref()),
+                title_slug_id: ProductListingSlugId::from_title_and_suffix(
+                    source
+                        .title
+                        .as_ref()
+                        .map_or("", |title| title.payload.as_ref()),
+                    "a1b2c3",
+                )
+                .unwrap_or_else(|error| panic!("valid test title slug: {error}")),
                 listing_source_id: source.listing_source_id,
                 source_listing_id: source.source_listing_id,
                 title: source.title,

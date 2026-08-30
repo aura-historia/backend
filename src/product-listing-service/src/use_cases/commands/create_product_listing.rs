@@ -4,6 +4,9 @@ use crate::ports::{
     ProductListingEventStoreError, ProductListingEventStoreFactory, ProductListingRepository,
     ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
 };
+use crate::product_listing_title_slug_creation::{
+    MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS, next_product_listing_title_slug,
+};
 use application::error::BoxError;
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
@@ -93,8 +96,6 @@ pub trait CreateProductListingUseCase: Send + Sync {
         command: CreateProductListingCommand,
     ) -> Result<CreateProductListingResult, CreateProductListingError>;
 }
-
-const MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS: usize = 5;
 
 pub struct CreateProductListingHandler<U, R, E, A> {
     unit_of_work: U,
@@ -199,12 +200,8 @@ where
 
         let product_listing_id = ProductListingId::new();
         for attempt in 1..=MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS {
-            let title_slug_id = ProductListingSlugId::from_title(
-                command
-                    .title
-                    .as_ref()
-                    .map_or("", |title| title.payload.as_ref()),
-            );
+            let title_slug_id = next_product_listing_title_slug(command.title.as_ref())
+                .map_err(|_| CreateProductListingError::InvalidProductListing)?;
             match self
                 .persist_attempt(context, &command, product_listing_id, title_slug_id)
                 .await

@@ -1,5 +1,4 @@
 use std::fmt;
-use uuid::Uuid;
 
 /// Maximum UTF-8 byte length of a public product-listing title slug.
 pub const MAX_PRODUCT_LISTING_SLUG_ID_BYTES: usize = 120;
@@ -18,13 +17,30 @@ pub struct ProductListingSlugId(String);
 pub struct InvalidProductListingSlugId;
 
 impl ProductListingSlugId {
-    pub fn from_title(title: &str) -> Self {
+    /// Builds a canonical slug from a title and application-selected suffix.
+    ///
+    /// The core owns title normalization and validation; callers own entropy.
+    pub fn from_title_and_suffix(
+        title: &str,
+        suffix: &str,
+    ) -> Result<Self, InvalidProductListingSlugId> {
+        if suffix.len() != HASH_SUFFIX_HEX_LENGTH
+            || !suffix
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        {
+            return Err(InvalidProductListingSlugId);
+        }
+
+        Self::raw(&Self::canonical_title_slug(title, suffix))
+    }
+
+    fn canonical_title_slug(title: &str, suffix: &str) -> String {
         let mut body = slug::slugify(title);
         body.truncate(BODY_MAX_BYTES);
         let body = body.trim_end_matches('-');
         let body = if body.is_empty() { "listing" } else { body };
-        let suffix = Uuid::new_v4().simple().to_string();
-        Self(format!("{body}-{}", &suffix[..HASH_SUFFIX_HEX_LENGTH]))
+        format!("{body}-{suffix}")
     }
 
     pub fn raw(value: &str) -> Result<Self, InvalidProductListingSlugId> {
@@ -50,9 +66,16 @@ impl ProductListingSlugId {
     }
 }
 
+/// Deterministic compatibility conversion for title fixture inputs.
+///
+/// Production callers must use `raw` for an existing identifier or let the
+/// application service select a random candidate with `from_title_and_suffix`.
 impl From<&str> for ProductListingSlugId {
     fn from(title: &str) -> Self {
-        Self::from_title(title)
+        // The fixed valid suffix keeps this conversion deterministic. The
+        // service creation path never uses it, because global collision retry
+        // requires a fresh candidate per attempt.
+        Self(Self::canonical_title_slug(title, "000000"))
     }
 }
 
@@ -89,8 +112,10 @@ mod tests {
     };
 
     #[test]
-    fn should_derive_slug_from_title_with_lower_hex_suffix() {
-        let slug = ProductListingSlugId::from_title("Museum Cabinet 18./19. Century");
+    fn should_derive_slug_from_title_with_supplied_lower_hex_suffix() {
+        let slug =
+            ProductListingSlugId::from_title_and_suffix("Museum Cabinet 18./19. Century", "a1b2c3")
+                .unwrap_or_else(|error| panic!("valid slug: {error}"));
         let (body, suffix) = slug
             .as_ref()
             .rsplit_once('-')
@@ -106,12 +131,24 @@ mod tests {
     }
 
     #[test]
+    fn should_build_same_slug_for_same_title_and_suffix() {
+        let first = ProductListingSlugId::from_title_and_suffix("Museum Cabinet", "a1b2c3")
+            .unwrap_or_else(|error| panic!("valid slug: {error}"));
+        let second = ProductListingSlugId::from_title_and_suffix("Museum Cabinet", "a1b2c3")
+            .unwrap_or_else(|error| panic!("valid slug: {error}"));
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
     fn should_cap_slug_and_fall_back_to_listing_body() {
-        let long_slug = ProductListingSlugId::from_title(&"a".repeat(200));
+        let long_slug = ProductListingSlugId::from_title_and_suffix(&"a".repeat(200), "a1b2c3")
+            .unwrap_or_else(|error| panic!("valid slug: {error}"));
         assert_eq!(long_slug.as_ref().len(), MAX_PRODUCT_LISTING_SLUG_ID_BYTES);
 
-        let fallback_slug = ProductListingSlugId::from_title("");
-        assert!(fallback_slug.as_ref().starts_with("listing-"));
+        let fallback_slug = ProductListingSlugId::from_title_and_suffix("", "a1b2c3")
+            .unwrap_or_else(|error| panic!("valid slug: {error}"));
+        assert_eq!(fallback_slug.as_ref(), "listing-a1b2c3");
     }
 
     #[test]

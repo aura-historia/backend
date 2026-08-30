@@ -4,6 +4,9 @@ use crate::ports::{
     ProductListingEventStoreError, ProductListingEventStoreFactory, ProductListingRepository,
     ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
 };
+use crate::product_listing_title_slug_creation::{
+    MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS, next_product_listing_title_slug,
+};
 use crate::use_cases::{CreateProductListingResult, UpdateProductListingResult};
 use application::error::{BoxError, box_error};
 use application::operation_context::{
@@ -24,6 +27,7 @@ use product_listing_core::product_listing::{
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
 use url::Url;
@@ -75,6 +79,8 @@ pub enum UpsertProductListingError {
         #[source]
         source: BoxError,
     },
+    #[error("product listing title slug generation was exhausted")]
+    ProductListingTitleSlugGenerationExhausted,
     #[error("product listing persistence failed")]
     PersistenceFailed,
     #[error("product listing event storage failed")]
@@ -101,6 +107,7 @@ pub struct UpsertProductListingHandler<U, R, E, A> {
 
 enum UpsertAttemptError {
     SourceListingInsertRace,
+    TitleSlugCollision,
     Failed(UpsertProductListingError),
 }
 
@@ -167,6 +174,8 @@ where
         tx: &mut U::Tx,
         context: &OperationContext,
         command: UpsertProductListingCommand,
+        new_product_listing_id: ProductListingId,
+        title_slug_id: ProductListingSlugId,
     ) -> Result<UpsertProductListingResult, UpsertAttemptError> {
         if let Some(actor_id) = partner_actor(&context.principal) {
             self.authorizer
@@ -208,8 +217,10 @@ where
                 ))
             }
             None => {
-                let mut product =
-                    ProductListing::create(command.into_new_product(ProductListingId::new())?)?;
+                let mut product = ProductListing::create_with_title_slug_id(
+                    command.into_new_product(new_product_listing_id)?,
+                    title_slug_id,
+                )?;
                 let events = stamp_product_listing_events(
                     product.id(),
                     time::OffsetDateTime::now_utc(),
@@ -228,6 +239,9 @@ where
                     .map_err(|error| match error {
                         ProductListingRepositoryError::SourceListingAlreadyExists => {
                             UpsertAttemptError::SourceListingInsertRace
+                        }
+                        ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists => {
+                            UpsertAttemptError::TitleSlugCollision
                         }
                         error => UpsertAttemptError::Failed(error.into()),
                     })?;
@@ -249,6 +263,8 @@ where
         &self,
         context: &OperationContext,
         command: UpsertProductListingCommand,
+        new_product_listing_id: ProductListingId,
+        title_slug_id: ProductListingSlugId,
     ) -> Result<UpsertProductListingResult, UpsertAttemptError> {
         context
             .require()
@@ -259,7 +275,15 @@ where
             .begin()
             .await
             .map_err(|_| UpsertProductListingError::BeginTransactionFailed)?;
-        let result = self.persist(&mut tx, context, command).await?;
+        let result = self
+            .persist(
+                &mut tx,
+                context,
+                command,
+                new_product_listing_id,
+                title_slug_id,
+            )
+            .await?;
         tx.commit()
             .await
             .map_err(|_| UpsertProductListingError::CommitTransactionFailed)?;
@@ -284,19 +308,48 @@ where
             "actor_id",
             tracing::field::display(context.principal.label()),
         );
-        let result = match self.execute_attempt(context, command.clone()).await {
-            Ok(result) => result,
-            Err(UpsertAttemptError::SourceListingInsertRace) => {
-                match self.execute_attempt(context, command).await {
-                    Ok(result) => result,
+        let new_product_listing_id = ProductListingId::new();
+        let mut source_listing_races = 0;
+        let mut title_slug_attempts = 0;
+        let result =
+            loop {
+                let title_slug_id = next_product_listing_title_slug(command.title.as_ref())
+                    .map_err(|_| UpsertProductListingError::InvalidProductListing {
+                        source: box_error(std::io::Error::other("invalid generated title slug")),
+                    })?;
+                match self
+                    .execute_attempt(
+                        context,
+                        command.clone(),
+                        new_product_listing_id,
+                        title_slug_id,
+                    )
+                    .await
+                {
+                    Ok(result) => break result,
                     Err(UpsertAttemptError::SourceListingInsertRace) => {
-                        return Err(UpsertProductListingError::PersistenceFailed);
+                        source_listing_races += 1;
+                        if source_listing_races > 1 {
+                            return Err(UpsertProductListingError::PersistenceFailed);
+                        }
+                    }
+                    Err(UpsertAttemptError::TitleSlugCollision) => {
+                        title_slug_attempts += 1;
+                        if title_slug_attempts >= MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS {
+                            return Err(
+                            UpsertProductListingError::ProductListingTitleSlugGenerationExhausted,
+                        );
+                        }
+                        tracing::warn!(
+                            product_listing_id = %new_product_listing_id,
+                            attempt = title_slug_attempts,
+                            constraint_name = "product_listings_title_slug_unique",
+                            "product listing title slug collision; regenerating"
+                        );
                     }
                     Err(UpsertAttemptError::Failed(error)) => return Err(error),
                 }
-            }
-            Err(UpsertAttemptError::Failed(error)) => return Err(error),
-        };
+            };
         let product_listing_id = match &result {
             UpsertProductListingResult::Created(value) => value.product_listing_id,
             UpsertProductListingResult::Updated(value) => value.product_listing_id,

@@ -313,6 +313,9 @@ async fn should_reject_noncanonical_persisted_enum_values() {
 }
 
 fn product_listing_title_slug_id(title: &str) -> String {
-    product_listing_core::product_listing_slug_id::ProductListingSlugId::from_title(title)
-        .to_string()
+    product_listing_core::product_listing_slug_id::ProductListingSlugId::from_title_and_suffix(
+        title, "a1b2c3",
+    )
+    .unwrap_or_else(|error| panic!("valid product listing title slug: {error}"))
+    .to_string()
 }

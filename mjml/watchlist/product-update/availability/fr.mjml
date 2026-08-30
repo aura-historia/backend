@@ -33,7 +33,7 @@
         <mj-section background-color="#ffffff" padding="32px 32px 16px" border-radius="12px">
             <mj-column>
                 <mj-text font-size="16px" color="#1c1c16" padding-bottom="8px">
-                    {{#if user_first_name}}Bonjour {{user_first_name}},{{else}}Bonjour,{{/if}}
+                    {{#if first_name}}Bonjour {{first_name}},{{else}}Bonjour,{{/if}}
                 </mj-text>
                 <mj-text>
                     La disponibilité d’une antiquité de votre liste de suivi a changé. Voici les détails :
@@ -81,7 +81,7 @@
         <!-- CTA buttons -->
         <mj-section background-color="#ffffff" padding="8px 32px 32px" border-radius="12px">
             <mj-column>
-                <mj-button href="https://aura-historia.com/listing-sources/{{listing_source_slug_id}}/product-listings/{{product_listing_slug_id}}" align="center">
+                <mj-button href="{{product_listing_url}}" align="center">
                     Voir sur Aura Historia
                 </mj-button>
             </mj-column>

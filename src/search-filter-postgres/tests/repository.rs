@@ -5,6 +5,7 @@ use localization::Language;
 use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_core::{
     product_listing::ProductListingPriceValuationBasis,
     product_listing_search::ProductListingSearch,
@@ -269,8 +270,11 @@ async fn seed_user(pool: &sqlx::PgPool, email: &str) -> UserId {
     id
 }
 
-async fn seed_product(pool: &sqlx::PgPool, slug: &str) -> ProductListingId {
+async fn seed_product(pool: &sqlx::PgPool, source_listing_id: &str) -> ProductListingId {
     let product_listing_id = ProductListingId::new();
+    let title_slug_id = ProductListingSlugId::raw("search-filter-match-product-a1b2c3")
+        .unwrap_or_else(|error| panic!("valid fixture title slug: {error}"));
+    let slug = source_listing_id;
     let listing_source_id = uuid::Uuid::new_v4();
     let event_id = uuid::Uuid::new_v4();
     let mut tx = pool
@@ -282,7 +286,7 @@ async fn seed_product(pool: &sqlx::PgPool, slug: &str) -> ProductListingId {
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())")
         .bind(event_id).bind(uuid::Uuid::from(product_listing_id)).execute(&mut *tx).await.unwrap_or_else(|error| panic!("seed event failed: {error:?}"));
     sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, availability, lifecycle, url) VALUES ($1, $2, $3, $3, $4, $5, NULL, 'ACTIVE', 'https://example.com/product')")
-        .bind(uuid::Uuid::from(product_listing_id)).bind(slug).bind(event_id).bind(listing_source_id).bind(slug)
+        .bind(uuid::Uuid::from(product_listing_id)).bind(title_slug_id.as_ref()).bind(event_id).bind(listing_source_id).bind(slug)
         .execute(&mut *tx).await.unwrap_or_else(|error| panic!("seed product failed: {error:?}"));
     tx.commit()
         .await

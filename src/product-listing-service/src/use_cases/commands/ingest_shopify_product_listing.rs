@@ -232,6 +232,7 @@ mod tests {
     use listing_source_service::ports::ShopifySource;
     use localization::Language;
     use money::Currency;
+    use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
     use std::sync::{Arc, Mutex};
 
@@ -338,7 +339,10 @@ mod tests {
                 crate::use_cases::CreateProductListingResult {
                     product_listing_id:
                         product_listing_core::product_listing_id::ProductListingId::new(),
-                    product_listing_title_slug_id: "shopify-product".into(),
+                    product_listing_title_slug_id: ProductListingSlugId::raw(
+                        "shopify-product-a1b2c3",
+                    )
+                    .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
                     event_id: domain_primitives::event_id::EventId::new(),
                 },
             ))

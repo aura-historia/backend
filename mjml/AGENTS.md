@@ -7,7 +7,7 @@
 ## Core Design
 
 - Templates grouped by feature: partnership application, search filter, watchlist.
-- Notification code render these assets. Template names and variables be durable contract. ProductListing notices use `listing_source_name`, `listing_source_slug_id`, and `product_listing_slug_id`; Aura links use the ListingSource route.
+- Notification code render these assets. Template names and variables be durable contract. ProductListing notices use `listing_source_name` and Rust-built `product_listing_url`; `first_name` is the greeting variable.
 - Notification product `title` may be absent; guard title blocks and preview text.
 
 ## Ownership

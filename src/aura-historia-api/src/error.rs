@@ -1021,7 +1021,8 @@ impl From<IngestWoocommerceProductListingError> for ApiError {
             IngestWoocommerceProductListingError::ListingWithdrawn => {
                 ApiError::conflict(CONFLICT).with_detail("ProductListing has been withdrawn.")
             }
-            IngestWoocommerceProductListingError::ProductListingPersistenceFailed
+            IngestWoocommerceProductListingError::ProductListingTitleSlugGenerationExhausted
+            | IngestWoocommerceProductListingError::ProductListingPersistenceFailed
             | IngestWoocommerceProductListingError::ProductListingEventStoreFailed
             | IngestWoocommerceProductListingError::BeginTransactionFailed
             | IngestWoocommerceProductListingError::CommitTransactionFailed => {
@@ -1055,6 +1056,7 @@ impl From<UpsertProductListingError> for ApiError {
                     .with_detail("ProductListing upsert is invalid.")
             }
             UpsertProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
+            | UpsertProductListingError::ProductListingTitleSlugGenerationExhausted
             | UpsertProductListingError::PersistenceFailed
             | UpsertProductListingError::EventStoreFailed
             | UpsertProductListingError::BeginTransactionFailed

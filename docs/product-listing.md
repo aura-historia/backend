@@ -11,7 +11,7 @@ Provider-facing types may retain provider vocabulary, such as `ShopifyProductPay
 | Concept | Canonical name |
 | --- | --- |
 | Aggregate | `ProductListing` |
-| IDs | `ProductListingId`, `ProductListingTitleSlugId`, `ListingSourceId`, `SourceListingId`, `ProductListingKey` |
+| IDs | `ProductListingId`, `ProductListingSlugId` (REST: `productListingTitleSlugId`), `ListingSourceId`, `SourceListingId`, `ProductListingKey` |
 | Pricing, auction, image | `ProductListingPricing`, `ProductListingAuction`, `ProductListingImage` |
 | Availability | `ListingAvailability` |
 | Derived availability class | `ListingOrderability` |
@@ -68,7 +68,7 @@ Required invariants:
 9. Only explicitly named restore/upsert intent can restore a withdrawn listing.
 10. Idempotent no-ops emit no event.
 
-Core is deterministic: it collects pure payloads and never creates event IDs or reads the clock. Service stamps payloads with `EventId` and occurrence time before transactional persistence.
+Aggregate mutations collect payloads without creating event IDs or reading the clock. Service stamps payloads with `EventId` and occurrence time before transactional persistence. Public slug generation is separate and uses a random UUID suffix.
 
 ## Availability and orderability
 
@@ -157,7 +157,7 @@ Withdrawal replaces normal deletion. The HTTP partner route may remain `DELETE`,
 
 A ProductListing is authoritatively identified for partner writes by `(ListingSourceId, SourceListingId)`. `SourceListingId` is an opaque partner value: Aura trims outer Unicode whitespace, rejects blank values and embedded NUL characters, preserves case, punctuation, and internal whitespace, and accepts at most 512 UTF-8 bytes. The trimmed value is the canonical input and the only value persisted in PostgreSQL, used for the authoritative key and emitted in events; pre-trim input is not retained. It has no seller, auctioneer, Party attribution, address, or location state. The created event includes both immutable source identifiers. Actor attribution belongs to #1321; durable raw input to #1646; addresses to #1635.
 
-`ProductListingTitleSlugId` is the immutable, Aura-owned public locator. Aura derives it once from the creation title as a capped ASCII slug body plus a six-character lowercase hexadecimal random suffix; it falls back to `listing` when no body remains and is at most 120 bytes. PostgreSQL globally enforces uniqueness of `product_listing_title_slug_id`. Public detail lookup is `GET /api/v1/product-listings/by-slug/{productListingTitleSlugId}`. There is no source-composite public locator and no source-scoped listing detail route. A suffix collision must regenerate the locator and retry persistence a bounded number of times; this recovery is required planned work, not current implementation.
+`ProductListingSlugId` is the immutable Aura-owned public locator, exposed as `productListingTitleSlugId`. Aura derives a capped ASCII slug body from the creation title and appends a six-character lowercase hexadecimal suffix from a random UUID; it falls back to `listing` when no body remains and is at most 120 bytes. PostgreSQL globally enforces uniqueness of `product_listing_title_slug_id`. Public detail lookup is `GET /api/v1/product-listings/by-slug/{productListingTitleSlugId}`. There is no source-composite public locator and no source-scoped listing detail route. On a unique-slug collision, creation generates a new locator and retries persistence up to five attempts; exhausting them fails the creation.
 
 Public listing discovery contains active listings only. Withdrawn listings are not found by public detail and are deleted from the OpenSearch projection; restore rebuilds the projection. Public discovery does not expose a lifecycle filter. OpenSearch retains only each raw source `url`. Search and KNN batch-hydrate current ListingSource referral configuration from PostgreSQL, then derive `view_url`: Partnerize when configured, otherwise Aura UTM parameters.
 

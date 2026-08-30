@@ -1038,7 +1038,10 @@ paths:
           description: Immutable Aura-owned public locator derived from the listing title
           schema:
             type: string
+            minLength: 8
+            maxLength: 120
             pattern: "^[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{6}$"
+            example: museum-cabinet-18-19-century-a1b2c3
         - name: language
           in: query
           required: false
@@ -7978,7 +7981,6 @@ components:
       description: Lightweight ProductListing summary for search and similar-listing results.
       required:
         - productListingId
-        - productListingTitleSlugId
         - eventId
         - source
         - sourceListingId
@@ -7995,6 +7997,11 @@ components:
           format: uuid
         productListingTitleSlugId:
           type: string
+          minLength: 8
+          maxLength: 120
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{6}$"
+          description: Immutable Aura-owned public locator. Omitted when the listing is redacted as hidden.
+          example: museum-cabinet-18-19-century-a1b2c3
         eventId:
           type: string
           format: uuid
@@ -8074,7 +8081,6 @@ components:
       description: Canonical ProductListing detail inside a personalized response wrapper.
       required:
         - productListingId
-        - productListingTitleSlugId
         - eventId
         - source
         - sourceListingId
@@ -8093,6 +8099,11 @@ components:
           format: uuid
         productListingTitleSlugId:
           type: string
+          minLength: 8
+          maxLength: 120
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{6}$"
+          description: Immutable Aura-owned public locator. Omitted when the listing is redacted as hidden.
+          example: museum-cabinet-18-19-century-a1b2c3
         eventId:
           type: string
           format: uuid

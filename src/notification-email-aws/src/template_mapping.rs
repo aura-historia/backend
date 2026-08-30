@@ -8,7 +8,9 @@ use notification_core::{
     presentation::present_image,
 };
 use notification_service::ports::notification_delivery_repository::NotificationDeliverySource;
-use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::{
+    listing_availability::ListingAvailability, product_listing_slug_id::ProductListingSlugId,
+};
 use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -226,8 +228,7 @@ pub(crate) fn template_data(
         } => {
             let mut data = product_template_data(
                 snapshot.listing_source_name.to_string(),
-                snapshot.listing_source_slug_id.to_string(),
-                snapshot.product_listing_title_slug_id.to_string(),
+                &snapshot.product_listing_title_slug_id,
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
                 snapshot.view_url.to_string(),
@@ -264,8 +265,7 @@ pub(crate) fn template_data(
         } => {
             let mut data = product_template_data(
                 snapshot.listing_source_name.to_string(),
-                snapshot.listing_source_slug_id.to_string(),
-                snapshot.product_listing_title_slug_id.to_string(),
+                &snapshot.product_listing_title_slug_id,
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
                 snapshot.view_url.to_string(),
@@ -298,13 +298,22 @@ fn add_recipient_data(mut data: Value, first_name: Option<&str>) -> Value {
 }
 fn product_template_data(
     listing_source_name: String,
-    listing_source_slug_id: String,
-    product_listing_title_slug_id: String,
+    product_listing_title_slug_id: &ProductListingSlugId,
     title: Option<String>,
     image_url: Option<String>,
     view_url: String,
 ) -> Value {
-    json!({ "listing_source_name": listing_source_name, "listing_source_slug_id": listing_source_slug_id, "product_listing_title_slug_id": product_listing_title_slug_id, "title": title, "image_url": image_url, "view_url": view_url })
+    json!({
+        "listing_source_name": listing_source_name,
+        "product_listing_url": product_listing_url(product_listing_title_slug_id),
+        "title": title,
+        "image_url": image_url,
+        "view_url": view_url,
+    })
+}
+
+fn product_listing_url(product_listing_title_slug_id: &ProductListingSlugId) -> String {
+    format!("https://aura-historia.com/product-listings/{product_listing_title_slug_id}")
 }
 fn price_text(price: Option<Price>) -> Option<String> {
     price.map(|price| price.format_human_readable())
@@ -567,6 +576,22 @@ mod tests {
     }
 
     #[test]
+    fn should_include_frontend_product_listing_url_and_first_name_in_template_data()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let source = source(false, None)?;
+        let data = template_data(&source, EmailLanguage::En, Some("Ada"));
+
+        assert_eq!(
+            Some("https://aura-historia.com/product-listings/antique-vase-a1b2c3"),
+            data["product_listing_url"].as_str()
+        );
+        assert_eq!(Some("Ada"), data["first_name"].as_str());
+        assert!(data.get("listing_source_slug_id").is_none());
+        assert!(data.get("product_listing_title_slug_id").is_none());
+        Ok(())
+    }
+
+    #[test]
     fn should_localize_template_data_with_resolved_email_language()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut source = source(false, None)?;
@@ -698,7 +723,10 @@ mod tests {
                         .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                     listing_source_slug_id: ListingSourceSlugId::raw("test-source")
                         .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
-                    product_listing_title_slug_id: ProductListingSlugId::from("product"),
+                    product_listing_title_slug_id: ProductListingSlugId::raw("antique-vase-a1b2c3")
+                        .unwrap_or_else(|error| {
+                            panic!("valid product listing title slug: {error}")
+                        }),
                     listing_source_name: ListingSourceName::try_from("Test Listing Source")
                         .unwrap_or_else(|error| {
                             panic!("invalid test listing source name: {error}")
