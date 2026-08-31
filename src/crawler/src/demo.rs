@@ -57,7 +57,8 @@ use crawler::scraper::scraper_service::{
     DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
 use crawler::service::crawler_domain_configuration::{
-    CrawlerDomainConfigurationRepository, CrawlerDomainConfigurationRepositoryImpl,
+    CrawlerDomainAdministrationHandler, CrawlerDomainConfigurationRepository,
+    CrawlerDomainConfigurationRepositoryImpl,
 };
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::listing_source_registration::{
@@ -373,7 +374,13 @@ async fn main() {
             review_bind_addr = %review_config.bind_addr,
             "Crawler demo is fully initialized. Starting background tasks. Press Ctrl+C to stop."
         );
-        let review_server = ReviewServer::new(review_repo, domain_configuration, review_config);
+        let review_server = ReviewServer::new(
+            review_repo,
+            Arc::new(CrawlerDomainAdministrationHandler::new(
+                domain_configuration,
+            )),
+            review_config,
+        );
         let review_handle = tokio::spawn(async move {
             review_server
                 .run()

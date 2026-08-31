@@ -181,6 +181,16 @@ impl ScraperService for ScraperServiceImpl {
                 });
             }
         };
+        if !is_same_logical_host(url, &fetched.final_url) {
+            return Err(ScraperError::HttpError {
+                url: url.clone(),
+                kind: NetworkErrorKind::UnsafeTarget,
+                details: format!(
+                    "product URL redirected outside configured crawler domain: original={url}, final={}",
+                    fetched.final_url
+                ),
+            });
+        }
         if is_redirect_to_non_product_page(url, &fetched.final_url, product_url_pattern) {
             self.mark_product_removed_best_effort(listing_source_id, url)
                 .await;

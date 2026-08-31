@@ -11,6 +11,7 @@ pub mod schema_page_evaluation;
 pub mod schema_review_page_input;
 pub mod selector_field_evaluation;
 pub mod status;
+pub mod url_pattern_candidate;
 
 pub use artifact::*;
 pub use listing_source_overview::ListingSourceOverview;
@@ -25,3 +26,4 @@ pub use schema_page_evaluation::SchemaPageEvaluation;
 pub use schema_review_page_input::SchemaReviewPageInput;
 pub use selector_field_evaluation::SelectorFieldEvaluation;
 pub use status::*;
+pub use url_pattern_candidate::{UrlPatternDecision, UrlPatternReviewCandidate};

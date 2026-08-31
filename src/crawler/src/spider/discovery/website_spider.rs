@@ -8,6 +8,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 use url::Url;
 
+use crate::network::policy::{is_same_or_www_host, resolve_public_http_target};
 use crate::spider::utils::url::CrawledUrl;
 
 const SPIDER_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36";
@@ -152,6 +153,36 @@ impl Default for SpiderImpl {
     }
 }
 
+fn configured_host_whitelist(url: &Url) -> Result<String, SpiderDiscoveryError> {
+    let host = url.host_str().ok_or_else(|| {
+        SpiderDiscoveryError::Discovery("configured crawler URL has no host".to_string())
+    })?;
+    Ok(format!(
+        r"^https?://{}(?::(?:80|443))?(?:/|$)",
+        regex::escape(host)
+    ))
+}
+
+async fn spider_public_http_client(
+    url: &Url,
+    timeout: std::time::Duration,
+) -> Result<spider::reqwest::Client, SpiderDiscoveryError> {
+    let target = resolve_public_http_target(url, timeout)
+        .await
+        .map_err(|error| SpiderDiscoveryError::Discovery(error.to_string()))?;
+    let mut builder = spider::reqwest::Client::builder()
+        .redirect(spider::reqwest::redirect::Policy::none())
+        .timeout(timeout)
+        .connect_timeout(timeout)
+        .no_proxy();
+    for address in target.addresses {
+        builder = builder.resolve(&target.host, address);
+    }
+    builder
+        .build()
+        .map_err(|error| SpiderDiscoveryError::Discovery(error.to_string()))
+}
+
 #[async_trait::async_trait]
 impl Spider for SpiderImpl {
     async fn crawl(&self, shop_url: &str) -> Result<SpiderCrawl, SpiderDiscoveryError> {
@@ -159,7 +190,17 @@ impl Spider for SpiderImpl {
         let (status_tx, status_rx) = oneshot::channel();
         let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
 
+        let root_url = Url::parse(shop_url).map_err(|_| {
+            SpiderDiscoveryError::Discovery("configured crawler URL is invalid".to_string())
+        })?;
+        let client = spider_public_http_client(
+            &root_url,
+            std::time::Duration::from_secs(self.config.request_timeout_secs),
+        )
+        .await?;
+        let host_whitelist = configured_host_whitelist(&root_url)?;
         let mut website = Website::new(shop_url);
+        website.set_http_client(client);
 
         let blacklist_regex = CrawledUrl::blacklist_patterns();
         let auto_throttle_config = AutoThrottleConfig {
@@ -176,6 +217,7 @@ impl Spider for SpiderImpl {
 
         website
             .with_blacklist_url(Some(blacklist_regex))
+            .with_whitelist_url(Some(vec![host_whitelist.into()]))
             .with_respect_robots_txt(true)
             .with_headers(Some(spider_request_headers()))
             .with_user_agent(Some(SPIDER_USER_AGENT))
@@ -206,6 +248,8 @@ impl Spider for SpiderImpl {
                 .expect("bloom filter init failed");
             let mut diagnostics = CrawlDiagnostics::default();
             let mut first_page_seen = false;
+            let configured_root = Url::parse(&shop_url).ok();
+            let mut root_redirect_rejected = false;
 
             while let Ok(page) = spider_rx.recv().await {
                 if !first_page_seen {
@@ -215,6 +259,10 @@ impl Spider for SpiderImpl {
                         page.status_code.as_u16(),
                         page.final_redirect_destination.as_deref(),
                         page.anti_bot_tech,
+                    );
+                    root_redirect_rejected = matches!(
+                        diagnostics.failure_kind,
+                        Some(CrawlFailureKind::RedirectProblem)
                     );
                     first_page_seen = true;
                 }
@@ -226,6 +274,14 @@ impl Spider for SpiderImpl {
                 } else {
                     continue;
                 };
+
+                if root_redirect_rejected
+                    || !configured_root
+                        .as_ref()
+                        .is_some_and(|root| is_same_or_www_host(root, normalized.as_url()))
+                {
+                    continue;
+                }
 
                 if normalized.is_blacklisted() {
                     continue;
@@ -253,21 +309,6 @@ impl Spider for SpiderImpl {
             diagnostics: diagnostics_rx,
         })
     }
-}
-
-fn is_same_or_www_host(original_url: &Url, resolved_url: &Url) -> bool {
-    let Some(original_host) = original_url.host_str() else {
-        return false;
-    };
-    let Some(resolved_host) = resolved_url.host_str() else {
-        return false;
-    };
-
-    strip_www(original_host).eq_ignore_ascii_case(strip_www(resolved_host))
-}
-
-fn strip_www(host: &str) -> &str {
-    host.strip_prefix("www.").unwrap_or(host)
 }
 
 fn diagnostics_from_library_page(
@@ -396,6 +437,19 @@ fn website_status_signal(status: CrawlStatus, meta: WebsiteMetaInfo) -> Option<D
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_allow_only_configured_host_in_spider_fetch_graph() {
+        let pattern =
+            configured_host_whitelist(&Url::parse("https://example.com").unwrap()).unwrap();
+        let whitelist = regex::Regex::new(&pattern).unwrap();
+
+        assert!(whitelist.is_match("https://example.com/product/1"));
+        assert!(!whitelist.is_match("https://www.example.com/product/1"));
+        assert!(!whitelist.is_match("https://internal.example.com/product/1"));
+        assert!(!whitelist.is_match("https://example.com.evil.test/product/1"));
+        assert!(!whitelist.is_match("http://127.0.0.1/product/1"));
+    }
 
     #[test]
     fn should_use_conservative_website_concurrency_limit_by_default() {

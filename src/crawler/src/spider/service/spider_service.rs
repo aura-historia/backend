@@ -1,6 +1,7 @@
 use listing_source_core::ListingSourceId;
 use std::sync::Arc;
 
+use crate::network::policy::is_same_or_www_host;
 use crate::spider::classification::url_metadata_repository::UrlMetadataRepository;
 use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
@@ -45,7 +46,7 @@ pub enum SpiderServiceError {
 
     #[error(transparent)]
     UrlMetadata(
-        #[from] crate::spider::classification::url_metadata_repository::UrlMetadataRepositoryError,
+        Box<crate::spider::classification::url_metadata_repository::UrlMetadataRepositoryError>,
     ),
 
     #[error("Spider crawl emitted no pages for shop URL '{shop_url}'")]
@@ -159,7 +160,8 @@ impl SpiderServiceImpl {
             let records = self
                 .url_metadata_repository
                 .upsert_links_batch(listing_source_id, domain_id, &urls, &classes)
-                .await?;
+                .await
+                .map_err(|error| SpiderServiceError::UrlMetadata(Box::new(error)))?;
             Ok(records.len())
         } else {
             Ok(0)
@@ -415,6 +417,11 @@ impl SpiderServiceImpl {
         shop_url: &str,
         classify_threshold: usize,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
+        let configured_root = Url::parse(shop_url).map_err(|_| {
+            SpiderServiceError::Discovery(SpiderDiscoveryError::Discovery(
+                "configured crawler domain URL is invalid".to_string(),
+            ))
+        })?;
         let crawl = self.spider.crawl(shop_url).await?;
         let diagnostics_rx = crawl.diagnostics;
         let mut crawl_rx = crawl.pages;
@@ -430,6 +437,10 @@ impl SpiderServiceImpl {
         }
 
         while let Some(page) = crawl_rx.recv().await {
+            if !is_same_or_www_host(&configured_root, page.url.as_url()) {
+                debug!(url = %page.url, configured_root = %configured_root, "Ignoring discovered URL outside configured crawler domain");
+                continue;
+            }
             state.total_crawled += 1;
 
             if state.inference_sample.len() < self.config.max_sample_urls {

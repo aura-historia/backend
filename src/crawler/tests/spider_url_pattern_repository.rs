@@ -1,5 +1,5 @@
 use crawler::spider::classification::url_pattern_repository::{
-    ListingSourceUrlPatternRepository, ListingSourceUrlPatternRepositoryImpl,
+    ListingSourceUrlPatternRepository, ListingSourceUrlPatternRepositoryImpl, UrlPatternState,
 };
 use listing_source_core::ListingSourceId;
 use test_api::*;
@@ -35,6 +35,121 @@ async fn insert_domain(
 
 #[serial_test::serial]
 #[aura_integration_test(services = [POSTGRES])]
+async fn should_return_none_when_domain_is_missing_for_listing_source() {
+    let pool = get_postgres_client().await;
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+
+    let found = repository
+        .find_pattern(&listing_source_id, &uuid::Uuid::new_v4())
+        .await
+        .unwrap();
+
+    assert!(found.is_none());
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_save_replace_and_clear_pattern_for_owned_domain() {
+    let pool = get_postgres_client().await;
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "patterns.example.com").await;
+
+    let initial = repository
+        .find_pattern(&listing_source_id, &domain_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(initial.listing_source_id, listing_source_id);
+    assert_eq!(initial.domain_id, domain_id);
+    assert!(initial.url_pattern.is_none());
+    assert_eq!(initial.url_pattern_state, UrlPatternState::Unknown);
+
+    repository
+        .save_pattern(&listing_source_id, &domain_id, Some(r"/products/"))
+        .await
+        .unwrap();
+    let saved = repository
+        .find_pattern(&listing_source_id, &domain_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.url_pattern.as_deref(), Some(r"/products/"));
+    assert_eq!(saved.url_pattern_state, UrlPatternState::Matched);
+
+    repository
+        .save_pattern(&listing_source_id, &domain_id, Some(r"/objects/"))
+        .await
+        .unwrap();
+    let replaced = repository
+        .find_pattern(&listing_source_id, &domain_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(replaced.url_pattern.as_deref(), Some(r"/objects/"));
+    assert_eq!(replaced.url_pattern_state, UrlPatternState::Matched);
+
+    repository
+        .save_pattern(&listing_source_id, &domain_id, None)
+        .await
+        .unwrap();
+    let cleared = repository
+        .find_pattern(&listing_source_id, &domain_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(cleared.url_pattern.is_none());
+    assert_eq!(cleared.url_pattern_state, UrlPatternState::Unknown);
+
+    repository
+        .save_no_pattern(&listing_source_id, &domain_id)
+        .await
+        .unwrap();
+    let no_pattern = repository
+        .find_pattern(&listing_source_id, &domain_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(no_pattern.url_pattern.is_none());
+    assert_eq!(no_pattern.url_pattern_state, UrlPatternState::NoPattern);
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_mark_owned_domain_as_crawled() {
+    let pool = get_postgres_client().await;
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "crawled.example.com").await;
+
+    let before = repository
+        .find_pattern(&listing_source_id, &domain_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(before.last_crawled.is_none());
+
+    repository
+        .mark_as_crawled(&listing_source_id, &domain_id)
+        .await
+        .unwrap();
+
+    let crawled = repository
+        .find_pattern(&listing_source_id, &domain_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(crawled.listing_source_id, listing_source_id);
+    assert_eq!(crawled.domain_id, domain_id);
+    assert!(crawled.last_crawled.is_some());
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_store_patterns_independently_for_domains_of_one_listing_source() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
@@ -63,7 +178,30 @@ async fn should_store_patterns_independently_for_domains_of_one_listing_source()
         .unwrap()
         .unwrap();
     assert_eq!(pattern_a.url_pattern.as_deref(), Some(r"/products/"));
+    assert_eq!(pattern_a.url_pattern_state, UrlPatternState::Matched);
+    assert!(pattern_a.last_crawled.is_none());
     assert_eq!(pattern_b.url_pattern.as_deref(), Some(r"/objects/"));
+    assert_eq!(pattern_b.url_pattern_state, UrlPatternState::Matched);
+    assert!(pattern_b.last_crawled.is_none());
+
+    repository
+        .mark_as_crawled(&listing_source_id, &domain_a)
+        .await
+        .unwrap();
+    let crawled_a = repository
+        .find_pattern(&listing_source_id, &domain_a)
+        .await
+        .unwrap()
+        .unwrap();
+    let untouched_b = repository
+        .find_pattern(&listing_source_id, &domain_b)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(crawled_a.last_crawled.is_some());
+    assert_eq!(crawled_a.url_pattern.as_deref(), Some(r"/products/"));
+    assert!(untouched_b.last_crawled.is_none());
+    assert_eq!(untouched_b.url_pattern.as_deref(), Some(r"/objects/"));
 }
 
 #[serial_test::serial]

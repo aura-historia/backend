@@ -1,4 +1,4 @@
-use crawler::spider::classification::url_metadata::UrlClass;
+use crawler::spider::classification::url_metadata::{UrlClass, UrlPresence};
 use crawler::spider::classification::url_metadata_repository::{
     UrlMetadataRepository, UrlMetadataRepositoryError, UrlMetadataRepositoryImpl,
 };
@@ -37,6 +37,263 @@ async fn insert_domain(
 
 #[serial_test::serial]
 #[aura_integration_test(services = [POSTGRES])]
+async fn should_insert_and_update_url_for_its_same_owner() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "same-owner.example.com").await;
+    let url = Url::parse("https://same-owner.example.com/products/1").unwrap();
+
+    let inserted = repository
+        .upsert_link(
+            &listing_source_id,
+            &domain_id,
+            &url,
+            &UrlClass::ProductListing,
+        )
+        .await
+        .unwrap();
+    assert_eq!(inserted.listing_source_id, listing_source_id);
+    assert_eq!(inserted.domain_id, domain_id);
+    assert_eq!(inserted.url, url);
+    assert_eq!(inserted.url_class, UrlClass::ProductListing);
+    assert_eq!(inserted.state, UrlPresence::Present);
+    assert!(inserted.last_scraped.is_none());
+    assert!(inserted.last_scraped_hash.is_none());
+
+    let updated = repository
+        .upsert_link(&listing_source_id, &domain_id, &url, &UrlClass::Other)
+        .await
+        .unwrap();
+    assert_eq!(updated.listing_source_id, listing_source_id);
+    assert_eq!(updated.domain_id, domain_id);
+    assert_eq!(updated.url, url);
+    assert_eq!(updated.url_class, UrlClass::Other);
+    assert_eq!(updated.state, UrlPresence::Present);
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(uuid::Uuid::from(listing_source_id))
+    .bind(url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_mark_owned_url_as_scraped() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "scraped.example.com").await;
+    let url = Url::parse("https://scraped.example.com/products/1").unwrap();
+    repository
+        .upsert_link(
+            &listing_source_id,
+            &domain_id,
+            &url,
+            &UrlClass::ProductListing,
+        )
+        .await
+        .unwrap();
+
+    let scraped = repository
+        .mark_as_scraped(&listing_source_id, &url, "content-hash")
+        .await
+        .unwrap();
+
+    assert_eq!(scraped.listing_source_id, listing_source_id);
+    assert_eq!(scraped.domain_id, domain_id);
+    assert_eq!(scraped.last_scraped_hash.as_deref(), Some("content-hash"));
+    assert!(scraped.last_scraped.is_some());
+    assert_eq!(scraped.state, UrlPresence::Present);
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_update_presence_for_owned_url() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "presence.example.com").await;
+    let url = Url::parse("https://presence.example.com/products/1").unwrap();
+    repository
+        .upsert_link(
+            &listing_source_id,
+            &domain_id,
+            &url,
+            &UrlClass::ProductListing,
+        )
+        .await
+        .unwrap();
+
+    let withdrawn = repository
+        .set_presence(&listing_source_id, &url, &UrlPresence::Withdrawn)
+        .await
+        .unwrap();
+    assert_eq!(withdrawn.state, UrlPresence::Withdrawn);
+
+    let present = repository
+        .set_presence(&listing_source_id, &url, &UrlPresence::Present)
+        .await
+        .unwrap();
+    assert_eq!(present.state, UrlPresence::Present);
+    assert_eq!(present.domain_id, domain_id);
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_upsert_valid_url_batch_for_one_owned_domain() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "batch.example.com").await;
+    let first = Url::parse("https://batch.example.com/products/1").unwrap();
+    let second = Url::parse("https://batch.example.com/products/2").unwrap();
+
+    let records = repository
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &[first.clone(), second.clone()],
+            &[UrlClass::ProductListing, UrlClass::Category],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(records.len(), 2);
+    assert!(records.iter().any(|record| {
+        record.listing_source_id == listing_source_id
+            && record.domain_id == domain_id
+            && record.url == first
+            && record.url_class == UrlClass::ProductListing
+            && record.state == UrlPresence::Present
+    }));
+    assert!(records.iter().any(|record| {
+        record.listing_source_id == listing_source_id
+            && record.domain_id == domain_id
+            && record.url == second
+            && record.url_class == UrlClass::Category
+            && record.state == UrlPresence::Present
+    }));
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_reject_batch_when_url_and_class_lengths_differ() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "lengths.example.com").await;
+    let url = Url::parse("https://lengths.example.com/products/1").unwrap();
+
+    let result = repository
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            std::slice::from_ref(&url),
+            &[UrlClass::ProductListing, UrlClass::Other],
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(UrlMetadataRepositoryError::Database {
+            source: sqlx::Error::Protocol(message)
+        }) if message == "URL and URL-class batch lengths differ"
+    ));
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(uuid::Uuid::from(listing_source_id))
+    .bind(url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_reject_duplicate_urls_in_batch_without_persisting_any_row() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "duplicates.example.com").await;
+    let url = Url::parse("https://duplicates.example.com/products/1").unwrap();
+
+    let result = repository
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &[url.clone(), url.clone()],
+            &[UrlClass::ProductListing, UrlClass::Other],
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(UrlMetadataRepositoryError::Database {
+            source: sqlx::Error::Database(_)
+        })
+    ));
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(uuid::Uuid::from(listing_source_id))
+    .bind(url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_delete_urls_when_their_domain_is_deleted() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "cascade.example.com").await;
+    let url = Url::parse("https://cascade.example.com/products/1").unwrap();
+    repository
+        .upsert_link(
+            &listing_source_id,
+            &domain_id,
+            &url,
+            &UrlClass::ProductListing,
+        )
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "DELETE FROM listing_source_domains WHERE listing_source_id = $1 AND domain_id = $2",
+    )
+    .bind(uuid::Uuid::from(listing_source_id))
+    .bind(domain_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM listing_source_urls WHERE url = $1")
+        .bind(url.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_reject_new_url_when_domain_belongs_to_another_listing_source() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -63,14 +320,14 @@ async fn should_reject_new_url_when_domain_belongs_to_another_listing_source() {
 
 #[serial_test::serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_reject_cross_source_url_conflict_without_mutating_original_row() {
+async fn should_reject_cross_source_url_claim_when_requested_domain_does_not_own_the_url_host() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
     let source_a = ListingSourceId::new();
     let source_b = ListingSourceId::new();
     insert_source(&pool, source_a).await;
     insert_source(&pool, source_b).await;
-    let domain_a = insert_domain(&pool, source_a, "a.example.com").await;
+    let domain_a = insert_domain(&pool, source_a, "shared.example.com").await;
     let domain_b = insert_domain(&pool, source_b, "b.example.com").await;
     let url = Url::parse("https://shared.example.com/product/1").unwrap();
 
@@ -83,7 +340,7 @@ async fn should_reject_cross_source_url_conflict_without_mutating_original_row()
         .await;
     assert!(matches!(
         conflict,
-        Err(UrlMetadataRepositoryError::UrlOwnedByAnotherListingSource { .. })
+        Err(UrlMetadataRepositoryError::UrlHostDoesNotMatchDomain { .. })
     ));
 
     let row: (uuid::Uuid, uuid::Uuid, String) = sqlx::query_as(
@@ -100,26 +357,35 @@ async fn should_reject_cross_source_url_conflict_without_mutating_original_row()
 
 #[serial_test::serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_allow_same_source_url_to_move_between_its_domains() {
+async fn should_reject_same_source_url_reassignment_between_equivalent_domains() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
     let source = ListingSourceId::new();
     insert_source(&pool, source).await;
-    let first_domain = insert_domain(&pool, source, "first.example.com").await;
-    let second_domain = insert_domain(&pool, source, "second.example.com").await;
-    let url = Url::parse("https://shared.example.com/product/1").unwrap();
+    let first_domain = insert_domain(&pool, source, "example.com").await;
+    let second_domain = insert_domain(&pool, source, "www.example.com").await;
+    let url = Url::parse("https://www.example.com/product/1").unwrap();
 
     repository
         .upsert_link(&source, &first_domain, &url, &UrlClass::Other)
         .await
         .unwrap();
-    let record = repository
+    let result = repository
         .upsert_link(&source, &second_domain, &url, &UrlClass::ProductListing)
-        .await
-        .unwrap();
-    assert_eq!(record.listing_source_id, source);
-    assert_eq!(record.domain_id, second_domain);
-    assert_eq!(record.url_class, UrlClass::ProductListing);
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(UrlMetadataRepositoryError::UrlOwnedByAnotherDomain { .. })
+    ));
+    let row: (uuid::Uuid, String) =
+        sqlx::query_as("SELECT domain_id, url_class FROM listing_source_urls WHERE url = $1")
+            .bind(url.as_str())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(row.0, first_domain);
+    assert_eq!(row.1, "other");
 }
 
 #[serial_test::serial]
@@ -131,7 +397,7 @@ async fn should_roll_back_batch_when_one_url_is_owned_by_another_listing_source(
     let source_b = ListingSourceId::new();
     insert_source(&pool, source_a).await;
     insert_source(&pool, source_b).await;
-    let domain_a = insert_domain(&pool, source_a, "batch-a.example.com").await;
+    let domain_a = insert_domain(&pool, source_a, "shared.example.com").await;
     let domain_b = insert_domain(&pool, source_b, "batch-b.example.com").await;
     let conflicting = Url::parse("https://shared.example.com/product/1").unwrap();
     let fresh = Url::parse("https://batch-b.example.com/product/2").unwrap();
@@ -155,7 +421,7 @@ async fn should_roll_back_batch_when_one_url_is_owned_by_another_listing_source(
         .await;
     assert!(matches!(
         result,
-        Err(UrlMetadataRepositoryError::UrlOwnedByAnotherListingSource { .. })
+        Err(UrlMetadataRepositoryError::UrlHostDoesNotMatchDomain { .. })
     ));
     let fresh_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM listing_source_urls WHERE url = $1")
@@ -164,4 +430,37 @@ async fn should_roll_back_batch_when_one_url_is_owned_by_another_listing_source(
             .await
             .unwrap();
     assert_eq!(fresh_count, 0);
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_accept_bare_and_www_domain_equivalence_but_reject_other_subdomains() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let source = ListingSourceId::new();
+    insert_source(&pool, source).await;
+    let domain = insert_domain(&pool, source, "example.com").await;
+
+    repository
+        .upsert_link(
+            &source,
+            &domain,
+            &Url::parse("https://www.example.com/products/1").unwrap(),
+            &UrlClass::ProductListing,
+        )
+        .await
+        .unwrap();
+    let result = repository
+        .upsert_link(
+            &source,
+            &domain,
+            &Url::parse("https://shop.example.com/products/2").unwrap(),
+            &UrlClass::ProductListing,
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(UrlMetadataRepositoryError::UrlHostDoesNotMatchDomain { .. })
+    ));
 }

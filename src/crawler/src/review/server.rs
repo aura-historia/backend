@@ -8,17 +8,26 @@ use crate::review::repository::ReviewRepositoryError;
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::service::{FetchError, HtmlFetcher, ReqwestHtmlFetcher};
 use crate::service::crawler_domain_configuration::{
-    CrawlerDomainConfigurationError, CrawlerDomainConfigurationRepository,
+    CrawlerDomainAdministration, CrawlerDomainConfigurationError,
 };
 use listing_source_core::{Domain, ListingSourceId};
 use serde::Deserialize;
 use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{error, info, warn};
 use url::Url;
+
+#[derive(Debug, thiserror::Error)]
+pub enum ReviewServerConfigError {
+    #[error(transparent)]
+    InvalidBindAddress(#[from] std::net::AddrParseError),
+    #[error("CRAWLER_REVIEW_AUTH_TOKEN is required for non-loopback bind addresses")]
+    AuthenticationRequiredForNonLoopback,
+}
 
 #[derive(Clone)]
 pub struct ReviewServerConfig {
@@ -27,24 +36,36 @@ pub struct ReviewServerConfig {
 }
 
 impl ReviewServerConfig {
-    pub fn from_env() -> Result<Self, std::net::AddrParseError> {
-        let bind_addr = std::env::var("CRAWLER_REVIEW_BIND_ADDR")
+    pub fn from_env() -> Result<Self, ReviewServerConfigError> {
+        let bind_addr: SocketAddr = std::env::var("CRAWLER_REVIEW_BIND_ADDR")
             .unwrap_or_else(|_| "127.0.0.1:7878".to_string())
             .parse()?;
         let auth_token = std::env::var("CRAWLER_REVIEW_AUTH_TOKEN")
             .ok()
             .filter(|token| !token.trim().is_empty());
-        Ok(Self {
+        Self {
             bind_addr,
             auth_token,
-        })
+        }
+        .validate()
+    }
+
+    pub fn validate(self) -> Result<Self, ReviewServerConfigError> {
+        if !self.bind_addr.ip().is_loopback() && self.auth_token.is_none() {
+            return Err(ReviewServerConfigError::AuthenticationRequiredForNonLoopback);
+        }
+        Ok(self)
     }
 }
+
+const MAX_REQUEST_HEADER_BYTES: usize = 16 * 1024;
+const MAX_REQUEST_BODY_BYTES: usize = 64 * 1024;
+const REQUEST_IO_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
 pub struct ReviewServer {
     repository: CrawlerReviewRepository,
-    domain_configuration: Arc<dyn CrawlerDomainConfigurationRepository>,
+    domain_administration: Arc<dyn CrawlerDomainAdministration>,
     config: ReviewServerConfig,
     html_fetcher: Arc<dyn HtmlFetcher>,
 }
@@ -52,12 +73,12 @@ pub struct ReviewServer {
 impl ReviewServer {
     pub fn new(
         repository: CrawlerReviewRepository,
-        domain_configuration: Arc<dyn CrawlerDomainConfigurationRepository>,
+        domain_administration: Arc<dyn CrawlerDomainAdministration>,
         config: ReviewServerConfig,
     ) -> Self {
         Self {
             repository,
-            domain_configuration,
+            domain_administration,
             config,
             html_fetcher: Arc::new(ReqwestHtmlFetcher::new()),
         }
@@ -65,13 +86,13 @@ impl ReviewServer {
 
     pub fn new_with_fetcher(
         repository: CrawlerReviewRepository,
-        domain_configuration: Arc<dyn CrawlerDomainConfigurationRepository>,
+        domain_administration: Arc<dyn CrawlerDomainAdministration>,
         config: ReviewServerConfig,
         html_fetcher: Arc<dyn HtmlFetcher>,
     ) -> Self {
         Self {
             repository,
-            domain_configuration,
+            domain_administration,
             config,
             html_fetcher,
         }
@@ -96,13 +117,15 @@ impl ReviewServer {
     }
 
     async fn handle_connection(&self, mut stream: TcpStream) -> std::io::Result<()> {
-        let mut buffer = vec![0; 1024 * 1024];
-        let bytes_read = stream.read(&mut buffer).await?;
-        if bytes_read == 0 {
-            return Ok(());
+        let response = match read_bounded_request(&mut stream).await {
+            Ok(Some(request)) => self.route(&request).await,
+            Ok(None) => return Ok(()),
+            Err(error) => {
+                warn!(error = ?error, "Rejected malformed review console request");
+                HttpResponse::json(400, &json!({ "error": "bad request" }))
+            }
         }
-        let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-        let response = self.route(&request).await.to_string();
+        .to_string();
         stream.write_all(response.as_bytes()).await?;
         stream.shutdown().await
     }
@@ -112,7 +135,10 @@ impl ReviewServer {
             return HttpResponse::text(400, "bad request");
         };
 
-        if parsed.path.starts_with("/api/") && !self.authorized(&parsed.headers) {
+        if parsed.path.starts_with("/api/")
+            && (!self.authorized(&parsed.headers)
+                || (is_mutation_method(&parsed.method) && self.config.auth_token.is_none()))
+        {
             return HttpResponse::json(401, &json!({ "error": "unauthorized" }));
         }
 
@@ -146,8 +172,8 @@ impl ReviewServer {
                 return HttpResponse::json(400, &json!({ "error": "invalid ListingSource id" }));
             };
             return match self
-                .domain_configuration
-                .list_for_source(listing_source_id)
+                .domain_administration
+                .list_crawler_domains(listing_source_id)
                 .await
             {
                 Ok(domains) => HttpResponse::json(
@@ -189,16 +215,17 @@ impl ReviewServer {
                 }
             };
             return match self
-                .domain_configuration
-                .register(listing_source_id, domain)
+                .domain_administration
+                .register_crawler_domain(listing_source_id, domain)
                 .await
             {
                 Ok(domain) => HttpResponse::json(
-                    201,
+                    if domain.created { 201 } else { 200 },
                     &json!({
                         "domain_id": domain.domain_id,
                         "listing_source_id": domain.listing_source_id,
                         "domain": domain.domain.as_str(),
+                        "created": domain.created,
                     }),
                 ),
                 Err(error) => domain_configuration_error(error),
@@ -217,8 +244,8 @@ impl ReviewServer {
                 );
             };
             return match self
-                .domain_configuration
-                .remove(listing_source_id, domain_id)
+                .domain_administration
+                .remove_crawler_domain(listing_source_id, domain_id)
                 .await
             {
                 Ok(removal) => HttpResponse::json(
@@ -226,6 +253,7 @@ impl ReviewServer {
                     &json!({
                         "domain_id": removal.domain_id,
                         "removed_url_count": removal.removed_url_count,
+                        "removed_url_pattern_review_count": removal.removed_url_pattern_review_count,
                     }),
                 ),
                 Err(error) => domain_configuration_error(error),
@@ -425,6 +453,7 @@ impl ReviewServer {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
                 Err(err @ ReviewRepositoryError::InvalidSchemaField(_))
                 | Err(err @ ReviewRepositoryError::RequiredSchemaField(_))
+                | Err(err @ ReviewRepositoryError::InvalidUrlPatternCandidate)
                 | Err(err @ ReviewRepositoryError::UnsupportedArtifact(_, _))
                 | Err(err @ ReviewRepositoryError::NotPending(_)) => {
                     HttpResponse::json(400, &json!({ "error": err.to_string() }))
@@ -443,7 +472,7 @@ impl ReviewServer {
         headers
             .get("authorization")
             .and_then(|value| value.strip_prefix("Bearer "))
-            .is_some_and(|actual| actual == expected)
+            .is_some_and(|actual| constant_time_eq(actual.as_bytes(), expected.as_bytes()))
     }
 
     async fn live_review_pages(
@@ -561,6 +590,92 @@ impl ReviewServer {
     }
 }
 
+async fn read_bounded_request(stream: &mut TcpStream) -> std::io::Result<Option<String>> {
+    let mut request = Vec::with_capacity(1024);
+    let mut read_buffer = [0_u8; 4096];
+    let header_end = loop {
+        if let Some(end) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+            break end + 4;
+        }
+        if request.len() >= MAX_REQUEST_HEADER_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "request headers exceed limit",
+            ));
+        }
+        let read = tokio::time::timeout(REQUEST_IO_TIMEOUT, stream.read(&mut read_buffer))
+            .await
+            .map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::TimedOut, "request read timed out")
+            })??;
+        if read == 0 {
+            return if request.is_empty() {
+                Ok(None)
+            } else {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "incomplete request headers",
+                ))
+            };
+        }
+        request.extend_from_slice(&read_buffer[..read]);
+    };
+    let headers = std::str::from_utf8(&request[..header_end]).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "request headers are not UTF-8",
+        )
+    })?;
+    let mut content_length = None;
+    for line in headers.split("\r\n").skip(1) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case("transfer-encoding") {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "transfer encoding is unsupported",
+            ));
+        }
+        if name.eq_ignore_ascii_case("content-length") {
+            if content_length.is_some() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "duplicate content length",
+                ));
+            }
+            let length = value.trim().parse::<usize>().map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid content length")
+            })?;
+            if length > MAX_REQUEST_BODY_BYTES {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "request body exceeds limit",
+                ));
+            }
+            content_length = Some(length);
+        }
+    }
+    let total_length = header_end + content_length.unwrap_or(0);
+    while request.len() < total_length {
+        let read = tokio::time::timeout(REQUEST_IO_TIMEOUT, stream.read(&mut read_buffer))
+            .await
+            .map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::TimedOut, "request read timed out")
+            })??;
+        if read == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "incomplete request body",
+            ));
+        }
+        request.extend_from_slice(&read_buffer[..read]);
+    }
+    String::from_utf8(request[..total_length].to_vec())
+        .map(Some)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "request is not UTF-8"))
+}
+
 #[derive(Deserialize, Default)]
 struct ActionPayload {
     notes: Option<String>,
@@ -637,13 +752,29 @@ fn domain_configuration_error(error: CrawlerDomainConfigurationError) -> HttpRes
         CrawlerDomainConfigurationError::DomainOwnedByAnotherListingSource { .. } => {
             HttpResponse::json(409, &json!({ "error": error.to_string() }))
         }
+        CrawlerDomainConfigurationError::UnsafeDomain { .. } => {
+            HttpResponse::json(400, &json!({ "error": error.to_string() }))
+        }
         CrawlerDomainConfigurationError::Database { .. } => internal_error(error),
     }
 }
 
 fn internal_error(error: impl std::fmt::Display + std::fmt::Debug) -> HttpResponse {
     error!(error = ?error, "Review API error");
-    HttpResponse::json(500, &json!({ "error": error.to_string() }))
+    HttpResponse::json(500, &json!({ "error": "internal server error" }))
+}
+
+fn is_mutation_method(method: &str) -> bool {
+    matches!(method, "POST" | "PUT" | "PATCH" | "DELETE")
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    let mut difference = left.len() ^ right.len();
+    let max_len = left.len().max(right.len());
+    for index in 0..max_len {
+        difference |= usize::from(*left.get(index).unwrap_or(&0) ^ *right.get(index).unwrap_or(&0));
+    }
+    difference == 0
 }
 
 fn live_fetch_error(page: &CrawlerReviewPage, error: &FetchError) -> HttpResponse {
@@ -697,5 +828,26 @@ mod tests {
             .expect("cached matrix should deserialize");
         assert_eq!(cached.review_id, matrix.review_id);
         assert!(cached.candidates.is_empty());
+    }
+
+    #[test]
+    fn should_require_authentication_for_non_loopback_review_bind() {
+        let result = ReviewServerConfig {
+            bind_addr: "0.0.0.0:7878".parse().unwrap(),
+            auth_token: None,
+        }
+        .validate();
+
+        assert!(matches!(
+            result,
+            Err(ReviewServerConfigError::AuthenticationRequiredForNonLoopback)
+        ));
+    }
+
+    #[test]
+    fn should_compare_authentication_tokens_without_early_value_match() {
+        assert!(constant_time_eq(b"token", b"token"));
+        assert!(!constant_time_eq(b"token", b"taken"));
+        assert!(!constant_time_eq(b"token", b"tokens"));
     }
 }

@@ -5,7 +5,9 @@ use crate::review::repository::CrawlerReviewRepository;
 use crate::spider::classification::url_classification_service::{
     UrlClassificationError, UrlClassificationService,
 };
-use crate::spider::classification::url_pattern_repository::ListingSourceUrlPatternRepository;
+use crate::spider::classification::url_pattern_repository::{
+    ListingSourceUrlPatternRepository, UrlPatternState,
+};
 
 use regex::Regex;
 use thiserror::Error;
@@ -49,6 +51,13 @@ pub trait UrlPatternService: Send + Sync {
         listing_source_id: &ListingSourceId,
         domain_id: &uuid::Uuid,
         pattern: &Regex,
+    ) -> Result<(), UrlPatternServiceError>;
+
+    /// Clears a completed classification so a later crawl may infer again.
+    async fn reset_pattern_classification(
+        &self,
+        listing_source_id: &ListingSourceId,
+        domain_id: &uuid::Uuid,
     ) -> Result<(), UrlPatternServiceError>;
 
     /// Asks the inference client to classify a product URL pattern from `urls`, persists the
@@ -144,6 +153,17 @@ impl UrlPatternService for UrlPatternServiceImpl {
         Ok(())
     }
 
+    async fn reset_pattern_classification(
+        &self,
+        listing_source_id: &ListingSourceId,
+        domain_id: &uuid::Uuid,
+    ) -> Result<(), UrlPatternServiceError> {
+        self.repository
+            .save_pattern(listing_source_id, domain_id, None)
+            .await?;
+        Ok(())
+    }
+
     #[tracing::instrument(
         skip(self, urls),
         fields(listing_source_id = %listing_source_id, domain_id = %domain_id, crawl_root_url = %crawl_root_url, url_count = urls.len())
@@ -155,16 +175,21 @@ impl UrlPatternService for UrlPatternServiceImpl {
         crawl_root_url: &str,
         urls: &[String],
     ) -> Result<Option<Regex>, UrlPatternServiceError> {
+        if self
+            .repository
+            .find_pattern(listing_source_id, domain_id)
+            .await?
+            .is_some_and(|record| record.url_pattern_state == UrlPatternState::NoPattern)
+        {
+            return Ok(None);
+        }
+
         if self.review_required
             && let Some(review_repository) = &self.review_repository
-            && review_repository
-                .has_pending_url_pattern_review(listing_source_id, domain_id)
-                .await?
-        {
-            let review_id = review_repository
+            && let Some(review_id) = review_repository
                 .latest_pending_url_pattern_review_id(listing_source_id, domain_id)
                 .await?
-                .unwrap_or_else(uuid::Uuid::nil);
+        {
             return Err(UrlPatternServiceError::PendingReview {
                 listing_source_id: *listing_source_id,
                 review_id,
@@ -223,5 +248,53 @@ impl UrlPatternService for UrlPatternServiceImpl {
             .mark_as_crawled(listing_source_id, domain_id)
             .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::spider::classification::url_classification_service::MockUrlClassificationService;
+    use crate::spider::classification::url_pattern_repository::{
+        ListingSourceUrlPatternRecord, MockListingSourceUrlPatternRepository,
+    };
+    use listing_source_core::Domain;
+
+    #[tokio::test]
+    async fn should_not_reclassify_completed_no_pattern_domain_until_reset() {
+        let listing_source_id = ListingSourceId::new();
+        let domain_id = uuid::Uuid::new_v4();
+        let mut repository = MockListingSourceUrlPatternRepository::new();
+        repository
+            .expect_find_pattern()
+            .times(1)
+            .returning(move |_, _| {
+                Box::pin(async move {
+                    Ok(Some(ListingSourceUrlPatternRecord {
+                        listing_source_id,
+                        domain_id,
+                        listing_source_domain: Domain::try_from("example.com").unwrap(),
+                        url_pattern: None,
+                        url_pattern_state: UrlPatternState::NoPattern,
+                        last_crawled: None,
+                    }))
+                })
+            });
+        let service = UrlPatternServiceImpl::new(
+            Arc::new(repository),
+            Box::new(MockUrlClassificationService::new()),
+        );
+
+        let pattern = service
+            .classify_and_save(
+                &listing_source_id,
+                &domain_id,
+                "https://example.com",
+                &["https://example.com/item/1".to_owned()],
+            )
+            .await
+            .unwrap();
+
+        assert!(pattern.is_none());
     }
 }

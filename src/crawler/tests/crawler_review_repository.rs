@@ -2,7 +2,10 @@ use crawler::review::model::{
     PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, STATUS_APPROVED,
     STATUS_PENDING_REVIEW, SchemaReviewPageInput,
 };
-use crawler::review::repository::{CrawlerReviewRepository, SchemaReviewWithStatusInput};
+use crawler::review::model::{UrlPatternDecision, UrlPatternReviewCandidate};
+use crawler::review::repository::{
+    CrawlerReviewRepository, ReviewRepositoryError, SchemaReviewWithStatusInput,
+};
 use crawler::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
 };
@@ -13,7 +16,7 @@ use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind
 use listing_source_core::ListingSourceId;
 use regex::Regex;
 use serde_json::json;
-use sqlx::PgPool;
+use sqlx::{AssertSqlSafe, PgPool};
 use test_api::*;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -145,6 +148,63 @@ async fn review_url_count(pool: &PgPool, review_id: Uuid) -> i64 {
         .fetch_one(pool)
         .await
         .unwrap()
+}
+
+async fn review_count(pool: &PgPool, listing_source_id: ListingSourceId) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM crawler_reviews WHERE listing_source_id = $1")
+        .bind(Uuid::from(listing_source_id))
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_roll_back_schema_review_when_evidence_insert_fails() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_shop(&pool, listing_source_id).await;
+    sqlx::query(
+        "CREATE FUNCTION fail_crawler_review_page_insert() RETURNS trigger LANGUAGE plpgsql AS $$ \
+         BEGIN RAISE EXCEPTION 'injected review-page failure'; END; $$",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER fail_crawler_review_page_insert \
+         BEFORE INSERT ON crawler_review_pages FOR EACH ROW \
+         WHEN (NEW.url = 'https://rollback-review.example/fail') \
+         EXECUTE FUNCTION fail_crawler_review_page_insert()",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let result = repository
+        .create_schema_review(
+            &listing_source_id,
+            "initial_schema_generation",
+            &[schema("h1")],
+            vec![SchemaReviewPageInput {
+                url: "https://rollback-review.example/fail".to_owned(),
+                role: PAGE_ROLE_PRIMARY.to_string(),
+                raw_html: "<html></html>".to_owned(),
+            }],
+            json!({}),
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert_eq!(review_count(&pool, listing_source_id).await, 0);
+    sqlx::query("DROP TRIGGER fail_crawler_review_page_insert ON crawler_review_pages")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DROP FUNCTION fail_crawler_review_page_insert()")
+        .execute(&pool)
+        .await
+        .unwrap();
 }
 
 #[aura_integration_test(services = [POSTGRES])]
@@ -324,4 +384,203 @@ async fn concurrent_url_pattern_reviews_return_same_pending_review_without_dupli
         1
     );
     assert_eq!(review_url_count(&pool, first_id).await, 2);
+}
+
+#[aura_integration_test(services = [POSTGRES])]
+async fn invalid_edited_url_pattern_is_rejected_without_changing_live_pattern() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_shop(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "typed-pattern.example.com").await;
+    let pattern = Regex::new("/products/").unwrap();
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            &domain_id,
+            "url_pattern_generation",
+            Some(&pattern),
+            &["https://typed-pattern.example.com/products/1".to_owned()],
+            None,
+        )
+        .await
+        .unwrap();
+
+    let result = repository
+        .update_candidate_payload(
+            review_id,
+            json!(UrlPatternReviewCandidate {
+                decision: UrlPatternDecision::Pattern {
+                    value: "[".to_owned(),
+                },
+                current_pattern: None,
+            }),
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(ReviewRepositoryError::InvalidUrlPatternCandidate)
+    ));
+    let live_pattern: Option<String> =
+        sqlx::query_scalar("SELECT url_pattern FROM listing_source_domains WHERE domain_id = $1")
+            .bind(domain_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(live_pattern.is_none());
+}
+
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_roll_back_pattern_approval_when_status_update_fails() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_shop(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "atomic-pattern.example.com").await;
+    sqlx::query(
+        "UPDATE listing_source_domains SET url_pattern = '/old/', url_pattern_state = 'MATCHED' \
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            &domain_id,
+            "url_pattern_generation",
+            Some(&Regex::new("/new/").unwrap()),
+            &["https://atomic-pattern.example.com/new/1".to_owned()],
+            Some(&Regex::new("/old/").unwrap()),
+        )
+        .await
+        .unwrap();
+    sqlx::query(
+        "CREATE FUNCTION fail_review_approval() RETURNS trigger LANGUAGE plpgsql AS $$ \
+         BEGIN \
+           IF NEW.status = 'APPROVED' THEN RAISE EXCEPTION 'injected approval failure'; END IF; \
+           RETURN NEW; \
+         END; $$",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    // `review_id` is generated by this test and UUID-formatted, so this audited DDL is safe.
+    sqlx::query(AssertSqlSafe(format!(
+        "CREATE TRIGGER fail_review_approval BEFORE UPDATE ON crawler_reviews \
+         FOR EACH ROW WHEN (NEW.review_id = '{}'::uuid) \
+         EXECUTE FUNCTION fail_review_approval()",
+        review_id
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let result = repository.approve_review(review_id, None).await;
+
+    assert!(result.is_err());
+    let pattern: (Option<String>, String) = sqlx::query_as(
+        "SELECT url_pattern, url_pattern_state FROM listing_source_domains WHERE domain_id = $1",
+    )
+    .bind(domain_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(pattern, (Some("/old/".to_owned()), "MATCHED".to_owned()));
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM crawler_reviews WHERE review_id = $1")
+            .bind(review_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(status, STATUS_PENDING_REVIEW);
+    sqlx::query("DROP TRIGGER fail_review_approval ON crawler_reviews")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DROP FUNCTION fail_review_approval()")
+        .execute(&pool)
+        .await
+        .unwrap();
+}
+
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_allow_only_one_concurrent_review_approval() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_shop(&pool, listing_source_id).await;
+    let domain_id =
+        insert_domain(&pool, listing_source_id, "concurrent-approval.example.com").await;
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            &domain_id,
+            "url_pattern_generation",
+            Some(&Regex::new("/product/").unwrap()),
+            &["https://concurrent-approval.example.com/product/1".to_owned()],
+            None,
+        )
+        .await
+        .unwrap();
+    let first = repository.clone();
+    let second = repository.clone();
+
+    let (first, second) = tokio::join!(
+        async move { first.approve_review(review_id, None).await },
+        async move { second.approve_review(review_id, None).await }
+    );
+
+    assert!(first.is_ok() ^ second.is_ok());
+    assert!(matches!(
+        first.err().or(second.err()),
+        Some(ReviewRepositoryError::NotPending(id)) if id == review_id
+    ));
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM crawler_reviews WHERE review_id = $1")
+            .bind(review_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(status, STATUS_APPROVED);
+}
+
+#[aura_integration_test(services = [POSTGRES])]
+async fn approved_no_pattern_clears_stale_live_pattern_and_sets_no_pattern_state() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_shop(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "no-pattern.example.com").await;
+    sqlx::query(
+        "UPDATE listing_source_domains SET url_pattern = '/stale/', url_pattern_state = 'MATCHED' WHERE domain_id = $1",
+    )
+    .bind(domain_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            &domain_id,
+            "url_pattern_generation",
+            None,
+            &["https://no-pattern.example.com/about".to_owned()],
+            Some(&Regex::new("/stale/").unwrap()),
+        )
+        .await
+        .unwrap();
+
+    repository.approve_review(review_id, None).await.unwrap();
+
+    let row: (Option<String>, String) = sqlx::query_as(
+        "SELECT url_pattern, url_pattern_state FROM listing_source_domains WHERE domain_id = $1",
+    )
+    .bind(domain_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row, (None, "NO_PATTERN".to_owned()));
 }

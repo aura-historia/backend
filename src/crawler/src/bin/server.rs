@@ -61,7 +61,9 @@ use crawler::scraper::normalization::product_normalization_service::ProductListi
 use crawler::scraper::scraper_service::{
     DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
-use crawler::service::crawler_domain_configuration::CrawlerDomainConfigurationRepositoryImpl;
+use crawler::service::crawler_domain_configuration::{
+    CrawlerDomainAdministrationHandler, CrawlerDomainConfigurationRepositoryImpl,
+};
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
@@ -553,7 +555,9 @@ async fn main() {
         );
         let review_server = ReviewServer::new(
             review_repo,
-            Arc::new(CrawlerDomainConfigurationRepositoryImpl::new(pool.clone())),
+            Arc::new(CrawlerDomainAdministrationHandler::new(Arc::new(
+                CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()),
+            ))),
             review_config,
         );
         let review_handle = tokio::spawn(async move {

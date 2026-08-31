@@ -1,6 +1,8 @@
 use crate::review::model::*;
 use crate::review::schema_evaluation::evaluate_schema_matrix_for_live_review_pages;
-use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
+use crate::scraper::css_selector::product_schema::{
+    ListingSourceProductSchema, ProductCssSelectorSchema,
+};
 use crate::scraper::css_selector::product_schema_repository::{
     ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
 };
@@ -37,16 +39,13 @@ pub enum ReviewRepositoryError {
     InvalidSchemaField(String),
     #[error("field `{0}` is required and cannot be deleted")]
     RequiredSchemaField(String),
+    #[error("invalid URL-pattern review candidate")]
+    InvalidUrlPatternCandidate,
 }
 
 #[derive(Clone)]
 pub struct CrawlerReviewRepository {
     pool: PgPool,
-}
-
-struct PendingReviewInsert {
-    review_id: uuid::Uuid,
-    inserted: bool,
 }
 
 pub struct SchemaReviewWithStatusInput<'a> {
@@ -57,17 +56,6 @@ pub struct SchemaReviewWithStatusInput<'a> {
     pub validation_summary: serde_json::Value,
     pub status: &'a str,
     pub notes: Option<&'a str>,
-}
-
-struct ReviewWithStatusInsert<'a> {
-    listing_source_id: &'a ListingSourceId,
-    domain_id: Option<&'a uuid::Uuid>,
-    artifact_type: &'a str,
-    status: &'a str,
-    reason: &'a str,
-    candidate_payload: serde_json::Value,
-    validation_summary: serde_json::Value,
-    notes: Option<&'a str>,
 }
 
 impl CrawlerReviewRepository {
@@ -314,62 +302,78 @@ impl CrawlerReviewRepository {
         urls: &[String],
         current_pattern: Option<&Regex>,
     ) -> Result<uuid::Uuid, ReviewRepositoryError> {
-        let domain_owned = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS (SELECT 1 FROM listing_source_domains \
-             WHERE listing_source_id = $1 AND domain_id = $2)",
-        )
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id)
-        .fetch_one(&self.pool)
-        .await?;
-        if !domain_owned {
-            return Err(ReviewRepositoryError::Database(sqlx::Error::RowNotFound));
-        }
-        let candidate_payload = json!({
-            "pattern": candidate_pattern.map(Regex::as_str),
-            "current_pattern": current_pattern.map(Regex::as_str),
-        });
+        let candidate_payload = serde_json::to_value(UrlPatternReviewCandidate::pattern(
+            candidate_pattern,
+            current_pattern,
+        ))?;
         let validation_summary = json!({
             "sample_count": urls.len(),
             "candidate_product_count": candidate_pattern
                 .map(|pattern| urls.iter().filter(|url| pattern.is_match(url)).count())
                 .unwrap_or(0),
         });
-
-        let insert = self
-            .insert_pending_review_or_get_existing(
-                listing_source_id,
-                Some(domain_id),
-                ARTIFACT_URL_PATTERN,
-                reason,
-                candidate_payload,
-                validation_summary,
-            )
-            .await?;
-
-        if !insert.inserted {
-            return Ok(insert.review_id);
+        let mut transaction = self.pool.begin().await?;
+        let domain_owned = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM listing_source_domains \
+             WHERE listing_source_id = $1 AND domain_id = $2 FOR KEY SHARE)",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(domain_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if !domain_owned {
+            return Err(ReviewRepositoryError::Database(sqlx::Error::RowNotFound));
         }
-
-        for raw_url in urls {
-            let current_match = current_pattern.map(|pattern| pattern.is_match(raw_url));
-            let candidate_match = candidate_pattern.map(|pattern| pattern.is_match(raw_url));
-            let candidate_class = classify_with_pattern(raw_url, candidate_pattern);
-            sqlx::query(
-                "INSERT INTO crawler_review_urls (
-                    review_id, url, current_pattern_match, candidate_pattern_match, candidate_class
-                 ) VALUES ($1, $2, $3, $4, $5)",
-            )
-            .bind(insert.review_id)
-            .bind(raw_url)
-            .bind(current_match)
-            .bind(candidate_match)
-            .bind(candidate_class)
-            .execute(&self.pool)
-            .await?;
+        let inserted = sqlx::query_scalar::<_, uuid::Uuid>(
+            "INSERT INTO crawler_reviews (listing_source_id, domain_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed) \
+             VALUES ($1, $2, 'URL_PATTERN', 'PENDING_REVIEW', $3, $4, $5, NULL, NULL) \
+             ON CONFLICT (domain_id) WHERE status = 'PENDING_REVIEW' AND artifact_type = 'URL_PATTERN' \
+             DO NOTHING RETURNING review_id",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(domain_id)
+        .bind(reason)
+        .bind(candidate_payload)
+        .bind(validation_summary)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let (review_id, is_new) = match inserted {
+            Some(review_id) => (review_id, true),
+            None => (
+                sqlx::query_scalar::<_, uuid::Uuid>(
+                    "SELECT review_id FROM crawler_reviews \
+                     WHERE listing_source_id = $1 AND domain_id = $2 \
+                       AND artifact_type = 'URL_PATTERN' AND status = 'PENDING_REVIEW' \
+                     ORDER BY created DESC LIMIT 1",
+                )
+                .bind(uuid::Uuid::from(*listing_source_id))
+                .bind(domain_id)
+                .fetch_one(&mut *transaction)
+                .await?,
+                false,
+            ),
+        };
+        if is_new {
+            for raw_url in urls {
+                let current_match = current_pattern.map(|pattern| pattern.is_match(raw_url));
+                let candidate_match = candidate_pattern.map(|pattern| pattern.is_match(raw_url));
+                let candidate_class = classify_with_pattern(raw_url, candidate_pattern);
+                sqlx::query(
+                    "INSERT INTO crawler_review_urls (
+                        review_id, url, current_pattern_match, candidate_pattern_match, candidate_class
+                     ) VALUES ($1, $2, $3, $4, $5)",
+                )
+                .bind(review_id)
+                .bind(raw_url)
+                .bind(current_match)
+                .bind(candidate_match)
+                .bind(candidate_class)
+                .execute(&mut *transaction)
+                .await?;
+            }
         }
-
-        Ok(insert.review_id)
+        transaction.commit().await?;
+        Ok(review_id)
     }
 
     pub async fn create_schema_review(
@@ -413,66 +417,8 @@ impl CrawlerReviewRepository {
             notes,
         } = input;
         let candidate_payload = json!({ "schemas": schemas });
-        let insert = if status == STATUS_PENDING_REVIEW {
-            self.insert_pending_review_or_get_existing(
-                listing_source_id,
-                None,
-                ARTIFACT_PRODUCT_SCHEMA,
-                reason,
-                candidate_payload,
-                validation_summary,
-            )
-            .await?
-        } else {
-            PendingReviewInsert {
-                review_id: self
-                    .insert_review_with_status(ReviewWithStatusInsert {
-                        listing_source_id,
-                        domain_id: None,
-                        artifact_type: ARTIFACT_PRODUCT_SCHEMA,
-                        status,
-                        reason,
-                        candidate_payload,
-                        validation_summary,
-                        notes,
-                    })
-                    .await?,
-                inserted: true,
-            }
-        };
-
-        if insert.inserted {
-            self.insert_review_pages(insert.review_id, pages).await?;
-        }
-
-        Ok(insert.review_id)
-    }
-
-    async fn insert_pending_review_or_get_existing(
-        &self,
-        listing_source_id: &ListingSourceId,
-        domain_id: Option<&uuid::Uuid>,
-        artifact_type: &str,
-        reason: &str,
-        candidate_payload: serde_json::Value,
-        validation_summary: serde_json::Value,
-    ) -> Result<PendingReviewInsert, sqlx::Error> {
-        let inserted = if artifact_type == ARTIFACT_URL_PATTERN {
-            let domain_id = domain_id.ok_or(sqlx::Error::RowNotFound)?;
-            sqlx::query_scalar::<_, uuid::Uuid>(
-                "INSERT INTO crawler_reviews (listing_source_id, domain_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed) \
-                 VALUES ($1, $2, 'URL_PATTERN', 'PENDING_REVIEW', $3, $4, $5, NULL, NULL) \
-                 ON CONFLICT (domain_id) WHERE status = 'PENDING_REVIEW' AND artifact_type = 'URL_PATTERN' \
-                 DO NOTHING RETURNING review_id",
-            )
-            .bind(uuid::Uuid::from(*listing_source_id))
-            .bind(domain_id)
-            .bind(reason)
-            .bind(candidate_payload)
-            .bind(validation_summary)
-            .fetch_optional(&self.pool)
-            .await?
-        } else {
+        let mut transaction = self.pool.begin().await?;
+        let inserted = if status == STATUS_PENDING_REVIEW {
             sqlx::query_scalar::<_, uuid::Uuid>(
                 "INSERT INTO crawler_reviews (listing_source_id, domain_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed) \
                  VALUES ($1, NULL, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', $2, $3, $4, NULL, NULL) \
@@ -483,31 +429,56 @@ impl CrawlerReviewRepository {
             .bind(reason)
             .bind(candidate_payload)
             .bind(validation_summary)
-            .fetch_optional(&self.pool)
-            .await?
-        };
-
-        if let Some(review_id) = inserted {
-            return Ok(PendingReviewInsert {
-                review_id,
-                inserted: true,
-            });
-        }
-        let review_id = if artifact_type == ARTIFACT_URL_PATTERN {
-            self.latest_pending_url_pattern_review_id(
-                listing_source_id,
-                domain_id.ok_or(sqlx::Error::RowNotFound)?,
-            )
+            .fetch_optional(&mut *transaction)
             .await?
         } else {
-            self.latest_pending_review_id(listing_source_id, artifact_type)
-                .await?
+            Some(
+                sqlx::query_scalar::<_, uuid::Uuid>(
+                    "INSERT INTO crawler_reviews (listing_source_id, domain_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed) \
+                     VALUES ($1, NULL, 'PRODUCT_SCHEMA', $2, $3, $4, $5, $6, CASE WHEN $2 = 'PENDING_REVIEW' THEN NULL ELSE NOW() END) \
+                     RETURNING review_id",
+                )
+                .bind(uuid::Uuid::from(*listing_source_id))
+                .bind(status)
+                .bind(reason)
+                .bind(candidate_payload)
+                .bind(validation_summary)
+                .bind(notes)
+                .fetch_one(&mut *transaction)
+                .await?,
+            )
+        };
+        let (review_id, is_new) = match inserted {
+            Some(review_id) => (review_id, true),
+            None => (
+                sqlx::query_scalar::<_, uuid::Uuid>(
+                    "SELECT review_id FROM crawler_reviews \
+                     WHERE listing_source_id = $1 AND artifact_type = 'PRODUCT_SCHEMA' AND status = 'PENDING_REVIEW' \
+                     ORDER BY created DESC LIMIT 1",
+                )
+                .bind(uuid::Uuid::from(*listing_source_id))
+                .fetch_one(&mut *transaction)
+                .await?,
+                false,
+            ),
+        };
+        if is_new {
+            for page in pages {
+                let html_hash = sha256_hex(page.raw_html.as_bytes());
+                sqlx::query(
+                    "INSERT INTO crawler_review_pages (review_id, url, role, html_hash) \
+                     VALUES ($1, $2, $3, $4)",
+                )
+                .bind(review_id)
+                .bind(page.url)
+                .bind(page.role)
+                .bind(html_hash)
+                .execute(&mut *transaction)
+                .await?;
+            }
         }
-        .ok_or(sqlx::Error::RowNotFound)?;
-        Ok(PendingReviewInsert {
-            review_id,
-            inserted: false,
-        })
+        transaction.commit().await?;
+        Ok(review_id)
     }
 
     pub async fn update_candidate_payload(
@@ -515,86 +486,64 @@ impl CrawlerReviewRepository {
         review_id: uuid::Uuid,
         candidate_payload: serde_json::Value,
     ) -> Result<(), ReviewRepositoryError> {
-        let detail = self.get_review(review_id).await?;
-        if detail.review.status == STATUS_PENDING_REVIEW {
-            return self
-                .update_pending_candidate_payload(review_id, candidate_payload)
-                .await;
-        }
-        if detail.review.status == STATUS_APPROVED
-            && detail.review.artifact_type == ARTIFACT_PRODUCT_SCHEMA
-        {
-            return self
-                .update_approved_product_schema_payload(&detail.review, candidate_payload)
-                .await;
+        let mut transaction = self.pool.begin().await?;
+        let review = sqlx::query(
+            "SELECT listing_source_id, artifact_type, status, validation_summary \
+             FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
+        )
+        .bind(review_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+        let listing_source_id =
+            ListingSourceId::from(review.try_get::<uuid::Uuid, _>("listing_source_id")?);
+        let artifact_type: String = review.try_get("artifact_type")?;
+        let status: String = review.try_get("status")?;
+        let validation_summary: serde_json::Value = review.try_get("validation_summary")?;
+
+        if status == STATUS_PENDING_REVIEW {
+            if artifact_type == ARTIFACT_URL_PATTERN {
+                let candidate =
+                    serde_json::from_value::<UrlPatternReviewCandidate>(candidate_payload.clone())
+                        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+                candidate
+                    .validated_pattern()
+                    .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+            }
+            sqlx::query(
+                "UPDATE crawler_reviews SET candidate_payload = $2, updated = NOW() \
+                 WHERE review_id = $1",
+            )
+            .bind(review_id)
+            .bind(candidate_payload)
+            .execute(&mut *transaction)
+            .await?;
+            transaction.commit().await?;
+            return Ok(());
         }
 
-        Err(ReviewRepositoryError::NotPending(review_id))
-    }
+        if status != STATUS_APPROVED || artifact_type != ARTIFACT_PRODUCT_SCHEMA {
+            return Err(ReviewRepositoryError::NotPending(review_id));
+        }
 
-    async fn update_pending_candidate_payload(
-        &self,
-        review_id: uuid::Uuid,
-        candidate_payload: serde_json::Value,
-    ) -> Result<(), ReviewRepositoryError> {
-        let result = sqlx::query(
-            "UPDATE crawler_reviews
-             SET candidate_payload = $2, updated = NOW()
-             WHERE review_id = $1 AND status = 'PENDING_REVIEW'",
+        let schemas = parse_schemas_payload(&candidate_payload)?;
+        persist_product_schemas(&mut transaction, &listing_source_id, &schemas).await?;
+        let validation_summary = append_manual_schema_edit(validation_summary, schemas.len());
+        sqlx::query(
+            "UPDATE crawler_reviews \
+             SET candidate_payload = $2, validation_summary = $3, updated = NOW() \
+             WHERE review_id = $1",
         )
         .bind(review_id)
         .bind(candidate_payload)
-        .execute(&self.pool)
-        .await?;
-
-        if result.rows_affected() == 0 {
-            return Err(ReviewRepositoryError::NotPending(review_id));
-        }
-        Ok(())
-    }
-
-    async fn update_approved_product_schema_payload(
-        &self,
-        review: &CrawlerReview,
-        candidate_payload: serde_json::Value,
-    ) -> Result<(), ReviewRepositoryError> {
-        let schemas = parse_schemas_payload(&candidate_payload)?;
-        let repo = ListingSourceProductSchemaRepositoryImpl::new(&self.pool);
-        if repo
-            .find_product_schema(&review.listing_source_id)
-            .await?
-            .is_some()
-        {
-            repo.update_product_schema(&review.listing_source_id, &schemas)
-                .await?;
-        } else {
-            let now = OffsetDateTime::now_utc();
-            let schema = crate::scraper::css_selector::product_schema::ListingSourceProductSchema {
-                listing_source_id: review.listing_source_id,
-                product_schemas: schemas.clone(),
-                created: now,
-                updated: now,
-            };
-            repo.insert_product_schema(&review.listing_source_id, &schema)
-                .await?;
-        }
-
-        let validation_summary =
-            append_manual_schema_edit(review.validation_summary.clone(), schemas.len());
-        sqlx::query(
-            "UPDATE crawler_reviews
-             SET candidate_payload = $2, validation_summary = $3, updated = NOW()
-             WHERE review_id = $1 AND status = 'APPROVED' AND artifact_type = 'PRODUCT_SCHEMA'",
-        )
-        .bind(review.review_id)
-        .bind(candidate_payload)
         .bind(validation_summary)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await?;
+        transaction.commit().await?;
 
         info!(
-            review_id = %review.review_id,
-            listing_source_id = %review.listing_source_id,
+            review_id = %review_id,
+            listing_source_id = %listing_source_id,
             schema_count = schemas.len(),
             "Approved product schema edited from review console"
         );
@@ -639,60 +588,72 @@ impl CrawlerReviewRepository {
         review_id: uuid::Uuid,
         notes: Option<&str>,
     ) -> Result<(), ReviewRepositoryError> {
-        let detail = self.get_review(review_id).await?;
-        if detail.review.status != STATUS_PENDING_REVIEW {
-            return Err(ReviewRepositoryError::NotPending(review_id));
-        }
+        let mut transaction = self.pool.begin().await?;
+        let review = sqlx::query(
+            "SELECT listing_source_id, domain_id, artifact_type, reason, candidate_payload \
+             FROM crawler_reviews \
+             WHERE review_id = $1 AND status = 'PENDING_REVIEW' \
+             FOR UPDATE",
+        )
+        .bind(review_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(ReviewRepositoryError::NotPending(review_id))?;
+        let listing_source_id =
+            ListingSourceId::from(review.try_get::<uuid::Uuid, _>("listing_source_id")?);
+        let domain_id: Option<uuid::Uuid> = review.try_get("domain_id")?;
+        let artifact_type: String = review.try_get("artifact_type")?;
+        let reason: String = review.try_get("reason")?;
+        let candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
 
-        match detail.review.artifact_type.as_str() {
+        match artifact_type.as_str() {
             ARTIFACT_URL_PATTERN => {
-                let pattern = detail
-                    .review
-                    .candidate_payload
-                    .get("pattern")
-                    .and_then(serde_json::Value::as_str);
-                if let Some(pattern) = pattern {
-                    let domain_id = detail.review.domain_id.ok_or(sqlx::Error::RowNotFound)?;
-                    let result = sqlx::query(
-                        "UPDATE listing_source_domains SET url_pattern = $3 \
-                         WHERE listing_source_id = $1 AND domain_id = $2",
-                    )
-                    .bind(uuid::Uuid::from(detail.review.listing_source_id))
-                    .bind(domain_id)
-                    .bind(pattern)
-                    .execute(&self.pool)
-                    .await?;
-                    if result.rows_affected() == 0 {
-                        return Err(ReviewRepositoryError::NotFound(review_id));
-                    }
+                let candidate =
+                    serde_json::from_value::<UrlPatternReviewCandidate>(candidate_payload)
+                        .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+                let pattern = candidate
+                    .validated_pattern()
+                    .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+                let domain_id = domain_id.ok_or(sqlx::Error::RowNotFound)?;
+                let result = sqlx::query(
+                    "UPDATE listing_source_domains \
+                     SET url_pattern = $3, \
+                         url_pattern_state = CASE WHEN $3 IS NULL THEN 'NO_PATTERN' ELSE 'MATCHED' END \
+                     WHERE listing_source_id = $1 AND domain_id = $2",
+                )
+                .bind(uuid::Uuid::from(listing_source_id))
+                .bind(domain_id)
+                .bind(pattern)
+                .execute(&mut *transaction)
+                .await?;
+                if result.rows_affected() == 0 {
+                    return Err(ReviewRepositoryError::NotFound(review_id));
                 }
             }
             ARTIFACT_PRODUCT_SCHEMA => {
-                let reviewed_schemas = parse_schemas_payload(&detail.review.candidate_payload)?;
-                let repo = ListingSourceProductSchemaRepositoryImpl::new(&self.pool);
-                let existing = repo
-                    .find_product_schema(&detail.review.listing_source_id)
-                    .await?;
-                let schemas = approval_product_schemas(
-                    &detail.review.reason,
-                    existing.as_ref(),
-                    reviewed_schemas,
-                )?;
-                if existing.is_some() {
-                    repo.update_product_schema(&detail.review.listing_source_id, &schemas)
-                        .await?;
-                } else {
-                    let now = OffsetDateTime::now_utc();
-                    let schema =
-                        crate::scraper::css_selector::product_schema::ListingSourceProductSchema {
-                            listing_source_id: detail.review.listing_source_id,
-                            product_schemas: schemas,
-                            created: now,
-                            updated: now,
-                        };
-                    repo.insert_product_schema(&detail.review.listing_source_id, &schema)
-                        .await?;
-                }
+                let reviewed_schemas = parse_schemas_payload(&candidate_payload)?;
+                let existing_payload = sqlx::query_scalar::<_, serde_json::Value>(
+                    "SELECT product_schema FROM listing_source_product_schemas \
+                     WHERE listing_source_id = $1 FOR UPDATE",
+                )
+                .bind(uuid::Uuid::from(listing_source_id))
+                .fetch_optional(&mut *transaction)
+                .await?;
+                let existing = existing_payload
+                    .map(|payload| {
+                        parse_product_schema_payload(payload).map(|product_schemas| {
+                            ListingSourceProductSchema {
+                                listing_source_id,
+                                product_schemas,
+                                created: OffsetDateTime::UNIX_EPOCH,
+                                updated: OffsetDateTime::UNIX_EPOCH,
+                            }
+                        })
+                    })
+                    .transpose()?;
+                let schemas =
+                    approval_product_schemas(&reason, existing.as_ref(), reviewed_schemas)?;
+                persist_product_schemas(&mut transaction, &listing_source_id, &schemas).await?;
             }
             other => {
                 return Err(ReviewRepositoryError::UnsupportedArtifact(
@@ -702,16 +663,57 @@ impl CrawlerReviewRepository {
             }
         }
 
-        self.set_review_status(review_id, STATUS_APPROVED, notes)
-            .await?;
-        self.supersede_other_pending_reviews(
-            &detail.review.listing_source_id,
-            detail.review.domain_id.as_ref(),
-            &detail.review.artifact_type,
-            review_id,
+        sqlx::query(
+            "UPDATE crawler_reviews \
+             SET status = 'APPROVED', reviewer_notes = COALESCE($2, reviewer_notes), \
+                 reviewed = NOW(), updated = NOW() \
+             WHERE review_id = $1 AND status = 'PENDING_REVIEW'",
         )
+        .bind(review_id)
+        .bind(notes)
+        .execute(&mut *transaction)
         .await?;
-        self.clear_pending_blocks(&detail.review).await?;
+        sqlx::query(
+            "UPDATE crawler_reviews \
+             SET status = 'SUPERSEDED', reviewed = NOW(), updated = NOW() \
+             WHERE listing_source_id = $1 AND artifact_type = $2 \
+               AND status = 'PENDING_REVIEW' AND review_id <> $3 \
+               AND ($4::uuid IS NULL OR domain_id = $4)",
+        )
+        .bind(uuid::Uuid::from(listing_source_id))
+        .bind(&artifact_type)
+        .bind(review_id)
+        .bind(domain_id)
+        .execute(&mut *transaction)
+        .await?;
+        match artifact_type.as_str() {
+            ARTIFACT_PRODUCT_SCHEMA => {
+                sqlx::query(
+                    "UPDATE listing_source_urls \
+                     SET next_retry_at = NULL, last_error_kind = NULL, \
+                         last_error_message = NULL, updated = NOW() \
+                     WHERE listing_source_id = $1 \
+                       AND last_error_kind = 'PendingSchemaReview'",
+                )
+                .bind(uuid::Uuid::from(listing_source_id))
+                .execute(&mut *transaction)
+                .await?;
+            }
+            ARTIFACT_URL_PATTERN => {
+                sqlx::query(
+                    "UPDATE listing_source_domains \
+                     SET next_crawl_at = NULL, last_crawl_error_kind = NULL \
+                     WHERE listing_source_id = $1 AND domain_id = $2 \
+                       AND last_crawl_error_kind = 'PendingUrlPatternReview'",
+                )
+                .bind(uuid::Uuid::from(listing_source_id))
+                .bind(domain_id)
+                .execute(&mut *transaction)
+                .await?;
+            }
+            _ => {}
+        }
+        transaction.commit().await?;
         Ok(())
     }
 
@@ -787,63 +789,6 @@ impl CrawlerReviewRepository {
         Ok(())
     }
 
-    async fn insert_review_with_status(
-        &self,
-        input: ReviewWithStatusInsert<'_>,
-    ) -> Result<uuid::Uuid, sqlx::Error> {
-        let ReviewWithStatusInsert {
-            listing_source_id,
-            domain_id,
-            artifact_type,
-            status,
-            reason,
-            candidate_payload,
-            validation_summary,
-            notes,
-        } = input;
-        sqlx::query_scalar::<_, uuid::Uuid>(
-            "INSERT INTO crawler_reviews (
-                listing_source_id, domain_id, artifact_type, status, reason, candidate_payload,
-                validation_summary, reviewer_notes, reviewed
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-                CASE WHEN $4 = 'PENDING_REVIEW' THEN NULL ELSE NOW() END
-             )
-             RETURNING review_id",
-        )
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id.copied())
-        .bind(artifact_type)
-        .bind(status)
-        .bind(reason)
-        .bind(candidate_payload)
-        .bind(validation_summary)
-        .bind(notes)
-        .fetch_one(&self.pool)
-        .await
-    }
-
-    async fn insert_review_pages(
-        &self,
-        review_id: uuid::Uuid,
-        pages: Vec<SchemaReviewPageInput>,
-    ) -> Result<(), sqlx::Error> {
-        for page in pages {
-            let html_hash = sha256_hex(page.raw_html.as_bytes());
-            sqlx::query(
-                "INSERT INTO crawler_review_pages (
-                    review_id, url, role, html_hash
-                 ) VALUES ($1, $2, $3, $4)",
-            )
-            .bind(review_id)
-            .bind(page.url)
-            .bind(page.role)
-            .bind(html_hash)
-            .execute(&self.pool)
-            .await?;
-        }
-        Ok(())
-    }
-
     async fn set_review_status(
         &self,
         review_id: uuid::Uuid,
@@ -867,61 +812,33 @@ impl CrawlerReviewRepository {
         }
         Ok(())
     }
+}
 
-    async fn supersede_other_pending_reviews(
-        &self,
-        listing_source_id: &ListingSourceId,
-        domain_id: Option<&uuid::Uuid>,
-        artifact_type: &str,
-        approved_review_id: uuid::Uuid,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE crawler_reviews \
-             SET status = 'SUPERSEDED', reviewed = NOW(), updated = NOW() \
-             WHERE listing_source_id = $1 AND artifact_type = $2 \
-               AND status = 'PENDING_REVIEW' AND review_id <> $3 \
-               AND ($4::uuid IS NULL OR domain_id = $4)",
-        )
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(artifact_type)
-        .bind(approved_review_id)
-        .bind(domain_id.copied())
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
+async fn persist_product_schemas(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing_source_id: &ListingSourceId,
+    schemas: &[ProductCssSelectorSchema],
+) -> Result<(), ReviewRepositoryError> {
+    let product_schema = serde_json::to_value(schemas)?;
+    sqlx::query(
+        "INSERT INTO listing_source_product_schemas (listing_source_id, product_schema, created, updated) \
+         VALUES ($1, $2, NOW(), NOW()) \
+         ON CONFLICT (listing_source_id) DO UPDATE \
+         SET product_schema = EXCLUDED.product_schema, updated = NOW()",
+    )
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .bind(product_schema)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
 
-    async fn clear_pending_blocks(&self, review: &CrawlerReview) -> Result<(), sqlx::Error> {
-        match review.artifact_type.as_str() {
-            ARTIFACT_PRODUCT_SCHEMA => {
-                sqlx::query(
-                    "UPDATE listing_source_urls
-                     SET next_retry_at = NULL,
-                         last_error_kind = NULL,
-                         last_error_message = NULL,
-                         updated = NOW()
-                     WHERE listing_source_id = $1
-                       AND last_error_kind = 'PendingSchemaReview'",
-                )
-                .bind(uuid::Uuid::from(review.listing_source_id))
-                .execute(&self.pool)
-                .await?;
-            }
-            ARTIFACT_URL_PATTERN => {
-                sqlx::query(
-                    "UPDATE listing_source_domains \
-                     SET next_crawl_at = NULL, last_crawl_error_kind = NULL \
-                     WHERE listing_source_id = $1 AND domain_id = $2 \
-                       AND last_crawl_error_kind = 'PendingUrlPatternReview'",
-                )
-                .bind(uuid::Uuid::from(review.listing_source_id))
-                .bind(review.domain_id)
-                .execute(&self.pool)
-                .await?;
-            }
-            _ => {}
-        }
-        Ok(())
+fn parse_product_schema_payload(
+    payload: serde_json::Value,
+) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
+    match serde_json::from_value::<Vec<ProductCssSelectorSchema>>(payload.clone()) {
+        Ok(schemas) => Ok(schemas),
+        Err(_) => Ok(vec![serde_json::from_value(payload)?]),
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::network::policy::classify_reqwest_error;
+use crate::network::policy::{classify_reqwest_error, public_http_client, redirect_target};
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use crate::scraper::normalization::error::NormalizationError;
 use regex::regex;
@@ -9,6 +9,8 @@ use url::Url;
 const MIN_LONGEST_SIDE: usize = 400;
 const MIN_SHORTEST_SIDE: usize = 250;
 const IMAGE_PROBE_BYTES: &str = "bytes=0-32767";
+const IMAGE_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+const IMAGE_PROBE_MAX_REDIRECTS: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ImageValidation {
@@ -23,20 +25,12 @@ pub(crate) trait ImageValidator: Send + Sync {
 }
 
 pub(crate) struct ReqwestImageValidator {
-    client: reqwest::Client,
     cache: Mutex<HashMap<String, ImageValidation>>,
 }
 
 impl ReqwestImageValidator {
     pub(crate) fn new() -> Self {
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::limited(5))
-            .http1_only()
-            .timeout(std::time::Duration::from_secs(8))
-            .build()
-            .expect("reqwest image validator client should build");
         Self {
-            client,
             cache: Mutex::new(HashMap::new()),
         }
     }
@@ -58,7 +52,7 @@ impl ImageValidator for ReqwestImageValidator {
 
         let validation = match validate_image_url(url) {
             Some(validation) => validation,
-            None => probe_image_dimensions(&self.client, url).await,
+            None => probe_image_dimensions(url).await,
         };
 
         self.cache
@@ -177,30 +171,56 @@ fn dimensions_from_path(path: &str) -> Option<(usize, usize)> {
     Some((width, height))
 }
 
-async fn probe_image_dimensions(client: &reqwest::Client, url: &Url) -> ImageValidation {
-    let response = match client
-        .get(url.clone())
-        .header(reqwest::header::RANGE, IMAGE_PROBE_BYTES)
-        .send()
-        .await
-    {
-        Ok(response) => response,
-        Err(err) => {
-            tracing::debug!(
-                url = %url,
-                kind = ?classify_reqwest_error(&err),
-                error = ?err,
-                "Image dimension probe failed"
-            );
+async fn probe_image_dimensions(url: &Url) -> ImageValidation {
+    let mut current_url = url.clone();
+    let mut redirect_count = 0;
+    let response = loop {
+        let client = match public_http_client(&current_url, IMAGE_PROBE_TIMEOUT, true).await {
+            Ok(client) => client,
+            Err(error) => {
+                tracing::debug!(url = %current_url, error = %error, "Image dimension probe rejected unsafe target");
+                return ImageValidation::Unknown;
+            }
+        };
+        let response = match client
+            .get(current_url.clone())
+            .header(reqwest::header::RANGE, IMAGE_PROBE_BYTES)
+            .send()
+            .await
+        {
+            Ok(response) => response,
+            Err(err) => {
+                tracing::debug!(
+                    url = %current_url,
+                    kind = ?classify_reqwest_error(&err),
+                    error = ?err,
+                    "Image dimension probe failed"
+                );
+                return ImageValidation::Unknown;
+            }
+        };
+        if !response.status().is_redirection() {
+            break response;
+        }
+        let next_url = match redirect_target(&current_url, &response) {
+            Ok(url) => url,
+            Err(error) => {
+                tracing::debug!(url = %current_url, error = %error, "Image dimension probe rejected redirect");
+                return ImageValidation::Unknown;
+            }
+        };
+        if redirect_count == IMAGE_PROBE_MAX_REDIRECTS || current_url == next_url {
             return ImageValidation::Unknown;
         }
+        redirect_count += 1;
+        current_url = next_url;
     };
 
     let response = match response.error_for_status() {
         Ok(response) => response,
         Err(err) => {
             tracing::debug!(
-                url = %url,
+                url = %current_url,
                 kind = ?classify_reqwest_error(&err),
                 error = ?err,
                 "Image dimension probe returned non-success status"
@@ -213,7 +233,7 @@ async fn probe_image_dimensions(client: &reqwest::Client, url: &Url) -> ImageVal
         Ok(bytes) => bytes,
         Err(err) => {
             tracing::debug!(
-                url = %url,
+                url = %current_url,
                 kind = ?classify_reqwest_error(&err),
                 error = ?err,
                 "Image dimension probe body read failed"
