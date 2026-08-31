@@ -547,11 +547,12 @@ impl ReviewServer {
         }
 
         let bearer = self.authorized(&request.headers);
+        let mutation_bearer = self.config.auth_token.is_some() && bearer;
         let session = self.has_valid_session(&request.headers);
         match (request.method.as_str(), request.path) {
-            ("POST", "/api/session") => bearer,
-            ("POST", "/api/session/logout") => bearer || session,
-            (method, _) if is_mutation_method(method) => bearer,
+            ("POST", "/api/session") => mutation_bearer,
+            ("POST", "/api/session/logout") => mutation_bearer || session,
+            (method, _) if is_mutation_method(method) => mutation_bearer,
             _ => bearer || session,
         }
     }
