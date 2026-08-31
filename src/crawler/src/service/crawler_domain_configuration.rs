@@ -36,6 +36,8 @@ pub enum CrawlerDomainConfigurationError {
     },
     #[error("crawler domain must be a DNS name, not an IP literal")]
     UnsafeDomain { domain: Domain },
+    #[error("crawler domain may contain at most one leading www.")]
+    RepeatedWwwPrefix { domain: Domain },
     #[error("crawler domain configuration database failure")]
     Database {
         #[source]

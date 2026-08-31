@@ -71,11 +71,14 @@ impl CrawlerDomainConfigurationRepository for CrawlerDomainConfigurationReposito
         listing_source_id: ListingSourceId,
         domain: Domain,
     ) -> Result<CrawlerDomainConfiguration, CrawlerDomainConfigurationError> {
-        let crawl_root_host = Domain::try_from(
-            domain.as_str().trim_end_matches('.').to_ascii_lowercase(),
-        )
-        .map_err(|source| CrawlerDomainConfigurationError::Database {
-            source: box_error(source),
+        let normalized_domain = domain.as_str().trim_end_matches('.').to_ascii_lowercase();
+        if normalized_domain.starts_with("www.www.") {
+            return Err(CrawlerDomainConfigurationError::RepeatedWwwPrefix { domain });
+        }
+        let crawl_root_host = Domain::try_from(normalized_domain).map_err(|source| {
+            CrawlerDomainConfigurationError::Database {
+                source: box_error(source),
+            }
         })?;
         let canonical_domain = Domain::try_from(canonical_crawler_domain(crawl_root_host.as_str()))
             .map_err(|source| CrawlerDomainConfigurationError::Database {

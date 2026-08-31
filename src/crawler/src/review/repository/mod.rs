@@ -9,13 +9,11 @@ use crate::scraper::css_selector::product_schema_repository::{
 };
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::spider::utils::url::CrawledUrl;
-use dashmap::DashMap;
 use listing_source_core::ListingSourceId;
 use regex::Regex;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
-use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::info;
 use url::Url;
@@ -24,6 +22,7 @@ mod schema_payload;
 
 use schema_payload::{
     approval_product_schemas, parse_schemas_payload, update_schema_field_payload,
+    validate_product_schemas,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -48,18 +47,19 @@ pub enum ReviewRepositoryError {
     InvalidUrlPatternCandidate,
     #[error("invalid ProductSchema review candidate")]
     InvalidProductSchemaCandidate,
+    #[error("review candidate changed during schema-matrix evaluation")]
+    CandidateChangedDuringEvaluation,
 }
 
 #[derive(Clone)]
 pub struct CrawlerReviewRepository {
     pool: PgPool,
-    schema_matrix_candidates: Arc<DashMap<uuid::Uuid, SchemaMatrixCandidate>>,
 }
 
-#[derive(Clone)]
-struct SchemaMatrixCandidate {
-    version: i64,
-    hash: String,
+pub struct EvaluatedSchemaMatrix {
+    pub matrix: SchemaMatrix,
+    candidate_version: i64,
+    candidate_hash: String,
 }
 
 pub struct SchemaReviewWithStatusInput<'a> {
@@ -74,10 +74,7 @@ pub struct SchemaReviewWithStatusInput<'a> {
 
 impl CrawlerReviewRepository {
     pub fn new(pool: PgPool) -> Self {
-        Self {
-            pool,
-            schema_matrix_candidates: Arc::new(DashMap::new()),
-        }
+        Self { pool }
     }
 
     pub async fn has_pending_review(
@@ -433,6 +430,7 @@ impl CrawlerReviewRepository {
             status,
             notes,
         } = input;
+        validate_product_schemas(schemas)?;
         let candidate_payload = json!({ "schemas": schemas });
         let mut transaction = self.pool.begin().await?;
         let inserted = if status == STATUS_PENDING_REVIEW {
@@ -837,7 +835,7 @@ impl CrawlerReviewRepository {
         &self,
         review_id: uuid::Uuid,
         pages: Vec<(CrawlerReviewPage, String)>,
-    ) -> Result<SchemaMatrix, ReviewRepositoryError> {
+    ) -> Result<EvaluatedSchemaMatrix, ReviewRepositoryError> {
         let review = sqlx::query(
             "SELECT candidate_payload, candidate_version,
                     encode(digest(candidate_payload::text, 'sha256'), 'hex') AS candidate_hash
@@ -850,57 +848,44 @@ impl CrawlerReviewRepository {
         .ok_or(ReviewRepositoryError::NotFound(review_id))?;
         let candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
         let schemas = parse_schemas_payload(&candidate_payload)?;
-        self.schema_matrix_candidates.insert(
-            review_id,
-            SchemaMatrixCandidate {
-                version: review.try_get("candidate_version")?,
-                hash: review.try_get("candidate_hash")?,
-            },
-        );
-
-        Ok(evaluate_schema_matrix_for_live_review_pages(
-            review_id, &schemas, &pages,
-        ))
+        Ok(EvaluatedSchemaMatrix {
+            matrix: evaluate_schema_matrix_for_live_review_pages(review_id, &schemas, &pages),
+            candidate_version: review.try_get("candidate_version")?,
+            candidate_hash: review.try_get("candidate_hash")?,
+        })
     }
 
-    pub async fn update_review_validation_summary(
+    pub async fn store_schema_matrix_if_current(
         &self,
         review_id: uuid::Uuid,
-        validation_summary: serde_json::Value,
+        evaluated: &EvaluatedSchemaMatrix,
     ) -> Result<(), ReviewRepositoryError> {
-        let candidate = self
-            .schema_matrix_candidates
-            .remove(&review_id)
-            .map(|(_, candidate)| candidate);
-        let has_candidate = candidate.is_some();
-        let result = if let Some(candidate) = candidate {
-            sqlx::query(
-                "UPDATE crawler_reviews
-                 SET validation_summary = $2, updated = NOW()
-                 WHERE review_id = $1
-                   AND candidate_version = $3
-                   AND encode(digest(candidate_payload::text, 'sha256'), 'hex') = $4",
-            )
-            .bind(review_id)
-            .bind(validation_summary)
-            .bind(candidate.version)
-            .bind(candidate.hash)
-            .execute(&self.pool)
-            .await?
-        } else {
-            sqlx::query(
-                "UPDATE crawler_reviews
-                 SET validation_summary = $2, updated = NOW()
-                 WHERE review_id = $1",
-            )
-            .bind(review_id)
-            .bind(validation_summary)
-            .execute(&self.pool)
-            .await?
-        };
+        let matrix = serde_json::to_value(&evaluated.matrix)?;
+        let result = sqlx::query(
+            "UPDATE crawler_reviews
+             SET validation_summary = jsonb_set(
+                     CASE jsonb_typeof(validation_summary)
+                         WHEN 'object' THEN validation_summary
+                         ELSE jsonb_build_object('summary', validation_summary)
+                     END,
+                     '{schema_matrix}',
+                     $2::jsonb,
+                     true
+                 ),
+                 updated = NOW()
+             WHERE review_id = $1
+               AND candidate_version = $3
+               AND encode(digest(candidate_payload::text, 'sha256'), 'hex') = $4",
+        )
+        .bind(review_id)
+        .bind(matrix)
+        .bind(evaluated.candidate_version)
+        .bind(&evaluated.candidate_hash)
+        .execute(&self.pool)
+        .await?;
 
-        if result.rows_affected() == 0 && !has_candidate {
-            return Err(ReviewRepositoryError::NotFound(review_id));
+        if result.rows_affected() == 0 {
+            return Err(ReviewRepositoryError::CandidateChangedDuringEvaluation);
         }
         Ok(())
     }

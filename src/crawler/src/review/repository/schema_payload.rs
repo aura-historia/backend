@@ -18,11 +18,17 @@ pub(super) fn parse_schemas_payload(
     let candidate =
         serde_json::from_value::<ProductSchemaReviewCandidate>(candidate_payload.clone())
             .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
-    if candidate.schemas.is_empty() || candidate.schemas.iter().any(|schema| !valid_schema(schema))
-    {
+    validate_product_schemas(&candidate.schemas)?;
+    Ok(candidate.schemas)
+}
+
+pub(super) fn validate_product_schemas(
+    schemas: &[ProductCssSelectorSchema],
+) -> Result<(), ReviewRepositoryError> {
+    if schemas.is_empty() || schemas.iter().any(|schema| !valid_schema(schema)) {
         return Err(ReviewRepositoryError::InvalidProductSchemaCandidate);
     }
-    Ok(candidate.schemas)
+    Ok(())
 }
 
 fn valid_schema(schema: &ProductCssSelectorSchema) -> bool {
@@ -56,15 +62,15 @@ pub(super) fn approval_product_schemas(
         "append_schema_generation" | "normalization_schema_repair"
     ) && reviewed_schemas.len() == 1;
 
-    if !should_backfill_existing {
-        return Ok(reviewed_schemas);
-    }
-
-    let Some(existing) = existing else {
-        return Ok(reviewed_schemas);
+    let schemas = if !should_backfill_existing {
+        reviewed_schemas
+    } else if let Some(existing) = existing {
+        merge_product_schema_lists(&existing.product_schemas, reviewed_schemas)?
+    } else {
+        reviewed_schemas
     };
-
-    merge_product_schema_lists(&existing.product_schemas, reviewed_schemas)
+    validate_product_schemas(&schemas)?;
+    Ok(schemas)
 }
 
 pub(super) fn update_schema_field_payload(
@@ -81,6 +87,7 @@ pub(super) fn update_schema_field_payload(
     };
 
     update_schema_rule(schema, field, rule)?;
+    validate_product_schemas(&schemas)?;
     Ok(schemas)
 }
 
@@ -275,6 +282,22 @@ mod tests {
         assert!(
             matches!(err, ReviewRepositoryError::RequiredSchemaField(field) if field == "title")
         );
+    }
+
+    #[test]
+    fn update_schema_field_payload_rejects_invalid_new_rule() {
+        let err = update_schema_field_payload(
+            &serde_json::json!({ "schemas": [schema("h1.template-a")] }),
+            0,
+            "title",
+            Some(text_rule("[")),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            err,
+            ReviewRepositoryError::InvalidProductSchemaCandidate
+        ));
     }
 
     #[test]

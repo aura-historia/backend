@@ -149,6 +149,7 @@
     }, true);
 
     window.addEventListener('message', event => {
+        if (event.source !== window.parent) return;
         if (event.data && event.data.type === 'crawler-review-highlight-selector') {
             highlight(event.data.selector, event.data.label, event.data.color);
         } else if (event.data && event.data.type === 'crawler-review-highlight-schema') {

@@ -287,6 +287,93 @@ async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() 
 }
 
 #[aura_integration_test(services = [POSTGRES])]
+async fn schema_review_creation_rejects_invalid_typed_schema() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+
+    let result = repository
+        .create_schema_review(
+            &listing_source_id,
+            "initial_schema_generation",
+            &[schema("[")],
+            review_pages(),
+            json!({}),
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
+    ));
+    assert_eq!(review_count(&pool, listing_source_id).await, 0);
+}
+
+#[aura_integration_test(services = [POSTGRES])]
+async fn approved_schema_field_edit_rejects_invalid_rule_without_mutating_live_or_audit_state() {
+    let pool = get_postgres_client().await;
+    let review_repository = CrawlerReviewRepository::new(pool.clone());
+    let schema_repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let original_schema = schema("h1.original");
+    let now = OffsetDateTime::now_utc();
+    schema_repository
+        .insert_product_schema(
+            &listing_source_id,
+            &ListingSourceProductSchema {
+                listing_source_id,
+                product_schemas: vec![original_schema.clone()],
+                created: now,
+                updated: now,
+            },
+        )
+        .await
+        .unwrap();
+    let review_id = review_repository
+        .create_schema_review_with_status(SchemaReviewWithStatusInput {
+            listing_source_id: &listing_source_id,
+            reason: "initial_schema_generation",
+            schemas: std::slice::from_ref(&original_schema),
+            pages: review_pages(),
+            validation_summary: json!({ "auto_schema_evaluation": { "decision": "APPROVE" } }),
+            status: STATUS_APPROVED,
+            notes: None,
+        })
+        .await
+        .unwrap();
+    let before = review_repository.get_review(review_id).await.unwrap();
+
+    let result = review_repository
+        .update_schema_field(review_id, 0, "title", Some(rule("[")))
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
+    ));
+    assert_eq!(
+        schema_repository
+            .find_product_schema(&listing_source_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .product_schemas,
+        vec![original_schema]
+    );
+    let after = review_repository.get_review(review_id).await.unwrap();
+    assert_eq!(
+        after.review.candidate_payload,
+        before.review.candidate_payload
+    );
+    assert_eq!(
+        after.review.validation_summary,
+        before.review.validation_summary
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES])]
 async fn schema_matrix_write_skips_stale_candidate_snapshot() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
@@ -298,7 +385,10 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
             "initial_schema_generation",
             &[schema("h1")],
             review_pages(),
-            json!({}),
+            json!({
+                "auto_schema_evaluation": { "decision": "APPROVE" },
+                "manual_schema_edits": []
+            }),
         )
         .await
         .unwrap();
@@ -331,10 +421,13 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
             .unwrap();
     assert_eq!(candidate_version, 2);
 
-    repository
-        .update_review_validation_summary(review_id, json!({ "schema_matrix": matrix }))
-        .await
-        .unwrap();
+    let stale_store = repository
+        .store_schema_matrix_if_current(review_id, &matrix)
+        .await;
+    assert!(matches!(
+        stale_store,
+        Err(ReviewRepositoryError::CandidateChangedDuringEvaluation)
+    ));
 
     let validation_summary: serde_json::Value =
         sqlx::query_scalar("SELECT validation_summary FROM crawler_reviews WHERE review_id = $1")
@@ -342,7 +435,13 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(validation_summary, json!({}));
+    assert_eq!(
+        validation_summary,
+        json!({
+            "auto_schema_evaluation": { "decision": "APPROVE" },
+            "manual_schema_edits": []
+        })
+    );
 
     let pages = repository.get_review_pages(review_id).await.unwrap();
     let fresh_matrix = repository
@@ -361,7 +460,7 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
         .await
         .unwrap();
     repository
-        .update_review_validation_summary(review_id, json!({ "schema_matrix": fresh_matrix }))
+        .store_schema_matrix_if_current(review_id, &fresh_matrix)
         .await
         .unwrap();
 
@@ -372,6 +471,11 @@ async fn schema_matrix_write_skips_stale_candidate_snapshot() {
             .await
             .unwrap();
     assert!(validation_summary.get("schema_matrix").is_some());
+    assert_eq!(
+        validation_summary["auto_schema_evaluation"]["decision"],
+        "APPROVE"
+    );
+    assert_eq!(validation_summary["manual_schema_edits"], json!([]));
 }
 
 #[aura_integration_test(services = [POSTGRES])]

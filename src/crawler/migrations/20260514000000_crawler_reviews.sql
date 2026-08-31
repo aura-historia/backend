@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS crawler_reviews (
     reason             TEXT        NOT NULL,
     candidate_payload  JSONB       NOT NULL,
     validation_summary JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    candidate_version  BIGINT      NOT NULL DEFAULT 1,
     reviewer_notes     TEXT,
     created            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -56,3 +57,23 @@ CREATE TABLE IF NOT EXISTS crawler_review_urls (
 
 CREATE INDEX IF NOT EXISTS idx_crawler_review_urls_review
     ON crawler_review_urls (review_id);
+
+CREATE OR REPLACE FUNCTION increment_crawler_review_candidate_version()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NEW.candidate_payload IS DISTINCT FROM OLD.candidate_payload THEN
+        NEW.candidate_version = OLD.candidate_version + 1;
+        NEW.validation_summary = NEW.validation_summary - 'schema_matrix';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS crawler_reviews_candidate_version ON crawler_reviews;
+
+CREATE TRIGGER crawler_reviews_candidate_version
+    BEFORE UPDATE OF candidate_payload ON crawler_reviews
+    FOR EACH ROW
+    EXECUTE FUNCTION increment_crawler_review_candidate_version();

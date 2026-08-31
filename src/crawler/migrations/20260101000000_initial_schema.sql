@@ -151,6 +151,9 @@ CREATE TABLE IF NOT EXISTS listing_source_domains (
     CHECK (listing_source_domain = lower(listing_source_domain)),
     CHECK (listing_source_domain = rtrim(listing_source_domain, '.')),
     CHECK (listing_source_domain !~ '^www[.]'),
+    CHECK (crawl_root_host = lower(crawl_root_host)),
+    CHECK (crawl_root_host = rtrim(crawl_root_host, '.')),
+    CHECK (regexp_replace(crawl_root_host, '^www[.]', '') = listing_source_domain),
     UNIQUE (listing_source_id, domain_id)
 );
 

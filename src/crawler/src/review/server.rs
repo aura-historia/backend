@@ -4,13 +4,13 @@ use crate::review::assets::{
 };
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
 use crate::review::model::{CrawlerReviewPage, SchemaMatrix};
-use crate::review::repository::CrawlerReviewRepository;
-use crate::review::repository::ReviewRepositoryError;
+use crate::review::repository::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::service::{FetchError, HtmlFetcher, ReqwestHtmlFetcher};
 use crate::service::crawler_domain_configuration::{
     CrawlerDomainAdministration, CrawlerDomainConfigurationError,
 };
+use dashmap::DashMap;
 use listing_source_core::{Domain, ListingSourceId};
 use serde::Deserialize;
 use serde_json::json;
@@ -66,6 +66,8 @@ const MAX_REQUEST_BODY_BYTES: usize = 64 * 1024;
 const REQUEST_IO_TIMEOUT: Duration = Duration::from_secs(10);
 const REQUEST_DEADLINE: Duration = Duration::from_secs(30);
 const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
+const REVIEW_SESSION_TTL: Duration = Duration::from_secs(8 * 60 * 60);
+const REVIEW_SESSION_COOKIE: &str = "crawler_review_session";
 
 #[derive(Clone)]
 pub struct ReviewServer {
@@ -73,6 +75,7 @@ pub struct ReviewServer {
     domain_administration: Arc<dyn CrawlerDomainAdministration>,
     config: ReviewServerConfig,
     html_fetcher: Arc<dyn HtmlFetcher>,
+    sessions: Arc<DashMap<uuid::Uuid, std::time::Instant>>,
 }
 
 impl ReviewServer {
@@ -86,6 +89,7 @@ impl ReviewServer {
             domain_administration,
             config,
             html_fetcher: Arc::new(ReqwestHtmlFetcher::new()),
+            sessions: Arc::new(DashMap::new()),
         }
     }
 
@@ -100,6 +104,7 @@ impl ReviewServer {
             domain_administration,
             config,
             html_fetcher,
+            sessions: Arc::new(DashMap::new()),
         }
     }
 
@@ -195,9 +200,12 @@ impl ReviewServer {
 
         match (parsed.method.as_str(), parsed.path) {
             ("GET", "/") => HttpResponse::html(200, INDEX_HTML),
+            ("GET", "/health") => HttpResponse::json(200, &json!({ "ok": true })),
             ("GET", "/assets/app.js") => HttpResponse::javascript(200, APP_JS),
             ("GET", "/assets/styles.css") => HttpResponse::css(200, STYLES_CSS),
             ("GET", "/api/health") => HttpResponse::json(200, &json!({ "ok": true })),
+            ("POST", "/api/session") => self.create_session(),
+            ("POST", "/api/session/logout") => self.clear_session(&parsed),
             ("GET", "/api/listing_sources") => {
                 match self.repository.list_listing_sources(200).await {
                     Ok(listing_sources) => HttpResponse::json(200, &listing_sources),
@@ -490,6 +498,7 @@ impl ReviewServer {
                 Ok(()) => HttpResponse::json(200, &json!({ "ok": true })),
                 Err(err @ ReviewRepositoryError::InvalidSchemaField(_))
                 | Err(err @ ReviewRepositoryError::RequiredSchemaField(_))
+                | Err(err @ ReviewRepositoryError::InvalidProductSchemaCandidate)
                 | Err(err @ ReviewRepositoryError::UnsupportedArtifact(_, _))
                 | Err(err @ ReviewRepositoryError::NotPending(_)) => {
                     HttpResponse::json(400, &json!({ "error": err.to_string() }))
@@ -534,7 +543,7 @@ impl ReviewServer {
 
     fn request_is_authorized(&self, request: &ParsedRequest<'_>) -> bool {
         !request.path.starts_with("/api/")
-            || (self.authorized(&request.headers)
+            || ((self.authorized(&request.headers) || self.has_valid_session(&request.headers))
                 && (!is_mutation_method(&request.method) || self.config.auth_token.is_some()))
     }
 
@@ -546,6 +555,40 @@ impl ReviewServer {
             .get("authorization")
             .and_then(|value| value.strip_prefix("Bearer "))
             .is_some_and(|actual| constant_time_eq(actual.as_bytes(), expected.as_bytes()))
+    }
+
+    fn has_valid_session(&self, headers: &std::collections::HashMap<String, String>) -> bool {
+        let Some(session_id) = session_id_from_headers(headers) else {
+            return false;
+        };
+        let now = std::time::Instant::now();
+        match self.sessions.get(&session_id) {
+            Some(expiry) if *expiry > now => true,
+            Some(_) => {
+                self.sessions.remove(&session_id);
+                false
+            }
+            None => false,
+        }
+    }
+
+    fn create_session(&self) -> HttpResponse {
+        let now = std::time::Instant::now();
+        self.sessions.retain(|_, expiry| *expiry > now);
+        let session_id = uuid::Uuid::new_v4();
+        self.sessions.insert(session_id, now + REVIEW_SESSION_TTL);
+        HttpResponse::json(200, &json!({ "ok": true })).with_header(
+            "Set-Cookie",
+            session_cookie(&self.config, session_id, REVIEW_SESSION_TTL),
+        )
+    }
+
+    fn clear_session(&self, request: &ParsedRequest<'_>) -> HttpResponse {
+        if let Some(session_id) = session_id_from_headers(&request.headers) {
+            self.sessions.remove(&session_id);
+        }
+        HttpResponse::json(200, &json!({ "ok": true }))
+            .with_header("Set-Cookie", expired_session_cookie(&self.config))
     }
 
     async fn live_review_pages(
@@ -591,23 +634,16 @@ impl ReviewServer {
         review_id: uuid::Uuid,
     ) -> Result<SchemaMatrix, HttpResponse> {
         let pages = self.live_review_pages(review_id).await?;
-        let matrix = self
+        let evaluated = self
             .repository
             .evaluate_schema_matrix_for_live_pages(review_id, pages)
             .await
             .map_err(internal_error)?;
-        let detail = self
-            .repository
-            .get_review(review_id)
-            .await
-            .map_err(internal_error)?;
-        let validation_summary =
-            with_cached_schema_matrix(detail.review.validation_summary, &matrix);
         self.repository
-            .update_review_validation_summary(review_id, validation_summary)
+            .store_schema_matrix_if_current(review_id, &evaluated)
             .await
-            .map_err(internal_error)?;
-        Ok(matrix)
+            .map_err(schema_matrix_store_error)?;
+        Ok(evaluated.matrix)
     }
 
     async fn live_review_page(
@@ -838,19 +874,31 @@ fn parse_action_payload(body: &str) -> Result<ActionPayload, serde_json::Error> 
     serde_json::from_str(body)
 }
 
-fn with_cached_schema_matrix(
-    mut validation_summary: serde_json::Value,
-    matrix: &SchemaMatrix,
-) -> serde_json::Value {
-    if let Some(object) = validation_summary.as_object_mut() {
-        object.insert("schema_matrix".to_string(), json!(matrix));
-        validation_summary
+fn session_id_from_headers(
+    headers: &std::collections::HashMap<String, String>,
+) -> Option<uuid::Uuid> {
+    headers
+        .get("cookie")?
+        .split(';')
+        .map(str::trim)
+        .find_map(|cookie| cookie.strip_prefix(&format!("{REVIEW_SESSION_COOKIE}=")))
+        .and_then(|value| uuid::Uuid::parse_str(value).ok())
+}
+
+fn session_cookie(config: &ReviewServerConfig, session_id: uuid::Uuid, ttl: Duration) -> String {
+    let secure = if config.bind_addr.ip().is_loopback() {
+        ""
     } else {
-        json!({
-            "summary": validation_summary,
-            "schema_matrix": matrix,
-        })
-    }
+        "; Secure"
+    };
+    format!(
+        "{REVIEW_SESSION_COOKIE}={session_id}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}{secure}",
+        ttl.as_secs()
+    )
+}
+
+fn expired_session_cookie(config: &ReviewServerConfig) -> String {
+    session_cookie(config, uuid::Uuid::nil(), Duration::ZERO)
 }
 
 fn parse_review_id(path: &str) -> Option<uuid::Uuid> {
@@ -893,10 +941,21 @@ fn domain_configuration_error(error: CrawlerDomainConfigurationError) -> HttpRes
         CrawlerDomainConfigurationError::DomainOwnedByAnotherListingSource { .. } => {
             HttpResponse::json(409, &json!({ "error": error.to_string() }))
         }
-        CrawlerDomainConfigurationError::UnsafeDomain { .. } => {
+        CrawlerDomainConfigurationError::UnsafeDomain { .. }
+        | CrawlerDomainConfigurationError::RepeatedWwwPrefix { .. } => {
             HttpResponse::json(400, &json!({ "error": error.to_string() }))
         }
         CrawlerDomainConfigurationError::Database { .. } => internal_error(error),
+    }
+}
+
+fn schema_matrix_store_error(error: ReviewRepositoryError) -> HttpResponse {
+    match error {
+        ReviewRepositoryError::CandidateChangedDuringEvaluation => HttpResponse::json(
+            409,
+            &json!({ "error": "review candidate changed; refresh and evaluate again" }),
+        ),
+        other => internal_error(other),
     }
 }
 
@@ -1197,20 +1256,62 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn should_cache_schema_matrix_in_validation_summary() {
-        let matrix = SchemaMatrix {
-            review_id: uuid::Uuid::new_v4(),
-            candidates: Vec::new(),
-        };
+    #[tokio::test]
+    async fn should_allow_cookie_session_for_protected_navigation_and_invalidate_it_on_logout()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
+        let server = ReviewServer::new_with_fetcher(
+            CrawlerReviewRepository::new(pool),
+            Arc::new(RejectingDomainAdministration),
+            ReviewServerConfig {
+                bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                auth_token: Some("review-token".to_string()),
+            },
+            Arc::new(StaticHtmlFetcher),
+        );
+        let login = server
+            .route("POST /api/session HTTP/1.1\r\nAuthorization: Bearer review-token\r\n\r\n")
+            .await
+            .to_string();
+        let cookie = login
+            .lines()
+            .find_map(|line| line.strip_prefix("Set-Cookie: "))
+            .ok_or("session response did not set a cookie")?
+            .split(';')
+            .next()
+            .ok_or("session cookie was empty")?;
 
-        let summary = with_cached_schema_matrix(json!({ "existing": true }), &matrix);
+        assert!(login.contains("HttpOnly"));
+        assert!(login.contains("SameSite=Strict"));
+        assert!(!login.contains("review-token"));
 
-        assert_eq!(summary["existing"], true);
-        let cached = serde_json::from_value::<SchemaMatrix>(summary["schema_matrix"].clone())
-            .expect("cached matrix should deserialize");
-        assert_eq!(cached.review_id, matrix.review_id);
-        assert!(cached.candidates.is_empty());
+        let navigation = server
+            .route(&format!(
+                "GET /api/live-inspect?url=https%3A%2F%2Fexample.com HTTP/1.1\r\nCookie: {cookie}\r\n\r\n"
+            ))
+            .await
+            .to_string();
+        assert!(navigation.starts_with("HTTP/1.1 200 OK"));
+        assert!(navigation.contains("data-crawler-review-disabled"));
+
+        let logout = server
+            .route(&format!(
+                "POST /api/session/logout HTTP/1.1\r\nCookie: {cookie}\r\n\r\n"
+            ))
+            .await
+            .to_string();
+        assert!(logout.starts_with("HTTP/1.1 200 OK"));
+        assert!(logout.contains("Max-Age=0"));
+
+        let expired = server
+            .route(&format!(
+                "GET /api/health HTTP/1.1\r\nCookie: {cookie}\r\n\r\n"
+            ))
+            .await
+            .to_string();
+        assert!(expired.starts_with("HTTP/1.1 401 Unauthorized"));
+        Ok(())
     }
 
     #[test]
@@ -1247,6 +1348,21 @@ mod tests {
         .validate();
 
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn should_expose_minimal_unauthenticated_liveness_health()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let server = review_server_for_test(Some("review-token")).await?;
+
+        let response = server
+            .route("GET /health HTTP/1.1\r\n\r\n")
+            .await
+            .to_string();
+
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.ends_with("{\n  \"ok\": true\n}"));
+        Ok(())
     }
 
     #[tokio::test]

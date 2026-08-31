@@ -27,6 +27,7 @@
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between crawler LLM request starts (default: `2000`) |
 //! | `CRAWLER_CLOUDWATCH_LOG_GROUP`  | Optional CloudWatch Logs group name for crawler server logs    |
 //! | `CRAWLER_CLOUDWATCH_LOG_STREAM` | Optional CloudWatch Logs stream name; defaults to host name    |
+//! | `SPIDER_MAX_SIZE_BYTES`          | Required Spider transport page-body ceiling; set to `8388608`  |
 //!
 //! # CloudWatch IAM permissions
 //!

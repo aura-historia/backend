@@ -14,6 +14,8 @@ use crate::spider::utils::url::CrawledUrl;
 const SPIDER_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36";
 const SPIDER_ACCEPT_ENCODING: &str = "gzip, br, deflate";
 const MAX_ROOT_REDIRECTS: usize = 5;
+const SPIDER_MAX_BODY_BYTES_ENV: &str = "SPIDER_MAX_SIZE_BYTES";
+const DEFAULT_MAX_RESPONSE_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 fn spider_request_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
@@ -121,6 +123,8 @@ pub struct CrawlerConfig {
     pub max_pages_per_crawl: u32,
     /// Whole-crawl wall-clock budget; request timeout remains per request.
     pub max_crawl_duration: std::time::Duration,
+    /// Hard page-body ceiling enforced by Spider's streaming transport.
+    pub max_response_body_bytes: usize,
 }
 
 impl Default for CrawlerConfig {
@@ -134,6 +138,7 @@ impl Default for CrawlerConfig {
             channel_size: 1000,
             max_pages_per_crawl: 10_000,
             max_crawl_duration: std::time::Duration::from_secs(10 * 60),
+            max_response_body_bytes: DEFAULT_MAX_RESPONSE_BODY_BYTES,
         }
     }
 }
@@ -158,6 +163,30 @@ impl Default for SpiderImpl {
     fn default() -> Self {
         Self::new(CrawlerConfig::default())
     }
+}
+
+fn configured_spider_body_limit(
+    configured: Option<&str>,
+    maximum: usize,
+) -> Result<(), SpiderDiscoveryError> {
+    let configured = configured
+        .ok_or_else(|| {
+            SpiderDiscoveryError::Discovery(format!(
+                "{SPIDER_MAX_BODY_BYTES_ENV} must be set to the crawler page-body limit"
+            ))
+        })?
+        .parse::<usize>()
+        .map_err(|_| {
+            SpiderDiscoveryError::Discovery(format!(
+                "{SPIDER_MAX_BODY_BYTES_ENV} must be an integer page-body limit"
+            ))
+        })?;
+    if !(1_048_576..=maximum).contains(&configured) {
+        return Err(SpiderDiscoveryError::Discovery(format!(
+            "{SPIDER_MAX_BODY_BYTES_ENV} must be between 1048576 and {maximum} bytes"
+        )));
+    }
+    Ok(())
 }
 
 fn configured_host_whitelist(url: &Url) -> Result<String, SpiderDiscoveryError> {
@@ -257,6 +286,10 @@ async fn preflight_crawl_root(
 #[async_trait::async_trait]
 impl Spider for SpiderImpl {
     async fn crawl(&self, crawl_root_url: &str) -> Result<SpiderCrawl, SpiderDiscoveryError> {
+        configured_spider_body_limit(
+            std::env::var(SPIDER_MAX_BODY_BYTES_ENV).ok().as_deref(),
+            self.config.max_response_body_bytes,
+        )?;
         let (tx, rx) = mpsc::channel(self.config.channel_size);
         let (status_tx, status_rx) = oneshot::channel();
         let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
@@ -570,11 +603,20 @@ mod tests {
     }
 
     #[test]
+    fn should_require_a_bounded_spider_transport_body_limit() {
+        assert!(configured_spider_body_limit(Some("8388608"), 8 * 1024 * 1024).is_ok());
+        assert!(configured_spider_body_limit(None, 8 * 1024 * 1024).is_err());
+        assert!(configured_spider_body_limit(Some("not-a-number"), 8 * 1024 * 1024).is_err());
+        assert!(configured_spider_body_limit(Some("8388609"), 8 * 1024 * 1024).is_err());
+    }
+
+    #[test]
     fn should_use_conservative_website_concurrency_limit_by_default() {
         let config = CrawlerConfig::default();
 
         assert_eq!(config.concurrency_limit, 8);
         assert_eq!(config.max_pages_per_crawl, 10_000);
+        assert_eq!(config.max_response_body_bytes, 8 * 1024 * 1024);
         assert_eq!(
             config.max_crawl_duration,
             std::time::Duration::from_secs(10 * 60)

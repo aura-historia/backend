@@ -205,6 +205,48 @@ async fn should_reject_ip_literal_crawler_domain() {
 
 #[serial_test::serial]
 #[aura_integration_test(services = [POSTGRES])]
+async fn should_reject_repeated_www_prefix_and_mismatched_raw_sql_crawl_root() {
+    let pool = get_postgres_client().await;
+    let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
+    let domains = CrawlerDomainConfigurationRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    registration
+        .apply_snapshot(&[source(listing_source_id, true)])
+        .await
+        .unwrap();
+
+    let repeated_www = domains
+        .register(
+            listing_source_id,
+            Domain::try_from("www.www.example.com").unwrap(),
+        )
+        .await;
+    assert!(matches!(
+        repeated_www,
+        Err(CrawlerDomainConfigurationError::RepeatedWwwPrefix { .. })
+    ));
+
+    for (owner, root) in [
+        ("example.com", "unrelated.example"),
+        ("example.com", "www.www.example.com"),
+    ] {
+        assert!(
+            sqlx::query(
+                "INSERT INTO listing_source_domains \
+             (listing_source_id, listing_source_domain, crawl_root_host) VALUES ($1, $2, $3)",
+            )
+            .bind(uuid::Uuid::from(listing_source_id))
+            .bind(owner)
+            .bind(root)
+            .execute(&pool)
+            .await
+            .is_err()
+        );
+    }
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_reject_reviews_with_an_invalid_domain_shape_or_owner() {
     let pool = get_postgres_client().await;
     let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());

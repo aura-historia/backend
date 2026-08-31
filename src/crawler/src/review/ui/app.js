@@ -21,6 +21,7 @@ let collapsedListingSourceGroups = new Set(JSON.parse(
     || '[]'
 ));
 let reviewAuthToken = sessionStorage.getItem('crawlerReviewAuthToken') || '';
+let reviewSessionEstablished = false;
 let previewUrlOverride = '';
 
 const selectorFields = [
@@ -73,6 +74,7 @@ function toggleTheme() {
 
 function setReviewAuthToken(token) {
     reviewAuthToken = token || '';
+    reviewSessionEstablished = false;
     if (reviewAuthToken) {
         sessionStorage.setItem('crawlerReviewAuthToken', reviewAuthToken);
     } else {
@@ -80,24 +82,51 @@ function setReviewAuthToken(token) {
     }
 }
 
-function clearReviewAuthToken() {
+async function clearReviewAuthToken() {
+    if (reviewAuthToken) {
+        await fetch('/api/session/logout', {
+            method: 'POST',
+            headers: {authorization: `Bearer ${reviewAuthToken}`},
+            credentials: 'same-origin'
+        }).catch(() => {});
+    }
     setReviewAuthToken('');
-    document.getElementById('reloadState').textContent = 'Review token cleared';
+    document.getElementById('reloadState').textContent = 'Review token and browser session cleared';
 }
 
-function requestReviewAuthToken() {
+async function requestReviewAuthToken() {
     const token = window.prompt('Enter crawler review token');
     if (token === null || !token.trim()) return false;
+    const response = await fetch('/api/session', {
+        method: 'POST',
+        headers: {authorization: `Bearer ${token.trim()}`},
+        credentials: 'same-origin'
+    });
+    if (!response.ok) return false;
     setReviewAuthToken(token.trim());
+    reviewSessionEstablished = true;
+    return true;
+}
+
+async function ensureReviewSession() {
+    if (!reviewAuthToken || reviewSessionEstablished) return;
+    const response = await fetch('/api/session', {
+        method: 'POST',
+        headers: {authorization: `Bearer ${reviewAuthToken}`},
+        credentials: 'same-origin'
+    });
+    if (!response.ok) return false;
+    reviewSessionEstablished = true;
     return true;
 }
 
 async function api(path, options = {}, allowPrompt = true) {
+    await ensureReviewSession();
     const headers = new Headers(options.headers || {});
     headers.set('content-type', 'application/json');
     if (reviewAuthToken) headers.set('authorization', `Bearer ${reviewAuthToken}`);
-    const res = await fetch(path, {...options, headers});
-    if (res.status === 401 && allowPrompt && requestReviewAuthToken()) {
+    const res = await fetch(path, {...options, headers, credentials: 'same-origin'});
+    if (res.status === 401 && allowPrompt && await requestReviewAuthToken()) {
         return api(path, options, false);
     }
     if (!res.ok) throw new Error(await res.text());
@@ -1191,6 +1220,8 @@ function escapeHtmlAttr(s) {
 }
 
 window.addEventListener('message', event => {
+    const frame = document.getElementById('snapshotFrame');
+    if (!frame || event.source !== frame.contentWindow) return;
     const data = event.data || {};
     if (data.type !== 'crawler-review-selector-picked') return;
     pickedSelector = data.selector || '';
