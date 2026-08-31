@@ -26,8 +26,8 @@ async fn insert_domain(
     domain: &str,
 ) -> CrawlerDomainId {
     sqlx::query_scalar::<_, uuid::Uuid>(
-        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain) \
-         VALUES ($1, $2) RETURNING domain_id",
+        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain, crawl_root_host) \
+         VALUES ($1, $2, $2) RETURNING domain_id",
     )
     .bind(uuid::Uuid::from(listing_source_id))
     .bind(domain)
@@ -359,35 +359,24 @@ async fn should_reject_cross_source_url_claim_when_requested_domain_does_not_own
 
 #[serial_test::serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_reject_same_source_url_reassignment_between_equivalent_domains() {
+async fn should_reject_duplicate_canonical_domain_for_same_source() {
     let pool = get_postgres_client().await;
-    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
     let source = ListingSourceId::new();
     insert_source(&pool, source).await;
-    let first_domain = insert_domain(&pool, source, "example.com").await;
-    let second_domain = insert_domain(&pool, source, "www.example.com").await;
-    let url = Url::parse("https://www.example.com/product/1").unwrap();
+    insert_domain(&pool, source, "example.com").await;
 
-    repository
-        .upsert_link(&source, &first_domain, &url, &UrlClass::Other)
-        .await
-        .unwrap();
-    let result = repository
-        .upsert_link(&source, &second_domain, &url, &UrlClass::ProductListing)
-        .await;
+    let duplicate = sqlx::query(
+        "INSERT INTO listing_source_domains \
+         (listing_source_id, listing_source_domain, crawl_root_host) \
+         VALUES ($1, $2, $3)",
+    )
+    .bind(uuid::Uuid::from(source))
+    .bind("example.com")
+    .bind("www.example.com")
+    .execute(&pool)
+    .await;
 
-    assert!(matches!(
-        result,
-        Err(UrlMetadataRepositoryError::UrlOwnedByAnotherDomain { .. })
-    ));
-    let row: (uuid::Uuid, String) =
-        sqlx::query_as("SELECT domain_id, url_class FROM listing_source_urls WHERE url = $1")
-            .bind(url.as_str())
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(row.0, uuid::Uuid::from(first_domain));
-    assert_eq!(row.1, "other");
+    assert!(duplicate.is_err());
 }
 
 #[serial_test::serial]

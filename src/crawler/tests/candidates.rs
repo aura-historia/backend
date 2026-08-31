@@ -56,7 +56,7 @@ async fn insert_domain_for_listing_source(
     domain: &str,
 ) -> CrawlerDomainId {
     let row: (uuid::Uuid,) = sqlx::query_as(
-        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain) VALUES ($1, $2) RETURNING domain_id",
+        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain, crawl_root_host) VALUES ($1, $2, $2) RETURNING domain_id",
     )
     .bind(listing_source_id_uuid)
     .bind(domain)

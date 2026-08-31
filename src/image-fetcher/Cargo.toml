@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+public-network-policy = { workspace = true }
 base64 = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 thiserror = { workspace = true }

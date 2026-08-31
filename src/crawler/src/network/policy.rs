@@ -142,59 +142,9 @@ pub fn canonical_crawler_domain(host: &str) -> String {
     host.strip_prefix("www.").unwrap_or(&host).to_owned()
 }
 
-/// Static deny-list derived from IANA Special-Purpose Address Registries.
-/// Review this table when those registries change; never fetch it at runtime.
+/// Compatibility name for the shared outbound HTTP destination policy.
 pub fn is_publicly_routable_ip(address: IpAddr) -> bool {
-    match address {
-        IpAddr::V4(address) => !IPV4_NON_PUBLIC
-            .iter()
-            .any(|(network, prefix)| ipv4_in_prefix(address, *network, *prefix)),
-        IpAddr::V6(address) => !IPV6_NON_PUBLIC
-            .iter()
-            .any(|(network, prefix)| ipv6_in_prefix(address, *network, *prefix)),
-    }
-}
-
-const IPV4_NON_PUBLIC: &[(std::net::Ipv4Addr, u8)] = &[
-    (std::net::Ipv4Addr::new(0, 0, 0, 0), 8),
-    (std::net::Ipv4Addr::new(10, 0, 0, 0), 8),
-    (std::net::Ipv4Addr::new(100, 64, 0, 0), 10),
-    (std::net::Ipv4Addr::new(127, 0, 0, 0), 8),
-    (std::net::Ipv4Addr::new(169, 254, 0, 0), 16),
-    (std::net::Ipv4Addr::new(172, 16, 0, 0), 12),
-    (std::net::Ipv4Addr::new(192, 0, 0, 0), 24),
-    (std::net::Ipv4Addr::new(192, 0, 2, 0), 24),
-    (std::net::Ipv4Addr::new(192, 168, 0, 0), 16),
-    (std::net::Ipv4Addr::new(198, 18, 0, 0), 15),
-    (std::net::Ipv4Addr::new(198, 51, 100, 0), 24),
-    (std::net::Ipv4Addr::new(203, 0, 113, 0), 24),
-    (std::net::Ipv4Addr::new(224, 0, 0, 0), 4),
-    (std::net::Ipv4Addr::new(240, 0, 0, 0), 4),
-];
-
-const IPV6_NON_PUBLIC: &[(std::net::Ipv6Addr, u8)] = &[
-    (std::net::Ipv6Addr::UNSPECIFIED, 96),
-    (std::net::Ipv6Addr::LOCALHOST, 128),
-    (std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0, 0), 96),
-    (std::net::Ipv6Addr::new(0x64, 0xff9b, 0, 0, 0, 0, 0, 0), 96),
-    (std::net::Ipv6Addr::new(0x100, 0, 0, 0, 0, 0, 0, 0), 64),
-    (std::net::Ipv6Addr::new(0x2001, 0, 0, 0, 0, 0, 0, 0), 23),
-    (std::net::Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0), 32),
-    (std::net::Ipv6Addr::new(0x2002, 0, 0, 0, 0, 0, 0, 0), 16),
-    (std::net::Ipv6Addr::new(0xfc00, 0, 0, 0, 0, 0, 0, 0), 7),
-    (std::net::Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 0), 10),
-    (std::net::Ipv6Addr::new(0xfec0, 0, 0, 0, 0, 0, 0, 0), 10),
-    (std::net::Ipv6Addr::new(0xff00, 0, 0, 0, 0, 0, 0, 0), 8),
-];
-
-fn ipv4_in_prefix(address: std::net::Ipv4Addr, network: std::net::Ipv4Addr, prefix: u8) -> bool {
-    let mask = u32::MAX.checked_shl(u32::from(32 - prefix)).unwrap_or(0);
-    (u32::from(address) & mask) == (u32::from(network) & mask)
-}
-
-fn ipv6_in_prefix(address: std::net::Ipv6Addr, network: std::net::Ipv6Addr, prefix: u8) -> bool {
-    let mask = u128::MAX.checked_shl(u32::from(128 - prefix)).unwrap_or(0);
-    (u128::from(address) & mask) == (u128::from(network) & mask)
+    public_network_policy::is_safe_public_http_destination(address)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -486,6 +436,16 @@ mod tests {
             "fe80::1",
             "fec0::1",
             "2001:db8::1",
+            "4000::1",
+            "6000::1",
+            "8000::1",
+            "a000::1",
+            "c000::1",
+            "e000::1",
+            "64:ff9b:1::1",
+            "100:0:0:1::1",
+            "3fff::1",
+            "5f00::1",
         ] {
             assert!(
                 !is_publicly_routable_ip(raw_address.parse().unwrap()),
@@ -493,6 +453,9 @@ mod tests {
             );
         }
         assert!(is_publicly_routable_ip("1.1.1.1".parse().unwrap()));
+        assert!(is_publicly_routable_ip(
+            "2606:4700:4700::1111".parse().unwrap()
+        ));
         let public = SocketAddr::from(([1, 1, 1, 1], 443));
         let private = SocketAddr::from(([10, 0, 0, 1], 443));
         assert!(is_publicly_routable_ip(public.ip()));

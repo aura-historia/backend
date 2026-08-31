@@ -64,7 +64,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
             r#"
             SELECT s.listing_source_id,
                    sd.domain_id,
-                   sd.listing_source_domain,
+                   sd.crawl_root_host AS listing_source_domain,
                    sd.crawl_failure_count,
                    sd.last_crawl_error_kind
             FROM listing_sources s

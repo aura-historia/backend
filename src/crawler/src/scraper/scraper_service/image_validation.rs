@@ -271,14 +271,16 @@ async fn probe_image_dimensions(url: &Url) -> ImageValidation {
 
 fn image_validation_for_target_error(error: PublicTargetError) -> ImageValidation {
     match error {
+        // A URL is accepted only after current DNS resolution has established a
+        // safe public target. Quality may remain unknown after that point, but
+        // unresolved targets must never reach canonical ProductListing state.
         PublicTargetError::InvalidUrl
         | PublicTargetError::IpLiteral
         | PublicTargetError::InvalidPort
+        | PublicTargetError::ResolutionTimeout
+        | PublicTargetError::Resolution
         | PublicTargetError::UnsafeResolution
         | PublicTargetError::InvalidRedirect => ImageValidation::Invalid,
-        PublicTargetError::ResolutionTimeout | PublicTargetError::Resolution => {
-            ImageValidation::Unknown
-        }
     }
 }
 

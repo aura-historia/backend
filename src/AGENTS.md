@@ -97,6 +97,7 @@
 - `src/domain-primitives/AGENTS.md` — domain-neutral primitives and newtype macros.
 - `src/embedding/AGENTS.md` — reusable Vertex AI embedding adapter crate.
 - `src/image-fetcher/AGENTS.md` — reusable safe external image-fetch adapter crate.
+- `src/public-network-policy/AGENTS.md` — shared fail-closed public HTTP destination policy.
 - `src/large-language-model/AGENTS.md` — reusable typed Vertex AI Gemini invocation adapter crate.
 - `src/localization/AGENTS.md` — pure language and localization values.
 - `src/money/AGENTS.md` — pure currency, amount, and price values.

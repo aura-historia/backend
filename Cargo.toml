@@ -22,6 +22,7 @@ members = [
     "src/money",
     "src/embedding",
     "src/image-fetcher",
+    "src/public-network-policy",
     "src/geo",
     "src/search-filter-core",
     "src/search-filter-service",
@@ -97,6 +98,7 @@ localization = { path = "src/localization" }
 money = { path = "src/money" }
 embedding = { path = "src/embedding" }
 image-fetcher = { path = "src/image-fetcher" }
+public-network-policy = { path = "src/public-network-policy" }
 geo = { path = "src/geo" }
 google-cloud-auth = "1.12.0"
 derive_builder = "0.20.2"

@@ -50,7 +50,7 @@ async fn should_disable_absent_sources_without_deleting_local_domain_configurati
         .await
         .unwrap();
     sqlx::query(
-        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain) VALUES ($1, $2)",
+        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain, crawl_root_host) VALUES ($1, $2, $2)",
     )
     .bind(uuid::Uuid::from(removed))
     .bind("removed.example.com")
@@ -127,12 +127,12 @@ async fn should_roll_back_snapshot_when_final_disable_update_fails_and_retry_aft
     .unwrap();
     sqlx::query(
         "INSERT INTO listing_source_domains \
-         (listing_source_id, listing_source_domain, url_pattern, url_pattern_state, last_crawled, \
+         (listing_source_id, listing_source_domain, crawl_root_host, url_pattern, url_pattern_state, last_crawled, \
           crawl_failure_count, last_crawl_error_kind, next_crawl_at) \
          VALUES \
-         ($1, 'kept.example.com', '/products/', 'MATCHED', NOW() - INTERVAL '1 day', \
+         ($1, 'kept.example.com', 'kept.example.com', '/products/', 'MATCHED', NOW() - INTERVAL '1 day', \
           3, 'HTTP_500', NOW() + INTERVAL '1 hour'), \
-         ($2, 'removed.example.com', '/stock/', 'MATCHED', NOW() - INTERVAL '2 days', \
+         ($2, 'removed.example.com', 'removed.example.com', '/stock/', 'MATCHED', NOW() - INTERVAL '2 days', \
           4, 'TIMEOUT', NOW() + INTERVAL '2 hours')",
     )
     .bind(uuid::Uuid::from(kept))

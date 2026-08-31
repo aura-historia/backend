@@ -15,16 +15,21 @@ let selectedReviewRefreshReason = '';
 let sidebarCollapsed = localStorage.getItem('crawlerReviewSidebarCollapsed') === 'true';
 let theme = document.documentElement.dataset.theme || localStorage.getItem('crawlerReviewTheme') || 'light';
 let reviewSearchTerm = '';
-let collapsedListingSourceGroups = new Set(JSON.parse(localStorage.getItem('crawlerReviewCollapsedShopGroups') || '[]'));
+let collapsedListingSourceGroups = new Set(JSON.parse(
+    localStorage.getItem('crawlerReviewCollapsedListingSourceGroups')
+    || localStorage.getItem('crawlerReviewCollapsedShopGroups')
+    || '[]'
+));
+let reviewAuthToken = sessionStorage.getItem('crawlerReviewAuthToken') || '';
 let previewUrlOverride = '';
 
 const selectorFields = [
     'source_listing_id', 'title', 'description', 'price', 'price_estimate_min',
-    'price_estimate_max', 'seller_name', 'state', 'images', 'auction_start', 'auction_end'
+    'price_estimate_max', 'state', 'images', 'auction_start', 'auction_end'
 ];
 const optionalFields = new Set([
     'description', 'price', 'price_estimate_min', 'price_estimate_max',
-    'seller_name', 'auction_start', 'auction_end'
+    'auction_start', 'auction_end'
 ]);
 const schemaHighlightColors = {
     source_listing_id: '#2563eb',
@@ -33,7 +38,6 @@ const schemaHighlightColors = {
     price: '#16a34a',
     price_estimate_min: '#65a30d',
     price_estimate_max: '#0d9488',
-    seller_name: '#475569',
     state: '#f97316',
     images: '#db2777',
     auction_start: '#9333ea',
@@ -67,8 +71,35 @@ function toggleTheme() {
     applyTheme(theme === 'dark' ? 'light' : 'dark');
 }
 
-async function api(path, options = {}) {
-    const res = await fetch(path, {headers: {'content-type': 'application/json'}, ...options});
+function setReviewAuthToken(token) {
+    reviewAuthToken = token || '';
+    if (reviewAuthToken) {
+        sessionStorage.setItem('crawlerReviewAuthToken', reviewAuthToken);
+    } else {
+        sessionStorage.removeItem('crawlerReviewAuthToken');
+    }
+}
+
+function clearReviewAuthToken() {
+    setReviewAuthToken('');
+    document.getElementById('reloadState').textContent = 'Review token cleared';
+}
+
+function requestReviewAuthToken() {
+    const token = window.prompt('Enter crawler review token');
+    if (token === null || !token.trim()) return false;
+    setReviewAuthToken(token.trim());
+    return true;
+}
+
+async function api(path, options = {}, allowPrompt = true) {
+    const headers = new Headers(options.headers || {});
+    headers.set('content-type', 'application/json');
+    if (reviewAuthToken) headers.set('authorization', `Bearer ${reviewAuthToken}`);
+    const res = await fetch(path, {...options, headers});
+    if (res.status === 401 && allowPrompt && requestReviewAuthToken()) {
+        return api(path, options, false);
+    }
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 }
@@ -148,7 +179,7 @@ function toggleListingSourceGroup(listingSourceId) {
     } else {
         collapsedListingSourceGroups.add(listingSourceId);
     }
-    localStorage.setItem('crawlerReviewCollapsedShopGroups', JSON.stringify([...collapsedListingSourceGroups]));
+    localStorage.setItem('crawlerReviewCollapsedListingSourceGroups', JSON.stringify([...collapsedListingSourceGroups]));
     loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 }
 

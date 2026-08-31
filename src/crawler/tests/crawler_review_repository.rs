@@ -77,8 +77,8 @@ async fn insert_domain(
     domain: &str,
 ) -> CrawlerDomainId {
     sqlx::query_scalar::<_, Uuid>(
-        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain) \
-         VALUES ($1, $2) RETURNING domain_id",
+        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain, crawl_root_host) \
+         VALUES ($1, $2, $2) RETURNING domain_id",
     )
     .bind(Uuid::from(listing_source_id))
     .bind(domain)
@@ -284,6 +284,94 @@ async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() 
     assert_eq!(edits.len(), 1);
     assert_eq!(edits[0]["source"], "review_console");
     assert_eq!(edits[0]["operation"], "approved_schema_live_update");
+}
+
+#[aura_integration_test(services = [POSTGRES])]
+async fn schema_matrix_write_skips_stale_candidate_snapshot() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let review_id = repository
+        .create_schema_review(
+            &listing_source_id,
+            "initial_schema_generation",
+            &[schema("h1")],
+            review_pages(),
+            json!({}),
+        )
+        .await
+        .unwrap();
+
+    let pages = repository.get_review_pages(review_id).await.unwrap();
+    let matrix = repository
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            pages
+                .into_iter()
+                .map(|page| {
+                    (
+                        page,
+                        "<html><body><span class=\"id\">SKU</span><h1>Title</h1><span class=\"state\">In stock</span><img class=\"product\" src=\"a.jpg\"></body></html>".to_owned(),
+                    )
+                })
+                .collect(),
+        )
+        .await
+        .unwrap();
+    repository
+        .update_candidate_payload(review_id, json!({ "schemas": [schema("h2")] }))
+        .await
+        .unwrap();
+    let candidate_version: i64 =
+        sqlx::query_scalar("SELECT candidate_version FROM crawler_reviews WHERE review_id = $1")
+            .bind(review_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(candidate_version, 2);
+
+    repository
+        .update_review_validation_summary(review_id, json!({ "schema_matrix": matrix }))
+        .await
+        .unwrap();
+
+    let validation_summary: serde_json::Value =
+        sqlx::query_scalar("SELECT validation_summary FROM crawler_reviews WHERE review_id = $1")
+            .bind(review_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(validation_summary, json!({}));
+
+    let pages = repository.get_review_pages(review_id).await.unwrap();
+    let fresh_matrix = repository
+        .evaluate_schema_matrix_for_live_pages(
+            review_id,
+            pages
+                .into_iter()
+                .map(|page| {
+                    (
+                        page,
+                        "<html><body><span class=\"id\">SKU</span><h2>Title</h2><span class=\"state\">In stock</span><img class=\"product\" src=\"a.jpg\"></body></html>".to_owned(),
+                    )
+                })
+                .collect(),
+        )
+        .await
+        .unwrap();
+    repository
+        .update_review_validation_summary(review_id, json!({ "schema_matrix": fresh_matrix }))
+        .await
+        .unwrap();
+
+    let validation_summary: serde_json::Value =
+        sqlx::query_scalar("SELECT validation_summary FROM crawler_reviews WHERE review_id = $1")
+            .bind(review_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(validation_summary.get("schema_matrix").is_some());
 }
 
 #[aura_integration_test(services = [POSTGRES])]

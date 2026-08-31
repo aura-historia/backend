@@ -148,8 +148,22 @@ impl ReviewServer {
         R: AsyncRead + Unpin,
     {
         match tokio::time::timeout(deadline, async {
-            match read_bounded_request(stream).await {
-                Ok(Some(request)) => Some(self.route(&request).await),
+            match read_bounded_request_headers(stream).await {
+                Ok(Some(headers)) => {
+                    let Some(request) = parse_request(&headers.head) else {
+                        return Some(HttpResponse::text(400, "bad request"));
+                    };
+                    if !self.request_is_authorized(&request) {
+                        return Some(HttpResponse::json(401, &json!({ "error": "unauthorized" })));
+                    }
+                    match read_bounded_request_body(stream, headers).await {
+                        Ok(request) => Some(self.route(&request).await),
+                        Err(error) => {
+                            warn!(error = ?error, "Rejected malformed review console request");
+                            Some(HttpResponse::json(400, &json!({ "error": "bad request" })))
+                        }
+                    }
+                }
                 Ok(None) => None,
                 Err(error) => {
                     warn!(error = ?error, "Rejected malformed review console request");
@@ -175,10 +189,7 @@ impl ReviewServer {
             return HttpResponse::text(400, "bad request");
         };
 
-        if parsed.path.starts_with("/api/")
-            && (!self.authorized(&parsed.headers)
-                || (is_mutation_method(&parsed.method) && self.config.auth_token.is_none()))
-        {
+        if !self.request_is_authorized(&parsed) {
             return HttpResponse::json(401, &json!({ "error": "unauthorized" }));
         }
 
@@ -315,7 +326,7 @@ impl ReviewServer {
                 return HttpResponse::json(400, &json!({ "error": "missing url" }));
             };
             return match self.fetch_live_url(url).await {
-                Ok(html) => HttpResponse::html(200, &html),
+                Ok(html) => HttpResponse::text(200, &html),
                 Err(response) => response,
             };
         }
@@ -368,7 +379,7 @@ impl ReviewServer {
                 return HttpResponse::text(400, "invalid page id");
             };
             return match self.live_review_page(page_id).await {
-                Ok(Some((_page, html))) => HttpResponse::html(200, &html),
+                Ok(Some((_page, html))) => HttpResponse::text(200, &html),
                 Ok(None) => HttpResponse::text(404, "not found"),
                 Err(response) => response,
             };
@@ -521,6 +532,12 @@ impl ReviewServer {
         HttpResponse::json(404, &json!({ "error": "not found" }))
     }
 
+    fn request_is_authorized(&self, request: &ParsedRequest<'_>) -> bool {
+        !request.path.starts_with("/api/")
+            || (self.authorized(&request.headers)
+                && (!is_mutation_method(&request.method) || self.config.auth_token.is_some()))
+    }
+
     fn authorized(&self, headers: &std::collections::HashMap<String, String>) -> bool {
         let Some(expected) = self.config.auth_token.as_deref() else {
             return true;
@@ -666,12 +683,20 @@ where
     .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "response write timed out"))?
 }
 
-async fn read_bounded_request<R>(stream: &mut R) -> std::io::Result<Option<String>>
+struct BoundedRequestHeaders {
+    head: String,
+    buffered_body: Vec<u8>,
+    content_length: usize,
+}
+
+async fn read_bounded_request_headers<R>(
+    stream: &mut R,
+) -> std::io::Result<Option<BoundedRequestHeaders>>
 where
     R: AsyncRead + Unpin,
 {
     let mut request = Vec::with_capacity(1024);
-    let mut read_buffer = [0_u8; 4096];
+    let mut byte = [0_u8; 1];
     let header_end = loop {
         if let Some(end) = request.windows(4).position(|window| window == b"\r\n\r\n") {
             break end + 4;
@@ -682,7 +707,7 @@ where
                 "request headers exceed limit",
             ));
         }
-        let read = tokio::time::timeout(REQUEST_IO_TIMEOUT, stream.read(&mut read_buffer))
+        let read = tokio::time::timeout(REQUEST_IO_TIMEOUT, stream.read(&mut byte))
             .await
             .map_err(|_| {
                 std::io::Error::new(std::io::ErrorKind::TimedOut, "request read timed out")
@@ -697,16 +722,16 @@ where
                 ))
             };
         }
-        request.extend_from_slice(&read_buffer[..read]);
+        request.push(byte[0]);
     };
-    let headers = std::str::from_utf8(&request[..header_end]).map_err(|_| {
+    let head = String::from_utf8(request[..header_end].to_vec()).map_err(|_| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "request headers are not UTF-8",
         )
     })?;
     let mut content_length = None;
-    for line in headers.split("\r\n").skip(1) {
+    for line in head.split("\r\n").skip(1) {
         let Some((name, value)) = line.split_once(':') else {
             continue;
         };
@@ -735,24 +760,58 @@ where
             content_length = Some(length);
         }
     }
-    let total_length = header_end + content_length.unwrap_or(0);
-    while request.len() < total_length {
-        let read = tokio::time::timeout(REQUEST_IO_TIMEOUT, stream.read(&mut read_buffer))
-            .await
-            .map_err(|_| {
-                std::io::Error::new(std::io::ErrorKind::TimedOut, "request read timed out")
-            })??;
+    Ok(Some(BoundedRequestHeaders {
+        head,
+        buffered_body: Vec::new(),
+        content_length: content_length.unwrap_or(0),
+    }))
+}
+
+async fn read_bounded_request_body<R>(
+    stream: &mut R,
+    mut headers: BoundedRequestHeaders,
+) -> std::io::Result<String>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut read_buffer = [0_u8; 4096];
+    while headers.buffered_body.len() < headers.content_length {
+        let remaining = headers.content_length - headers.buffered_body.len();
+        let read_limit = read_buffer.len().min(remaining);
+        let read = tokio::time::timeout(
+            REQUEST_IO_TIMEOUT,
+            stream.read(&mut read_buffer[..read_limit]),
+        )
+        .await
+        .map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "request read timed out")
+        })??;
         if read == 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
                 "incomplete request body",
             ));
         }
-        request.extend_from_slice(&read_buffer[..read]);
+        headers
+            .buffered_body
+            .extend_from_slice(&read_buffer[..read]);
     }
-    String::from_utf8(request[..total_length].to_vec())
-        .map(Some)
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "request is not UTF-8"))
+    headers.buffered_body.truncate(headers.content_length);
+    let body = String::from_utf8(headers.buffered_body).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "request is not UTF-8")
+    })?;
+    Ok(headers.head + &body)
+}
+
+#[cfg(test)]
+async fn read_bounded_request<R>(stream: &mut R) -> std::io::Result<Option<String>>
+where
+    R: AsyncRead + Unpin,
+{
+    let Some(headers) = read_bounded_request_headers(stream).await? else {
+        return Ok(None);
+    };
+    read_bounded_request_body(stream, headers).await.map(Some)
 }
 
 #[derive(Deserialize, Default)]
@@ -895,11 +954,24 @@ fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scraper::scraper_service::service::FetchedHtml;
     use crate::service::crawler_domain_configuration::{
         CrawlerDomainConfiguration, CrawlerDomainRemoval,
     };
 
     struct RejectingDomainAdministration;
+
+    struct StaticHtmlFetcher;
+
+    #[async_trait::async_trait]
+    impl HtmlFetcher for StaticHtmlFetcher {
+        async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
+            Ok(FetchedHtml {
+                html: "<script>alert('remote')</script>".to_string(),
+                final_url: url.clone(),
+            })
+        }
+    }
 
     #[async_trait::async_trait]
     impl CrawlerDomainAdministration for RejectingDomainAdministration {
@@ -1017,6 +1089,72 @@ mod tests {
             request.as_deref(),
             Some("POST /api/health HTTP/1.1\r\nContent-Length: 15\r\n\r\n{\"key\":\"value\"}")
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_authenticate_api_headers_before_waiting_for_declared_body()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let server = review_server_for_test(Some("review-token")).await?;
+        let (mut client, mut stream) = tokio::io::duplex(1024);
+        client
+            .write_all(b"POST /api/health HTTP/1.1\r\nContent-Length: 64\r\n\r\n")
+            .await?;
+
+        let response = tokio::time::timeout(
+            Duration::from_millis(100),
+            server.response_for_request(&mut stream, Duration::from_secs(1)),
+        )
+        .await?
+        .ok_or("unauthorized request returned no response")?;
+
+        assert!(
+            response
+                .to_string()
+                .starts_with("HTTP/1.1 401 Unauthorized")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_header_overshoot() -> Result<(), Box<dyn std::error::Error>> {
+        let prefix = "GET / HTTP/1.1\r\nX-Long: ";
+        let request = format!(
+            "{prefix}{}\r\n\r\n",
+            "a".repeat(MAX_REQUEST_HEADER_BYTES - prefix.len() + 1)
+        );
+
+        let error = read_request_from_socket_chunks(&[request.as_bytes()])
+            .await
+            .expect_err("oversized request headers should be rejected");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "request headers exceed limit");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_serve_raw_live_html_as_plain_text() -> Result<(), Box<dyn std::error::Error>> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
+        let server = ReviewServer::new_with_fetcher(
+            CrawlerReviewRepository::new(pool),
+            Arc::new(RejectingDomainAdministration),
+            ReviewServerConfig {
+                bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                auth_token: None,
+            },
+            Arc::new(StaticHtmlFetcher),
+        );
+
+        let response = server
+            .route("GET /api/live-html?url=https%3A%2F%2Fexample.com HTTP/1.1\r\n\r\n")
+            .await
+            .to_string();
+
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.contains("Content-Type: text/plain; charset=utf-8"));
+        assert!(response.ends_with("<script>alert('remote')</script>"));
         Ok(())
     }
 

@@ -24,8 +24,8 @@ async fn insert_domain(
     domain: &str,
 ) -> CrawlerDomainId {
     sqlx::query_scalar::<_, uuid::Uuid>(
-        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain) \
-         VALUES ($1, $2) RETURNING domain_id",
+        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain, crawl_root_host) \
+         VALUES ($1, $2, $2) RETURNING domain_id",
     )
     .bind(uuid::Uuid::from(listing_source_id))
     .bind(domain)

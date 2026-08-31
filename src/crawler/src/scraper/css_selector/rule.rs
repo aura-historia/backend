@@ -119,7 +119,23 @@ pub enum ExtractionError {
 }
 
 impl ExtractionRule {
-    /// Apply this extraction rule to the given parsed HTML document.
+    pub(crate) fn validate(&self) -> Result<(), ExtractionError> {
+        parse_selector(&self.selector)?;
+        for selector in &self.additional_selectors {
+            parse_selector(selector)?;
+        }
+        if let ExtractionKind::Attribute { name } = &self.extract
+            && name.as_ref().trim().is_empty()
+        {
+            return Err(ExtractionError::MissingAttribute {
+                selector: self.selector.to_string(),
+                attribute: String::new(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Apply this extraction rule to the given parsed HTML document,
     ///
     /// Every configured selector (primary + additional) is evaluated in order.
     /// Results from each selector are aggregated into a single `Vec<String>`.

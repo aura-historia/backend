@@ -18,10 +18,32 @@ pub(super) fn parse_schemas_payload(
     let candidate =
         serde_json::from_value::<ProductSchemaReviewCandidate>(candidate_payload.clone())
             .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
-    if candidate.schemas.is_empty() {
+    if candidate.schemas.is_empty() || candidate.schemas.iter().any(|schema| !valid_schema(schema))
+    {
         return Err(ReviewRepositoryError::InvalidProductSchemaCandidate);
     }
     Ok(candidate.schemas)
+}
+
+fn valid_schema(schema: &ProductCssSelectorSchema) -> bool {
+    let rules = [
+        schema.source_listing_id.as_ref(),
+        Some(&schema.title),
+        schema.description.as_ref(),
+        schema.price.as_ref(),
+        schema.price_estimate_min.as_ref(),
+        schema.price_estimate_max.as_ref(),
+        Some(&schema.state),
+        Some(&schema.images),
+        schema.auction_start.as_ref(),
+        schema.auction_end.as_ref(),
+    ];
+
+    rules
+        .into_iter()
+        .flatten()
+        .chain(schema.raw_attributes.values())
+        .all(|rule| rule.validate().is_ok())
 }
 
 pub(super) fn approval_product_schemas(
@@ -176,6 +198,24 @@ mod tests {
         let parsed = parse_schemas_payload(&payload);
 
         assert!(matches!(parsed, Ok(schemas) if schemas.len() == 1));
+    }
+
+    #[test]
+    fn rejects_invalid_primary_and_additional_css_selectors() {
+        let invalid_primary = serde_json::json!({ "schemas": [schema("[")] });
+        let mut invalid_additional_schema = schema("h1.product");
+        invalid_additional_schema
+            .title
+            .additional_selectors
+            .push(CssSelector::from("["));
+        let invalid_additional = serde_json::json!({ "schemas": [invalid_additional_schema] });
+
+        for payload in [invalid_primary, invalid_additional] {
+            assert!(matches!(
+                parse_schemas_payload(&payload),
+                Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
+            ));
+        }
     }
 
     #[test]

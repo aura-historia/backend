@@ -13,6 +13,7 @@ use crate::spider::utils::url::CrawledUrl;
 
 const SPIDER_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36";
 const SPIDER_ACCEPT_ENCODING: &str = "gzip, br, deflate";
+const MAX_ROOT_REDIRECTS: usize = 5;
 
 fn spider_request_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
@@ -189,6 +190,70 @@ async fn spider_public_http_client(
         .map_err(|error| SpiderDiscoveryError::Discovery(error.to_string()))
 }
 
+fn root_redirect_target(
+    configured_root: &Url,
+    current_root: &Url,
+    location: &str,
+) -> Result<Url, SpiderDiscoveryError> {
+    let redirect_target = current_root.join(location).map_err(|_| {
+        SpiderDiscoveryError::Discovery("crawl-root redirect location is invalid".to_string())
+    })?;
+
+    if !is_same_or_www_host(configured_root, &redirect_target) {
+        return Err(SpiderDiscoveryError::Discovery(
+            "crawl-root redirect target is outside the configured bare/www host".to_string(),
+        ));
+    }
+
+    Ok(redirect_target)
+}
+
+async fn preflight_crawl_root(
+    configured_root: Url,
+    timeout: std::time::Duration,
+) -> Result<Url, SpiderDiscoveryError> {
+    let mut current_root = configured_root.clone();
+
+    for redirect_count in 0..=MAX_ROOT_REDIRECTS {
+        let client = spider_public_http_client(&current_root, timeout).await?;
+        let response = client
+            .get(current_root.clone())
+            .send()
+            .await
+            .map_err(|error| SpiderDiscoveryError::Discovery(error.to_string()))?;
+
+        if !response.status().is_redirection() {
+            return Ok(current_root);
+        }
+
+        if redirect_count == MAX_ROOT_REDIRECTS {
+            return Err(SpiderDiscoveryError::Discovery(
+                "crawl-root redirect limit exceeded".to_string(),
+            ));
+        }
+
+        let location = response
+            .headers()
+            .get("location")
+            .ok_or_else(|| {
+                SpiderDiscoveryError::Discovery(
+                    "crawl-root redirect response has no location".to_string(),
+                )
+            })?
+            .to_str()
+            .map_err(|_| {
+                SpiderDiscoveryError::Discovery(
+                    "crawl-root redirect location is invalid".to_string(),
+                )
+            })?;
+        current_root = root_redirect_target(&configured_root, &current_root, location)?;
+    }
+
+    Err(SpiderDiscoveryError::Discovery(
+        "crawl-root redirect limit exceeded".to_string(),
+    ))
+}
+
 #[async_trait::async_trait]
 impl Spider for SpiderImpl {
     async fn crawl(&self, crawl_root_url: &str) -> Result<SpiderCrawl, SpiderDiscoveryError> {
@@ -196,16 +261,14 @@ impl Spider for SpiderImpl {
         let (status_tx, status_rx) = oneshot::channel();
         let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
 
-        let root_url = Url::parse(crawl_root_url).map_err(|_| {
+        let configured_root = Url::parse(crawl_root_url).map_err(|_| {
             SpiderDiscoveryError::Discovery("configured crawler URL is invalid".to_string())
         })?;
-        let client = spider_public_http_client(
-            &root_url,
-            std::time::Duration::from_secs(self.config.request_timeout_secs),
-        )
-        .await?;
+        let request_timeout = std::time::Duration::from_secs(self.config.request_timeout_secs);
+        let root_url = preflight_crawl_root(configured_root, request_timeout).await?;
+        let client = spider_public_http_client(&root_url, request_timeout).await?;
         let host_whitelist = configured_host_whitelist(&root_url)?;
-        let mut website = Website::new(crawl_root_url);
+        let mut website = Website::new(root_url.as_str());
         website.set_http_client(client);
 
         let blacklist_regex = CrawledUrl::blacklist_patterns();
@@ -250,7 +313,7 @@ impl Spider for SpiderImpl {
         });
 
         let config = self.config.clone();
-        let crawl_root_url = crawl_root_url.to_string();
+        let crawl_root_url = root_url.to_string();
         tokio::spawn(async move {
             let mut bloom = Bloom::new_for_fp_rate(config.bloom_capacity, config.bloom_fp_rate)
                 .expect("bloom filter init failed");
@@ -459,6 +522,51 @@ mod tests {
         assert!(!whitelist.is_match("https://internal.example.com/product/1"));
         assert!(!whitelist.is_match("https://example.com.evil.test/product/1"));
         assert!(!whitelist.is_match("http://127.0.0.1/product/1"));
+    }
+
+    #[test]
+    fn should_build_exact_www_host_graph_after_www_root_preflight() {
+        let pattern =
+            configured_host_whitelist(&Url::parse("https://www.example.com/").unwrap()).unwrap();
+        let whitelist = regex::Regex::new(&pattern).unwrap();
+
+        assert!(whitelist.is_match("https://www.example.com/product/1"));
+        assert!(!whitelist.is_match("https://example.com/product/1"));
+    }
+
+    #[test]
+    fn should_resolve_relative_root_redirect_on_configured_host() {
+        let configured = Url::parse("https://www.example.com/catalog").unwrap();
+        let target = root_redirect_target(&configured, &configured, "/").unwrap();
+
+        assert_eq!(target.as_str(), "https://www.example.com/");
+    }
+
+    #[test]
+    fn should_allow_root_redirect_from_bare_host_to_www_host() {
+        let configured = Url::parse("https://example.com/catalog").unwrap();
+        let target =
+            root_redirect_target(&configured, &configured, "https://www.example.com/").unwrap();
+
+        assert_eq!(target.as_str(), "https://www.example.com/");
+    }
+
+    #[test]
+    fn should_reject_root_redirect_to_unrelated_host() {
+        let configured = Url::parse("https://example.com/catalog").unwrap();
+        let error =
+            root_redirect_target(&configured, &configured, "https://other.example/").unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("outside the configured bare/www host")
+        );
+    }
+
+    #[test]
+    fn should_bound_root_redirects() {
+        assert_eq!(MAX_ROOT_REDIRECTS, 5);
     }
 
     #[test]

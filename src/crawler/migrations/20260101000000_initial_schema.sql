@@ -141,22 +141,21 @@ CREATE TABLE IF NOT EXISTS listing_source_domains (
     domain_id   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     listing_source_id     UUID        NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
     listing_source_domain TEXT        NOT NULL,
+    crawl_root_host       TEXT        NOT NULL,
     url_pattern TEXT,
     last_crawled TIMESTAMPTZ,
     crawl_failure_count INT NOT NULL DEFAULT 0,
     last_crawl_error_kind TEXT,
     next_crawl_at TIMESTAMPTZ,
     UNIQUE (listing_source_domain),
+    CHECK (listing_source_domain = lower(listing_source_domain)),
+    CHECK (listing_source_domain = rtrim(listing_source_domain, '.')),
+    CHECK (listing_source_domain !~ '^www[.]'),
     UNIQUE (listing_source_id, domain_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_listing_source_domains_listing_source_id ON listing_source_domains (listing_source_id);
 
--- Crawler ownership treats bare and one leading www hostname as one identity.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_listing_source_domains_canonical_domain
-    ON listing_source_domains (
-        lower(regexp_replace(rtrim(listing_source_domain, '.'), '^www\\.', ''))
-    );
 
 CREATE TABLE IF NOT EXISTS listing_source_urls (
     listing_source_id           UUID        NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,

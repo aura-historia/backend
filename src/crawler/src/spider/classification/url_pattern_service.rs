@@ -230,10 +230,18 @@ impl UrlPatternService for UrlPatternServiceImpl {
             });
         }
 
-        if let Some(ref p) = pattern {
-            self.save_pattern_for_domain(listing_source_id, domain_id, p)
-                .await?;
-            debug!(crawl_root_url, domain_id = %domain_id, "Persisted product URL pattern");
+        match pattern.as_ref() {
+            Some(pattern) => {
+                self.save_pattern_for_domain(listing_source_id, domain_id, pattern)
+                    .await?;
+                debug!(crawl_root_url, domain_id = %domain_id, "Persisted product URL pattern");
+            }
+            None => {
+                self.repository
+                    .save_no_pattern(listing_source_id, domain_id)
+                    .await?;
+                debug!(crawl_root_url, domain_id = %domain_id, "Persisted no product URL pattern");
+            }
         }
 
         Ok(pattern)

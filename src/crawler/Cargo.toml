@@ -13,6 +13,7 @@ listing-source-postgres = { workspace = true }
 listing-source-service = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
+public-network-policy = { workspace = true }
 
 platform-postgres = { workspace = true }
 product-listing-core = { workspace = true }

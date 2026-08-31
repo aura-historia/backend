@@ -9,11 +9,13 @@ use crate::scraper::css_selector::product_schema_repository::{
 };
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::spider::utils::url::CrawledUrl;
+use dashmap::DashMap;
 use listing_source_core::ListingSourceId;
 use regex::Regex;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
+use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::info;
 use url::Url;
@@ -51,6 +53,13 @@ pub enum ReviewRepositoryError {
 #[derive(Clone)]
 pub struct CrawlerReviewRepository {
     pool: PgPool,
+    schema_matrix_candidates: Arc<DashMap<uuid::Uuid, SchemaMatrixCandidate>>,
+}
+
+#[derive(Clone)]
+struct SchemaMatrixCandidate {
+    version: i64,
+    hash: String,
 }
 
 pub struct SchemaReviewWithStatusInput<'a> {
@@ -65,7 +74,10 @@ pub struct SchemaReviewWithStatusInput<'a> {
 
 impl CrawlerReviewRepository {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            schema_matrix_candidates: Arc::new(DashMap::new()),
+        }
     }
 
     pub async fn has_pending_review(
@@ -826,8 +838,25 @@ impl CrawlerReviewRepository {
         review_id: uuid::Uuid,
         pages: Vec<(CrawlerReviewPage, String)>,
     ) -> Result<SchemaMatrix, ReviewRepositoryError> {
-        let detail = self.get_review(review_id).await?;
-        let schemas = parse_schemas_payload(&detail.review.candidate_payload)?;
+        let review = sqlx::query(
+            "SELECT candidate_payload, candidate_version,
+                    encode(digest(candidate_payload::text, 'sha256'), 'hex') AS candidate_hash
+             FROM crawler_reviews
+             WHERE review_id = $1",
+        )
+        .bind(review_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+        let candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
+        let schemas = parse_schemas_payload(&candidate_payload)?;
+        self.schema_matrix_candidates.insert(
+            review_id,
+            SchemaMatrixCandidate {
+                version: review.try_get("candidate_version")?,
+                hash: review.try_get("candidate_hash")?,
+            },
+        );
 
         Ok(evaluate_schema_matrix_for_live_review_pages(
             review_id, &schemas, &pages,
@@ -839,15 +868,40 @@ impl CrawlerReviewRepository {
         review_id: uuid::Uuid,
         validation_summary: serde_json::Value,
     ) -> Result<(), ReviewRepositoryError> {
-        sqlx::query(
-            "UPDATE crawler_reviews
-             SET validation_summary = $2, updated = NOW()
-             WHERE review_id = $1",
-        )
-        .bind(review_id)
-        .bind(validation_summary)
-        .execute(&self.pool)
-        .await?;
+        let candidate = self
+            .schema_matrix_candidates
+            .remove(&review_id)
+            .map(|(_, candidate)| candidate);
+        let has_candidate = candidate.is_some();
+        let result = if let Some(candidate) = candidate {
+            sqlx::query(
+                "UPDATE crawler_reviews
+                 SET validation_summary = $2, updated = NOW()
+                 WHERE review_id = $1
+                   AND candidate_version = $3
+                   AND encode(digest(candidate_payload::text, 'sha256'), 'hex') = $4",
+            )
+            .bind(review_id)
+            .bind(validation_summary)
+            .bind(candidate.version)
+            .bind(candidate.hash)
+            .execute(&self.pool)
+            .await?
+        } else {
+            sqlx::query(
+                "UPDATE crawler_reviews
+                 SET validation_summary = $2, updated = NOW()
+                 WHERE review_id = $1",
+            )
+            .bind(review_id)
+            .bind(validation_summary)
+            .execute(&self.pool)
+            .await?
+        };
+
+        if result.rows_affected() == 0 && !has_candidate {
+            return Err(ReviewRepositoryError::NotFound(review_id));
+        }
         Ok(())
     }
 
