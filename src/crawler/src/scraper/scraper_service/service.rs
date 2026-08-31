@@ -30,8 +30,10 @@ pub const DEFAULT_SCHEMA_SEED_PAGES: usize = 4;
 pub const DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE: i64 = 20;
 
 const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
-const HTML_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
-const HTML_TOTAL_TIMEOUT: Duration = Duration::from_secs(20);
+/// Maximum time for one fetch attempt, including redirects and body read.
+const HTML_FETCH_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
+/// Maximum time for one complete fetch, including retry backoff and all attempts.
+const HTML_FETCH_TOTAL_TIMEOUT: Duration = Duration::from_secs(20);
 const HTML_MAX_REDIRECTS: usize = 5;
 const HTML_MAX_BYTES: usize = 2 * 1024 * 1024;
 
@@ -87,6 +89,8 @@ impl FetchError {
 pub struct ReqwestHtmlFetcher {
     default_headers: reqwest::header::HeaderMap,
     retry_policy: RetryPolicy,
+    attempt_timeout: Duration,
+    total_timeout: Duration,
     auto_throttle: Arc<ScraperAutoThrottle>,
     #[cfg(test)]
     allow_private_targets_for_test: bool,
@@ -151,6 +155,8 @@ impl ReqwestHtmlFetcher {
         Self {
             default_headers,
             retry_policy,
+            attempt_timeout: HTML_FETCH_ATTEMPT_TIMEOUT,
+            total_timeout: HTML_FETCH_TOTAL_TIMEOUT,
             auto_throttle: Arc::new(ScraperAutoThrottle::new(auto_throttle_config)),
             #[cfg(test)]
             allow_private_targets_for_test: false,
@@ -228,14 +234,14 @@ impl ReqwestHtmlFetcher {
         if self.allow_private_targets_for_test {
             return reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
-                .timeout(HTML_REQUEST_TIMEOUT)
-                .connect_timeout(HTML_REQUEST_TIMEOUT)
+                .timeout(self.attempt_timeout)
+                .connect_timeout(self.attempt_timeout)
                 .no_proxy()
                 .http1_only()
                 .build()
                 .map_err(reqwest_fetch_error);
         }
-        public_http_client(url, HTML_REQUEST_TIMEOUT, true)
+        public_http_client(url, self.attempt_timeout, true)
             .await
             .map_err(public_target_fetch_error)
     }
@@ -245,8 +251,25 @@ impl ReqwestHtmlFetcher {
         retry_policy: RetryPolicy,
         auto_throttle_config: ScraperAutoThrottleConfig,
     ) -> Self {
+        Self::for_local_http_test_with_timeouts(
+            retry_policy,
+            auto_throttle_config,
+            HTML_FETCH_ATTEMPT_TIMEOUT,
+            HTML_FETCH_TOTAL_TIMEOUT,
+        )
+    }
+
+    #[cfg(test)]
+    fn for_local_http_test_with_timeouts(
+        retry_policy: RetryPolicy,
+        auto_throttle_config: ScraperAutoThrottleConfig,
+        attempt_timeout: Duration,
+        total_timeout: Duration,
+    ) -> Self {
         let mut fetcher =
             Self::with_retry_policy_and_auto_throttle_config(retry_policy, auto_throttle_config);
+        fetcher.attempt_timeout = attempt_timeout;
+        fetcher.total_timeout = total_timeout;
         fetcher.allow_private_targets_for_test = true;
         fetcher
     }
@@ -315,32 +338,52 @@ async fn read_bounded_html(mut response: reqwest::Response) -> Result<String, Fe
 #[async_trait::async_trait]
 impl HtmlFetcher for ReqwestHtmlFetcher {
     async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
-        for attempt in 1..=self.retry_policy.max_attempts {
-            match tokio::time::timeout(HTML_TOTAL_TIMEOUT, self.fetch_once(url)).await {
-                Err(_) => {
-                    return Err(FetchError::Network {
-                        kind: NetworkErrorKind::Timeout,
-                        details: "HTML fetch exceeded total timeout".to_string(),
-                    });
-                }
-                Ok(Ok(html)) => return Ok(html),
-                Ok(Err(attempt_error)) => {
-                    let action = action_for(attempt_error.error.kind());
-                    if action != NetworkAction::Retry || attempt >= self.retry_policy.max_attempts {
-                        return Err(attempt_error.error);
+        let fetch_with_retries = async {
+            for attempt in 1..=self.retry_policy.max_attempts {
+                match tokio::time::timeout(self.attempt_timeout, self.fetch_once(url)).await {
+                    Err(_) => {
+                        let error = FetchError::Network {
+                            kind: NetworkErrorKind::Timeout,
+                            details: "HTML fetch attempt exceeded timeout".to_string(),
+                        };
+                        if attempt >= self.retry_policy.max_attempts {
+                            return Err(error);
+                        }
+                        let backoff = inline_retry_backoff_for(self.retry_policy, attempt);
+                        if !backoff.is_zero() {
+                            sleep(backoff).await;
+                        }
                     }
-                    let backoff = inline_retry_backoff_for(self.retry_policy, attempt);
-                    if !backoff.is_zero() {
-                        sleep(backoff).await;
+                    Ok(Ok(html)) => return Ok(html),
+                    Ok(Err(attempt_error)) => {
+                        let action = action_for(attempt_error.error.kind());
+                        if action != NetworkAction::Retry
+                            || attempt >= self.retry_policy.max_attempts
+                        {
+                            return Err(attempt_error.error);
+                        }
+                        let backoff = inline_retry_backoff_for(self.retry_policy, attempt);
+                        if !backoff.is_zero() {
+                            sleep(backoff).await;
+                        }
                     }
                 }
             }
-        }
 
-        Err(FetchError::Network {
-            kind: NetworkErrorKind::Unknown,
-            details: "retry loop terminated unexpectedly".to_string(),
-        })
+            Err(FetchError::Network {
+                kind: NetworkErrorKind::Unknown,
+                details: "retry loop terminated unexpectedly".to_string(),
+            })
+        };
+
+        tokio::time::timeout(self.total_timeout, fetch_with_retries)
+            .await
+            .unwrap_or_else(|_| {
+                Err(FetchError::Network {
+                    kind: NetworkErrorKind::Timeout,
+                    details: "HTML fetch exceeded total timeout".to_string(),
+                })
+            })
     }
 }
 
@@ -518,6 +561,23 @@ mod tests {
         Url::parse(&format!("http://{addr}/product")).unwrap()
     }
 
+    async fn spawn_delayed_http_response(response: &'static str, delay: Duration) -> Url {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let mut buffer = [0_u8; 1024];
+            let _ = socket.read(&mut buffer).await;
+            tokio::time::sleep(delay).await;
+            let _ = socket.write_all(response.as_bytes()).await;
+        });
+
+        Url::parse(&format!("http://{addr}/product")).unwrap()
+    }
+
     fn zero_delay_retry_policy(max_attempts: u32) -> RetryPolicy {
         RetryPolicy {
             max_attempts,
@@ -608,6 +668,63 @@ mod tests {
 
         assert_eq!(fetched.html, "<html>ok</html>");
         assert_eq!(fetched.final_url, url);
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_reports_attempt_timeout_before_total_timeout() {
+        let url = spawn_delayed_http_response(
+            "HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>",
+            Duration::from_millis(100),
+        )
+        .await;
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
+            zero_delay_retry_policy(1),
+            throttle_config(Duration::ZERO),
+            Duration::from_millis(20),
+            Duration::from_millis(200),
+        );
+
+        let started = Instant::now();
+        let error = fetcher.fetch(&url).await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            crate::scraper::scraper_service::FetchError::Network {
+                kind: crate::network::policy::NetworkErrorKind::Timeout,
+                ..
+            }
+        ));
+        assert!(started.elapsed() < Duration::from_millis(100));
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_stops_retries_when_total_timeout_expires() {
+        let url = spawn_http_sequence(vec![
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        ])
+        .await;
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
+            RetryPolicy {
+                max_attempts: 3,
+                base_delay: Duration::from_millis(40),
+                max_delay: Duration::from_millis(40),
+            },
+            throttle_config(Duration::ZERO),
+            Duration::from_millis(100),
+            Duration::from_millis(50),
+        );
+
+        let error = fetcher.fetch(&url).await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            crate::scraper::scraper_service::FetchError::Network {
+                kind: crate::network::policy::NetworkErrorKind::Timeout,
+                details,
+            } if details == "HTML fetch exceeded total timeout"
+        ));
     }
 
     #[tokio::test]

@@ -17,8 +17,9 @@ use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 use url::Url;
 
@@ -59,9 +60,12 @@ impl ReviewServerConfig {
     }
 }
 
+const MAX_CONCURRENT_CONNECTIONS: usize = 32;
 const MAX_REQUEST_HEADER_BYTES: usize = 16 * 1024;
 const MAX_REQUEST_BODY_BYTES: usize = 64 * 1024;
 const REQUEST_IO_TIMEOUT: Duration = Duration::from_secs(10);
+const REQUEST_DEADLINE: Duration = Duration::from_secs(30);
+const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
 pub struct ReviewServer {
@@ -106,10 +110,17 @@ impl ReviewServer {
             "Crawler review console listening"
         );
 
+        let connection_limiter = connection_limiter();
         loop {
+            let permit = connection_limiter
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(std::io::Error::other)?;
             let (stream, peer) = listener.accept().await?;
             let server = self.clone();
             tokio::spawn(async move {
+                let _permit = permit;
                 if let Err(err) = server.handle_connection(stream).await {
                     warn!(peer = %peer, error = ?err, "Review console request failed");
                 }
@@ -118,17 +129,45 @@ impl ReviewServer {
     }
 
     async fn handle_connection(&self, mut stream: TcpStream) -> std::io::Result<()> {
-        let response = match read_bounded_request(&mut stream).await {
-            Ok(Some(request)) => self.route(&request).await,
-            Ok(None) => return Ok(()),
-            Err(error) => {
-                warn!(error = ?error, "Rejected malformed review console request");
-                HttpResponse::json(400, &json!({ "error": "bad request" }))
+        let Some(response) = self
+            .response_for_request(&mut stream, REQUEST_DEADLINE)
+            .await
+        else {
+            return Ok(());
+        };
+        let response = response.to_string();
+        write_response(&mut stream, response.as_bytes(), RESPONSE_WRITE_DEADLINE).await
+    }
+
+    async fn response_for_request<R>(
+        &self,
+        stream: &mut R,
+        deadline: Duration,
+    ) -> Option<HttpResponse>
+    where
+        R: AsyncRead + Unpin,
+    {
+        match tokio::time::timeout(deadline, async {
+            match read_bounded_request(stream).await {
+                Ok(Some(request)) => Some(self.route(&request).await),
+                Ok(None) => None,
+                Err(error) => {
+                    warn!(error = ?error, "Rejected malformed review console request");
+                    Some(HttpResponse::json(400, &json!({ "error": "bad request" })))
+                }
+            }
+        })
+        .await
+        {
+            Ok(response) => response,
+            Err(_) => {
+                warn!("Review console request deadline exceeded");
+                Some(HttpResponse::json(
+                    400,
+                    &json!({ "error": "request timed out" }),
+                ))
             }
         }
-        .to_string();
-        stream.write_all(response.as_bytes()).await?;
-        stream.shutdown().await
     }
 
     async fn route(&self, request: &str) -> HttpResponse {
@@ -352,7 +391,12 @@ impl ReviewServer {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/approve") else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            let payload = parse_action_payload(request.body);
+            let payload = match parse_action_payload(request.body) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
+                }
+            };
             return match self
                 .repository
                 .approve_review(review_id, payload.notes.as_deref())
@@ -370,7 +414,12 @@ impl ReviewServer {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/reject") else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            let payload = parse_action_payload(request.body);
+            let payload = match parse_action_payload(request.body) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
+                }
+            };
             return match self
                 .repository
                 .reject_review(review_id, payload.notes.as_deref(), false)
@@ -388,7 +437,12 @@ impl ReviewServer {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/needs-repair") else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            let payload = parse_action_payload(request.body);
+            let payload = match parse_action_payload(request.body) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
+                }
+            };
             return match self
                 .repository
                 .reject_review(review_id, payload.notes.as_deref(), true)
@@ -455,6 +509,7 @@ impl ReviewServer {
                 Err(err @ ReviewRepositoryError::InvalidSchemaField(_))
                 | Err(err @ ReviewRepositoryError::RequiredSchemaField(_))
                 | Err(err @ ReviewRepositoryError::InvalidUrlPatternCandidate)
+                | Err(err @ ReviewRepositoryError::InvalidProductSchemaCandidate)
                 | Err(err @ ReviewRepositoryError::UnsupportedArtifact(_, _))
                 | Err(err @ ReviewRepositoryError::NotPending(_)) => {
                     HttpResponse::json(400, &json!({ "error": err.to_string() }))
@@ -591,7 +646,30 @@ impl ReviewServer {
     }
 }
 
-async fn read_bounded_request(stream: &mut TcpStream) -> std::io::Result<Option<String>> {
+fn connection_limiter() -> Arc<Semaphore> {
+    Arc::new(Semaphore::new(MAX_CONCURRENT_CONNECTIONS))
+}
+
+async fn write_response<W>(
+    writer: &mut W,
+    response: &[u8],
+    deadline: Duration,
+) -> std::io::Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
+    tokio::time::timeout(deadline, async {
+        writer.write_all(response).await?;
+        writer.shutdown().await
+    })
+    .await
+    .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "response write timed out"))?
+}
+
+async fn read_bounded_request<R>(stream: &mut R) -> std::io::Result<Option<String>>
+where
+    R: AsyncRead + Unpin,
+{
     let mut request = Vec::with_capacity(1024);
     let mut read_buffer = [0_u8; 4096];
     let header_end = loop {
@@ -694,8 +772,11 @@ struct DomainPayload {
     domain: String,
 }
 
-fn parse_action_payload(body: &str) -> ActionPayload {
-    serde_json::from_str(body).unwrap_or_default()
+fn parse_action_payload(body: &str) -> Result<ActionPayload, serde_json::Error> {
+    if body.trim().is_empty() {
+        return Ok(ActionPayload::default());
+    }
+    serde_json::from_str(body)
 }
 
 fn with_cached_schema_matrix(
@@ -875,6 +956,52 @@ mod tests {
                 auth_token: auth_token.map(str::to_owned),
             },
         ))
+    }
+
+    #[tokio::test]
+    async fn should_limit_review_connections() -> Result<(), Box<dyn std::error::Error>> {
+        let limiter = connection_limiter();
+        let mut permits = Vec::with_capacity(MAX_CONCURRENT_CONNECTIONS);
+        for _ in 0..MAX_CONCURRENT_CONNECTIONS {
+            permits.push(limiter.clone().acquire_owned().await?);
+        }
+
+        assert!(limiter.clone().try_acquire_owned().is_err());
+        drop(permits);
+        assert!(limiter.clone().try_acquire_owned().is_ok());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_apply_total_request_deadline() -> Result<(), Box<dyn std::error::Error>> {
+        let server = review_server_for_test(None).await?;
+        let (_client, mut stream) = tokio::io::duplex(1024);
+
+        let response = server
+            .response_for_request(&mut stream, Duration::from_millis(10))
+            .await;
+
+        let response = match response {
+            Some(response) => response,
+            None => return Err("request deadline returned no response".into()),
+        };
+        assert!(response.to_string().starts_with("HTTP/1.1 400 Bad Request"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_apply_response_write_deadline() -> Result<(), Box<dyn std::error::Error>> {
+        let (mut writer, _reader) = tokio::io::duplex(1);
+
+        let error = match write_response(&mut writer, b"response", Duration::from_millis(10)).await
+        {
+            Ok(()) => return Err("response write should time out".into()),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert_eq!(error.to_string(), "response write timed out");
+        Ok(())
     }
 
     #[tokio::test]

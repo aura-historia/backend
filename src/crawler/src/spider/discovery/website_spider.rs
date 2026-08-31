@@ -116,6 +116,10 @@ pub struct CrawlerConfig {
     pub bloom_capacity: usize,
     pub bloom_fp_rate: f64,
     pub channel_size: usize,
+    /// Maximum pages accepted in one crawl, including the root page.
+    pub max_pages_per_crawl: u32,
+    /// Whole-crawl wall-clock budget; request timeout remains per request.
+    pub max_crawl_duration: std::time::Duration,
 }
 
 impl Default for CrawlerConfig {
@@ -127,6 +131,8 @@ impl Default for CrawlerConfig {
             bloom_capacity: 100_000,
             bloom_fp_rate: 0.001,
             channel_size: 1000,
+            max_pages_per_crawl: 10_000,
+            max_crawl_duration: std::time::Duration::from_secs(10 * 60),
         }
     }
 }
@@ -224,6 +230,8 @@ impl Spider for SpiderImpl {
             .with_request_timeout(Some(std::time::Duration::from_secs(
                 self.config.request_timeout_secs,
             )))
+            .with_crawl_timeout(Some(self.config.max_crawl_duration))
+            .with_limit(self.config.max_pages_per_crawl)
             .with_delay(
                 std::time::Duration::from_millis(self.config.delay_millis).as_millis() as u64,
             )
@@ -458,6 +466,11 @@ mod tests {
         let config = CrawlerConfig::default();
 
         assert_eq!(config.concurrency_limit, 8);
+        assert_eq!(config.max_pages_per_crawl, 10_000);
+        assert_eq!(
+            config.max_crawl_duration,
+            std::time::Duration::from_secs(10 * 60)
+        );
     }
 
     fn page_diagnostics(url: &str, status_code: u16) -> CrawlDiagnostics {

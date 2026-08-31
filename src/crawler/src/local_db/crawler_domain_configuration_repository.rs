@@ -1,4 +1,5 @@
 use crate::CrawlerDomainId;
+use crate::network::policy::canonical_crawler_domain;
 use crate::service::crawler_domain_configuration::{
     CrawlerDomainConfiguration, CrawlerDomainConfigurationError,
     CrawlerDomainConfigurationRepository, CrawlerDomainRemoval,
@@ -70,11 +71,12 @@ impl CrawlerDomainConfigurationRepository for CrawlerDomainConfigurationReposito
         listing_source_id: ListingSourceId,
         domain: Domain,
     ) -> Result<CrawlerDomainConfiguration, CrawlerDomainConfigurationError> {
-        let domain = Domain::try_from(domain.as_str().trim_end_matches('.')).map_err(|source| {
-            CrawlerDomainConfigurationError::Database {
-                source: box_error(source),
-            }
-        })?;
+        let domain =
+            Domain::try_from(canonical_crawler_domain(domain.as_str())).map_err(|source| {
+                CrawlerDomainConfigurationError::Database {
+                    source: box_error(source),
+                }
+            })?;
         if domain.as_str().parse::<IpAddr>().is_ok() {
             return Err(CrawlerDomainConfigurationError::UnsafeDomain { domain });
         }
@@ -108,7 +110,8 @@ impl CrawlerDomainConfigurationRepository for CrawlerDomainConfigurationReposito
 
         let existing_owner = sqlx::query_scalar::<_, uuid::Uuid>(
             "SELECT listing_source_id FROM listing_source_domains \
-             WHERE listing_source_domain = $1 FOR UPDATE",
+             WHERE lower(regexp_replace(rtrim(listing_source_domain, '.'), '^www\\.', '')) = $1 \
+             FOR UPDATE",
         )
         .bind(domain.as_str())
         .fetch_optional(&mut *transaction)
@@ -118,7 +121,7 @@ impl CrawlerDomainConfigurationRepository for CrawlerDomainConfigurationReposito
             Some(owner) if owner == listing_source_id_uuid => (
                 sqlx::query_scalar::<_, uuid::Uuid>(
                     "SELECT domain_id FROM listing_source_domains \
-                     WHERE listing_source_domain = $1",
+                     WHERE lower(regexp_replace(rtrim(listing_source_domain, '.'), '^www\\.', '')) = $1",
                 )
                 .bind(domain.as_str())
                 .fetch_one(&mut *transaction)

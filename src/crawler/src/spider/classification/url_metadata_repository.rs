@@ -1,5 +1,7 @@
 use crate::CrawlerDomainId;
-use crate::network::policy::url_matches_configured_domain;
+use crate::network::policy::{
+    PublicTargetError, url_matches_configured_domain, validate_public_http_url,
+};
 use crate::spider::classification::url_metadata::{UrlClass, UrlPresence};
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;
@@ -53,6 +55,11 @@ pub enum UrlMetadataRepositoryError {
     DomainNotOwnedByListingSource {
         listing_source_id: ListingSourceId,
         domain_id: CrawlerDomainId,
+    },
+    #[error("URL is not a supported crawler HTTP URL")]
+    InvalidCrawlerUrl {
+        url: url::Url,
+        reason: PublicTargetError,
     },
     #[error("URL host does not match the configured crawler domain")]
     UrlHostDoesNotMatchDomain { url: url::Url, domain: String },
@@ -188,6 +195,20 @@ impl UrlMetadataRepositoryImpl {
     }
 
     fn verify_url_hosts(urls: &[url::Url], domain: &str) -> Result<(), UrlMetadataRepositoryError> {
+        for url in urls {
+            if url.fragment().is_some() {
+                return Err(UrlMetadataRepositoryError::InvalidCrawlerUrl {
+                    url: url.clone(),
+                    reason: PublicTargetError::InvalidUrl,
+                });
+            }
+            if let Err(reason) = validate_public_http_url(url) {
+                return Err(UrlMetadataRepositoryError::InvalidCrawlerUrl {
+                    url: url.clone(),
+                    reason,
+                });
+            }
+        }
         urls.iter()
             .find(|url| !url_matches_configured_domain(url, domain))
             .map_or(Ok(()), |url| {

@@ -20,7 +20,9 @@ use url::Url;
 
 mod schema_payload;
 
-use schema_payload::{approval_product_schemas, parse_schemas_payload, update_schema_rule};
+use schema_payload::{
+    approval_product_schemas, parse_schemas_payload, update_schema_field_payload,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReviewRepositoryError {
@@ -42,6 +44,8 @@ pub enum ReviewRepositoryError {
     RequiredSchemaField(String),
     #[error("invalid URL-pattern review candidate")]
     InvalidUrlPatternCandidate,
+    #[error("invalid ProductSchema review candidate")]
+    InvalidProductSchemaCandidate,
 }
 
 #[derive(Clone)]
@@ -511,6 +515,9 @@ impl CrawlerReviewRepository {
                     .validated_pattern()
                     .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
             }
+            if artifact_type == ARTIFACT_PRODUCT_SCHEMA {
+                parse_schemas_payload(&candidate_payload)?;
+            }
             sqlx::query(
                 "UPDATE crawler_reviews SET candidate_payload = $2, updated = NOW() \
                  WHERE review_id = $1",
@@ -558,30 +565,110 @@ impl CrawlerReviewRepository {
         field: &str,
         rule: Option<ExtractionRule>,
     ) -> Result<(), ReviewRepositoryError> {
-        let detail = self.get_review(review_id).await?;
-        if detail.review.artifact_type != ARTIFACT_PRODUCT_SCHEMA {
+        let mut transaction = self.pool.begin().await?;
+        let review = sqlx::query(
+            "SELECT listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary \
+             FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
+        )
+        .bind(review_id)
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+        let listing_source_id =
+            ListingSourceId::from(review.try_get::<uuid::Uuid, _>("listing_source_id")?);
+        let artifact_type: String = review.try_get("artifact_type")?;
+        let status: String = review.try_get("status")?;
+        let reason: String = review.try_get("reason")?;
+        let candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
+        let validation_summary: serde_json::Value = review.try_get("validation_summary")?;
+
+        if artifact_type != ARTIFACT_PRODUCT_SCHEMA {
             return Err(ReviewRepositoryError::UnsupportedArtifact(
                 review_id,
-                detail.review.artifact_type,
+                artifact_type,
             ));
         }
-        if !matches!(
-            detail.review.status.as_str(),
-            STATUS_PENDING_REVIEW | STATUS_APPROVED
-        ) {
+        if !matches!(status.as_str(), STATUS_PENDING_REVIEW | STATUS_APPROVED) {
             return Err(ReviewRepositoryError::NotPending(review_id));
         }
 
-        let mut schemas = parse_schemas_payload(&detail.review.candidate_payload)?;
-        let Some(schema) = schemas.get_mut(schema_index) else {
-            return Err(ReviewRepositoryError::InvalidSchemaField(format!(
-                "schema index {schema_index}"
-            )));
+        let candidate_payload = if status == STATUS_PENDING_REVIEW
+            && matches!(
+                reason.as_str(),
+                "append_schema_generation" | "normalization_schema_repair"
+            ) {
+            let reviewed_schemas = parse_schemas_payload(&candidate_payload)?;
+            if reviewed_schemas.len() == 1 {
+                let existing_payload = sqlx::query_scalar::<_, serde_json::Value>(
+                    "SELECT product_schema FROM listing_source_product_schemas \
+                     WHERE listing_source_id = $1 FOR UPDATE",
+                )
+                .bind(uuid::Uuid::from(listing_source_id))
+                .fetch_optional(&mut *transaction)
+                .await?;
+                let existing = existing_payload
+                    .map(|payload| {
+                        parse_product_schema_payload(payload).map(|product_schemas| {
+                            ListingSourceProductSchema {
+                                listing_source_id,
+                                product_schemas,
+                                created: OffsetDateTime::UNIX_EPOCH,
+                                updated: OffsetDateTime::UNIX_EPOCH,
+                            }
+                        })
+                    })
+                    .transpose()?;
+                json!({
+                    "schemas": approval_product_schemas(
+                        &reason,
+                        existing.as_ref(),
+                        reviewed_schemas,
+                    )?
+                })
+            } else {
+                candidate_payload
+            }
+        } else {
+            candidate_payload
         };
+        let schemas = update_schema_field_payload(&candidate_payload, schema_index, field, rule)?;
+        let candidate_payload = json!({ "schemas": schemas });
 
-        update_schema_rule(schema, field, rule)?;
-        self.update_candidate_payload(review_id, json!({ "schemas": schemas }))
-            .await
+        if status == STATUS_APPROVED {
+            persist_product_schemas(&mut transaction, &listing_source_id, &schemas).await?;
+            let validation_summary = append_manual_schema_edit(validation_summary, schemas.len());
+            sqlx::query(
+                "UPDATE crawler_reviews \
+                 SET candidate_payload = $2, validation_summary = $3, updated = NOW() \
+                 WHERE review_id = $1",
+            )
+            .bind(review_id)
+            .bind(candidate_payload)
+            .bind(validation_summary)
+            .execute(&mut *transaction)
+            .await?;
+        } else {
+            sqlx::query(
+                "UPDATE crawler_reviews SET candidate_payload = $2, updated = NOW() \
+                 WHERE review_id = $1",
+            )
+            .bind(review_id)
+            .bind(candidate_payload)
+            .execute(&mut *transaction)
+            .await?;
+        }
+
+        transaction.commit().await?;
+
+        if status == STATUS_APPROVED {
+            info!(
+                review_id = %review_id,
+                listing_source_id = %listing_source_id,
+                schema_count = schemas.len(),
+                "Approved product schema edited from review console"
+            );
+        }
+        Ok(())
     }
 
     pub async fn approve_review(

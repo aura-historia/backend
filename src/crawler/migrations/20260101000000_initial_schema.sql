@@ -152,6 +152,12 @@ CREATE TABLE IF NOT EXISTS listing_source_domains (
 
 CREATE INDEX IF NOT EXISTS idx_listing_source_domains_listing_source_id ON listing_source_domains (listing_source_id);
 
+-- Crawler ownership treats bare and one leading www hostname as one identity.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_listing_source_domains_canonical_domain
+    ON listing_source_domains (
+        lower(regexp_replace(rtrim(listing_source_domain, '.'), '^www\\.', ''))
+    );
+
 CREATE TABLE IF NOT EXISTS listing_source_urls (
     listing_source_id           UUID        NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
     domain_id         UUID        NOT NULL,

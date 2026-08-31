@@ -1,4 +1,7 @@
-use crate::network::policy::{classify_reqwest_error, public_http_client, redirect_target};
+use crate::network::policy::{
+    PublicTargetError, classify_reqwest_error, public_http_client, redirect_target,
+    resolve_public_http_target,
+};
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use crate::scraper::normalization::error::NormalizationError;
 use regex::regex;
@@ -45,6 +48,12 @@ impl Default for ReqwestImageValidator {
 #[async_trait::async_trait]
 impl ImageValidator for ReqwestImageValidator {
     async fn validate(&self, url: &Url) -> ImageValidation {
+        // Quality may be cached, but target safety is checked for every acceptance.
+        // DNS answers can change after a prior successful image probe.
+        if let Err(error) = resolve_public_http_target(url, IMAGE_PROBE_TIMEOUT).await {
+            return image_validation_for_target_error(error);
+        }
+
         let key = url.as_str().to_owned();
         if let Some(cached) = self.cache.lock().expect("cache lock").get(&key).copied() {
             return cached;
@@ -99,9 +108,14 @@ pub(crate) async fn filter_valid_image_urls(
                 }
             };
 
-            let validation = match validate_image_url(&resolved) {
-                Some(validation) => validation,
-                None => validator.validate(&resolved).await,
+            // Security validation always runs first. Deterministic local quality
+            // rejections may then discard a target without replacing that result.
+            let validation = match (
+                validator.validate(&resolved).await,
+                validate_image_url(&resolved),
+            ) {
+                (_, Some(ImageValidation::Invalid)) => ImageValidation::Invalid,
+                (validation, _) => validation,
             };
             match validation {
                 ImageValidation::Invalid => invalid_count += 1,
@@ -178,8 +192,8 @@ async fn probe_image_dimensions(url: &Url) -> ImageValidation {
         let client = match public_http_client(&current_url, IMAGE_PROBE_TIMEOUT, true).await {
             Ok(client) => client,
             Err(error) => {
-                tracing::debug!(url = %current_url, error = %error, "Image dimension probe rejected unsafe target");
-                return ImageValidation::Unknown;
+                tracing::debug!(url = %current_url, error = %error, "Image dimension probe rejected target");
+                return image_validation_for_target_error(error);
             }
         };
         let response = match client
@@ -206,7 +220,7 @@ async fn probe_image_dimensions(url: &Url) -> ImageValidation {
             Ok(url) => url,
             Err(error) => {
                 tracing::debug!(url = %current_url, error = %error, "Image dimension probe rejected redirect");
-                return ImageValidation::Unknown;
+                return image_validation_for_target_error(error);
             }
         };
         if redirect_count == IMAGE_PROBE_MAX_REDIRECTS || current_url == next_url {
@@ -255,6 +269,19 @@ async fn probe_image_dimensions(url: &Url) -> ImageValidation {
     }
 }
 
+fn image_validation_for_target_error(error: PublicTargetError) -> ImageValidation {
+    match error {
+        PublicTargetError::InvalidUrl
+        | PublicTargetError::IpLiteral
+        | PublicTargetError::InvalidPort
+        | PublicTargetError::UnsafeResolution
+        | PublicTargetError::InvalidRedirect => ImageValidation::Invalid,
+        PublicTargetError::ResolutionTimeout | PublicTargetError::Resolution => {
+            ImageValidation::Unknown
+        }
+    }
+}
+
 async fn read_probe_bytes(mut response: reqwest::Response) -> Result<Vec<u8>, reqwest::Error> {
     let mut bytes = Vec::with_capacity(32 * 1024);
     while bytes.len() < 32 * 1024 {
@@ -293,6 +320,38 @@ mod tests {
     fn accepts_large_dimensions_from_query() {
         let url = Url::parse("https://example.com/photo.jpg?width=640&height=640").unwrap();
         assert_eq!(validate_image_url(&url), Some(ImageValidation::Valid));
+    }
+
+    #[tokio::test]
+    async fn rejects_private_image_url_even_when_the_path_has_large_dimensions() {
+        let base = Url::parse("https://example.com/products/1").unwrap();
+        let result = filter_valid_image_urls(
+            vec!["http://127.0.0.1/image-800x600.jpg".to_string()],
+            &base,
+            &ReqwestImageValidator::new(),
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(NormalizationError::NoValidImages { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejects_metadata_image_url_even_when_query_has_large_dimensions() {
+        let base = Url::parse("https://example.com/products/1").unwrap();
+        let result = filter_valid_image_urls(
+            vec!["http://169.254.169.254/photo.jpg?width=800&height=600".to_string()],
+            &base,
+            &ReqwestImageValidator::new(),
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(NormalizationError::NoValidImages { .. })
+        ));
     }
 
     #[tokio::test]

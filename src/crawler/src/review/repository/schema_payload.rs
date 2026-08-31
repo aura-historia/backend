@@ -4,16 +4,24 @@ use crate::scraper::css_selector::product_schema::{
 use crate::scraper::css_selector::rule::ExtractionRule;
 
 use super::ReviewRepositoryError;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProductSchemaReviewCandidate {
+    schemas: Vec<ProductCssSelectorSchema>,
+}
 
 pub(super) fn parse_schemas_payload(
     candidate_payload: &serde_json::Value,
-) -> Result<Vec<ProductCssSelectorSchema>, serde_json::Error> {
-    serde_json::from_value(
-        candidate_payload
-            .get("schemas")
-            .cloned()
-            .unwrap_or_else(|| serde_json::Value::Array(Vec::new())),
-    )
+) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
+    let candidate =
+        serde_json::from_value::<ProductSchemaReviewCandidate>(candidate_payload.clone())
+            .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
+    if candidate.schemas.is_empty() {
+        return Err(ReviewRepositoryError::InvalidProductSchemaCandidate);
+    }
+    Ok(candidate.schemas)
 }
 
 pub(super) fn approval_product_schemas(
@@ -37,7 +45,24 @@ pub(super) fn approval_product_schemas(
     merge_product_schema_lists(&existing.product_schemas, reviewed_schemas)
 }
 
-pub(super) fn update_schema_rule(
+pub(super) fn update_schema_field_payload(
+    candidate_payload: &serde_json::Value,
+    schema_index: usize,
+    field: &str,
+    rule: Option<ExtractionRule>,
+) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
+    let mut schemas = parse_schemas_payload(candidate_payload)?;
+    let Some(schema) = schemas.get_mut(schema_index) else {
+        return Err(ReviewRepositoryError::InvalidSchemaField(format!(
+            "schema index {schema_index}"
+        )));
+    };
+
+    update_schema_rule(schema, field, rule)?;
+    Ok(schemas)
+}
+
+fn update_schema_rule(
     schema: &mut ProductCssSelectorSchema,
     field: &str,
     rule: Option<ExtractionRule>,
@@ -131,6 +156,29 @@ mod tests {
     }
 
     #[test]
+    fn rejects_missing_empty_and_unknown_product_schema_candidate_fields() {
+        for payload in [
+            serde_json::json!({}),
+            serde_json::json!({ "schemas": [] }),
+            serde_json::json!({ "schemas": [], "unexpected": true }),
+        ] {
+            assert!(matches!(
+                parse_schemas_payload(&payload),
+                Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
+            ));
+        }
+    }
+
+    #[test]
+    fn parses_non_empty_product_schema_candidate() {
+        let payload = serde_json::json!({ "schemas": [schema("h1.product")] });
+
+        let parsed = parse_schemas_payload(&payload);
+
+        assert!(matches!(parsed, Ok(schemas) if schemas.len() == 1));
+    }
+
+    #[test]
     fn merge_product_schema_lists_appends_new_schema_after_existing_schemas() {
         let existing_a = schema("h1.template-a");
         let existing_b = schema("h1.template-b");
@@ -161,19 +209,43 @@ mod tests {
         let mut schema = schema("h1.template-a");
         schema.price = Some(text_rule(".price"));
 
-        update_schema_rule(&mut schema, "price", None).expect("optional price rule can be deleted");
+        let schemas = update_schema_field_payload(
+            &serde_json::json!({ "schemas": [schema] }),
+            0,
+            "price",
+            None,
+        )
+        .expect("optional price rule can be deleted");
 
-        assert!(schema.price.is_none());
+        assert!(schemas[0].price.is_none());
     }
 
     #[test]
     fn update_schema_rule_rejects_required_rule_deletion() {
-        let mut schema = schema("h1.template-a");
+        let schema = schema("h1.template-a");
 
-        let err = update_schema_rule(&mut schema, "title", None).unwrap_err();
+        let err = update_schema_field_payload(
+            &serde_json::json!({ "schemas": [schema] }),
+            0,
+            "title",
+            None,
+        )
+        .unwrap_err();
 
         assert!(
             matches!(err, ReviewRepositoryError::RequiredSchemaField(field) if field == "title")
         );
+    }
+
+    #[test]
+    fn update_schema_field_payload_rejects_empty_schema_payload() {
+        let err =
+            update_schema_field_payload(&serde_json::json!({ "schemas": [] }), 0, "price", None)
+                .unwrap_err();
+
+        assert!(matches!(
+            err,
+            ReviewRepositoryError::InvalidProductSchemaCandidate
+        ));
     }
 }

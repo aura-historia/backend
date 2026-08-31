@@ -127,61 +127,74 @@ pub fn is_same_or_www_host(left: &Url, right: &Url) -> bool {
     let Some(right) = right.host_str() else {
         return false;
     };
-    canonical_host(left) == canonical_host(right)
+    canonical_crawler_domain(left) == canonical_crawler_domain(right)
 }
 
 pub fn url_matches_configured_domain(url: &Url, domain: &str) -> bool {
     url.host_str()
-        .is_some_and(|host| canonical_host(host) == canonical_host(domain))
+        .is_some_and(|host| canonical_crawler_domain(host) == canonical_crawler_domain(domain))
 }
 
+/// Crawler ownership identity: lowercase DNS host, no trailing dot, and at
+/// most one leading `www.` removed. This is deliberately crawler-local.
+pub fn canonical_crawler_domain(host: &str) -> String {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    host.strip_prefix("www.").unwrap_or(&host).to_owned()
+}
+
+/// Static deny-list derived from IANA Special-Purpose Address Registries.
+/// Review this table when those registries change; never fetch it at runtime.
 pub fn is_publicly_routable_ip(address: IpAddr) -> bool {
     match address {
-        IpAddr::V4(address) => {
-            let [first, second, _, _] = address.octets();
-            !address.is_unspecified()
-                && first != 0
-                && !address.is_private()
-                && !address.is_loopback()
-                && !address.is_link_local()
-                && !address.is_broadcast()
-                && !address.is_multicast()
-                && !(first == 100 && (64..=127).contains(&second))
-                && !(first == 192 && second == 0)
-                && !(first == 192 && second == 2)
-                && !(first == 198 && (second == 18 || second == 19))
-                && !(first == 198 && second == 51)
-                && !(first == 203 && second == 0)
-                && first < 240
-        }
-        IpAddr::V6(address) => {
-            if address.is_unspecified() || address.is_loopback() || address.is_multicast() {
-                return false;
-            }
-            if let Some(address) = address.to_ipv4_mapped() {
-                return is_publicly_routable_ip(IpAddr::V4(address));
-            }
-            let octets = address.octets();
-            if octets[..12].iter().all(|octet| *octet == 0) {
-                return is_publicly_routable_ip(IpAddr::V4(std::net::Ipv4Addr::new(
-                    octets[12], octets[13], octets[14], octets[15],
-                )));
-            }
-            let segments = address.segments();
-            (segments[0] & 0xfe00) != 0xfc00
-                && (segments[0] & 0xffc0) != 0xfe80
-                && !(segments[0] == 0x2001 && segments[1] < 0x0200)
-                && !(segments[0] == 0x2001 && segments[1] == 0x0db8)
-                && segments[0] != 0x2002
-                && !(segments[0] == 0x64 && segments[1] == 0xff9b)
-                && !(segments[0] == 0x100 && segments[1] == 0)
-        }
+        IpAddr::V4(address) => !IPV4_NON_PUBLIC
+            .iter()
+            .any(|(network, prefix)| ipv4_in_prefix(address, *network, *prefix)),
+        IpAddr::V6(address) => !IPV6_NON_PUBLIC
+            .iter()
+            .any(|(network, prefix)| ipv6_in_prefix(address, *network, *prefix)),
     }
 }
 
-fn canonical_host(host: &str) -> String {
-    let host = host.trim_end_matches('.').to_ascii_lowercase();
-    host.strip_prefix("www.").unwrap_or(&host).to_owned()
+const IPV4_NON_PUBLIC: &[(std::net::Ipv4Addr, u8)] = &[
+    (std::net::Ipv4Addr::new(0, 0, 0, 0), 8),
+    (std::net::Ipv4Addr::new(10, 0, 0, 0), 8),
+    (std::net::Ipv4Addr::new(100, 64, 0, 0), 10),
+    (std::net::Ipv4Addr::new(127, 0, 0, 0), 8),
+    (std::net::Ipv4Addr::new(169, 254, 0, 0), 16),
+    (std::net::Ipv4Addr::new(172, 16, 0, 0), 12),
+    (std::net::Ipv4Addr::new(192, 0, 0, 0), 24),
+    (std::net::Ipv4Addr::new(192, 0, 2, 0), 24),
+    (std::net::Ipv4Addr::new(192, 168, 0, 0), 16),
+    (std::net::Ipv4Addr::new(198, 18, 0, 0), 15),
+    (std::net::Ipv4Addr::new(198, 51, 100, 0), 24),
+    (std::net::Ipv4Addr::new(203, 0, 113, 0), 24),
+    (std::net::Ipv4Addr::new(224, 0, 0, 0), 4),
+    (std::net::Ipv4Addr::new(240, 0, 0, 0), 4),
+];
+
+const IPV6_NON_PUBLIC: &[(std::net::Ipv6Addr, u8)] = &[
+    (std::net::Ipv6Addr::UNSPECIFIED, 96),
+    (std::net::Ipv6Addr::LOCALHOST, 128),
+    (std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0, 0), 96),
+    (std::net::Ipv6Addr::new(0x64, 0xff9b, 0, 0, 0, 0, 0, 0), 96),
+    (std::net::Ipv6Addr::new(0x100, 0, 0, 0, 0, 0, 0, 0), 64),
+    (std::net::Ipv6Addr::new(0x2001, 0, 0, 0, 0, 0, 0, 0), 23),
+    (std::net::Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0), 32),
+    (std::net::Ipv6Addr::new(0x2002, 0, 0, 0, 0, 0, 0, 0), 16),
+    (std::net::Ipv6Addr::new(0xfc00, 0, 0, 0, 0, 0, 0, 0), 7),
+    (std::net::Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 0), 10),
+    (std::net::Ipv6Addr::new(0xfec0, 0, 0, 0, 0, 0, 0, 0), 10),
+    (std::net::Ipv6Addr::new(0xff00, 0, 0, 0, 0, 0, 0, 0), 8),
+];
+
+fn ipv4_in_prefix(address: std::net::Ipv4Addr, network: std::net::Ipv4Addr, prefix: u8) -> bool {
+    let mask = u32::MAX.checked_shl(u32::from(32 - prefix)).unwrap_or(0);
+    (u32::from(address) & mask) == (u32::from(network) & mask)
+}
+
+fn ipv6_in_prefix(address: std::net::Ipv6Addr, network: std::net::Ipv6Addr, prefix: u8) -> bool {
+    let mask = u128::MAX.checked_shl(u32::from(128 - prefix)).unwrap_or(0);
+    (u128::from(address) & mask) == (u128::from(network) & mask)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -468,8 +481,10 @@ mod tests {
             "169.254.169.254",
             "192.168.1.1",
             "::1",
+            "::ffff:1.1.1.1",
             "fc00::1",
             "fe80::1",
+            "fec0::1",
             "2001:db8::1",
         ] {
             assert!(
@@ -489,12 +504,30 @@ mod tests {
     }
 
     #[test]
+    fn should_keep_public_neighbors_of_special_use_prefixes_routable() {
+        for raw_address in [
+            "192.1.0.1",
+            "192.2.0.1",
+            "198.50.0.1",
+            "198.52.0.1",
+            "203.1.0.1",
+        ] {
+            assert!(
+                is_publicly_routable_ip(raw_address.parse().unwrap()),
+                "{raw_address} must not be rejected by a broad octet rule"
+            );
+        }
+    }
+
+    #[test]
     fn should_match_only_bare_and_www_host_variants() {
         let bare = Url::parse("https://example.com/products/1").unwrap();
         let www = Url::parse("https://www.example.com/products/1").unwrap();
         let subdomain = Url::parse("https://catalog.example.com/products/1").unwrap();
 
         assert!(is_same_or_www_host(&bare, &www));
+        assert_eq!(canonical_crawler_domain("Example.COM."), "example.com");
+        assert_eq!(canonical_crawler_domain("www.example.com"), "example.com");
         assert!(url_matches_configured_domain(&www, "example.com"));
         assert!(!is_same_or_www_host(&bare, &subdomain));
         assert!(!url_matches_configured_domain(&subdomain, "example.com"));

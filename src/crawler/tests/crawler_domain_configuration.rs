@@ -147,6 +147,39 @@ async fn should_register_a_concurrent_same_source_domain_once() {
 
 #[serial_test::serial]
 #[aura_integration_test(services = [POSTGRES])]
+async fn should_treat_bare_www_and_trailing_dot_as_one_crawler_domain_identity() {
+    let pool = get_postgres_client().await;
+    let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
+    let domains = CrawlerDomainConfigurationRepositoryImpl::new(pool);
+    let owner = ListingSourceId::new();
+    let claimant = ListingSourceId::new();
+    registration
+        .apply_snapshot(&[source(owner, true), source(claimant, true)])
+        .await
+        .unwrap();
+
+    let bare = domains
+        .register(owner, Domain::try_from("example.com").unwrap())
+        .await
+        .unwrap();
+    let equivalent = domains
+        .register(owner, Domain::try_from("www.example.com.").unwrap())
+        .await
+        .unwrap();
+    let conflict = domains
+        .register(claimant, Domain::try_from("www.example.com").unwrap())
+        .await;
+
+    assert_eq!(bare.domain_id, equivalent.domain_id);
+    assert_eq!(equivalent.domain.as_str(), "example.com");
+    assert!(matches!(
+        conflict,
+        Err(CrawlerDomainConfigurationError::DomainOwnedByAnotherListingSource { .. })
+    ));
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_reject_ip_literal_crawler_domain() {
     let pool = get_postgres_client().await;
     let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
