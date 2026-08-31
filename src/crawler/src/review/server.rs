@@ -542,9 +542,18 @@ impl ReviewServer {
     }
 
     fn request_is_authorized(&self, request: &ParsedRequest<'_>) -> bool {
-        !request.path.starts_with("/api/")
-            || ((self.authorized(&request.headers) || self.has_valid_session(&request.headers))
-                && (!is_mutation_method(&request.method) || self.config.auth_token.is_some()))
+        if !request.path.starts_with("/api/") {
+            return true;
+        }
+
+        let bearer = self.authorized(&request.headers);
+        let session = self.has_valid_session(&request.headers);
+        match (request.method.as_str(), request.path) {
+            ("POST", "/api/session") => bearer,
+            ("POST", "/api/session/logout") => bearer || session,
+            (method, _) if is_mutation_method(method) => bearer,
+            _ => bearer || session,
+        }
     }
 
     fn authorized(&self, headers: &std::collections::HashMap<String, String>) -> bool {
@@ -1286,6 +1295,11 @@ mod tests {
         assert!(login.contains("SameSite=Strict"));
         assert!(!login.contains("review-token"));
 
+        let reviews_raw_request = format!("GET /api/reviews HTTP/1.1\r\nCookie: {cookie}\r\n\r\n");
+        let reviews_request =
+            parse_request(&reviews_raw_request).ok_or("reviews request should parse")?;
+        assert!(server.request_is_authorized(&reviews_request));
+
         let navigation = server
             .route(&format!(
                 "GET /api/live-inspect?url=https%3A%2F%2Fexample.com HTTP/1.1\r\nCookie: {cookie}\r\n\r\n"
@@ -1294,6 +1308,27 @@ mod tests {
             .to_string();
         assert!(navigation.starts_with("HTTP/1.1 200 OK"));
         assert!(navigation.contains("data-crawler-review-disabled"));
+
+        for request in [
+            format!("POST /api/session HTTP/1.1\r\nCookie: {cookie}\r\n\r\n"),
+            format!(
+                "POST /api/reviews/{}/approve HTTP/1.1\r\nCookie: {cookie}\r\n\r\n",
+                uuid::Uuid::new_v4()
+            ),
+            format!(
+                "POST /api/listing-sources/{}/domains HTTP/1.1\r\nCookie: {cookie}\r\n\r\n",
+                uuid::Uuid::new_v4()
+            ),
+        ] {
+            let response = server.route(&request).await.to_string();
+            assert!(response.starts_with("HTTP/1.1 401 Unauthorized"));
+        }
+
+        let bearer_mutation = server
+            .route("POST /api/session HTTP/1.1\r\nAuthorization: Bearer review-token\r\n\r\n")
+            .await
+            .to_string();
+        assert!(bearer_mutation.starts_with("HTTP/1.1 200 OK"));
 
         let logout = server
             .route(&format!(
