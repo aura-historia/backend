@@ -9,12 +9,14 @@ use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::{
-    NewProductListing, ProductListing, ProductListingAddress, ProductListingAuction,
-    ProductListingPricing,
+    NewProductListing, ProductListing, ProductListingAuction, ProductListingPricing,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
+use listing_source_core::ListingSourceId;
+use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
 use product_listing_postgres::{
     SqlxProductListingEventStoreFactory, SqlxProductListingRepositoryFactory,
@@ -28,8 +30,6 @@ use product_listing_service::ports::{
     ProductListingWatchlistDetailsReaderFactory, ProductListingWatchlistDetailsRequest,
     stamp_product_listing_events,
 };
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use url::Url;
@@ -75,9 +75,8 @@ async fn should_join_watchlisted_product_localization_and_user_state() {
     };
 
     assert_eq!(view.item.product_listing_id, product.id());
-    assert_eq!(view.item.shop_listing_id.as_ref(), "watchlist-joined");
-    assert_eq!(view.item.shop_name.as_ref(), "watchlist-joined-shop");
-    assert_eq!(view.item.seller_name.as_ref(), "watchlist-joined-seller");
+    assert_eq!(view.item.source_listing_id.as_ref(), "watchlist-joined");
+    assert_eq!(view.item.source.name.as_ref(), "watchlist-joined-source");
     assert!(view.item.sale_observation.is_none());
     assert_localized_title(
         view.item.product_title.as_ref(),
@@ -301,12 +300,11 @@ async fn persist_product(
     title: Option<Localized<Language, Title>>,
     description: Option<Localized<Language, Description>>,
 ) -> ProductListing {
-    let shop_id = seed_shop(pool, &format!("{slug}-shop")).await;
-    let seller_id = seed_shop(pool, &format!("{slug}-seller")).await;
+    let listing_source_id = seed_listing_source(pool, &format!("{slug}-source")).await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
     let events = SqlxProductListingEventStoreFactory::new();
-    let product = sample_product(slug, shop_id, seller_id, title, description);
+    let product = sample_product(slug, listing_source_id, title, description);
     let event = first_stamped_event(&product);
 
     let mut tx = begin(&unit_of_work).await;
@@ -409,8 +407,7 @@ async fn insert_watchlist(
 
 fn sample_product(
     slug: &str,
-    shop_id: ShopId,
-    seller_id: ShopId,
+    listing_source_id: ListingSourceId,
     title: Option<Localized<Language, Title>>,
     description: Option<Localized<Language, Description>>,
 ) -> ProductListing {
@@ -421,10 +418,11 @@ fn sample_product(
 
     match ProductListing::create(NewProductListing {
         id: ProductListingId::new(),
-        shop_id,
-        seller_id,
-        shop_listing_id: product_listing_core::shop_listing_id::ShopListingId::from(slug),
-        address: ProductListingAddress::default(),
+        title_slug_id: ProductListingSlugId::from_title_and_suffix(slug, "a1b2c3")
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
+        listing_source_id,
+        source_listing_id: SourceListingId::try_from(slug)
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
         title,
         description,
         pricing: ProductListingPricing {
@@ -442,28 +440,25 @@ fn sample_product(
     }
 }
 
-async fn seed_shop(pool: &sqlx::PgPool, slug: &str) -> ShopId {
-    let shop_id = ShopId::new();
-    let result = sqlx::query(
-        r#"
-        INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        "#,
-    )
-    .bind(uuid::Uuid::from(shop_id))
-    .bind(slug)
-    .bind(ShopName::from(slug).to_string())
-    .bind("COMMERCIAL_DEALER")
-    .bind("SCRAPED")
-    .bind(Vec::<String>::from([format!("{slug}.example")]))
-    .execute(pool)
-    .await;
-
-    if let Err(error) = result {
-        panic!("failed to seed shop: {error}");
-    }
-
-    shop_id
+async fn seed_listing_source(pool: &sqlx::PgPool, slug: &str) -> ListingSourceId {
+    let party_id = uuid::Uuid::new_v4();
+    let listing_source_id = ListingSourceId::new();
+    sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
+        .bind(party_id)
+        .bind(format!("{slug}-party"))
+        .bind(format!("{slug} party"))
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed listing-source party: {error}"));
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)")
+        .bind(uuid::Uuid::from(listing_source_id))
+        .bind(slug)
+        .bind(slug)
+        .bind(party_id)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed listing source: {error}"));
+    listing_source_id
 }
 
 fn assert_localized_title(

@@ -177,18 +177,18 @@ mod tests {
     use super::*;
     use domain_primitives::event_id::EventId;
     use indexmap::IndexSet;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use product_listing_core::{
         listing_availability::ListingAvailability,
         listing_lifecycle::ListingLifecycle,
-        product_listing::{ProductListingAddress, ProductListingAuction, ProductListingPricing},
+        product_listing::{ProductListingAuction, ProductListingPricing},
         product_listing_image::ProductListingImage,
         product_listing_slug_id::ProductListingSlugId,
-        shop_listing_id::ShopListingId,
+        source_listing_id::SourceListingId,
     };
     use product_listing_service::ports::{
-        ProductListingSearchFilterMatchShopType, ProductListingSearchFilterMatchSourceEventKind,
+        ListingSourceSummary, ProductListingSearchFilterMatchSourceEventKind,
     };
-    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
     use url::Url;
 
     fn product() -> Result<ProductListingSearchFilterMatchSource, url::ParseError> {
@@ -201,16 +201,17 @@ mod tests {
             current_event_id: event_id,
             projection_version: 1,
             product_listing_id: product_listing_core::product_listing_id::ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from("product"),
-            shop_id: ShopId::new(),
-            shop_slug_id: ShopSlugId::from("shop"),
-            shop_name: ShopName::from("Shop"),
-            shop_type: ProductListingSearchFilterMatchShopType::Marketplace,
-            seller_id: ShopId::new(),
-            seller_slug_id: shop_core::seller_slug_id::SellerSlugId::from("seller"),
-            seller_name: ShopName::from("Seller"),
-            shop_listing_id: ShopListingId::from("product"),
-            address: ProductListingAddress::default(),
+            product_listing_title_slug_id: ProductListingSlugId::raw("product-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
+            source: ListingSourceSummary {
+                listing_source_id: ListingSourceId::new(),
+                name: ListingSourceName::try_from("Source")
+                    .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+                slug_id: ListingSourceSlugId::raw("source")
+                    .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+            },
+            source_listing_id: SourceListingId::try_from("product")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             product_title: None,
             product_description: None,
             titles: std::collections::HashMap::new(),

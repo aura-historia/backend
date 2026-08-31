@@ -1,29 +1,31 @@
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use money::{Currency, MonetaryAmount, Price};
 use notification_core::{
     notification::{
-        Notification, NotificationContent, NotificationWatchlistChange, PartnerApplicationDecision,
-        PartnerApplicationNotificationSnapshot, ProductListingNotificationSnapshot,
-        RehydratedNotificationState,
+        Notification, NotificationContent, NotificationWatchlistChange,
+        PartnershipApplicationDecision, PartnershipApplicationNotificationSnapshot,
+        ProductListingNotificationSnapshot, RehydratedNotificationState,
     },
     notification_id::NotificationId,
     notification_kind::NotificationKind,
 };
+use partnership_core::partnership_application_id::PartnershipApplicationId;
+use party_core::party_name::PartyName;
 use product_listing_core::{
     content_policy::{ContentPolicyDecision, SensitiveContentCategory},
     listing_availability::ListingAvailability,
     product_listing_id::ProductListingId,
     product_listing_slug_id::ProductListingSlugId,
-    shop_listing_id::ShopListingId,
+    source_listing_id::SourceListingId,
     title::Title,
 };
 use search_filter_core::{
     user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
 };
 use serde::{Deserialize, Serialize};
-use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
-use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
+
 use std::collections::{HashMap, HashSet};
 use strum::IntoEnumIterator;
 use time::OffsetDateTime;
@@ -40,7 +42,7 @@ pub(crate) struct NotificationRow {
     pub(crate) origin_event_id: Option<uuid::Uuid>,
     pub(crate) product_listing_id: Option<uuid::Uuid>,
     pub(crate) user_search_filter_id: Option<uuid::Uuid>,
-    pub(crate) partner_shop_application_id: Option<uuid::Uuid>,
+    pub(crate) partnership_application_id: Option<uuid::Uuid>,
     pub(crate) payload_version: i16,
     pub(crate) payload: serde_json::Value,
     pub(crate) seen: bool,
@@ -62,6 +64,8 @@ pub(crate) enum NotificationMappingError {
     PayloadSerialization(#[source] serde_json::Error),
     #[error("notification payload is invalid")]
     InvalidPayload(#[source] serde_json::Error),
+    #[error("notification payload contains an invalid value")]
+    InvalidPayloadValue,
     #[error("notification content policy is invalid")]
     InvalidContentPolicy,
     #[error("notification source columns do not match its kind")]
@@ -83,8 +87,8 @@ enum NotificationPayloadV1 {
         snapshot: ProductListingNotificationSnapshotV1,
         user_search_filter_name: UserSearchFilterName,
     },
-    PartnerApplication {
-        snapshot: PartnerApplicationNotificationSnapshotV1,
+    PartnershipApplication {
+        snapshot: PartnershipApplicationNotificationSnapshotV1,
     },
 }
 
@@ -134,16 +138,106 @@ struct PersistedContentPolicyDecision {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductListingNotificationSnapshotV1 {
-    shop_id: ShopId,
-    shop_listing_id: ShopListingId,
-    shop_slug_id: ShopSlugId,
-    product_listing_slug_id: ProductListingSlugId,
-    shop_name: ShopName,
+    #[serde(
+        serialize_with = "serialize_listing_source_id",
+        deserialize_with = "deserialize_listing_source_id"
+    )]
+    listing_source_id: ListingSourceId,
+    #[serde(
+        serialize_with = "serialize_source_listing_id",
+        deserialize_with = "deserialize_source_listing_id"
+    )]
+    source_listing_id: SourceListingId,
+    #[serde(
+        serialize_with = "serialize_listing_source_slug_id",
+        deserialize_with = "deserialize_listing_source_slug_id"
+    )]
+    listing_source_slug_id: ListingSourceSlugId,
+    product_listing_title_slug_id: ProductListingSlugId,
+    #[serde(
+        serialize_with = "serialize_listing_source_name",
+        deserialize_with = "deserialize_listing_source_name"
+    )]
+    listing_source_name: ListingSourceName,
     title: Option<Vec<LocalizedTitleV1>>,
     image: Option<Url>,
     content_policy: Option<PersistedContentPolicyDecision>,
     url: Url,
     view_url: Url,
+}
+
+fn serialize_listing_source_id<S>(
+    listing_source_id: &ListingSourceId,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&listing_source_id.to_string())
+}
+
+fn deserialize_listing_source_id<'de, D>(deserializer: D) -> Result<ListingSourceId, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    String::deserialize(deserializer)?
+        .parse::<uuid::Uuid>()
+        .map(ListingSourceId::from)
+        .map_err(serde::de::Error::custom)
+}
+
+fn serialize_source_listing_id<S>(
+    source_listing_id: &SourceListingId,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(source_listing_id.as_ref())
+}
+
+fn deserialize_source_listing_id<'de, D>(deserializer: D) -> Result<SourceListingId, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    SourceListingId::try_from(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+}
+
+fn serialize_listing_source_slug_id<S>(
+    listing_source_slug_id: &ListingSourceSlugId,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(listing_source_slug_id.as_ref())
+}
+
+fn deserialize_listing_source_slug_id<'de, D>(
+    deserializer: D,
+) -> Result<ListingSourceSlugId, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    ListingSourceSlugId::raw(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+}
+
+fn serialize_listing_source_name<S>(
+    listing_source_name: &ListingSourceName,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(listing_source_name.as_ref())
+}
+
+fn deserialize_listing_source_name<'de, D>(deserializer: D) -> Result<ListingSourceName, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    ListingSourceName::try_from(String::deserialize(deserializer)?)
+        .map_err(serde::de::Error::custom)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,19 +264,20 @@ enum NotificationWatchlistChangeV1 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PartnerApplicationNotificationSnapshotV1 {
-    shop_name: ShopName,
+struct PartnershipApplicationNotificationSnapshotV1 {
+    party_name: String,
+    listing_source_name: String,
     image: Option<Url>,
 }
 
 impl From<&ProductListingNotificationSnapshot> for ProductListingNotificationSnapshotV1 {
     fn from(snapshot: &ProductListingNotificationSnapshot) -> Self {
         Self {
-            shop_id: snapshot.shop_id,
-            shop_listing_id: snapshot.shop_listing_id.clone(),
-            shop_slug_id: snapshot.shop_slug_id.clone(),
-            product_listing_slug_id: snapshot.product_listing_slug_id.clone(),
-            shop_name: snapshot.shop_name.clone(),
+            listing_source_id: snapshot.listing_source_id,
+            source_listing_id: snapshot.source_listing_id.clone(),
+            listing_source_slug_id: snapshot.listing_source_slug_id.clone(),
+            product_listing_title_slug_id: snapshot.product_listing_title_slug_id.clone(),
+            listing_source_name: snapshot.listing_source_name.clone(),
             title: snapshot.title.as_ref().map(|titles| {
                 titles
                     .iter()
@@ -223,11 +318,11 @@ impl TryFrom<ProductListingNotificationSnapshotV1> for ProductListingNotificatio
             })
             .transpose()?;
         Ok(Self {
-            shop_id: snapshot.shop_id,
-            shop_listing_id: snapshot.shop_listing_id,
-            shop_slug_id: snapshot.shop_slug_id,
-            product_listing_slug_id: snapshot.product_listing_slug_id,
-            shop_name: snapshot.shop_name,
+            listing_source_id: snapshot.listing_source_id,
+            source_listing_id: snapshot.source_listing_id,
+            listing_source_slug_id: snapshot.listing_source_slug_id,
+            product_listing_title_slug_id: snapshot.product_listing_title_slug_id,
+            listing_source_name: snapshot.listing_source_name,
             title,
             image: snapshot.image,
             content_policy: snapshot.content_policy.map(TryInto::try_into).transpose()?,
@@ -308,21 +403,33 @@ impl From<NotificationWatchlistChangeV1> for NotificationWatchlistChange {
     }
 }
 
-impl From<&PartnerApplicationNotificationSnapshot> for PartnerApplicationNotificationSnapshotV1 {
-    fn from(snapshot: &PartnerApplicationNotificationSnapshot) -> Self {
+impl From<&PartnershipApplicationNotificationSnapshot>
+    for PartnershipApplicationNotificationSnapshotV1
+{
+    fn from(snapshot: &PartnershipApplicationNotificationSnapshot) -> Self {
         Self {
-            shop_name: snapshot.shop_name.clone(),
+            party_name: snapshot.party_name.to_string(),
+            listing_source_name: snapshot.listing_source_name.to_string(),
             image: snapshot.image.clone(),
         }
     }
 }
 
-impl From<PartnerApplicationNotificationSnapshotV1> for PartnerApplicationNotificationSnapshot {
-    fn from(snapshot: PartnerApplicationNotificationSnapshotV1) -> Self {
-        Self {
-            shop_name: snapshot.shop_name,
+impl TryFrom<PartnershipApplicationNotificationSnapshotV1>
+    for PartnershipApplicationNotificationSnapshot
+{
+    type Error = NotificationMappingError;
+
+    fn try_from(
+        snapshot: PartnershipApplicationNotificationSnapshotV1,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            party_name: PartyName::try_from(snapshot.party_name)
+                .map_err(|_| NotificationMappingError::InvalidPayloadValue)?,
+            listing_source_name: ListingSourceName::try_from(snapshot.listing_source_name)
+                .map_err(|_| NotificationMappingError::InvalidPayloadValue)?,
             image: snapshot.image,
-        }
+        })
     }
 }
 
@@ -333,7 +440,7 @@ pub(crate) struct NotificationWriteValues {
     pub(crate) origin_event_id: Option<uuid::Uuid>,
     pub(crate) product_listing_id: Option<uuid::Uuid>,
     pub(crate) user_search_filter_id: Option<uuid::Uuid>,
-    pub(crate) partner_shop_application_id: Option<uuid::Uuid>,
+    pub(crate) partnership_application_id: Option<uuid::Uuid>,
     pub(crate) payload: serde_json::Value,
 }
 
@@ -345,7 +452,7 @@ impl TryFrom<&Notification> for NotificationWriteValues {
             origin_event_id,
             product_listing_id,
             user_search_filter_id,
-            partner_shop_application_id,
+            partnership_application_id,
             payload,
         ) = match notification.content() {
             NotificationContent::Watchlist {
@@ -379,16 +486,16 @@ impl TryFrom<&Notification> for NotificationWriteValues {
                     user_search_filter_name: user_search_filter_name.clone(),
                 },
             ),
-            NotificationContent::PartnerApplication {
-                partner_shop_application_id,
+            NotificationContent::PartnershipApplication {
+                partnership_application_id,
                 snapshot,
                 ..
             } => (
                 None,
                 None,
                 None,
-                Some(uuid::Uuid::from(*partner_shop_application_id)),
-                NotificationPayloadV1::PartnerApplication {
+                Some(uuid::Uuid::from(*partnership_application_id)),
+                NotificationPayloadV1::PartnershipApplication {
                     snapshot: snapshot.into(),
                 },
             ),
@@ -402,7 +509,7 @@ impl TryFrom<&Notification> for NotificationWriteValues {
             origin_event_id,
             product_listing_id,
             user_search_filter_id,
-            partner_shop_application_id,
+            partnership_application_id,
             payload,
         })
     }
@@ -426,7 +533,7 @@ impl TryFrom<NotificationRow> for Notification {
             row.origin_event_id,
             row.product_listing_id,
             row.user_search_filter_id,
-            row.partner_shop_application_id,
+            row.partnership_application_id,
         ) {
             (
                 NotificationKind::WatchlistPriceChanged
@@ -466,27 +573,27 @@ impl TryFrom<NotificationRow> for Notification {
                 user_search_filter_name,
             },
             (
-                NotificationKind::PartnerApplicationApproved
-                | NotificationKind::PartnerApplicationRejected,
-                NotificationPayloadV1::PartnerApplication { snapshot },
+                NotificationKind::PartnershipApplicationApproved
+                | NotificationKind::PartnershipApplicationRejected,
+                NotificationPayloadV1::PartnershipApplication { snapshot },
                 None,
                 None,
                 None,
-                Some(partner_shop_application_id),
-            ) => NotificationContent::PartnerApplication {
-                partner_shop_application_id: PartnerShopApplicationId::from(
-                    partner_shop_application_id,
+                Some(partnership_application_id),
+            ) => NotificationContent::PartnershipApplication {
+                partnership_application_id: PartnershipApplicationId::from(
+                    partnership_application_id,
                 ),
-                snapshot: snapshot.into(),
-                decision: if kind == NotificationKind::PartnerApplicationApproved {
-                    PartnerApplicationDecision::Approved
+                snapshot: snapshot.try_into()?,
+                decision: if kind == NotificationKind::PartnershipApplicationApproved {
+                    PartnershipApplicationDecision::Approved
                 } else {
-                    PartnerApplicationDecision::Rejected
+                    PartnershipApplicationDecision::Rejected
                 },
             },
             (_, NotificationPayloadV1::Watchlist { .. }, _, _, _, _)
             | (_, NotificationPayloadV1::SearchFilter { .. }, _, _, _, _)
-            | (_, NotificationPayloadV1::PartnerApplication { .. }, _, _, _, _) => {
+            | (_, NotificationPayloadV1::PartnershipApplication { .. }, _, _, _, _) => {
                 return Err(NotificationMappingError::SourceShapeMismatch);
             }
         };
@@ -608,7 +715,17 @@ pub(crate) fn mapping_error(error: NotificationMappingError) -> BoxError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use money::{Currency, MonetaryAmount};
+    use notification_core::notification::{
+        PartnershipApplicationDecision, PartnershipApplicationNotificationSnapshot,
+    };
+    use notification_core::notification_id::NotificationId;
+    use partnership_core::partnership_application_id::PartnershipApplicationId;
+    use party_core::party_name::PartyName;
+    use product_listing_core::source_listing_id::SourceListingId;
+    use time::OffsetDateTime;
+    use user_core::user_id::UserId;
 
     #[test]
     fn should_parse_each_canonical_persisted_kind() {
@@ -626,6 +743,68 @@ mod tests {
             parse_kind("watchlist_price_changed"),
             Err(NotificationMappingError::UnknownKind(value)) if value == "watchlist_price_changed"
         ));
+    }
+
+    #[test]
+    fn should_serialize_product_listing_snapshot_with_listing_source_vocabulary()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let snapshot = ProductListingNotificationSnapshot {
+            listing_source_id: ListingSourceId::from(uuid::Uuid::nil()),
+            source_listing_id: SourceListingId::try_from("source-listing-42")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            listing_source_slug_id: ListingSourceSlugId::raw("northwind-source")?,
+            product_listing_title_slug_id: ProductListingSlugId::raw("rare-vase-000000")?,
+            listing_source_name: ListingSourceName::try_from("Northwind Source")
+                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+            title: None,
+            image: None,
+            content_policy: None,
+            url: Url::parse("https://source.example/listings/42")?,
+            view_url: Url::parse("https://aura.example/listings/rare-vase")?,
+        };
+
+        let persisted = ProductListingNotificationSnapshotV1::from(&snapshot);
+
+        assert_eq!(
+            serde_json::json!({
+                "listing_source_id": "00000000-0000-0000-0000-000000000000",
+                "source_listing_id": "source-listing-42",
+                "listing_source_slug_id": "northwind-source",
+                "product_listing_title_slug_id": "rare-vase-000000",
+                "listing_source_name": "Northwind Source",
+                "title": null,
+                "image": null,
+                "content_policy": null,
+                "url": "https://source.example/listings/42",
+                "view_url": "https://aura.example/listings/rare-vase",
+            }),
+            serde_json::to_value(&persisted)?
+        );
+        assert_eq!(
+            snapshot,
+            ProductListingNotificationSnapshot::try_from(persisted)?
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_invalid_persisted_listing_source_name() {
+        let result =
+            serde_json::from_value::<ProductListingNotificationSnapshotV1>(serde_json::json!({
+                "listing_source_id": "00000000-0000-0000-0000-000000000000",
+                "source_listing_id": "source-listing-42",
+                "listing_source_slug_id": "northwind-source",
+                "product_listing_title_slug_id": "rare-vase-000000",
+                "listing_source_name": "\u{2003}",
+                "title": null,
+                "image": null,
+                "content_policy": null,
+                "url": "https://source.example/listings/42",
+                "view_url": "https://aura.example/listings/rare-vase"
+            }));
+
+        assert!(result.is_err());
     }
 
     #[test]
@@ -688,6 +867,89 @@ mod tests {
             }))
             .is_err()
         );
+    }
+
+    #[test]
+    fn should_round_trip_partnership_application_notification_write_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let notification = Notification::new(
+            NotificationId::new(),
+            UserId::new(),
+            NotificationContent::PartnershipApplication {
+                partnership_application_id: PartnershipApplicationId::new(),
+                snapshot: PartnershipApplicationNotificationSnapshot {
+                    party_name: PartyName::try_from("Northwind Antiques")?,
+                    listing_source_name: ListingSourceName::try_from("Northwind Source")
+                        .unwrap_or_else(|error| {
+                            panic!("invalid test listing source name: {error}")
+                        }),
+                    image: None,
+                },
+                decision: PartnershipApplicationDecision::Approved,
+            },
+        );
+        let values = NotificationWriteValues::try_from(&notification)?;
+
+        let restored = Notification::try_from(NotificationRow {
+            notification_id: values.notification_id,
+            user_id: values.user_id,
+            kind: values.kind.to_owned(),
+            origin_event_id: values.origin_event_id,
+            product_listing_id: values.product_listing_id,
+            user_search_filter_id: values.user_search_filter_id,
+            partnership_application_id: values.partnership_application_id,
+            payload_version: PAYLOAD_VERSION,
+            payload: values.payload,
+            seen: false,
+            created: OffsetDateTime::UNIX_EPOCH,
+            updated: OffsetDateTime::UNIX_EPOCH,
+        })?;
+
+        assert_eq!(notification, restored);
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_partnership_application_notification_with_invalid_source_shape()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let notification = Notification::new(
+            NotificationId::new(),
+            UserId::new(),
+            NotificationContent::PartnershipApplication {
+                partnership_application_id: PartnershipApplicationId::new(),
+                snapshot: PartnershipApplicationNotificationSnapshot {
+                    party_name: PartyName::try_from("Northwind Antiques")?,
+                    listing_source_name: ListingSourceName::try_from("Northwind Source")
+                        .unwrap_or_else(|error| {
+                            panic!("invalid test listing source name: {error}")
+                        }),
+                    image: None,
+                },
+                decision: PartnershipApplicationDecision::Rejected,
+            },
+        );
+        let values = NotificationWriteValues::try_from(&notification)?;
+
+        let result = Notification::try_from(NotificationRow {
+            notification_id: values.notification_id,
+            user_id: values.user_id,
+            kind: values.kind.to_owned(),
+            origin_event_id: values.origin_event_id,
+            product_listing_id: values.product_listing_id,
+            user_search_filter_id: values.user_search_filter_id,
+            partnership_application_id: None,
+            payload_version: PAYLOAD_VERSION,
+            payload: values.payload,
+            seen: false,
+            created: OffsetDateTime::UNIX_EPOCH,
+            updated: OffsetDateTime::UNIX_EPOCH,
+        });
+
+        assert!(matches!(
+            result,
+            Err(NotificationMappingError::SourceShapeMismatch)
+        ));
+        Ok(())
     }
 
     #[test]

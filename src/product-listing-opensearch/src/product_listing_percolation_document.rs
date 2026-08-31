@@ -1,20 +1,19 @@
 use crate::{
     product_listing_document::{
-        ProductListingDocument, SalePricesDocument, SourcePriceDocument, TextDocument, continent,
-        listing_availability, shop_type,
+        ProductListingDocument, SalePricesDocument, SourcePriceDocument, TextDocument,
+        listing_availability,
     },
     product_listing_image_document::ProductListingImageDocument,
 };
 use domain_primitives::event_id::EventId;
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
-use geo::core::continent::Continent;
 use indexmap::IndexSet;
-use isocountry::CountryCode;
+use listing_source_core::ListingSourceId;
 use localization::Language;
 use money::Currency;
 use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_id::ProductListingId,
-    product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
+    product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
 };
 use product_listing_service::ports::{
     ProductListingPercolationInput, ProductListingPricesByCurrency,
@@ -22,10 +21,7 @@ use product_listing_service::ports::{
 };
 use serde::Serialize;
 use serde_json::Value;
-use shop_core::seller_slug_id::SellerSlugId;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_slug_id::ShopSlugId;
-use shop_core::shop_type::ShopType;
+
 use time::OffsetDateTime;
 use url::Url;
 
@@ -61,33 +57,12 @@ struct ProductListingPercolationPricesDocument {
 #[serde(rename_all = "camelCase")]
 struct ProductListingPercolationDocument {
     product_listing_id: ProductListingId,
-    product_listing_slug_id: ProductListingSlugId,
-    shop_slug_id: ShopSlugId,
-    seller_slug_id: SellerSlugId,
+    product_listing_title_slug_id: ProductListingSlugId,
+    #[serde(with = "crate::product_listing_document::listing_source_id")]
+    listing_source_id: ListingSourceId,
+    #[serde(with = "crate::product_listing_document::source_listing_id")]
+    source_listing_id: SourceListingId,
     event_id: EventId,
-    shop_id: ShopId,
-    seller_id: ShopId,
-    shop_listing_id: ShopListingId,
-    shop_name: String,
-    seller_name: String,
-    #[serde(with = "shop_type")]
-    shop_type: ShopType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address_addressline: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address_addressline_extra: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address_locality: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address_region: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address_postal_code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address_country: Option<CountryCode>,
-    #[serde(with = "continent::option", skip_serializing_if = "Option::is_none")]
-    structured_address_continent: Option<Continent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    geo_address: Option<String>,
     title: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none")]
     title_de: Option<String>,
@@ -107,7 +82,6 @@ struct ProductListingPercolationDocument {
     )]
     availability: Option<ListingAvailability>,
     url: Url,
-    view_url: Url,
     #[serde(skip_serializing_if = "IndexSet::is_empty")]
     images: IndexSet<ProductListingImageDocument>,
     #[serde(
@@ -165,36 +139,13 @@ fn build_product_listing_percolation_document(
 ) -> ProductListingPercolationDocument {
     let product = &input.source;
     let (title, language) = selected_title(product);
-    let structured_address = product.address.structured.as_ref();
 
     ProductListingPercolationDocument {
         product_listing_id: product.product_listing_id,
-        product_listing_slug_id: product.product_listing_slug_id.clone(),
-        shop_slug_id: product.shop_slug_id.clone(),
-        seller_slug_id: product.seller_slug_id.clone(),
+        product_listing_title_slug_id: product.product_listing_title_slug_id.clone(),
+        listing_source_id: product.source.listing_source_id,
+        source_listing_id: product.source_listing_id.clone(),
         event_id: product.current_event_id,
-        shop_id: product.shop_id,
-        seller_id: product.seller_id,
-        shop_listing_id: product.shop_listing_id.clone(),
-        shop_name: product.shop_name.to_string(),
-        seller_name: product.seller_name.to_string(),
-        shop_type: product.shop_type,
-        structured_address_addressline: structured_address
-            .and_then(|address| address.addressline.clone()),
-        structured_address_addressline_extra: structured_address
-            .and_then(|address| address.addressline_extra.clone()),
-        structured_address_locality: structured_address
-            .and_then(|address| address.locality.clone()),
-        structured_address_region: structured_address.and_then(|address| address.region.clone()),
-        structured_address_postal_code: structured_address
-            .and_then(|address| address.postal_code.clone()),
-        structured_address_country: structured_address.and_then(|address| address.country),
-        structured_address_continent: structured_address.and_then(|address| address.continent),
-        geo_address: product
-            .address
-            .geo
-            .as_ref()
-            .map(|geo| format!("{},{}", geo.lat, geo.lon)),
         title: TextDocument::new(title, language),
         title_de: translated_title(product, Language::De),
         title_en: translated_title(product, Language::En),
@@ -207,7 +158,6 @@ fn build_product_listing_percolation_document(
             .map(|valuation| percolation_prices(valuation.prices)),
         availability: product.availability,
         url: product.url.clone(),
-        view_url: product.view_url.clone(),
         images: product
             .images
             .iter()
@@ -253,36 +203,13 @@ pub(crate) fn product_listing_document(
     let (sale_prices, sale_observation_fx_rate_id, sale_observed_at) =
         sale_projection(product, sale_snapshot)?;
     let (title, language) = selected_title(product);
-    let structured_address = product.address.structured.as_ref();
 
     Ok(ProductListingDocument {
         product_listing_id: product.product_listing_id,
-        product_listing_slug_id: product.product_listing_slug_id.clone(),
-        shop_slug_id: product.shop_slug_id.clone(),
-        seller_slug_id: product.seller_slug_id.clone(),
+        product_listing_title_slug_id: product.product_listing_title_slug_id.clone(),
+        listing_source_id: product.source.listing_source_id,
+        source_listing_id: product.source_listing_id.clone(),
         event_id: product.current_event_id,
-        shop_id: product.shop_id,
-        seller_id: product.seller_id,
-        shop_listing_id: product.shop_listing_id.clone(),
-        shop_name: product.shop_name.to_string(),
-        seller_name: product.seller_name.to_string(),
-        shop_type: product.shop_type,
-        structured_address_addressline: structured_address
-            .and_then(|address| address.addressline.clone()),
-        structured_address_addressline_extra: structured_address
-            .and_then(|address| address.addressline_extra.clone()),
-        structured_address_locality: structured_address
-            .and_then(|address| address.locality.clone()),
-        structured_address_region: structured_address.and_then(|address| address.region.clone()),
-        structured_address_postal_code: structured_address
-            .and_then(|address| address.postal_code.clone()),
-        structured_address_country: structured_address.and_then(|address| address.country),
-        structured_address_continent: structured_address.and_then(|address| address.continent),
-        geo_address: product
-            .address
-            .geo
-            .as_ref()
-            .map(|geo| format!("{},{}", geo.lat, geo.lon)),
         title: TextDocument::new(title, language),
         title_de: translated_title(product, Language::De),
         title_en: translated_title(product, Language::En),
@@ -298,7 +225,6 @@ pub(crate) fn product_listing_document(
         sale_observed_at,
         availability: product.availability,
         url: product.url.clone(),
-        view_url: product.view_url.clone(),
         images: product
             .images
             .iter()
@@ -430,28 +356,27 @@ mod tests {
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use localization::Localized;
     use product_listing_core::product_listing_search::ProductListingSearch;
     use product_listing_core::{
         listing_availability::ListingAvailability,
         listing_lifecycle::ListingLifecycle,
         product_listing::{
-            ListingSaleObservation, ProductListingAddress, ProductListingAuction,
-            ProductListingPriceValuationBasis, ProductListingPricing,
+            ListingSaleObservation, ProductListingAuction, ProductListingPriceValuationBasis,
+            ProductListingPricing,
         },
+        product_listing_image::ProductListingImage,
         product_listing_slug_id::ProductListingSlugId,
-        shop_listing_id::ShopListingId,
+        source_listing_id::SourceListingId,
         title::Title,
     };
+    use product_listing_service::ports::ListingSourceSummary;
     use product_listing_service::ports::{
         ProductListingPercolationValuation, ProductListingPriceFilterPlan,
         ProductListingPricesByCurrency, ProductListingSearchFilterMatchSourceEventKind,
     };
-    use shop_core::shop_id::ShopId;
-    use shop_core::shop_name::ShopName;
-    use shop_core::shop_slug_id::ShopSlugId;
-    use shop_core::shop_type::ShopType;
-    use std::collections::HashMap;
+    use std::collections::{BTreeSet, HashMap};
     use strum::IntoEnumIterator;
     use url::Url;
 
@@ -466,16 +391,17 @@ mod tests {
             current_event_id: event_id,
             projection_version: 1,
             product_listing_id: ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from("blue-vase"),
-            shop_id: ShopId::new(),
-            shop_slug_id: ShopSlugId::from("shop"),
-            shop_name: ShopName::from("Shop"),
-            shop_type: ShopType::Marketplace,
-            seller_id: ShopId::new(),
-            seller_slug_id: SellerSlugId::from("seller"),
-            seller_name: ShopName::from("Seller"),
-            shop_listing_id: ShopListingId::from("sku-1"),
-            address: ProductListingAddress::default(),
+            product_listing_title_slug_id: ProductListingSlugId::raw("blue-vase-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
+            source: ListingSourceSummary {
+                listing_source_id: ListingSourceId::new(),
+                name: ListingSourceName::try_from("Source")
+                    .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+                slug_id: ListingSourceSlugId::raw("source")
+                    .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+            },
+            source_listing_id: SourceListingId::try_from("sku-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             product_title: Some(Localized::new(Language::En, title.clone())),
             product_description: None,
             titles: HashMap::from([(Language::En, title)]),
@@ -602,6 +528,113 @@ mod tests {
     }
 
     #[test]
+    fn should_keep_every_maximal_temporary_percolation_document_path_mapping_compatible()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let snapshot = snapshot()?;
+        let source_price = money::Price::new(12_500_u64.into(), Currency::Gbp);
+        let prices = ProductListingPricesByCurrency::convert_all(&snapshot, source_price)?;
+        let mut product = source()?;
+        product.pricing.price = Some(source_price);
+        product.titles = HashMap::from([
+            (Language::De, Title::from("Blaue Vase")),
+            (Language::En, Title::from("Blue vase")),
+            (Language::Fr, Title::from("Vase bleu")),
+            (Language::Es, Title::from("Jarrón azul")),
+            (Language::It, Title::from("Vaso blu")),
+        ]);
+        product.images = IndexSet::from([ProductListingImage::new(Url::parse(
+            "https://shop.example.test/product_listings/blue-vase/image.jpg",
+        )?)]);
+        product.auction = ProductListingAuction {
+            start: Some(OffsetDateTime::UNIX_EPOCH),
+            end: Some(OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1)),
+        };
+        product.created = OffsetDateTime::UNIX_EPOCH + time::Duration::days(1);
+        product.updated = OffsetDateTime::UNIX_EPOCH + time::Duration::days(2);
+
+        let document = product_listing_percolation_document(&ProductListingPercolationInput {
+            source: product,
+            valuation: Some(ProductListingPercolationValuation {
+                basis: ProductListingPriceValuationBasis::Event,
+                fx_rate_id: snapshot.id(),
+                effective_at: snapshot.captured_at(),
+                prices,
+            }),
+        })?;
+        let mapping: Value = serde_json::from_str(include_str!(
+            "../../../opensearch/mappings/user_search_filters.json"
+        ))?;
+
+        let mut paths = BTreeSet::new();
+        collect_mapping_compatible_paths(&document, "", &mapping, &mut paths)?;
+        assert!(paths.contains("priceByCurrency.chf"));
+        assert!(paths.contains("images.url"));
+        assert!(paths.contains("titleIt"));
+        Ok(())
+    }
+
+    fn collect_mapping_compatible_paths(
+        value: &Value,
+        path: &str,
+        mapping: &Value,
+        paths: &mut BTreeSet<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match value {
+            Value::Object(values) => {
+                for (key, value) in values {
+                    let field = if path.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{path}.{key}")
+                    };
+                    mapping_field(mapping, &field).ok_or_else(|| {
+                        format!("percolation field `{field}` is missing from mapping")
+                    })?;
+                    collect_mapping_compatible_paths(value, &field, mapping, paths)?;
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    collect_mapping_compatible_paths(value, path, mapping, paths)?;
+                }
+            }
+            Value::Null => {}
+            _ => {
+                let field_mapping = mapping_field(mapping, path)
+                    .ok_or_else(|| format!("percolation field `{path}` is missing from mapping"))?;
+                if !mapping_accepts_value(field_mapping, value) {
+                    return Err(
+                        format!("mapping for percolation field `{path}` rejects {value}").into(),
+                    );
+                }
+                paths.insert(path.to_owned());
+            }
+        }
+        Ok(())
+    }
+
+    fn mapping_field<'a>(mapping: &'a Value, path: &str) -> Option<&'a Value> {
+        let mut properties = mapping.pointer("/mappings/properties")?;
+        let mut segments = path.split('.').peekable();
+        while let Some(segment) = segments.next() {
+            let field = properties.get(segment)?;
+            if segments.peek().is_none() {
+                return Some(field);
+            }
+            properties = field.get("properties")?;
+        }
+        None
+    }
+
+    fn mapping_accepts_value(mapping: &Value, value: &Value) -> bool {
+        match mapping.get("type").and_then(Value::as_str) {
+            Some("keyword" | "text" | "date") => value.is_string(),
+            Some("unsigned_long") => value.is_number(),
+            _ => false,
+        }
+    }
+
+    #[test]
     fn should_use_the_private_percolation_shape_without_persistent_price_fields()
     -> Result<(), Box<dyn std::error::Error>> {
         let document = product_listing_percolation_document(&ProductListingPercolationInput {
@@ -614,6 +647,36 @@ mod tests {
         assert!(document.get("salePrices").is_none());
         assert!(document.get("priceEstimateMin").is_none());
         assert!(document.get("priceEstimateMax").is_none());
+        assert!(document.get("productListingTitleSlugId").is_some());
+        assert!(document.get("productListingSlugId").is_none());
+        assert!(document.get("listingSourceId").is_some());
+        assert!(document.get("sourceListingId").is_some());
+        assert!(document.get("sourceListingSlugId").is_none());
+        for field in [
+            "listingSourceName",
+            "listingSourceSlugId",
+            "shopSlugId",
+            "sellerSlugId",
+            "shopId",
+            "sellerId",
+            "shopListingId",
+            "shopName",
+            "sellerName",
+            "shopType",
+            "structuredAddressAddressline",
+            "structuredAddressAddresslineExtra",
+            "structuredAddressLocality",
+            "structuredAddressRegion",
+            "structuredAddressPostalCode",
+            "structuredAddressCountry",
+            "structuredAddressContinent",
+            "geoAddress",
+        ] {
+            assert!(
+                document.get(field).is_none(),
+                "retired field {field} is present"
+            );
+        }
         Ok(())
     }
 
@@ -665,6 +728,28 @@ mod tests {
             persistent.get("salePrices"),
             temporary.get("priceByCurrency"),
         );
+        Ok(())
+    }
+
+    #[test]
+    fn should_preserve_raw_urls_without_view_urls_in_projection_documents()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let product = source()?;
+        let persistent = serde_json::to_value(product_listing_document(&product, None)?)?;
+        let temporary = product_listing_percolation_document(&ProductListingPercolationInput {
+            source: product,
+            valuation: None,
+        })?;
+
+        for document in [&persistent, &temporary] {
+            assert_eq!(
+                Some(&serde_json::json!(
+                    "https://shop.example.test/product_listings/blue-vase"
+                )),
+                document.get("url"),
+            );
+            assert!(document.get("viewUrl").is_none());
+        }
         Ok(())
     }
 

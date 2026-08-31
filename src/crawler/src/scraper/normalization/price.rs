@@ -62,7 +62,7 @@ pub(super) fn detect_currency(raw: &str) -> Option<Currency> {
 ///   - `"1'234.56"`     (apostrophe-thousands)
 ///
 /// If no currency marker is found in `raw` the optional `fallback_currency` is
-/// used (e.g. inferred from the shop's domain TLD).  If neither is present
+/// used (e.g. inferred from the ListingSource domain TLD). If neither is present
 /// [`PriceError::UnknownCurrency`] is returned.
 pub(super) fn parse_price(
     raw: &str,
@@ -127,7 +127,7 @@ fn parse_price_number(number: &str, currency: &Currency) -> Result<MonetaryAmoun
 /// - unparseable amount → `Err(make_parse_err(raw))`
 ///
 /// `fallback_currency` is used when the raw string contains no currency symbol
-/// or ISO code — typically the `default_currency` stored in the shop's
+/// or ISO code — typically the `default_currency` stored in the ListingSource's
 /// [`ProductCssSelectorSchema`] and set by the LLM during schema creation.
 pub(super) fn normalize_price_field(
     raw: Option<String>,

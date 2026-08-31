@@ -85,14 +85,14 @@ async fn should_list_canonical_notifications_without_legacy_fields_and_follow_cu
     );
     assert_eq!(serde_json::json!(false), item["seen"]);
     assert_eq!(
-        serde_json::json!("PARTNER_APPLICATION_APPROVED"),
+        serde_json::json!("PARTNERSHIP_APPLICATION_APPROVED"),
         item["kind"]
     );
     assert!(
-        item["payload"]["partnerShopApplicationId"]
+        item["payload"]["partnershipApplicationId"]
             .as_str()
             .is_some(),
-        "payload is missing partnerShopApplicationId"
+        "payload is missing partnershipApplicationId"
     );
     assert_eq!(serde_json::json!("APPROVED"), item["payload"]["decision"]);
     for legacy_field in [
@@ -106,8 +106,12 @@ async fn should_list_canonical_notifications_without_legacy_fields_and_follow_cu
         assert!(item.get(legacy_field).is_none(), "found {legacy_field}");
     }
     assert_eq!(
-        serde_json::json!("Acceptance Shop"),
-        item["payload"]["shopName"]
+        serde_json::json!("Acceptance Party"),
+        item["payload"]["partyName"]
+    );
+    assert_eq!(
+        serde_json::json!("Acceptance Listing Source"),
+        item["payload"]["listingSourceName"]
     );
     assert!(item["payload"].get("image").is_some());
     for internal_field in [
@@ -276,11 +280,23 @@ async fn should_return_localized_reason_specific_notification_payloads() {
         serde_json::json!({ "url": null }),
         price_change["payload"]["image"]
     );
-    assert!(price_change["payload"]["shopId"].as_str().is_some());
-    assert!(price_change["payload"]["shopListingId"].as_str().is_some());
-    assert!(price_change["payload"]["shopSlugId"].as_str().is_some());
     assert!(
-        price_change["payload"]["productListingSlugId"]
+        price_change["payload"]["listingSourceId"]
+            .as_str()
+            .is_some()
+    );
+    assert!(
+        price_change["payload"]["sourceListingId"]
+            .as_str()
+            .is_some()
+    );
+    assert!(
+        price_change["payload"]["listingSourceSlugId"]
+            .as_str()
+            .is_some()
+    );
+    assert!(
+        price_change["payload"]["productListingTitleSlugId"]
             .as_str()
             .is_some()
     );
@@ -314,28 +330,36 @@ async fn should_return_localized_reason_specific_notification_payloads() {
             .is_some()
     );
 
-    let approved = notification_with_kind(items, "PARTNER_APPLICATION_APPROVED");
+    let approved = notification_with_kind(items, "PARTNERSHIP_APPLICATION_APPROVED");
     assert_eq!(
         serde_json::json!("APPROVED"),
         approved["payload"]["decision"]
     );
     assert_eq!(
-        serde_json::json!("Approved Shop"),
-        approved["payload"]["shopName"]
+        serde_json::json!("Approved Party"),
+        approved["payload"]["partyName"]
     );
     assert_eq!(
-        serde_json::json!("https://shop.example/approved.jpg"),
+        serde_json::json!("Approved Listing Source"),
+        approved["payload"]["listingSourceName"]
+    );
+    assert_eq!(
+        serde_json::json!("https://listing-source.example/approved.jpg"),
         approved["payload"]["image"]
     );
 
-    let rejected = notification_with_kind(items, "PARTNER_APPLICATION_REJECTED");
+    let rejected = notification_with_kind(items, "PARTNERSHIP_APPLICATION_REJECTED");
     assert_eq!(
         serde_json::json!("REJECTED"),
         rejected["payload"]["decision"]
     );
     assert_eq!(
-        serde_json::json!("Rejected Shop"),
-        rejected["payload"]["shopName"]
+        serde_json::json!("Rejected Party"),
+        rejected["payload"]["partyName"]
+    );
+    assert_eq!(
+        serde_json::json!("Rejected Listing Source"),
+        rejected["payload"]["listingSourceName"]
     );
     assert!(rejected["payload"]["image"].is_null());
 
@@ -372,7 +396,7 @@ async fn should_present_notification_images_from_immutable_snapshot_and_current_
     .await;
     let allowed_snapshot = list_notification_page(&token, 10, None).await;
     assert_eq!(
-        serde_json::json!({ "url": "https://unsafe.shop.example/image.jpg" }),
+        serde_json::json!({ "url": "https://unsafe.listing-source.example/image.jpg" }),
         allowed_snapshot["items"][0]["payload"]["image"]
     );
 
@@ -398,7 +422,7 @@ async fn should_present_notification_images_from_immutable_snapshot_and_current_
         hidden_images
             .iter()
             .filter(|image| **image
-                == serde_json::json!({ "url": "https://unsafe.shop.example/image.jpg" }))
+                == serde_json::json!({ "url": "https://unsafe.listing-source.example/image.jpg" }))
             .count()
     );
     assert_eq!(
@@ -416,7 +440,7 @@ async fn should_present_notification_images_from_immutable_snapshot_and_current_
         .unwrap_or_else(|| panic!("notification items"))
     {
         assert_eq!(
-            serde_json::json!({ "url": "https://unsafe.shop.example/image.jpg" }),
+            serde_json::json!({ "url": "https://unsafe.listing-source.example/image.jpg" }),
             item["payload"]["image"]
         );
     }
@@ -671,18 +695,22 @@ async fn seed_notification(user_id: UserId, seen: bool) -> Uuid {
             notification_id,
             user_id,
             kind,
-            partner_shop_application_id,
+            partnership_application_id,
             payload,
             seen
-        ) VALUES ($1, $2, 'PARTNER_APPLICATION_APPROVED', $3, $4, $5)
+        ) VALUES ($1, $2, 'PARTNERSHIP_APPLICATION_APPROVED', $3, $4, $5)
         "#,
     )
     .bind(notification_id)
     .bind(uuid::Uuid::from(user_id))
     .bind(Uuid::new_v4())
     .bind(serde_json::json!({
-        "type": "PARTNER_APPLICATION",
-        "snapshot": { "shop_name": "Acceptance Shop", "image": null },
+        "type": "PARTNERSHIP_APPLICATION",
+        "snapshot": {
+            "party_name": "Acceptance Party",
+            "listing_source_name": "Acceptance Listing Source",
+            "image": null
+        },
     }))
     .bind(seen)
     .execute(&pool)
@@ -708,15 +736,15 @@ async fn seed_unsafe_image_notification(
         serde_json::json!({
             "type": "WATCHLIST",
             "snapshot": {
-                "shop_id": Uuid::new_v4(),
-                "shop_listing_id": "unsafe-product",
-                "shop_slug_id": "unsafe-shop",
-                "product_listing_slug_id": "unsafe-product-abcdef",
-                "shop_name": "Unsafe Shop",
+                "listing_source_id": Uuid::new_v4(),
+                "source_listing_id": "unsafe-product",
+                "listing_source_slug_id": "unsafe-listing-source",
+                "product_listing_title_slug_id": "unsafe-product-abcdef",
+                "listing_source_name": "Unsafe Listing Source",
                 "title": null,
-                "image": "https://unsafe.shop.example/image.jpg",
+                "image": "https://unsafe.listing-source.example/image.jpg",
                 "content_policy": content_policy,
-                "url": "https://unsafe.shop.example/product",
+                "url": "https://unsafe.listing-source.example/product",
                 "view_url": "https://aura-historia.example/product"
             },
             "change": {
@@ -734,16 +762,20 @@ async fn seed_notification_at(user_id: UserId, notification_id: Uuid, created: O
     if let Err(error) = sqlx::query(
         r#"
         INSERT INTO notifications (
-            notification_id, user_id, kind, partner_shop_application_id, payload, seen, created, updated
-        ) VALUES ($1, $2, 'PARTNER_APPLICATION_APPROVED', $3, $4, false, $5, $5)
+            notification_id, user_id, kind, partnership_application_id, payload, seen, created, updated
+        ) VALUES ($1, $2, 'PARTNERSHIP_APPLICATION_APPROVED', $3, $4, false, $5, $5)
         "#,
     )
     .bind(notification_id)
     .bind(uuid::Uuid::from(user_id))
     .bind(Uuid::new_v4())
     .bind(serde_json::json!({
-        "type": "PARTNER_APPLICATION",
-        "snapshot": { "shop_name": "Acceptance Shop", "image": null },
+        "type": "PARTNERSHIP_APPLICATION",
+        "snapshot": {
+            "party_name": "Acceptance Party",
+            "listing_source_name": "Acceptance Listing Source",
+            "image": null
+        },
     }))
     .bind(created)
     .execute(&pool)
@@ -830,14 +862,14 @@ async fn seed_price_notification(
         serde_json::json!({
             "type": "WATCHLIST",
             "snapshot": {
-                "shop_id": Uuid::new_v4(),
-                "shop_listing_id": "source-currency-product",
-                "shop_slug_id": "source-currency-shop",
-                "product_listing_slug_id": "source-currency-product-a1b2c3",
-                "shop_name": "Source Currency Shop",
+                "listing_source_id": Uuid::new_v4(),
+                "source_listing_id": "source-currency-product",
+                "listing_source_slug_id": "source-currency-listing-source",
+                "product_listing_title_slug_id": "source-currency-product-a1b2c3",
+                "listing_source_name": "Source Currency Listing Source",
                 "title": null,
                 "image": null,
-                "url": "https://shop.example/source-currency-product",
+                "url": "https://listing-source.example/source-currency-product",
                 "view_url": "https://aura-historia.example/source-currency-product"
             },
             "change": {
@@ -854,22 +886,22 @@ async fn seed_notification_payloads(user_id: UserId) {
     let product_listing_id = Uuid::new_v4();
     let product_snapshot = |title: serde_json::Value, image: serde_json::Value| {
         serde_json::json!({
-            "shop_id": Uuid::new_v4(),
-            "shop_listing_id": "shop-product-123",
-            "shop_slug_id": "test-shop",
-            "product_listing_slug_id": "test-product-a1b2c3",
-            "shop_name": "Snapshot Shop",
+            "listing_source_id": Uuid::new_v4(),
+            "source_listing_id": "listing-source-product-123",
+            "listing_source_slug_id": "test-listing-source",
+            "product_listing_title_slug_id": "test-product-a1b2c3",
+            "listing_source_name": "Snapshot Listing Source",
             "title": title,
             "image": image,
-            "url": "https://shop.example/product",
-            "view_url": "https://shop.example/product?view=1"
+            "url": "https://listing-source.example/product",
+            "view_url": "https://listing-source.example/product?view=1"
         })
     };
     let localized_title = serde_json::json!([
         { "language": "en", "title": "Violin title" },
         { "language": "de", "title": "Geigentitel" }
     ]);
-    let image = serde_json::json!("https://shop.example/product.jpg");
+    let image = serde_json::json!("https://listing-source.example/product.jpg");
 
     seed_notification_with_payload(
         user_id,
@@ -920,27 +952,35 @@ async fn seed_notification_payloads(user_id: UserId) {
     .await;
     seed_notification_with_payload(
         user_id,
-        "PARTNER_APPLICATION_APPROVED",
+        "PARTNERSHIP_APPLICATION_APPROVED",
         None,
         None,
         None,
         Some(Uuid::new_v4()),
         serde_json::json!({
-            "type": "PARTNER_APPLICATION",
-            "snapshot": { "shop_name": "Approved Shop", "image": "https://shop.example/approved.jpg" }
+            "type": "PARTNERSHIP_APPLICATION",
+            "snapshot": {
+                "party_name": "Approved Party",
+                "listing_source_name": "Approved Listing Source",
+                "image": "https://listing-source.example/approved.jpg"
+            }
         }),
     )
     .await;
     seed_notification_with_payload(
         user_id,
-        "PARTNER_APPLICATION_REJECTED",
+        "PARTNERSHIP_APPLICATION_REJECTED",
         None,
         None,
         None,
         Some(Uuid::new_v4()),
         serde_json::json!({
-            "type": "PARTNER_APPLICATION",
-            "snapshot": { "shop_name": "Rejected Shop", "image": null }
+            "type": "PARTNERSHIP_APPLICATION",
+            "snapshot": {
+                "party_name": "Rejected Party",
+                "listing_source_name": "Rejected Listing Source",
+                "image": null
+            }
         }),
     )
     .await;
@@ -952,7 +992,7 @@ async fn seed_notification_with_payload(
     origin_event_id: Option<Uuid>,
     product_listing_id: Option<Uuid>,
     user_search_filter_id: Option<Uuid>,
-    partner_shop_application_id: Option<Uuid>,
+    partnership_application_id: Option<Uuid>,
     payload: serde_json::Value,
 ) {
     let pool = get_postgres_client().await;
@@ -960,7 +1000,7 @@ async fn seed_notification_with_payload(
         r#"
         INSERT INTO notifications (
             notification_id, user_id, kind, origin_event_id, product_listing_id,
-            user_search_filter_id, partner_shop_application_id, payload, seen
+            user_search_filter_id, partnership_application_id, payload, seen
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
         "#,
     )
@@ -970,7 +1010,7 @@ async fn seed_notification_with_payload(
     .bind(origin_event_id)
     .bind(product_listing_id)
     .bind(user_search_filter_id)
-    .bind(partner_shop_application_id)
+    .bind(partnership_application_id)
     .bind(payload)
     .execute(&pool)
     .await

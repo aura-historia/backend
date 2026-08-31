@@ -84,18 +84,18 @@ mod tests {
     use axum::http::{Request, StatusCode, header};
     use domain_primitives::event_id::EventId;
     use fxrate_core::FxRateId;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use localization::{Language, Localized};
     use money::Currency;
     use money::{MonetaryAmount, Price};
     use notification_core::notification_id::NotificationId;
     use product_listing_core::listing_availability::ListingAvailability;
     use product_listing_core::listing_lifecycle::ListingLifecycle;
-    use product_listing_core::product_listing::{
-        ProductListingAddress, ProductListingAuction, ProductListingPricing,
-    };
+    use product_listing_core::product_listing::{ProductListingAuction, ProductListingPricing};
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-    use product_listing_core::shop_listing_id::ShopListingId;
+    use product_listing_core::source_listing_id::SourceListingId;
     use product_listing_core::title::Title;
+    use product_listing_service::ports::ListingSourceSummary;
     use product_listing_service::use_cases::{
         DisplayProductListingPricing, GetProductListingError, GetProductListingUseCase,
         GetSimilarProductListingsError, GetSimilarProductListingsRequest,
@@ -113,9 +113,6 @@ mod tests {
     use search_filter_core::user_search_filter_id::UserSearchFilterId;
     use search_filter_core::user_search_filter_name::UserSearchFilterName;
     use serde_json::{Value, json};
-    use shop_core::shop_id::ShopId;
-    use shop_core::shop_name::ShopName;
-    use shop_core::shop_slug_id::ShopSlugId;
     use std::sync::{Arc, Mutex, MutexGuard};
     use time::OffsetDateTime;
     use tower::ServiceExt;
@@ -201,6 +198,7 @@ mod tests {
         let mut view = product_details_view()?;
         view.item.availability = None;
         let product_listing_id = view.item.product_listing_id;
+        let product_listing_title_slug_id = view.item.product_listing_title_slug_id.clone();
         let (app, calls) = app(view, false, None);
 
         let response = app
@@ -223,6 +221,11 @@ mod tests {
             json!(product_listing_id.to_string()),
             body["item"]["productListingId"]
         );
+        assert_eq!(
+            json!(product_listing_title_slug_id.map(|slug| slug.to_string())),
+            body["item"]["productListingTitleSlugId"]
+        );
+        assert!(body["item"].get("sourceListingSlugId").is_none());
         assert!(body["item"].get("createdBy").is_none());
         assert!(body["item"].get("updatedBy").is_none());
         assert_eq!(
@@ -276,6 +279,35 @@ mod tests {
                 language: Language::De,
                 currency: Currency::Usd,
             } if actual == product_listing_id
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_title_slug_path_to_title_slug_lookup()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let view = product_details_view()?;
+        let product_listing_title_slug_id = ProductListingSlugId::raw("cabinet-a1b2c3")
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}"));
+        let (app, calls) = app(view, false, None);
+
+        let response = app
+            .oneshot(
+                Request::get(format!(
+                    "/api/v1/product-listings/by-slug/{product_listing_title_slug_id}?language=de&currency=USD"
+                ))
+                .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert!(matches!(
+            &lock(&calls)[0].1,
+            GetProductListingRequest {
+                lookup: ProductListingLookup::ByTitleSlug(actual),
+                language: Language::De,
+                currency: Currency::Usd,
+            } if actual == &product_listing_title_slug_id
         ));
         Ok(())
     }
@@ -434,6 +466,12 @@ mod tests {
                     "/api/v1/product-listings/{product_listing_id}",
                     axum::routing::get(get_product_by_id),
                 )
+                .route(
+                    "/api/v1/product-listings/by-slug/{product_listing_title_slug_id}",
+                    axum::routing::get(
+                        crate::product_listings::get_product_by_title_slug::get_product_by_title_slug,
+                    ),
+                )
                 .with_state(state),
             calls,
         )
@@ -448,16 +486,22 @@ mod tests {
         Ok(Personalized {
             item: ProductListingDetailsView {
                 product_listing_id: ProductListingId::new(),
-                product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+                product_listing_title_slug_id: Some(
+                    ProductListingSlugId::raw("cabinet-abcdef").unwrap_or_else(|error| {
+                        panic!("valid product listing title slug: {error}")
+                    }),
+                ),
                 event_id: EventId::new(),
-                shop_id: ShopId::new(),
-                seller_id: ShopId::new(),
-                shop_listing_id: ShopListingId::new(),
-                shop_name: ShopName::from("Shop"),
-                seller_name: ShopName::from("Seller"),
-                shop_slug_id: ShopSlugId::from("shop"),
-                seller_slug_id: ShopSlugId::from("seller"),
-                address: ProductListingAddress::default(),
+                source: ListingSourceSummary {
+                    listing_source_id: ListingSourceId::new(),
+                    name: ListingSourceName::try_from("Source").unwrap_or_else(|error| {
+                        panic!("invalid test listing source name: {error}")
+                    }),
+                    slug_id: ListingSourceSlugId::raw("source")
+                        .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+                },
+                source_listing_id: SourceListingId::try_from("source-listing-id")
+                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                 product_title: None,
                 product_description: None,
                 title: Some(Localized {
@@ -482,7 +526,7 @@ mod tests {
                 },
                 availability: Some(ListingAvailability::Available),
                 lifecycle: ListingLifecycle::Active,
-                url: Url::parse("https://shop.example/product-listings/1")?,
+                url: Url::parse("https://source.example/product-listings/1")?,
                 view_url: Url::parse("https://aura.example/product-listings/cabinet-abcdef")?,
                 images: Default::default(),
                 content_policy: None,

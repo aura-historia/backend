@@ -71,11 +71,6 @@ fn capabilities_from_scopes(scopes: &HashSet<Scope>) -> BTreeSet<CredentialCapab
 fn credential_capability(scope: Scope) -> CredentialCapability {
     match scope {
         Scope::ProductListingsWrite => CredentialCapability::ProductListingsWrite,
-        Scope::ShopsRead => CredentialCapability::ShopsRead,
-        Scope::ShopsWrite => CredentialCapability::ShopsWrite,
-        Scope::PartnerShopApplicationsWrite => CredentialCapability::PartnerShopApplicationsWrite,
-        Scope::PartnerShopsRead => CredentialCapability::PartnerShopsRead,
-        Scope::PartnerShopsWrite => CredentialCapability::PartnerShopsWrite,
         Scope::UsersRead => CredentialCapability::UsersRead,
         Scope::UsersWrite => CredentialCapability::UsersWrite,
         Scope::AccessTokensRead => CredentialCapability::AccessTokensRead,
@@ -261,20 +256,6 @@ mod tests {
             (
                 Scope::ProductListingsWrite,
                 CredentialCapability::ProductListingsWrite,
-            ),
-            (Scope::ShopsRead, CredentialCapability::ShopsRead),
-            (Scope::ShopsWrite, CredentialCapability::ShopsWrite),
-            (
-                Scope::PartnerShopApplicationsWrite,
-                CredentialCapability::PartnerShopApplicationsWrite,
-            ),
-            (
-                Scope::PartnerShopsRead,
-                CredentialCapability::PartnerShopsRead,
-            ),
-            (
-                Scope::PartnerShopsWrite,
-                CredentialCapability::PartnerShopsWrite,
             ),
             (Scope::UsersRead, CredentialCapability::UsersRead),
             (Scope::UsersWrite, CredentialCapability::UsersWrite),

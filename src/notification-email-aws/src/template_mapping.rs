@@ -3,12 +3,14 @@ use money::Price;
 use notification_core::{
     notification::{
         LocalizedNotificationContent, LocalizedNotificationWatchlistChange, NotificationContent,
-        NotificationWatchlistChange, PartnerApplicationDecision,
+        NotificationWatchlistChange, PartnershipApplicationDecision,
     },
     presentation::present_image,
 };
 use notification_service::ports::notification_delivery_repository::NotificationDeliverySource;
-use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_core::{
+    listing_availability::ListingAvailability, product_listing_slug_id::ProductListingSlugId,
+};
 use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,8 +68,8 @@ pub(crate) enum EmailTemplateType {
     WatchlistUpdatePrice,
     WatchlistUpdateAvailability,
     SearchFilterMatch,
-    PartnerApplicationApproval,
-    PartnerApplicationRejection,
+    PartnershipApplicationApproval,
+    PartnershipApplicationRejection,
 }
 
 pub(crate) const fn template_type(content: &NotificationContent) -> EmailTemplateType {
@@ -78,12 +80,12 @@ pub(crate) const fn template_type(content: &NotificationContent) -> EmailTemplat
         } => EmailTemplateType::WatchlistUpdatePrice,
         NotificationContent::Watchlist { .. } => EmailTemplateType::WatchlistUpdateAvailability,
         NotificationContent::SearchFilter { .. } => EmailTemplateType::SearchFilterMatch,
-        NotificationContent::PartnerApplication {
-            decision: PartnerApplicationDecision::Approved,
+        NotificationContent::PartnershipApplication {
+            decision: PartnershipApplicationDecision::Approved,
             ..
-        } => EmailTemplateType::PartnerApplicationApproval,
-        NotificationContent::PartnerApplication { .. } => {
-            EmailTemplateType::PartnerApplicationRejection
+        } => EmailTemplateType::PartnershipApplicationApproval,
+        NotificationContent::PartnershipApplication { .. } => {
+            EmailTemplateType::PartnershipApplicationRejection
         }
     }
 }
@@ -95,8 +97,12 @@ pub(crate) const fn template_directory(template_type: EmailTemplateType) -> &'st
             "mjml/watchlist/product-update/availability"
         }
         EmailTemplateType::SearchFilterMatch => "mjml/search-filter/match",
-        EmailTemplateType::PartnerApplicationApproval => "mjml/partner-application/approval",
-        EmailTemplateType::PartnerApplicationRejection => "mjml/partner-application/rejection",
+        EmailTemplateType::PartnershipApplicationApproval => {
+            "mjml/partnership-application/approval"
+        }
+        EmailTemplateType::PartnershipApplicationRejection => {
+            "mjml/partnership-application/rejection"
+        }
     }
 }
 
@@ -118,8 +124,8 @@ pub(crate) const fn ses_template_tag_value(template_type: EmailTemplateType) -> 
         EmailTemplateType::WatchlistUpdatePrice => "WATCHLIST_UPDATE_PRICE",
         EmailTemplateType::WatchlistUpdateAvailability => "WATCHLIST_UPDATE_AVAILABILITY",
         EmailTemplateType::SearchFilterMatch => "SEARCH_FILTER_MATCH",
-        EmailTemplateType::PartnerApplicationApproval => "PARTNER_APPLICATION_APPROVAL",
-        EmailTemplateType::PartnerApplicationRejection => "PARTNER_APPLICATION_REJECTION",
+        EmailTemplateType::PartnershipApplicationApproval => "PARTNERSHIP_APPLICATION_APPROVAL",
+        EmailTemplateType::PartnershipApplicationRejection => "PARTNERSHIP_APPLICATION_REJECTION",
     }
 }
 
@@ -136,8 +142,10 @@ pub(crate) const fn subject(
                 "Die Verfügbarkeit eines Artikels auf deiner Merkliste hat sich geändert"
             }
             EmailTemplateType::SearchFilterMatch => "Neuer Treffer für deinen Suchfilter",
-            EmailTemplateType::PartnerApplicationApproval => "Partnerantrag genehmigt",
-            EmailTemplateType::PartnerApplicationRejection => "Update zu deinem Partnerantrag",
+            EmailTemplateType::PartnershipApplicationApproval => "Partnerschaftsantrag genehmigt",
+            EmailTemplateType::PartnershipApplicationRejection => {
+                "Update zu deinem Partnerschaftsantrag"
+            }
         },
         EmailLanguage::Fr => match template_type {
             EmailTemplateType::WatchlistUpdatePrice => {
@@ -149,8 +157,8 @@ pub(crate) const fn subject(
             EmailTemplateType::SearchFilterMatch => {
                 "Nouveau résultat pour votre filtre de recherche"
             }
-            EmailTemplateType::PartnerApplicationApproval => "Demande de partenariat approuvée",
-            EmailTemplateType::PartnerApplicationRejection => {
+            EmailTemplateType::PartnershipApplicationApproval => "Demande de partenariat approuvée",
+            EmailTemplateType::PartnershipApplicationRejection => {
                 "Mise à jour de votre demande de partenariat"
             }
         },
@@ -162,8 +170,8 @@ pub(crate) const fn subject(
                 "La disponibilidad de un artículo de tu lista de deseos ha cambiado"
             }
             EmailTemplateType::SearchFilterMatch => "Nuevo resultado para tu filtro de búsqueda",
-            EmailTemplateType::PartnerApplicationApproval => "Solicitud de asociación aprobada",
-            EmailTemplateType::PartnerApplicationRejection => {
+            EmailTemplateType::PartnershipApplicationApproval => "Solicitud de asociación aprobada",
+            EmailTemplateType::PartnershipApplicationRejection => {
                 "Actualización de tu solicitud de asociación"
             }
         },
@@ -175,8 +183,10 @@ pub(crate) const fn subject(
                 "La disponibilità di un articolo nella tua lista dei desideri è cambiata"
             }
             EmailTemplateType::SearchFilterMatch => "Nuovo risultato per il tuo filtro di ricerca",
-            EmailTemplateType::PartnerApplicationApproval => "Richiesta di partnership approvata",
-            EmailTemplateType::PartnerApplicationRejection => {
+            EmailTemplateType::PartnershipApplicationApproval => {
+                "Richiesta di partnership approvata"
+            }
+            EmailTemplateType::PartnershipApplicationRejection => {
                 "Aggiornamento della tua richiesta di partnership"
             }
         },
@@ -186,8 +196,8 @@ pub(crate) const fn subject(
                 "Your watchlist item's availability changed"
             }
             EmailTemplateType::SearchFilterMatch => "New search filter match",
-            EmailTemplateType::PartnerApplicationApproval => "Partner application approved",
-            EmailTemplateType::PartnerApplicationRejection => "Partner application update",
+            EmailTemplateType::PartnershipApplicationApproval => "Partnership application approved",
+            EmailTemplateType::PartnershipApplicationRejection => "Partnership application update",
         },
     }
 }
@@ -217,9 +227,8 @@ pub(crate) fn template_data(
             snapshot, change, ..
         } => {
             let mut data = product_template_data(
-                snapshot.shop_name.to_string(),
-                snapshot.shop_slug_id.to_string(),
-                snapshot.product_listing_slug_id.to_string(),
+                snapshot.listing_source_name.to_string(),
+                &snapshot.product_listing_title_slug_id,
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
                 snapshot.view_url.to_string(),
@@ -255,9 +264,8 @@ pub(crate) fn template_data(
             ..
         } => {
             let mut data = product_template_data(
-                snapshot.shop_name.to_string(),
-                snapshot.shop_slug_id.to_string(),
-                snapshot.product_listing_slug_id.to_string(),
+                snapshot.listing_source_name.to_string(),
+                &snapshot.product_listing_title_slug_id,
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
                 snapshot.view_url.to_string(),
@@ -267,15 +275,16 @@ pub(crate) fn template_data(
             data["notification_type"] = json!("search_filter_match");
             add_recipient_data(data, first_name)
         }
-        LocalizedNotificationContent::PartnerApplication {
+        LocalizedNotificationContent::PartnershipApplication {
             snapshot, decision, ..
         } => add_recipient_data(
             json!({
-                "shop_name": snapshot.shop_name.to_string(),
+                "party_name": snapshot.party_name.to_string(),
+                "listing_source_name": snapshot.listing_source_name.to_string(),
                 "image_url": snapshot.image.map(|image| image.to_string()),
                 "notification_type": match decision {
-                    PartnerApplicationDecision::Approved => "partner_application_approval",
-                    PartnerApplicationDecision::Rejected => "partner_application_rejection",
+                    PartnershipApplicationDecision::Approved => "partnership_application_approval",
+                    PartnershipApplicationDecision::Rejected => "partnership_application_rejection",
                 },
             }),
             first_name,
@@ -288,14 +297,23 @@ fn add_recipient_data(mut data: Value, first_name: Option<&str>) -> Value {
     data
 }
 fn product_template_data(
-    shop_name: String,
-    shop_slug_id: String,
-    product_listing_slug_id: String,
+    listing_source_name: String,
+    product_listing_title_slug_id: &ProductListingSlugId,
     title: Option<String>,
     image_url: Option<String>,
     view_url: String,
 ) -> Value {
-    json!({ "shop_name": shop_name, "shop_slug_id": shop_slug_id, "product_listing_slug_id": product_listing_slug_id, "title": title, "image_url": image_url, "view_url": view_url })
+    json!({
+        "listing_source_name": listing_source_name,
+        "product_listing_url": product_listing_url(product_listing_title_slug_id),
+        "title": title,
+        "image_url": image_url,
+        "view_url": view_url,
+    })
+}
+
+fn product_listing_url(product_listing_title_slug_id: &ProductListingSlugId) -> String {
+    format!("https://aura-historia.com/product-listings/{product_listing_title_slug_id}")
 }
 fn price_text(price: Option<Price>) -> Option<String> {
     price.map(|price| price.format_human_readable())
@@ -387,6 +405,7 @@ fn availability_text(availability: ListingAvailability, language: Language) -> &
 mod tests {
     use super::*;
     use domain_primitives::event_id::EventId;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use localization::Language;
     use money::{Currency, MonetaryAmount, Price};
     use notification_core::notification_id::NotificationId;
@@ -406,10 +425,9 @@ mod tests {
         listing_availability::ListingAvailability,
         product_listing_id::ProductListingId,
         product_listing_slug_id::ProductListingSlugId,
-        shop_listing_id::ShopListingId,
+        source_listing_id::SourceListingId,
     };
     use rstest::rstest;
-    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
     use std::collections::HashMap;
     use url::Url;
     use user_core::user_id::UserId;
@@ -480,17 +498,17 @@ mod tests {
         "Nuovo risultato per il tuo filtro di ricerca"
     )]
     #[case(
-        EmailTemplateType::PartnerApplicationApproval,
-        "Partnerantrag genehmigt",
-        "Partner application approved",
+        EmailTemplateType::PartnershipApplicationApproval,
+        "Partnerschaftsantrag genehmigt",
+        "Partnership application approved",
         "Demande de partenariat approuvée",
         "Solicitud de asociación aprobada",
         "Richiesta di partnership approvata"
     )]
     #[case(
-        EmailTemplateType::PartnerApplicationRejection,
-        "Update zu deinem Partnerantrag",
-        "Partner application update",
+        EmailTemplateType::PartnershipApplicationRejection,
+        "Update zu deinem Partnerschaftsantrag",
+        "Partnership application update",
         "Mise à jour de votre demande de partenariat",
         "Actualización de tu solicitud de asociación",
         "Aggiornamento della tua richiesta di partnership"
@@ -554,6 +572,22 @@ mod tests {
         let data = template_data(&source, EmailLanguage::En, None);
 
         assert_eq!(expected_image_url, data["image_url"].as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn should_include_frontend_product_listing_url_and_first_name_in_template_data()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let source = source(false, None)?;
+        let data = template_data(&source, EmailLanguage::En, Some("Ada"));
+
+        assert_eq!(
+            Some("https://aura-historia.com/product-listings/antique-vase-a1b2c3"),
+            data["product_listing_url"].as_str()
+        );
+        assert_eq!(Some("Ada"), data["first_name"].as_str());
+        assert!(data.get("listing_source_slug_id").is_none());
+        assert!(data.get("product_listing_title_slug_id").is_none());
         Ok(())
     }
 
@@ -684,11 +718,19 @@ mod tests {
                 origin_event_id: EventId::new(),
                 product_listing_id: ProductListingId::new(),
                 snapshot: ProductListingNotificationSnapshot {
-                    shop_id: ShopId::new(),
-                    shop_listing_id: ShopListingId::from("shop-product"),
-                    shop_slug_id: ShopSlugId::from("shop"),
-                    product_listing_slug_id: ProductListingSlugId::from("product"),
-                    shop_name: ShopName::from("Test Shop"),
+                    listing_source_id: ListingSourceId::new(),
+                    source_listing_id: SourceListingId::try_from("source-product")
+                        .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+                    listing_source_slug_id: ListingSourceSlugId::raw("test-source")
+                        .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+                    product_listing_title_slug_id: ProductListingSlugId::raw("antique-vase-a1b2c3")
+                        .unwrap_or_else(|error| {
+                            panic!("valid product listing title slug: {error}")
+                        }),
+                    listing_source_name: ListingSourceName::try_from("Test Listing Source")
+                        .unwrap_or_else(|error| {
+                            panic!("invalid test listing source name: {error}")
+                        }),
                     title: None,
                     image: Some(Url::parse("https://shop.example/image.jpg")?),
                     content_policy,

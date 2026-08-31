@@ -1159,22 +1159,23 @@ async fn create_product_with_event(
     let product_listing_id = ProductListingId::new();
     let product_uuid = uuid::Uuid::from(product_listing_id);
     let event_id = EventId::new();
-    let shop_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
     let product_slug_suffix = product_uuid.simple().to_string()[..6].to_owned();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, $3, 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
-        .bind(shop_id)
-        .bind(format!("worker-percolator-shop-{shop_id}"))
-        .bind("Worker percolator shop")
+    sqlx::query("WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), concat($3, ' operator')) RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $1, $2, $3, party_id FROM operator")
+        .bind(listing_source_id)
+        .bind(format!("worker-percolator-source-{listing_source_id}"))
+        .bind("Worker percolator source")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-percolator-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))
-        .bind(shop_id)
+        .bind(listing_source_id)
         .bind(product_uuid.to_string())
         .bind(title)
+
         .execute(&mut *tx)
         .await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
@@ -1219,21 +1220,21 @@ async fn insert_cross_currency_product_with_event(
     let product_listing_id = ProductListingId::new();
     let product_uuid = uuid::Uuid::from(product_listing_id);
     let event_id = EventId::new();
-    let shop_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
     let product_slug_suffix = product_uuid.simple().to_string()[..6].to_owned();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, 'Cross currency worker shop', 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
-        .bind(shop_id)
-        .bind(format!("cross-currency-worker-shop-{shop_id}"))
+    sqlx::query("WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), 'Fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $1, $2, 'Cross currency worker source', party_id FROM operator")
+        .bind(listing_source_id)
+        .bind(format!("cross-currency-worker-source-{listing_source_id}"))
         .execute(&mut *tx)
         .await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $4, $5, $6, 'en', 'Cross currency worker description', 'en', $7, $8, $9, $10, $11, $12, $13, CASE WHEN $13 IS NULL THEN NULL ELSE $14 END, $15, 'ACTIVE', 'https://example.test/cross-currency-product', '[]')",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, $6, 'en', 'Cross currency worker description', 'en', $7, $8, $9, $10, $11, $12, $13, CASE WHEN $13 IS NULL THEN NULL ELSE $14 END, $15, 'ACTIVE', 'https://example.test/cross-currency-product', '[]')",
     )
     .bind(product_uuid)
     .bind(format!("cross-currency-worker-product-{product_slug_suffix}"))
     .bind(uuid::Uuid::from(event_id))
-    .bind(shop_id)
+    .bind(listing_source_id)
     .bind(product_uuid.to_string())
     .bind(title)
     .bind(price.map(|(amount, _)| amount))
@@ -1245,7 +1246,8 @@ async fn insert_cross_currency_product_with_event(
     .bind(sale_observation_fx_rate_id.map(uuid::Uuid::from))
     .bind(event_time)
     .bind(availability)
-    .execute(&mut *tx)
+
+        .execute(&mut *tx)
     .await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', $3)")
         .bind(uuid::Uuid::from(event_id))
@@ -1404,22 +1406,23 @@ async fn create_product_with_event_then_rollback(
     let product_listing_id = ProductListingId::new();
     let product_uuid = uuid::Uuid::from(product_listing_id);
     let event_id = EventId::new();
-    let shop_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
     let product_slug_suffix = product_uuid.simple().to_string()[..6].to_owned();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, $3, 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
-        .bind(shop_id)
-        .bind(format!("worker-percolator-shop-{shop_id}"))
-        .bind("Worker percolator shop")
+    sqlx::query("WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), concat($3, ' operator')) RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $1, $2, $3, party_id FROM operator")
+        .bind(listing_source_id)
+        .bind(format!("worker-percolator-source-{listing_source_id}"))
+        .bind("Worker percolator source")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-percolator-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))
-        .bind(shop_id)
+        .bind(listing_source_id)
         .bind(product_uuid.to_string())
         .bind(title)
+
         .execute(&mut *tx)
         .await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())")

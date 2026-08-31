@@ -2,7 +2,7 @@ use crate::product_listing_document::{ProductListingDocument, ProductListingDocu
 use crate::product_listing_search_reader::map_search_response;
 use application::error::box_error;
 use opensearch::{OpenSearch, SearchParts};
-use platform_opensearch::search_response::SearchResponse;
+use platform_opensearch::{response::read_response, search_response::SearchResponse};
 use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_service::ports::{
     CompiledProductListingSearch, ProductListingSimilarProductListingsReadError,
@@ -58,18 +58,24 @@ impl ProductListingSimilarProductListingsReader
                 ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
                     source: box_error(error),
                 }
-            })?
-            .error_for_status_code()
-            .map_err(|error| {
-                ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
-                    source: box_error(error),
-                }
             })?;
-        let payload = response.text().await.map_err(|error| {
+        let response = read_response(response).await.map_err(|error| {
             ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
                 source: box_error(error),
             }
         })?;
+        if !response.status().is_success() {
+            return Err(
+                ProductListingSimilarProductListingsReadError::SimilarProductListingsQueryFailed {
+                    source: box_error(std::io::Error::other(format!(
+                        "OpenSearch similar product listings returned {}: {}",
+                        response.status(),
+                        response.body(),
+                    ))),
+                },
+            );
+        }
+        let payload = response.into_body();
         let search_response = serde_json::from_str::<SearchResponse<ProductListingDocument>>(
             &payload,
         )

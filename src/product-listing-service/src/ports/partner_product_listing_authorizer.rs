@@ -1,12 +1,12 @@
 use application::error::BoxError;
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use user_core::user_id::UserId;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PartnerProductListingAuthorizationError {
-    #[error("shop not found")]
-    ShopNotFound,
-    #[error("actor is not allowed to manage this shop's products")]
+    #[error("listing source not found")]
+    ListingSourceNotFound,
+    #[error("actor is not allowed to manage this listing source's products")]
     Forbidden,
     #[error("partner product authorization is temporarily unavailable")]
     TemporarilyUnavailable {
@@ -25,7 +25,7 @@ pub trait PartnerProductListingAuthorizer: Send {
     async fn authorize(
         &mut self,
         actor_id: UserId,
-        shop_id: ShopId,
+        listing_source_id: ListingSourceId,
     ) -> Result<(), PartnerProductListingAuthorizationError>;
 }
 

@@ -296,7 +296,7 @@ mod tests {
             hashed_token: RawAccessToken::new().into(),
             user_id,
             name: AccessTokenName::from("test token"),
-            scopes: HashSet::from([Scope::ShopsWrite]),
+            scopes: HashSet::from([Scope::ProductListingsWrite]),
             origin: AccessTokenOrigin::User,
             expires: None,
         })

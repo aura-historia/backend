@@ -4,6 +4,10 @@ use crate::ports::{
     ProductListingEventStoreError, ProductListingEventStoreFactory, ProductListingRepository,
     ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
 };
+use crate::product_listing_title_slug_creation::{
+    ProductListingTitleSlugGenerator, RandomProductListingTitleSlugGenerator,
+    TitleSlugCollisionRetry, title_slug_collision_retry,
+};
 use crate::use_cases::{CreateProductListingResult, UpdateProductListingResult};
 use application::error::{BoxError, box_error};
 use application::operation_context::{
@@ -13,30 +17,28 @@ use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
 
 use indexmap::IndexSet;
+use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
 use money::Price;
 use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::{
     ChangeListingAvailabilityError, ChangeProductListingError, NewProductListing, ProductListing,
-    ProductListingAddress, ProductListingAuction, ProductListingPricing,
-    RehydrateProductListingError,
+    ProductListingAuction, ProductListingPricing, RehydrateProductListingError,
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
+use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
-use shop_core::shop_id::ShopId;
 use url::Url;
 use user_core::user_id::UserId;
 
 const MISSING_PRODUCT_URL: &str = "https://not-provided.invalid";
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpsertProductListingCommand {
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub address: ProductListingAddress,
+    pub listing_source_id: ListingSourceId,
+    pub source_listing_id: SourceListingId,
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
     pub price: PatchField<Price>,
@@ -59,8 +61,8 @@ pub enum UpsertProductListingError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
-    #[error("shop not found")]
-    ShopNotFound,
+    #[error("listing source not found")]
+    ListingSourceNotFound,
     #[error("partner product listing authorization is temporarily unavailable")]
     PartnerAuthorizationTemporarilyUnavailable {
         #[source]
@@ -78,6 +80,8 @@ pub enum UpsertProductListingError {
         #[source]
         source: BoxError,
     },
+    #[error("product listing title slug generation was exhausted")]
+    ProductListingTitleSlugGenerationExhausted,
     #[error("product listing persistence failed")]
     PersistenceFailed,
     #[error("product listing event storage failed")]
@@ -95,15 +99,17 @@ pub trait UpsertProductListingUseCase: Send + Sync {
         command: UpsertProductListingCommand,
     ) -> Result<UpsertProductListingResult, UpsertProductListingError>;
 }
-pub struct UpsertProductListingHandler<U, R, E, A> {
+pub struct UpsertProductListingHandler<U, R, E, A, G = RandomProductListingTitleSlugGenerator> {
     unit_of_work: U,
     products: R,
     events: E,
     authorizer: A,
+    title_slug_generator: G,
 }
 
 enum UpsertAttemptError {
-    ShopListingInsertRace,
+    SourceListingInsertRace,
+    TitleSlugCollision,
     Failed(UpsertProductListingError),
 }
 
@@ -148,36 +154,57 @@ impl From<RehydrateProductListingError> for UpsertAttemptError {
         Self::Failed(error.into())
     }
 }
-impl<U, R, E, A> UpsertProductListingHandler<U, R, E, A> {
+impl<U, R, E, A> UpsertProductListingHandler<U, R, E, A, RandomProductListingTitleSlugGenerator> {
     pub fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
+        Self::with_title_slug_generator(
+            unit_of_work,
+            products,
+            events,
+            authorizer,
+            RandomProductListingTitleSlugGenerator,
+        )
+    }
+}
+impl<U, R, E, A, G> UpsertProductListingHandler<U, R, E, A, G> {
+    pub(crate) fn with_title_slug_generator(
+        unit_of_work: U,
+        products: R,
+        events: E,
+        authorizer: A,
+        title_slug_generator: G,
+    ) -> Self {
         Self {
             unit_of_work,
             products,
             events,
             authorizer,
+            title_slug_generator,
         }
     }
 }
-impl<U, R, E, A> UpsertProductListingHandler<U, R, E, A>
+impl<U, R, E, A, G> UpsertProductListingHandler<U, R, E, A, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventStoreFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
+    G: ProductListingTitleSlugGenerator,
 {
     async fn persist(
         &self,
         tx: &mut U::Tx,
         context: &OperationContext,
         command: UpsertProductListingCommand,
+        new_product_listing_id: ProductListingId,
     ) -> Result<UpsertProductListingResult, UpsertAttemptError> {
         if let Some(actor_id) = partner_actor(&context.principal) {
             self.authorizer
                 .in_transaction(tx)
-                .authorize(actor_id, command.shop_id)
+                .authorize(actor_id, command.listing_source_id)
                 .await?;
         }
-        let key = ProductListingKey::new(command.shop_id, command.shop_listing_id.clone());
+        let key =
+            ProductListingKey::new(command.listing_source_id, command.source_listing_id.clone());
         let existing = self.products.in_transaction(tx).find_by_key(&key).await?;
         match existing {
             Some(loaded) => {
@@ -210,8 +237,20 @@ where
                 ))
             }
             None => {
-                let mut product =
-                    ProductListing::create(command.into_new_product(ProductListingId::new())?)?;
+                let title_slug_id = self
+                    .title_slug_generator
+                    .generate(
+                        command
+                            .title
+                            .as_ref()
+                            .map_or("", |title| title.payload.as_ref()),
+                    )
+                    .map_err(|_| UpsertProductListingError::InvalidProductListing {
+                        source: box_error(std::io::Error::other("invalid generated title slug")),
+                    })?;
+                let mut product = ProductListing::create(
+                    command.into_new_product(new_product_listing_id, title_slug_id)?,
+                )?;
                 let events = stamp_product_listing_events(
                     product.id(),
                     time::OffsetDateTime::now_utc(),
@@ -228,8 +267,11 @@ where
                     .insert(&product, event_id)
                     .await
                     .map_err(|error| match error {
-                        ProductListingRepositoryError::ShopListingAlreadyExists => {
-                            UpsertAttemptError::ShopListingInsertRace
+                        ProductListingRepositoryError::SourceListingAlreadyExists => {
+                            UpsertAttemptError::SourceListingInsertRace
+                        }
+                        ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists => {
+                            UpsertAttemptError::TitleSlugCollision
                         }
                         error => UpsertAttemptError::Failed(error.into()),
                     })?;
@@ -239,7 +281,7 @@ where
                 Ok(UpsertProductListingResult::Created(
                     CreateProductListingResult {
                         product_listing_id: persisted.value.id(),
-                        product_listing_slug_id: persisted.value.slug_id().clone(),
+                        product_listing_title_slug_id: persisted.value.title_slug_id().clone(),
                         event_id,
                     },
                 ))
@@ -251,6 +293,7 @@ where
         &self,
         context: &OperationContext,
         command: UpsertProductListingCommand,
+        new_product_listing_id: ProductListingId,
     ) -> Result<UpsertProductListingResult, UpsertAttemptError> {
         context
             .require()
@@ -261,7 +304,9 @@ where
             .begin()
             .await
             .map_err(|_| UpsertProductListingError::BeginTransactionFailed)?;
-        let result = self.persist(&mut tx, context, command).await?;
+        let result = self
+            .persist(&mut tx, context, command, new_product_listing_id)
+            .await?;
         tx.commit()
             .await
             .map_err(|_| UpsertProductListingError::CommitTransactionFailed)?;
@@ -269,14 +314,15 @@ where
     }
 }
 #[async_trait::async_trait]
-impl<U, R, E, A> UpsertProductListingUseCase for UpsertProductListingHandler<U, R, E, A>
+impl<U, R, E, A, G> UpsertProductListingUseCase for UpsertProductListingHandler<U, R, E, A, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventStoreFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
+    G: ProductListingTitleSlugGenerator,
 {
-    #[tracing::instrument(name = "upsert_product_listing", skip_all, fields(shop_id = %command.shop_id, shop_listing_id = %command.shop_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    #[tracing::instrument(name = "upsert_product_listing", skip_all, fields(listing_source_id = %command.listing_source_id, source_listing_id = %command.source_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
         &self,
         context: &OperationContext,
@@ -286,18 +332,39 @@ where
             "actor_id",
             tracing::field::display(context.principal.label()),
         );
-        let result = match self.execute_attempt(context, command.clone()).await {
-            Ok(result) => result,
-            Err(UpsertAttemptError::ShopListingInsertRace) => {
-                match self.execute_attempt(context, command).await {
-                    Ok(result) => result,
-                    Err(UpsertAttemptError::ShopListingInsertRace) => {
+        let new_product_listing_id = ProductListingId::new();
+        let mut source_listing_races = 0;
+        let mut title_slug_attempts = 0;
+        let result = loop {
+            match self
+                .execute_attempt(context, command.clone(), new_product_listing_id)
+                .await
+            {
+                Ok(result) => break result,
+                Err(UpsertAttemptError::SourceListingInsertRace) => {
+                    source_listing_races += 1;
+                    if source_listing_races > 1 {
                         return Err(UpsertProductListingError::PersistenceFailed);
                     }
-                    Err(UpsertAttemptError::Failed(error)) => return Err(error),
                 }
+                Err(UpsertAttemptError::TitleSlugCollision) => {
+                    title_slug_attempts += 1;
+                    if title_slug_collision_retry(title_slug_attempts, true)
+                        == TitleSlugCollisionRetry::Exhausted
+                    {
+                        return Err(
+                            UpsertProductListingError::ProductListingTitleSlugGenerationExhausted,
+                        );
+                    }
+                    tracing::warn!(
+                        product_listing_id = %new_product_listing_id,
+                        attempt = title_slug_attempts,
+                        constraint_name = "product_listings_title_slug_unique",
+                        "product listing title slug collision; regenerating"
+                    );
+                }
+                Err(UpsertAttemptError::Failed(error)) => return Err(error),
             }
-            Err(UpsertAttemptError::Failed(error)) => return Err(error),
         };
         let product_listing_id = match &result {
             UpsertProductListingResult::Created(value) => value.product_listing_id,
@@ -311,6 +378,7 @@ impl UpsertProductListingCommand {
     fn into_new_product(
         self,
         id: ProductListingId,
+        title_slug_id: ProductListingSlugId,
     ) -> Result<NewProductListing, UpsertProductListingError> {
         let url = match self.url {
             Some(url) => url,
@@ -322,10 +390,9 @@ impl UpsertProductListingCommand {
         };
         Ok(NewProductListing {
             id,
-            shop_id: self.shop_id,
-            seller_id: self.seller_id,
-            shop_listing_id: self.shop_listing_id,
-            address: self.address,
+            title_slug_id,
+            listing_source_id: self.listing_source_id,
+            source_listing_id: self.source_listing_id,
             title: self.title,
             description: self.description,
             pricing: ProductListingPricing {
@@ -437,7 +504,9 @@ impl From<OperationAuthorizationError> for UpsertProductListingError {
 impl From<PartnerProductListingAuthorizationError> for UpsertProductListingError {
     fn from(error: PartnerProductListingAuthorizationError) -> Self {
         match error {
-            PartnerProductListingAuthorizationError::ShopNotFound => Self::ShopNotFound,
+            PartnerProductListingAuthorizationError::ListingSourceNotFound => {
+                Self::ListingSourceNotFound
+            }
             PartnerProductListingAuthorizationError::Forbidden => Self::Forbidden,
             PartnerProductListingAuthorizationError::TemporarilyUnavailable { source } => {
                 Self::PartnerAuthorizationTemporarilyUnavailable { source }
@@ -457,9 +526,7 @@ impl From<ChangeProductListingError> for UpsertProductListingError {
     fn from(error: ChangeProductListingError) -> Self {
         match error {
             ChangeProductListingError::ListingWithdrawn => Self::ListingWithdrawn,
-            ChangeProductListingError::GeoLatitudeOutOfRange
-            | ChangeProductListingError::GeoLongitudeOutOfRange
-            | ChangeProductListingError::AuctionStartAfterEnd => Self::InvalidProductListing {
+            ChangeProductListingError::AuctionStartAfterEnd => Self::InvalidProductListing {
                 source: box_error(error),
             },
         }
@@ -486,8 +553,10 @@ impl From<ProductListingEventStoreError> for UpsertProductListingError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use listing_source_core::ListingSourceId;
     use money::{Currency, MonetaryAmount};
     use product_listing_core::product_listing::ProductListingEventPayload;
+    use product_listing_core::source_listing_id::SourceListingId;
 
     fn price(amount: u64) -> Price {
         Price::new(MonetaryAmount::from(amount), Currency::Eur)
@@ -495,10 +564,9 @@ mod tests {
 
     fn command(price: PatchField<Price>) -> UpsertProductListingCommand {
         UpsertProductListingCommand {
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shop_listing_id: ShopListingId::from("listing"),
-            address: ProductListingAddress::default(),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: None,
             description: None,
             price,
@@ -510,6 +578,11 @@ mod tests {
             auction_start: PatchField::Unchanged,
             auction_end: PatchField::Unchanged,
         }
+    }
+
+    fn test_title_slug() -> ProductListingSlugId {
+        ProductListingSlugId::raw("listing-a1b2c3")
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}"))
     }
 
     fn listing_with_price(value: Option<Price>) -> ProductListing {
@@ -530,10 +603,10 @@ mod tests {
     ) -> ProductListing {
         ProductListing::create(NewProductListing {
             id: ProductListingId::new(),
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shop_listing_id: ShopListingId::from("listing"),
-            address: ProductListingAddress::default(),
+            title_slug_id: test_title_slug(),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: None,
             description: None,
             pricing,
@@ -711,7 +784,7 @@ mod tests {
     #[test]
     fn should_preserve_absent_title_when_creating_listing() {
         let new_listing = command(PatchField::Unchanged)
-            .into_new_product(ProductListingId::new())
+            .into_new_product(ProductListingId::new(), test_title_slug())
             .unwrap_or_else(|error| panic!("new listing: {error}"));
 
         assert!(new_listing.title.is_none());
@@ -729,7 +802,7 @@ mod tests {
                 PatchField::Clear | PatchField::Unchanged => None,
             };
             let new_listing = command(patch)
-                .into_new_product(ProductListingId::new())
+                .into_new_product(ProductListingId::new(), test_title_slug())
                 .unwrap_or_else(|error| panic!("new listing: {error}"));
             assert_eq!(expected, new_listing.pricing.price);
         }
@@ -786,7 +859,7 @@ mod tests {
             upsert.auction_end = auction_end;
 
             let new_listing = upsert
-                .into_new_product(ProductListingId::new())
+                .into_new_product(ProductListingId::new(), test_title_slug())
                 .unwrap_or_else(|error| panic!("new listing: {error}"));
 
             assert_eq!(new_listing.pricing.price_estimate_min, expected_min);
@@ -794,5 +867,345 @@ mod tests {
             assert_eq!(new_listing.images, expected_images);
             assert_eq!(new_listing.auction, expected_auction);
         }
+    }
+
+    // Whole-handler tests deliberately keep their fakes here: they assert transaction,
+    // persistence, event, authorization, and candidate behavior together.
+    use application::operation_context::{CorrelationId, RequestId};
+    use application::transaction::TransactionError;
+    use domain_primitives::{event_id::EventId, versioned::Versioned};
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex, MutexGuard};
+
+    #[derive(Default)]
+    struct HandlerState {
+        candidates: Vec<ProductListingSlugId>,
+        begins: usize,
+        commits: usize,
+        rollbacks: usize,
+        finds: VecDeque<Option<Versioned<ProductListing, EventId>>>,
+        inserts: VecDeque<Result<(), ProductListingRepositoryError>>,
+        insert_calls: usize,
+        update_calls: usize,
+        event_calls: usize,
+        authorization_calls: usize,
+    }
+    type SharedHandlerState = Arc<Mutex<HandlerState>>;
+    #[derive(Clone)]
+    struct TestUow(SharedHandlerState);
+    struct TestTx(SharedHandlerState, bool);
+    impl Drop for TestTx {
+        fn drop(&mut self) {
+            if !self.1 {
+                test_lock(&self.0).rollbacks += 1;
+            }
+        }
+    }
+    #[derive(Clone)]
+    struct TestProducts(SharedHandlerState);
+    struct TestRepository(SharedHandlerState);
+    #[derive(Clone)]
+    struct TestEvents(SharedHandlerState);
+    struct TestEventStore(SharedHandlerState);
+    #[derive(Clone)]
+    struct TestAuthorizer(SharedHandlerState);
+    struct TestAuthorization(SharedHandlerState);
+    #[derive(Clone)]
+    struct TestGenerator(SharedHandlerState);
+    fn test_lock(state: &SharedHandlerState) -> MutexGuard<'_, HandlerState> {
+        match state.lock() {
+            Ok(state) => state,
+            Err(error) => error.into_inner(),
+        }
+    }
+    #[async_trait::async_trait]
+    impl UnitOfWork for TestUow {
+        type Tx = TestTx;
+        async fn begin(&self) -> Result<TestTx, TransactionError> {
+            test_lock(&self.0).begins += 1;
+            Ok(TestTx(Arc::clone(&self.0), false))
+        }
+    }
+    #[async_trait::async_trait]
+    impl Transaction for TestTx {
+        async fn commit(mut self) -> Result<(), TransactionError> {
+            self.1 = true;
+            test_lock(&self.0).commits += 1;
+            Ok(())
+        }
+    }
+    impl ProductListingRepositoryFactory<TestTx> for TestProducts {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TestTx,
+        ) -> impl ProductListingRepository + 'tx {
+            TestRepository(Arc::clone(&self.0))
+        }
+    }
+    #[async_trait::async_trait]
+    impl ProductListingRepository for TestRepository {
+        async fn find_by_id(
+            &mut self,
+            _: ProductListingId,
+        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
+        {
+            Ok(None)
+        }
+        async fn find_by_key(
+            &mut self,
+            _: &ProductListingKey,
+        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
+        {
+            Ok(test_lock(&self.0).finds.pop_front().flatten())
+        }
+        async fn insert(
+            &mut self,
+            listing: &ProductListing,
+            event: EventId,
+        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            let mut state = test_lock(&self.0);
+            state.insert_calls += 1;
+            match state.inserts.pop_front().unwrap_or(Ok(())) {
+                Ok(()) => Ok(Versioned::new(listing.clone(), event)),
+                Err(error) => Err(error),
+            }
+        }
+        async fn update(
+            &mut self,
+            listing: &ProductListing,
+            _: EventId,
+            event: EventId,
+        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            test_lock(&self.0).update_calls += 1;
+            Ok(Versioned::new(listing.clone(), event))
+        }
+    }
+    impl ProductListingEventStoreFactory<TestTx> for TestEvents {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TestTx,
+        ) -> impl ProductListingEventStore + 'tx {
+            TestEventStore(Arc::clone(&self.0))
+        }
+    }
+    #[async_trait::async_trait]
+    impl ProductListingEventStore for TestEventStore {
+        async fn append(
+            &mut self,
+            _: &crate::ports::product_listing_event_store::ProductListingEvent,
+        ) -> Result<(), ProductListingEventStoreError> {
+            test_lock(&self.0).event_calls += 1;
+            Ok(())
+        }
+    }
+    impl PartnerProductListingAuthorizerFactory<TestTx> for TestAuthorizer {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TestTx,
+        ) -> impl PartnerProductListingAuthorizer + 'tx {
+            TestAuthorization(Arc::clone(&self.0))
+        }
+    }
+    #[async_trait::async_trait]
+    impl PartnerProductListingAuthorizer for TestAuthorization {
+        async fn authorize(
+            &mut self,
+            _: UserId,
+            _: ListingSourceId,
+        ) -> Result<(), PartnerProductListingAuthorizationError> {
+            test_lock(&self.0).authorization_calls += 1;
+            Ok(())
+        }
+    }
+    impl ProductListingTitleSlugGenerator for TestGenerator {
+        fn generate(
+            &self,
+            _: &str,
+        ) -> Result<
+            ProductListingSlugId,
+            product_listing_core::product_listing_slug_id::InvalidProductListingSlugId,
+        > {
+            let candidate = ProductListingSlugId::from_title_and_suffix(
+                "listing",
+                &format!("{:06x}", test_lock(&self.0).candidates.len() + 1),
+            )?;
+            test_lock(&self.0).candidates.push(candidate.clone());
+            Ok(candidate)
+        }
+    }
+    fn handler_context() -> OperationContext {
+        OperationContext {
+            principal: Principal::User(UserId::new()),
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+    fn handler_command() -> UpsertProductListingCommand {
+        command(PatchField::Set(price(20)))
+    }
+    fn handler(
+        state: &SharedHandlerState,
+    ) -> UpsertProductListingHandler<TestUow, TestProducts, TestEvents, TestAuthorizer, TestGenerator>
+    {
+        UpsertProductListingHandler::with_title_slug_generator(
+            TestUow(Arc::clone(state)),
+            TestProducts(Arc::clone(state)),
+            TestEvents(Arc::clone(state)),
+            TestAuthorizer(Arc::clone(state)),
+            TestGenerator(Arc::clone(state)),
+        )
+    }
+    fn existing_listing() -> Versioned<ProductListing, EventId> {
+        let mut listing = listing_with_price(Some(price(10)));
+        listing.take_pending_event_payloads();
+        Versioned::new(listing, EventId::new())
+    }
+
+    #[tokio::test]
+    async fn should_retry_title_slug_collision_then_commit_new_upsert() {
+        let state = Arc::new(Mutex::new(HandlerState {
+            finds: VecDeque::from([None, None]),
+            inserts: VecDeque::from([
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+                Ok(()),
+            ]),
+            ..Default::default()
+        }));
+        assert!(matches!(
+            handler(&state)
+                .execute(&handler_context(), handler_command())
+                .await,
+            Ok(UpsertProductListingResult::Created(_))
+        ));
+        let state = test_lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.insert_calls,
+                state.event_calls,
+                state.authorization_calls
+            ),
+            (2, 2, 1, 1, 2, 1, 2)
+        );
+    }
+    #[tokio::test]
+    async fn should_exhaust_after_five_title_slug_collisions() {
+        let state = Arc::new(Mutex::new(HandlerState {
+            finds: VecDeque::from([None, None, None, None, None]),
+            inserts: VecDeque::from([
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+            ]),
+            ..Default::default()
+        }));
+        assert!(matches!(
+            handler(&state)
+                .execute(&handler_context(), handler_command())
+                .await,
+            Err(UpsertProductListingError::ProductListingTitleSlugGenerationExhausted)
+        ));
+        let state = test_lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.insert_calls
+            ),
+            (5, 5, 0, 5, 5)
+        );
+    }
+    #[tokio::test]
+    async fn should_not_generate_candidate_when_existing_listing_is_found() {
+        let state = Arc::new(Mutex::new(HandlerState {
+            finds: VecDeque::from([Some(existing_listing())]),
+            ..Default::default()
+        }));
+        assert!(matches!(
+            handler(&state)
+                .execute(&handler_context(), handler_command())
+                .await,
+            Ok(UpsertProductListingResult::Updated(_))
+        ));
+        let state = test_lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.insert_calls,
+                state.update_calls,
+                state.event_calls,
+                state.authorization_calls
+            ),
+            (0, 1, 1, 0, 0, 1, 1, 1)
+        );
+    }
+    #[tokio::test]
+    async fn should_rerun_source_race_without_new_candidate_when_winner_is_now_existing() {
+        let state = Arc::new(Mutex::new(HandlerState {
+            finds: VecDeque::from([None, Some(existing_listing())]),
+            inserts: VecDeque::from([Err(
+                ProductListingRepositoryError::SourceListingAlreadyExists,
+            )]),
+            ..Default::default()
+        }));
+        assert!(matches!(
+            handler(&state)
+                .execute(&handler_context(), handler_command())
+                .await,
+            Ok(UpsertProductListingResult::Updated(_))
+        ));
+        let state = test_lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.insert_calls,
+                state.update_calls,
+                state.authorization_calls
+            ),
+            (1, 2, 1, 1, 1, 1, 2)
+        );
+    }
+    #[tokio::test]
+    async fn should_keep_source_race_and_collision_counters_independent() {
+        let state = Arc::new(Mutex::new(HandlerState {
+            finds: VecDeque::from([None, None, None]),
+            inserts: VecDeque::from([
+                Err(ProductListingRepositoryError::SourceListingAlreadyExists),
+                Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+                Ok(()),
+            ]),
+            ..Default::default()
+        }));
+        assert!(matches!(
+            handler(&state)
+                .execute(&handler_context(), handler_command())
+                .await,
+            Ok(UpsertProductListingResult::Created(_))
+        ));
+        let state = test_lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.insert_calls,
+                state.authorization_calls
+            ),
+            (3, 3, 1, 2, 3, 3)
+        );
     }
 }

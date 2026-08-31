@@ -2,11 +2,11 @@
 //!
 //! Fetches a single URL using the project's own [`ReqwestHtmlFetcher`] (the
 //! same browser-impersonating reqwest client used in production) and writes
-//! the raw HTML to `tests/fixtures/html/<shop>_<state>.html` automatically.
+//! the raw HTML to `tests/fixtures/html/<listing_source>_<state>.html` automatically.
 //!
-//! The shop name is inferred from the URL's core domain:
+//! The listing source name is inferred from the URL's core domain:
 //! - `www.weitze.net`      → `weitze`
-//! - `shop.example.co.uk`  → `example`
+//! - `catalog.example.co.uk`  → `example`
 //!
 //! Usage:
 //! ```text
@@ -39,9 +39,9 @@ use url::Url;
 /// Examples:
 /// - `www.weitze.net`      → `"weitze"`
 /// - `www.example.co.uk`   → `"example"`
-/// - `shop.mysite.com`     → `"mysite"`
+/// - `catalog.mysite.com`  → `"mysite"`
 /// - `example.com`         → `"example"`
-fn shop_name_from_host(host: &str) -> &str {
+fn listing_source_name_from_host(host: &str) -> &str {
     // Strategy:
     //  1. Split into labels.
     //  2. Count how many trailing labels look like TLD parts (short, all-alpha).
@@ -90,8 +90,8 @@ fn normalize_state_slug(raw: &str) -> Option<String> {
     if out.is_empty() { None } else { Some(out) }
 }
 
-fn fixture_file_name(shop: &str, state: &str) -> String {
-    format!("{shop}_{state}.html")
+fn fixture_file_name(listing_source_name: &str, state: &str) -> String {
+    format!("{listing_source_name}_{state}.html")
 }
 
 #[tokio::main]
@@ -109,7 +109,7 @@ async fn main() {
         );
         eprintln!();
         eprintln!("The fixture is saved automatically to:");
-        eprintln!("  tests/fixtures/html/<shop>_<state>.html");
+        eprintln!("  tests/fixtures/html/<listing_source>_<state>.html");
         std::process::exit(1);
     }
 
@@ -126,7 +126,7 @@ async fn main() {
         std::process::exit(1);
     });
 
-    let shop = shop_name_from_host(host);
+    let listing_source_name = listing_source_name_from_host(host);
     let state = normalize_state_slug(raw_state).unwrap_or_else(|| {
         eprintln!("Error: invalid STATE '{raw_state}'. Use a non-empty value.");
         std::process::exit(1);
@@ -139,7 +139,7 @@ async fn main() {
         .join("tests")
         .join("fixtures")
         .join("html")
-        .join(fixture_file_name(shop, &state));
+        .join(fixture_file_name(listing_source_name, &state));
 
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent).unwrap_or_else(|e| {
@@ -151,7 +151,7 @@ async fn main() {
         });
     }
 
-    eprintln!("Shop:     {shop}");
+    eprintln!("Listing source: {listing_source_name}");
     eprintln!("State:    {state}");
     eprintln!("Fetching: {url}");
 
@@ -175,23 +175,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shop_name_strips_www_and_tld() {
-        assert_eq!(shop_name_from_host("www.weitze.net"), "weitze");
+    fn listing_source_name_strips_www_and_tld() {
+        assert_eq!(listing_source_name_from_host("www.weitze.net"), "weitze");
     }
 
     #[test]
-    fn shop_name_strips_subdomain_and_two_part_tld() {
-        assert_eq!(shop_name_from_host("shop.example.co.uk"), "example");
+    fn listing_source_name_strips_subdomain_and_two_part_tld() {
+        assert_eq!(
+            listing_source_name_from_host("catalog.example.co.uk"),
+            "example"
+        );
     }
 
     #[test]
-    fn shop_name_bare_domain() {
-        assert_eq!(shop_name_from_host("example.com"), "example");
+    fn listing_source_name_bare_domain() {
+        assert_eq!(listing_source_name_from_host("example.com"), "example");
     }
 
     #[test]
-    fn shop_name_multi_subdomain() {
-        assert_eq!(shop_name_from_host("a.b.mysite.com"), "mysite");
+    fn listing_source_name_multi_subdomain() {
+        assert_eq!(listing_source_name_from_host("a.b.mysite.com"), "mysite");
     }
 
     #[test]
@@ -216,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn fixture_file_name_includes_shop_and_state() {
+    fn fixture_file_name_includes_listing_source_and_state() {
         assert_eq!(
             fixture_file_name("weitze", "available"),
             "weitze_available.html"

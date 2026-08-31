@@ -1,569 +1,457 @@
+use crawler::CrawlerDomainId;
 use crawler::spider::classification::url_metadata::{UrlClass, UrlPresence};
 use crawler::spider::classification::url_metadata_repository::{
-    UrlMetadataRepository, UrlMetadataRepositoryImpl,
+    UrlMetadataRepository, UrlMetadataRepositoryError, UrlMetadataRepositoryImpl,
 };
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use test_api::*;
-
-const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 use url::Url;
 
-/// Helper: inserts a shop + domain and returns the generated domain_id.
-async fn insert_shop_with_domain(
-    pool: &sqlx::PgPool,
-    shop_id_uuid: uuid::Uuid,
-    domain: &str,
-) -> uuid::Uuid {
-    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
-        .bind(shop_id_uuid)
-        .execute(pool)
-        .await
-        .unwrap();
+const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
-    insert_domain_for_shop(pool, shop_id_uuid, domain).await
+async fn insert_source(pool: &sqlx::PgPool, listing_source_id: ListingSourceId) {
+    sqlx::query(
+        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled) \
+         VALUES ($1, 'Test source', 'test-source', TRUE)",
+    )
+    .bind(uuid::Uuid::from(listing_source_id))
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
-/// Helper: inserts an additional domain row for an already-existing shop.
-async fn insert_domain_for_shop(
+async fn insert_domain(
     pool: &sqlx::PgPool,
-    shop_id_uuid: uuid::Uuid,
+    listing_source_id: ListingSourceId,
     domain: &str,
-) -> uuid::Uuid {
-    let row: (uuid::Uuid,) = sqlx::query_as(
-        "INSERT INTO shop_domains (shop_id, shop_domain) VALUES ($1, $2) RETURNING domain_id",
+) -> CrawlerDomainId {
+    sqlx::query_scalar::<_, uuid::Uuid>(
+        "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain, crawl_root_host) \
+         VALUES ($1, $2, $2) RETURNING domain_id",
     )
-    .bind(shop_id_uuid)
+    .bind(uuid::Uuid::from(listing_source_id))
     .bind(domain)
     .fetch_one(pool)
     .await
-    .unwrap();
-
-    row.0
+    .unwrap()
+    .into()
 }
 
-// ---------------------------------------------------------------------------
-// upsert_link — INSERT path
-// ---------------------------------------------------------------------------
-
-#[serial]
+#[serial_test::serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_insert_new_url_with_present_presence_when_url_does_not_exist() {
+async fn should_insert_and_update_url_for_its_same_owner() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_id_uuid: uuid::Uuid = shop_id.into();
-    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "example.com").await;
-
-    let url = Url::parse("https://example.com/product/123").unwrap();
-    let url_class = UrlClass::ProductListing;
-    let result = repository
-        .upsert_link(&shop_id, &domain_id, &url, &url_class)
-        .await
-        .unwrap();
-
-    assert_eq!(result.url, url);
-    assert_eq!(result.url_class, url_class);
-    assert_eq!(result.state, UrlPresence::Present);
-    assert_eq!(result.domain_id, domain_id);
-}
-
-// ---------------------------------------------------------------------------
-// upsert_link — UPDATE (conflict) path, same domain
-// ---------------------------------------------------------------------------
-
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
-async fn should_update_existing_url_when_url_already_exists() {
-    let pool = get_postgres_client().await;
-    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_id_uuid: uuid::Uuid = shop_id.into();
-    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "example.com").await;
-
-    let url = Url::parse("https://example.com/product/123").unwrap();
-    let old_class = UrlClass::Other;
-
-    repository
-        .upsert_link(&shop_id, &domain_id, &url, &old_class)
-        .await
-        .unwrap();
-
-    let new_class = UrlClass::ProductListing;
-
-    let result2 = repository
-        .upsert_link(&shop_id, &domain_id, &url, &new_class)
-        .await
-        .unwrap();
-
-    assert_eq!(result2.url, url);
-    assert_eq!(result2.url_class, new_class);
-    assert_eq!(result2.state, UrlPresence::Present);
-    assert_eq!(result2.domain_id, domain_id);
-}
-
-// ---------------------------------------------------------------------------
-// upsert_link — UPDATE path reassigns domain_id when domain changes
-// ---------------------------------------------------------------------------
-
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
-async fn should_update_domain_id_when_url_is_upserted_with_different_domain() {
-    let pool = get_postgres_client().await;
-    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-
-    // Two shops, each owning one domain — same hostname so we can reuse the URL key.
-    let shop_id_a: ShopId = uuid::Uuid::new_v4().into();
-    let shop_id_b: ShopId = uuid::Uuid::new_v4().into();
-    let shop_a_uuid: uuid::Uuid = shop_id_a.into();
-    let shop_b_uuid: uuid::Uuid = shop_id_b.into();
-
-    // Both shops get the same hostname so the URL key (TEXT PRIMARY KEY) is the
-    // same — this exercises the ON CONFLICT ... DO UPDATE SET domain_id = EXCLUDED.domain_id path.
-    let domain_id_a = insert_shop_with_domain(&pool, shop_a_uuid, "shared-host.example.com").await;
-    // Give the second shop a *different* domain row that maps to the same
-    // host alias.  We need a distinct domain string for the UNIQUE constraint on
-    // shop_domains.shop_domain, so we use a sub-domain.
-    let domain_id_b =
-        insert_shop_with_domain(&pool, shop_b_uuid, "alias.shared-host.example.com").await;
-
-    let url = Url::parse("https://shared-host.example.com/product/1").unwrap();
-    let class = UrlClass::ProductListing;
-
-    // First upsert — domain_id_a
-    let r1 = repository
-        .upsert_link(&shop_id_a, &domain_id_a, &url, &class)
-        .await
-        .unwrap();
-    assert_eq!(r1.domain_id, domain_id_a);
-
-    // Second upsert with the same URL but domain_id_b — ON CONFLICT should update domain_id
-    let r2 = repository
-        .upsert_link(&shop_id_b, &domain_id_b, &url, &class)
-        .await
-        .unwrap();
-    assert_eq!(
-        r2.domain_id, domain_id_b,
-        "domain_id should be updated on conflict"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// upsert_link — FK violation when domain_id does not exist
-// ---------------------------------------------------------------------------
-
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
-async fn should_return_error_when_domain_id_does_not_exist_for_upsert_link() {
-    let pool = get_postgres_client().await;
-
-    // Insert a shop but do NOT create a shop_domains row.
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_id_uuid: uuid::Uuid = shop_id.into();
-    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
-        .bind(shop_id_uuid)
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-    let bogus_domain_id = uuid::Uuid::new_v4(); // no matching shop_domains row
-
-    let url = Url::parse("https://example.com/product/fk-test").unwrap();
-    let result = repository
-        .upsert_link(&shop_id, &bogus_domain_id, &url, &UrlClass::ProductListing)
-        .await;
-
-    assert!(result.is_err(), "expected FK violation error but got Ok");
-}
-
-// ---------------------------------------------------------------------------
-// mark_as_scraped — domain_id preserved in returned record
-// ---------------------------------------------------------------------------
-
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
-async fn should_update_last_scraped_timestamp_when_marking_as_scraped() {
-    let pool = get_postgres_client().await;
-    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_id_uuid: uuid::Uuid = shop_id.into();
-    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "example.com").await;
-
-    let url = Url::parse("https://example.com/product/123").unwrap();
-    let url_class = UrlClass::ProductListing;
-    repository
-        .upsert_link(&shop_id, &domain_id, &url, &url_class)
-        .await
-        .unwrap();
-
-    let marked = repository
-        .mark_as_scraped(&shop_id, &url, "dummy_hash")
-        .await
-        .unwrap();
-
-    assert!(marked.last_scraped.is_some());
-    assert_eq!(
-        marked.domain_id, domain_id,
-        "domain_id should be returned by mark_as_scraped"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// set_presence — domain_id preserved in returned record
-// ---------------------------------------------------------------------------
-
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
-async fn should_update_presence_when_setting_new_presence() {
-    let pool = get_postgres_client().await;
-    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_id_uuid: uuid::Uuid = shop_id.into();
-    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "example.com").await;
-
-    let url = Url::parse("https://example.com/product/123").unwrap();
-    let url_class = UrlClass::ProductListing;
-    let result = repository
-        .upsert_link(&shop_id, &domain_id, &url, &url_class)
-        .await
-        .unwrap();
-
-    assert_eq!(result.state, UrlPresence::Present);
-
-    let marked = repository
-        .set_presence(&shop_id, &url, &UrlPresence::Present)
-        .await
-        .unwrap();
-
-    assert_eq!(marked.state, UrlPresence::Present);
-    assert_eq!(
-        marked.domain_id, domain_id,
-        "domain_id should be returned by set_presence"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// upsert_links_batch — INSERT path: domain_id asserted on every record
-// ---------------------------------------------------------------------------
-
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
-async fn should_upsert_multiple_links_when_inserting_batch() {
-    let pool = get_postgres_client().await;
-    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_id_uuid: uuid::Uuid = shop_id.into();
-    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "example.com").await;
-
-    let urls = vec![
-        Url::parse("https://example.com/product/1").unwrap(),
-        Url::parse("https://example.com/product/2").unwrap(),
-    ];
-    let classes = vec![UrlClass::ProductListing, UrlClass::ProductListing];
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "same-owner.example.com").await;
+    let url = Url::parse("https://same-owner.example.com/products/1").unwrap();
 
     let inserted = repository
-        .upsert_links_batch(&shop_id, &domain_id, &urls, &classes)
+        .upsert_link(
+            &listing_source_id,
+            &domain_id,
+            &url,
+            &UrlClass::ProductListing,
+        )
         .await
         .unwrap();
-
-    assert_eq!(inserted.len(), 2);
-    assert!(inserted.iter().any(|r| r.url == urls[0]));
-    assert!(inserted.iter().any(|r| r.url == urls[1]));
-    // Every returned record must carry the correct domain_id
-    assert!(
-        inserted.iter().all(|r| r.domain_id == domain_id),
-        "all batch-inserted records should have domain_id = {domain_id}"
-    );
+    assert_eq!(inserted.listing_source_id, listing_source_id);
+    assert_eq!(inserted.domain_id, domain_id);
+    assert_eq!(inserted.url, url);
+    assert_eq!(inserted.url_class, UrlClass::ProductListing);
+    assert_eq!(inserted.state, UrlPresence::Present);
+    assert!(inserted.last_scraped.is_none());
+    assert!(inserted.last_scraped_hash.is_none());
 
     let updated = repository
-        .upsert_links_batch(&shop_id, &domain_id, &urls, &classes)
+        .upsert_link(&listing_source_id, &domain_id, &url, &UrlClass::Other)
         .await
         .unwrap();
-
-    assert_eq!(updated.len(), 2);
-    assert!(updated.iter().any(|r| r.url == urls[0]));
-    assert!(updated.iter().any(|r| r.url == urls[1]));
-    // domain_id must survive the ON CONFLICT update path too
-    assert!(
-        updated.iter().all(|r| r.domain_id == domain_id),
-        "all batch-updated records should still have domain_id = {domain_id}"
-    );
+    assert_eq!(updated.listing_source_id, listing_source_id);
+    assert_eq!(updated.domain_id, domain_id);
+    assert_eq!(updated.url, url);
+    assert_eq!(updated.url_class, UrlClass::Other);
+    assert_eq!(updated.state, UrlPresence::Present);
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(uuid::Uuid::from(listing_source_id))
+    .bind(url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
 }
 
-// ---------------------------------------------------------------------------
-// upsert_links_batch — conflict path reassigns domain_id
-// ---------------------------------------------------------------------------
-
-#[serial]
+#[serial_test::serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_update_domain_id_in_batch_when_url_is_upserted_under_different_domain() {
+async fn should_mark_owned_url_as_scraped() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-
-    let shop_id_a: ShopId = uuid::Uuid::new_v4().into();
-    let shop_id_b: ShopId = uuid::Uuid::new_v4().into();
-
-    let domain_id_a =
-        insert_shop_with_domain(&pool, shop_id_a.into(), "batch-domain-a.example.com").await;
-    let domain_id_b =
-        insert_shop_with_domain(&pool, shop_id_b.into(), "batch-domain-b.example.com").await;
-
-    let urls = vec![
-        Url::parse("https://batch-domain-a.example.com/p/1").unwrap(),
-        Url::parse("https://batch-domain-a.example.com/p/2").unwrap(),
-    ];
-    let classes = vec![UrlClass::ProductListing, UrlClass::ProductListing];
-    // First batch — domain_id_a
-    let first = repository
-        .upsert_links_batch(&shop_id_a, &domain_id_a, &urls, &classes)
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "scraped.example.com").await;
+    let url = Url::parse("https://scraped.example.com/products/1").unwrap();
+    repository
+        .upsert_link(
+            &listing_source_id,
+            &domain_id,
+            &url,
+            &UrlClass::ProductListing,
+        )
         .await
         .unwrap();
-    assert!(first.iter().all(|r| r.domain_id == domain_id_a));
 
-    // Second batch — same URLs, domain_id_b (ON CONFLICT DO UPDATE SET domain_id = EXCLUDED.domain_id)
-    let second = repository
-        .upsert_links_batch(&shop_id_b, &domain_id_b, &urls, &classes)
+    let scraped = repository
+        .mark_as_scraped(&listing_source_id, &url, "content-hash")
         .await
         .unwrap();
-    assert!(
-        second.iter().all(|r| r.domain_id == domain_id_b),
-        "domain_id should be updated to domain_id_b on conflict"
-    );
+
+    assert_eq!(scraped.listing_source_id, listing_source_id);
+    assert_eq!(scraped.domain_id, domain_id);
+    assert_eq!(scraped.last_scraped_hash.as_deref(), Some("content-hash"));
+    assert!(scraped.last_scraped.is_some());
+    assert_eq!(scraped.state, UrlPresence::Present);
 }
 
-// ---------------------------------------------------------------------------
-// upsert_links_batch — FK violation when domain_id does not exist
-// ---------------------------------------------------------------------------
-
-#[serial]
+#[serial_test::serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_return_error_when_domain_id_does_not_exist_for_upsert_links_batch() {
+async fn should_update_presence_for_owned_url() {
     let pool = get_postgres_client().await;
-
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_id_uuid: uuid::Uuid = shop_id.into();
-    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
-        .bind(shop_id_uuid)
-        .execute(&pool)
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "presence.example.com").await;
+    let url = Url::parse("https://presence.example.com/products/1").unwrap();
+    repository
+        .upsert_link(
+            &listing_source_id,
+            &domain_id,
+            &url,
+            &UrlClass::ProductListing,
+        )
         .await
         .unwrap();
 
-    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-    let bogus_domain_id = uuid::Uuid::new_v4();
+    let withdrawn = repository
+        .set_presence(&listing_source_id, &url, &UrlPresence::Withdrawn)
+        .await
+        .unwrap();
+    assert_eq!(withdrawn.state, UrlPresence::Withdrawn);
 
-    let urls = vec![Url::parse("https://example.com/product/fk-batch").unwrap()];
-    let classes = vec![UrlClass::ProductListing];
+    let present = repository
+        .set_presence(&listing_source_id, &url, &UrlPresence::Present)
+        .await
+        .unwrap();
+    assert_eq!(present.state, UrlPresence::Present);
+    assert_eq!(present.domain_id, domain_id);
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_upsert_valid_url_batch_for_one_owned_domain() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "batch.example.com").await;
+    let first = Url::parse("https://batch.example.com/products/1").unwrap();
+    let second = Url::parse("https://batch.example.com/products/2").unwrap();
+
+    let records = repository
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &[first.clone(), second.clone()],
+            &[UrlClass::ProductListing, UrlClass::Category],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(records.len(), 2);
+    assert!(records.iter().any(|record| {
+        record.listing_source_id == listing_source_id
+            && record.domain_id == domain_id
+            && record.url == first
+            && record.url_class == UrlClass::ProductListing
+            && record.state == UrlPresence::Present
+    }));
+    assert!(records.iter().any(|record| {
+        record.listing_source_id == listing_source_id
+            && record.domain_id == domain_id
+            && record.url == second
+            && record.url_class == UrlClass::Category
+            && record.state == UrlPresence::Present
+    }));
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_reject_batch_when_url_and_class_lengths_differ() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "lengths.example.com").await;
+    let url = Url::parse("https://lengths.example.com/products/1").unwrap();
+
     let result = repository
-        .upsert_links_batch(&shop_id, &bogus_domain_id, &urls, &classes)
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            std::slice::from_ref(&url),
+            &[UrlClass::ProductListing, UrlClass::Other],
+        )
         .await;
 
-    assert!(
-        result.is_err(),
-        "expected FK violation error for batch upsert but got Ok"
-    );
+    assert!(matches!(
+        result,
+        Err(UrlMetadataRepositoryError::Database {
+            source: sqlx::Error::Protocol(message)
+        }) if message == "URL and URL-class batch lengths differ"
+    ));
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(uuid::Uuid::from(listing_source_id))
+    .bind(url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
 }
 
-// ---------------------------------------------------------------------------
-// ON DELETE CASCADE — deleting a shop_domains row removes child shop_urls rows
-// ---------------------------------------------------------------------------
-
-#[serial]
+#[serial_test::serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_delete_urls_when_domain_is_deleted() {
+async fn should_reject_duplicate_urls_in_batch_without_persisting_any_row() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_id_uuid: uuid::Uuid = shop_id.into();
-    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "cascade.example.com").await;
-
-    // Insert two URLs under this domain
-    let urls = vec![
-        Url::parse("https://cascade.example.com/product/1").unwrap(),
-        Url::parse("https://cascade.example.com/product/2").unwrap(),
-    ];
-    for url in &urls {
-        repository
-            .upsert_link(&shop_id, &domain_id, url, &UrlClass::ProductListing)
-            .await
-            .unwrap();
-    }
-
-    // Confirm they exist
-    let count_before: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM shop_urls WHERE domain_id = $1")
-            .bind(domain_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(
-        count_before.0, 2,
-        "expected 2 shop_urls rows before cascade delete"
-    );
-
-    // Delete the domain row — CASCADE should remove the shop_urls rows
-    sqlx::query("DELETE FROM shop_domains WHERE domain_id = $1")
-        .bind(domain_id)
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    let count_after: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM shop_urls WHERE domain_id = $1")
-        .bind(domain_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(
-        count_after.0, 0,
-        "expected all shop_urls rows to be cascade-deleted when domain is deleted"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// ON DELETE CASCADE — batch-inserted URLs are also removed on domain delete
-// ---------------------------------------------------------------------------
-
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
-async fn should_delete_batch_urls_when_domain_is_deleted() {
-    let pool = get_postgres_client().await;
-    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_id_uuid: uuid::Uuid = shop_id.into();
-    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "batch-cascade.example.com").await;
-
-    let urls = vec![
-        Url::parse("https://batch-cascade.example.com/p/1").unwrap(),
-        Url::parse("https://batch-cascade.example.com/p/2").unwrap(),
-        Url::parse("https://batch-cascade.example.com/p/3").unwrap(),
-    ];
-    let classes = vec![UrlClass::ProductListing; 3];
-    repository
-        .upsert_links_batch(&shop_id, &domain_id, &urls, &classes)
-        .await
-        .unwrap();
-
-    let count_before: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM shop_urls WHERE domain_id = $1")
-            .bind(domain_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(count_before.0, 3);
-
-    sqlx::query("DELETE FROM shop_domains WHERE domain_id = $1")
-        .bind(domain_id)
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    let count_after: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM shop_urls WHERE domain_id = $1")
-        .bind(domain_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(
-        count_after.0, 0,
-        "batch-inserted shop_urls should be cascade-deleted with the domain"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// ON DELETE CASCADE — only URLs for the deleted domain are removed;
-//                     URLs from a sibling domain on the same shop survive
-// ---------------------------------------------------------------------------
-
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
-async fn should_only_delete_urls_for_deleted_domain_not_sibling_domain() {
-    let pool = get_postgres_client().await;
-    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_id_uuid: uuid::Uuid = shop_id.into();
-
-    // Two domains on the same shop
-    let domain_id_to_delete =
-        insert_shop_with_domain(&pool, shop_id_uuid, "delete-me.example.com").await;
-    let domain_id_survivor =
-        insert_domain_for_shop(&pool, shop_id_uuid, "keep-me.example.com").await;
-
-    let url_a = Url::parse("https://delete-me.example.com/product/1").unwrap();
-    let url_b = Url::parse("https://keep-me.example.com/product/1").unwrap();
-
-    repository
-        .upsert_link(
-            &shop_id,
-            &domain_id_to_delete,
-            &url_a,
-            &UrlClass::ProductListing,
-        )
-        .await
-        .unwrap();
-    repository
-        .upsert_link(
-            &shop_id,
-            &domain_id_survivor,
-            &url_b,
-            &UrlClass::ProductListing,
-        )
-        .await
-        .unwrap();
-
-    // Delete only the first domain
-    sqlx::query("DELETE FROM shop_domains WHERE domain_id = $1")
-        .bind(domain_id_to_delete)
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    let deleted_count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM shop_urls WHERE domain_id = $1")
-            .bind(domain_id_to_delete)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(
-        deleted_count.0, 0,
-        "URLs for the deleted domain should be gone"
-    );
-
-    let survivor_count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM shop_urls WHERE domain_id = $1")
-            .bind(domain_id_survivor)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(
-        survivor_count.0, 1,
-        "URLs for the surviving domain should remain"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// upsert_links_batch — empty slice returns Ok(vec![])
-// ---------------------------------------------------------------------------
-
-#[serial]
-#[aura_integration_test(services = [POSTGRES])]
-async fn should_return_empty_vec_when_batch_is_empty() {
-    let pool = get_postgres_client().await;
-    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
-
-    let shop_id: ShopId = uuid::Uuid::new_v4().into();
-    let shop_id_uuid: uuid::Uuid = shop_id.into();
-    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "empty-batch.example.com").await;
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "duplicates.example.com").await;
+    let url = Url::parse("https://duplicates.example.com/products/1").unwrap();
 
     let result = repository
-        .upsert_links_batch(&shop_id, &domain_id, &[], &[])
+        .upsert_links_batch(
+            &listing_source_id,
+            &domain_id,
+            &[url.clone(), url.clone()],
+            &[UrlClass::ProductListing, UrlClass::Other],
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(UrlMetadataRepositoryError::Database {
+            source: sqlx::Error::Database(_)
+        })
+    ));
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
+    )
+    .bind(uuid::Uuid::from(listing_source_id))
+    .bind(url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_delete_urls_when_their_domain_is_deleted() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id).await;
+    let domain_id = insert_domain(&pool, listing_source_id, "cascade.example.com").await;
+    let url = Url::parse("https://cascade.example.com/products/1").unwrap();
+    repository
+        .upsert_link(
+            &listing_source_id,
+            &domain_id,
+            &url,
+            &UrlClass::ProductListing,
+        )
         .await
         .unwrap();
 
-    assert!(result.is_empty(), "empty batch should return empty vec");
+    sqlx::query(
+        "DELETE FROM listing_source_domains WHERE listing_source_id = $1 AND domain_id = $2",
+    )
+    .bind(uuid::Uuid::from(listing_source_id))
+    .bind(uuid::Uuid::from(domain_id))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM listing_source_urls WHERE url = $1")
+        .bind(url.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_reject_new_url_when_domain_belongs_to_another_listing_source() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let source_a = ListingSourceId::new();
+    let source_b = ListingSourceId::new();
+    insert_source(&pool, source_a).await;
+    insert_source(&pool, source_b).await;
+    let domain_b = insert_domain(&pool, source_b, "b.example.com").await;
+    let url = Url::parse("https://b.example.com/product/1").unwrap();
+
+    let result = repository
+        .upsert_link(&source_a, &domain_b, &url, &UrlClass::ProductListing)
+        .await;
+    assert!(matches!(
+        result,
+        Err(UrlMetadataRepositoryError::DomainNotOwnedByListingSource { .. })
+    ));
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM listing_source_urls")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_reject_cross_source_url_claim_when_requested_domain_does_not_own_the_url_host() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let source_a = ListingSourceId::new();
+    let source_b = ListingSourceId::new();
+    insert_source(&pool, source_a).await;
+    insert_source(&pool, source_b).await;
+    let domain_a = insert_domain(&pool, source_a, "shared.example.com").await;
+    let domain_b = insert_domain(&pool, source_b, "b.example.com").await;
+    let url = Url::parse("https://shared.example.com/product/1").unwrap();
+
+    repository
+        .upsert_link(&source_a, &domain_a, &url, &UrlClass::ProductListing)
+        .await
+        .unwrap();
+    let conflict = repository
+        .upsert_link(&source_b, &domain_b, &url, &UrlClass::Other)
+        .await;
+    assert!(matches!(
+        conflict,
+        Err(UrlMetadataRepositoryError::UrlHostDoesNotMatchDomain { .. })
+    ));
+
+    let row: (uuid::Uuid, uuid::Uuid, String) = sqlx::query_as(
+        "SELECT listing_source_id, domain_id, url_class FROM listing_source_urls WHERE url = $1",
+    )
+    .bind(url.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.0, uuid::Uuid::from(source_a));
+    assert_eq!(row.1, uuid::Uuid::from(domain_a));
+    assert_eq!(row.2, "product");
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_reject_duplicate_canonical_domain_for_same_source() {
+    let pool = get_postgres_client().await;
+    let source = ListingSourceId::new();
+    insert_source(&pool, source).await;
+    insert_domain(&pool, source, "example.com").await;
+
+    let duplicate = sqlx::query(
+        "INSERT INTO listing_source_domains \
+         (listing_source_id, listing_source_domain, crawl_root_host) \
+         VALUES ($1, $2, $3)",
+    )
+    .bind(uuid::Uuid::from(source))
+    .bind("example.com")
+    .bind("www.example.com")
+    .execute(&pool)
+    .await;
+
+    assert!(duplicate.is_err());
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_roll_back_batch_when_one_url_is_owned_by_another_listing_source() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let source_a = ListingSourceId::new();
+    let source_b = ListingSourceId::new();
+    insert_source(&pool, source_a).await;
+    insert_source(&pool, source_b).await;
+    let domain_a = insert_domain(&pool, source_a, "shared.example.com").await;
+    let domain_b = insert_domain(&pool, source_b, "batch-b.example.com").await;
+    let conflicting = Url::parse("https://shared.example.com/product/1").unwrap();
+    let fresh = Url::parse("https://batch-b.example.com/product/2").unwrap();
+    repository
+        .upsert_link(
+            &source_a,
+            &domain_a,
+            &conflicting,
+            &UrlClass::ProductListing,
+        )
+        .await
+        .unwrap();
+
+    let result = repository
+        .upsert_links_batch(
+            &source_b,
+            &domain_b,
+            &[conflicting.clone(), fresh.clone()],
+            &[UrlClass::Other, UrlClass::ProductListing],
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(UrlMetadataRepositoryError::UrlHostDoesNotMatchDomain { .. })
+    ));
+    let fresh_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM listing_source_urls WHERE url = $1")
+            .bind(fresh.as_str())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(fresh_count, 0);
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_accept_bare_and_www_domain_equivalence_but_reject_other_subdomains() {
+    let pool = get_postgres_client().await;
+    let repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let source = ListingSourceId::new();
+    insert_source(&pool, source).await;
+    let domain = insert_domain(&pool, source, "example.com").await;
+
+    repository
+        .upsert_link(
+            &source,
+            &domain,
+            &Url::parse("https://www.example.com/products/1").unwrap(),
+            &UrlClass::ProductListing,
+        )
+        .await
+        .unwrap();
+    let result = repository
+        .upsert_link(
+            &source,
+            &domain,
+            &Url::parse("https://catalog.example.com/products/2").unwrap(),
+            &UrlClass::ProductListing,
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(UrlMetadataRepositoryError::UrlHostDoesNotMatchDomain { .. })
+    ));
 }

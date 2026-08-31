@@ -1,4 +1,4 @@
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 mod bookkeeping;
 mod budget;
 mod cached_schema_selection;
@@ -16,7 +16,9 @@ mod seed_pages;
 // ---------------------------------------------------------------------------
 
 use crate::scraper::candidate_service::MockScraperCandidateService;
-use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
+use crate::scraper::css_selector::product_schema::{
+    ListingSourceProductSchema, ProductCssSelectorSchema,
+};
 use crate::scraper::css_selector::product_schema_service::{
     GeneratedProductSchemas, GeneratedSingleSchema, MockProductListingSchemaService,
     SchemaLlmEvaluation, SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision,
@@ -32,20 +34,20 @@ use crate::scraper::normalization::product_normalization_service::{
 };
 use crate::scraper::scraper_service::ScraperService;
 use crate::scraper::scraper_service::service::{
-    DEFAULT_MAX_LLM_CALLS_PER_SHOP, FetchedHtml, MockHtmlFetcher, ScraperServiceImpl,
+    DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, FetchedHtml, MockHtmlFetcher, ScraperServiceImpl,
 };
 use crate::spider::classification::url_metadata::UrlPresence;
 use localization::Language;
 use localization::Localized;
 use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use url::Url;
 
-pub(super) fn shop_id() -> ShopId {
-    ShopId::new()
+pub(super) fn listing_source_id() -> ListingSourceId {
+    ListingSourceId::new()
 }
 
 pub(super) fn product_url() -> Url {
@@ -90,13 +92,12 @@ pub(super) fn minimal_schema() -> ProductCssSelectorSchema {
     };
 
     ProductCssSelectorSchema {
-        shop_listing_id: Some(text_rule("#product-id")),
+        source_listing_id: Some(text_rule("#product-id")),
         title: text_rule("h1"),
         description: None,
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
-        seller_name: None,
         state: text_rule("#state"),
         images: attr_rule_all("img", "src"),
         auction_start: None,
@@ -106,10 +107,12 @@ pub(super) fn minimal_schema() -> ProductCssSelectorSchema {
     }
 }
 
-pub(super) fn shops_product_schema(shop_id: ShopId) -> ShopsProductSchema {
+pub(super) fn listing_source_product_schemas(
+    listing_source_id: ListingSourceId,
+) -> ListingSourceProductSchema {
     let schema = minimal_schema();
-    ShopsProductSchema {
-        shop_id,
+    ListingSourceProductSchema {
+        listing_source_id,
         product_schemas: vec![schema],
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
@@ -163,13 +166,13 @@ pub(super) fn generated_single_product(
 pub(super) fn normalized_product(url: Url) -> NormalizedProduct {
     let title: Title = "Biedermeier Chair".into();
     NormalizedProduct {
-        shop_listing_id: ShopListingId::from("SKU-42"),
+        source_listing_id: SourceListingId::try_from("SKU-42")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
         title: Localized::new(Language::De, title),
         description: None,
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
-        seller_name: None,
         availability: ListingAvailabilityMapping::Availability(ListingAvailability::Available),
         url,
         images: vec![],
@@ -201,7 +204,7 @@ pub(super) fn normalization_failure(
 
 pub(super) fn expect_successful_bookkeeping(
     cand_svc: &mut MockScraperCandidateService,
-    shop_id: ShopId,
+    listing_source_id: ListingSourceId,
     url: Url,
     state: UrlPresence,
 ) {
@@ -209,17 +212,19 @@ pub(super) fn expect_successful_bookkeeping(
     cand_svc
         .expect_set_presence()
         .once()
-        .withf(move |received_shop_id, received_url, received_state| {
-            *received_shop_id == shop_id
-                && received_url == &url_for_set_presence
-                && *received_state == state
-        })
+        .withf(
+            move |received_listing_source_id, received_url, received_state| {
+                *received_listing_source_id == listing_source_id
+                    && received_url == &url_for_set_presence
+                    && *received_state == state
+            },
+        )
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
 }
 
 pub(super) fn expect_budget_increment(cand_svc: &mut MockScraperCandidateService, times: usize) {
     cand_svc
-        .expect_try_increment_shop_llm_calls_with_limit()
+        .expect_try_increment_listing_source_llm_calls_with_limit()
         .times(times)
         .returning(|_, _, _| Box::pin(async { Ok(true) }));
 }

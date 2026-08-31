@@ -6,7 +6,7 @@ use axum::response::{IntoResponse, Response};
 use domain_primitives::event_id::EventId;
 
 use fxrate_core::FxRateId;
-use geo::data::address_data::{GeoAddressData, StructuredAddressData};
+
 use notification_core::{
     notification_id::NotificationId, presentation::NotificationImagePresentation,
 };
@@ -17,7 +17,8 @@ use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
 use product_listing_core::content_policy::ContentPolicyDecision;
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::SourceListingId;
+use product_listing_service::ports::ListingSourceSummary;
 use product_listing_service::use_cases::{
     DisplayProductListingPricing, PersonalizedProductListingDetailsView,
     PersonalizedProductListingSummary, ProductListingDetailsView,
@@ -39,8 +40,7 @@ pub(crate) struct PersonalizedData<ItemData, UserStateData> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) user_state: Option<UserStateData>,
 }
-use shop_core::shop_id::ShopId;
-use shop_core::shop_slug_id::ShopSlugId;
+
 use time::OffsetDateTime;
 use url::Url;
 
@@ -48,19 +48,12 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductListingDetailsData {
     product_listing_id: ProductListingId,
-    product_listing_slug_id: ProductListingSlugId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    product_listing_title_slug_id: Option<ProductListingSlugId>,
     event_id: EventId,
-    shop_id: ShopId,
-    seller_id: ShopId,
-    shop_listing_id: ShopListingId,
-    shop_name: String,
-    seller_name: String,
-    shop_slug_id: ShopSlugId,
-    seller_slug_id: ShopSlugId,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    structured_address: Option<StructuredAddressData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    geo_address: Option<GeoAddressData>,
+    source: ListingSourceSummaryData,
+    #[serde(serialize_with = "crate::wire::source_listing_id::serialize")]
+    source_listing_id: SourceListingId,
     #[serde(skip_serializing_if = "Option::is_none")]
     product_title: Option<LocalizedTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -130,15 +123,32 @@ struct SearchFilterUserStateData {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ListingSourceSummaryData {
+    listing_source_id: uuid::Uuid,
+    name: String,
+    slug_id: String,
+}
+
+impl From<ListingSourceSummary> for ListingSourceSummaryData {
+    fn from(source: ListingSourceSummary) -> Self {
+        Self {
+            listing_source_id: source.listing_source_id.into(),
+            name: source.name.as_ref().to_owned(),
+            slug_id: source.slug_id.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ProductListingSummaryData {
     product_listing_id: ProductListingId,
-    product_listing_slug_id: ProductListingSlugId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    product_listing_title_slug_id: Option<ProductListingSlugId>,
     event_id: EventId,
-    shop_id: ShopId,
-    seller_id: ShopId,
-    shop_listing_id: ShopListingId,
-    shop_name: String,
-    shop_slug_id: ShopSlugId,
+    source: ListingSourceSummaryData,
+    #[serde(serialize_with = "crate::wire::source_listing_id::serialize")]
+    source_listing_id: SourceListingId,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<LocalizedTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -248,17 +258,10 @@ impl ProductListingDetailsData {
     fn from_view(view: ProductListingDetailsView) -> Self {
         Self {
             product_listing_id: view.product_listing_id,
-            product_listing_slug_id: view.product_listing_slug_id,
+            product_listing_title_slug_id: view.product_listing_title_slug_id,
             event_id: view.event_id,
-            shop_id: view.shop_id,
-            seller_id: view.seller_id,
-            shop_listing_id: view.shop_listing_id,
-            shop_name: view.shop_name.into(),
-            seller_name: view.seller_name.into(),
-            shop_slug_id: view.shop_slug_id,
-            seller_slug_id: view.seller_slug_id,
-            structured_address: view.address.structured.map(Into::into),
-            geo_address: view.address.geo.map(Into::into),
+            source: view.source.into(),
+            source_listing_id: view.source_listing_id,
             product_title: view.product_title.map(Into::into),
             product_description: view.product_description.map(Into::into),
             title: view.title.map(Into::into),
@@ -413,13 +416,10 @@ impl ProductListingSummaryData {
     fn from_view(summary: ProductListingSummary) -> Self {
         Self {
             product_listing_id: summary.product_listing_id,
-            product_listing_slug_id: summary.product_listing_slug_id,
+            product_listing_title_slug_id: summary.product_listing_title_slug_id,
             event_id: summary.event_id,
-            shop_id: summary.shop_id,
-            seller_id: summary.seller_id,
-            shop_listing_id: summary.shop_listing_id,
-            shop_name: summary.shop_name.into(),
-            shop_slug_id: summary.shop_slug_id,
+            source: summary.source.into(),
+            source_listing_id: summary.source_listing_id,
             title: summary.title.map(Into::into),
             display_price: summary.display_price.map(Into::into),
             price_valuation: summary.price_valuation.into(),

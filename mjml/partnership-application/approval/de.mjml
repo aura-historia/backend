@@ -1,0 +1,14 @@
+<mjml>
+  <mj-head>
+    <mj-title>Partnerschaftsantrag genehmigt: {{party_name}}</mj-title>
+    <mj-preview>Dein Partnerschaftsantrag für {{listing_source_name}} wurde genehmigt.</mj-preview>
+  </mj-head>
+  <mj-body background-color="#F7F4E9" width="600px">
+    <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
+      <mj-column>
+        <mj-text>{{#if first_name}}Hallo {{first_name}},{{else}}Hallo,{{/if}}</mj-text>
+        <mj-text>Dein Partnerschaftsantrag für <b>{{party_name}}</b> und <b>{{listing_source_name}}</b> wurde genehmigt.</mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

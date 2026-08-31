@@ -1,6 +1,8 @@
-use shop_core::shop_id::ShopId;
+use crate::CrawlerDomainId;
+use listing_source_core::ListingSourceId;
 use std::sync::Arc;
 
+use crate::network::policy::is_same_or_www_host;
 use crate::spider::classification::url_metadata_repository::UrlMetadataRepository;
 use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
@@ -43,20 +45,27 @@ pub enum SpiderServiceError {
     #[error(transparent)]
     Database(#[from] sqlx::Error),
 
-    #[error("Spider crawl emitted no pages for shop URL '{shop_url}'")]
-    EmptyCrawl { shop_url: String },
+    #[error(transparent)]
+    UrlMetadata(
+        Box<crate::spider::classification::url_metadata_repository::UrlMetadataRepositoryError>,
+    ),
 
-    #[error("Spider crawl emitted only {total_links} page(s) for shop URL '{shop_url}'")]
+    #[error("Spider crawl emitted no pages for crawl-root URL '{crawl_root_url}'")]
+    EmptyCrawl { crawl_root_url: String },
+
+    #[error(
+        "Spider crawl emitted only {total_links} page(s) for crawl-root URL '{crawl_root_url}'"
+    )]
     TinyCrawl {
-        shop_url: String,
+        crawl_root_url: String,
         total_links: usize,
     },
 
     #[error(
-        "Spider crawl failed for shop URL '{shop_url}' with diagnostic kind '{kind}' after {total_links} page(s)"
+        "Spider crawl failed for crawl-root URL '{crawl_root_url}' with diagnostic kind '{kind}' after {total_links} page(s)"
     )]
     DiagnosticCrawlFailure {
-        shop_url: String,
+        crawl_root_url: String,
         kind: CrawlFailureKind,
         total_links: usize,
         http_status: Option<u16>,
@@ -66,20 +75,20 @@ pub enum SpiderServiceError {
     },
 
     #[error(
-        "Cannot classify product URL pattern for shop URL '{shop_url}' at stage '{stage}' because the inference sample has {sample_size} URL(s), minimum is {min_sample_size}"
+        "Cannot classify product URL pattern for crawl-root URL '{crawl_root_url}' at stage '{stage}' because the inference sample has {sample_size} URL(s), minimum is {min_sample_size}"
     )]
     InsufficientInferenceSample {
-        shop_url: String,
+        crawl_root_url: String,
         stage: &'static str,
         sample_size: usize,
         min_sample_size: usize,
     },
 
     #[error(
-        "Cannot classify product URL pattern for shop URL '{shop_url}' at stage '{stage}' because the inference sample is empty"
+        "Cannot classify product URL pattern for crawl-root URL '{crawl_root_url}' at stage '{stage}' because the inference sample is empty"
     )]
     EmptyClassificationSample {
-        shop_url: String,
+        crawl_root_url: String,
         stage: &'static str,
     },
 }
@@ -99,9 +108,9 @@ impl Default for SpiderServiceConfig {
 pub trait SpiderService: Send + Sync {
     async fn run(
         &self,
-        shop_id: &ShopId,
-        domain_id: &uuid::Uuid,
-        _shop_url: &str,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        _crawl_root_url: &str,
         classify_threshold: usize,
     ) -> Result<SpiderRunResult, SpiderServiceError>;
 }
@@ -130,8 +139,8 @@ impl SpiderServiceImpl {
 
     async fn persist_url_metadata_batch(
         &self,
-        shop_id: &ShopId,
-        domain_id: &uuid::Uuid,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
         pages: &[CrawledPage],
         pattern: &ProductListingPattern,
     ) -> Result<usize, SpiderServiceError> {
@@ -153,8 +162,9 @@ impl SpiderServiceImpl {
         if !urls.is_empty() {
             let records = self
                 .url_metadata_repository
-                .upsert_links_batch(shop_id, domain_id, &urls, &classes)
-                .await?;
+                .upsert_links_batch(listing_source_id, domain_id, &urls, &classes)
+                .await
+                .map_err(|error| SpiderServiceError::UrlMetadata(Box::new(error)))?;
             Ok(records.len())
         } else {
             Ok(0)
@@ -164,8 +174,8 @@ impl SpiderServiceImpl {
     async fn process_buffer(
         &self,
         buffer: &mut Vec<CrawledPage>,
-        shop_id: &ShopId,
-        domain_id: &uuid::Uuid,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
         pattern: &ProductListingPattern,
     ) -> Result<usize, SpiderServiceError> {
         let count = buffer
@@ -176,7 +186,7 @@ impl SpiderServiceImpl {
                     .is_some_and(|regex| p.url.matches_pattern(regex))
             })
             .count();
-        self.persist_url_metadata_batch(shop_id, domain_id, buffer, pattern)
+        self.persist_url_metadata_batch(listing_source_id, domain_id, buffer, pattern)
             .await?;
         buffer.clear();
         Ok(count)
@@ -185,18 +195,19 @@ impl SpiderServiceImpl {
     #[tracing::instrument(
         name = "spider_classify_and_save_for_stage",
         skip(self, state),
-        fields(shop_id = %shop_id, shop_url = %shop_url, stage)
+        fields(listing_source_id = %listing_source_id, crawl_root_url = %crawl_root_url, stage)
     )]
     async fn classify_and_save_for_stage(
         &self,
         state: &mut CrawlRunState,
-        shop_id: &ShopId,
-        shop_url: &str,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        crawl_root_url: &str,
         stage: &'static str,
     ) -> Result<(), SpiderServiceError> {
         if state.inference_sample.len() < self.config.min_inference_sample_urls {
             return Err(SpiderServiceError::InsufficientInferenceSample {
-                shop_url: shop_url.to_string(),
+                crawl_root_url: crawl_root_url.to_string(),
                 stage,
                 sample_size: state.inference_sample.len(),
                 min_sample_size: self.config.min_inference_sample_urls,
@@ -205,7 +216,12 @@ impl SpiderServiceImpl {
 
         state.pattern = self
             .pattern_service
-            .classify_and_save(shop_id, shop_url, &state.inference_sample)
+            .classify_and_save(
+                listing_source_id,
+                domain_id,
+                crawl_root_url,
+                &state.inference_sample,
+            )
             .await
             .map(|pattern| {
                 pattern
@@ -223,13 +239,14 @@ impl SpiderServiceImpl {
     #[tracing::instrument(
         name = "spider_maybe_classify_at_threshold",
         skip(self, state),
-        fields(shop_id = %shop_id, shop_url = %shop_url, classify_threshold)
+        fields(listing_source_id = %listing_source_id, crawl_root_url = %crawl_root_url, classify_threshold)
     )]
     async fn maybe_classify_at_threshold(
         &self,
         state: &mut CrawlRunState,
-        shop_id: &ShopId,
-        shop_url: &str,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        crawl_root_url: &str,
         classify_threshold: usize,
     ) -> Result<(), SpiderServiceError> {
         if !state.classification_done && state.total_crawled >= classify_threshold {
@@ -238,8 +255,14 @@ impl SpiderServiceImpl {
                 "Threshold reached, requesting product URL pattern"
             );
 
-            self.classify_and_save_for_stage(state, shop_id, shop_url, "threshold")
-                .await?;
+            self.classify_and_save_for_stage(
+                state,
+                listing_source_id,
+                domain_id,
+                crawl_root_url,
+                "threshold",
+            )
+            .await?;
 
             state.classification_done = true;
             state.pattern_loaded_from_store = false;
@@ -251,12 +274,17 @@ impl SpiderServiceImpl {
     async fn flush_batch_if_needed(
         &self,
         state: &mut CrawlRunState,
-        shop_id: &ShopId,
-        domain_id: &uuid::Uuid,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
     ) -> Result<(), SpiderServiceError> {
         if state.classification_done && state.page_buffer.len() >= self.config.db_batch_size {
             state.products_found += self
-                .process_buffer(&mut state.page_buffer, shop_id, domain_id, &state.pattern)
+                .process_buffer(
+                    &mut state.page_buffer,
+                    listing_source_id,
+                    domain_id,
+                    &state.pattern,
+                )
                 .await?;
         }
         Ok(())
@@ -276,13 +304,14 @@ impl SpiderServiceImpl {
     #[tracing::instrument(
         name = "spider_classify_at_end_if_needed",
         skip(self, state),
-        fields(shop_id = %shop_id, shop_url = %shop_url)
+        fields(listing_source_id = %listing_source_id, crawl_root_url = %crawl_root_url)
     )]
     async fn classify_at_end_if_needed(
         &self,
         state: &mut CrawlRunState,
-        shop_id: &ShopId,
-        shop_url: &str,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        crawl_root_url: &str,
     ) -> Result<(), SpiderServiceError> {
         if !state.classification_done && !state.page_buffer.is_empty() {
             info!(
@@ -290,8 +319,14 @@ impl SpiderServiceImpl {
                 "Threshold not reached, classifying collected URLs"
             );
 
-            self.classify_and_save_for_stage(state, shop_id, shop_url, "end_of_crawl")
-                .await?;
+            self.classify_and_save_for_stage(
+                state,
+                listing_source_id,
+                domain_id,
+                crawl_root_url,
+                "end_of_crawl",
+            )
+            .await?;
 
             state.classification_done = true;
         }
@@ -301,13 +336,14 @@ impl SpiderServiceImpl {
     #[tracing::instrument(
         name = "spider_reclassify_if_persisted_pattern_failed",
         skip(self, state),
-        fields(shop_id = %shop_id, shop_url = %shop_url)
+        fields(listing_source_id = %listing_source_id, crawl_root_url = %crawl_root_url)
     )]
     async fn reclassify_if_persisted_pattern_failed(
         &self,
         state: &mut CrawlRunState,
-        shop_id: &ShopId,
-        shop_url: &str,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        crawl_root_url: &str,
     ) -> Result<(), SpiderServiceError> {
         if state.pattern_loaded_from_store
             && state.products_found == 0
@@ -315,8 +351,14 @@ impl SpiderServiceImpl {
         {
             warn!("Persisted product URL pattern did not match crawl results, reclassifying");
 
-            self.classify_and_save_for_stage(state, shop_id, shop_url, "refresh")
-                .await?;
+            self.classify_and_save_for_stage(
+                state,
+                listing_source_id,
+                domain_id,
+                crawl_root_url,
+                "refresh",
+            )
+            .await?;
         }
 
         Ok(())
@@ -325,12 +367,17 @@ impl SpiderServiceImpl {
     async fn flush_remaining_pages(
         &self,
         state: &mut CrawlRunState,
-        shop_id: &ShopId,
-        domain_id: &uuid::Uuid,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
     ) -> Result<(), SpiderServiceError> {
         if !state.page_buffer.is_empty() {
             state.products_found += self
-                .process_buffer(&mut state.page_buffer, shop_id, domain_id, &state.pattern)
+                .process_buffer(
+                    &mut state.page_buffer,
+                    listing_source_id,
+                    domain_id,
+                    &state.pattern,
+                )
                 .await?;
         }
         Ok(())
@@ -339,15 +386,20 @@ impl SpiderServiceImpl {
     #[tracing::instrument(
         name = "spider_mark_as_crawled_best_effort",
         skip(self),
-        fields(shop_id = %shop_id, shop_url = %shop_url)
+        fields(listing_source_id = %listing_source_id, crawl_root_url = %crawl_root_url)
     )]
-    async fn mark_as_crawled_best_effort(&self, shop_id: &ShopId, shop_url: &str) {
+    async fn mark_as_crawled_best_effort(
+        &self,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        crawl_root_url: &str,
+    ) {
         if let Err(error) = self
             .pattern_service
-            .mark_as_crawled(shop_id, shop_url)
+            .mark_as_crawled(listing_source_id, domain_id)
             .await
         {
-            warn!(error = ?error, "Failed to mark shop as crawled");
+            warn!(error = ?error, "Failed to mark ListingSource as crawled");
         }
     }
 
@@ -355,24 +407,32 @@ impl SpiderServiceImpl {
         name = "spider_run_locked",
         skip(self),
         fields(
-            shop_id = %shop_id,
+            listing_source_id = %listing_source_id,
             domain_id = %domain_id,
-            shop_url = %shop_url,
+            crawl_root_url = %crawl_root_url,
             classify_threshold
         )
     )]
     async fn run_locked(
         &self,
-        shop_id: &ShopId,
-        domain_id: &uuid::Uuid,
-        shop_url: &str,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        crawl_root_url: &str,
         classify_threshold: usize,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
-        let crawl = self.spider.crawl(shop_url).await?;
+        let configured_root = Url::parse(crawl_root_url).map_err(|_| {
+            SpiderServiceError::Discovery(SpiderDiscoveryError::Discovery(
+                "configured crawler domain URL is invalid".to_string(),
+            ))
+        })?;
+        let crawl = self.spider.crawl(crawl_root_url).await?;
         let diagnostics_rx = crawl.diagnostics;
         let mut crawl_rx = crawl.pages;
 
-        let initial_pattern = self.pattern_service.load_pattern_for_shop(shop_id).await?;
+        let initial_pattern = self
+            .pattern_service
+            .load_pattern_for_domain(listing_source_id, domain_id)
+            .await?;
         let mut state = CrawlRunState::new(initial_pattern);
 
         if state.pattern_loaded_from_store {
@@ -380,6 +440,10 @@ impl SpiderServiceImpl {
         }
 
         while let Some(page) = crawl_rx.recv().await {
+            if !is_same_or_www_host(&configured_root, page.url.as_url()) {
+                debug!(url = %page.url, configured_root = %configured_root, "Ignoring discovered URL outside configured crawler domain");
+                continue;
+            }
             state.total_crawled += 1;
 
             if state.inference_sample.len() < self.config.max_sample_urls {
@@ -388,26 +452,38 @@ impl SpiderServiceImpl {
 
             state.page_buffer.push(page.clone());
 
-            self.maybe_classify_at_threshold(&mut state, shop_id, shop_url, classify_threshold)
-                .await?;
+            self.maybe_classify_at_threshold(
+                &mut state,
+                listing_source_id,
+                domain_id,
+                crawl_root_url,
+                classify_threshold,
+            )
+            .await?;
 
-            self.flush_batch_if_needed(&mut state, shop_id, domain_id)
+            self.flush_batch_if_needed(&mut state, listing_source_id, domain_id)
                 .await?;
             self.log_progress(&state);
         }
 
         let diagnostics = diagnostics_rx.await.unwrap_or_default();
-        if let Some(error) = diagnostic_failure_error(shop_url, state.total_crawled, &diagnostics)
-            .or_else(|| crawl_size_failure_error(shop_url, state.total_crawled))
+        if let Some(error) =
+            diagnostic_failure_error(crawl_root_url, state.total_crawled, &diagnostics)
+                .or_else(|| crawl_size_failure_error(crawl_root_url, state.total_crawled))
         {
             return Err(error);
         }
 
-        self.classify_at_end_if_needed(&mut state, shop_id, shop_url)
+        self.classify_at_end_if_needed(&mut state, listing_source_id, domain_id, crawl_root_url)
             .await?;
-        self.reclassify_if_persisted_pattern_failed(&mut state, shop_id, shop_url)
-            .await?;
-        self.flush_remaining_pages(&mut state, shop_id, domain_id)
+        self.reclassify_if_persisted_pattern_failed(
+            &mut state,
+            listing_source_id,
+            domain_id,
+            crawl_root_url,
+        )
+        .await?;
+        self.flush_remaining_pages(&mut state, listing_source_id, domain_id)
             .await?;
 
         let product_pattern = state
@@ -415,7 +491,8 @@ impl SpiderServiceImpl {
             .as_regex()
             .map(|regex| regex.as_str().to_string());
 
-        self.mark_as_crawled_best_effort(shop_id, shop_url).await;
+        self.mark_as_crawled_best_effort(listing_source_id, domain_id, crawl_root_url)
+            .await;
 
         info!(
             total_crawled = state.total_crawled,
@@ -439,23 +516,28 @@ impl SpiderService for SpiderServiceImpl {
         name = "spider_run",
         skip(self),
         fields(
-            shop_id = %shop_id,
+            listing_source_id = %listing_source_id,
             domain_id = %domain_id,
-            shop_url = %shop_url,
+            crawl_root_url = %crawl_root_url,
             classify_threshold
         )
     )]
     async fn run(
         &self,
-        shop_id: &ShopId,
-        domain_id: &uuid::Uuid,
-        shop_url: &str,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+        crawl_root_url: &str,
         classify_threshold: usize,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         debug!("Starting crawl");
 
-        self.run_locked(shop_id, domain_id, shop_url, classify_threshold)
-            .await
+        self.run_locked(
+            listing_source_id,
+            domain_id,
+            crawl_root_url,
+            classify_threshold,
+        )
+        .await
     }
 }
 
@@ -538,7 +620,7 @@ mod service_tests {
     fn setup_mock_url_repo(
         mock: &mut MockUrlMetadataRepository,
         call_count: usize,
-        expected_domain_id: uuid::Uuid,
+        expected_domain_id: CrawlerDomainId,
     ) {
         mock.expect_upsert_links_batch()
             .times(call_count)
@@ -546,27 +628,24 @@ mod service_tests {
             .returning(|_, _, _, _| Box::pin(async move { Ok(Vec::new()) }));
     }
 
-    fn setup_mock_mark_as_crawled(mock: &mut MockUrlPatternService, shop_url: &'static str) {
+    fn setup_mock_mark_as_crawled(mock: &mut MockUrlPatternService, _crawl_root_url: &'static str) {
         mock.expect_mark_as_crawled()
-            .with(
-                mockall::predicate::always(),
-                mockall::predicate::eq(shop_url),
-            )
+            .with(mockall::predicate::always(), mockall::predicate::always())
             .times(1)
             .returning(|_, _| Box::pin(async { Ok(()) }));
     }
 
-    fn setup_mock_crawl<I, S>(mock: &mut MockSpider, shop_url: &'static str, paths: I)
+    fn setup_mock_crawl<I, S>(mock: &mut MockSpider, crawl_root_url: &'static str, paths: I)
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        setup_mock_crawl_with_diagnostics(mock, shop_url, paths, CrawlDiagnostics::default());
+        setup_mock_crawl_with_diagnostics(mock, crawl_root_url, paths, CrawlDiagnostics::default());
     }
 
     fn setup_mock_crawl_with_diagnostics<I, S>(
         mock: &mut MockSpider,
-        shop_url: &'static str,
+        crawl_root_url: &'static str,
         paths: I,
         diagnostics: CrawlDiagnostics,
     ) where
@@ -575,7 +654,7 @@ mod service_tests {
     {
         let paths: Vec<String> = paths.into_iter().map(Into::into).collect();
         mock.expect_crawl()
-            .with(mockall::predicate::eq(shop_url))
+            .with(mockall::predicate::eq(crawl_root_url))
             .returning(move |_| {
                 let paths = paths.clone();
                 let diagnostics = diagnostics.clone();
@@ -618,21 +697,27 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
-        let domain_id = uuid::Uuid::new_v4();
-        let shop_url = "https://example.com";
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+        let domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
+        let crawl_root_url = "https://example.com";
 
-        setup_mock_crawl(&mut mock_spider, shop_url, one_product_and_listing_pages());
+        setup_mock_crawl(
+            &mut mock_spider,
+            crawl_root_url,
+            one_product_and_listing_pages(),
+        );
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
-            .returning(|_| Box::pin(async { Ok(None) }));
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
 
         mock_pattern_service
             .expect_classify_and_save()
-            .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .returning(|_, _, _, _| {
+                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+            });
 
-        setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
+        setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
 
         setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
 
@@ -643,7 +728,9 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 20).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 20)
+            .await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
         assert_eq!(run_result.product_urls_count, 1);
@@ -656,23 +743,29 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
-        let domain_id = uuid::Uuid::new_v4();
-        let shop_url = "https://example.com";
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+        let domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
+        let crawl_root_url = "https://example.com";
 
-        setup_mock_crawl(&mut mock_spider, shop_url, one_product_and_listing_pages());
+        setup_mock_crawl(
+            &mut mock_spider,
+            crawl_root_url,
+            one_product_and_listing_pages(),
+        );
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
-            .returning(|_| Box::pin(async { Ok(None) }));
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(None) }));
 
         // It should classify at the end because threshold is above the crawl size.
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .returning(|_, _, _, _| {
+                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+            });
 
-        setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
+        setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
 
         setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
 
@@ -683,7 +776,9 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 25).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
         assert_eq!(run_result.product_urls_count, 1);
@@ -695,24 +790,24 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
-        let domain_id = uuid::Uuid::new_v4();
-        let shop_url = "https://example.com";
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+        let domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
+        let crawl_root_url = "https://example.com";
 
-        setup_mock_crawl(&mut mock_spider, shop_url, item_pages());
+        setup_mock_crawl(&mut mock_spider, crawl_root_url, item_pages());
 
         // Persisted pattern expects /product/
         mock_pattern_service
-            .expect_load_pattern_for_shop()
-            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .expect_load_pattern_for_domain()
+            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
         // Reclassification gives the correct /item/ pattern
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(|_, _, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+            .returning(|_, _, _, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
 
-        setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
+        setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
 
         setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
 
@@ -723,7 +818,9 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 25).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 25)
+            .await;
         assert!(result.is_ok());
         let run_result = result.unwrap();
         assert_eq!(run_result.product_urls_count, 20);
@@ -735,13 +832,13 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
-        let domain_id = uuid::Uuid::new_v4();
-        let shop_url = "https://example.com";
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+        let domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
+        let crawl_root_url = "https://example.com";
 
         mock_spider
             .expect_crawl()
-            .with(mockall::predicate::eq(shop_url))
+            .with(mockall::predicate::eq(crawl_root_url))
             .returning(|_| {
                 let (_tx, rx) = mpsc::channel(10);
                 let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
@@ -755,9 +852,9 @@ mod service_tests {
             });
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
+            .expect_load_pattern_for_domain()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(None) }));
+            .returning(|_, _| Box::pin(async { Ok(None) }));
 
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
@@ -770,11 +867,13 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .await;
 
         assert!(matches!(
             result,
-            Err(SpiderServiceError::EmptyCrawl { shop_url: url }) if url == shop_url
+            Err(SpiderServiceError::EmptyCrawl { crawl_root_url: url }) if url == crawl_root_url
         ));
     }
 
@@ -784,16 +883,16 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
-        let domain_id = uuid::Uuid::new_v4();
-        let shop_url = "https://example.com";
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+        let domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
+        let crawl_root_url = "https://example.com";
 
-        setup_mock_crawl(&mut mock_spider, shop_url, vec!["/"]);
+        setup_mock_crawl(&mut mock_spider, crawl_root_url, vec!["/"]);
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
+            .expect_load_pattern_for_domain()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(None) }));
+            .returning(|_, _| Box::pin(async { Ok(None) }));
 
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
@@ -806,14 +905,16 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .await;
 
         assert!(matches!(
             result,
             Err(SpiderServiceError::TinyCrawl {
-                shop_url: url,
+                crawl_root_url: url,
                 total_links: 1,
-            }) if url == shop_url
+            }) if url == crawl_root_url
         ));
     }
 
@@ -823,16 +924,20 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
-        let domain_id = uuid::Uuid::new_v4();
-        let shop_url = "https://example.com";
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+        let domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
+        let crawl_root_url = "https://example.com";
 
-        setup_mock_crawl(&mut mock_spider, shop_url, vec!["/collections", "/about"]);
+        setup_mock_crawl(
+            &mut mock_spider,
+            crawl_root_url,
+            vec!["/collections", "/about"],
+        );
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
+            .expect_load_pattern_for_domain()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(None) }));
+            .returning(|_, _| Box::pin(async { Ok(None) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo.expect_upsert_links_batch().times(0);
@@ -844,16 +949,18 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .await;
 
         assert!(matches!(
             result,
             Err(SpiderServiceError::InsufficientInferenceSample {
-                shop_url: url,
+                crawl_root_url: url,
                 stage: "end_of_crawl",
                 sample_size: 2,
                 min_sample_size: 20,
-            }) if url == shop_url
+            }) if url == crawl_root_url
         ));
     }
 
@@ -863,13 +970,13 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
-        let domain_id = uuid::Uuid::new_v4();
-        let shop_url = "https://example.com";
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+        let domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
+        let crawl_root_url = "https://example.com";
 
         setup_mock_crawl_with_diagnostics(
             &mut mock_spider,
-            shop_url,
+            crawl_root_url,
             vec!["/"],
             CrawlDiagnostics {
                 failure_kind: Some(CrawlFailureKind::RateLimited),
@@ -881,9 +988,9 @@ mod service_tests {
         );
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
+            .expect_load_pattern_for_domain()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(None) }));
+            .returning(|_, _| Box::pin(async { Ok(None) }));
 
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
@@ -896,7 +1003,9 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .await;
 
         assert!(matches!(
             result,
@@ -915,13 +1024,13 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
-        let domain_id = uuid::Uuid::new_v4();
-        let shop_url = "https://example.com";
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+        let domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
+        let crawl_root_url = "https://example.com";
 
         setup_mock_crawl_with_diagnostics(
             &mut mock_spider,
-            shop_url,
+            crawl_root_url,
             vec!["/collections", "/about"],
             CrawlDiagnostics {
                 failure_kind: Some(CrawlFailureKind::JavascriptRequired),
@@ -931,9 +1040,9 @@ mod service_tests {
         );
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
+            .expect_load_pattern_for_domain()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(None) }));
+            .returning(|_, _| Box::pin(async { Ok(None) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo.expect_upsert_links_batch().times(0);
@@ -945,7 +1054,9 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .await;
 
         assert!(matches!(
             result,
@@ -959,16 +1070,16 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
-        let domain_id = uuid::Uuid::new_v4();
-        let shop_url = "https://example.com";
+        let listing_source_id: ListingSourceId = uuid::Uuid::new_v4().into();
+        let domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
+        let crawl_root_url = "https://example.com";
 
-        setup_mock_crawl(&mut mock_spider, shop_url, vec!["/item/1", "/item/2"]);
+        setup_mock_crawl(&mut mock_spider, crawl_root_url, vec!["/item/1", "/item/2"]);
 
         mock_pattern_service
-            .expect_load_pattern_for_shop()
+            .expect_load_pattern_for_domain()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo.expect_upsert_links_batch().times(0);
@@ -980,22 +1091,24 @@ mod service_tests {
             Arc::new(mock_url_repo),
         );
 
-        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+        let result = service
+            .run(&listing_source_id, &domain_id, crawl_root_url, 10)
+            .await;
 
         assert!(matches!(
             result,
             Err(SpiderServiceError::InsufficientInferenceSample {
-                shop_url: url,
+                crawl_root_url: url,
                 stage: "refresh",
                 sample_size: 2,
                 min_sample_size: 20,
-            }) if url == shop_url
+            }) if url == crawl_root_url
         ));
     }
 }
 
 fn diagnostic_failure_error(
-    shop_url: &str,
+    crawl_root_url: &str,
     total_links: usize,
     diagnostics: &CrawlDiagnostics,
 ) -> Option<SpiderServiceError> {
@@ -1004,7 +1117,7 @@ fn diagnostic_failure_error(
         return None;
     }
     Some(SpiderServiceError::DiagnosticCrawlFailure {
-        shop_url: shop_url.to_string(),
+        crawl_root_url: crawl_root_url.to_string(),
         kind,
         total_links,
         http_status: diagnostics.http_status,
@@ -1014,13 +1127,16 @@ fn diagnostic_failure_error(
     })
 }
 
-fn crawl_size_failure_error(shop_url: &str, total_links: usize) -> Option<SpiderServiceError> {
+fn crawl_size_failure_error(
+    crawl_root_url: &str,
+    total_links: usize,
+) -> Option<SpiderServiceError> {
     match total_links {
         0 => Some(SpiderServiceError::EmptyCrawl {
-            shop_url: shop_url.to_string(),
+            crawl_root_url: crawl_root_url.to_string(),
         }),
         1 => Some(SpiderServiceError::TinyCrawl {
-            shop_url: shop_url.to_string(),
+            crawl_root_url: crawl_root_url.to_string(),
             total_links,
         }),
         _ => None,

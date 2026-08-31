@@ -333,11 +333,11 @@ async fn create_notification(
                 product_listing_id: product.product_listing_id,
                 user_search_filter_id: match_source.search_filter_id,
                 snapshot: ProductListingNotificationSnapshot {
-                    shop_id: product.shop_id,
-                    shop_listing_id: product.shop_listing_id,
-                    shop_slug_id: product.shop_slug_id,
-                    product_listing_slug_id: product.product_listing_slug_id,
-                    shop_name: product.shop_name,
+                    listing_source_id: product.source.listing_source_id,
+                    source_listing_id: product.source_listing_id,
+                    listing_source_slug_id: product.source.slug_id,
+                    product_listing_title_slug_id: product.product_listing_title_slug_id,
+                    listing_source_name: product.source.name,
                     title: (!product.titles.is_empty()).then_some(product.titles),
                     image: product.image.map(|image| image.url().clone()),
                     content_policy,
@@ -437,25 +437,23 @@ fn commit_error(source: TransactionError) -> GenerateSearchFilterMatchNotificati
 mod tests {
     use super::*;
     use indexmap::IndexSet;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use product_listing_core::{
         content_policy::{ContentPolicyDecision, SensitiveContentCategory},
         listing_availability::ListingAvailability,
         listing_lifecycle::ListingLifecycle,
-        product_listing::{ProductListingAddress, ProductListingAuction, ProductListingPricing},
+        product_listing::{ProductListingAuction, ProductListingPricing},
         product_listing_image::ProductListingImage,
         product_listing_slug_id::ProductListingSlugId,
-        shop_listing_id::ShopListingId,
+        source_listing_id::SourceListingId,
     };
     use product_listing_service::ports::{
-        ProductListingContentAssessmentReadError, ProductListingContentAssessmentSnapshotReader,
+        ListingSourceSummary, ProductListingContentAssessmentReadError,
+        ProductListingContentAssessmentSnapshotReader,
         ProductListingContentAssessmentSnapshotReaderFactory,
-        ProductListingSearchFilterMatchShopType, ProductListingSearchFilterMatchSourceEventKind,
+        ProductListingSearchFilterMatchSourceEventKind,
     };
     use search_filter_core::user_search_filter_name::UserSearchFilterName;
-    use shop_core::{
-        seller_slug_id::SellerSlugId, shop_id::ShopId, shop_name::ShopName,
-        shop_slug_id::ShopSlugId,
-    };
     use std::{
         error::Error,
         sync::{Arc, Mutex},
@@ -805,16 +803,17 @@ mod tests {
             current_event_id: origin_event_id,
             projection_version: 1,
             product_listing_id,
-            product_listing_slug_id: ProductListingSlugId::from("product"),
-            shop_id: ShopId::new(),
-            shop_slug_id: ShopSlugId::from("shop"),
-            shop_name: ShopName::from("Shop"),
-            shop_type: ProductListingSearchFilterMatchShopType::Marketplace,
-            seller_id: ShopId::new(),
-            seller_slug_id: SellerSlugId::from(ShopSlugId::from("seller")),
-            seller_name: ShopName::from("Seller"),
-            shop_listing_id: ShopListingId::from("sku-1"),
-            address: ProductListingAddress::default(),
+            product_listing_title_slug_id: ProductListingSlugId::raw("product-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
+            source: ListingSourceSummary {
+                listing_source_id: ListingSourceId::new(),
+                name: ListingSourceName::try_from("Source")
+                    .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+                slug_id: ListingSourceSlugId::raw("source")
+                    .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+            },
+            source_listing_id: SourceListingId::try_from("sku-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             product_title: None,
             product_description: None,
             titles: Default::default(),

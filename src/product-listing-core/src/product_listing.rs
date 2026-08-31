@@ -4,26 +4,23 @@ use crate::listing_lifecycle::ListingLifecycle;
 use crate::product_listing_id::ProductListingId;
 use crate::product_listing_image::ProductListingImage;
 use crate::product_listing_slug_id::ProductListingSlugId;
-use crate::shop_listing_id::ShopListingId;
+use crate::source_listing_id::SourceListingId;
 use crate::title::Title;
 use domain_primitives::change_outcome::ChangeOutcome;
 use fxrate_core::FxRateId;
-use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
+use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
 use money::Price;
-use shop_core::shop_id::ShopId;
 use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListing {
     id: ProductListingId,
-    slug_id: ProductListingSlugId,
-    shop_id: ShopId,
-    seller_id: ShopId,
-    shop_listing_id: ShopListingId,
-    address: ProductListingAddress,
+    title_slug_id: ProductListingSlugId,
+    listing_source_id: ListingSourceId,
+    source_listing_id: SourceListingId,
     title: Option<Localized<Language, Title>>,
     description: Option<Localized<Language, Description>>,
     pricing: ProductListingPricing,
@@ -39,10 +36,9 @@ pub struct ProductListing {
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewProductListing {
     pub id: ProductListingId,
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub address: ProductListingAddress,
+    pub title_slug_id: ProductListingSlugId,
+    pub listing_source_id: ListingSourceId,
+    pub source_listing_id: SourceListingId,
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductListingPricing,
@@ -56,11 +52,9 @@ pub struct NewProductListing {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RehydratedProductListingState {
     pub id: ProductListingId,
-    pub slug_id: ProductListingSlugId,
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub address: ProductListingAddress,
+    pub title_slug_id: ProductListingSlugId,
+    pub listing_source_id: ListingSourceId,
+    pub source_listing_id: SourceListingId,
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductListingPricing,
@@ -70,12 +64,6 @@ pub struct RehydratedProductListingState {
     pub url: Url,
     pub images: IndexSet<ProductListingImage>,
     pub auction: ProductListingAuction,
-}
-
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct ProductListingAddress {
-    pub structured: Option<StructuredAddress>,
-    pub geo: Option<GeoAddress>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -135,7 +123,6 @@ pub struct ProductListingAuction {
 pub enum ProductListingEventPayload {
     Created(Box<ProductListingCreated>),
     AvailabilityChanged(ListingAvailabilityChanged),
-    AddressChanged(ProductListingAddressChanged),
     PriceChanged(ProductListingPriceChanged),
     UrlChanged(ProductListingUrlChanged),
     ImagesChanged(Box<ProductListingImagesChanged>),
@@ -151,7 +138,6 @@ impl ProductListingEventPayload {
         match self {
             Self::Created(_) => "PRODUCT_LISTING_CREATED",
             Self::AvailabilityChanged(_) => "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-            Self::AddressChanged(_) => "PRODUCT_LISTING_ADDRESS_CHANGED",
             Self::PriceChanged(_) => "PRODUCT_LISTING_PRICE_CHANGED",
             Self::UrlChanged(_) => "PRODUCT_LISTING_URL_CHANGED",
             Self::ImagesChanged(_) => "PRODUCT_LISTING_IMAGES_CHANGED",
@@ -166,9 +152,10 @@ impl ProductListingEventPayload {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingCreated {
+    pub listing_source_id: ListingSourceId,
+    pub source_listing_id: SourceListingId,
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
-    pub address: ProductListingAddress,
     pub pricing: ProductListingPricing,
     pub availability: Option<ListingAvailability>,
     pub url: Url,
@@ -180,11 +167,6 @@ pub struct ProductListingCreated {
 pub struct ListingAvailabilityChanged {
     pub previous: Option<ListingAvailability>,
     pub current: Option<ListingAvailability>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProductListingAddressChanged {
-    pub address: ProductListingAddress,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -229,28 +211,22 @@ pub struct ListingSaleObservationRetracted {
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum RehydrateProductListingError {
+    #[error("product listing title slug is invalid")]
+    InvalidTitleSlugId,
     #[error("withdrawn listing has availability")]
     WithdrawnListingHasAvailability,
-    #[error("product listing geo latitude out of range")]
-    GeoLatitudeOutOfRange,
-    #[error("product listing geo longitude out of range")]
-    GeoLongitudeOutOfRange,
     #[error("product listing auction start is after its end")]
     AuctionStartAfterEnd,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProductListingInvariantError {
-    GeoLatitudeOutOfRange,
-    GeoLongitudeOutOfRange,
     AuctionStartAfterEnd,
 }
 
 impl From<ProductListingInvariantError> for RehydrateProductListingError {
     fn from(error: ProductListingInvariantError) -> Self {
         match error {
-            ProductListingInvariantError::GeoLatitudeOutOfRange => Self::GeoLatitudeOutOfRange,
-            ProductListingInvariantError::GeoLongitudeOutOfRange => Self::GeoLongitudeOutOfRange,
             ProductListingInvariantError::AuctionStartAfterEnd => Self::AuctionStartAfterEnd,
         }
     }
@@ -266,10 +242,6 @@ pub enum ChangeListingAvailabilityError {
 pub enum ChangeProductListingError {
     #[error("listing is withdrawn")]
     ListingWithdrawn,
-    #[error("product listing geo latitude out of range")]
-    GeoLatitudeOutOfRange,
-    #[error("product listing geo longitude out of range")]
-    GeoLongitudeOutOfRange,
     #[error("product listing auction start is after its end")]
     AuctionStartAfterEnd,
 }
@@ -277,8 +249,6 @@ pub enum ChangeProductListingError {
 impl From<ProductListingInvariantError> for ChangeProductListingError {
     fn from(error: ProductListingInvariantError) -> Self {
         match error {
-            ProductListingInvariantError::GeoLatitudeOutOfRange => Self::GeoLatitudeOutOfRange,
-            ProductListingInvariantError::GeoLongitudeOutOfRange => Self::GeoLongitudeOutOfRange,
             ProductListingInvariantError::AuctionStartAfterEnd => Self::AuctionStartAfterEnd,
         }
     }
@@ -291,15 +261,13 @@ pub enum RecordListingSaleObservationError {
 }
 
 impl ProductListing {
+    /// Creates a listing from explicit, deterministic identity values.
     pub fn create(input: NewProductListing) -> Result<Self, RehydrateProductListingError> {
-        let slug_id = product_listing_slug_id(input.id, input.title.as_ref());
         let mut listing = Self::rehydrate(RehydratedProductListingState {
             id: input.id,
-            slug_id,
-            shop_id: input.shop_id,
-            seller_id: input.seller_id,
-            shop_listing_id: input.shop_listing_id,
-            address: input.address.clone(),
+            title_slug_id: input.title_slug_id,
+            listing_source_id: input.listing_source_id,
+            source_listing_id: input.source_listing_id.clone(),
             title: input.title.clone(),
             description: input.description.clone(),
             pricing: input.pricing,
@@ -312,9 +280,10 @@ impl ProductListing {
         })?;
         listing.push_event(ProductListingEventPayload::Created(Box::new(
             ProductListingCreated {
+                listing_source_id: input.listing_source_id,
+                source_listing_id: input.source_listing_id,
                 title: input.title,
                 description: input.description,
-                address: input.address,
                 pricing: input.pricing,
                 availability: input.availability,
                 url: input.url,
@@ -329,18 +298,15 @@ impl ProductListing {
     pub fn rehydrate(
         state: RehydratedProductListingState,
     ) -> Result<Self, RehydrateProductListingError> {
-        validate_geo_address(state.address.geo).map_err(RehydrateProductListingError::from)?;
         validate_auction(state.auction).map_err(RehydrateProductListingError::from)?;
         if state.lifecycle == ListingLifecycle::Withdrawn && state.availability.is_some() {
             return Err(RehydrateProductListingError::WithdrawnListingHasAvailability);
         }
         Ok(Self {
             id: state.id,
-            slug_id: state.slug_id,
-            shop_id: state.shop_id,
-            seller_id: state.seller_id,
-            shop_listing_id: state.shop_listing_id,
-            address: state.address,
+            title_slug_id: state.title_slug_id,
+            listing_source_id: state.listing_source_id,
+            source_listing_id: state.source_listing_id,
             title: state.title,
             description: state.description,
             pricing: state.pricing,
@@ -425,21 +391,6 @@ impl ProductListing {
             ListingSaleObservationRetracted { observation },
         ));
         ChangeOutcome::Changed
-    }
-
-    pub fn replace_address(
-        &mut self,
-        address: ProductListingAddress,
-    ) -> Result<ChangeOutcome, ChangeProductListingError> {
-        self.ensure_active_mutation()?;
-        validate_geo_address(address.geo).map_err(ChangeProductListingError::from)?;
-        if replace_if_changed(&mut self.address, address.clone()) == ChangeOutcome::Unchanged {
-            return Ok(ChangeOutcome::Unchanged);
-        }
-        self.push_event(ProductListingEventPayload::AddressChanged(
-            ProductListingAddressChanged { address },
-        ));
-        Ok(ChangeOutcome::Changed)
     }
 
     pub fn replace_pricing(
@@ -531,20 +482,14 @@ impl ProductListing {
     pub fn id(&self) -> ProductListingId {
         self.id
     }
-    pub fn slug_id(&self) -> &ProductListingSlugId {
-        &self.slug_id
+    pub fn title_slug_id(&self) -> &ProductListingSlugId {
+        &self.title_slug_id
     }
-    pub fn shop_id(&self) -> ShopId {
-        self.shop_id
+    pub fn listing_source_id(&self) -> ListingSourceId {
+        self.listing_source_id
     }
-    pub fn seller_id(&self) -> ShopId {
-        self.seller_id
-    }
-    pub fn shop_listing_id(&self) -> &ShopListingId {
-        &self.shop_listing_id
-    }
-    pub fn address(&self) -> ProductListingAddress {
-        self.address.clone()
+    pub fn source_listing_id(&self) -> &SourceListingId {
+        &self.source_listing_id
     }
     pub fn title(&self) -> Option<&Localized<Language, Title>> {
         self.title.as_ref()
@@ -606,30 +551,6 @@ impl ProductListing {
     }
 }
 
-fn product_listing_slug_id(
-    product_listing_id: ProductListingId,
-    title: Option<&Localized<Language, Title>>,
-) -> ProductListingSlugId {
-    match title {
-        Some(title) => ProductListingSlugId::from(title.payload.as_ref()),
-        None => ProductListingSlugId::from(product_listing_id.to_string()),
-    }
-}
-
-fn validate_geo_address(
-    geo_address: Option<GeoAddress>,
-) -> Result<(), ProductListingInvariantError> {
-    if let Some(address) = geo_address {
-        if !(-90.0..=90.0).contains(&address.lat) {
-            return Err(ProductListingInvariantError::GeoLatitudeOutOfRange);
-        }
-        if !(-180.0..=180.0).contains(&address.lon) {
-            return Err(ProductListingInvariantError::GeoLongitudeOutOfRange);
-        }
-    }
-    Ok(())
-}
-
 fn validate_auction(auction: ProductListingAuction) -> Result<(), ProductListingInvariantError> {
     if let (Some(start), Some(end)) = (auction.start, auction.end)
         && start > end
@@ -639,15 +560,6 @@ fn validate_auction(auction: ProductListingAuction) -> Result<(), ProductListing
     Ok(())
 }
 
-fn replace_if_changed<T: PartialEq>(target: &mut T, value: T) -> ChangeOutcome {
-    if *target == value {
-        ChangeOutcome::Unchanged
-    } else {
-        *target = value;
-        ChangeOutcome::Changed
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -655,10 +567,11 @@ mod tests {
     fn input() -> NewProductListing {
         NewProductListing {
             id: ProductListingId::new(),
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shop_listing_id: ShopListingId::new(),
-            address: ProductListingAddress::default(),
+            title_slug_id: ProductListingSlugId::raw("listing-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid test title slug: {error}")),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("source-listing-id")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: None,
             description: None,
             pricing: ProductListingPricing::default(),
@@ -672,14 +585,39 @@ mod tests {
 
     #[test]
     fn should_create_active_listing_without_availability_assertion() {
+        let input = input();
+        let listing_source_id = input.listing_source_id;
+        let source_listing_id = input.source_listing_id.clone();
         let listing =
-            ProductListing::create(input()).unwrap_or_else(|error| panic!("create: {error}"));
+            ProductListing::create(input).unwrap_or_else(|error| panic!("create: {error}"));
         assert_eq!(ListingLifecycle::Active, listing.lifecycle());
         assert_eq!(None, listing.availability());
-        assert!(matches!(
-            listing.pending_event_payloads(),
-            [ProductListingEventPayload::Created(_)]
-        ));
+        assert!(listing.title_slug_id().as_ref().starts_with("listing-"));
+        let [ProductListingEventPayload::Created(created)] = listing.pending_event_payloads()
+        else {
+            panic!("expected product listing created event");
+        };
+        assert_eq!(listing_source_id, created.listing_source_id);
+        assert_eq!(&source_listing_id, &created.source_listing_id);
+    }
+
+    #[test]
+    fn should_create_title_slug_from_listing_title() {
+        let mut input = input();
+        input.title = Some(Localized::new(Language::En, Title::from("Vintage Cabinet")));
+        input.title_slug_id =
+            ProductListingSlugId::from_title_and_suffix("Vintage Cabinet", "a1b2c3")
+                .unwrap_or_else(|error| panic!("valid test title slug: {error}"));
+
+        let listing =
+            ProductListing::create(input).unwrap_or_else(|error| panic!("create: {error}"));
+
+        assert!(
+            listing
+                .title_slug_id()
+                .as_ref()
+                .starts_with("vintage-cabinet-")
+        );
     }
 
     #[test]
@@ -774,11 +712,16 @@ mod tests {
         let source = input();
         let result = ProductListing::rehydrate(RehydratedProductListingState {
             id: source.id,
-            slug_id: product_listing_slug_id(source.id, source.title.as_ref()),
-            shop_id: source.shop_id,
-            seller_id: source.seller_id,
-            shop_listing_id: source.shop_listing_id,
-            address: source.address,
+            title_slug_id: ProductListingSlugId::from_title_and_suffix(
+                source
+                    .title
+                    .as_ref()
+                    .map_or("", |title| title.payload.as_ref()),
+                "a1b2c3",
+            )
+            .unwrap_or_else(|error| panic!("valid test title slug: {error}")),
+            listing_source_id: source.listing_source_id,
+            source_listing_id: source.source_listing_id,
             title: source.title,
             description: source.description,
             pricing: source.pricing,
@@ -805,33 +748,6 @@ mod tests {
         listing.take_pending_event_payloads();
         assert_eq!(ChangeOutcome::Unchanged, listing.withdraw());
         assert!(listing.pending_event_payloads().is_empty());
-    }
-
-    #[rstest::rstest]
-    #[case(
-        ProductListingAddress {
-            structured: None,
-            geo: Some(GeoAddress { lat: 90.1, lon: 0.0 }),
-        },
-        ChangeProductListingError::GeoLatitudeOutOfRange
-    )]
-    #[case(
-        ProductListingAddress {
-            structured: None,
-            geo: Some(GeoAddress { lat: 0.0, lon: 180.1 }),
-        },
-        ChangeProductListingError::GeoLongitudeOutOfRange
-    )]
-    fn should_reject_invalid_geo_address_without_mutating_listing_or_events(
-        #[case] address: ProductListingAddress,
-        #[case] error: ChangeProductListingError,
-    ) {
-        let mut listing =
-            ProductListing::create(input()).unwrap_or_else(|error| panic!("create: {error}"));
-        let expected = listing.clone();
-
-        assert_eq!(Err(error), listing.replace_address(address));
-        assert_eq!(expected, listing);
     }
 
     #[test]
@@ -869,11 +785,16 @@ mod tests {
             Err(RehydrateProductListingError::AuctionStartAfterEnd),
             ProductListing::rehydrate(RehydratedProductListingState {
                 id: source.id,
-                slug_id: product_listing_slug_id(source.id, source.title.as_ref()),
-                shop_id: source.shop_id,
-                seller_id: source.seller_id,
-                shop_listing_id: source.shop_listing_id,
-                address: source.address,
+                title_slug_id: ProductListingSlugId::from_title_and_suffix(
+                    source
+                        .title
+                        .as_ref()
+                        .map_or("", |title| title.payload.as_ref()),
+                    "a1b2c3",
+                )
+                .unwrap_or_else(|error| panic!("valid test title slug: {error}")),
+                listing_source_id: source.listing_source_id,
+                source_listing_id: source.source_listing_id,
                 title: source.title,
                 description: source.description,
                 pricing: source.pricing,

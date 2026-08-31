@@ -21,6 +21,7 @@
     </div>
     <div class="header-actions">
         <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" type="button">Dark mode</button>
+        <button class="theme-toggle" onclick="clearReviewAuthToken()" type="button">Clear review token</button>
         <div class="system-status" id="reloadState">Queue auto refresh active</div>
     </div>
 </header>
@@ -33,7 +34,7 @@
             </button>
         </h2>
         <div class="sidebar-search">
-            <input id="reviewSearch" oninput="setReviewSearch(this.value)" placeholder="Search shops or reviews"
+            <input id="reviewSearch" oninput="setReviewSearch(this.value)" placeholder="Search listing_sources or reviews"
                    type="search">
         </div>
         <div class="list" id="reviewList"></div>

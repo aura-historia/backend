@@ -15,25 +15,30 @@ let selectedReviewRefreshReason = '';
 let sidebarCollapsed = localStorage.getItem('crawlerReviewSidebarCollapsed') === 'true';
 let theme = document.documentElement.dataset.theme || localStorage.getItem('crawlerReviewTheme') || 'light';
 let reviewSearchTerm = '';
-let collapsedShopGroups = new Set(JSON.parse(localStorage.getItem('crawlerReviewCollapsedShopGroups') || '[]'));
+let collapsedListingSourceGroups = new Set(JSON.parse(
+    localStorage.getItem('crawlerReviewCollapsedListingSourceGroups')
+    || localStorage.getItem('crawlerReviewCollapsedShopGroups')
+    || '[]'
+));
+let reviewAuthToken = sessionStorage.getItem('crawlerReviewAuthToken') || '';
+let reviewSessionEstablished = false;
 let previewUrlOverride = '';
 
 const selectorFields = [
-    'shops_product_id', 'title', 'description', 'price', 'price_estimate_min',
-    'price_estimate_max', 'seller_name', 'state', 'images', 'auction_start', 'auction_end'
+    'source_listing_id', 'title', 'description', 'price', 'price_estimate_min',
+    'price_estimate_max', 'state', 'images', 'auction_start', 'auction_end'
 ];
 const optionalFields = new Set([
     'description', 'price', 'price_estimate_min', 'price_estimate_max',
-    'seller_name', 'auction_start', 'auction_end'
+    'auction_start', 'auction_end'
 ]);
 const schemaHighlightColors = {
-    shops_product_id: '#2563eb',
+    source_listing_id: '#2563eb',
     title: '#7c3aed',
     description: '#0891b2',
     price: '#16a34a',
     price_estimate_min: '#65a30d',
     price_estimate_max: '#0d9488',
-    seller_name: '#475569',
     state: '#f97316',
     images: '#db2777',
     auction_start: '#9333ea',
@@ -67,8 +72,63 @@ function toggleTheme() {
     applyTheme(theme === 'dark' ? 'light' : 'dark');
 }
 
-async function api(path, options = {}) {
-    const res = await fetch(path, {headers: {'content-type': 'application/json'}, ...options});
+function setReviewAuthToken(token) {
+    reviewAuthToken = token || '';
+    reviewSessionEstablished = false;
+    if (reviewAuthToken) {
+        sessionStorage.setItem('crawlerReviewAuthToken', reviewAuthToken);
+    } else {
+        sessionStorage.removeItem('crawlerReviewAuthToken');
+    }
+}
+
+async function clearReviewAuthToken() {
+    if (reviewAuthToken) {
+        await fetch('/api/session/logout', {
+            method: 'POST',
+            headers: {authorization: `Bearer ${reviewAuthToken}`},
+            credentials: 'same-origin'
+        }).catch(() => {});
+    }
+    setReviewAuthToken('');
+    document.getElementById('reloadState').textContent = 'Review token and browser session cleared';
+}
+
+async function requestReviewAuthToken() {
+    const token = window.prompt('Enter crawler review token');
+    if (token === null || !token.trim()) return false;
+    const response = await fetch('/api/session', {
+        method: 'POST',
+        headers: {authorization: `Bearer ${token.trim()}`},
+        credentials: 'same-origin'
+    });
+    if (!response.ok) return false;
+    setReviewAuthToken(token.trim());
+    reviewSessionEstablished = true;
+    return true;
+}
+
+async function ensureReviewSession() {
+    if (!reviewAuthToken || reviewSessionEstablished) return;
+    const response = await fetch('/api/session', {
+        method: 'POST',
+        headers: {authorization: `Bearer ${reviewAuthToken}`},
+        credentials: 'same-origin'
+    });
+    if (!response.ok) return false;
+    reviewSessionEstablished = true;
+    return true;
+}
+
+async function api(path, options = {}, allowPrompt = true) {
+    await ensureReviewSession();
+    const headers = new Headers(options.headers || {});
+    headers.set('content-type', 'application/json');
+    if (reviewAuthToken) headers.set('authorization', `Bearer ${reviewAuthToken}`);
+    const res = await fetch(path, {...options, headers, credentials: 'same-origin'});
+    if (res.status === 401 && allowPrompt && await requestReviewAuthToken()) {
+        return api(path, options, false);
+    }
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 }
@@ -84,20 +144,20 @@ async function loadReviews() {
 function renderReviewGroups(reviews) {
     const query = reviewSearchTerm.trim().toLowerCase();
     const groups = [];
-    const byShop = new Map();
+    const byListingSource = new Map();
     for (const review of reviews) {
         if (query && !reviewMatchesSearch(review, query)) continue;
-        const shopKey = review.shop_id || 'unknown-shop';
-        if (!byShop.has(shopKey)) {
+        const listingSourceKey = review.listing_source_id || 'unknown-listing-source';
+        if (!byListingSource.has(listingSourceKey)) {
             const group = {
-                shopId: shopKey,
-                shopName: review.shop_name || review.shop_id || 'Unknown shop',
+                listingSourceId: listingSourceKey,
+                listingSourceName: review.listing_source_name || review.listing_source_id || 'Unknown listing source',
                 reviews: []
             };
-            byShop.set(shopKey, group);
+            byListingSource.set(listingSourceKey, group);
             groups.push(group);
         }
-        byShop.get(shopKey).reviews.push(review);
+        byListingSource.get(listingSourceKey).reviews.push(review);
     }
 
     if (!groups.length) {
@@ -107,19 +167,19 @@ function renderReviewGroups(reviews) {
     return groups.map(group => {
         const pendingCount = group.reviews.filter(review => review.status === 'PENDING_REVIEW').length;
         const productSchemaCount = group.reviews.filter(review => review.artifact_type === 'PRODUCT_SCHEMA').length;
-        const collapsed = collapsedShopGroups.has(group.shopId);
-        return `<div class="shop-group">
-          <div class="shop-group-head" onclick="toggleShopGroup('${escapeHtmlAttr(group.shopId)}')">
+        const collapsed = collapsedListingSourceGroups.has(group.listingSourceId);
+        return `<div class="listing-source-group">
+          <div class="listing-source-group-head" onclick="toggleListingSourceGroup('${escapeHtmlAttr(group.listingSourceId)}')">
             <div>
-              <div class="queue-title">${escapeHtml(group.shopName)}</div>
+              <div class="queue-title">${escapeHtml(group.listingSourceName)}</div>
               <div class="queue-meta">${productSchemaCount} schema review${productSchemaCount === 1 ? '' : 's'} / ${group.reviews.length} total</div>
             </div>
-            <div class="shop-group-actions">
+            <div class="listing-source-group-actions">
               ${statusBadge(`${pendingCount} pending`)}
               <span class="collapse-indicator">${collapsed ? '+' : '-'}</span>
             </div>
           </div>
-          <div class="shop-review-list ${collapsed ? 'collapsed' : ''}">
+          <div class="listing-source-review-list ${collapsed ? 'collapsed' : ''}">
             ${group.reviews.map(renderReviewQueueItem).join('')}
           </div>
         </div>`;
@@ -128,8 +188,8 @@ function renderReviewGroups(reviews) {
 
 function reviewMatchesSearch(review, query) {
     return [
-        review.shop_name,
-        review.shop_id,
+        review.listing_source_name,
+        review.listing_source_id,
         review.artifact_type,
         review.status,
         review.reason,
@@ -142,13 +202,13 @@ function setReviewSearch(value) {
     loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 }
 
-function toggleShopGroup(shopId) {
-    if (collapsedShopGroups.has(shopId)) {
-        collapsedShopGroups.delete(shopId);
+function toggleListingSourceGroup(listingSourceId) {
+    if (collapsedListingSourceGroups.has(listingSourceId)) {
+        collapsedListingSourceGroups.delete(listingSourceId);
     } else {
-        collapsedShopGroups.add(shopId);
+        collapsedListingSourceGroups.add(listingSourceId);
     }
-    localStorage.setItem('crawlerReviewCollapsedShopGroups', JSON.stringify([...collapsedShopGroups]));
+    localStorage.setItem('crawlerReviewCollapsedListingSourceGroups', JSON.stringify([...collapsedListingSourceGroups]));
     loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 }
 
@@ -205,7 +265,7 @@ function renderDetail(detail, matrix) {
       <div class="review-topbar">
         <div>
           <div class="review-title">
-            <strong>${escapeHtml(review.shop_name || review.shop_id)}</strong>
+            <strong>${escapeHtml(review.listing_source_name || review.listing_source_id)}</strong>
             ${statusBadge(review.status)}
             ${statusBadge(review.artifact_type)}
           </div>
@@ -421,7 +481,7 @@ function renderSchemaOrderControls(schemas) {
     return `<div class="schema-order-card">
       <div>
         <h3>Schema Order</h3>
-        <div class="muted">Approval writes schemas in this order for the shop.</div>
+        <div class="muted">Approval writes schemas in this order for the ListingSource.</div>
       </div>
       <div class="schema-order-list">
         ${schemas.map((_, i) => `<button class="schema-chip ${i === selectedSchemaIndex ? 'active' : ''}" onclick="selectedSchemaIndex=${i}; normalizeSchemaSelection(); rerenderWorkbench()">${schemaLabel(i)}</button>`).join('')}
@@ -743,13 +803,12 @@ function defaultRuleFor(field) {
 
 function defaultSchema() {
     return {
-        shops_product_id: defaultRuleFor('shops_product_id'),
+        source_listing_id: defaultRuleFor('source_listing_id'),
         title: defaultRuleFor('title'),
         description: null,
         price: null,
         price_estimate_min: null,
         price_estimate_max: null,
-        seller_name: null,
         state: defaultRuleFor('state'),
         images: defaultRuleFor('images'),
         auction_start: null,
@@ -1161,6 +1220,8 @@ function escapeHtmlAttr(s) {
 }
 
 window.addEventListener('message', event => {
+    const frame = document.getElementById('snapshotFrame');
+    if (!frame || event.source !== frame.contentWindow) return;
     const data = event.data || {};
     if (data.type !== 'crawler-review-selector-picked') return;
     pickedSelector = data.selector || '';

@@ -1,6 +1,6 @@
 use super::{error::NormalizationError, language::detect_language};
 use localization::{Language, Localized};
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::{description::Description, title::Title};
 use sha2::{Digest, Sha256};
 use url::Url;
@@ -8,12 +8,15 @@ use url::Url;
 /// Strict variant used only in tests — returns an error when `raw` is blank
 /// rather than falling back to the URL.
 #[cfg(test)]
-pub(super) fn normalize_shop_listing_id(raw: &str) -> Result<ShopListingId, NormalizationError> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Err(NormalizationError::ShopsProductIdEmpty);
-    }
-    Ok(ShopListingId::from(trimmed))
+pub(super) fn normalize_source_listing_id(
+    raw: &str,
+) -> Result<SourceListingId, NormalizationError> {
+    SourceListingId::try_from(raw).map_err(|error| match error {
+        product_listing_core::source_listing_id::InvalidSourceListingId::Blank => {
+            NormalizationError::SourceListingIdEmpty
+        }
+        error => NormalizationError::SourceListingIdInvalid(error),
+    })
 }
 
 fn sha256_hex(input: &str) -> String {
@@ -25,15 +28,15 @@ fn sha256_hex(input: &str) -> String {
 
 /// Returns the normalized extracted ID when present; otherwise falls back to
 /// a SHA-256 hash of the full URL string.
-pub(super) fn normalize_shop_listing_id_with_url_sha_fallback(
+pub(super) fn normalize_source_listing_id_with_url_sha_fallback(
     raw: &str,
     url: &Url,
-) -> ShopListingId {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        ShopListingId::from(sha256_hex(url.as_str()))
+) -> Result<SourceListingId, NormalizationError> {
+    if raw.trim().is_empty() {
+        SourceListingId::try_from(sha256_hex(url.as_str()))
+            .map_err(NormalizationError::SourceListingIdInvalid)
     } else {
-        ShopListingId::from(trimmed)
+        SourceListingId::try_from(raw).map_err(NormalizationError::SourceListingIdInvalid)
     }
 }
 
@@ -133,62 +136,65 @@ mod tests {
 
     use super::{
         detect_description_language, detect_language, localize_normalized_title,
-        normalize_description, normalize_shop_listing_id,
-        normalize_shop_listing_id_with_url_sha_fallback, normalize_title,
+        normalize_description, normalize_source_listing_id,
+        normalize_source_listing_id_with_url_sha_fallback, normalize_title,
         normalize_title_localized,
     };
     use crate::scraper::normalization::error::NormalizationError;
 
     // -----------------------------------------------------------------------
-    // shop_listing_id
+    // source_listing_id
     // -----------------------------------------------------------------------
 
     #[test]
-    fn should_normalize_shop_listing_id_when_plain_string_provided() {
-        let result = normalize_shop_listing_id("PROD-001").unwrap();
-        assert_eq!(result.to_string(), "prod-001");
+    fn should_preserve_case_when_source_listing_id_is_provided() {
+        let result = normalize_source_listing_id("PROD-001").unwrap();
+        assert_eq!(result.to_string(), "PROD-001");
     }
 
     #[test]
-    fn should_trim_whitespace_when_normalizing_shop_listing_id() {
-        let result = normalize_shop_listing_id("  PROD-001  ").unwrap();
-        assert_eq!(result.to_string(), "prod-001");
+    fn should_trim_outer_whitespace_when_normalizing_source_listing_id() {
+        let result = normalize_source_listing_id("  PROD-001  ").unwrap();
+        assert_eq!(result.to_string(), "PROD-001");
     }
 
     #[test]
-    fn should_return_error_when_shop_listing_id_is_empty() {
-        let err = normalize_shop_listing_id("").unwrap_err();
-        assert!(matches!(err, NormalizationError::ShopsProductIdEmpty));
+    fn should_return_error_when_source_listing_id_is_empty() {
+        let err = normalize_source_listing_id("").unwrap_err();
+        assert!(matches!(err, NormalizationError::SourceListingIdEmpty));
     }
 
     #[test]
-    fn should_return_error_when_shop_listing_id_is_only_whitespace() {
-        let err = normalize_shop_listing_id("   ").unwrap_err();
-        assert!(matches!(err, NormalizationError::ShopsProductIdEmpty));
+    fn should_return_error_when_source_listing_id_is_only_whitespace() {
+        let err = normalize_source_listing_id("   ").unwrap_err();
+        assert!(matches!(err, NormalizationError::SourceListingIdEmpty));
     }
 
     // -----------------------------------------------------------------------
-    // shop_listing_id — URL SHA fallback
+    // source_listing_id — URL SHA fallback
     // -----------------------------------------------------------------------
 
     #[test]
-    fn should_use_extracted_id_when_shop_listing_id_with_sha_fallback_is_non_empty() {
+    fn should_use_extracted_id_when_source_listing_id_with_sha_fallback_is_non_empty() {
         let url = Url::parse("https://example.com/products/123").unwrap();
-        let result = normalize_shop_listing_id_with_url_sha_fallback("PROD-001", &url);
-        assert_eq!(result.to_string(), "prod-001");
+        let result = normalize_source_listing_id_with_url_sha_fallback("PROD-001", &url)
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
+        assert_eq!(result.to_string(), "PROD-001");
     }
 
     #[test]
-    fn should_trim_and_use_extracted_id_when_shop_listing_id_with_sha_fallback_has_whitespace() {
+    fn should_trim_and_use_extracted_id_when_source_listing_id_with_sha_fallback_has_whitespace() {
         let url = Url::parse("https://example.com/products/123").unwrap();
-        let result = normalize_shop_listing_id_with_url_sha_fallback("  PROD-001  ", &url);
-        assert_eq!(result.to_string(), "prod-001");
+        let result = normalize_source_listing_id_with_url_sha_fallback("  PROD-001  ", &url)
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
+        assert_eq!(result.to_string(), "PROD-001");
     }
 
     #[test]
-    fn should_fall_back_to_sha256_of_url_when_shop_listing_id_with_sha_fallback_is_empty() {
+    fn should_fall_back_to_sha256_of_url_when_source_listing_id_with_sha_fallback_is_empty() {
         let url = Url::parse("https://example.com/products/123").unwrap();
-        let result = normalize_shop_listing_id_with_url_sha_fallback("", &url);
+        let result = normalize_source_listing_id_with_url_sha_fallback("", &url)
+            .unwrap_or_else(|error| panic!("valid fallback source listing ID: {error}"));
         assert_eq!(
             result.to_string(),
             "28c714c9f68ec26408de2fcdb45ef93e77920c3ef602cb85d57f9cd8fe5ea651"
@@ -196,10 +202,11 @@ mod tests {
     }
 
     #[test]
-    fn should_fall_back_to_sha256_of_url_when_shop_listing_id_with_sha_fallback_is_only_whitespace()
-    {
+    fn should_fall_back_to_sha256_of_url_when_source_listing_id_with_sha_fallback_is_only_whitespace()
+     {
         let url = Url::parse("https://example.com/products/123").unwrap();
-        let result = normalize_shop_listing_id_with_url_sha_fallback("   ", &url);
+        let result = normalize_source_listing_id_with_url_sha_fallback("   ", &url)
+            .unwrap_or_else(|error| panic!("valid fallback source listing ID: {error}"));
         assert_eq!(
             result.to_string(),
             "28c714c9f68ec26408de2fcdb45ef93e77920c3ef602cb85d57f9cd8fe5ea651"

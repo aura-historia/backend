@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use application::transaction::{Transaction, UnitOfWork};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_service::ports::{
     WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,
 };
@@ -136,24 +137,30 @@ async fn seed_user(pool: &sqlx::PgPool, label: &str) -> UserId {
 async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     let product_listing_id = ProductListingId::new();
     let product_uuid = uuid::Uuid::from(product_listing_id);
+    let title_slug_id = ProductListingSlugId::from_title_and_suffix(
+        "recipient product",
+        &product_uuid.simple().to_string()[..6],
+    )
+    .unwrap_or_else(|error| panic!("valid fixture title slug: {error}"));
     let event_id = uuid::Uuid::new_v4();
-    let shop_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
     let mut tx = pool
         .begin()
         .await
         .unwrap_or_else(|error| panic!("seed product transaction failed: {error:?}"));
-    sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, 'Recipient shop', 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
-        .bind(shop_id)
-        .bind(format!("recipient-shop-{shop_id}"))
+    sqlx::query("WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), 'Fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $1, $2, 'Recipient source', party_id FROM operator")
+        .bind(listing_source_id)
+        .bind(format!("recipient-source-{listing_source_id}"))
         .execute(&mut *tx)
         .await
-        .unwrap_or_else(|error| panic!("seed shop failed: {error:?}"));
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, availability, lifecycle, url) VALUES ($1, $2, $3, $3, $4, $4, $5, NULL, 'ACTIVE', 'https://example.test/product')")
+        .unwrap_or_else(|error| panic!("seed source failed: {error:?}"));
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, availability, lifecycle, url) VALUES ($1, $2, $3, $3, $4, $5, NULL, 'ACTIVE', 'https://example.test/product')")
         .bind(product_uuid)
-        .bind(format!("recipient-product-{product_listing_id}"))
+        .bind(title_slug_id.as_ref())
         .bind(event_id)
-        .bind(shop_id)
+        .bind(listing_source_id)
         .bind(product_uuid.to_string())
+
         .execute(&mut *tx)
         .await
         .unwrap_or_else(|error| panic!("seed product failed: {error:?}"));

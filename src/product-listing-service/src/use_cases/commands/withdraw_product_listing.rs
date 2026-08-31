@@ -25,8 +25,8 @@ pub enum WithdrawProductListingError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
-    #[error("shop not found")]
-    ShopNotFound,
+    #[error("listing source not found")]
+    ListingSourceNotFound,
     #[error("partner product listing authorization is temporarily unavailable")]
     PartnerAuthorizationTemporarilyUnavailable {
         #[source]
@@ -121,7 +121,7 @@ where
                 if let Some(actor_id) = partner_actor(&context.principal) {
                     self.authorizer
                         .in_transaction(&mut tx)
-                        .authorize(actor_id, loaded.value.shop_id())
+                        .authorize(actor_id, loaded.value.listing_source_id())
                         .await?;
                 }
                 loaded
@@ -130,7 +130,7 @@ where
                 if let Some(actor_id) = partner_actor(&context.principal) {
                     self.authorizer
                         .in_transaction(&mut tx)
-                        .authorize(actor_id, key.shop_id)
+                        .authorize(actor_id, key.listing_source_id)
                         .await?;
                 }
                 self.products
@@ -192,7 +192,7 @@ where
             .await
     }
 
-    #[tracing::instrument(name = "withdraw_product_listing_by_key", skip_all, fields(shop_id = %product_key.shop_id, shop_listing_id = %product_key.shop_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    #[tracing::instrument(name = "withdraw_product_listing_by_key", skip_all, fields(listing_source_id = %product_key.listing_source_id, source_listing_id = %product_key.source_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute_by_key(
         &self,
         context: &OperationContext,
@@ -223,7 +223,9 @@ impl From<OperationAuthorizationError> for WithdrawProductListingError {
 impl From<PartnerProductListingAuthorizationError> for WithdrawProductListingError {
     fn from(error: PartnerProductListingAuthorizationError) -> Self {
         match error {
-            PartnerProductListingAuthorizationError::ShopNotFound => Self::ShopNotFound,
+            PartnerProductListingAuthorizationError::ListingSourceNotFound => {
+                Self::ListingSourceNotFound
+            }
             PartnerProductListingAuthorizationError::Forbidden => Self::Forbidden,
             PartnerProductListingAuthorizationError::TemporarilyUnavailable { source } => {
                 Self::PartnerAuthorizationTemporarilyUnavailable { source }
@@ -242,9 +244,10 @@ impl From<ProductListingRepositoryError> for WithdrawProductListingError {
             | ProductListingRepositoryError::ProductListingInsertFailed
             | ProductListingRepositoryError::ProductListingUpdateFailed
             | ProductListingRepositoryError::ProductListingCurrentEventIdConflict
-            | ProductListingRepositoryError::ShopListingAlreadyExists
-            | ProductListingRepositoryError::ProductListingSlugAlreadyExists
+            | ProductListingRepositoryError::SourceListingAlreadyExists
+            | ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists
             | ProductListingRepositoryError::InvalidProductListingSlugPersisted
+            | ProductListingRepositoryError::InvalidSourceListingIdPersisted
             | ProductListingRepositoryError::IncompleteTitlePersisted
             | ProductListingRepositoryError::InvalidTitleLanguagePersisted
             | ProductListingRepositoryError::IncompleteDescriptionPersisted

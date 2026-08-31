@@ -1,6 +1,7 @@
 use crate::network::policy::{
-    NetworkAction, NetworkErrorKind, RetryPolicy, action_for, classify_reqwest_error,
-    inline_retry_backoff_for,
+    NetworkAction, NetworkErrorKind, PublicTargetError, RetryPolicy, action_for,
+    classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host, public_http_client,
+    redirect_target,
 };
 use crate::review::model::ARTIFACT_PRODUCT_SCHEMA;
 use crate::review::repository::CrawlerReviewRepository;
@@ -26,9 +27,15 @@ use url::Url;
 // ---------------------------------------------------------------------------
 
 pub const DEFAULT_SCHEMA_SEED_PAGES: usize = 4;
-pub const DEFAULT_MAX_LLM_CALLS_PER_SHOP: i64 = 20;
+pub const DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE: i64 = 20;
 
 const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
+/// Maximum time for one fetch attempt, including redirects and body read.
+const HTML_FETCH_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
+/// Maximum time for one complete fetch, including retry backoff and all attempts.
+const HTML_FETCH_TOTAL_TIMEOUT: Duration = Duration::from_secs(20);
+const HTML_MAX_REDIRECTS: usize = 5;
+const HTML_MAX_BYTES: usize = 2 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // HtmlFetcher trait
@@ -80,9 +87,13 @@ impl FetchError {
 // ---------------------------------------------------------------------------
 
 pub struct ReqwestHtmlFetcher {
-    client: reqwest::Client,
+    default_headers: reqwest::header::HeaderMap,
     retry_policy: RetryPolicy,
+    attempt_timeout: Duration,
+    total_timeout: Duration,
     auto_throttle: Arc<ScraperAutoThrottle>,
+    #[cfg(test)]
+    allow_private_targets_for_test: bool,
 }
 
 struct FetchAttemptError {
@@ -141,19 +152,14 @@ impl ReqwestHtmlFetcher {
             reqwest::header::HeaderValue::from_static("no-cache"),
         );
 
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .http1_only()
-            .timeout(std::time::Duration::from_secs(15))
-            .user_agent(DEFAULT_USER_AGENT)
-            .default_headers(default_headers)
-            .build()
-            .expect("reqwest client should build");
-
         Self {
-            client,
+            default_headers,
             retry_policy,
+            attempt_timeout: HTML_FETCH_ATTEMPT_TIMEOUT,
+            total_timeout: HTML_FETCH_TOTAL_TIMEOUT,
             auto_throttle: Arc::new(ScraperAutoThrottle::new(auto_throttle_config)),
+            #[cfg(test)]
+            allow_private_targets_for_test: false,
         }
     }
 
@@ -176,40 +182,96 @@ impl ReqwestHtmlFetcher {
     }
 
     async fn fetch_once(&self, url: &Url) -> Result<FetchedHtml, FetchAttemptError> {
-        let domain = url.host_str().map(str::to_owned);
-        self.wait_for_domain_slot(domain.as_deref()).await;
+        let mut current_url = url.clone();
+        let original_url = url.clone();
 
-        let started = Instant::now();
-        let response = self.client.get(url.clone()).send().await.map_err(|err| {
+        for redirect_count in 0..=HTML_MAX_REDIRECTS {
+            let domain = current_url.host_str().map(str::to_owned);
+            self.wait_for_domain_slot(domain.as_deref()).await;
+            let started = Instant::now();
+            let client = self.http_client_for(&current_url).await?;
+            let response = client
+                .get(current_url.clone())
+                .header(reqwest::header::USER_AGENT, DEFAULT_USER_AGENT)
+                .headers(self.default_headers.clone())
+                .send()
+                .await
+                .map_err(reqwest_fetch_error)?;
             self.record_domain_latency(domain.as_deref(), started.elapsed());
-            FetchAttemptError {
-                error: FetchError::Network {
-                    kind: classify_reqwest_error(&err),
-                    details: err.to_string(),
-                },
+
+            if response.status().is_redirection() {
+                if redirect_count == HTML_MAX_REDIRECTS {
+                    return Err(FetchAttemptError {
+                        error: unsafe_fetch_error("redirect limit exceeded"),
+                    });
+                }
+                let next_url =
+                    redirect_target(&current_url, &response).map_err(public_target_fetch_error)?;
+                if !is_same_or_www_host(&original_url, &next_url) {
+                    return Err(FetchAttemptError {
+                        error: unsafe_fetch_error(
+                            "redirect target host does not match configured host",
+                        ),
+                    });
+                }
+                current_url = next_url;
+                continue;
             }
-        })?;
 
-        self.record_domain_latency(domain.as_deref(), started.elapsed());
+            let response = response.error_for_status().map_err(reqwest_fetch_error)?;
+            let final_url = response.url().clone();
+            let html = read_bounded_html(response).await?;
+            return Ok(FetchedHtml::new(html, final_url));
+        }
 
-        let response = response
-            .error_for_status()
-            .map_err(|err| FetchAttemptError {
-                error: FetchError::Network {
-                    kind: classify_reqwest_error(&err),
-                    details: err.to_string(),
-                },
-            })?;
+        Err(FetchAttemptError {
+            error: unsafe_fetch_error("redirect limit exceeded"),
+        })
+    }
 
-        let final_url = response.url().clone();
-        let html = response.text().await.map_err(|err| FetchAttemptError {
-            error: FetchError::Network {
-                kind: classify_reqwest_error(&err),
-                details: err.to_string(),
-            },
-        })?;
+    async fn http_client_for(&self, url: &Url) -> Result<reqwest::Client, FetchAttemptError> {
+        #[cfg(test)]
+        if self.allow_private_targets_for_test {
+            return reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(self.attempt_timeout)
+                .connect_timeout(self.attempt_timeout)
+                .no_proxy()
+                .http1_only()
+                .build()
+                .map_err(reqwest_fetch_error);
+        }
+        public_http_client(url, self.attempt_timeout, true)
+            .await
+            .map_err(public_target_fetch_error)
+    }
 
-        Ok(FetchedHtml::new(html, final_url))
+    #[cfg(test)]
+    fn for_local_http_test(
+        retry_policy: RetryPolicy,
+        auto_throttle_config: ScraperAutoThrottleConfig,
+    ) -> Self {
+        Self::for_local_http_test_with_timeouts(
+            retry_policy,
+            auto_throttle_config,
+            HTML_FETCH_ATTEMPT_TIMEOUT,
+            HTML_FETCH_TOTAL_TIMEOUT,
+        )
+    }
+
+    #[cfg(test)]
+    fn for_local_http_test_with_timeouts(
+        retry_policy: RetryPolicy,
+        auto_throttle_config: ScraperAutoThrottleConfig,
+        attempt_timeout: Duration,
+        total_timeout: Duration,
+    ) -> Self {
+        let mut fetcher =
+            Self::with_retry_policy_and_auto_throttle_config(retry_policy, auto_throttle_config);
+        fetcher.attempt_timeout = attempt_timeout;
+        fetcher.total_timeout = total_timeout;
+        fetcher.allow_private_targets_for_test = true;
+        fetcher
     }
 
     fn record_domain_latency(&self, domain: Option<&str>, latency: Duration) {
@@ -224,29 +286,104 @@ impl ReqwestHtmlFetcher {
     }
 }
 
+fn public_target_fetch_error(error: PublicTargetError) -> FetchAttemptError {
+    FetchAttemptError {
+        error: unsafe_fetch_error(error.to_string()),
+    }
+}
+
+fn unsafe_fetch_error(details: impl Into<String>) -> FetchError {
+    FetchError::Network {
+        kind: NetworkErrorKind::UnsafeTarget,
+        details: details.into(),
+    }
+}
+
+fn reqwest_fetch_error(error: reqwest::Error) -> FetchAttemptError {
+    FetchAttemptError {
+        error: FetchError::Network {
+            kind: classify_reqwest_error(&error),
+            details: error.to_string(),
+        },
+    }
+}
+
+async fn read_bounded_html(mut response: reqwest::Response) -> Result<String, FetchAttemptError> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > HTML_MAX_BYTES as u64)
+    {
+        return Err(FetchAttemptError {
+            error: unsafe_fetch_error("HTML response exceeds size limit"),
+        });
+    }
+    let mut bytes = Vec::with_capacity(
+        response
+            .content_length()
+            .unwrap_or_default()
+            .min(HTML_MAX_BYTES as u64) as usize,
+    );
+    while let Some(chunk) = response.chunk().await.map_err(reqwest_fetch_error)? {
+        let remaining = HTML_MAX_BYTES.saturating_sub(bytes.len());
+        if chunk.len() > remaining {
+            return Err(FetchAttemptError {
+                error: unsafe_fetch_error("HTML response exceeds size limit"),
+            });
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 #[async_trait::async_trait]
 impl HtmlFetcher for ReqwestHtmlFetcher {
     async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
-        for attempt in 1..=self.retry_policy.max_attempts {
-            match self.fetch_once(url).await {
-                Ok(html) => return Ok(html),
-                Err(attempt_error) => {
-                    let action = action_for(attempt_error.error.kind());
-                    if action != NetworkAction::Retry || attempt >= self.retry_policy.max_attempts {
-                        return Err(attempt_error.error);
+        let fetch_with_retries = async {
+            for attempt in 1..=self.retry_policy.max_attempts {
+                match tokio::time::timeout(self.attempt_timeout, self.fetch_once(url)).await {
+                    Err(_) => {
+                        let error = FetchError::Network {
+                            kind: NetworkErrorKind::Timeout,
+                            details: "HTML fetch attempt exceeded timeout".to_string(),
+                        };
+                        if attempt >= self.retry_policy.max_attempts {
+                            return Err(error);
+                        }
+                        let backoff = inline_retry_backoff_for(self.retry_policy, attempt);
+                        if !backoff.is_zero() {
+                            sleep(backoff).await;
+                        }
                     }
-                    let backoff = inline_retry_backoff_for(self.retry_policy, attempt);
-                    if !backoff.is_zero() {
-                        sleep(backoff).await;
+                    Ok(Ok(html)) => return Ok(html),
+                    Ok(Err(attempt_error)) => {
+                        let action = action_for(attempt_error.error.kind());
+                        if action != NetworkAction::Retry
+                            || attempt >= self.retry_policy.max_attempts
+                        {
+                            return Err(attempt_error.error);
+                        }
+                        let backoff = inline_retry_backoff_for(self.retry_policy, attempt);
+                        if !backoff.is_zero() {
+                            sleep(backoff).await;
+                        }
                     }
                 }
             }
-        }
 
-        Err(FetchError::Network {
-            kind: NetworkErrorKind::Unknown,
-            details: "retry loop terminated unexpectedly".to_string(),
-        })
+            Err(FetchError::Network {
+                kind: NetworkErrorKind::Unknown,
+                details: "retry loop terminated unexpectedly".to_string(),
+            })
+        };
+
+        tokio::time::timeout(self.total_timeout, fetch_with_retries)
+            .await
+            .unwrap_or_else(|_| {
+                Err(FetchError::Network {
+                    kind: NetworkErrorKind::Timeout,
+                    details: "HTML fetch exceeded total timeout".to_string(),
+                })
+            })
     }
 }
 
@@ -264,8 +401,8 @@ pub struct ScraperServiceImpl {
     /// Number of HTML pages to seed first-time schema generation with.
     /// `1` means current page only; values >1 trigger best-effort sampling/fetch.
     pub(crate) schema_seed_pages: usize,
-    /// Hard limit for total LLM calls per shop across the whole scrape.
-    pub(crate) max_llm_calls_per_shop: i64,
+    /// Hard limit for total LLM calls per ListingSource across the whole scrape.
+    pub(crate) max_llm_calls_per_listing_source: i64,
     pub(crate) review_repository: Option<CrawlerReviewRepository>,
     pub(crate) review_required: bool,
     pub(crate) schema_llm_review_mode: SchemaLlmReviewMode,
@@ -326,7 +463,7 @@ impl ScraperServiceImpl {
             normalization_service,
             candidate_service,
             DEFAULT_SCHEMA_SEED_PAGES,
-            DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+            DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
         )
     }
 
@@ -336,7 +473,7 @@ impl ScraperServiceImpl {
         normalization_service: Box<dyn ProductListingNormalizationService + Send + Sync>,
         candidate_service: Arc<dyn ScraperCandidateService>,
         schema_seed_pages: usize,
-        max_llm_calls_per_shop: i64,
+        max_llm_calls_per_listing_source: i64,
     ) -> Self {
         Self {
             html_fetcher,
@@ -346,7 +483,7 @@ impl ScraperServiceImpl {
             candidate_service,
             removed_page_schema_repository: Box::new(NullRemovedPageSchemaRepository),
             schema_seed_pages: schema_seed_pages.max(1),
-            max_llm_calls_per_shop,
+            max_llm_calls_per_listing_source,
             review_repository: None,
             review_required: false,
             schema_llm_review_mode: SchemaLlmReviewMode::HumanOnly,
@@ -379,7 +516,7 @@ impl ScraperServiceImpl {
 
     pub(crate) async fn pending_product_schema_review_id(
         &self,
-        shop_id: &shop_core::shop_id::ShopId,
+        listing_source_id: &listing_source_core::ListingSourceId,
     ) -> Result<Option<uuid::Uuid>, ProductListingSchemaServiceError> {
         if !self.review_required {
             return Ok(None);
@@ -390,7 +527,7 @@ impl ScraperServiceImpl {
         };
 
         review_repository
-            .latest_pending_review_id(shop_id, ARTIFACT_PRODUCT_SCHEMA)
+            .latest_pending_review_id(listing_source_id, ARTIFACT_PRODUCT_SCHEMA)
             .await
             .map_err(ProductListingSchemaServiceError::DatabaseError)
     }
@@ -419,6 +556,23 @@ mod tests {
                 let _ = socket.read(&mut buffer).await;
                 let _ = socket.write_all(response.as_bytes()).await;
             }
+        });
+
+        Url::parse(&format!("http://{addr}/product")).unwrap()
+    }
+
+    async fn spawn_delayed_http_response(response: &'static str, delay: Duration) -> Url {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let mut buffer = [0_u8; 1024];
+            let _ = socket.read(&mut buffer).await;
+            tokio::time::sleep(delay).await;
+            let _ = socket.write_all(response.as_bytes()).await;
         });
 
         Url::parse(&format!("http://{addr}/product")).unwrap()
@@ -481,7 +635,7 @@ mod tests {
         ])
         .await;
 
-        let fetcher = ReqwestHtmlFetcher::with_retry_policy_and_auto_throttle_config(
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test(
             zero_delay_retry_policy(2),
             throttle_config(Duration::ZERO),
         );
@@ -502,7 +656,7 @@ mod tests {
             "HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>",
         ])
         .await;
-        let fetcher = ReqwestHtmlFetcher::with_retry_policy_and_auto_throttle_config(
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test(
             short_delay_retry_policy(2),
             throttle_config(Duration::ZERO),
         );
@@ -517,14 +671,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reqwest_fetcher_reports_attempt_timeout_before_total_timeout() {
+        let url = spawn_delayed_http_response(
+            "HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>",
+            Duration::from_millis(100),
+        )
+        .await;
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
+            zero_delay_retry_policy(1),
+            throttle_config(Duration::ZERO),
+            Duration::from_millis(20),
+            Duration::from_millis(200),
+        );
+
+        let started = Instant::now();
+        let error = fetcher.fetch(&url).await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            crate::scraper::scraper_service::FetchError::Network {
+                kind: crate::network::policy::NetworkErrorKind::Timeout,
+                ..
+            }
+        ));
+        assert!(started.elapsed() < Duration::from_millis(100));
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_stops_retries_when_total_timeout_expires() {
+        let url = spawn_http_sequence(vec![
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        ])
+        .await;
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test_with_timeouts(
+            RetryPolicy {
+                max_attempts: 3,
+                base_delay: Duration::from_millis(40),
+                max_delay: Duration::from_millis(40),
+            },
+            throttle_config(Duration::ZERO),
+            Duration::from_millis(100),
+            Duration::from_millis(50),
+        );
+
+        let error = fetcher.fetch(&url).await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            crate::scraper::scraper_service::FetchError::Network {
+                kind: crate::network::policy::NetworkErrorKind::Timeout,
+                details,
+            } if details == "HTML fetch exceeded total timeout"
+        ));
+    }
+
+    #[tokio::test]
     async fn reqwest_fetcher_applies_throttle_floor_before_fetch() {
         let url = spawn_http_sequence(vec![
             "HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>",
         ])
         .await;
-        let fetcher = ReqwestHtmlFetcher::with_retry_policy_and_auto_throttle_config(
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test(
             zero_delay_retry_policy(1),
-            throttle_config(Duration::from_millis(25)),
+            throttle_config(Duration::from_millis(40)),
         );
 
         let started = Instant::now();

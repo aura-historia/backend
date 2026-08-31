@@ -1,8 +1,9 @@
-use crate::url::append_utm_params;
+use crate::url::referral_configuration;
 use application::personalized::Personalized;
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, outbound_url};
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use notification_core::notification_id::NotificationId;
@@ -12,16 +13,18 @@ use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{
-    ListingSaleObservation, ProductListingAddress, ProductListingAuction, ProductListingPricing,
+    ListingSaleObservation, ProductListingAuction, ProductListingPricing,
 };
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::SourceListingId;
+
 use product_listing_core::title::Title;
 use product_listing_service::ports::{
-    PersonalizedProductListingDetailsReadModel, ProductListingDetailsReadError,
-    ProductListingDetailsReadModel, ProductListingDetailsReadRequest, ProductListingDetailsReader,
+    ListingSourceSummary, PersonalizedProductListingDetailsReadModel,
+    ProductListingDetailsReadError, ProductListingDetailsReadModel,
+    ProductListingDetailsReadRequest, ProductListingDetailsReader,
     ProductListingDetailsReaderFactory,
 };
 use product_listing_service::use_cases::queries::get_product_listing::ProductListingLookup;
@@ -34,7 +37,6 @@ use search_filter_core::{
     user_search_filter_name::UserSearchFilterName,
 };
 use serde::Deserialize;
-use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 use time::OffsetDateTime;
@@ -50,23 +52,13 @@ struct SqlxProductListingDetailsReader<'tx> {
 #[derive(Debug, sqlx::FromRow)]
 pub(super) struct ProductListingDetailsRow {
     pub(super) product_listing_id: uuid::Uuid,
-    product_listing_slug_id: String,
+    product_listing_title_slug_id: String,
     event_id: uuid::Uuid,
-    shop_id: uuid::Uuid,
-    seller_id: uuid::Uuid,
-    shop_listing_id: String,
-    shop_name: String,
-    shop_slug_id: String,
-    seller_name: String,
-    seller_slug_id: String,
-    structured_address_addressline: Option<String>,
-    structured_address_addressline_extra: Option<String>,
-    structured_address_locality: Option<String>,
-    structured_address_region: Option<String>,
-    structured_address_postal_code: Option<String>,
-    structured_address_country: Option<String>,
-    geo_address_lat: Option<f64>,
-    geo_address_lon: Option<f64>,
+    listing_source_id: uuid::Uuid,
+    source_listing_id: String,
+    listing_source_name: String,
+    listing_source_slug_id: String,
+    listing_source_referral_configuration: Option<serde_json::Value>,
     product_title_text: Option<String>,
     product_title_language: Option<String>,
     product_description_text: Option<String>,
@@ -153,20 +145,16 @@ impl ProductListingDetailsReader for SqlxProductListingDetailsReader<'_> {
                     .await
             }
 
-            ProductListingLookup::BySlug {
-                shop_slug_id,
-                product_listing_slug_id,
-            } => {
+            ProductListingLookup::ByTitleSlug(product_listing_title_slug_id) => {
                 let mut query = QueryBuilder::<Postgres>::new(product_details_select(
                     DEFAULT_NOTIFICATION_STATES,
                 ));
-                query.push(" WHERE shop.shop_slug_id = $3 AND p.product_listing_slug_id = $4");
+                query.push(" WHERE p.product_listing_title_slug_id = $3");
                 query
                     .build_query_as::<ProductListingDetailsRow>()
                     .bind(requested_language)
                     .bind(user_id)
-                    .bind(shop_slug_id.as_ref())
-                    .bind(product_listing_slug_id.as_ref())
+                    .bind(product_listing_title_slug_id.as_ref())
                     .fetch_optional(&mut *self.connection)
                     .await
             }
@@ -201,12 +189,11 @@ pub(super) fn product_details_select(notification_states: &str) -> String {
 pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
     WITH /* NOTIFICATION_STATES */
     SELECT
-        p.product_listing_id, p.product_listing_slug_id, p.event_id, p.shop_id, p.seller_id, p.shop_listing_id AS shop_listing_id,
-        shop.name AS shop_name, shop.shop_slug_id,
-        seller.name AS seller_name, seller.shop_slug_id AS seller_slug_id,
-        p.structured_address_addressline, p.structured_address_addressline_extra,
-        p.structured_address_locality, p.structured_address_region, p.structured_address_postal_code,
-        p.structured_address_country, p.geo_address_lat, p.geo_address_lon,
+        p.product_listing_id, p.product_listing_title_slug_id, p.event_id,
+        p.listing_source_id, p.source_listing_id,
+        listing_source.name AS listing_source_name,
+        listing_source.listing_source_slug_id,
+        listing_source.referral_configuration AS listing_source_referral_configuration,
         p.title_text AS product_title_text, p.title_language AS product_title_language,
         p.description_text AS product_description_text,
         p.description_language AS product_description_language,
@@ -230,8 +217,8 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
         selected_match.month_position AS selected_match_month_position,
         notification_state.unseen_notification_ids
     FROM product_listings p
-    JOIN shops shop ON shop.shop_id = p.shop_id
-    JOIN shops seller ON seller.shop_id = p.seller_id
+    JOIN listing_sources listing_source
+        ON listing_source.listing_source_id = p.listing_source_id
     LEFT JOIN product_listing_content_assessments assessment
         ON assessment.product_listing_id = p.product_listing_id
         AND assessment.source_event_id = p.content_source_event_id
@@ -375,7 +362,8 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
     type Error = ();
 
     fn try_from(row: ProductListingDetailsRow) -> Result<Self, Self::Error> {
-        let address = address(&row)?;
+        let source_listing_id =
+            SourceListingId::try_from(row.source_listing_id.clone()).map_err(|_| ())?;
         let parsed_images = images(row.product_images.clone())?;
         let user_state = user_state(&row, &parsed_images)?;
         let content_policy = content_policy(
@@ -401,21 +389,27 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
         let sale_observation =
             sale_observation(row.sale_observed_at, row.sale_observation_fx_rate_id)?;
         let url = Url::parse(&row.url).map_err(|_| ())?;
+        let view_url = outbound_url(
+            referral_configuration(row.listing_source_referral_configuration.as_ref())?.as_ref(),
+            &url,
+        )
+        .map_err(|_| ())?;
 
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
                 product_listing_id: ProductListingId::from(row.product_listing_id),
-                product_listing_slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
-                    .map_err(|_| ())?,
+                product_listing_title_slug_id: ProductListingSlugId::raw(
+                    &row.product_listing_title_slug_id,
+                )
+                .map_err(|_| ())?,
                 event_id: EventId::from(row.event_id),
-                shop_id: ShopId::from(row.shop_id),
-                seller_id: ShopId::from(row.seller_id),
-                shop_listing_id: ShopListingId::from(row.shop_listing_id),
-                shop_name: ShopName::from(row.shop_name),
-                seller_name: ShopName::from(row.seller_name),
-                shop_slug_id: ShopSlugId::raw(&row.shop_slug_id).map_err(|_| ())?,
-                seller_slug_id: ShopSlugId::raw(&row.seller_slug_id).map_err(|_| ())?,
-                address,
+                source: ListingSourceSummary {
+                    listing_source_id: ListingSourceId::from(row.listing_source_id),
+                    name: ListingSourceName::try_from(row.listing_source_name).map_err(|_| ())?,
+                    slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id)
+                        .map_err(|_| ())?,
+                },
+                source_listing_id,
                 product_title,
                 product_description,
                 title,
@@ -428,7 +422,7 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                 sale_observation,
                 availability: availability(row.availability.as_deref())?,
                 lifecycle: lifecycle(&row.lifecycle)?,
-                view_url: append_utm_params(url.clone()),
+                view_url,
                 url,
                 images: parsed_images,
                 content_policy,
@@ -539,47 +533,6 @@ fn search_filter_user_state(
             .map(EnhancedMatchReason::from),
         match_feedback: row.selected_match_feedback,
     })
-}
-
-fn address(row: &ProductListingDetailsRow) -> Result<ProductListingAddress, ()> {
-    let structured = match &row.structured_address_addressline {
-        Some(addressline) => Some(geo::core::address::StructuredAddress {
-            addressline: Some(addressline.clone()),
-            addressline_extra: row.structured_address_addressline_extra.clone(),
-            locality: row.structured_address_locality.clone(),
-            region: row.structured_address_region.clone(),
-            postal_code: row.structured_address_postal_code.clone(),
-            country: row
-                .structured_address_country
-                .as_deref()
-                .map(|value| isocountry::CountryCode::for_alpha3(value).map_err(|_| ()))
-                .transpose()?,
-            continent: row
-                .structured_address_country
-                .as_deref()
-                .map(|value| {
-                    isocountry::CountryCode::for_alpha3(value)
-                        .map(geo::core::continent::Continent::from)
-                        .map_err(|_| ())
-                })
-                .transpose()?,
-        }),
-        None if row.structured_address_addressline_extra.is_none()
-            && row.structured_address_locality.is_none()
-            && row.structured_address_region.is_none()
-            && row.structured_address_postal_code.is_none()
-            && row.structured_address_country.is_none() =>
-        {
-            None
-        }
-        None => return Err(()),
-    };
-    let geo = match (row.geo_address_lat, row.geo_address_lon) {
-        (Some(lat), Some(lon)) => Some(geo::core::address::GeoAddress { lat, lon }),
-        (None, None) => None,
-        _ => return Err(()),
-    };
-    Ok(ProductListingAddress { structured, geo })
 }
 
 fn localized_title(

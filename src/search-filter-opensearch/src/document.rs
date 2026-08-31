@@ -1,12 +1,7 @@
-use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
 
-use geo::{
-    core::distance::{Distance, DistanceUnit, GeoDistanceQuery},
-    data::continent_data::ContinentData,
-};
-use isocountry::CountryCode;
+use listing_source_core::ListingSourceId;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
 use product_listing_core::listing_availability::ListingAvailability;
@@ -23,31 +18,19 @@ use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use search_filter_service::ports::{SearchFilterProjection, SearchFilterView};
 use serde::ser::Error as _;
 use serde::{Deserialize, Serialize};
-use shop_core::shop_type::ShopType;
-use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use user_core::user_id::UserId;
 
-const PRODUCT_SEARCH_FIELDS: [&str; 23] = [
+const PRODUCT_SEARCH_FIELDS: [&str; 13] = [
     "language",
     "currency",
     "productQuery",
     "enhancedSearchDescription",
     "excludeProductId",
-    "shopName",
-    "excludeShopName",
-    "sellerName",
-    "excludeSellerName",
-    "shopSlugId",
-    "excludeShopSlugId",
-    "sellerSlugId",
-    "excludeSellerSlugId",
-    "shopType",
-    "country",
-    "continent",
-    "geoAddress",
+    "listingSourceId",
+    "excludeListingSourceId",
     "price",
     "availability",
     "created",
@@ -123,24 +106,6 @@ mod search_filter_state {
     }
 }
 
-mod distance_unit {
-    use super::*;
-
-    pub(crate) fn serialize<S>(value: &DistanceUnit, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serialize_code(value, serializer, DistanceUnit::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<DistanceUnit, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserialize_code(deserializer, DistanceUnit::from_code)
-    }
-}
-
 mod language {
     use super::*;
 
@@ -177,21 +142,32 @@ mod currency {
     }
 }
 
-mod shop_type {
+mod listing_source_ids {
     use super::*;
 
-    pub(crate) fn serialize<S>(values: &HashSet<ShopType>, serializer: S) -> Result<S::Ok, S::Error>
+    pub(crate) fn serialize<S>(
+        values: &HashSet<ListingSourceId>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serialize_set_code(values, serializer, ShopType::as_str)
+        serializer.collect_seq(values.iter().map(ToString::to_string))
     }
 
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<HashSet<ShopType>, D::Error>
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<HashSet<ListingSourceId>, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        deserialize_set_code(deserializer, ShopType::from_code)
+        Vec::<String>::deserialize(deserializer)?
+            .into_iter()
+            .map(|value| {
+                value
+                    .parse::<uuid::Uuid>()
+                    .map(ListingSourceId::from)
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
     }
 }
 
@@ -317,58 +293,6 @@ impl TryFrom<SearchFilterDocument> for SearchFilterView {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-struct DistanceDocument {
-    amount: f64,
-    #[serde(with = "distance_unit")]
-    unit: DistanceUnit,
-}
-
-impl From<Distance> for DistanceDocument {
-    fn from(value: Distance) -> Self {
-        Self {
-            amount: value.amount,
-            unit: value.unit,
-        }
-    }
-}
-
-impl From<DistanceDocument> for Distance {
-    fn from(value: DistanceDocument) -> Self {
-        Self {
-            amount: value.amount,
-            unit: value.unit,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-struct GeoDistanceQueryDocument {
-    lat: f64,
-    lon: f64,
-    distance: DistanceDocument,
-}
-
-impl From<GeoDistanceQuery> for GeoDistanceQueryDocument {
-    fn from(value: GeoDistanceQuery) -> Self {
-        Self {
-            lat: value.lat,
-            lon: value.lon,
-            distance: value.distance.into(),
-        }
-    }
-}
-
-impl From<GeoDistanceQueryDocument> for GeoDistanceQuery {
-    fn from(value: GeoDistanceQueryDocument) -> Self {
-        Self {
-            lat: value.lat,
-            lon: value.lon,
-            distance: value.distance.into(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductListingSearchDocument {
@@ -382,30 +306,10 @@ struct ProductListingSearchDocument {
     enhanced_search_description: Option<String>,
     #[serde(rename = "excludeProductId")]
     exclude_product_listing_id_query: HashSet<ProductListingId>,
-    #[serde(rename = "shopName")]
-    shop_name_query: HashSet<ShopName>,
-    #[serde(rename = "excludeShopName")]
-    exclude_shop_name_query: HashSet<ShopName>,
-    #[serde(rename = "sellerName")]
-    seller_name_query: HashSet<ShopName>,
-    #[serde(rename = "excludeSellerName")]
-    exclude_seller_name_query: HashSet<ShopName>,
-    #[serde(rename = "shopSlugId")]
-    shop_slug_id_query: HashSet<ShopSlugId>,
-    #[serde(rename = "excludeShopSlugId")]
-    exclude_shop_slug_id_query: HashSet<ShopSlugId>,
-    #[serde(rename = "sellerSlugId")]
-    seller_slug_id_query: HashSet<SellerSlugId>,
-    #[serde(rename = "excludeSellerSlugId")]
-    exclude_seller_slug_id_query: HashSet<SellerSlugId>,
-    #[serde(rename = "shopType", with = "shop_type")]
-    shop_type_query: HashSet<ShopType>,
-    #[serde(rename = "country")]
-    country_query: HashSet<CountryCode>,
-    #[serde(rename = "continent")]
-    continent_query: HashSet<ContinentData>,
-    #[serde(rename = "geoAddress")]
-    geo_address_distance_query: Option<GeoDistanceQueryDocument>,
+    #[serde(rename = "listingSourceId", with = "listing_source_ids")]
+    listing_source_id_query: HashSet<ListingSourceId>,
+    #[serde(rename = "excludeListingSourceId", with = "listing_source_ids")]
+    exclude_listing_source_id_query: HashSet<ListingSourceId>,
     #[serde(rename = "price")]
     price_query: Option<RangeQuery<u64>>,
     #[serde(rename = "availability")]
@@ -492,27 +396,12 @@ impl TryFrom<&ProductListingSearch> for ProductListingSearchDocument {
                 .iter()
                 .copied()
                 .collect(),
-            shop_name_query: search.shop_name_query.iter().cloned().collect(),
-            exclude_shop_name_query: search.exclude_shop_name_query.iter().cloned().collect(),
-            seller_name_query: search.seller_name_query.iter().cloned().collect(),
-            exclude_seller_name_query: search.exclude_seller_name_query.iter().cloned().collect(),
-            shop_slug_id_query: search.shop_slug_id_query.iter().cloned().collect(),
-            exclude_shop_slug_id_query: search.exclude_shop_slug_id_query.iter().cloned().collect(),
-            seller_slug_id_query: search.seller_slug_id_query.iter().cloned().collect(),
-            exclude_seller_slug_id_query: search
-                .exclude_seller_slug_id_query
-                .iter()
-                .cloned()
-                .collect(),
-            shop_type_query: search.shop_type_query.iter().copied().collect(),
-            country_query: search.country_query.iter().copied().collect(),
-            continent_query: search
-                .continent_query
+            listing_source_id_query: search.listing_source_id_query.iter().copied().collect(),
+            exclude_listing_source_id_query: search
+                .exclude_listing_source_id_query
                 .iter()
                 .copied()
-                .map(Into::into)
                 .collect(),
-            geo_address_distance_query: search.geo_address_distance_query.map(Into::into),
             price_query: search.price_query.map(|range| range.map(u64::from)),
             availability_query: search.availability_query.as_ref().map(|query| {
                 ListingAvailabilityQueryDocument {
@@ -553,22 +442,8 @@ impl TryFrom<ProductListingSearchDocument> for ProductListingSearch {
                     }
                 })?,
             exclude_product_listing_id_query: document.exclude_product_listing_id_query.into(),
-            shop_name_query: document.shop_name_query.into(),
-            exclude_shop_name_query: document.exclude_shop_name_query.into(),
-            seller_name_query: document.seller_name_query.into(),
-            exclude_seller_name_query: document.exclude_seller_name_query.into(),
-            shop_slug_id_query: document.shop_slug_id_query.into(),
-            exclude_shop_slug_id_query: document.exclude_shop_slug_id_query.into(),
-            seller_slug_id_query: document.seller_slug_id_query.into(),
-            exclude_seller_slug_id_query: document.exclude_seller_slug_id_query.into(),
-            shop_type_query: document.shop_type_query.into(),
-            country_query: document.country_query.into(),
-            continent_query: document
-                .continent_query
-                .into_iter()
-                .map(Into::into)
-                .collect::<AnyOfQuery<_>>(),
-            geo_address_distance_query: document.geo_address_distance_query.map(Into::into),
+            listing_source_id_query: document.listing_source_id_query.into(),
+            exclude_listing_source_id_query: document.exclude_listing_source_id_query.into(),
             price_query: document
                 .price_query
                 .map(|range| range.map(MonetaryAmount::from)),
@@ -629,10 +504,14 @@ fn product_search_from_value(
 mod tests {
     use super::*;
     use domain_primitives::query::range_query::RangeQuery;
-    use geo::core::distance::{Distance, DistanceUnit, GeoDistanceQuery};
+    use domain_primitives::query::text_query::TextQuery;
+    use listing_source_core::ListingSourceId;
     use localization::Language;
     use money::Currency;
+    use product_listing_core::product_listing_search::ListingAvailabilityQuery;
     use search_filter_service::ports::SearchFilterProjection;
+    use std::collections::BTreeSet;
+    use strum::IntoEnumIterator;
     use time::macros::datetime;
 
     fn projection(search: ProductListingSearch) -> SearchFilterProjection {
@@ -676,38 +555,17 @@ mod tests {
     }
 
     #[test]
-    fn should_round_trip_geo_distance_query_with_legacy_document_shape()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let expected = projection(
-            ProductListingSearch::new(Language::En, Currency::Usd).with_geo_address_distance_query(
-                GeoDistanceQuery {
-                    lat: 52.52,
-                    lon: 13.405,
-                    distance: Distance {
-                        amount: 50.0,
-                        unit: DistanceUnit::Kilometers,
-                    },
-                },
-            ),
-        );
-        let document = SearchFilterDocument::try_from(&expected)?;
-        let value = serde_json::to_value(&document)?;
-
-        assert_eq!(
-            Some(&serde_json::json!("KILOMETERS")),
-            value.pointer("/search/geoAddress/distance/unit")
-        );
-        assert_eq!(expected.view, SearchFilterView::try_from(document)?);
-        Ok(())
-    }
-
-    #[test]
     fn should_round_trip_search_filter_without_a_price_range()
     -> Result<(), Box<dyn std::error::Error>> {
+        let listing_source_id = ListingSourceId::new();
+        let excluded_listing_source_id = ListingSourceId::new();
         let expected = projection(
             ProductListingSearch::new(Language::En, Currency::Usd)
-                .with_shop_type_query(
-                    std::collections::HashSet::from([ShopType::CommercialDealer]).into(),
+                .with_listing_source_id_query(
+                    std::collections::HashSet::from([listing_source_id]).into(),
+                )
+                .with_exclude_listing_source_id_query(
+                    std::collections::HashSet::from([excluded_listing_source_id]).into(),
                 )
                 .with_availability_query(ListingAvailabilityQuery {
                     any_of: std::collections::HashSet::from([ListingAvailability::InStock]).into(),
@@ -731,8 +589,26 @@ mod tests {
             value.pointer("/search/currency")
         );
         assert_eq!(
-            Some(&serde_json::json!("COMMERCIAL_DEALER")),
-            value.pointer("/search/shopType/0")
+            Some(&serde_json::json!(listing_source_id.to_string())),
+            value.pointer("/search/listingSourceId/0")
+        );
+        assert_eq!(
+            Some(&serde_json::json!(excluded_listing_source_id.to_string())),
+            value.pointer("/search/excludeListingSourceId/0")
+        );
+        assert!(value.pointer("/search/shopName").is_none());
+        assert!(value.pointer("/search/sellerName").is_none());
+        assert!(value.pointer("/search/shopType").is_none());
+        assert!(value.pointer("/search/country").is_none());
+        assert!(value.pointer("/search/continent").is_none());
+        assert!(value.pointer("/search/geoAddress").is_none());
+        assert_eq!(
+            Some(&serde_json::json!(listing_source_id.to_string())),
+            value.pointer("/query/bool/filter/0/terms/listingSourceId/0")
+        );
+        assert_eq!(
+            Some(&serde_json::json!(excluded_listing_source_id.to_string())),
+            value.pointer("/query/bool/must_not/0/terms/listingSourceId/0")
         );
         assert_eq!(
             Some(&serde_json::json!("IN_STOCK")),
@@ -748,6 +624,236 @@ mod tests {
         );
         assert_eq!(expected.view, SearchFilterView::try_from(document)?);
         Ok(())
+    }
+
+    #[test]
+    fn should_keep_saved_filter_documents_and_percolator_fields_covered_by_mapping()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mapping: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../opensearch/mappings/user_search_filters.json"
+        ))?;
+        let representative = representative_search(Language::En, Currency::Usd)?;
+        let document = SearchFilterDocument::try_from(&projection(representative.clone()))?;
+        let document_value = serde_json::to_value(document)?;
+
+        let document_fields = document_field_paths(&document_value, "");
+        for field in &document_fields {
+            let Some(field_mapping) = mapping_field(&mapping, field) else {
+                return Err(format!(
+                    "saved-filter document field `{field}` is missing from mapping"
+                )
+                .into());
+            };
+            let value = document_value
+                .pointer(&format!("/{}", field.replace('.', "/")))
+                .ok_or_else(|| {
+                    format!("document field `{field}` disappeared while checking mapping")
+                })?;
+            if !mapping_accepts_value(field_mapping, value) {
+                return Err(format!(
+                    "mapping for saved-filter document field `{field}` rejects {value}"
+                )
+                .into());
+            }
+        }
+
+        let mut percolator_fields = BTreeSet::new();
+        for language in Language::iter() {
+            collect_query_field_paths(
+                &build_percolator_query(&representative_search(language, Currency::Eur)?)?,
+                &mut percolator_fields,
+            );
+        }
+        for currency in Currency::iter() {
+            collect_query_field_paths(
+                &build_percolator_query(&representative_search(Language::En, currency)?)?,
+                &mut percolator_fields,
+            );
+        }
+
+        for field in &percolator_fields {
+            if mapping_field(&mapping, field).is_none() {
+                return Err(
+                    format!("percolator query field `{field}` is missing from mapping").into(),
+                );
+            }
+        }
+
+        assert_eq!(
+            Some(&serde_json::json!("percolator")),
+            mapping_field(&mapping, "query").and_then(|field| field.get("type"))
+        );
+        assert_eq!(
+            Some(&serde_json::json!(768)),
+            mapping_field(&mapping, "embedding").and_then(|field| field.get("dimension"))
+        );
+        Ok(())
+    }
+
+    fn representative_search(
+        language: Language,
+        currency: Currency,
+    ) -> Result<ProductListingSearch, Box<dyn std::error::Error>> {
+        let product_listing_query = TextQuery::<1>::try_from("renaissance cabinet")?;
+        let enhanced_search_description =
+            EnhancedSearchDescription::try_from("renaissance furniture")?;
+        Ok(ProductListingSearch::new(language, currency)
+            .with_product_listing_query(product_listing_query)
+            .with_enhanced_search_description(enhanced_search_description)
+            .with_exclude_product_listing_id_query(
+                std::collections::HashSet::from([ProductListingId::new()]).into(),
+            )
+            .with_listing_source_id_query(
+                std::collections::HashSet::from([ListingSourceId::new()]).into(),
+            )
+            .with_exclude_listing_source_id_query(
+                std::collections::HashSet::from([ListingSourceId::new()]).into(),
+            )
+            .with_price_query(RangeQuery {
+                min: Some(MonetaryAmount::from(10_000_u64)),
+                max: Some(MonetaryAmount::from(50_000_u64)),
+            })
+            .with_availability_query(ListingAvailabilityQuery {
+                any_of: std::collections::HashSet::from([ListingAvailability::InStock]).into(),
+                orderability: std::collections::HashSet::from([ListingOrderability::OrderableNow])
+                    .into(),
+                include_unspecified: true,
+            })
+            .with_created_query(RangeQuery {
+                min: Some(datetime!(2026-01-01 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-02 00:00:00 UTC)),
+            })
+            .with_updated_query(RangeQuery {
+                min: Some(datetime!(2026-01-03 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-04 00:00:00 UTC)),
+            })
+            .with_auction_start_query(RangeQuery {
+                min: Some(datetime!(2026-01-05 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-06 00:00:00 UTC)),
+            })
+            .with_auction_end_query(RangeQuery {
+                min: Some(datetime!(2026-01-07 00:00:00 UTC)),
+                max: Some(datetime!(2026-01-08 00:00:00 UTC)),
+            }))
+    }
+
+    fn document_field_paths(value: &serde_json::Value, prefix: &str) -> BTreeSet<String> {
+        let mut fields = BTreeSet::new();
+        collect_document_field_paths(value, prefix, &mut fields);
+        fields
+    }
+
+    fn collect_document_field_paths(
+        value: &serde_json::Value,
+        prefix: &str,
+        fields: &mut BTreeSet<String>,
+    ) {
+        match value {
+            serde_json::Value::Object(object) => {
+                for (key, value) in object {
+                    if prefix.is_empty() && key == "query" {
+                        continue;
+                    }
+                    let path = if prefix.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{prefix}.{key}")
+                    };
+                    collect_document_field_paths(value, &path, fields);
+                }
+            }
+            serde_json::Value::Array(values) if values.is_empty() => {}
+            serde_json::Value::Array(_)
+            | serde_json::Value::Bool(_)
+            | serde_json::Value::Number(_)
+            | serde_json::Value::String(_) => {
+                fields.insert(prefix.to_owned());
+            }
+            serde_json::Value::Null => {}
+        }
+    }
+
+    fn mapping_field<'a>(
+        mapping: &'a serde_json::Value,
+        path: &str,
+    ) -> Option<&'a serde_json::Value> {
+        let mut properties = mapping.pointer("/mappings/properties")?;
+        let mut segments = path.split('.').peekable();
+        while let Some(segment) = segments.next() {
+            let field = properties.get(segment)?;
+            if segments.peek().is_none() {
+                return Some(field);
+            }
+            properties = field.get("properties")?;
+        }
+        None
+    }
+
+    fn mapping_accepts_value(mapping: &serde_json::Value, value: &serde_json::Value) -> bool {
+        if let serde_json::Value::Array(values) = value {
+            return matches!(
+                mapping.get("type").and_then(serde_json::Value::as_str),
+                Some("knn_vector")
+            ) || values
+                .iter()
+                .all(|value| mapping_accepts_value(mapping, value));
+        }
+
+        match mapping.get("type").and_then(serde_json::Value::as_str) {
+            Some("keyword" | "text" | "date") => value.is_string(),
+            Some("boolean") => value.is_boolean(),
+            Some("long" | "unsigned_long") => value.is_number(),
+            Some("percolator") => value.is_object(),
+            _ => false,
+        }
+    }
+
+    fn collect_query_field_paths(query: &serde_json::Value, fields: &mut BTreeSet<String>) {
+        match query {
+            serde_json::Value::Object(object) => {
+                for operator in ["terms", "range", "match", "match_phrase"] {
+                    if let Some(clauses) =
+                        object.get(operator).and_then(serde_json::Value::as_object)
+                    {
+                        fields.extend(clauses.keys().cloned());
+                    }
+                }
+                if let Some(field) = object
+                    .get("exists")
+                    .and_then(|exists| exists.get("field"))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    fields.insert(field.to_owned());
+                }
+                if let Some(multi_match) = object.get("multi_match")
+                    && let Some(paths) = multi_match
+                        .get("fields")
+                        .and_then(serde_json::Value::as_array)
+                {
+                    fields.extend(
+                        paths
+                            .iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .map(strip_boost),
+                    );
+                }
+                for value in object.values() {
+                    collect_query_field_paths(value, fields);
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    collect_query_field_paths(value, fields);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn strip_boost(field: &str) -> String {
+        field
+            .split_once('^')
+            .map_or_else(|| field.to_owned(), |(field, _)| field.to_owned())
     }
 
     #[test]

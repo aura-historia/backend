@@ -1,19 +1,21 @@
 use crate::ports::{
-    ProductListingContentAssessmentReader, ProductListingEmbeddingLookup,
-    ProductListingEmbeddingReadError, ProductListingEmbeddingReader,
+    ListingSourceSummaryReader, ProductListingContentAssessmentReader,
+    ProductListingEmbeddingLookup, ProductListingEmbeddingReadError, ProductListingEmbeddingReader,
     ProductListingEmbeddingReaderFactory, ProductListingPriceFilterPlan,
     ProductListingSimilarProductListingsReadError, ProductListingSimilarProductListingsReader,
     ProductListingSimilarProductListingsRequest, ProductListingUserStateReader,
 };
 use crate::use_cases::PersonalizedProductListingSummary;
 use crate::use_cases::queries::product_listing_summary_personalization::{
-    ProductListingSummaryPersonalizationError, hydrate_product_search_items,
+    ProductListingSummaryPersonalizationError, hydrate_listing_source_summaries,
+    hydrate_product_search_items,
 };
 use crate::use_cases::queries::search_product_listings::present_product_summaries;
 use application::error::{BoxError, box_error};
 use application::operation_context::{OperationContext, Principal};
 use application::personalized::Personalized;
 use application::transaction::{Transaction, UnitOfWork};
+use listing_source_core::ListingSourceId;
 use localization::Language;
 use money::Currency;
 
@@ -63,6 +65,18 @@ pub enum GetSimilarProductListingsError {
         #[source]
         source: BoxError,
     },
+    #[error("listing source summary query failed")]
+    ListingSourceSummaryQueryFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("listing source summary read model is invalid")]
+    ListingSourceSummaryReadModelInvalid {
+        #[source]
+        source: BoxError,
+    },
+    #[error("listing source summary is missing for listing source {listing_source_id}")]
+    ListingSourceSummaryMissing { listing_source_id: ListingSourceId },
     #[error("product user state query failed")]
     ProductListingUserStateQueryFailed {
         #[source]
@@ -102,21 +116,23 @@ pub trait GetSimilarProductListingsUseCase: Send + Sync {
     ) -> Result<GetSimilarProductListingsResult, GetSimilarProductListingsError>;
 }
 
-pub struct GetSimilarProductListingsHandler<U, E, F, S, P, A> {
+pub struct GetSimilarProductListingsHandler<U, E, F, S, L, P, A> {
     unit_of_work: U,
     embedding_reader: E,
     fx_rates: F,
     similar_products_reader: S,
+    listing_sources: L,
     user_states: P,
     assessments: A,
 }
 
-impl<U, E, F, S, P, A> GetSimilarProductListingsHandler<U, E, F, S, P, A> {
+impl<U, E, F, S, L, P, A> GetSimilarProductListingsHandler<U, E, F, S, L, P, A> {
     pub fn new(
         unit_of_work: U,
         embedding_reader: E,
         fx_rates: F,
         similar_products_reader: S,
+        listing_sources: L,
         user_states: P,
         assessments: A,
     ) -> Self {
@@ -125,6 +141,7 @@ impl<U, E, F, S, P, A> GetSimilarProductListingsHandler<U, E, F, S, P, A> {
             embedding_reader,
             fx_rates,
             similar_products_reader,
+            listing_sources,
             user_states,
             assessments,
         }
@@ -132,13 +149,14 @@ impl<U, E, F, S, P, A> GetSimilarProductListingsHandler<U, E, F, S, P, A> {
 }
 
 #[async_trait::async_trait]
-impl<U, E, F, S, P, A> GetSimilarProductListingsUseCase
-    for GetSimilarProductListingsHandler<U, E, F, S, P, A>
+impl<U, E, F, S, L, P, A> GetSimilarProductListingsUseCase
+    for GetSimilarProductListingsHandler<U, E, F, S, L, P, A>
 where
     U: UnitOfWork,
     E: ProductListingEmbeddingReaderFactory<U::Tx>,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
     S: ProductListingSimilarProductListingsReader,
+    L: ListingSourceSummaryReader,
     P: ProductListingUserStateReader,
     A: ProductListingContentAssessmentReader,
 {
@@ -203,7 +221,8 @@ where
                 price_filter_plan,
             ))
             .await?;
-        let mut products = products
+        let mut products = hydrate_listing_source_summaries(products, &self.listing_sources)
+            .await?
             .into_iter()
             .map(|item| Personalized {
                 item,
@@ -277,6 +296,18 @@ impl From<crate::ports::ProductListingContentAssessmentReadError>
 impl From<ProductListingSummaryPersonalizationError> for GetSimilarProductListingsError {
     fn from(error: ProductListingSummaryPersonalizationError) -> Self {
         match error {
+            ProductListingSummaryPersonalizationError::ListingSourceSummaryQueryFailed {
+                source,
+            } => Self::ListingSourceSummaryQueryFailed { source },
+            ProductListingSummaryPersonalizationError::ListingSourceSummaryReadModelInvalid {
+                source,
+            } => Self::ListingSourceSummaryReadModelInvalid { source },
+            ProductListingSummaryPersonalizationError::ListingSourceSummaryMissing {
+                listing_source_id,
+            } => Self::ListingSourceSummaryMissing { listing_source_id },
+            ProductListingSummaryPersonalizationError::ViewUrlInvalid { source } => {
+                Self::ListingSourceSummaryReadModelInvalid { source }
+            }
             ProductListingSummaryPersonalizationError::UserStateQueryFailed { source } => {
                 Self::ProductListingUserStateQueryFailed { source }
             }
@@ -297,6 +328,7 @@ impl From<ProductListingSummaryPersonalizationError> for GetSimilarProductListin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::ListingSourceSummary;
     use crate::ports::{ProductListingEmbedding, ProductListingSimilarProductListingsReadError};
     use crate::use_cases::{ProductListingSearchItem, ProductListingSummaryPriceValuation};
     use application::{
@@ -308,15 +340,15 @@ mod tests {
     use fxrate_core::FxRateId;
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
     use localization::Localized;
     use money::{Currency, MonetaryAmount, Price};
     use product_listing_core::{
         content_policy::ContentPolicyDecision, listing_availability::ListingAvailability,
         listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId,
         product_listing_image::ProductListingImage, product_listing_slug_id::ProductListingSlugId,
-        shop_listing_id::ShopListingId,
+        source_listing_id::SourceListingId,
     };
-    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 
     use crate::user_state::ProductListingUserState;
     use product_listing_core::title::Title;
@@ -372,6 +404,9 @@ mod tests {
 
     #[derive(Clone, Copy)]
     struct EmptyUserStateReader;
+
+    #[derive(Clone, Copy)]
+    struct StaticListingSourceSummaryReader;
 
     #[derive(Clone, Copy)]
     struct EmptyAssessmentReader;
@@ -505,7 +540,7 @@ mod tests {
         ) -> Result<Option<ProductListingEmbedding>, ProductListingEmbeddingReadError> {
             let product_listing_id = match lookup {
                 ProductListingEmbeddingLookup::ById(product_listing_id) => *product_listing_id,
-                ProductListingEmbeddingLookup::BySlug { .. } => ProductListingId::new(),
+                ProductListingEmbeddingLookup::ByTitleSlug(_) => ProductListingId::new(),
             };
             let mut state = lock_state(&self.state);
             state.requested_product_listing_ids.push(product_listing_id);
@@ -513,6 +548,39 @@ mod tests {
                 Some(result) => result,
                 None => Ok(None),
             }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ListingSourceSummaryReader for StaticListingSourceSummaryReader {
+        async fn find_summaries(
+            &self,
+            listing_source_ids: &[ListingSourceId],
+        ) -> Result<
+            HashMap<ListingSourceId, crate::ports::ListingSourceSummaryWithReferral>,
+            crate::ports::ListingSourceSummaryReadError,
+        > {
+            Ok(listing_source_ids
+                .iter()
+                .copied()
+                .map(|listing_source_id| {
+                    (
+                        listing_source_id,
+                        crate::ports::ListingSourceSummaryWithReferral {
+                            summary: ListingSourceSummary {
+                                listing_source_id,
+                                name: ListingSourceName::try_from("Source").unwrap_or_else(
+                                    |error| panic!("invalid test listing source name: {error}"),
+                                ),
+                                slug_id: ListingSourceSlugId::raw("source").unwrap_or_else(
+                                    |error| panic!("valid test listing source slug: {error}"),
+                                ),
+                            },
+                            referral_configuration: None,
+                        },
+                    )
+                })
+                .collect())
         }
     }
 
@@ -595,6 +663,7 @@ mod tests {
         FakeEmbeddingReaderFactory,
         FakeFxRateSnapshotRepositoryFactory,
         FakeSimilarProductsReader,
+        StaticListingSourceSummaryReader,
         EmptyUserStateReader,
         EmptyAssessmentReader,
     > {
@@ -609,6 +678,7 @@ mod tests {
             FakeSimilarProductsReader {
                 state: Arc::clone(state),
             },
+            StaticListingSourceSummaryReader,
             EmptyUserStateReader,
             EmptyAssessmentReader,
         )
@@ -635,13 +705,12 @@ mod tests {
     ) -> Result<ProductListingSearchItem, url::ParseError> {
         Ok(ProductListingSearchItem {
             product_listing_id,
-            product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+            product_listing_title_slug_id: ProductListingSlugId::raw("cabinet-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             event_id: EventId::new(),
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shop_listing_id: ShopListingId::new(),
-            shop_name: ShopName::from("Shop"),
-            shop_slug_id: ShopSlugId::from("shop"),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("cabinet-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
             display_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
             price_valuation: ProductListingSummaryPriceValuation::Current {
@@ -651,7 +720,6 @@ mod tests {
             availability: Some(ListingAvailability::InStock),
             lifecycle: ListingLifecycle::Active,
             url: Url::parse("https://shop.example/products/1")?,
-            view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
             images: IndexSet::new(),
             updated: OffsetDateTime::UNIX_EPOCH,
         })
@@ -693,7 +761,7 @@ mod tests {
         assert_eq!(
             vec![match request.lookup {
                 ProductListingEmbeddingLookup::ById(product_listing_id) => product_listing_id,
-                ProductListingEmbeddingLookup::BySlug { .. } => ProductListingId::new(),
+                ProductListingEmbeddingLookup::ByTitleSlug(_) => ProductListingId::new(),
             }],
             lock_state(&state).requested_product_listing_ids
         );
@@ -763,6 +831,7 @@ mod tests {
             FakeSimilarProductsReader {
                 state: Arc::clone(&state),
             },
+            StaticListingSourceSummaryReader,
             StaticUserStateReader {
                 states: HashMap::from([(product_listing_id, user_state)]),
             },
@@ -815,6 +884,7 @@ mod tests {
             FakeSimilarProductsReader {
                 state: Arc::clone(&state),
             },
+            StaticListingSourceSummaryReader,
             EmptyUserStateReader,
             StaticAssessmentReader {
                 assessments: HashMap::from([(

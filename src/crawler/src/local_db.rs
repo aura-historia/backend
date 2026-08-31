@@ -5,6 +5,8 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+pub mod crawler_domain_configuration_repository;
+
 pub const LOCAL_POSTGRES_HOST: &str = "localhost";
 pub const LOCAL_POSTGRES_PORT: u16 = 5432;
 pub const LOCAL_POSTGRES_USER: &str = "postgres";

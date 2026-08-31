@@ -254,9 +254,9 @@ pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String 
     };
 
     format!(
-        "Generate robust Extraction-Schemas that together cover these product page HTML samples from the same shop.\n\
+        "Generate robust Extraction-Schemas that together cover these product page HTML samples from the same ListingSource.\n\
          {template_instruction}\
-         Shops often have multiple templates/layouts. Do not collapse different templates into one overly broad schema just because fields share names.\n\
+         ListingSources often have multiple templates/layouts. Do not collapse different templates into one overly broad schema just because fields share names.\n\
          A schema may target only the subset of samples where its selectors are precise and product-specific.\n\
          A schema applies to a sample only when every non-null extraction rule in that schema exists in that sample HTML and extracts successfully.\n\
          Optional fields are optional only when the field is null for that schema because the field is not applicable to that schema's own product template.\n\

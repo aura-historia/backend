@@ -2,26 +2,26 @@ use application::pagination::Cursor;
 use domain_primitives::event_id::EventId;
 use domain_primitives::query::range_query::RangeQuery;
 use fxrate_core::FxRateId;
+use listing_source_core::ListingSourceId;
 use money::Currency;
 use money::MonetaryAmount;
 use opensearch::IndexParts;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use product_listing_core::shop_listing_id::ShopListingId;
+use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_service::ports::{
     CompiledProductListingSearch, ProductListingPriceFilterPlan, ProductListingSearchReadRequest,
     ProductListingSearchReader,
 };
 use product_listing_service::use_cases::queries::search_product_listings::ProductListingSearchReadResult;
 use serde_json::{Value, json};
-use shop_core::seller_slug_id::SellerSlugId;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_slug_id::ShopSlugId;
+
 use std::io::{Error as IoError, ErrorKind};
 use strum::IntoEnumIterator;
 use test_api::{
-    IntegrationTestService, OpenSearch, aura_integration_test, get_opensearch_client, refresh_index,
+    IntegrationTestService, OpenSearch, aura_integration_test, get_opensearch_client,
+    refresh_index, serial,
 };
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -31,6 +31,7 @@ const PRODUCTS_INDEX: &str = "product-listings";
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 #[aura_integration_test(services = [OpenSearch()])]
+#[serial]
 async fn should_search_active_and_sold_products_with_one_pinned_price_plan() {
     assert_ok(should_search_active_and_sold_products_with_one_pinned_price_plan_impl().await);
 }
@@ -67,6 +68,7 @@ async fn should_search_active_and_sold_products_with_one_pinned_price_plan_impl(
 }
 
 #[aura_integration_test(services = [OpenSearch()])]
+#[serial]
 async fn should_return_sold_product_without_main_price_for_non_price_search_and_exclude_it_from_price_search()
  {
     assert_ok(
@@ -212,7 +214,7 @@ fn assert_ok(result: TestResult) {
 
 struct ProductListingSeed {
     product_listing_id: ProductListingId,
-    product_listing_slug_id: ProductListingSlugId,
+    product_listing_title_slug_id: ProductListingSlugId,
     source_price: Option<u64>,
     sale_price: Option<u64>,
     has_sale_observation: bool,
@@ -222,7 +224,10 @@ impl ProductListingSeed {
     fn active(slug: &str, source_price: u64) -> Self {
         Self {
             product_listing_id: ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from(slug),
+            product_listing_title_slug_id: ProductListingSlugId::from_title_and_suffix(
+                slug, "a1b2c3",
+            )
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             source_price: Some(source_price),
             sale_price: None,
             has_sale_observation: false,
@@ -232,7 +237,10 @@ impl ProductListingSeed {
     fn sold(slug: &str, sale_price: u64) -> Self {
         Self {
             product_listing_id: ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from(slug),
+            product_listing_title_slug_id: ProductListingSlugId::from_title_and_suffix(
+                slug, "a1b2c3",
+            )
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             source_price: None,
             sale_price: Some(sale_price),
             has_sale_observation: true,
@@ -242,7 +250,10 @@ impl ProductListingSeed {
     fn sold_without_main_price(slug: &str) -> Self {
         Self {
             product_listing_id: ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from(slug),
+            product_listing_title_slug_id: ProductListingSlugId::from_title_and_suffix(
+                slug, "a1b2c3",
+            )
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             source_price: None,
             sale_price: None,
             has_sale_observation: true,
@@ -257,7 +268,6 @@ struct IndexedProductListing {
 fn product_listing_document(
     seed: ProductListingSeed,
 ) -> Result<IndexedProductListing, time::error::Format> {
-    let shop_id = ShopId::new();
     let sale_prices = seed.sale_price.map(|amount| {
         json!({
             "eur": amount, "gbp": amount, "usd": amount, "aud": amount,
@@ -273,16 +283,11 @@ fn product_listing_document(
         .transpose()?;
     let document = json!({
         "productListingId": seed.product_listing_id,
-        "productListingSlugId": seed.product_listing_slug_id,
-        "shopSlugId": ShopSlugId::from("shop"),
-        "sellerSlugId": SellerSlugId::from("seller"),
+        "productListingTitleSlugId": seed.product_listing_title_slug_id,
+        "listingSourceId": ListingSourceId::new().to_string(),
+        "sourceListingId": SourceListingId::try_from("sku-1")
+                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
         "eventId": EventId::new(),
-        "shopId": shop_id,
-        "sellerId": shop_id,
-        "shopListingId": ShopListingId::from("sku-1"),
-        "shopName": "Shop",
-        "sellerName": "Seller",
-        "shopType": "COMMERCIAL_DEALER",
         "title": { "text": "Blue vase", "language": "EN" },
         "titleEn": "Blue vase",
         "sourcePrice": seed.source_price.map(|amount| json!({ "amount": amount, "currency": "EUR" })),
@@ -290,8 +295,7 @@ fn product_listing_document(
         "saleObservationFxRateId": seed.has_sale_observation.then(FxRateId::new),
         "saleObservedAt": sale_observed_at,
 
-        "url": format!("https://shop.example/product_listings/{}", seed.product_listing_slug_id),
-        "viewUrl": format!("https://aura.example/product_listings/{}", seed.product_listing_slug_id),
+        "url": format!("https://shop.example/product_listings/{}", seed.product_listing_title_slug_id),
         "created": OffsetDateTime::UNIX_EPOCH.format(&Rfc3339)?,
         "updated": OffsetDateTime::UNIX_EPOCH.format(&Rfc3339)?
     });

@@ -10,14 +10,15 @@ platform-postgres = { workspace = true }
 domain-primitives = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
+partnership-core = { workspace = true }
+party-core = { workspace = true }
+listing-source-core = { workspace = true }
 notification-core = { workspace = true }
 notification-email = { workspace = true }
 notification-service = { workspace = true }
 product-listing-core = { workspace = true }
 search-filter-core = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-shop-core = { workspace = true }
-shop-partner-core = { workspace = true }
 user-core = { workspace = true }
 serde_json = { workspace = true }
 serde-email = { workspace = true }
@@ -30,5 +31,6 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 tokio = { workspace = true, features = ["macros", "rt"] }

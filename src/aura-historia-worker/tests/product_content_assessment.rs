@@ -5,6 +5,7 @@ use aura_historia_worker::{
 use domain_primitives::event_id::EventId;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_postgres::{
     SqlxProductListingContentAssessmentSourceReader,
     SqlxProductListingContentAssessmentWriterFactory,
@@ -166,21 +167,27 @@ async fn insert_product_with_event(
 ) -> Result<(ProductListingId, EventId), sqlx::Error> {
     let product_listing_id = ProductListingId::new();
     let event_id = EventId::new();
-    let shop_id = uuid::Uuid::new_v4();
+    let title_slug_id = ProductListingSlugId::from_title_and_suffix(
+        "content assessment worker product",
+        &uuid::Uuid::from(product_listing_id).simple().to_string()[..6],
+    )
+    .map_err(|_| sqlx::Error::Protocol("invalid fixture title slug".to_owned()))?;
+    let listing_source_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, 'Content assessment worker shop', 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
-        .bind(shop_id)
-        .bind(format!("content-assessment-worker-shop-{shop_id}"))
+    sqlx::query("WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), 'Fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $1, $2, 'Content assessment worker source', party_id FROM operator")
+        .bind(listing_source_id)
+        .bind(format!("content-assessment-worker-source-{listing_source_id}"))
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $4, $5, $6, 'de', $7, 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, $6, 'de', $7, 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_listing_id))
-        .bind(format!("content-assessment-worker-product-{product_listing_id}"))
+        .bind(title_slug_id.as_ref())
         .bind(uuid::Uuid::from(event_id))
-        .bind(shop_id)
+        .bind(listing_source_id)
         .bind(product_listing_id.to_string())
         .bind(title)
         .bind(description)
+
         .execute(&mut *tx)
         .await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")

@@ -6,7 +6,7 @@
 
 ## Core Design
 
-- `ImageFetcher` resolves and validates every HTTP(S) target and redirect before request.
+- `ImageFetcher` resolves and validates every HTTP(S) target and redirect before request with shared `public-network-policy` classification.
 - Fetches are bounded by retries, time, redirects, and response bytes.
 - Returned `FetchedImage` contains sniffed image media type and base64 bytes.
 - Fetch failure means no image. Callers decide whether an image is optional or required.

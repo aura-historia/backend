@@ -1,12 +1,14 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
-    assert_problem, aura_api_app_with_failed_search_embedding, json_response, product_route_slugs,
-    seed_current_fx_snapshot, seed_product, seed_shop,
+    assert_problem, aura_api_app_with_failed_search_embedding, json_response,
+    seed_access_token_for, seed_current_fx_snapshot, seed_product, seed_user,
 };
 use application::transaction::{Transaction, UnitOfWork};
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
+use listing_source_core::ListingSourceId;
+
 use localization::{Language, Localized};
 use opensearch::{IndexParts, indices::IndicesPutMappingParts};
 use platform_postgres::SqlxUnitOfWork;
@@ -14,11 +16,12 @@ use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
     product_listing::{
-        ListingSaleObservation, NewProductListing, ProductListing, ProductListingAddress,
-        ProductListingAuction, ProductListingPricing,
+        ListingSaleObservation, NewProductListing, ProductListing, ProductListingAuction,
+        ProductListingPricing,
     },
     product_listing_id::ProductListingId,
-    shop_listing_id::ShopListingId,
+    product_listing_slug_id::ProductListingSlugId,
+    source_listing_id::SourceListingId,
     title::Title,
 };
 use product_listing_postgres::{
@@ -29,6 +32,7 @@ use product_listing_service::ports::{
     ProductListingRepositoryFactory, stamp_product_listing_events,
 };
 use serde_json::{Value, json};
+use std::collections::HashSet;
 use test_api::{
     AuraHistoriaApi, IntegrationTestService, aura_integration_test, get_opensearch_client,
     get_postgres_client, refresh_index,
@@ -53,7 +57,7 @@ async fn should_get_product_details_by_id() {
         .map(ToOwned::to_owned);
     let (status, body) = json_response(response.0).await;
 
-    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
     assert_eq!(
         json!(product_listing_id.to_string()),
         body["item"]["productListingId"]
@@ -73,21 +77,372 @@ async fn should_get_product_details_by_id() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_get_product_details_by_slug() {
+async fn should_apply_listing_source_referral_policy_changes_to_product_listing_reads_without_reprojection()
+ {
     let product_listing_id = seed_product().await;
-    let (shop_slug_id, product_listing_slug_id) = product_route_slugs(product_listing_id).await;
+    let pool = get_postgres_client().await;
+    let (listing_source_id, title_slug, projection_version): (uuid::Uuid, String, i64) =
+        sqlx::query_as(
+            "SELECT listing_source_id, product_listing_title_slug_id, projection_version FROM product_listings WHERE product_listing_id = $1",
+        )
+        .bind(uuid::Uuid::from(product_listing_id))
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to load product listing fixture: {error}"));
+    let raw_url = "https://api-acceptance.example/product";
+    let aura_url =
+        "https://api-acceptance.example/product?utm_source=aura_historia&utm_medium=referral";
+    let partnerize_url = "https://prf.hn/click/camref:campaign/pubref:aurahistoria/destination:https%3A%2F%2Fapi-acceptance.example%2Fproduct";
 
-    let (response, _) = get_json(format!(
-        "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}"
+    sqlx::query("UPDATE product_listings SET embedding = $1 WHERE product_listing_id = $2")
+        .bind(vec![1.0_f32; embedding::EMBEDDING_DIMENSIONS])
+        .bind(uuid::Uuid::from(product_listing_id))
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed product embedding: {error}"));
+
+    let (_, mut candidate) = search_document(
+        "Referral policy candidate",
+        125,
+        "AVAILABLE",
+        "Referral Listing Source",
+        "2025-01-01T00:00:00Z",
+    );
+    candidate["listingSourceId"] = json!(listing_source_id.to_string());
+    candidate["url"] = json!(raw_url);
+    candidate = with_embedding(candidate, vec![1.0; embedding::EMBEDDING_DIMENSIONS]);
+    index_existing_listing_source_document(candidate).await;
+
+    let (before_response, _) =
+        get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
+    let (before_status, before_body) = json_response(before_response).await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        before_status,
+        "response body: {before_body}"
+    );
+    assert_product_view_urls(&before_body["item"], raw_url, aura_url);
+
+    let admin_id = seed_user("ADMIN").await;
+    let token = String::from(seed_access_token_for(admin_id, HashSet::new()).await);
+    let update_response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/listing-sources/{listing_source_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(&token)
+        .json(&json!({
+            "referralConfiguration": { "type": "PARTNERIZE", "camref": "campaign" }
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to update listing source referral policy: {error}"));
+    assert_eq!(reqwest::StatusCode::OK, update_response.status());
+
+    let projection_version_after: i64 = sqlx::query_scalar(
+        "SELECT projection_version FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to load product projection version: {error}"));
+    assert_eq!(projection_version, projection_version_after);
+
+    let (id_response, _) = get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
+    let (id_status, id_body) = json_response(id_response).await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        id_status,
+        "response body: {id_body}"
+    );
+    assert_product_view_urls(&id_body["item"], raw_url, partnerize_url);
+
+    let (slug_response, _) =
+        get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+    let (slug_status, slug_body) = json_response(slug_response).await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        slug_status,
+        "response body: {slug_body}"
+    );
+    assert_product_view_urls(&slug_body["item"], raw_url, partnerize_url);
+
+    let (search_response, _) = get_json(
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Referral%20policy%20candidate".to_owned(),
+    )
+    .await;
+    let (search_status, search_body) = json_response(search_response).await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        search_status,
+        "response body: {search_body}"
+    );
+    assert_product_view_urls(&search_body["items"][0]["item"], raw_url, partnerize_url);
+
+    let (similar_response, _) = get_json(format!(
+        "/api/v1/product-listings/{product_listing_id}/similar?language=en&currency=USD"
     ))
     .await;
+    let (similar_status, similar_body) = json_response(similar_response).await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        similar_status,
+        "response body: {similar_body}"
+    );
+    assert_product_view_urls(&similar_body[0]["item"], raw_url, partnerize_url);
+
+    let clear_response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/listing-sources/{listing_source_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(&token)
+        .json(&json!({ "referralConfiguration": null }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to clear listing source referral policy: {error}"));
+    assert_eq!(reqwest::StatusCode::OK, clear_response.status());
+
+    let projection_version_after_clear: i64 = sqlx::query_scalar(
+        "SELECT projection_version FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to load product projection version: {error}"));
+    assert_eq!(projection_version, projection_version_after_clear);
+
+    let (id_response, _) = get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
+    let (_, id_body) = json_response(id_response).await;
+    assert_product_view_urls(&id_body["item"], raw_url, aura_url);
+    let (slug_response, _) =
+        get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+    let (_, slug_body) = json_response(slug_response).await;
+    assert_product_view_urls(&slug_body["item"], raw_url, aura_url);
+    let (search_response, _) = get_json(
+        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Referral%20policy%20candidate".to_owned(),
+    )
+    .await;
+    let (_, search_body) = json_response(search_response).await;
+    assert_product_view_urls(&search_body["items"][0]["item"], raw_url, aura_url);
+    let (similar_response, _) = get_json(format!(
+        "/api/v1/product-listings/{product_listing_id}/similar?language=en&currency=USD"
+    ))
+    .await;
+    let (_, similar_body) = json_response(similar_response).await;
+    assert_product_view_urls(&similar_body[0]["item"], raw_url, aura_url);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_get_product_details_by_title_slug_equivalently_to_id() {
+    let product_listing_id = seed_product().await;
+
+    let (id_response, _) = get_json(format!("/api/v1/product-listings/{product_listing_id}")).await;
+    let id_cache_control = id_response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let (id_status, id_body) = json_response(id_response).await;
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        id_status,
+        "response body: {id_body}"
+    );
+    let title_slug = id_body["item"]["productListingTitleSlugId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("product detail has no title slug: {id_body}"));
+
+    let (slug_response, _) =
+        get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+    let slug_cache_control = slug_response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let (slug_status, slug_body) = json_response(slug_response).await;
+
+    assert_eq!(
+        reqwest::StatusCode::OK,
+        slug_status,
+        "response body: {slug_body}"
+    );
+    assert_eq!(id_body, slug_body);
+    assert_eq!(id_cache_control, slug_cache_control);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_resolve_same_normalized_title_slugs_to_their_respective_product_ids() {
+    let first_product_listing_id = seed_product().await;
+    let second_product_listing_id = seed_product().await;
+
+    for product_listing_id in [first_product_listing_id, second_product_listing_id] {
+        let title_slug = ProductListingSlugId::from_title_and_suffix(
+            "acceptance product",
+            &uuid::Uuid::from(product_listing_id).simple().to_string()[..6],
+        )
+        .unwrap_or_else(|error| panic!("valid fixture title slug: {error}"));
+        let (response, _) =
+            get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+        let (status, body) = json_response(response).await;
+
+        assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+        assert_eq!(
+            json!(product_listing_id.to_string()),
+            body["item"]["productListingId"]
+        );
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_invalid_product_title_slug() {
+    let (response, _) =
+        get_json("/api/v1/product-listings/by-slug/listing--abcdef".to_owned()).await;
     let (status, body) = json_response(response).await;
 
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(
-        json!(product_listing_id.to_string()),
-        body["item"]["productListingId"]
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_PATH_PARAMETER_VALUE",
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_not_found_for_missing_product_title_slug() {
+    let (response, _) =
+        get_json("/api/v1/product-listings/by-slug/missing-listing-a1b2c3".to_owned()).await;
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "PRODUCT_LISTING_NOT_FOUND",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_not_found_for_withdrawn_product_title_slug() {
+    let product_listing_id = seed_product().await;
+    let title_slug = ProductListingSlugId::from_title_and_suffix(
+        "acceptance product",
+        &uuid::Uuid::from(product_listing_id).simple().to_string()[..6],
+    )
+    .unwrap_or_else(|error| panic!("valid fixture title slug: {error}"));
+    let pool = get_postgres_client().await;
+    sqlx::query(
+        "UPDATE product_listings SET lifecycle = 'WITHDRAWN', availability = NULL WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to withdraw product fixture: {error}"));
+
+    let (response, _) = get_json(format!("/api/v1/product-listings/by-slug/{title_slug}")).await;
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "PRODUCT_LISTING_NOT_FOUND",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_omit_title_slug_for_hidden_product_when_looked_up_by_slug_or_id() {
+    let user_id = api_support::seed_user_with_tier("USER", user_core::tier::UserTier::Free).await;
+    let token = api_support::seed_access_token_for(user_id, HashSet::new()).await;
+    let filter_id = uuid::Uuid::new_v4();
+    let pool = get_postgres_client().await;
+    sqlx::query(
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, language, currency) VALUES ($1, $2, 'Hidden listing alerts', true, 'ACTIVE', '{}', 'en', 'EUR')",
+    )
+    .bind(filter_id)
+    .bind(uuid::Uuid::from(user_id))
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed search filter: {error}"));
+
+    let mut product_listing_ids = Vec::new();
+    for position in 0_i64..11 {
+        let product_listing_id = seed_product().await;
+        let event_id = sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT event_id FROM product_listings WHERE product_listing_id = $1",
+        )
+        .bind(uuid::Uuid::from(product_listing_id))
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to read product event ID: {error}"));
+        sqlx::query(
+            "INSERT INTO search_filter_matches (user_id, user_search_filter_id, product_listing_id, origin_event_id, user_search_filter_name, created) VALUES ($1, $2, $3, $4, 'Hidden listing alerts', now() - ($5 * interval '1 minute'))",
+        )
+        .bind(uuid::Uuid::from(user_id))
+        .bind(filter_id)
+        .bind(uuid::Uuid::from(product_listing_id))
+        .bind(event_id)
+        .bind(10 - position)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed search filter match: {error}"));
+        product_listing_ids.push(product_listing_id);
+    }
+    let product_listing_id = product_listing_ids
+        .last()
+        .copied()
+        .unwrap_or_else(|| panic!("hidden product fixture is missing"));
+    let title_slug = ProductListingSlugId::from_title_and_suffix(
+        "acceptance product",
+        &uuid::Uuid::from(product_listing_id).simple().to_string()[..6],
+    )
+    .unwrap_or_else(|error| panic!("valid fixture title slug: {error}"));
+    let client = reqwest::Client::new();
+
+    for path in [
+        format!("/api/v1/product-listings/{product_listing_id}"),
+        format!("/api/v1/product-listings/by-slug/{title_slug}"),
+    ] {
+        let response = client
+            .get(format!("{}{}", AURA_API.base_url(), path))
+            .bearer_auth(String::from(token.clone()))
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to get hidden product: {error}"));
+        let (status, body) = json_response(response).await;
+
+        assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
+        assert_eq!(
+            json!(product_listing_id.to_string()),
+            body["item"]["productListingId"]
+        );
+        assert!(body["item"].get("productListingTitleSlugId").is_none());
+        assert_eq!(json!(true), body["userState"]["searchFilter"]["hidden"]);
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_not_expose_retired_source_composite_product_route() {
+    let product_listing_id = seed_product().await;
+    let pool = get_postgres_client().await;
+    let (listing_source_id, source_listing_id) = sqlx::query_as::<_, (uuid::Uuid, String)>(
+        "SELECT listing_source_id, source_listing_id FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read product source identity: {error}"));
+
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/listing-sources/{listing_source_id}/product-listings/{source_listing_id}",
+            AURA_API.base_url()
+        ))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get retired product route: {error}"));
+
+    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -105,7 +460,7 @@ async fn should_get_product_history_by_id() {
         .map(ToOwned::to_owned);
     let (status, body) = json_response(response).await;
 
-    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
     assert!(body.as_array().is_some_and(|events| !events.is_empty()));
     assert_eq!(
         json!(product_listing_id.to_string()),
@@ -119,7 +474,7 @@ async fn should_get_product_history_by_id() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_get_product_history_with_timestamped_event_payloads() {
-    let shop = seed_shop().await;
+    let listing_source_id = api_support::seed_listing_source().await;
     let product_listing_id = ProductListingId::new();
     let source_offset =
         UtcOffset::from_hms(5, 30, 0).unwrap_or_else(|error| panic!("source offset: {error}"));
@@ -130,12 +485,16 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
     let auction_end = (auction_start + Duration::hours(3)).to_offset(source_offset);
     let mut product = ProductListing::create(NewProductListing {
         id: product_listing_id,
-        shop_id: shop.id(),
-        seller_id: shop.id(),
-        shop_listing_id: ShopListingId::from(
-            format!("timestamped-history-{product_listing_id}").as_str(),
-        ),
-        address: ProductListingAddress::default(),
+        title_slug_id: ProductListingSlugId::from_title_and_suffix(
+            "Timestamped history ProductListing",
+            "a1b2c3",
+        )
+        .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
+        listing_source_id: ListingSourceId::from(listing_source_id),
+        source_listing_id: SourceListingId::try_from(format!(
+            "timestamped-history-{product_listing_id}"
+        ))
+        .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
         title: Some(Localized::new(
             Language::En,
             Title::from("Timestamped history ProductListing"),
@@ -255,24 +614,6 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_get_product_history_by_slug() {
-    let product_listing_id = seed_product().await;
-    let (shop_slug_id, product_listing_slug_id) = product_route_slugs(product_listing_id).await;
-
-    let (response, _) = get_json(format!(
-        "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/history"
-    ))
-    .await;
-    let (status, body) = json_response(response).await;
-
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(
-        json!(product_listing_id.to_string()),
-        body[0]["productListingId"]
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_pending_similar_products_by_id() {
     let product_listing_id = seed_product().await;
 
@@ -302,57 +643,34 @@ async fn should_return_pending_similar_products_by_id() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_return_pending_similar_products_by_slug() {
-    let product_listing_id = seed_product().await;
-    let (shop_slug_id, product_listing_slug_id) = product_route_slugs(product_listing_id).await;
-
-    let (response, _) = get_json(format!(
-        "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar"
-    ))
-    .await;
-
-    assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
-    assert_eq!(
-        Some(format!(
-            "/api/v1/by-slug/shops/{shop_slug_id}/product-listings/{product_listing_slug_id}/similar"
-        )),
-        response
-            .headers()
-            .get(reqwest::header::LOCATION)
-            .and_then(|value| value.to_str().ok())
-            .map(ToOwned::to_owned)
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_page_product_search_without_duplicates_when_using_cursor() {
     let products = [
         search_document(
             "Price page cabinet",
             100,
             "AVAILABLE",
-            "Price Shop",
+            "Price Listing Source",
             "2025-01-01T00:00:00Z",
         ),
         search_document(
             "Price page cabinet",
             200,
             "AVAILABLE",
-            "Price Shop",
+            "Price Listing Source",
             "2025-01-02T00:00:00Z",
         ),
         search_document(
             "Price page cabinet",
             300,
             "AVAILABLE",
-            "Price Shop",
+            "Price Listing Source",
             "2025-01-03T00:00:00Z",
         ),
         search_document(
             "Price page cabinet",
             400,
             "AVAILABLE",
-            "Price Shop",
+            "Price Listing Source",
             "2025-01-04T00:00:00Z",
         ),
     ];
@@ -413,14 +731,14 @@ async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_s
             "Pinned FX cursor cabinet",
             100,
             "AVAILABLE",
-            "Pinned FX Shop",
+            "Pinned FX Listing Source",
             "2025-01-01T00:00:00Z",
         ),
         search_document(
             "Pinned FX cursor cabinet",
             100,
             "AVAILABLE",
-            "Pinned FX Shop",
+            "Pinned FX Listing Source",
             "2025-01-02T00:00:00Z",
         ),
     ];
@@ -487,7 +805,7 @@ async fn should_keep_sold_display_when_fx_snapshot_changes() {
         "Immutable sold cabinet",
         1_000,
         "SOLD_OUT",
-        "Sold FX Shop",
+        "Sold FX Listing Source",
         "2025-01-01T00:00:00Z",
     );
     document["sourcePrice"] = Value::Null;
@@ -538,14 +856,14 @@ async fn should_return_matching_product_search_summary() {
         "Renaissance walnut cabinet",
         125,
         "AVAILABLE",
-        "Cabinet Shop",
+        "Cabinet Listing Source",
         "2025-01-01T00:00:00Z",
     );
     let unrelated = search_document(
         "Bronze garden sculpture",
         130,
         "AVAILABLE",
-        "Cabinet Shop",
+        "Cabinet Listing Source",
         "2025-01-01T00:00:00Z",
     );
     index_search_documents([target.1.clone(), unrelated.1]).await;
@@ -582,14 +900,14 @@ async fn should_hybrid_search_products_when_mock_embedding_succeeds() {
         "Ornate candle holder",
         125,
         "AVAILABLE",
-        "Semantic Shop",
+        "Semantic Listing Source",
         "2025-01-01T00:00:00Z",
     );
     let unrelated = search_document(
         "Bronze garden sculpture",
         130,
         "AVAILABLE",
-        "Semantic Shop",
+        "Semantic Listing Source",
         "2025-01-01T00:00:00Z",
     );
     let unrelated_embedding = std::iter::once(1.0)
@@ -622,7 +940,7 @@ async fn should_fall_back_to_bm25_when_mock_embedding_fails() {
         "Vintage brass lamp",
         125,
         "AVAILABLE",
-        "Fallback Shop",
+        "Fallback Listing Source",
         "2025-01-01T00:00:00Z",
     );
     index_search_documents([target.1.clone()]).await;
@@ -641,7 +959,7 @@ async fn should_fall_back_to_bm25_when_mock_embedding_fails() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_intersect_product_search_filters() {
-    let target = search_document_with_shop(
+    let target = search_document_with_source(
         "Filter cabinet",
         550,
         "AVAILABLE",
@@ -649,7 +967,7 @@ async fn should_intersect_product_search_filters() {
         "imperial-antiques",
         "2025-01-01T00:00:00Z",
     );
-    let wrong_shop = search_document_with_shop(
+    let wrong_listing_source = search_document_with_source(
         "Filter cabinet",
         550,
         "AVAILABLE",
@@ -657,7 +975,7 @@ async fn should_intersect_product_search_filters() {
         "other-antiques",
         "2025-01-01T00:00:00Z",
     );
-    let wrong_availability = search_document_with_shop(
+    let wrong_availability = search_document_with_source(
         "Filter cabinet",
         550,
         "OUT_OF_STOCK",
@@ -665,7 +983,7 @@ async fn should_intersect_product_search_filters() {
         "imperial-antiques",
         "2025-01-01T00:00:00Z",
     );
-    let wrong_price = search_document_with_shop(
+    let wrong_price = search_document_with_source(
         "Filter cabinet",
         2_000,
         "AVAILABLE",
@@ -675,25 +993,27 @@ async fn should_intersect_product_search_filters() {
     );
     index_search_documents([
         target.1.clone(),
-        wrong_shop.1,
+        wrong_listing_source.1,
         wrong_availability.1,
         wrong_price.1,
     ])
     .await;
 
     let (response, _) = get_json(
-        "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Filter%20cabinet&shopName[0]=Imperial%20Antiques&availability[0]=AVAILABLE&price[min]=500&price[max]=600".to_owned(),
+        format!(
+            "/api/v1/product-listings?language=en&currency=USD&productQuery[0]=Filter%20cabinet&listingSourceId[0]={}&availability[0]=AVAILABLE&price[min]=500&price[max]=600",
+            target.1["listingSourceId"]
+                .as_str()
+                .unwrap_or_else(|| panic!("target listing source ID is not a string"))
+        ),
     )
     .await;
     let (status, body) = json_response(response).await;
 
-    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
     assert!(body["total"].is_null());
     assert_eq!(vec![target.0], product_listing_ids(&body));
-    assert_eq!(
-        json!("Imperial Antiques"),
-        body["items"][0]["item"]["shopName"]
-    );
+    assert!(body["items"][0]["item"]["source"]["name"].is_string());
     assert_eq!(json!("AVAILABLE"), body["items"][0]["item"]["availability"]);
     assert_eq!(
         json!(550),
@@ -707,7 +1027,7 @@ async fn should_return_projected_product_listings_from_default_search() {
         "Lifecycle fixture",
         100,
         "AVAILABLE",
-        "Lifecycle Shop",
+        "Lifecycle Listing Source",
         "2025-01-01T00:00:00Z",
     );
 
@@ -730,14 +1050,14 @@ async fn should_filter_product_search_by_availability() {
         "Availability fixture",
         100,
         "AVAILABLE",
-        "Availability Shop",
+        "Availability Listing Source",
         "2025-01-01T00:00:00Z",
     );
     let sold_out = search_document(
         "Availability fixture",
         200,
         "SOLD_OUT",
-        "Availability Shop",
+        "Availability Listing Source",
         "2025-01-01T00:00:00Z",
     );
     index_search_documents([available.1, sold_out.1.clone()]).await;
@@ -759,14 +1079,14 @@ async fn should_filter_product_search_by_created_date_range() {
         "Date fixture",
         100,
         "AVAILABLE",
-        "Date Shop",
+        "Date Listing Source",
         "2025-01-15T12:00:00Z",
     );
     let june = search_document(
         "Date fixture",
         200,
         "AVAILABLE",
-        "Date Shop",
+        "Date Listing Source",
         "2025-06-15T12:00:00Z",
     );
     index_search_documents([january.1.clone(), june.1]).await;
@@ -791,20 +1111,6 @@ async fn should_reject_invalid_product_listing_id() {
         &body,
         reqwest::StatusCode::BAD_REQUEST,
         "INVALID_UUID",
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_reject_invalid_product_slug() {
-    let (response, _) =
-        get_json("/api/v1/by-slug/shops/Invalid/product-listings/product-a1b2c3".to_owned()).await;
-    let (status, body) = json_response(response).await;
-
-    assert_problem(
-        status,
-        &body,
-        reqwest::StatusCode::BAD_REQUEST,
-        "BAD_PATH_PARAMETER_VALUE",
     );
 }
 
@@ -897,9 +1203,35 @@ async fn capture_fx_snapshot(captured_at: OffsetDateTime, usd_units_per_eur: i64
     fx_rate_id
 }
 
+async fn index_existing_listing_source_document(document: Value) {
+    let client = get_opensearch_client().await;
+    ensure_canonical_product_listing_mapping(client).await;
+    let product_listing_id = document["productListingId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("search fixture has no productListingId"))
+        .to_owned();
+    let response = client
+        .index(IndexParts::IndexId(PRODUCTS_INDEX, &product_listing_id))
+        .body(document)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to index search fixture: {error}"));
+    if !response.status_code().is_success() {
+        let status = response.status_code();
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|error| panic!("failed to read index failure: {error}"));
+        panic!("failed to index search fixture: {status}: {body}");
+    }
+    refresh_index(PRODUCTS_INDEX).await;
+}
+
 async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
+    let documents = documents.into_iter().collect::<Vec<_>>();
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;
+    seed_search_listing_sources(&pool, &documents).await;
     let client = get_opensearch_client().await;
     ensure_canonical_product_listing_mapping(client).await;
     for document in documents {
@@ -923,6 +1255,41 @@ async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
         }
     }
     refresh_index(PRODUCTS_INDEX).await;
+}
+
+async fn seed_search_listing_sources(pool: &sqlx::PgPool, documents: &[Value]) {
+    let mut listing_source_ids = HashSet::new();
+    for document in documents {
+        let listing_source_id = document["listingSourceId"]
+            .as_str()
+            .unwrap_or_else(|| panic!("search fixture has no listingSourceId"));
+        listing_source_ids.insert(
+            uuid::Uuid::parse_str(listing_source_id).unwrap_or_else(|error| {
+                panic!("invalid search fixture listing source ID: {error}")
+            }),
+        );
+    }
+
+    for listing_source_id in listing_source_ids {
+        let party_id = uuid::Uuid::new_v4();
+        sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
+            .bind(party_id)
+            .bind(format!("search-party-{party_id}"))
+            .bind(format!("Search Party {party_id}"))
+            .execute(pool)
+            .await
+            .unwrap_or_else(|error| panic!("failed to seed search party: {error}"));
+        sqlx::query(
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(listing_source_id)
+        .bind(format!("search-source-{listing_source_id}"))
+        .bind(format!("Search Listing Source {listing_source_id}"))
+        .bind(party_id)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed search listing source: {error}"));
+    }
 }
 
 async fn ensure_canonical_product_listing_mapping(client: &opensearch::OpenSearch) {
@@ -951,54 +1318,39 @@ fn search_document(
     title: &str,
     price_usd: u64,
     availability: &str,
-    shop_name: &str,
+    listing_source_name: &str,
     created: &str,
 ) -> (String, Value) {
-    search_document_with_shop(
+    search_document_with_source(
         title,
         price_usd,
         availability,
-        shop_name,
-        "search-shop",
+        listing_source_name,
+        "search-listing-source",
         created,
     )
 }
 
-fn search_document_with_shop(
+fn search_document_with_source(
     title: &str,
     price_usd: u64,
     availability: &str,
-    shop_name: &str,
-    shop_slug_id: &str,
+    _listing_source_name: &str,
+    _listing_source_slug_id: &str,
     created: &str,
 ) -> (String, Value) {
     let product_listing_id = uuid::Uuid::new_v4().to_string();
     let event_id = uuid::Uuid::new_v4().to_string();
-    let shop_id = uuid::Uuid::new_v4().to_string();
-    let seller_id = uuid::Uuid::new_v4().to_string();
-    let product_listing_slug_id = format!("search-{}", &product_listing_id[..6]);
+    let listing_source_id = uuid::Uuid::new_v4().to_string();
+    let product_listing_title_slug_id = format!("search-{}", &product_listing_id[..6]);
     (
         product_listing_id.clone(),
         json!({
             "productListingId": product_listing_id,
-            "productListingSlugId": product_listing_slug_id,
-            "shopSlugId": shop_slug_id,
-            "sellerSlugId": "search-seller",
+            "productListingTitleSlugId": product_listing_title_slug_id,
+            "listingSourceId": listing_source_id,
+            "sourceListingId": product_listing_title_slug_id,
             "eventId": event_id,
-            "shopId": shop_id,
-            "sellerId": seller_id,
-            "shopListingId": product_listing_slug_id,
-            "shopName": shop_name,
-            "sellerName": shop_name,
-            "shopType": "COMMERCIAL_DEALER",
-            "structuredAddressAddressline": null,
-            "structuredAddressAddresslineExtra": null,
-            "structuredAddressLocality": null,
-            "structuredAddressRegion": null,
-            "structuredAddressPostalCode": null,
-            "structuredAddressCountry": null,
-            "structuredAddressContinent": null,
-            "geoAddress": null,
             "title": { "text": title, "language": "EN" },
             "titleDe": null,
             "titleEn": title,
@@ -1007,8 +1359,7 @@ fn search_document_with_shop(
             "titleIt": null,
             "sourcePrice": { "amount": price_usd, "currency": "USD" },
             "availability": availability,
-            "url": "https://shop.example/product",
-            "viewUrl": "https://aura.example/product",
+            "url": "https://listing-source.example/product",
             "images": [],
             "embedding": null,
             "auctionStart": null,
@@ -1022,6 +1373,11 @@ fn search_document_with_shop(
 fn with_embedding(mut document: Value, embedding: Vec<f32>) -> Value {
     document["embedding"] = json!(embedding);
     document
+}
+
+fn assert_product_view_urls(item: &Value, raw_url: &str, view_url: &str) {
+    assert_eq!(json!(raw_url), item["url"]);
+    assert_eq!(json!(view_url), item["viewUrl"]);
 }
 
 fn product_listing_ids(body: &Value) -> Vec<String> {

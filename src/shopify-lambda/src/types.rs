@@ -1,6 +1,9 @@
 use application::patch_field::PatchField;
 use indexmap::IndexSet;
-use product_listing_core::listing_availability::ListingAvailability;
+use listing_source_core::Domain;
+use product_listing_core::{
+    listing_availability::ListingAvailability, source_listing_id::SourceListingId,
+};
 use product_listing_service::use_cases::IngestShopifyProductListingCommand;
 use serde::Deserialize;
 use url::Url;
@@ -69,6 +72,10 @@ pub enum ShopifyListingAction {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShopifyProductEventError {
+    #[error("Shopify product source listing ID is invalid")]
+    InvalidSourceListingId(
+        #[source] product_listing_core::source_listing_id::InvalidSourceListingId,
+    ),
     #[error("Shopify product title is missing")]
     MissingTitle,
     #[error("Shopify product handle is missing")]
@@ -78,7 +85,7 @@ pub enum ShopifyProductEventError {
 impl ShopifyProductEventKind {
     pub fn listing_action(
         self,
-        shop_domain: shop_core::domain::Domain,
+        source_domain: Domain,
         payload: ShopifyProductPayload,
     ) -> Result<ShopifyListingAction, ShopifyProductEventError> {
         if self == Self::Delete {
@@ -87,7 +94,7 @@ impl ShopifyProductEventKind {
 
         match payload.status.as_deref() {
             Some("archived" | "draft") => Ok(ShopifyListingAction::Withdraw),
-            Some("active") => Self::active_command(shop_domain, payload)
+            Some("active") => Self::active_command(source_domain, payload)
                 .map(Box::new)
                 .map(ShopifyListingAction::Ingest),
             Some(_) | None => Ok(ShopifyListingAction::Ignore),
@@ -95,7 +102,7 @@ impl ShopifyProductEventKind {
     }
 
     fn active_command(
-        shop_domain: shop_core::domain::Domain,
+        source_domain: Domain,
         payload: ShopifyProductPayload,
     ) -> Result<IngestShopifyProductListingCommand, ShopifyProductEventError> {
         let availability = product_availability(&payload);
@@ -109,10 +116,9 @@ impl ShopifyProductEventKind {
             .ok_or(ShopifyProductEventError::MissingHandle)?;
 
         Ok(IngestShopifyProductListingCommand {
-            shop_domain,
-            shop_listing_id: product_listing_core::shop_listing_id::ShopListingId::from(
-                payload.id.to_string(),
-            ),
+            source_domain,
+            source_listing_id: SourceListingId::try_from(payload.id.to_string())
+                .map_err(ShopifyProductEventError::InvalidSourceListingId)?,
             title,
             description: payload
                 .body_html
@@ -233,8 +239,8 @@ mod tests {
         ));
     }
 
-    fn domain() -> shop_core::domain::Domain {
-        shop_core::domain::Domain::try_from("partner.example")
+    fn domain() -> Domain {
+        Domain::try_from("partner.example")
             .unwrap_or_else(|error| panic!("invalid domain: {error}"))
     }
 

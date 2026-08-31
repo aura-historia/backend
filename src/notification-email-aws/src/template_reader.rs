@@ -99,8 +99,8 @@ mod tests {
     fn should_render_template_with_notification_data() -> Result<(), NotificationChannelSendError> {
         let rendered = render_template(
             &Handlebars::new(),
-            "Hello {{shop_name}}. New price: {{new_price}}.",
-            &json!({ "shop_name": "Aster Antiques", "new_price": "12,00 €" }),
+            "Hello {{listing_source_name}}. New price: {{new_price}}.",
+            &json!({ "listing_source_name": "Aster Antiques", "new_price": "12,00 €" }),
         )?;
         assert_eq!(rendered, "Hello Aster Antiques. New price: 12,00 €.");
         Ok(())
@@ -115,5 +115,172 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn should_render_every_localized_product_listing_template_with_delivery_contract_data()
+    -> Result<(), NotificationChannelSendError> {
+        let mut handlebars = Handlebars::new();
+        handlebars.set_strict_mode(true);
+        let data = json!({
+            "first_name": "Ada",
+            "listing_source_name": "Aster Antiques",
+            "title": "Bronze Vase",
+            "image_url": "https://images.example.test/bronze-vase.jpg",
+            "product_listing_url": "https://aura-historia.com/product-listings/bronze-vase-a1b2c3",
+            "view_url": "https://merchant.example.test/products/bronze-vase",
+            "search_filter_id": "a1b2c3d4",
+            "search_filter_name": "Art Nouveau",
+            "old_availability": "Available",
+            "new_availability": "In stock",
+            "old_price": "100,00 €",
+            "new_price": "90,00 €",
+        });
+
+        for contract in product_listing_template_contracts() {
+            let rendered = render_template(&handlebars, contract.template, &data)?;
+
+            assert!(
+                !rendered.contains("{{"),
+                "{} left an unresolved Handlebars expression",
+                contract.path
+            );
+            for marker in contract.required_markers {
+                assert!(
+                    rendered.contains(marker),
+                    "{} did not render required delivery value {marker:?}",
+                    contract.path
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    struct ProductListingTemplateContract {
+        path: &'static str,
+        template: &'static str,
+        required_markers: &'static [&'static str],
+    }
+
+    fn product_listing_template_contracts() -> [ProductListingTemplateContract; 15] {
+        const SEARCH_FILTER_MARKERS: &[&str] = &[
+            "Ada",
+            "Aster Antiques",
+            "Bronze Vase",
+            "https://images.example.test/bronze-vase.jpg",
+            "https://aura-historia.com/product-listings/bronze-vase-a1b2c3",
+            "https://merchant.example.test/products/bronze-vase",
+            "a1b2c3d4",
+            "Art Nouveau",
+        ];
+        const AVAILABILITY_MARKERS: &[&str] = &[
+            "Ada",
+            "Aster Antiques",
+            "Bronze Vase",
+            "https://images.example.test/bronze-vase.jpg",
+            "https://aura-historia.com/product-listings/bronze-vase-a1b2c3",
+            "https://merchant.example.test/products/bronze-vase",
+            "Available",
+            "In stock",
+        ];
+        const PRICE_MARKERS: &[&str] = &[
+            "Ada",
+            "Aster Antiques",
+            "Bronze Vase",
+            "https://images.example.test/bronze-vase.jpg",
+            "https://aura-historia.com/product-listings/bronze-vase-a1b2c3",
+            "https://merchant.example.test/products/bronze-vase",
+            "100,00 €",
+            "90,00 €",
+        ];
+
+        [
+            ProductListingTemplateContract {
+                path: "mjml/search-filter/match/de.mjml",
+                template: include_str!("../../../mjml/search-filter/match/de.mjml"),
+                required_markers: SEARCH_FILTER_MARKERS,
+            },
+            ProductListingTemplateContract {
+                path: "mjml/search-filter/match/en.mjml",
+                template: include_str!("../../../mjml/search-filter/match/en.mjml"),
+                required_markers: SEARCH_FILTER_MARKERS,
+            },
+            ProductListingTemplateContract {
+                path: "mjml/search-filter/match/es.mjml",
+                template: include_str!("../../../mjml/search-filter/match/es.mjml"),
+                required_markers: SEARCH_FILTER_MARKERS,
+            },
+            ProductListingTemplateContract {
+                path: "mjml/search-filter/match/fr.mjml",
+                template: include_str!("../../../mjml/search-filter/match/fr.mjml"),
+                required_markers: SEARCH_FILTER_MARKERS,
+            },
+            ProductListingTemplateContract {
+                path: "mjml/search-filter/match/it.mjml",
+                template: include_str!("../../../mjml/search-filter/match/it.mjml"),
+                required_markers: SEARCH_FILTER_MARKERS,
+            },
+            ProductListingTemplateContract {
+                path: "mjml/watchlist/product-update/availability/de.mjml",
+                template: include_str!(
+                    "../../../mjml/watchlist/product-update/availability/de.mjml"
+                ),
+                required_markers: AVAILABILITY_MARKERS,
+            },
+            ProductListingTemplateContract {
+                path: "mjml/watchlist/product-update/availability/en.mjml",
+                template: include_str!(
+                    "../../../mjml/watchlist/product-update/availability/en.mjml"
+                ),
+                required_markers: AVAILABILITY_MARKERS,
+            },
+            ProductListingTemplateContract {
+                path: "mjml/watchlist/product-update/availability/es.mjml",
+                template: include_str!(
+                    "../../../mjml/watchlist/product-update/availability/es.mjml"
+                ),
+                required_markers: AVAILABILITY_MARKERS,
+            },
+            ProductListingTemplateContract {
+                path: "mjml/watchlist/product-update/availability/fr.mjml",
+                template: include_str!(
+                    "../../../mjml/watchlist/product-update/availability/fr.mjml"
+                ),
+                required_markers: AVAILABILITY_MARKERS,
+            },
+            ProductListingTemplateContract {
+                path: "mjml/watchlist/product-update/availability/it.mjml",
+                template: include_str!(
+                    "../../../mjml/watchlist/product-update/availability/it.mjml"
+                ),
+                required_markers: AVAILABILITY_MARKERS,
+            },
+            ProductListingTemplateContract {
+                path: "mjml/watchlist/product-update/price/de.mjml",
+                template: include_str!("../../../mjml/watchlist/product-update/price/de.mjml"),
+                required_markers: PRICE_MARKERS,
+            },
+            ProductListingTemplateContract {
+                path: "mjml/watchlist/product-update/price/en.mjml",
+                template: include_str!("../../../mjml/watchlist/product-update/price/en.mjml"),
+                required_markers: PRICE_MARKERS,
+            },
+            ProductListingTemplateContract {
+                path: "mjml/watchlist/product-update/price/es.mjml",
+                template: include_str!("../../../mjml/watchlist/product-update/price/es.mjml"),
+                required_markers: PRICE_MARKERS,
+            },
+            ProductListingTemplateContract {
+                path: "mjml/watchlist/product-update/price/fr.mjml",
+                template: include_str!("../../../mjml/watchlist/product-update/price/fr.mjml"),
+                required_markers: PRICE_MARKERS,
+            },
+            ProductListingTemplateContract {
+                path: "mjml/watchlist/product-update/price/it.mjml",
+                template: include_str!("../../../mjml/watchlist/product-update/price/it.mjml"),
+                required_markers: PRICE_MARKERS,
+            },
+        ]
     }
 }

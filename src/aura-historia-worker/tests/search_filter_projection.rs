@@ -11,14 +11,14 @@ use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
-use product_listing_core::shop_listing_id::ShopListingId;
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use product_listing_core::{
-    product_listing::{ProductListingAddress, ProductListingAuction, ProductListingPricing},
+    product_listing::{ProductListingAuction, ProductListingPricing},
+    source_listing_id::SourceListingId,
     title::Title,
 };
 use product_listing_service::ports::{
-    ProductListingPercolationInput, ProductListingSearchFilterMatchShopType,
-    ProductListingSearchFilterMatchSource,
+    ListingSourceSummary, ProductListingPercolationInput, ProductListingSearchFilterMatchSource,
 };
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -32,10 +32,7 @@ use search_filter_service::ports::{
 use search_filter_service::use_cases::{
     ProjectSearchFilterChangeHandler, ProjectSearchFilterChangeUseCase,
 };
-use shop_core::seller_slug_id::SellerSlugId;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
+
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use test_api::{
@@ -385,16 +382,17 @@ fn product_source(
         current_event_id: event_id,
         projection_version: 1,
         product_listing_id: ProductListingId::new(),
-        product_listing_slug_id: ProductListingSlugId::from("test-product"),
-        shop_id: ShopId::new(),
-        shop_slug_id: ShopSlugId::from("test-shop"),
-        shop_name: ShopName::from("Test shop"),
-        shop_type: ProductListingSearchFilterMatchShopType::Marketplace,
-        seller_id: ShopId::new(),
-        seller_slug_id: SellerSlugId::from(ShopSlugId::from("test-seller")),
-        seller_name: ShopName::from("Test seller"),
-        shop_listing_id: ShopListingId::from("test-product-1"),
-        address: ProductListingAddress::default(),
+        product_listing_title_slug_id: ProductListingSlugId::raw("test-product-a1b2c3")
+            .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
+        source: ListingSourceSummary {
+            listing_source_id: ListingSourceId::new(),
+            name: ListingSourceName::try_from("Test source")
+                .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+            slug_id: ListingSourceSlugId::raw("test-source")
+                .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+        },
+        source_listing_id: SourceListingId::try_from("test-product-1")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
         product_title: Some(Localized::new(Language::En, title.clone())),
         product_description: None,
         titles: std::collections::HashMap::from([(Language::En, title)]),

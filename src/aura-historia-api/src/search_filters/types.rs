@@ -1,27 +1,22 @@
 use crate::patch_value::{PatchValue, clearable, non_nullable_option, non_nullable_patch};
-use crate::values::GeoDistanceQueryData;
+
 use application::patch_field::PatchField;
 use domain_primitives::event_id::EventId;
-use domain_primitives::query::any_of_query::AnyOfQuery;
+
 use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
 use localization::Language;
 use money::Currency;
 
+use listing_source_core::ListingSourceId;
 use money::MonetaryAmount;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_orderability::ListingOrderability;
 use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
-use shop_core::seller_slug_id::SellerSlugId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
 use user_core::user_id::UserId;
 
-use geo::core::continent::Continent;
-use geo::data::continent_data::ContinentData;
-use isocountry::CountryCode;
 use product_listing_core::product_listing_search::{
     EnhancedSearchDescription, EnhancedSearchDescriptionError, ListingAvailabilityQuery,
     ProductListingSearch,
@@ -30,7 +25,7 @@ use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_service::ports::{SearchFilterMatchView, SearchFilterView};
 use search_filter_service::use_cases::ProductListingSearchPatch;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use shop_core::shop_type::ShopType;
+
 use std::collections::HashSet;
 use time::OffsetDateTime;
 
@@ -223,31 +218,10 @@ pub(super) struct ProductListingSearchPatchData {
     product_listing_query: PatchValue<Vec<TextQuery<1>>>,
     #[serde(rename = "enhancedSearchDescription", default)]
     enhanced_search_description: PatchValue<String>,
-    #[serde(rename = "shopName", default)]
-    shop_name_query: PatchValue<HashSet<ShopName>>,
-    #[serde(rename = "excludeShopName", default)]
-    exclude_shop_name_query: PatchValue<HashSet<ShopName>>,
-    #[serde(rename = "sellerName", default)]
-    seller_name_query: PatchValue<HashSet<ShopName>>,
-    #[serde(rename = "excludeSellerName", default)]
-    exclude_seller_name_query: PatchValue<HashSet<ShopName>>,
-    #[serde(rename = "shopSlugId", default)]
-    shop_slug_id_query: PatchValue<HashSet<ShopSlugId>>,
-    #[serde(rename = "excludeShopSlugId", default)]
-    exclude_shop_slug_id_query: PatchValue<HashSet<ShopSlugId>>,
-    #[serde(rename = "sellerSlugId", default)]
-    seller_slug_id_query: PatchValue<HashSet<SellerSlugId>>,
-    #[serde(rename = "excludeSellerSlugId", default)]
-    exclude_seller_slug_id_query: PatchValue<HashSet<SellerSlugId>>,
-    #[serde(rename = "shopType", default)]
-    #[serde(deserialize_with = "crate::wire::shop_type::patch_set::deserialize")]
-    shop_type_query: PatchValue<HashSet<ShopType>>,
-    #[serde(rename = "country", default)]
-    country_query: PatchValue<HashSet<CountryCode>>,
-    #[serde(rename = "continent", default)]
-    continent_query: PatchValue<HashSet<ContinentData>>,
-    #[serde(rename = "geoAddress", default)]
-    geo_address_distance_query: PatchValue<GeoDistanceQueryData>,
+    #[serde(rename = "listingSourceId", default)]
+    listing_source_id_query: PatchValue<HashSet<uuid::Uuid>>,
+    #[serde(rename = "excludeListingSourceId", default)]
+    exclude_listing_source_id_query: PatchValue<HashSet<uuid::Uuid>>,
     #[serde(rename = "price", default)]
     price_query: PatchValue<RangeQuery<u64>>,
     #[serde(rename = "availability", default)]
@@ -303,52 +277,26 @@ impl ProductListingSearchPatchData {
                     })?,
                 ),
             },
-            shop_name_query: non_nullable_patch(
-                self.shop_name_query.map(AnyOfQuery::from),
-                "search.shopName",
+            listing_source_id_query: non_nullable_patch(
+                self.listing_source_id_query.map(|values| {
+                    values
+                        .into_iter()
+                        .map(ListingSourceId::from)
+                        .collect::<HashSet<_>>()
+                        .into()
+                }),
+                "search.listingSourceId",
             )?,
-            exclude_shop_name_query: non_nullable_patch(
-                self.exclude_shop_name_query.map(AnyOfQuery::from),
-                "search.excludeShopName",
+            exclude_listing_source_id_query: non_nullable_patch(
+                self.exclude_listing_source_id_query.map(|values| {
+                    values
+                        .into_iter()
+                        .map(ListingSourceId::from)
+                        .collect::<HashSet<_>>()
+                        .into()
+                }),
+                "search.excludeListingSourceId",
             )?,
-            seller_name_query: non_nullable_patch(
-                self.seller_name_query.map(AnyOfQuery::from),
-                "search.sellerName",
-            )?,
-            exclude_seller_name_query: non_nullable_patch(
-                self.exclude_seller_name_query.map(AnyOfQuery::from),
-                "search.excludeSellerName",
-            )?,
-            shop_slug_id_query: non_nullable_patch(
-                self.shop_slug_id_query.map(AnyOfQuery::from),
-                "search.shopSlugId",
-            )?,
-            exclude_shop_slug_id_query: non_nullable_patch(
-                self.exclude_shop_slug_id_query.map(AnyOfQuery::from),
-                "search.excludeShopSlugId",
-            )?,
-            seller_slug_id_query: non_nullable_patch(
-                self.seller_slug_id_query.map(AnyOfQuery::from),
-                "search.sellerSlugId",
-            )?,
-            exclude_seller_slug_id_query: non_nullable_patch(
-                self.exclude_seller_slug_id_query.map(AnyOfQuery::from),
-                "search.excludeSellerSlugId",
-            )?,
-            shop_type_query: non_nullable_patch(
-                self.shop_type_query.map(AnyOfQuery::from),
-                "search.shopType",
-            )?,
-            country_query: non_nullable_patch(
-                self.country_query.map(AnyOfQuery::from),
-                "search.country",
-            )?,
-            continent_query: non_nullable_patch(
-                self.continent_query
-                    .map(|values| values.into_iter().map(Continent::from).collect()),
-                "search.continent",
-            )?,
-            geo_address_distance_query: clearable(self.geo_address_distance_query.map(Into::into)),
             price_query: clearable(
                 self.price_query
                     .map(|query| query.map(MonetaryAmount::from)),
@@ -448,74 +396,17 @@ pub(super) struct ProductListingSearchData {
     )]
     exclude_product_listing_id_query: HashSet<ProductListingId>,
     #[serde(
-        rename = "shopName",
+        rename = "listingSourceId",
         skip_serializing_if = "HashSet::is_empty",
         default
     )]
-    shop_name_query: HashSet<ShopName>,
+    listing_source_id_query: HashSet<uuid::Uuid>,
     #[serde(
-        rename = "excludeShopName",
+        rename = "excludeListingSourceId",
         skip_serializing_if = "HashSet::is_empty",
         default
     )]
-    exclude_shop_name_query: HashSet<ShopName>,
-    #[serde(
-        rename = "sellerName",
-        skip_serializing_if = "HashSet::is_empty",
-        default
-    )]
-    seller_name_query: HashSet<ShopName>,
-    #[serde(
-        rename = "excludeSellerName",
-        skip_serializing_if = "HashSet::is_empty",
-        default
-    )]
-    exclude_seller_name_query: HashSet<ShopName>,
-    #[serde(
-        rename = "shopSlugId",
-        skip_serializing_if = "HashSet::is_empty",
-        default
-    )]
-    shop_slug_id_query: HashSet<ShopSlugId>,
-    #[serde(
-        rename = "excludeShopSlugId",
-        skip_serializing_if = "HashSet::is_empty",
-        default
-    )]
-    exclude_shop_slug_id_query: HashSet<ShopSlugId>,
-    #[serde(
-        rename = "sellerSlugId",
-        skip_serializing_if = "HashSet::is_empty",
-        default
-    )]
-    seller_slug_id_query: HashSet<SellerSlugId>,
-    #[serde(
-        rename = "excludeSellerSlugId",
-        skip_serializing_if = "HashSet::is_empty",
-        default
-    )]
-    exclude_seller_slug_id_query: HashSet<SellerSlugId>,
-    #[serde(
-        rename = "shopType",
-        skip_serializing_if = "HashSet::is_empty",
-        default
-    )]
-    #[serde(with = "crate::wire::shop_type::set")]
-    shop_type_query: HashSet<ShopType>,
-    #[serde(rename = "country", skip_serializing_if = "HashSet::is_empty", default)]
-    country_query: HashSet<CountryCode>,
-    #[serde(
-        rename = "continent",
-        skip_serializing_if = "HashSet::is_empty",
-        default
-    )]
-    continent_query: HashSet<ContinentData>,
-    #[serde(
-        rename = "geoAddress",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    geo_address_distance_query: Option<GeoDistanceQueryData>,
+    exclude_listing_source_id_query: HashSet<uuid::Uuid>,
     #[serde(rename = "price", skip_serializing_if = "Option::is_none", default)]
     price_query: Option<RangeQuery<u64>>,
     #[serde(
@@ -581,18 +472,18 @@ impl TryFrom<ProductListingSearchData> for ProductListingSearch {
                 .map(EnhancedSearchDescription::try_from)
                 .transpose()?,
             exclude_product_listing_id_query: data.exclude_product_listing_id_query.into(),
-            shop_name_query: data.shop_name_query.into(),
-            exclude_shop_name_query: data.exclude_shop_name_query.into(),
-            seller_name_query: data.seller_name_query.into(),
-            exclude_seller_name_query: data.exclude_seller_name_query.into(),
-            shop_slug_id_query: data.shop_slug_id_query.into(),
-            exclude_shop_slug_id_query: data.exclude_shop_slug_id_query.into(),
-            seller_slug_id_query: data.seller_slug_id_query.into(),
-            exclude_seller_slug_id_query: data.exclude_seller_slug_id_query.into(),
-            shop_type_query: data.shop_type_query.into(),
-            country_query: data.country_query.into(),
-            continent_query: data.continent_query.into_iter().map(Into::into).collect(),
-            geo_address_distance_query: data.geo_address_distance_query.map(Into::into),
+            listing_source_id_query: data
+                .listing_source_id_query
+                .into_iter()
+                .map(ListingSourceId::from)
+                .collect::<HashSet<_>>()
+                .into(),
+            exclude_listing_source_id_query: data
+                .exclude_listing_source_id_query
+                .into_iter()
+                .map(ListingSourceId::from)
+                .collect::<HashSet<_>>()
+                .into(),
             price_query: data
                 .price_query
                 .map(|query| query.map(MonetaryAmount::from)),
@@ -617,18 +508,16 @@ impl From<ProductListingSearch> for ProductListingSearchData {
             product_listing_query: search.product_listing_query,
             enhanced_search_description: search.enhanced_search_description.map(Into::into),
             exclude_product_listing_id_query: search.exclude_product_listing_id_query.into(),
-            shop_name_query: search.shop_name_query.into(),
-            exclude_shop_name_query: search.exclude_shop_name_query.into(),
-            seller_name_query: search.seller_name_query.into(),
-            exclude_seller_name_query: search.exclude_seller_name_query.into(),
-            shop_slug_id_query: search.shop_slug_id_query.into(),
-            exclude_shop_slug_id_query: search.exclude_shop_slug_id_query.into(),
-            seller_slug_id_query: search.seller_slug_id_query.into(),
-            exclude_seller_slug_id_query: search.exclude_seller_slug_id_query.into(),
-            shop_type_query: search.shop_type_query.into(),
-            country_query: search.country_query.into(),
-            continent_query: search.continent_query.into_iter().map(Into::into).collect(),
-            geo_address_distance_query: search.geo_address_distance_query.map(Into::into),
+            listing_source_id_query: search
+                .listing_source_id_query
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            exclude_listing_source_id_query: search
+                .exclude_listing_source_id_query
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             price_query: search.price_query.map(|query| query.map(u64::from)),
             availability_query: search
                 .availability_query
@@ -783,7 +672,10 @@ mod tests {
             }),
             patch.availability_query
         );
-        assert!(matches!(patch.shop_name_query, PatchField::Unchanged));
+        assert!(matches!(
+            patch.listing_source_id_query,
+            PatchField::Unchanged
+        ));
         Ok(())
     }
 

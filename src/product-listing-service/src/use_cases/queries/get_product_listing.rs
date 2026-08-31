@@ -23,16 +23,15 @@ use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
-use product_listing_core::shop_listing_id::ShopListingId;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
+use crate::ports::ListingSourceSummary;
+use listing_source_core::ListingSourceSlugId;
+use product_listing_core::source_listing_id::SourceListingId;
 use user_core::user_id::UserId;
 
 use crate::user_state::ProductListingUserState;
 use product_listing_core::description::Description;
 use product_listing_core::product_listing::{
-    ListingSaleObservation, ProductListingAddress, ProductListingAuction, ProductListingPricing,
+    ListingSaleObservation, ProductListingAuction, ProductListingPricing,
 };
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::title::Title;
@@ -42,10 +41,7 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProductListingLookup {
     ById(ProductListingId),
-    BySlug {
-        shop_slug_id: ShopSlugId,
-        product_listing_slug_id: ProductListingSlugId,
-    },
+    ByTitleSlug(ProductListingSlugId),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -154,16 +150,10 @@ pub struct ProductListingImageView {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingDetailsView {
     pub product_listing_id: ProductListingId,
-    pub product_listing_slug_id: ProductListingSlugId,
+    pub product_listing_title_slug_id: Option<ProductListingSlugId>,
     pub event_id: EventId,
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub shop_name: ShopName,
-    pub seller_name: ShopName,
-    pub shop_slug_id: ShopSlugId,
-    pub seller_slug_id: ShopSlugId,
-    pub address: ProductListingAddress,
+    pub source: ListingSourceSummary,
+    pub source_listing_id: SourceListingId,
     pub product_title: Option<Localized<Language, Title>>,
     pub product_description: Option<Localized<Language, Description>>,
     pub title: Option<Localized<Language, Title>>,
@@ -350,16 +340,10 @@ pub fn present_product_details(
     Ok(Personalized {
         item: ProductListingDetailsView {
             product_listing_id: item.product_listing_id,
-            product_listing_slug_id: item.product_listing_slug_id,
+            product_listing_title_slug_id: Some(item.product_listing_title_slug_id),
             event_id: item.event_id,
-            shop_id: item.shop_id,
-            seller_id: item.seller_id,
-            shop_listing_id: item.shop_listing_id,
-            shop_name: item.shop_name,
-            seller_name: item.seller_name,
-            shop_slug_id: item.shop_slug_id,
-            seller_slug_id: item.seller_slug_id,
-            address: item.address,
+            source: item.source,
+            source_listing_id: item.source_listing_id,
             product_title: item.product_title,
             product_description: item.product_description,
             title: item.title,
@@ -435,17 +419,17 @@ pub fn redact_hidden_product(
     let hidden_url = Url::parse("https://aura-historia.com/pricing")
         .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?;
 
-    details.product_listing_id = ProductListingId::from(nil);
-    details.product_listing_slug_id = ProductListingSlugId::from("Hidden");
+    details.product_listing_title_slug_id = None;
     details.event_id = EventId::from(nil);
-    details.shop_id = ShopId::from(nil);
-    details.seller_id = ShopId::from(nil);
-    details.shop_listing_id = ShopListingId::from(nil.to_string());
-    details.shop_name = ShopName::from("Hidden");
-    details.seller_name = ShopName::from("Hidden");
-    details.shop_slug_id = ShopSlugId::from("Hidden");
-    details.seller_slug_id = ShopSlugId::from("Hidden");
-    details.address = ProductListingAddress::default();
+    details.source = ListingSourceSummary {
+        listing_source_id: listing_source_core::ListingSourceId::from(nil),
+        name: listing_source_core::ListingSourceName::try_from("Hidden")
+            .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?,
+        slug_id: ListingSourceSlugId::raw("hidden")
+            .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?,
+    };
+    details.source_listing_id = SourceListingId::try_from(nil.to_string())
+        .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?;
     details.product_title = None;
     details.product_description = None;
     details.title = Some(Localized::new(language, hidden_title(language)));
@@ -796,16 +780,20 @@ mod tests {
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
                 product_listing_id: ProductListingId::new(),
-                product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+                product_listing_title_slug_id: ProductListingSlugId::raw("cabinet-a1b2c3")
+                    .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
                 event_id: EventId::new(),
-                shop_id: ShopId::new(),
-                seller_id: ShopId::new(),
-                shop_listing_id: ShopListingId::new(),
-                shop_name: ShopName::from("Shop"),
-                seller_name: ShopName::from("Seller"),
-                shop_slug_id: ShopSlugId::from("shop"),
-                seller_slug_id: ShopSlugId::from("seller"),
-                address: ProductListingAddress::default(),
+                source: ListingSourceSummary {
+                    listing_source_id: listing_source_core::ListingSourceId::new(),
+                    name: listing_source_core::ListingSourceName::try_from("Source")
+                        .unwrap_or_else(|error| {
+                            panic!("invalid test listing source name: {error}")
+                        }),
+                    slug_id: ListingSourceSlugId::raw("source")
+                        .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+                },
+                source_listing_id: SourceListingId::try_from("cabinet-1")
+                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                 product_title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
                 product_description: Some(Localized::new(
                     Language::En,
@@ -1049,6 +1037,7 @@ mod tests {
         let state = state();
         let user_id = UserId::new();
         let mut details = factual_details()?;
+        let product_listing_id = details.item.product_listing_id;
         let lifecycle = details.item.lifecycle;
         let mut user_state = ProductListingUserState::default();
         user_state.search_filter.hidden = true;
@@ -1063,10 +1052,8 @@ mod tests {
             )
             .await?;
 
-        assert_eq!(
-            ProductListingId::from(uuid::Uuid::nil()),
-            result.item.product_listing_id
-        );
+        assert_eq!(product_listing_id, result.item.product_listing_id);
+        assert_eq!(None, result.item.product_listing_title_slug_id);
         assert_eq!(None, result.item.availability);
         assert_eq!(lifecycle, result.item.lifecycle);
         assert_eq!(ProductListingPricing::default(), result.item.pricing.source);

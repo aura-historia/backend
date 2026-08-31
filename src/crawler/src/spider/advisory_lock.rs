@@ -1,6 +1,7 @@
+use crate::CrawlerDomainId;
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -12,8 +13,9 @@ use std::time::Instant;
 ///
 /// XOR-folds the 128-bit UUID into 64 bits so that every distinct UUID maps to a
 /// distinct key with high probability.
-pub fn domain_id_to_advisory_key(id: uuid::Uuid) -> i64 {
-    let bytes = id.as_bytes();
+pub fn domain_id_to_advisory_key(id: CrawlerDomainId) -> i64 {
+    let uuid = uuid::Uuid::from(id);
+    let bytes = uuid.as_bytes();
     let hi = i64::from_be_bytes(bytes[..8].try_into().unwrap());
     let lo = i64::from_be_bytes(bytes[8..].try_into().unwrap());
     hi ^ lo
@@ -86,11 +88,14 @@ impl LocalLockManager {
 // Public typed wrappers
 // ---------------------------------------------------------------------------
 
-/// RAII lock for a spider domain (keyed by `domain_id` UUID).
+/// RAII lock for a spider domain (keyed by `CrawlerDomainId`).
 pub struct DomainLock(#[allow(dead_code)] AdvisoryLock);
 
 impl DomainLock {
-    pub fn try_acquire(lock_manager: &LocalLockManager, domain_id: uuid::Uuid) -> Option<Self> {
+    pub fn try_acquire(
+        lock_manager: &LocalLockManager,
+        domain_id: CrawlerDomainId,
+    ) -> Option<Self> {
         let key = domain_id_to_advisory_key(domain_id);
         lock_manager.try_acquire(key.to_string()).map(Self)
     }
@@ -106,13 +111,16 @@ impl UrlLock {
     }
 }
 
-/// RAII lock for scraper work scoped to a shop.
-pub struct ShopLock(#[allow(dead_code)] AdvisoryLock);
+/// RAII lock for scraper work scoped to a ListingSource.
+pub struct ListingSourceLock(#[allow(dead_code)] AdvisoryLock);
 
-impl ShopLock {
-    pub fn try_acquire(lock_manager: &LocalLockManager, shop_id: ShopId) -> Option<Self> {
+impl ListingSourceLock {
+    pub fn try_acquire(
+        lock_manager: &LocalLockManager,
+        listing_source_id: ListingSourceId,
+    ) -> Option<Self> {
         lock_manager
-            .try_acquire(format!("shop:{shop_id}"))
+            .try_acquire(format!("listing-source:{listing_source_id}"))
             .map(Self)
     }
 }
@@ -129,20 +137,23 @@ mod tests {
 
     #[test]
     fn domain_key_is_stable_for_same_uuid() {
-        let id = uuid::Uuid::new_v4();
+        let id = CrawlerDomainId::from(uuid::Uuid::new_v4());
         assert_eq!(domain_id_to_advisory_key(id), domain_id_to_advisory_key(id));
     }
 
     #[test]
     fn domain_key_differs_for_different_uuids() {
-        let a = uuid::Uuid::new_v4();
-        let b = uuid::Uuid::new_v4();
+        let a = CrawlerDomainId::from(uuid::Uuid::new_v4());
+        let b = CrawlerDomainId::from(uuid::Uuid::new_v4());
         assert_ne!(domain_id_to_advisory_key(a), domain_id_to_advisory_key(b));
     }
 
     #[test]
     fn nil_uuid_produces_zero_key() {
-        assert_eq!(domain_id_to_advisory_key(uuid::Uuid::nil()), 0i64);
+        assert_eq!(
+            domain_id_to_advisory_key(CrawlerDomainId::from(uuid::Uuid::nil())),
+            0i64
+        );
     }
 
     // --- url_to_advisory_key ---
@@ -164,14 +175,14 @@ mod tests {
     fn url_key_is_nonzero_for_typical_url() {
         // The all-zero FNV result for an empty string would be a degenerate case;
         // a real URL must produce a nonzero key.
-        let url = url::Url::parse("https://shop.example.com/item/99").unwrap();
+        let url = url::Url::parse("https://catalog.example.com/item/99").unwrap();
         assert_ne!(url_to_advisory_key(&url), 0i64);
     }
 
     #[test]
     fn should_lock_and_unlock_domain_key_via_drop() {
         let manager = LocalLockManager::new();
-        let domain_id = uuid::Uuid::new_v4();
+        let domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
 
         let first = DomainLock::try_acquire(&manager, domain_id);
         assert!(first.is_some());
@@ -203,19 +214,19 @@ mod tests {
     }
 
     #[test]
-    fn should_lock_and_unlock_shop_key_via_drop() {
+    fn should_lock_and_unlock_listing_source_key_via_drop() {
         let manager = LocalLockManager::new();
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
-        let first = ShopLock::try_acquire(&manager, shop_id);
+        let first = ListingSourceLock::try_acquire(&manager, listing_source_id);
         assert!(first.is_some());
 
-        let second = ShopLock::try_acquire(&manager, shop_id);
+        let second = ListingSourceLock::try_acquire(&manager, listing_source_id);
         assert!(second.is_none());
 
         drop(first);
 
-        let third = ShopLock::try_acquire(&manager, shop_id);
+        let third = ListingSourceLock::try_acquire(&manager, listing_source_id);
         assert!(third.is_some());
     }
 }

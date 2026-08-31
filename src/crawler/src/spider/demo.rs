@@ -32,19 +32,27 @@
 //! cargo run --bin demo-spider -p crawler -- https://www.christies.com/en
 //! ```
 
-use shop_core::shop_id::ShopId;
+use crawler::CrawlerDomainId;
+use listing_source_core::ListingSourceId;
 use std::env;
 use std::fs::File;
 use std::io::BufWriter;
 use std::sync::Arc;
 
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
-use crawler::local_db::{DEMO_SPIDER_DB_NAME, bootstrap_local_database, demo_spider_db_url};
+use crawler::local_db::{
+    DEMO_SPIDER_DB_NAME, bootstrap_local_database,
+    crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl,
+    demo_spider_db_url,
+};
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
+use crawler::service::crawler_domain_configuration::{
+    CrawlerDomainConfigurationError, CrawlerDomainConfigurationRepository,
+};
 use crawler::spider::SpiderRunResult;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
-use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepositoryImpl;
+use crawler::spider::classification::url_pattern_repository::ListingSourceUrlPatternRepositoryImpl;
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceError;
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderDiscoveryError;
@@ -75,9 +83,12 @@ enum DemoError {
 
     #[error(transparent)]
     SpiderService(#[from] crawler::spider::SpiderServiceError),
+
+    #[error(transparent)]
+    DomainConfiguration(#[from] CrawlerDomainConfigurationError),
 }
 
-const DEFAULT_SHOP_URL: &str = "https://www.christies.com/en";
+const DEFAULT_CRAWL_ROOT_URL: &str = "https://www.christies.com/en";
 const DEFAULT_CLASSIFY_THRESHOLD: usize = 200;
 /// Spider demo pool size: 1 advisory-lock connection + 4 query connections.
 const DEMO_POOL_MAX_CONNECTIONS: u32 = 5;
@@ -87,7 +98,7 @@ async fn main() {
     dotenvy::dotenv().ok();
     init_logging();
 
-    let shop_url = read_shop_url();
+    let crawl_root_url = read_crawl_root_url();
 
     async {
         let vertex_ai_config = match CrawlerVertexAiConfig::from_env() {
@@ -142,27 +153,31 @@ async fn main() {
             url_repository,
         );
 
-        let shop_id: ShopId = uuid::Uuid::new_v4().into();
-        let shop_url_parsed = url::Url::parse(&shop_url)
+        let listing_source_id: ListingSourceId =
+            uuid::Uuid::from_u128(0xa2000000000000000000000000000001).into();
+        let crawl_root_url_parsed = url::Url::parse(&crawl_root_url)
             .unwrap_or_else(|_| url::Url::parse("https://demo.invalid").unwrap());
-        let demo_domain = shop_url_parsed
+        let demo_domain = crawl_root_url_parsed
             .host_str()
             .unwrap_or("demo.invalid")
             .to_string();
 
-        let demo_domain_id = match insert_demo_shop(&pool, &shop_id, &demo_domain).await {
-            Ok(id) => id,
-            Err(error) => {
-                error!(error = ?error, "Failed to insert demo shop rows into DB");
-                return;
-            }
-        };
+        let demo_domain_id =
+            match insert_demo_listing_source_with_domain(&pool, &listing_source_id, &demo_domain)
+                .await
+            {
+                Ok(id) => id,
+                Err(error) => {
+                    error!(error = ?error, "Failed to insert demo ListingSource rows into DB");
+                    return;
+                }
+            };
 
         match spider
             .run(
-                &shop_id,
+                &listing_source_id,
                 &demo_domain_id,
-                &shop_url,
+                &crawl_root_url,
                 DEFAULT_CLASSIFY_THRESHOLD,
             )
             .await
@@ -187,24 +202,24 @@ async fn main() {
     .instrument(tracing::info_span!(
         "crawler_spider_demo",
         entrypoint = "demo-spider",
-        shop_url = %shop_url,
+        crawl_root_url = %crawl_root_url,
         classify_threshold = DEFAULT_CLASSIFY_THRESHOLD
     ))
     .await;
 }
 
 #[tracing::instrument]
-fn read_shop_url() -> String {
+fn read_crawl_root_url() -> String {
     let raw_url = env::args()
         .nth(1)
-        .unwrap_or_else(|| DEFAULT_SHOP_URL.to_string());
+        .unwrap_or_else(|| DEFAULT_CRAWL_ROOT_URL.to_string());
 
     ensure_scheme(&raw_url)
 }
 
 #[tracing::instrument(skip(pool))]
-fn build_pattern_repository(pool: PgPool) -> Arc<ShopUrlPatternRepositoryImpl> {
-    Arc::new(ShopUrlPatternRepositoryImpl::new(pool))
+fn build_pattern_repository(pool: PgPool) -> Arc<ListingSourceUrlPatternRepositoryImpl> {
+    Arc::new(ListingSourceUrlPatternRepositoryImpl::new(pool))
 }
 
 #[tracing::instrument(skip(pool))]
@@ -240,40 +255,32 @@ async fn connect_and_migrate() -> Result<PgPool, DemoError> {
     Ok(pool)
 }
 
-/// Inserts a demo `shops` row and a `shop_domains` row, returning the generated `domain_id`.
-///
-/// Uses `ON CONFLICT DO NOTHING` so the function is idempotent if called multiple times
-/// with the same `shop_id` / `shop_domain`.
-#[tracing::instrument(skip(pool), fields(shop_id = %shop_id, shop_domain = %shop_domain))]
-async fn insert_demo_shop(
+/// Inserts a stable demo ListingSource and registers its crawler domain through the
+/// same ownership boundary used by the production review API.
+#[tracing::instrument(skip(pool), fields(listing_source_id = %listing_source_id, listing_source_domain = %listing_source_domain))]
+async fn insert_demo_listing_source_with_domain(
     pool: &PgPool,
-    shop_id: &ShopId,
-    shop_domain: &str,
-) -> Result<uuid::Uuid, DemoError> {
-    let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+    listing_source_id: &ListingSourceId,
+    listing_source_domain: &str,
+) -> Result<CrawlerDomainId, DemoError> {
+    let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
 
     sqlx::query(
-        "INSERT INTO shops (shop_id, shop_name, shop_slug, shop_type, active, created, updated)
-         VALUES ($1, 'Demo Shop', 'demo-shop', 'COMMERCIAL_DEALER', TRUE, NOW(), NOW())
-         ON CONFLICT (shop_id) DO NOTHING",
+        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated)
+         VALUES ($1, 'Demo source', 'demo-source', TRUE, NOW(), NOW())
+         ON CONFLICT (listing_source_id) DO NOTHING",
     )
-    .bind(shop_id_uuid)
+    .bind(listing_source_id_uuid)
     .execute(pool)
     .await?;
 
-    // Insert the domain row if it doesn't exist yet and return the domain_id.
-    // Because `shop_domain` is UNIQUE, a second run with the same domain would hit the conflict
-    // path — we return the existing domain_id in that case.
-    let domain_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO shop_domains (shop_id, shop_domain, last_crawled)
-         VALUES ($1, $2, NULL)
-         ON CONFLICT (shop_domain) DO UPDATE SET shop_id = EXCLUDED.shop_id
-         RETURNING domain_id",
-    )
-    .bind(shop_id_uuid)
-    .bind(shop_domain)
-    .fetch_one(pool)
-    .await?;
+    let domain = listing_source_core::Domain::try_from(listing_source_domain)
+        .map_err(|error| DemoError::Demo(error.to_string()))?;
+    let configuration = CrawlerDomainConfigurationRepositoryImpl::new(pool.clone());
+    let domain_id = configuration
+        .register(*listing_source_id, domain)
+        .await?
+        .domain_id;
 
     Ok(domain_id)
 }

@@ -1,5 +1,0 @@
-mod partner_shop_application_repository;
-mod user_partner_shop_membership_repository;
-
-pub use partner_shop_application_repository::SqlxPartnerShopApplicationRepositoryFactory;
-pub use user_partner_shop_membership_repository::SqlxUserPartnerShopMembershipRepositoryFactory;

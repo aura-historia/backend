@@ -460,19 +460,20 @@ async fn insert_active_product_with_event(
 ) -> Result<ProductListingFixture, sqlx::Error> {
     let product_listing_id = ProductListingId::new();
     let event_id = EventId::new();
-    let shop_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
-    insert_shop(&mut tx, shop_id, "active-os").await?;
+    insert_listing_source(&mut tx, listing_source_id, "active-os").await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, availability, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $3, $4, $4, $5, 'Active ProductListing OpenSearch chair', 'en', 'Native source price only', 'en', 12345, 'USD', 10000, 'USD', 15000, 'USD', 'AVAILABLE', 'ACTIVE', 'https://example.test/product_listings/active', '[{\"url\": \"https://example.test/images/active.jpg\"}]', $6)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, availability, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $3, $4, $5, 'Active ProductListing OpenSearch chair', 'en', 'Native source price only', 'en', 12345, 'USD', 10000, 'USD', 15000, 'USD', 'AVAILABLE', 'ACTIVE', 'https://example.test/product_listings/active', '[{\"url\": \"https://example.test/images/active.jpg\"}]', $6)",
     )
     .bind(uuid::Uuid::from(product_listing_id))
     .bind(product_slug("active-os", product_listing_id))
     .bind(uuid::Uuid::from(event_id))
-    .bind(shop_id)
+    .bind(listing_source_id)
     .bind(product_listing_id.to_string())
     .bind(projection_version)
-    .execute(&mut *tx)
+
+        .execute(&mut *tx)
     .await?;
     insert_product_event(&mut tx, product_listing_id, event_id).await?;
     tx.commit().await?;
@@ -487,18 +488,19 @@ async fn insert_product_with_event_then_rollback(
 ) -> Result<ProductListingId, sqlx::Error> {
     let product_listing_id = ProductListingId::new();
     let event_id = EventId::new();
-    let shop_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
-    insert_shop(&mut tx, shop_id, "rollback-os").await?;
+    insert_listing_source(&mut tx, listing_source_id, "rollback-os").await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $4, $5, 'Rolled back ProductListing OpenSearch chair', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product_listings/rolled-back', '[]')",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Rolled back ProductListing OpenSearch chair', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product_listings/rolled-back', '[]')",
     )
     .bind(uuid::Uuid::from(product_listing_id))
     .bind(product_slug("rollback-os", product_listing_id))
     .bind(uuid::Uuid::from(event_id))
-    .bind(shop_id)
+    .bind(listing_source_id)
     .bind(product_listing_id.to_string())
-    .execute(&mut *tx)
+
+        .execute(&mut *tx)
     .await?;
     insert_product_event(&mut tx, product_listing_id, event_id).await?;
     tx.rollback().await?;
@@ -579,19 +581,20 @@ async fn insert_sold_product_with_event(
 ) -> Result<ProductListingFixture, sqlx::Error> {
     let product_listing_id = ProductListingId::new();
     let event_id = EventId::new();
-    let shop_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
-    insert_shop(&mut tx, shop_id, "sold-os").await?;
+    insert_listing_source(&mut tx, listing_source_id, "sold-os").await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, price_amount, price_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $3, $4, $4, $5, 'Sold ProductListing OpenSearch chair', 'en', 12345, 'EUR', $6, now(), 'SOLD_OUT', 'ACTIVE', 'https://example.test/product_listings/sold', '[]', 13)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, price_amount, price_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $3, $4, $5, 'Sold ProductListing OpenSearch chair', 'en', 12345, 'EUR', $6, now(), 'SOLD_OUT', 'ACTIVE', 'https://example.test/product_listings/sold', '[]', 13)",
     )
     .bind(uuid::Uuid::from(product_listing_id))
     .bind(product_slug("sold-os", product_listing_id))
     .bind(uuid::Uuid::from(event_id))
-    .bind(shop_id)
+    .bind(listing_source_id)
     .bind(product_listing_id.to_string())
     .bind(fx_rate_id)
-    .execute(&mut *tx)
+
+        .execute(&mut *tx)
     .await?;
     insert_product_event(&mut tx, product_listing_id, event_id).await?;
     tx.commit().await?;
@@ -607,19 +610,20 @@ async fn insert_sold_product_without_main_price_with_event(
 ) -> Result<ProductListingFixture, sqlx::Error> {
     let product_listing_id = ProductListingId::new();
     let event_id = EventId::new();
-    let shop_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
-    insert_shop(&mut tx, shop_id, "sold-no-price-os").await?;
+    insert_listing_source(&mut tx, listing_source_id, "sold-no-price-os").await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $3, $4, $4, $5, 'Sold ProductListing OpenSearch chair without main price', 'en', 10000, 'EUR', 15000, 'EUR', $6, now(), 'SOLD_OUT', 'ACTIVE', 'https://example.test/product_listings/sold-no-price', '[]', 17)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $3, $4, $5, 'Sold ProductListing OpenSearch chair without main price', 'en', 10000, 'EUR', 15000, 'EUR', $6, now(), 'SOLD_OUT', 'ACTIVE', 'https://example.test/product_listings/sold-no-price', '[]', 17)",
     )
     .bind(uuid::Uuid::from(product_listing_id))
     .bind(product_slug("sold-no-price-os", product_listing_id))
     .bind(uuid::Uuid::from(event_id))
-    .bind(shop_id)
+    .bind(listing_source_id)
     .bind(product_listing_id.to_string())
     .bind(fx_rate_id)
-    .execute(&mut *tx)
+
+        .execute(&mut *tx)
     .await?;
     insert_product_event(&mut tx, product_listing_id, event_id).await?;
     tx.commit().await?;
@@ -653,16 +657,16 @@ fn product_slug(prefix: &str, product_listing_id: ProductListingId) -> String {
     format!("{prefix}-{}", &suffix[..6])
 }
 
-async fn insert_shop(
+async fn insert_listing_source(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    shop_id: uuid::Uuid,
+    listing_source_id: uuid::Uuid,
     slug_prefix: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, 'ProductListing OpenSearch worker shop', 'COMMERCIAL_DEALER', 'SCRAPED', '{}')",
+        "WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), 'Fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $1, $2, 'ProductListing OpenSearch worker source', party_id FROM operator",
     )
-    .bind(shop_id)
-    .bind(format!("{slug_prefix}-{shop_id}"))
+    .bind(listing_source_id)
+    .bind(format!("{slug_prefix}-{listing_source_id}"))
     .execute(&mut **tx)
     .await?;
     Ok(())

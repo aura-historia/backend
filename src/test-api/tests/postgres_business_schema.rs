@@ -1,4 +1,4 @@
-use sqlx::Executor;
+use sqlx::{AssertSqlSafe, Executor};
 use test_api::*;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -20,9 +20,11 @@ async fn should_apply_business_schema_migrations() {
 
     for expected in [
         "users",
-        "shops",
-        "user_partner_shops",
-        "partner_shop_applications",
+        "parties",
+        "listing_sources",
+        "partnerships",
+        "partnership_members",
+        "partnership_listing_source_grants",
         "fx_rate_quotes",
         "fx_rates",
         "product_listings",
@@ -101,16 +103,16 @@ async fn should_apply_intentional_secondary_index_definitions() {
             "(user_search_filter_id, created DESC, product_listing_id)",
         ),
         (
-            "shops_published_name_shop_id_idx",
-            "(name, shop_id) WHERE (lifecycle = 'PUBLISHED'::text)",
+            "listing_sources_operator_party_id_idx",
+            "(operator_party_id)",
         ),
         (
-            "shops_published_updated_shop_id_idx",
-            "(updated DESC, shop_id) WHERE (lifecycle = 'PUBLISHED'::text)",
+            "product_listings_listing_source_id_idx",
+            "(listing_source_id)",
         ),
         (
-            "shops_published_created_shop_id_idx",
-            "(created DESC, shop_id) WHERE (lifecycle = 'PUBLISHED'::text)",
+            "product_listings_lifecycle_updated_idx",
+            "(lifecycle, updated DESC)",
         ),
         (
             "product_listing_events_product_listing_time_event_idx",
@@ -149,52 +151,53 @@ async fn should_apply_intentional_secondary_index_definitions() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_support_core_business_relations() {
     let pool = get_postgres_client().await;
-    pool.execute(sqlx::raw_sql(
-        r#"
+    let product_listing_title_slug_id = product_listing_title_slug_id("A vase");
+    let business_fixture_sql = r#"
         INSERT INTO users (user_id, email, tier, role)
         VALUES ('10000000-0000-0000-0000-000000000001', 'user@example.com', 'FREE', 'USER');
 
-        INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains)
+        INSERT INTO parties (party_id, party_slug_id, name)
         VALUES (
             '20000000-0000-0000-0000-000000000001',
-            'shop-one',
-            'Shop One',
-            'AUCTION_HOUSE',
-            'PARTNERED',
-            ARRAY['shop.example.com']
+            'source-operator',
+            'Source Operator'
         );
 
-        INSERT INTO user_partner_shops (user_id, shop_id)
+        INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id)
         VALUES (
-            '10000000-0000-0000-0000-000000000001',
+            '20000000-0000-0000-0000-000000000002',
+            'source-one',
+            'Source One',
             '20000000-0000-0000-0000-000000000001'
         );
 
-        INSERT INTO partner_shop_applications (
-            partner_shop_application_id,
-            applicant_user_id,
-            business_state,
-            payload_type,
-            shop_id
-        )
+        INSERT INTO partnerships (partnership_id, party_id)
         VALUES (
             '60000000-0000-0000-0000-000000000001',
-            '10000000-0000-0000-0000-000000000001',
-            'APPROVED',
-            'EXISTING',
             '20000000-0000-0000-0000-000000000001'
+        );
+
+        INSERT INTO partnership_members (user_id, partnership_id)
+        VALUES (
+            '10000000-0000-0000-0000-000000000001',
+            '60000000-0000-0000-0000-000000000001'
+        );
+
+        INSERT INTO partnership_listing_source_grants (partnership_id, listing_source_id)
+        VALUES (
+            '60000000-0000-0000-0000-000000000001',
+            '20000000-0000-0000-0000-000000000002'
         );
 
         BEGIN;
 
         INSERT INTO product_listings (
             product_listing_id,
-            product_listing_slug_id,
+            product_listing_title_slug_id,
             event_id,
             content_source_event_id,
-            shop_id,
-            seller_id,
-            shop_listing_id,
+            listing_source_id,
+            source_listing_id,
             title_text,
             title_language,
             availability,
@@ -204,11 +207,10 @@ async fn should_support_core_business_relations() {
         )
         VALUES (
             '30000000-0000-0000-0000-000000000001',
-            'product-one',
+            '__PRODUCT_LISTING_TITLE_SLUG_ID__',
             '40000000-0000-0000-0000-000000000001',
             '40000000-0000-0000-0000-000000000001',
-            '20000000-0000-0000-0000-000000000001',
-            '20000000-0000-0000-0000-000000000001',
+            '20000000-0000-0000-0000-000000000002',
             'external-1',
             'A vase',
             'en',
@@ -277,10 +279,14 @@ async fn should_support_core_business_relations() {
             '30000000-0000-0000-0000-000000000001',
             '40000000-0000-0000-0000-000000000001'
         );
-        "#,
-    ))
-    .await
-    .unwrap();
+        "#
+    .replace(
+        "__PRODUCT_LISTING_TITLE_SLUG_ID__",
+        &product_listing_title_slug_id,
+    );
+    pool.execute(sqlx::raw_sql(AssertSqlSafe(business_fixture_sql)))
+        .await
+        .unwrap();
 
     let match_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM search_filter_matches")
         .fetch_one(&pool)
@@ -304,4 +310,12 @@ async fn should_reject_noncanonical_persisted_enum_values() {
             .await;
 
     assert!(result.is_err(), "noncanonical user role must be rejected");
+}
+
+fn product_listing_title_slug_id(title: &str) -> String {
+    product_listing_core::product_listing_slug_id::ProductListingSlugId::from_title_and_suffix(
+        title, "a1b2c3",
+    )
+    .unwrap_or_else(|error| panic!("valid product listing title slug: {error}"))
+    .to_string()
 }

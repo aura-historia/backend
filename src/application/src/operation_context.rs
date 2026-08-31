@@ -420,17 +420,6 @@ mod tests {
                 CredentialCapability::ProductListingsWrite,
                 "product-listings:write",
             ),
-            (CredentialCapability::ShopsRead, "shops:read"),
-            (CredentialCapability::ShopsWrite, "shops:write"),
-            (
-                CredentialCapability::PartnerShopApplicationsWrite,
-                "partner-shop-applications:write",
-            ),
-            (CredentialCapability::PartnerShopsRead, "partner-shops:read"),
-            (
-                CredentialCapability::PartnerShopsWrite,
-                "partner-shops:write",
-            ),
             (CredentialCapability::UsersRead, "users:read"),
             (CredentialCapability::UsersWrite, "users:write"),
             (CredentialCapability::AccessTokensRead, "access-tokens:read"),
@@ -474,9 +463,9 @@ mod tests {
         );
         assert_eq!(
             Err(CredentialAuthorizationError::InsufficientCapability {
-                capability: CredentialCapability::ShopsWrite
+                capability: CredentialCapability::UsersWrite
             }),
-            principal.require_credential_capability(CredentialCapability::ShopsWrite)
+            principal.require_credential_capability(CredentialCapability::UsersWrite)
         );
     }
 
@@ -544,7 +533,7 @@ mod tests {
         let context = OperationContext {
             principal: Principal::DelegatedUser {
                 user_id,
-                capabilities: BTreeSet::from([CredentialCapability::PartnerShopsRead]),
+                capabilities: BTreeSet::from([CredentialCapability::ProductListingsWrite]),
             },
             request_id: RequestId::new("req"),
             correlation_id: CorrelationId::new("corr"),
@@ -554,7 +543,7 @@ mod tests {
             Ok(&context),
             context
                 .require()
-                .credential_capability(CredentialCapability::PartnerShopsRead)
+                .credential_capability(CredentialCapability::ProductListingsWrite)
                 .user(&user_id)
                 .service_or_system()
                 .check()
@@ -575,11 +564,11 @@ mod tests {
 
         assert_eq!(
             Err(OperationAuthorizationError::InsufficientCapability {
-                capability: CredentialCapability::PartnerShopsRead
+                capability: CredentialCapability::ProductListingsWrite
             }),
             context
                 .require()
-                .credential_capability(CredentialCapability::PartnerShopsRead)
+                .credential_capability(CredentialCapability::ProductListingsWrite)
                 .user(&user_id)
                 .check()
         );

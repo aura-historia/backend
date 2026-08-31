@@ -192,18 +192,27 @@ async fn insert_product_with_embedded_event(
 ) -> Result<(ProductListingId, EventId), sqlx::Error> {
     let product_listing_id = ProductListingId::new();
     let event_id = EventId::new();
-    let shop_id = uuid::Uuid::new_v4();
+    let party_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, 'Translation shop', 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
-        .bind(shop_id)
-        .bind(format!("translation-shop-{shop_id}"))
+    sqlx::query(
+        "INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, 'Translation party')",
+    )
+    .bind(party_id)
+    .bind(format!("translation-party-{party_id}"))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, 'Translation source', $3)")
+        .bind(listing_source_id)
+        .bind(format!("translation-source-{listing_source_id}"))
+        .bind(party_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $4, $5, 'Antiker Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_listing_id))
-        .bind(format!("translation-product-{product_listing_id}"))
+        .bind(title_slug("translation-product", product_listing_id))
         .bind(uuid::Uuid::from(event_id))
-        .bind(shop_id)
+        .bind(listing_source_id)
         .bind(product_listing_id.to_string())
         .execute(&mut *tx)
         .await?;
@@ -238,4 +247,8 @@ async fn insert_event_and_advance_product(
         .await?;
     tx.commit().await?;
     Ok(event_id)
+}
+
+fn title_slug(prefix: &str, product_listing_id: ProductListingId) -> String {
+    format!("{prefix}-{}", &product_listing_id.to_string()[..6])
 }

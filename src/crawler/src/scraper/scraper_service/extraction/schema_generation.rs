@@ -2,13 +2,13 @@ use crate::review::model::{PAGE_ROLE_PRIMARY, PAGE_ROLE_SEED, SchemaReviewPageIn
 use crate::review::schema_evaluation::{
     evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage, unused_schema_indices,
 };
-use crate::scraper::css_selector::product_schema::ShopsProductSchema;
+use crate::scraper::css_selector::product_schema::ListingSourceProductSchema;
 use crate::scraper::css_selector::product_schema_service::GeneratedProductSchemas;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
+use listing_source_core::ListingSourceId;
 use serde_json::json;
-use shop_core::shop_id::ShopId;
 use tracing::debug;
 use url::Url;
 
@@ -32,27 +32,34 @@ impl SchemaGenerationAttempt {
 }
 
 impl ScraperServiceImpl {
-    /// Obtains product CSS selector schemas for `shop_id`, loading them from
+    /// Obtains product CSS selector schemas for `listing_source_id`, loading them from
     /// the DB or generating them via the LLM if they do not yet exist.
     ///
-    /// The dispatcher gates concurrent scraper work per shop inside one process,
+    /// The dispatcher gates concurrent scraper work per ListingSource inside one process,
     /// while database uniqueness prevents duplicate pending reviews across
     /// processes.
-    #[tracing::instrument(skip(self, html), fields(shop_id = %shop_id, url = %url))]
+    #[tracing::instrument(skip(self, html), fields(listing_source_id = %listing_source_id, url = %url))]
     #[allow(clippy::result_large_err)]
     pub(crate) async fn obtain_schemas(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         product_url_pattern: Option<&str>,
         html: &str,
-    ) -> Result<ShopsProductSchema, ScraperError> {
+    ) -> Result<ListingSourceProductSchema, ScraperError> {
         debug!("Obtaining product CSS selector schemas");
-        if let Some(existing) = self.schema_service.find_product_schema(shop_id).await? {
+        if let Some(existing) = self
+            .schema_service
+            .find_product_schema(listing_source_id)
+            .await?
+        {
             debug!("Schema found in DB");
             Ok(existing)
         } else {
-            if let Some(review_id) = self.pending_product_schema_review_id(shop_id).await? {
+            if let Some(review_id) = self
+                .pending_product_schema_review_id(listing_source_id)
+                .await?
+            {
                 return Err(ScraperError::PendingSchemaReview {
                     url: url.clone(),
                     review_id,
@@ -60,14 +67,21 @@ impl ScraperServiceImpl {
             }
 
             let seed_pages = self
-                .collect_schema_seed_pages(shop_id, url, product_url_pattern, html)
+                .collect_schema_seed_pages(listing_source_id, url, product_url_pattern, html)
                 .await;
             if self.review_repository.is_some() {
-                if let Some(existing) = self.schema_service.find_product_schema(shop_id).await? {
+                if let Some(existing) = self
+                    .schema_service
+                    .find_product_schema(listing_source_id)
+                    .await?
+                {
                     debug!("Schema found in DB after seed page collection");
                     return Ok(existing);
                 }
-                if let Some(review_id) = self.pending_product_schema_review_id(shop_id).await? {
+                if let Some(review_id) = self
+                    .pending_product_schema_review_id(listing_source_id)
+                    .await?
+                {
                     return Err(ScraperError::PendingSchemaReview {
                         url: url.clone(),
                         review_id,
@@ -93,7 +107,8 @@ impl ScraperServiceImpl {
                 })
                 .collect::<Vec<_>>();
 
-            self.consume_llm_budget_or_err(shop_id, url).await?;
+            self.consume_llm_budget_or_err(listing_source_id, url)
+                .await?;
             let yaml_generated = self
                 .schema_service
                 .create_product_schemas(&seed_html_pages)
@@ -111,7 +126,7 @@ impl ScraperServiceImpl {
 
             match self
                 .handle_generated_schema_review(
-                    shop_id,
+                    listing_source_id,
                     "initial_schema_generation",
                     generated.schemas,
                     generated.evaluation,

@@ -1,8 +1,8 @@
 use application::error::BoxError;
+
 use product_listing_core::{
     product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
 };
-use shop_core::shop_slug_id::ShopSlugId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingEmbedding {
@@ -13,10 +13,7 @@ pub struct ProductListingEmbedding {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProductListingEmbeddingLookup {
     ById(ProductListingId),
-    BySlug {
-        shop_slug_id: ShopSlugId,
-        product_listing_slug_id: ProductListingSlugId,
-    },
+    ByTitleSlug(ProductListingSlugId),
 }
 
 #[derive(Debug, thiserror::Error)]

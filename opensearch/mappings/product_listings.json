@@ -155,34 +155,17 @@
             "productListingId": {
                 "type": "keyword"
             },
-            "productListingSlugId": {
+            "productListingTitleSlugId": {
                 "type": "keyword"
             },
-            "shopSlugId": {
+            "listingSourceId": {
                 "type": "keyword"
             },
-            "sellerSlugId": {
+            "sourceListingId": {
                 "type": "keyword"
             },
+
             "eventId": {
-                "type": "keyword"
-            },
-            "shopId": {
-                "type": "keyword"
-            },
-            "sellerId": {
-                "type": "keyword"
-            },
-            "shopListingId": {
-                "type": "keyword"
-            },
-            "shopName": {
-                "type": "keyword"
-            },
-            "sellerName": {
-                "type": "keyword"
-            },
-            "shopType": {
                 "type": "keyword"
             },
             "title": {
@@ -268,9 +251,6 @@
             "url": {
                 "type": "keyword"
             },
-            "viewUrl": {
-                "type": "keyword"
-            },
             "images": {
                 "type": "object",
                 "properties": {
@@ -320,60 +300,6 @@
             },
             "updatedBy": {
                 "type": "keyword"
-            },
-            "structuredAddressAddressline": {
-                "type": "text",
-                "fields": {
-                    "keyword": {
-                        "type": "keyword",
-                        "ignore_above": 256
-                    }
-                }
-            },
-            "structuredAddressAddresslineExtra": {
-                "type": "text",
-                "fields": {
-                    "keyword": {
-                        "type": "keyword",
-                        "ignore_above": 256
-                    }
-                }
-            },
-            "structuredAddressLocality": {
-                "type": "text",
-                "fields": {
-                    "keyword": {
-                        "type": "keyword",
-                        "ignore_above": 256
-                    }
-                }
-            },
-            "structuredAddressRegion": {
-                "type": "text",
-                "fields": {
-                    "keyword": {
-                        "type": "keyword",
-                        "ignore_above": 256
-                    }
-                }
-            },
-            "structuredAddressPostalCode": {
-                "type": "text",
-                "fields": {
-                    "keyword": {
-                        "type": "keyword",
-                        "ignore_above": 256
-                    }
-                }
-            },
-            "structuredAddressCountry": {
-                "type": "keyword"
-            },
-            "structuredAddressContinent": {
-                "type": "keyword"
-            },
-            "geoAddress": {
-                "type": "geo_point"
             }
         },
         "dynamic": "strict"

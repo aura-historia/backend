@@ -4,7 +4,7 @@ use crate::scraper::scraper_service::service::FetchError;
 
 #[tokio::test]
 async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_miss() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
     let primary_html = sample_html();
 
@@ -29,13 +29,12 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
             cardinality: ExtractionCardinality::All,
         };
         ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("non-existent-id")),
+            source_listing_id: Some(text_rule("non-existent-id")),
             title: text_rule("non-existent-title"),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("non-existent-state"),
             images: attr_rule_all("img", "src"),
             auction_start: None,
@@ -45,7 +44,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         }
     };
 
-    let schema = shops_product_schema(id);
+    let schema = listing_source_product_schemas(id);
     let final_schema_for_generation = schema.product_schemas.first().cloned().unwrap();
 
     let mut schema_svc = MockProductListingSchemaService::new();
@@ -54,8 +53,8 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         .expect_find_product_schema()
         .once()
         .returning(move |_| {
-            let s = ShopsProductSchema {
-                shop_id: shop_id(),
+            let s = ListingSourceProductSchema {
+                listing_source_id: listing_source_id(),
                 product_schemas: vec![initial_schema_for_find.clone()],
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
@@ -103,7 +102,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         Box::new(norm_svc),
         Arc::new(cand_svc),
         3,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service
@@ -112,14 +111,15 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         .unwrap()
         .unwrap();
     assert_eq!(
-        result.product.shop_listing_id,
-        ShopListingId::from("SKU-42")
+        result.product.source_listing_id,
+        SourceListingId::try_from("SKU-42")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"))
     );
 }
 
 #[tokio::test]
 async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -128,7 +128,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         .once()
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
-    let schema = shops_product_schema(id);
+    let schema = listing_source_product_schemas(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
     let mut schema_svc = MockProductListingSchemaService::new();
@@ -176,7 +176,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         Box::new(norm_svc),
         Arc::new(cand_svc),
         3,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service
@@ -192,7 +192,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
 
 #[tokio::test]
 async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
     let sample_seed_url = Url::parse("https://example.com/product/seed-fail").unwrap();
     let expected_primary_url = url.clone();
@@ -216,7 +216,7 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
             })
         });
 
-    let schema = shops_product_schema(id);
+    let schema = listing_source_product_schemas(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
     let mut schema_svc = MockProductListingSchemaService::new();
@@ -268,7 +268,7 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
         Box::new(norm_svc),
         Arc::new(cand_svc),
         3,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service
@@ -284,7 +284,7 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
 
 #[tokio::test]
 async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product_pattern() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
     let sample_seed_url = Url::parse("https://example.com/products/seed").unwrap();
     let redirected_category_url = Url::parse("https://example.com/collections/chairs").unwrap();
@@ -307,7 +307,7 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
             })
         });
 
-    let schema = shops_product_schema(id);
+    let schema = listing_source_product_schemas(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
     let mut schema_svc = MockProductListingSchemaService::new();
@@ -359,7 +359,7 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
         Box::new(norm_svc),
         Arc::new(cand_svc),
         3,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service
@@ -375,7 +375,7 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
 
 #[tokio::test]
 async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -384,7 +384,7 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
         .once()
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
-    let schema = shops_product_schema(id);
+    let schema = listing_source_product_schemas(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
     let mut schema_svc = MockProductListingSchemaService::new();
@@ -428,7 +428,7 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service.scrape(&id, &url, None, None).await;

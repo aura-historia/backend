@@ -6,7 +6,7 @@ use super::{
     price::normalize_price_field,
     text::{
         detect_description_language, localize_normalized_title, normalize_description,
-        normalize_shop_listing_id_with_url_sha_fallback, normalize_title,
+        normalize_source_listing_id_with_url_sha_fallback, normalize_title,
     },
 };
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
@@ -21,7 +21,7 @@ use localization::{Language, Localized};
 use money::Currency;
 use product_listing_core::{
     description::Description, product_listing_image::ProductListingImage,
-    shop_listing_id::ShopListingId, title::Title,
+    source_listing_id::SourceListingId, title::Title,
 };
 
 use tracing::debug;
@@ -40,7 +40,7 @@ pub trait ProductListingNormalizationService {
     /// [`ListingAvailabilityMappingService`]. Callers do not pre-resolve it; this
     /// method performs the required asynchronous boundary work.
     ///
-    /// When `raw.shop_listing_id` is blank after trimming, a SHA-256 hash of
+    /// When `raw.source_listing_id` is blank after trimming, a SHA-256 hash of
     /// the full `url` string is used as a stable fallback identifier rather
     /// than returning an error. This keeps the scrape pipeline alive on pages
     /// where the CSS selector does not extract a product ID.
@@ -53,7 +53,7 @@ pub trait ProductListingNormalizationService {
     /// Returns `llm_calls_used` with either success or failure.  The value is
     /// `1` when
     /// the availability-mapping LLM fallback was invoked for an unseen raw value,
-    /// and `0` otherwise. Callers use this count against the per-shop LLM budget.
+    /// and `0` otherwise. Callers use this count against the per-ListingSource LLM budget.
     async fn normalize(
         &self,
         raw: RawExtractedProduct,
@@ -80,13 +80,12 @@ pub type ProductListingNormalizationResult = Result<NormalizationSuccess, Normal
 /// Deterministic candidate-local product data. Availability mapping is intentionally absent.
 #[derive(Debug, Clone)]
 pub struct PreparedProduct {
-    pub shop_listing_id: ShopListingId,
+    pub source_listing_id: SourceListingId,
     pub title: Localized<Language, Title>,
     pub description: Option<Localized<Language, Description>>,
     pub price: Option<money::Price>,
     pub price_estimate_min: Option<money::Price>,
     pub price_estimate_max: Option<money::Price>,
-    pub seller_name: Option<String>,
     pub images: Vec<ProductListingImage>,
     pub auction_start: Option<time::OffsetDateTime>,
     pub auction_end: Option<time::OffsetDateTime>,
@@ -108,17 +107,13 @@ pub fn prepare_product(
             max: crate::scraper::normalization::listing_availability_mapping_service::MAX_AVAILABILITY_RAW_LEN,
         });
     }
-    let shop_listing_id =
-        normalize_shop_listing_id_with_url_sha_fallback(&raw.shop_listing_id, &url);
+    let source_listing_id =
+        normalize_source_listing_id_with_url_sha_fallback(&raw.source_listing_id, &url)?;
     let title = normalize_title(&raw.title)?;
     let title_language = detect_language(title.as_ref());
     let description_language = detect_description_language(&raw.description);
     let title = localize_normalized_title(title, title_language, description_language)?;
     let description = normalize_description(raw.description, title_language)?;
-    let seller_name = raw.seller_name.and_then(|value| match value.trim() {
-        "" => None,
-        trimmed => Some(trimmed.to_string()),
-    });
     let price = normalize_price_field(
         raw.price,
         "price",
@@ -151,13 +146,12 @@ pub fn prepare_product(
         NormalizationError::AuctionEndParseError { raw: r }
     })?;
     Ok(PreparedProduct {
-        shop_listing_id,
+        source_listing_id,
         title,
         description,
         price,
         price_estimate_min,
         price_estimate_max,
-        seller_name,
         images,
         auction_start,
         auction_end,
@@ -197,13 +191,12 @@ impl ProductListingNormalizationService for ProductListingNormalizationServiceIm
         default_currency: Option<Currency>,
     ) -> ProductListingNormalizationResult {
         debug!(
-            shop_listing_id = %raw.shop_listing_id,
+            source_listing_id = %raw.source_listing_id,
             title = %raw.title,
             state = %raw.state,
             price = ?raw.price,
             price_estimate_min = ?raw.price_estimate_min,
             price_estimate_max = ?raw.price_estimate_max,
-            seller_name = ?raw.seller_name,
             images_count = raw.images.len(),
             has_description = !raw.description.is_empty(),
             has_auction_start = raw.auction_start.is_some(),
@@ -242,13 +235,12 @@ impl ProductListingNormalizationService for ProductListingNormalizationServiceIm
 
         Ok(NormalizationSuccess {
             product: NormalizedProduct {
-                shop_listing_id: prepared.shop_listing_id,
+                source_listing_id: prepared.source_listing_id,
                 title: prepared.title,
                 description: prepared.description,
                 price: prepared.price,
                 price_estimate_min: prepared.price_estimate_min,
                 price_estimate_max: prepared.price_estimate_max,
-                seller_name: prepared.seller_name,
                 availability: availability_mapping,
                 url: prepared.url,
                 images: prepared.images,
@@ -276,13 +268,12 @@ mod tests {
 
     fn raw() -> RawExtractedProduct {
         RawExtractedProduct {
-            shop_listing_id: "listing-123".into(),
+            source_listing_id: "listing-123".into(),
             title: "Antique ceramic vase from the early twentieth century".into(),
             description: vec![],
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: "availability text".into(),
             images: vec![],
             auction_start: None,

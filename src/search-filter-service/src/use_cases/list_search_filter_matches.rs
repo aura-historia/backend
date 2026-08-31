@@ -429,16 +429,15 @@ mod tests {
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
+    use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+    use product_listing_core::product_listing::{
+        ListingSaleObservation, ProductListingAuction, ProductListingPricing,
+    };
     use product_listing_core::{
         listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
-        product_listing_slug_id::ProductListingSlugId, shop_listing_id::ShopListingId,
+        product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
     };
-    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
-
-    use product_listing_core::product_listing::{
-        ListingSaleObservation, ProductListingAddress, ProductListingAuction, ProductListingPricing,
-    };
-    use product_listing_service::ports::ProductListingDetailsReadModel;
+    use product_listing_service::ports::{ListingSourceSummary, ProductListingDetailsReadModel};
     use product_listing_service::use_cases::ProductListingPricingValuation;
     use product_listing_service::user_state::{NotificationUserState, ProductListingUserState};
     use std::sync::{Arc, Mutex, MutexGuard};
@@ -597,16 +596,19 @@ mod tests {
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
                 product_listing_id,
-                product_listing_slug_id: ProductListingSlugId::from("product"),
+                product_listing_title_slug_id: ProductListingSlugId::raw("product-a1b2c3")
+                    .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
                 event_id: EventId::new(),
-                shop_id: ShopId::new(),
-                seller_id: ShopId::new(),
-                shop_listing_id: ShopListingId::from("product"),
-                shop_name: ShopName::from("Shop"),
-                seller_name: ShopName::from("Seller"),
-                shop_slug_id: ShopSlugId::from("shop"),
-                seller_slug_id: ShopSlugId::from("seller"),
-                address: ProductListingAddress::default(),
+                source: ListingSourceSummary {
+                    listing_source_id: ListingSourceId::new(),
+                    name: ListingSourceName::try_from("Source").unwrap_or_else(|error| {
+                        panic!("invalid test listing source name: {error}")
+                    }),
+                    slug_id: ListingSourceSlugId::raw("source")
+                        .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+                },
+                source_listing_id: SourceListingId::try_from("product")
+                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                 product_title: None,
                 product_description: None,
                 title: None,

@@ -55,18 +55,8 @@ fn restricted_features(tier: UserTier) -> &'static [RestrictedFeature] {
 #[derive(Clone, Copy)]
 enum RestrictedFeature {
     EnhancedSearchDescription,
-    ShopNameQuery,
-    ExcludeShopNameQuery,
-    SellerNameQuery,
-    ExcludeSellerNameQuery,
-    ShopSlugIdQuery,
-    ExcludeShopSlugIdQuery,
-    SellerSlugIdQuery,
-    ExcludeSellerSlugIdQuery,
-    ShopTypeQuery,
-    CountryQuery,
-    ContinentQuery,
-    GeoAddressDistanceQuery,
+    ListingSourceIdQuery,
+    ExcludeListingSourceIdQuery,
     CreatedQuery,
     UpdatedQuery,
     AuctionStartQuery,
@@ -75,20 +65,10 @@ enum RestrictedFeature {
 
 const PRO_RESTRICTED_FEATURES: [RestrictedFeature; 1] =
     [RestrictedFeature::EnhancedSearchDescription];
-const FREE_RESTRICTED_FEATURES: [RestrictedFeature; 17] = [
+const FREE_RESTRICTED_FEATURES: [RestrictedFeature; 7] = [
     RestrictedFeature::EnhancedSearchDescription,
-    RestrictedFeature::ShopNameQuery,
-    RestrictedFeature::ExcludeShopNameQuery,
-    RestrictedFeature::SellerNameQuery,
-    RestrictedFeature::ExcludeSellerNameQuery,
-    RestrictedFeature::ShopSlugIdQuery,
-    RestrictedFeature::ExcludeShopSlugIdQuery,
-    RestrictedFeature::SellerSlugIdQuery,
-    RestrictedFeature::ExcludeSellerSlugIdQuery,
-    RestrictedFeature::ShopTypeQuery,
-    RestrictedFeature::CountryQuery,
-    RestrictedFeature::ContinentQuery,
-    RestrictedFeature::GeoAddressDistanceQuery,
+    RestrictedFeature::ListingSourceIdQuery,
+    RestrictedFeature::ExcludeListingSourceIdQuery,
     RestrictedFeature::CreatedQuery,
     RestrictedFeature::UpdatedQuery,
     RestrictedFeature::AuctionStartQuery,
@@ -99,18 +79,8 @@ impl RestrictedFeature {
     fn name(self) -> &'static str {
         match self {
             Self::EnhancedSearchDescription => "enhancedSearchDescription",
-            Self::ShopNameQuery => "shopNameQuery",
-            Self::ExcludeShopNameQuery => "excludeShopNameQuery",
-            Self::SellerNameQuery => "sellerNameQuery",
-            Self::ExcludeSellerNameQuery => "excludeSellerNameQuery",
-            Self::ShopSlugIdQuery => "shopSlugIdQuery",
-            Self::ExcludeShopSlugIdQuery => "excludeShopSlugIdQuery",
-            Self::SellerSlugIdQuery => "sellerSlugIdQuery",
-            Self::ExcludeSellerSlugIdQuery => "excludeSellerSlugIdQuery",
-            Self::ShopTypeQuery => "shopTypeQuery",
-            Self::CountryQuery => "countryQuery",
-            Self::ContinentQuery => "continentQuery",
-            Self::GeoAddressDistanceQuery => "geoAddressDistanceQuery",
+            Self::ListingSourceIdQuery => "listingSourceIdQuery",
+            Self::ExcludeListingSourceIdQuery => "excludeListingSourceIdQuery",
             Self::CreatedQuery => "createdQuery",
             Self::UpdatedQuery => "updatedQuery",
             Self::AuctionStartQuery => "auctionStartQuery",
@@ -121,18 +91,8 @@ impl RestrictedFeature {
     fn is_present(self, search: &ProductListingSearch) -> bool {
         match self {
             Self::EnhancedSearchDescription => search.enhanced_search_description.is_some(),
-            Self::ShopNameQuery => !search.shop_name_query.is_empty(),
-            Self::ExcludeShopNameQuery => !search.exclude_shop_name_query.is_empty(),
-            Self::SellerNameQuery => !search.seller_name_query.is_empty(),
-            Self::ExcludeSellerNameQuery => !search.exclude_seller_name_query.is_empty(),
-            Self::ShopSlugIdQuery => !search.shop_slug_id_query.is_empty(),
-            Self::ExcludeShopSlugIdQuery => !search.exclude_shop_slug_id_query.is_empty(),
-            Self::SellerSlugIdQuery => !search.seller_slug_id_query.is_empty(),
-            Self::ExcludeSellerSlugIdQuery => !search.exclude_seller_slug_id_query.is_empty(),
-            Self::ShopTypeQuery => !search.shop_type_query.is_empty(),
-            Self::CountryQuery => !search.country_query.is_empty(),
-            Self::ContinentQuery => !search.continent_query.is_empty(),
-            Self::GeoAddressDistanceQuery => search.geo_address_distance_query.is_some(),
+            Self::ListingSourceIdQuery => !search.listing_source_id_query.is_empty(),
+            Self::ExcludeListingSourceIdQuery => !search.exclude_listing_source_id_query.is_empty(),
             Self::CreatedQuery => search.created_query.is_some(),
             Self::UpdatedQuery => search.updated_query.is_some(),
             Self::AuctionStartQuery => search.auction_start_query.is_some(),
@@ -147,7 +107,7 @@ mod tests {
         active_filter_quota, monthly_match_quota, validate_search_feature_changes,
         validate_search_features,
     };
-    use isocountry::CountryCode;
+    use listing_source_core::ListingSourceId;
     use localization::Language;
     use money::Currency;
     use product_listing_core::{
@@ -171,16 +131,16 @@ mod tests {
 
     #[test]
     fn should_reject_tier_restricted_search_features() {
-        let country_search = ProductListingSearch::new(Language::En, Currency::Eur)
-            .with_country_query([CountryCode::DEU].into_iter().collect());
+        let listing_source_search = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_listing_source_id_query([ListingSourceId::new()].into_iter().collect());
         let enhanced_search = ProductListingSearch::new(Language::En, Currency::Eur)
             .with_enhanced_search_description(
                 EnhancedSearchDescription::try_from("gold ring").unwrap(),
             );
 
         assert_eq!(
-            Err("countryQuery"),
-            validate_search_features(UserTier::Free, &country_search)
+            Err("listingSourceIdQuery"),
+            validate_search_features(UserTier::Free, &listing_source_search)
         );
         assert_eq!(
             Err("enhancedSearchDescription"),
@@ -216,22 +176,22 @@ mod tests {
     #[test]
     fn should_allow_edits_to_plan_restricted_filter_until_reactivation() {
         let restricted = ProductListingSearch::new(Language::En, Currency::Eur)
-            .with_country_query([CountryCode::DEU].into_iter().collect());
+            .with_listing_source_id_query([ListingSourceId::new()].into_iter().collect());
         let unchanged = restricted.clone();
         let mut adds_restriction = ProductListingSearch::new(Language::En, Currency::Eur);
-        adds_restriction.country_query = [CountryCode::DEU].into_iter().collect();
+        adds_restriction.listing_source_id_query = [ListingSourceId::new()].into_iter().collect();
 
         assert_eq!(
             Ok(()),
             validate_search_feature_changes(UserTier::Free, &restricted, &unchanged)
         );
         assert_eq!(
-            Err("countryQuery"),
+            Err("listingSourceIdQuery"),
             validate_search_features(UserTier::Free, &restricted),
             "reactivation must recheck the stored full search"
         );
         assert_eq!(
-            Err("countryQuery"),
+            Err("listingSourceIdQuery"),
             validate_search_feature_changes(
                 UserTier::Free,
                 &ProductListingSearch::new(Language::En, Currency::Eur),

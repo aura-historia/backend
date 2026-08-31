@@ -482,9 +482,9 @@ async fn seed_search_filter_match(
 ) -> (ProductListingId, String, String) {
     let product_listing_id = seed_product().await;
     let pool = get_postgres_client().await;
-    let (shop_id, shop_listing_id, origin_event_id) =
+    let (listing_source_id, source_listing_id, origin_event_id) =
         sqlx::query_as::<_, (uuid::Uuid, String, uuid::Uuid)>(
-            "SELECT shop_id, shop_listing_id, event_id FROM product_listings WHERE product_listing_id = $1",
+            "SELECT listing_source_id, source_listing_id, event_id FROM product_listings WHERE product_listing_id = $1",
         )
         .bind(uuid::Uuid::from(product_listing_id))
         .fetch_one(&pool)
@@ -506,7 +506,11 @@ async fn seed_search_filter_match(
     .await
     .unwrap_or_else(|error| panic!("failed to seed search filter match: {error}"));
 
-    (product_listing_id, shop_id.to_string(), shop_listing_id)
+    (
+        product_listing_id,
+        listing_source_id.to_string(),
+        source_listing_id,
+    )
 }
 
 fn search_filter_body() -> serde_json::Value {

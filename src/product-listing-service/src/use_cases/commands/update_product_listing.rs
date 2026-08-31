@@ -16,7 +16,7 @@ use money::Price;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::{
     ChangeListingAvailabilityError, ChangeProductListingError, ProductListing,
-    ProductListingAddress, ProductListingAuction, ProductListingPricing,
+    ProductListingAuction, ProductListingPricing,
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -25,7 +25,6 @@ use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateProductListingCommand {
-    pub address: PatchField<ProductListingAddress>,
     pub pricing: PatchField<ProductListingPricing>,
     pub price: PatchField<Price>,
     pub price_estimate_min: PatchField<Price>,
@@ -50,8 +49,8 @@ pub enum UpdateProductListingError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
-    #[error("shop not found")]
-    ShopNotFound,
+    #[error("listing source not found")]
+    ListingSourceNotFound,
     #[error("partner product listing authorization is temporarily unavailable")]
     PartnerAuthorizationTemporarilyUnavailable {
         #[source]
@@ -157,7 +156,7 @@ where
                 if let Some(actor_id) = partner_actor(&context.principal) {
                     self.authorizer
                         .in_transaction(&mut tx)
-                        .authorize(actor_id, loaded.value.shop_id())
+                        .authorize(actor_id, loaded.value.listing_source_id())
                         .await?;
                 }
                 loaded
@@ -166,7 +165,7 @@ where
                 if let Some(actor_id) = partner_actor(&context.principal) {
                     self.authorizer
                         .in_transaction(&mut tx)
-                        .authorize(actor_id, key.shop_id)
+                        .authorize(actor_id, key.listing_source_id)
                         .await?;
                 }
                 self.products
@@ -225,7 +224,7 @@ where
         self.update(context, UpdateTarget::Id(product_listing_id), command)
             .await
     }
-    #[tracing::instrument(name = "update_product_listing_by_key", skip_all, fields(shop_id = %product_key.shop_id, shop_listing_id = %product_key.shop_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    #[tracing::instrument(name = "update_product_listing_by_key", skip_all, fields(listing_source_id = %product_key.listing_source_id, source_listing_id = %product_key.source_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute_by_key(
         &self,
         context: &OperationContext,
@@ -241,15 +240,6 @@ fn apply_command(
     product: &mut ProductListing,
     command: UpdateProductListingCommand,
 ) -> Result<(), UpdateProductListingError> {
-    match command.address {
-        PatchField::Unchanged => {}
-        PatchField::Set(value) => {
-            product.replace_address(value)?;
-        }
-        PatchField::Clear => {
-            product.replace_address(Default::default())?;
-        }
-    }
     match command.pricing {
         PatchField::Unchanged => {}
         PatchField::Set(value) => {
@@ -367,9 +357,7 @@ impl From<ChangeProductListingError> for UpdateProductListingError {
     fn from(error: ChangeProductListingError) -> Self {
         match error {
             ChangeProductListingError::ListingWithdrawn => Self::ListingWithdrawn,
-            ChangeProductListingError::GeoLatitudeOutOfRange
-            | ChangeProductListingError::GeoLongitudeOutOfRange
-            | ChangeProductListingError::AuctionStartAfterEnd => Self::InvalidProductListing,
+            ChangeProductListingError::AuctionStartAfterEnd => Self::InvalidProductListing,
         }
     }
 }
@@ -387,7 +375,9 @@ impl From<OperationAuthorizationError> for UpdateProductListingError {
 impl From<PartnerProductListingAuthorizationError> for UpdateProductListingError {
     fn from(error: PartnerProductListingAuthorizationError) -> Self {
         match error {
-            PartnerProductListingAuthorizationError::ShopNotFound => Self::ShopNotFound,
+            PartnerProductListingAuthorizationError::ListingSourceNotFound => {
+                Self::ListingSourceNotFound
+            }
             PartnerProductListingAuthorizationError::Forbidden => Self::Forbidden,
             PartnerProductListingAuthorizationError::TemporarilyUnavailable { source } => {
                 Self::PartnerAuthorizationTemporarilyUnavailable { source }
@@ -412,14 +402,15 @@ impl From<ProductListingEventStoreError> for UpdateProductListingError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use listing_source_core::ListingSourceId;
     use localization::{Language, Localized};
     use product_listing_core::{
         product_listing::{NewProductListing, ProductListingAuction},
         product_listing_id::ProductListingId,
-        shop_listing_id::ShopListingId,
+        product_listing_slug_id::ProductListingSlugId,
+        source_listing_id::SourceListingId,
         title::Title,
     };
-    use shop_core::shop_id::ShopId;
 
     #[test]
     fn should_reject_clearing_required_url_without_mutating_listing() {
@@ -427,10 +418,11 @@ mod tests {
             .unwrap_or_else(|error| panic!("invalid URL: {error}"));
         let mut listing = ProductListing::create(NewProductListing {
             id: ProductListingId::new(),
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shop_listing_id: ShopListingId::from("listing"),
-            address: ProductListingAddress::default(),
+            title_slug_id: ProductListingSlugId::raw("listing-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: Some(Localized::new(Language::En, Title::from("Listing"))),
             description: None,
             pricing: ProductListingPricing::default(),

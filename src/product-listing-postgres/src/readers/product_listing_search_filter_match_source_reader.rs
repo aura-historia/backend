@@ -1,9 +1,10 @@
-use crate::url::append_utm_params;
+use crate::url::referral_configuration;
 use application::error::{BoxError, box_error, static_error};
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
-use geo::core::address::{GeoAddress, StructuredAddress};
+
 use indexmap::IndexSet;
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, outbound_url};
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use platform_postgres::SqlxTransaction;
@@ -11,26 +12,19 @@ use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
     listing_lifecycle::ListingLifecycle,
-    product_listing::{
-        ListingSaleObservation, ProductListingAddress, ProductListingAuction, ProductListingPricing,
-    },
+    product_listing::{ListingSaleObservation, ProductListingAuction, ProductListingPricing},
     product_listing_id::ProductListingId,
     product_listing_image::ProductListingImage,
     product_listing_slug_id::ProductListingSlugId,
-    shop_listing_id::ShopListingId,
+    source_listing_id::SourceListingId,
     title::Title,
 };
 use product_listing_service::ports::{
-    ProductListingSearchFilterMatchShopType, ProductListingSearchFilterMatchSource,
+    ListingSourceSummary, ProductListingSearchFilterMatchSource,
     ProductListingSearchFilterMatchSourceEventKind, ProductListingSearchFilterMatchSourceReadError,
     ProductListingSearchFilterMatchSourceReader,
     ProductListingSearchFilterMatchSourceReaderFactory, ProductListingSearchFilterMatchSourceRef,
 };
-use shop_core::seller_slug_id::SellerSlugId;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
-use shop_core::shop_type::ShopType;
 use sqlx::PgConnection;
 use std::collections::HashMap;
 
@@ -52,23 +46,12 @@ struct SourceRow {
     current_event_id: uuid::Uuid,
     projection_version: i64,
     product_listing_id: uuid::Uuid,
-    product_listing_slug_id: String,
-    shop_id: uuid::Uuid,
-    shop_slug_id: String,
-    shop_name: String,
-    shop_type: String,
-    seller_id: uuid::Uuid,
-    seller_slug_id: String,
-    seller_name: String,
-    shop_listing_id: String,
-    structured_address_addressline: Option<String>,
-    structured_address_addressline_extra: Option<String>,
-    structured_address_locality: Option<String>,
-    structured_address_region: Option<String>,
-    structured_address_postal_code: Option<String>,
-    structured_address_country: Option<String>,
-    geo_address_lat: Option<f64>,
-    geo_address_lon: Option<f64>,
+    product_listing_title_slug_id: String,
+    listing_source_id: uuid::Uuid,
+    listing_source_slug_id: String,
+    listing_source_name: String,
+    listing_source_referral_configuration: Option<serde_json::Value>,
+    source_listing_id: String,
     product_title_text: Option<String>,
     product_title_language: Option<String>,
     product_description_text: Option<String>,
@@ -200,23 +183,12 @@ impl ProductListingSearchFilterMatchSourceReader
                 product.event_id AS current_event_id,
                 product.projection_version,
                 product.product_listing_id,
-                product.product_listing_slug_id,
-                shop.shop_id,
-                shop.shop_slug_id,
-                shop.name AS shop_name,
-                shop.shop_type,
-                seller.shop_id AS seller_id,
-                seller.shop_slug_id AS seller_slug_id,
-                seller.name AS seller_name,
-                product.shop_listing_id AS shop_listing_id,
-                product.structured_address_addressline,
-                product.structured_address_addressline_extra,
-                product.structured_address_locality,
-                product.structured_address_region,
-                product.structured_address_postal_code,
-                product.structured_address_country,
-                product.geo_address_lat,
-                product.geo_address_lon,
+                product.product_listing_title_slug_id,
+                listing_source.listing_source_id,
+                listing_source.listing_source_slug_id,
+                listing_source.name AS listing_source_name,
+                listing_source.referral_configuration AS listing_source_referral_configuration,
+                product.source_listing_id,
                 product.title_text AS product_title_text,
                 product.title_language AS product_title_language,
                 product.description_text AS product_description_text,
@@ -246,8 +218,8 @@ impl ProductListingSearchFilterMatchSourceReader
               ON event.product_listing_id = requested.product_listing_id
              AND event.event_id = requested.event_id
             JOIN product_listings product ON product.product_listing_id = event.product_listing_id
-            JOIN shops shop ON shop.shop_id = product.shop_id
-            JOIN shops seller ON seller.shop_id = product.seller_id
+            JOIN listing_sources listing_source
+              ON listing_source.listing_source_id = product.listing_source_id
             LEFT JOIN product_listing_translations translation ON translation.product_listing_id = product.product_listing_id
             ORDER BY event.product_listing_id ASC, event.event_id ASC, translation.language ASC
             "#,
@@ -308,6 +280,8 @@ fn source_from_rows(
         row.product_description_text.as_deref(),
         row.product_description_language.as_deref(),
     )?;
+    let source_listing_id =
+        SourceListingId::try_from(row.source_listing_id.clone()).map_err(|_| ())?;
     let (titles, descriptions) =
         translations(&rows, product_title.as_ref(), product_description.as_ref())?;
     let pricing = ProductListingPricing {
@@ -324,7 +298,11 @@ fn source_from_rows(
     let sale_observation = sale_observation(row.sale_observation_fx_rate_id, row.sale_observed_at)?;
     let images = images(&row.product_images)?;
     let url = Url::parse(&row.url).map_err(|_| ())?;
-    let shop_slug_id = ShopSlugId::raw(&row.shop_slug_id).map_err(|_| ())?;
+    let view_url = outbound_url(
+        referral_configuration(row.listing_source_referral_configuration.as_ref())?.as_ref(),
+        &url,
+    )
+    .map_err(|_| ())?;
 
     Ok(Some(ProductListingSearchFilterMatchSource {
         event_id: EventId::from(row.event_id),
@@ -333,17 +311,16 @@ fn source_from_rows(
         current_event_id: EventId::from(row.current_event_id),
         projection_version: row.projection_version,
         product_listing_id: ProductListingId::from(row.product_listing_id),
-        product_listing_slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
-            .map_err(|_| ())?,
-        shop_id: ShopId::from(row.shop_id),
-        shop_slug_id,
-        shop_name: ShopName::from(row.shop_name.clone()),
-        shop_type: shop_type(&row.shop_type)?,
-        seller_id: ShopId::from(row.seller_id),
-        seller_slug_id: SellerSlugId::from(ShopSlugId::raw(&row.seller_slug_id).map_err(|_| ())?),
-        seller_name: ShopName::from(row.seller_name.clone()),
-        shop_listing_id: ShopListingId::from(row.shop_listing_id.clone()),
-        address: address(row)?,
+        product_listing_title_slug_id: ProductListingSlugId::raw(
+            &row.product_listing_title_slug_id,
+        )
+        .map_err(|_| ())?,
+        source: ListingSourceSummary {
+            listing_source_id: ListingSourceId::from(row.listing_source_id),
+            name: ListingSourceName::try_from(row.listing_source_name.clone()).map_err(|_| ())?,
+            slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id).map_err(|_| ())?,
+        },
+        source_listing_id,
         product_title,
         product_description,
         titles,
@@ -352,7 +329,7 @@ fn source_from_rows(
         sale_observation,
         availability: availability(row.availability.as_deref())?,
         lifecycle: lifecycle(&row.lifecycle)?,
-        view_url: append_utm_params(url.clone()),
+        view_url,
         url,
         image: images.iter().next().cloned(),
         images,
@@ -409,48 +386,6 @@ fn translations(
     }
 
     Ok((titles, descriptions))
-}
-
-fn address(row: &SourceRow) -> Result<ProductListingAddress, ()> {
-    let structured = match row.structured_address_addressline.as_deref() {
-        Some(addressline) => {
-            let country = row
-                .structured_address_country
-                .as_deref()
-                .map(isocountry::CountryCode::for_alpha3)
-                .transpose()
-                .map_err(|_| ())?;
-            Some(StructuredAddress {
-                addressline: Some(addressline.to_owned()),
-                addressline_extra: row.structured_address_addressline_extra.clone(),
-                locality: row.structured_address_locality.clone(),
-                region: row.structured_address_region.clone(),
-                postal_code: row.structured_address_postal_code.clone(),
-                country,
-                continent: country.map(geo::core::continent::Continent::from),
-            })
-        }
-        None if row.structured_address_addressline_extra.is_none()
-            && row.structured_address_locality.is_none()
-            && row.structured_address_region.is_none()
-            && row.structured_address_postal_code.is_none()
-            && row.structured_address_country.is_none() =>
-        {
-            None
-        }
-        None => return Err(()),
-    };
-    let geo = match (row.geo_address_lat, row.geo_address_lon) {
-        (Some(lat), Some(lon))
-            if (-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon) =>
-        {
-            Some(GeoAddress { lat, lon })
-        }
-        (None, None) => None,
-        _ => return Err(()),
-    };
-
-    Ok(ProductListingAddress { structured, geo })
 }
 
 fn localized_title(
@@ -563,10 +498,6 @@ fn event_kind(value: &str) -> ProductListingSearchFilterMatchSourceEventKind {
     }
 }
 
-fn shop_type(value: &str) -> Result<ProductListingSearchFilterMatchShopType, ()> {
-    ShopType::from_code(value).ok_or(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -639,7 +570,6 @@ mod tests {
         assert!(currency("eur").is_err());
         assert!(availability(Some("available")).is_err());
         assert!(lifecycle("active").is_err());
-        assert!(shop_type("commercial_dealer").is_err());
     }
 
     #[test]

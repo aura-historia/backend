@@ -11,8 +11,8 @@ Provider-facing types may retain provider vocabulary, such as `ShopifyProductPay
 | Concept | Canonical name |
 | --- | --- |
 | Aggregate | `ProductListing` |
-| IDs | `ProductListingId`, `ProductListingSlugId`, `ShopListingId`, `ProductListingKey` |
-| Address, pricing, auction, image | `ProductListingAddress`, `ProductListingPricing`, `ProductListingAuction`, `ProductListingImage` |
+| IDs | `ProductListingId`, `ProductListingSlugId` (REST: `productListingTitleSlugId`), `ListingSourceId`, `SourceListingId`, `ProductListingKey` |
+| Pricing, auction, image | `ProductListingPricing`, `ProductListingAuction`, `ProductListingImage` |
 | Availability | `ListingAvailability` |
 | Derived availability class | `ListingOrderability` |
 | Catalog membership | `ListingLifecycle` |
@@ -68,7 +68,7 @@ Required invariants:
 9. Only explicitly named restore/upsert intent can restore a withdrawn listing.
 10. Idempotent no-ops emit no event.
 
-Core is deterministic: it collects pure payloads and never creates event IDs or reads the clock. Service stamps payloads with `EventId` and occurrence time before transactional persistence.
+Aggregate mutations collect payloads without creating event IDs or reading the clock. Service stamps payloads with `EventId` and occurrence time before transactional persistence. Public slug generation is separate and uses a random UUID suffix.
 
 ## Availability and orderability
 
@@ -135,7 +135,6 @@ Canonical event codes:
 ```text
 PRODUCT_LISTING_CREATED
 PRODUCT_LISTING_AVAILABILITY_CHANGED
-PRODUCT_LISTING_ADDRESS_CHANGED
 PRODUCT_LISTING_PRICE_CHANGED
 PRODUCT_LISTING_URL_CHANGED
 PRODUCT_LISTING_IMAGES_CHANGED
@@ -154,9 +153,13 @@ Create accepts `Option<ListingAvailability>`; omitted and JSON `null` create an 
 
 Withdrawal replaces normal deletion. The HTTP partner route may remain `DELETE`, but invokes `WithdrawProductListingUseCase`. Recording a sale observation is a dedicated, authorized PostgreSQL transaction that loads the aggregate and the latest FX snapshot at or before `observed_at`.
 
-`title`, `description`, and listing address are creation-only upsert inputs. For an existing listing, they preserve current state and emit no current-state history event. Responses always emit `"availability": null` when absent. Requests parse availability tri-state. Aura route and identifier vocabulary uses `product-listings`, `productListingId`, `productListingSlugId`, and `shopListingId`.
+`title` and `description` are creation-only upsert inputs. For an existing listing, they preserve current state and emit no current-state history event. Responses always emit `"availability": null` when absent. Requests parse availability tri-state. Aura route and identifier vocabulary uses `product-listings`, `productListingId`, `productListingTitleSlugId`, and `sourceListingId`.
 
-Public listing discovery contains active listings only. Withdrawn listings are not found by public detail and are deleted from the OpenSearch projection; restore rebuilds the projection. Public discovery does not expose a lifecycle filter.
+A ProductListing is authoritatively identified for partner writes by `(ListingSourceId, SourceListingId)`. `SourceListingId` is an opaque partner value: Aura trims outer Unicode whitespace, rejects blank values and embedded NUL characters, preserves case, punctuation, and internal whitespace, and accepts at most 512 UTF-8 bytes. The trimmed value is the canonical input and the only value persisted in PostgreSQL, used for the authoritative key and emitted in events; pre-trim input is not retained. It has no seller, auctioneer, Party attribution, address, or location state. The created event includes both immutable source identifiers. Actor attribution belongs to #1321; durable raw input to #1646; addresses to #1635.
+
+`ProductListingSlugId` is the immutable Aura-owned public locator, exposed as `productListingTitleSlugId`. Use `raw` for a persisted value or `from_title_and_suffix` for an explicit candidate; no implicit string conversion synthesizes a locator. Aggregate creation requires the selected slug explicitly, so only collision-aware service flows choose production candidates. Aura derives a capped ASCII slug body from the creation title and appends a six-character lowercase hexadecimal suffix from a random UUID; it falls back to `listing` when no body remains and is at most 120 bytes. PostgreSQL globally enforces uniqueness of `product_listing_title_slug_id`. Public detail lookup is `GET /api/v1/product-listings/by-slug/{productListingTitleSlugId}`. There is no source-composite public locator and no source-scoped listing detail route. On a unique-slug collision, creation generates a new locator and retries persistence up to five attempts; exhausting them fails the creation. `PRODUCT_LISTING_CREATED` events identify the aggregate in their envelope and intentionally omit the title slug; event consumers needing the current public locator read current aggregate state.
+
+Public listing discovery contains active listings only. Withdrawn listings are not found by public detail and are deleted from the OpenSearch projection; restore rebuilds the projection. Public discovery does not expose a lifecycle filter. OpenSearch retains only each raw source `url`. Search and KNN batch-hydrate current ListingSource referral configuration from PostgreSQL, then derive `view_url`: Partnerize when configured, otherwise Aura UTM parameters.
 
 `ListingAvailabilityQuery` supports exact availability values, derived orderability values, and `include_unspecified`. Exact values OR together; orderability expands to detailed values; supplying both intersects them; unspecified values only match the missing field and are optionally ORed in. Contradictory exact/orderability filters yield no concrete matches.
 
@@ -191,8 +194,8 @@ Reusable mappings persist `AVAILABILITY` with a non-null valid value or `NO_ASSE
 
 ## Persistence contract
 
-The initial schema uses `product_listings`, `product_listing_events`, `product_listing_translations`, and `product_listing_watchlist`; IDs use `product_listing_id`, `product_listing_slug_id`, and `shop_listing_id`.
+The initial schema uses `product_listings`, `product_listing_events`, `product_listing_translations`, and `product_listing_watchlist`; IDs use `product_listing_id`, `product_listing_title_slug_id`, `listing_source_id`, and `source_listing_id`. `product_listings` retains the unique canonical `(listing_source_id, source_listing_id)` key for partner writes, globally enforces unique `product_listing_title_slug_id` for public lookup, and has a cascading foreign key to `listing_sources`.
 
-Authoritative listing columns are nullable `availability`, non-null `lifecycle`, and the paired nullable `sale_observation_fx_rate_id` / `sale_observed_at`. PostgreSQL validates exact codes, `Withdrawn => availability IS NULL`, and the sale-observation pair. PostgreSQL is authoritative; OpenSearch is rebuildable.
+Authoritative listing columns are nullable `availability`, non-null `lifecycle`, and the paired nullable `sale_observation_fx_rate_id` / `sale_observed_at`. PostgreSQL validates exact codes, `Withdrawn => availability IS NULL`, and the sale-observation pair. Listing address/geo and seller columns do not exist. PostgreSQL is authoritative; OpenSearch is rebuildable.
 
 Rows keep persisted enum text as `String` and map using fallible exact canonical parsing. Invalid or noncanonical persisted values are rejected; no mapping defaults or case-normalizes corrupt state.

@@ -9,13 +9,12 @@ struct FixtureJson {
 
 #[derive(Debug, Deserialize)]
 struct RawExpectation {
-    shop_listing_id: String,
+    source_listing_id: String,
     title: String,
     description: Vec<String>,
     price: Option<String>,
     price_estimate_min: Option<String>,
     price_estimate_max: Option<String>,
-    seller_name: Option<String>,
     state: String,
     images: Vec<String>,
     auction_start: Option<String>,
@@ -73,7 +72,12 @@ fn assert_no_raw_noise_blocks(fixture_path: &str, dsl: &str) {
 }
 
 fn assert_raw_expectations_are_represented(fixture_path: &str, dsl: &str, raw: &RawExpectation) {
-    assert_value_is_represented(fixture_path, "shop_listing_id", &raw.shop_listing_id, dsl);
+    assert_value_is_represented(
+        fixture_path,
+        "source_listing_id",
+        &raw.source_listing_id,
+        dsl,
+    );
     assert_value_is_represented(fixture_path, "title", &raw.title, dsl);
     assert_value_is_represented(fixture_path, "state", &raw.state, dsl);
     assert_optional_value_is_represented(fixture_path, "price", raw.price.as_deref(), dsl);
@@ -89,12 +93,7 @@ fn assert_raw_expectations_are_represented(fixture_path: &str, dsl: &str, raw: &
         raw.price_estimate_max.as_deref(),
         dsl,
     );
-    assert_optional_value_is_represented(
-        fixture_path,
-        "seller_name",
-        raw.seller_name.as_deref(),
-        dsl,
-    );
+
     assert_optional_value_is_represented(
         fixture_path,
         "auction_start",

@@ -8,16 +8,17 @@ domain-primitives = { workspace = true }
 application = { workspace = true }
 fxrate-postgres = { workspace = true }
 large-language-model = { workspace = true }
+listing-source-core = { workspace = true }
+listing-source-postgres = { workspace = true }
+listing-source-service = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
+public-network-policy = { workspace = true }
 
 platform-postgres = { workspace = true }
 product-listing-core = { workspace = true }
 product-listing-postgres = { workspace = true }
 product-listing-service = { workspace = true }
-shop-core = { workspace = true }
-shop-postgres = { workspace = true }
-shop-service = { workspace = true }
 aws-config = { workspace = true, features = ["credentials-login"] }
 aws-sdk-cloudwatchlogs = { workspace = true }
 scraper = { workspace = true }
@@ -90,10 +91,10 @@ default = []
 test-data = [
     "application/test-data",
     "domain-primitives/test-data",
+    "listing-source-core/test-data",
     "localization/test-data",
     "money/test-data",
     "product-listing-core/test-data",
-    "shop-core/test-data",
     "fake",
 ]
 

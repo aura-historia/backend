@@ -97,6 +97,7 @@
 - `src/domain-primitives/AGENTS.md` — domain-neutral primitives and newtype macros.
 - `src/embedding/AGENTS.md` — reusable Vertex AI embedding adapter crate.
 - `src/image-fetcher/AGENTS.md` — reusable safe external image-fetch adapter crate.
+- `src/public-network-policy/AGENTS.md` — shared fail-closed public HTTP destination policy.
 - `src/large-language-model/AGENTS.md` — reusable typed Vertex AI Gemini invocation adapter crate.
 - `src/localization/AGENTS.md` — pure language and localization values.
 - `src/money/AGENTS.md` — pure currency, amount, and price values.
@@ -135,12 +136,17 @@
 - `src/search-filter-postgres/AGENTS.md` — canonical Search Filter Postgres adapter crate.
 - `src/search-filter-opensearch/AGENTS.md` — canonical Search Filter OpenSearch adapter crate.
 
-- `src/shop-core/AGENTS.md` — canonical Shop domain crate.
-- `src/shop-service/AGENTS.md` — canonical Shop service crate.
-- `src/shop-postgres/AGENTS.md` — canonical Shop Postgres adapter crate.
-- `src/shop-partner-core/AGENTS.md` — canonical Partner Shop Application domain crate.
-- `src/shop-partner-service/AGENTS.md` — canonical Partner Shop Application service crate.
-- `src/shop-partner-postgres/AGENTS.md` — canonical Partner Shop Application Postgres adapter crate.
+
+- `src/party-core/AGENTS.md` — canonical Party domain crate.
+- `src/party-service/AGENTS.md` — canonical Party service crate.
+- `src/party-postgres/AGENTS.md` — canonical Party PostgreSQL adapter crate.
+- `src/listing-source-core/AGENTS.md` — ListingSource domain crate.
+- `src/listing-source-service/AGENTS.md` — ListingSource use-case crate.
+- `src/listing-source-postgres/AGENTS.md` — ListingSource PostgreSQL adapter crate.
+- `src/partnership-core/AGENTS.md` — Partnership domain crate.
+- `src/partnership-service/AGENTS.md` — Partnership use-case crate.
+- `src/partnership-postgres/AGENTS.md` — Partnership PostgreSQL adapter crate.
+
 - `src/shopify-lambda/AGENTS.md` — `shopify-lambda` crate.
 - `src/stripe-lambda/AGENTS.md` — `stripe-lambda` crate.
 - `src/test-api/AGENTS.md` — `test-api` crate.

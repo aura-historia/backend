@@ -2,7 +2,7 @@ use crate::network::policy::NetworkErrorKind;
 use crate::scraper::css_selector::product_schema::ApplySchemaError;
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
 use crate::scraper::normalization::error::NormalizationError;
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use url::Url;
 
 #[derive(Debug, thiserror::Error)]
@@ -55,10 +55,10 @@ pub enum ScraperError {
     NormalizationError(#[from] NormalizationError),
 
     #[error(
-        "LLM call budget exceeded for shop '{shop_id}' while scraping '{url}' (limit={max_calls})"
+        "LLM call budget exceeded for ListingSource '{listing_source_id}' while scraping '{url}' (limit={max_calls})"
     )]
     LlmBudgetExceeded {
-        shop_id: ShopId,
+        listing_source_id: ListingSourceId,
         url: Url,
         max_calls: i64,
     },

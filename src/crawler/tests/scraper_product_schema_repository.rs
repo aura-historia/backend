@@ -1,11 +1,11 @@
 use crawler::scraper::css_selector::product_schema::{
-    ProductCssSelectorSchema, ShopsProductSchema,
+    ListingSourceProductSchema, ProductCssSelectorSchema,
 };
 use crawler::scraper::css_selector::product_schema_repository::{
-    ShopsProductSchemaRepository, ShopsProductSchemaRepositoryImpl,
+    ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
 };
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use sqlx::PgPool;
 
 use test_api::*;
@@ -16,7 +16,7 @@ const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
 fn minimal_css_schema() -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
-        shop_listing_id: Some(ExtractionRule {
+        source_listing_id: Some(ExtractionRule {
             selector: "span.id".into(),
             additional_selectors: vec![],
             extract: ExtractionKind::Text,
@@ -32,7 +32,6 @@ fn minimal_css_schema() -> ProductCssSelectorSchema {
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
-        seller_name: None,
         state: ExtractionRule {
             selector: "span.state".into(),
             additional_selectors: vec![],
@@ -54,7 +53,7 @@ fn minimal_css_schema() -> ProductCssSelectorSchema {
 
 fn full_css_schema() -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
-        shop_listing_id: Some(ExtractionRule {
+        source_listing_id: Some(ExtractionRule {
             selector: "span#product-id".into(),
             additional_selectors: vec![],
             extract: ExtractionKind::Text,
@@ -90,7 +89,6 @@ fn full_css_schema() -> ProductCssSelectorSchema {
             extract: ExtractionKind::Text,
             cardinality: ExtractionCardinality::First,
         }),
-        seller_name: None,
         state: ExtractionRule {
             selector: "div.availability".into(),
             additional_selectors: vec![],
@@ -124,22 +122,26 @@ fn full_css_schema() -> ProductCssSelectorSchema {
     }
 }
 
-fn make_shops_product_schema(
-    shop_id: ShopId,
+fn make_listing_source_product_schemas(
+    listing_source_id: ListingSourceId,
     schema: ProductCssSelectorSchema,
-) -> ShopsProductSchema {
+) -> ListingSourceProductSchema {
     let now = OffsetDateTime::now_utc();
-    ShopsProductSchema {
-        shop_id,
+    ListingSourceProductSchema {
+        listing_source_id,
         product_schemas: vec![schema],
         created: now,
         updated: now,
     }
 }
 
-async fn insert_shop(pool: &PgPool, shop_id: ShopId) {
-    sqlx::query("INSERT INTO shops (shop_id, created, updated) VALUES ($1, NOW(), NOW())")
-        .bind(Uuid::from(shop_id))
+async fn insert_listing_source(pool: &PgPool, listing_source_id: ListingSourceId) {
+    sqlx::query(
+            "INSERT INTO listing_sources \
+             (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+             VALUES ($1, 'Test source', 'test-source', TRUE, NOW(), NOW())",
+        )
+        .bind(Uuid::from(listing_source_id))
         .execute(pool)
         .await
         .unwrap();
@@ -152,10 +154,10 @@ async fn insert_shop(pool: &PgPool, shop_id: ShopId) {
 #[aura_integration_test(services = [POSTGRES])]
 async fn should_return_none_when_no_schema_exists_for_find() {
     let pool = get_postgres_client().await;
-    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
     let result = repository
-        .find_product_schema(&ShopId::new())
+        .find_product_schema(&ListingSourceId::new())
         .await
         .unwrap();
 
@@ -165,42 +167,42 @@ async fn should_return_none_when_no_schema_exists_for_find() {
 #[aura_integration_test(services = [POSTGRES])]
 async fn should_return_schema_when_exists_for_find() {
     let pool = get_postgres_client().await;
-    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
-    let shop_id = ShopId::new();
-    insert_shop(&pool, shop_id).await;
-    let schema = make_shops_product_schema(shop_id, minimal_css_schema());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let schema = make_listing_source_product_schemas(listing_source_id, minimal_css_schema());
     repository
-        .insert_product_schema(&shop_id, &schema)
+        .insert_product_schema(&listing_source_id, &schema)
         .await
         .unwrap();
 
     let result = repository
-        .find_product_schema(&shop_id)
+        .find_product_schema(&listing_source_id)
         .await
         .unwrap()
         .unwrap();
 
-    assert_eq!(result.shop_id, shop_id);
+    assert_eq!(result.listing_source_id, listing_source_id);
     assert_eq!(result.product_schemas[0], minimal_css_schema());
 }
 
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_return_none_for_unknown_shop_id_when_other_schemas_exist_for_find() {
+async fn should_return_none_for_unknown_listing_source_id_when_other_schemas_exist_for_find() {
     let pool = get_postgres_client().await;
-    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
-    let known_shop_id = ShopId::new();
-    insert_shop(&pool, known_shop_id).await;
-    let schema = make_shops_product_schema(known_shop_id, minimal_css_schema());
+    let known_listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, known_listing_source_id).await;
+    let schema = make_listing_source_product_schemas(known_listing_source_id, minimal_css_schema());
     repository
-        .insert_product_schema(&known_shop_id, &schema)
+        .insert_product_schema(&known_listing_source_id, &schema)
         .await
         .unwrap();
 
-    let unknown_shop_id = ShopId::new();
+    let unknown_listing_source_id = ListingSourceId::new();
     let result = repository
-        .find_product_schema(&unknown_shop_id)
+        .find_product_schema(&unknown_listing_source_id)
         .await
         .unwrap();
 
@@ -214,50 +216,50 @@ async fn should_return_none_for_unknown_shop_id_when_other_schemas_exist_for_fin
 #[aura_integration_test(services = [POSTGRES])]
 async fn should_persist_and_return_schema_when_inserting_minimal_schema_for_insert() {
     let pool = get_postgres_client().await;
-    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
-    let shop_id = ShopId::new();
-    insert_shop(&pool, shop_id).await;
-    let schema = make_shops_product_schema(shop_id, minimal_css_schema());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let schema = make_listing_source_product_schemas(listing_source_id, minimal_css_schema());
     let returned = repository
-        .insert_product_schema(&shop_id, &schema)
+        .insert_product_schema(&listing_source_id, &schema)
         .await
         .unwrap();
 
-    assert_eq!(returned.shop_id, shop_id);
+    assert_eq!(returned.listing_source_id, listing_source_id);
     assert_eq!(returned.product_schemas[0], minimal_css_schema());
 }
 
 #[aura_integration_test(services = [POSTGRES])]
 async fn should_persist_and_return_schema_when_inserting_full_schema_for_insert() {
     let pool = get_postgres_client().await;
-    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
-    let shop_id = ShopId::new();
-    insert_shop(&pool, shop_id).await;
-    let schema = make_shops_product_schema(shop_id, full_css_schema());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let schema = make_listing_source_product_schemas(listing_source_id, full_css_schema());
     let returned = repository
-        .insert_product_schema(&shop_id, &schema)
+        .insert_product_schema(&listing_source_id, &schema)
         .await
         .unwrap();
 
-    assert_eq!(returned.shop_id, shop_id);
+    assert_eq!(returned.listing_source_id, listing_source_id);
     assert_eq!(returned.product_schemas[0], full_css_schema());
 }
 
 #[aura_integration_test(services = [POSTGRES])]
 async fn should_preserve_created_and_updated_timestamps_for_insert() {
     let pool = get_postgres_client().await;
-    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
-    let shop_id = ShopId::new();
-    insert_shop(&pool, shop_id).await;
-    let schema = make_shops_product_schema(shop_id, minimal_css_schema());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let schema = make_listing_source_product_schemas(listing_source_id, minimal_css_schema());
     let created_before = schema.created;
     let updated_before = schema.updated;
 
     let returned = repository
-        .insert_product_schema(&shop_id, &schema)
+        .insert_product_schema(&listing_source_id, &schema)
         .await
         .unwrap();
 
@@ -273,37 +275,37 @@ async fn should_preserve_created_and_updated_timestamps_for_insert() {
 }
 
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_allow_inserting_schemas_for_different_shop_ids_for_insert() {
+async fn should_allow_inserting_schemas_for_different_listing_source_ids_for_insert() {
     let pool = get_postgres_client().await;
-    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
-    let shop_id_a = ShopId::new();
-    let shop_id_b = ShopId::new();
-    insert_shop(&pool, shop_id_a).await;
-    insert_shop(&pool, shop_id_b).await;
+    let listing_source_id_a = ListingSourceId::new();
+    let listing_source_id_b = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id_a).await;
+    insert_listing_source(&pool, listing_source_id_b).await;
 
     repository
         .insert_product_schema(
-            &shop_id_a,
-            &make_shops_product_schema(shop_id_a, minimal_css_schema()),
+            &listing_source_id_a,
+            &make_listing_source_product_schemas(listing_source_id_a, minimal_css_schema()),
         )
         .await
         .unwrap();
     repository
         .insert_product_schema(
-            &shop_id_b,
-            &make_shops_product_schema(shop_id_b, full_css_schema()),
+            &listing_source_id_b,
+            &make_listing_source_product_schemas(listing_source_id_b, full_css_schema()),
         )
         .await
         .unwrap();
 
     let result_a = repository
-        .find_product_schema(&shop_id_a)
+        .find_product_schema(&listing_source_id_a)
         .await
         .unwrap()
         .unwrap();
     let result_b = repository
-        .find_product_schema(&shop_id_b)
+        .find_product_schema(&listing_source_id_b)
         .await
         .unwrap()
         .unwrap();
@@ -313,21 +315,21 @@ async fn should_allow_inserting_schemas_for_different_shop_ids_for_insert() {
 }
 
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_fail_when_inserting_duplicate_shop_id_for_insert() {
+async fn should_fail_when_inserting_duplicate_listing_source_id_for_insert() {
     let pool = get_postgres_client().await;
-    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
-    let shop_id = ShopId::new();
-    insert_shop(&pool, shop_id).await;
-    let schema = make_shops_product_schema(shop_id, minimal_css_schema());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let schema = make_listing_source_product_schemas(listing_source_id, minimal_css_schema());
 
     repository
-        .insert_product_schema(&shop_id, &schema)
+        .insert_product_schema(&listing_source_id, &schema)
         .await
         .unwrap();
 
     let err = repository
-        .insert_product_schema(&shop_id, &schema)
+        .insert_product_schema(&listing_source_id, &schema)
         .await
         .unwrap_err();
 
@@ -352,18 +354,18 @@ async fn should_fail_when_inserting_duplicate_shop_id_for_insert() {
 #[aura_integration_test(services = [POSTGRES])]
 async fn should_replace_schema_and_refresh_updated_timestamp_for_update() {
     let pool = get_postgres_client().await;
-    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
-    let shop_id = ShopId::new();
-    insert_shop(&pool, shop_id).await;
-    let original = make_shops_product_schema(shop_id, minimal_css_schema());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    let original = make_listing_source_product_schemas(listing_source_id, minimal_css_schema());
     repository
-        .insert_product_schema(&shop_id, &original)
+        .insert_product_schema(&listing_source_id, &original)
         .await
         .unwrap();
 
     let inserted = repository
-        .find_product_schema(&shop_id)
+        .find_product_schema(&listing_source_id)
         .await
         .unwrap()
         .unwrap();
@@ -372,11 +374,11 @@ async fn should_replace_schema_and_refresh_updated_timestamp_for_update() {
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
 
     let returned = repository
-        .update_product_schema(&shop_id, &[full_css_schema()])
+        .update_product_schema(&listing_source_id, &[full_css_schema()])
         .await
         .unwrap();
 
-    assert_eq!(returned.shop_id, shop_id);
+    assert_eq!(returned.listing_source_id, listing_source_id);
     assert_eq!(returned.product_schemas[0], full_css_schema());
     assert_ne!(returned.updated, inserted.updated);
     // created must remain unchanged
@@ -389,25 +391,25 @@ async fn should_replace_schema_and_refresh_updated_timestamp_for_update() {
 #[aura_integration_test(services = [POSTGRES])]
 async fn should_persist_updated_schema_so_find_returns_new_value_for_update() {
     let pool = get_postgres_client().await;
-    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
-    let shop_id = ShopId::new();
-    insert_shop(&pool, shop_id).await;
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
     repository
         .insert_product_schema(
-            &shop_id,
-            &make_shops_product_schema(shop_id, minimal_css_schema()),
+            &listing_source_id,
+            &make_listing_source_product_schemas(listing_source_id, minimal_css_schema()),
         )
         .await
         .unwrap();
 
     repository
-        .update_product_schema(&shop_id, &[full_css_schema()])
+        .update_product_schema(&listing_source_id, &[full_css_schema()])
         .await
         .unwrap();
 
     let found = repository
-        .find_product_schema(&shop_id)
+        .find_product_schema(&listing_source_id)
         .await
         .unwrap()
         .unwrap();
@@ -416,58 +418,58 @@ async fn should_persist_updated_schema_so_find_returns_new_value_for_update() {
 }
 
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_return_row_not_found_when_updating_non_existent_shop_id_for_update() {
+async fn should_return_row_not_found_when_updating_non_existent_listing_source_id_for_update() {
     let pool = get_postgres_client().await;
-    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
     let err = repository
-        .update_product_schema(&ShopId::new(), &[minimal_css_schema()])
+        .update_product_schema(&ListingSourceId::new(), &[minimal_css_schema()])
         .await
         .unwrap_err();
 
     assert!(
         matches!(err, sqlx::Error::RowNotFound),
-        "Expected RowNotFound when updating a shop_id that does not exist, got: {err:?}"
+        "Expected RowNotFound when updating a listing_source_id that does not exist, got: {err:?}"
     );
 }
 
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_only_update_targeted_shop_id_and_leave_others_intact_for_update() {
+async fn should_only_update_targeted_listing_source_id_and_leave_others_intact_for_update() {
     let pool = get_postgres_client().await;
-    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
-    let shop_id_a = ShopId::new();
-    let shop_id_b = ShopId::new();
-    insert_shop(&pool, shop_id_a).await;
-    insert_shop(&pool, shop_id_b).await;
+    let listing_source_id_a = ListingSourceId::new();
+    let listing_source_id_b = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id_a).await;
+    insert_listing_source(&pool, listing_source_id_b).await;
 
     repository
         .insert_product_schema(
-            &shop_id_a,
-            &make_shops_product_schema(shop_id_a, minimal_css_schema()),
+            &listing_source_id_a,
+            &make_listing_source_product_schemas(listing_source_id_a, minimal_css_schema()),
         )
         .await
         .unwrap();
     repository
         .insert_product_schema(
-            &shop_id_b,
-            &make_shops_product_schema(shop_id_b, minimal_css_schema()),
+            &listing_source_id_b,
+            &make_listing_source_product_schemas(listing_source_id_b, minimal_css_schema()),
         )
         .await
         .unwrap();
 
     repository
-        .update_product_schema(&shop_id_a, &[full_css_schema()])
+        .update_product_schema(&listing_source_id_a, &[full_css_schema()])
         .await
         .unwrap();
 
     let result_a = repository
-        .find_product_schema(&shop_id_a)
+        .find_product_schema(&listing_source_id_a)
         .await
         .unwrap()
         .unwrap();
     let result_b = repository
-        .find_product_schema(&shop_id_b)
+        .find_product_schema(&listing_source_id_b)
         .await
         .unwrap()
         .unwrap();
@@ -483,38 +485,38 @@ async fn should_only_update_targeted_shop_id_and_leave_others_intact_for_update(
 #[aura_integration_test(services = [POSTGRES])]
 async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
     let pool = get_postgres_client().await;
-    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
-    let shop_id = ShopId::new();
-    insert_shop(&pool, shop_id).await;
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
 
     // 1. insert
     let inserted = repository
         .insert_product_schema(
-            &shop_id,
-            &make_shops_product_schema(shop_id, full_css_schema()),
+            &listing_source_id,
+            &make_listing_source_product_schemas(listing_source_id, full_css_schema()),
         )
         .await
         .unwrap();
 
-    assert_eq!(inserted.shop_id, shop_id);
+    assert_eq!(inserted.listing_source_id, listing_source_id);
     assert_eq!(inserted.product_schemas[0], full_css_schema());
 
     // 2. find after insert
     let found_after_insert = repository
-        .find_product_schema(&shop_id)
+        .find_product_schema(&listing_source_id)
         .await
         .unwrap()
         .unwrap();
 
-    assert_eq!(found_after_insert.shop_id, shop_id);
+    assert_eq!(found_after_insert.listing_source_id, listing_source_id);
     assert_eq!(found_after_insert.product_schemas[0], full_css_schema());
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // 3. update
     let updated = repository
-        .update_product_schema(&shop_id, &[minimal_css_schema()])
+        .update_product_schema(&listing_source_id, &[minimal_css_schema()])
         .await
         .unwrap();
 
@@ -523,7 +525,7 @@ async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
 
     // 4. find after update
     let found_after_update = repository
-        .find_product_schema(&shop_id)
+        .find_product_schema(&listing_source_id)
         .await
         .unwrap()
         .unwrap();
@@ -533,27 +535,30 @@ async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
 }
 
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_delete_product_schema_when_parent_shop_is_deleted() {
+async fn should_delete_product_schema_when_parent_listing_source_is_deleted() {
     let pool = get_postgres_client().await;
-    let repository = ShopsProductSchemaRepositoryImpl::new(&pool);
+    let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
-    let shop_id = ShopId::new();
-    insert_shop(&pool, shop_id).await;
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
 
     repository
         .insert_product_schema(
-            &shop_id,
-            &make_shops_product_schema(shop_id, minimal_css_schema()),
+            &listing_source_id,
+            &make_listing_source_product_schemas(listing_source_id, minimal_css_schema()),
         )
         .await
         .unwrap();
 
-    sqlx::query("DELETE FROM shops WHERE shop_id = $1")
-        .bind(Uuid::from(shop_id))
+    sqlx::query("DELETE FROM listing_sources WHERE listing_source_id = $1")
+        .bind(Uuid::from(listing_source_id))
         .execute(&pool)
         .await
         .unwrap();
 
-    let found = repository.find_product_schema(&shop_id).await.unwrap();
+    let found = repository
+        .find_product_schema(&listing_source_id)
+        .await
+        .unwrap();
     assert!(found.is_none());
 }

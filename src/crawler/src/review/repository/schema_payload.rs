@@ -1,22 +1,60 @@
-use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
+use crate::scraper::css_selector::product_schema::{
+    ListingSourceProductSchema, ProductCssSelectorSchema,
+};
 use crate::scraper::css_selector::rule::ExtractionRule;
 
 use super::ReviewRepositoryError;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProductSchemaReviewCandidate {
+    schemas: Vec<ProductCssSelectorSchema>,
+}
 
 pub(super) fn parse_schemas_payload(
     candidate_payload: &serde_json::Value,
-) -> Result<Vec<ProductCssSelectorSchema>, serde_json::Error> {
-    serde_json::from_value(
-        candidate_payload
-            .get("schemas")
-            .cloned()
-            .unwrap_or_else(|| serde_json::Value::Array(Vec::new())),
-    )
+) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
+    let candidate =
+        serde_json::from_value::<ProductSchemaReviewCandidate>(candidate_payload.clone())
+            .map_err(|_| ReviewRepositoryError::InvalidProductSchemaCandidate)?;
+    validate_product_schemas(&candidate.schemas)?;
+    Ok(candidate.schemas)
+}
+
+pub(super) fn validate_product_schemas(
+    schemas: &[ProductCssSelectorSchema],
+) -> Result<(), ReviewRepositoryError> {
+    if schemas.is_empty() || schemas.iter().any(|schema| !valid_schema(schema)) {
+        return Err(ReviewRepositoryError::InvalidProductSchemaCandidate);
+    }
+    Ok(())
+}
+
+fn valid_schema(schema: &ProductCssSelectorSchema) -> bool {
+    let rules = [
+        schema.source_listing_id.as_ref(),
+        Some(&schema.title),
+        schema.description.as_ref(),
+        schema.price.as_ref(),
+        schema.price_estimate_min.as_ref(),
+        schema.price_estimate_max.as_ref(),
+        Some(&schema.state),
+        Some(&schema.images),
+        schema.auction_start.as_ref(),
+        schema.auction_end.as_ref(),
+    ];
+
+    rules
+        .into_iter()
+        .flatten()
+        .chain(schema.raw_attributes.values())
+        .all(|rule| rule.validate().is_ok())
 }
 
 pub(super) fn approval_product_schemas(
     reason: &str,
-    existing: Option<&ShopsProductSchema>,
+    existing: Option<&ListingSourceProductSchema>,
     reviewed_schemas: Vec<ProductCssSelectorSchema>,
 ) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
     let should_backfill_existing = matches!(
@@ -24,24 +62,42 @@ pub(super) fn approval_product_schemas(
         "append_schema_generation" | "normalization_schema_repair"
     ) && reviewed_schemas.len() == 1;
 
-    if !should_backfill_existing {
-        return Ok(reviewed_schemas);
-    }
-
-    let Some(existing) = existing else {
-        return Ok(reviewed_schemas);
+    let schemas = if !should_backfill_existing {
+        reviewed_schemas
+    } else if let Some(existing) = existing {
+        merge_product_schema_lists(&existing.product_schemas, reviewed_schemas)?
+    } else {
+        reviewed_schemas
     };
-
-    merge_product_schema_lists(&existing.product_schemas, reviewed_schemas)
+    validate_product_schemas(&schemas)?;
+    Ok(schemas)
 }
 
-pub(super) fn update_schema_rule(
+pub(super) fn update_schema_field_payload(
+    candidate_payload: &serde_json::Value,
+    schema_index: usize,
+    field: &str,
+    rule: Option<ExtractionRule>,
+) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
+    let mut schemas = parse_schemas_payload(candidate_payload)?;
+    let Some(schema) = schemas.get_mut(schema_index) else {
+        return Err(ReviewRepositoryError::InvalidSchemaField(format!(
+            "schema index {schema_index}"
+        )));
+    };
+
+    update_schema_rule(schema, field, rule)?;
+    validate_product_schemas(&schemas)?;
+    Ok(schemas)
+}
+
+fn update_schema_rule(
     schema: &mut ProductCssSelectorSchema,
     field: &str,
     rule: Option<ExtractionRule>,
 ) -> Result<(), ReviewRepositoryError> {
     match field {
-        "shop_listing_id" => schema.shop_listing_id = rule,
+        "source_listing_id" => schema.source_listing_id = rule,
         "title" => {
             schema.title =
                 rule.ok_or_else(|| ReviewRepositoryError::RequiredSchemaField(field.into()))?;
@@ -58,7 +114,6 @@ pub(super) fn update_schema_rule(
         "price" => schema.price = rule,
         "price_estimate_min" => schema.price_estimate_min = rule,
         "price_estimate_max" => schema.price_estimate_max = rule,
-        "seller_name" => schema.seller_name = rule,
         "auction_start" => schema.auction_start = rule,
         "auction_end" => schema.auction_end = rule,
         other => return Err(ReviewRepositoryError::InvalidSchemaField(other.into())),
@@ -114,19 +169,59 @@ mod tests {
 
     fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
-            shop_listing_id: Some(text_rule("#product-id")),
+            source_listing_id: Some(text_rule("#product-id")),
             title: text_rule(title_selector),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             state: text_rule("#state"),
             images: image_rule("img"),
             auction_start: None,
             auction_end: None,
             default_currency: None,
             raw_attributes: Default::default(),
+        }
+    }
+
+    #[test]
+    fn rejects_missing_empty_and_unknown_product_schema_candidate_fields() {
+        for payload in [
+            serde_json::json!({}),
+            serde_json::json!({ "schemas": [] }),
+            serde_json::json!({ "schemas": [], "unexpected": true }),
+        ] {
+            assert!(matches!(
+                parse_schemas_payload(&payload),
+                Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
+            ));
+        }
+    }
+
+    #[test]
+    fn parses_non_empty_product_schema_candidate() {
+        let payload = serde_json::json!({ "schemas": [schema("h1.product")] });
+
+        let parsed = parse_schemas_payload(&payload);
+
+        assert!(matches!(parsed, Ok(schemas) if schemas.len() == 1));
+    }
+
+    #[test]
+    fn rejects_invalid_primary_and_additional_css_selectors() {
+        let invalid_primary = serde_json::json!({ "schemas": [schema("[")] });
+        let mut invalid_additional_schema = schema("h1.product");
+        invalid_additional_schema
+            .title
+            .additional_selectors
+            .push(CssSelector::from("["));
+        let invalid_additional = serde_json::json!({ "schemas": [invalid_additional_schema] });
+
+        for payload in [invalid_primary, invalid_additional] {
+            assert!(matches!(
+                parse_schemas_payload(&payload),
+                Err(ReviewRepositoryError::InvalidProductSchemaCandidate)
+            ));
         }
     }
 
@@ -161,19 +256,59 @@ mod tests {
         let mut schema = schema("h1.template-a");
         schema.price = Some(text_rule(".price"));
 
-        update_schema_rule(&mut schema, "price", None).expect("optional price rule can be deleted");
+        let schemas = update_schema_field_payload(
+            &serde_json::json!({ "schemas": [schema] }),
+            0,
+            "price",
+            None,
+        )
+        .expect("optional price rule can be deleted");
 
-        assert!(schema.price.is_none());
+        assert!(schemas[0].price.is_none());
     }
 
     #[test]
     fn update_schema_rule_rejects_required_rule_deletion() {
-        let mut schema = schema("h1.template-a");
+        let schema = schema("h1.template-a");
 
-        let err = update_schema_rule(&mut schema, "title", None).unwrap_err();
+        let err = update_schema_field_payload(
+            &serde_json::json!({ "schemas": [schema] }),
+            0,
+            "title",
+            None,
+        )
+        .unwrap_err();
 
         assert!(
             matches!(err, ReviewRepositoryError::RequiredSchemaField(field) if field == "title")
         );
+    }
+
+    #[test]
+    fn update_schema_field_payload_rejects_invalid_new_rule() {
+        let err = update_schema_field_payload(
+            &serde_json::json!({ "schemas": [schema("h1.template-a")] }),
+            0,
+            "title",
+            Some(text_rule("[")),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            err,
+            ReviewRepositoryError::InvalidProductSchemaCandidate
+        ));
+    }
+
+    #[test]
+    fn update_schema_field_payload_rejects_empty_schema_payload() {
+        let err =
+            update_schema_field_payload(&serde_json::json!({ "schemas": [] }), 0, "price", None)
+                .unwrap_err();
+
+        assert!(matches!(
+            err,
+            ReviewRepositoryError::InvalidProductSchemaCandidate
+        ));
     }
 }

@@ -8,16 +8,16 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 
 pub async fn create_products(
     State(state): State<PartnerProductListingsState>,
     headers: HeaderMap,
-    Path(raw_shop_id): Path<String>,
+    Path(raw_listing_source_id): Path<String>,
     body: String,
 ) -> Response {
-    let shop_id = match parse_shop_id(&raw_shop_id) {
-        Ok(shop_id) => shop_id,
+    let listing_source_id = match parse_listing_source_id(&raw_listing_source_id) {
+        Ok(listing_source_id) => listing_source_id,
         Err(error) => return error.into_response(),
     };
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
@@ -29,24 +29,33 @@ pub async fn create_products(
         Err(error) => return error.into_response(),
     };
 
+    let mapped = match products
+        .into_iter()
+        .map(|product| {
+            let raw_source_listing_id = product.source_listing_id.clone();
+            product
+                .into_command(listing_source_id)
+                .map(|command| (raw_source_listing_id, command))
+        })
+        .collect::<Result<Vec<_>, ApiError>>()
+    {
+        Ok(mapped) => mapped,
+        Err(error) => return error.into_response(),
+    };
+
     let mut failures = Vec::new();
     let mut first_error = None;
     let mut successes = 0;
-    for product in products {
-        let shop_listing_id = product.shop_listing_id.clone();
-        match state
-            .create
-            .execute(&context, product.into_command(shop_id))
-            .await
-        {
+    for (source_listing_id, command) in mapped {
+        match state.create.execute(&context, command).await {
             Ok(_) => successes += 1,
             Err(error) => {
                 let error = ApiError::from(error);
                 let error_code = error.code();
                 first_error.get_or_insert(error);
                 failures.push(PartnerProductFailureData::new(
-                    shop_id,
-                    shop_listing_id,
+                    listing_source_id,
+                    source_listing_id,
                     error_code,
                 ));
             }
@@ -62,12 +71,14 @@ pub async fn create_products(
     (StatusCode::OK, Json(failures)).into_response()
 }
 
-fn parse_shop_id(value: &str) -> Result<ShopId, ApiError> {
-    ShopId::try_from(value).map_err(|_| {
-        ApiError::bad_request(INVALID_UUID)
-            .with_path_field("shopId")
-            .with_detail("Path parameter 'shopId' must be a UUID.")
-    })
+fn parse_listing_source_id(value: &str) -> Result<ListingSourceId, ApiError> {
+    uuid::Uuid::parse_str(value)
+        .map(ListingSourceId::from)
+        .map_err(|_| {
+            ApiError::bad_request(INVALID_UUID)
+                .with_path_field("listingSourceId")
+                .with_detail("Path parameter 'listingSourceId' must be a UUID.")
+        })
 }
 
 #[cfg(test)]
@@ -148,11 +159,11 @@ mod tests {
             .times(2)
             .returning(|_, _| Ok(created()));
         let app = app(create);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{},{}]", product("first"), product("second")),
             true,
         )
@@ -173,13 +184,13 @@ mod tests {
             .withf(|_, command| command.availability.is_none())
             .returning(|_, _| Ok(created()));
         let app = app(create);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
         let omitted = product("omitted").replace(",\"availability\":\"AVAILABLE\"", "");
         let explicit_null = product("null").replace("\"AVAILABLE\"", "null");
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{omitted},{explicit_null}]"),
             true,
         )
@@ -195,18 +206,18 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let mut create = MockCreateUseCase::new();
         create.expect_execute().times(2).returning(|_, command| {
-            if command.shop_listing_id.as_ref() == "failed" {
-                Err(CreateProductListingError::ShopListingAlreadyExists)
+            if command.source_listing_id.as_ref() == "failed" {
+                Err(CreateProductListingError::SourceListingAlreadyExists)
             } else {
                 Ok(created())
             }
         });
         let app = app(create);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{},{}]", product("created"), product("failed")),
             true,
         )
@@ -215,8 +226,8 @@ mod tests {
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
             json!([{
-                "shopId": shop_id.to_string(),
-                "shopListingId": "failed",
+                "listingSourceId": listing_source_id.to_string(),
+                "sourceListingId": "failed",
                 "error": "CONFLICT"
             }]),
             body_json(response).await?
@@ -231,13 +242,13 @@ mod tests {
         create
             .expect_execute()
             .times(1)
-            .returning(|_, _| Err(CreateProductListingError::ShopListingAlreadyExists));
+            .returning(|_, _| Err(CreateProductListingError::SourceListingAlreadyExists));
         let app = app(create);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{}]", product("duplicate")),
             true,
         )
@@ -254,7 +265,7 @@ mod tests {
         let mut create = MockCreateUseCase::new();
         create.expect_execute().never();
         let app = app(create);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
         let body = format!(
             "[{}]",
             (0..=MAX_PARTNER_PRODUCT_LISTING_BATCH_SIZE)
@@ -265,7 +276,7 @@ mod tests {
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             body,
             true,
         )
@@ -282,11 +293,11 @@ mod tests {
         let mut create = MockCreateUseCase::new();
         create.expect_execute().never();
         let app = app(create);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let missing_auth = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             format!("[{}]", product("created")),
             false,
         )
@@ -295,7 +306,7 @@ mod tests {
 
         let invalid_body = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             "{".to_owned(),
             true,
         )
@@ -314,7 +325,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/shops/{shop_id}/product-listings",
+                "/api/v1/listing-sources/{listing_source_id}/product-listings",
                 axum::routing::post(create_products),
             )
             .with_state(state)
@@ -335,7 +346,8 @@ mod tests {
     fn created() -> CreateProductListingResult {
         CreateProductListingResult {
             product_listing_id: ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from("created-product"),
+            product_listing_title_slug_id: ProductListingSlugId::raw("created-product-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             event_id: EventId::new(),
         }
     }
@@ -358,9 +370,9 @@ mod tests {
         Ok(serde_json::from_slice(&bytes)?)
     }
 
-    fn product(shop_listing_id: &str) -> String {
+    fn product(source_listing_id: &str) -> String {
         format!(
-            r#"{{"shopListingId":"{shop_listing_id}","title":{{"text":"Cabinet","language":"en"}},"description":{{"text":"Old cabinet","language":"en"}},"availability":"AVAILABLE","url":"https://shop.example/product-listings/{shop_listing_id}","images":[]}}"#
+            r#"{{"sourceListingId":"{source_listing_id}","title":{{"text":"Cabinet","language":"en"}},"description":{{"text":"Old cabinet","language":"en"}},"availability":"AVAILABLE","url":"https://source.example/product-listings/{source_listing_id}","images":[]}}"#
         )
     }
 }

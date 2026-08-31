@@ -4,19 +4,16 @@ use crate::ports::{
 use application::operation_context::OperationContext;
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
+
 use product_listing_core::product_listing::ProductListingEventPayload;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
-use shop_core::shop_slug_id::ShopSlugId;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProductListingEventLookup {
     ById(ProductListingId),
-    BySlug {
-        shop_slug_id: ShopSlugId,
-        product_listing_slug_id: ProductListingSlugId,
-    },
+    ByTitleSlug(ProductListingSlugId),
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetProductListingEventsRequest {

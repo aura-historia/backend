@@ -4,6 +4,9 @@ use billing_service::use_cases::{
     CreateBillingCheckoutSessionUseCase, CreateBillingManagementSessionUseCase,
     CreateBillingPortalSessionUseCase,
 };
+use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceUseCase;
+use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceUseCase;
+use listing_source_service::use_cases::queries::get_listing_source::GetListingSourceUseCase;
 use notification_service::use_cases::commands::delete_notification::DeleteNotificationUseCase;
 use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsUseCase;
 use notification_service::use_cases::commands::update_all_notifications_seen::UpdateAllNotificationsSeenUseCase;
@@ -14,6 +17,22 @@ use oauth_service::use_cases::{
     AuthorizeUseCase, CreateOAuthClientUseCase, DeleteOAuthClientUseCase, GetOAuthClientUseCase,
     IntrospectTokenUseCase, ListOAuthClientsUseCase, RevokeTokenUseCase,
     TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
+};
+use partnership_service::use_cases::queries::list_administered_listing_sources::ListAdministeredListingSourcesUseCase;
+use partnership_service::use_cases::{
+    commands::{
+        approve_partnership_application::ApprovePartnershipApplicationUseCase,
+        mark_partnership_application_in_review::MarkPartnershipApplicationInReviewUseCase,
+        reject_partnership_application::RejectPartnershipApplicationUseCase,
+        submit_partnership_application::SubmitPartnershipApplicationUseCase,
+        withdraw_partnership_application::WithdrawPartnershipApplicationUseCase,
+    },
+    queries::{
+        get_own_partnership_application::GetOwnPartnershipApplicationUseCase,
+        get_partnership_application::GetPartnershipApplicationUseCase,
+        list_admin_partnership_applications::ListAdminPartnershipApplicationsUseCase,
+        list_own_partnership_applications::ListOwnPartnershipApplicationsUseCase,
+    },
 };
 use product_listing_service::use_cases::{
     CreateProductListingUseCase, GetProductListingEventsUseCase, GetProductListingUseCase,
@@ -26,17 +45,7 @@ use search_filter_service::use_cases::{
     ListOwnedSearchFiltersUseCase, ListSearchFilterMatchesUseCase, UpdateOwnedSearchFilterUseCase,
     UpdateSearchFilterMatchFeedbackUseCase,
 };
-use shop_partner_service::use_cases::{
-    AdminDecidePartnerShopApplicationUseCase, AdminGetPartnerShopApplicationUseCase,
-    AdminListPartnerShopApplicationsUseCase, AdminUpdatePartnerShopApplicationUseCase,
-    CreatePartnerShopApplicationUseCase, GetPartnerShopApplicationUseCase,
-    ListPartnerShopApplicationsUseCase, WithdrawPartnerShopApplicationUseCase,
-};
-use shop_service::use_cases::commands::create_shop::CreateShopUseCase;
-use shop_service::use_cases::commands::update_shop::UpdateShopUseCase;
-use shop_service::use_cases::queries::get_shop::GetShopUseCase;
-use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsUseCase;
-use shop_service::use_cases::queries::search_shops::SearchShopsUseCase;
+
 use std::sync::Arc;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleUseCase;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierUseCase;
@@ -74,12 +83,12 @@ impl ReadinessCheck for AlwaysReady {
 #[derive(Clone)]
 pub struct AppState {
     pub(crate) readiness: Arc<dyn ReadinessCheck>,
-    pub(crate) shops: ShopsState,
     pub(crate) product_listings: Option<ProductListingsState>,
     pub(crate) partner_product_listings: Option<PartnerProductListingsState>,
+    pub(crate) listing_sources: Option<ListingSourcesState>,
     pub(crate) users: Option<UsersState>,
     pub(crate) watchlist: Option<WatchlistState>,
-    pub(crate) partner_applications: Option<PartnerApplicationsState>,
+    pub(crate) partnership_applications: Option<PartnershipApplicationsState>,
     pub(crate) oauth: Option<OAuthState>,
     pub(crate) search_filters: Option<SearchFiltersState>,
     pub(crate) billing: Option<BillingState>,
@@ -88,39 +97,22 @@ pub struct AppState {
     pub(crate) webhooks: Option<WebhooksState>,
 }
 
-impl AppState {
-    pub fn new(
-        shops: ShopsState,
-        users: UsersState,
-        watchlist: WatchlistState,
-        partner_applications: PartnerApplicationsState,
-    ) -> Self {
-        Self {
-            readiness: Arc::new(AlwaysReady),
-            shops,
-            product_listings: None,
-            partner_product_listings: None,
-            users: Some(users),
-            watchlist: Some(watchlist),
-            partner_applications: Some(partner_applications),
-            oauth: None,
-            search_filters: None,
-            billing: None,
-            newsletter: None,
-            notifications: None,
-            webhooks: None,
-        }
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
     }
+}
 
-    pub fn with_shops_only(shops: ShopsState) -> Self {
+impl AppState {
+    pub fn new() -> Self {
         Self {
             readiness: Arc::new(AlwaysReady),
-            shops,
             product_listings: None,
             partner_product_listings: None,
+            listing_sources: None,
             users: None,
             watchlist: None,
-            partner_applications: None,
+            partnership_applications: None,
             oauth: None,
             search_filters: None,
             billing: None,
@@ -145,6 +137,29 @@ impl AppState {
         partner_product_listings: PartnerProductListingsState,
     ) -> Self {
         self.partner_product_listings = Some(partner_product_listings);
+        self
+    }
+
+    pub fn with_listing_sources(mut self, listing_sources: ListingSourcesState) -> Self {
+        self.listing_sources = Some(listing_sources);
+        self
+    }
+
+    pub fn with_users(mut self, users: UsersState) -> Self {
+        self.users = Some(users);
+        self
+    }
+
+    pub fn with_watchlist(mut self, watchlist: WatchlistState) -> Self {
+        self.watchlist = Some(watchlist);
+        self
+    }
+
+    pub fn with_partnership_applications(
+        mut self,
+        partnership_applications: PartnershipApplicationsState,
+    ) -> Self {
+        self.partnership_applications = Some(partnership_applications);
         self
     }
 
@@ -357,36 +372,6 @@ impl OAuthState {
 }
 
 #[derive(Clone)]
-pub struct ShopsState {
-    pub(crate) get_shop: Arc<dyn GetShopUseCase>,
-    pub(crate) search_shops: Arc<dyn SearchShopsUseCase>,
-    pub(crate) create_shop: Arc<dyn CreateShopUseCase>,
-    pub(crate) update_shop: Arc<dyn UpdateShopUseCase>,
-    pub(crate) list_user_partner_shops: Arc<dyn ListUserPartnerShopsUseCase>,
-    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
-}
-
-impl ShopsState {
-    pub fn new(
-        get_shop: Arc<dyn GetShopUseCase>,
-        search_shops: Arc<dyn SearchShopsUseCase>,
-        create_shop: Arc<dyn CreateShopUseCase>,
-        update_shop: Arc<dyn UpdateShopUseCase>,
-        list_user_partner_shops: Arc<dyn ListUserPartnerShopsUseCase>,
-        authenticator: Arc<dyn TokenAuthenticator>,
-    ) -> Self {
-        Self {
-            get_shop,
-            search_shops,
-            create_shop,
-            update_shop,
-            list_user_partner_shops,
-            authenticator,
-        }
-    }
-}
-
-#[derive(Clone)]
 pub struct ProductListingsState {
     pub(crate) get_product: Arc<dyn GetProductListingUseCase>,
     pub(crate) get_product_listing_events: Option<Arc<dyn GetProductListingEventsUseCase>>,
@@ -417,6 +402,33 @@ impl ProductListingsState {
     ) -> Self {
         self.get_product_listing_events = Some(get_product_listing_events);
         self
+    }
+}
+
+#[derive(Clone)]
+pub struct ListingSourcesState {
+    pub(crate) create: Arc<dyn CreateListingSourceUseCase>,
+    pub(crate) get: Arc<dyn GetListingSourceUseCase>,
+    pub(crate) update: Arc<dyn UpdateListingSourceUseCase>,
+    pub(crate) list_administered: Arc<dyn ListAdministeredListingSourcesUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl ListingSourcesState {
+    pub fn new(
+        create: Arc<dyn CreateListingSourceUseCase>,
+        get: Arc<dyn GetListingSourceUseCase>,
+        update: Arc<dyn UpdateListingSourceUseCase>,
+        list_administered: Arc<dyn ListAdministeredListingSourcesUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            create,
+            get,
+            update,
+            list_administered,
+            authenticator,
+        }
     }
 }
 
@@ -527,40 +539,43 @@ impl WatchlistState {
 }
 
 #[derive(Clone)]
-pub struct PartnerApplicationsState {
-    pub(crate) create: Arc<dyn CreatePartnerShopApplicationUseCase>,
-    pub(crate) list: Arc<dyn ListPartnerShopApplicationsUseCase>,
-    pub(crate) get: Arc<dyn GetPartnerShopApplicationUseCase>,
-    pub(crate) delete: Arc<dyn WithdrawPartnerShopApplicationUseCase>,
-    pub(crate) admin_list: Arc<dyn AdminListPartnerShopApplicationsUseCase>,
-    pub(crate) admin_get: Arc<dyn AdminGetPartnerShopApplicationUseCase>,
-    pub(crate) admin_update: Arc<dyn AdminUpdatePartnerShopApplicationUseCase>,
-    pub(crate) admin_decide: Arc<dyn AdminDecidePartnerShopApplicationUseCase>,
+pub struct PartnershipApplicationsState {
+    pub(crate) submit: Arc<dyn SubmitPartnershipApplicationUseCase>,
+    pub(crate) list_own: Arc<dyn ListOwnPartnershipApplicationsUseCase>,
+    pub(crate) get_own: Arc<dyn GetOwnPartnershipApplicationUseCase>,
+    pub(crate) withdraw: Arc<dyn WithdrawPartnershipApplicationUseCase>,
+    pub(crate) list_admin: Arc<dyn ListAdminPartnershipApplicationsUseCase>,
+    pub(crate) get: Arc<dyn GetPartnershipApplicationUseCase>,
+    pub(crate) mark_in_review: Arc<dyn MarkPartnershipApplicationInReviewUseCase>,
+    pub(crate) approve: Arc<dyn ApprovePartnershipApplicationUseCase>,
+    pub(crate) reject: Arc<dyn RejectPartnershipApplicationUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
-impl PartnerApplicationsState {
+impl PartnershipApplicationsState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        create: Arc<dyn CreatePartnerShopApplicationUseCase>,
-        list: Arc<dyn ListPartnerShopApplicationsUseCase>,
-        get: Arc<dyn GetPartnerShopApplicationUseCase>,
-        delete: Arc<dyn WithdrawPartnerShopApplicationUseCase>,
-        admin_list: Arc<dyn AdminListPartnerShopApplicationsUseCase>,
-        admin_get: Arc<dyn AdminGetPartnerShopApplicationUseCase>,
-        admin_update: Arc<dyn AdminUpdatePartnerShopApplicationUseCase>,
-        admin_decide: Arc<dyn AdminDecidePartnerShopApplicationUseCase>,
+        submit: Arc<dyn SubmitPartnershipApplicationUseCase>,
+        list_own: Arc<dyn ListOwnPartnershipApplicationsUseCase>,
+        get_own: Arc<dyn GetOwnPartnershipApplicationUseCase>,
+        withdraw: Arc<dyn WithdrawPartnershipApplicationUseCase>,
+        list_admin: Arc<dyn ListAdminPartnershipApplicationsUseCase>,
+        get: Arc<dyn GetPartnershipApplicationUseCase>,
+        mark_in_review: Arc<dyn MarkPartnershipApplicationInReviewUseCase>,
+        approve: Arc<dyn ApprovePartnershipApplicationUseCase>,
+        reject: Arc<dyn RejectPartnershipApplicationUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
-            create,
-            list,
+            submit,
+            list_own,
+            get_own,
+            withdraw,
+            list_admin,
             get,
-            delete,
-            admin_list,
-            admin_get,
-            admin_update,
-            admin_decide,
+            mark_in_review,
+            approve,
+            reject,
             authenticator,
         }
     }

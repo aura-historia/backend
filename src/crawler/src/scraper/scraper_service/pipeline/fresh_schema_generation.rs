@@ -9,13 +9,13 @@ use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
+use listing_source_core::ListingSourceId;
 use serde_json::json;
-use shop_core::shop_id::ShopId;
 use tracing::debug;
 use url::Url;
 
 pub(crate) struct FreshSchemaGenerationContext<'a> {
-    pub(crate) shop_id: &'a ShopId,
+    pub(crate) listing_source_id: &'a ListingSourceId,
     pub(crate) domain: &'a str,
     pub(crate) url: &'a Url,
     pub(crate) html: &'a str,
@@ -26,7 +26,7 @@ impl ScraperServiceImpl {
     #[tracing::instrument(
         skip(self, ctx),
         fields(
-            shop_id = %ctx.shop_id,
+            listing_source_id = %ctx.listing_source_id,
             domain = ctx.domain,
             url = %ctx.url,
             schema_count = ctx.existing_schemas.len()
@@ -37,7 +37,7 @@ impl ScraperServiceImpl {
         ctx: FreshSchemaGenerationContext<'_>,
     ) -> Result<NormalizedProduct, ScraperError> {
         let (generated_schema, mut reapplied, evaluation) = self
-            .generate_single_schema_for_page(ctx.shop_id, ctx.url, ctx.html)
+            .generate_single_schema_for_page(ctx.listing_source_id, ctx.url, ctx.html)
             .await?;
 
         reapplied.images = match filter_valid_image_urls(
@@ -74,7 +74,7 @@ impl ScraperServiceImpl {
                 product,
                 llm_calls_used,
             }) => {
-                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
+                self.consume_llm_budget_n_or_err(ctx.listing_source_id, ctx.url, llm_calls_used)
                     .await?;
                 let mut persisted_schemas = ctx.existing_schemas.to_vec();
                 persisted_schemas.push(generated_schema.clone());
@@ -85,7 +85,7 @@ impl ScraperServiceImpl {
                 }];
                 match self
                     .handle_generated_schema_review(
-                        ctx.shop_id,
+                        ctx.listing_source_id,
                         "fresh_schema_generation",
                         persisted_schemas,
                         evaluation,
@@ -110,7 +110,7 @@ impl ScraperServiceImpl {
                 error: norm_err,
                 llm_calls_used,
             }) => {
-                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
+                self.consume_llm_budget_n_or_err(ctx.listing_source_id, ctx.url, llm_calls_used)
                     .await?;
                 if norm_err.failure_scope() == NormalizationFailureScope::CandidateData {
                     return Err(ScraperError::FreshSchemaNormalizationFailed {

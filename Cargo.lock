@@ -206,6 +206,9 @@ dependencies = [
  "indexmap 2.14.0",
  "isocountry",
  "jsonwebtokens",
+ "listing-source-core",
+ "listing-source-postgres",
+ "listing-source-service",
  "localization",
  "mockall",
  "money",
@@ -217,6 +220,11 @@ dependencies = [
  "oauth-service",
  "opensearch",
  "openssl",
+ "partnership-core",
+ "partnership-postgres",
+ "partnership-service",
+ "party-core",
+ "party-postgres",
  "platform-observability",
  "platform-postgres",
  "product-listing-core",
@@ -233,12 +241,6 @@ dependencies = [
  "serde_json",
  "serde_qs",
  "serial_test",
- "shop-core",
- "shop-partner-core",
- "shop-partner-postgres",
- "shop-partner-service",
- "shop-postgres",
- "shop-service",
  "sqlx",
  "test-api",
  "thiserror 2.0.20",
@@ -308,6 +310,7 @@ dependencies = [
  "google-cloud-auth",
  "indexmap 2.14.0",
  "large-language-model",
+ "listing-source-core",
  "localization",
  "money",
  "notification-core",
@@ -331,7 +334,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
- "shop-core",
  "sqlx",
  "test-api",
  "thiserror 2.0.20",
@@ -1781,6 +1783,9 @@ dependencies = [
  "large-language-model",
  "libc",
  "lingua",
+ "listing-source-core",
+ "listing-source-postgres",
+ "listing-source-service",
  "localization",
  "mockall",
  "money",
@@ -1789,6 +1794,7 @@ dependencies = [
  "product-listing-core",
  "product-listing-postgres",
  "product-listing-service",
+ "public-network-policy",
  "regex",
  "reqwest 0.12.28",
  "rstest",
@@ -1798,9 +1804,6 @@ dependencies = [
  "serde_json",
  "serial_test",
  "sha2 0.11.0",
- "shop-core",
- "shop-postgres",
- "shop-service",
  "spider",
  "sqlx",
  "strum 0.28.0",
@@ -3754,6 +3757,7 @@ name = "image-fetcher"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "public-network-policy",
  "reqwest 0.12.28",
  "thiserror 2.0.20",
  "tokio",
@@ -4282,6 +4286,70 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
+name = "listing-source-core"
+version = "0.1.0"
+dependencies = [
+ "domain-primitives",
+ "fake",
+ "party-core",
+ "percent-encoding",
+ "serde",
+ "slug",
+ "strum 0.28.0",
+ "strum_macros 0.28.0",
+ "thiserror 2.0.20",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "listing-source-postgres"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "listing-source-core",
+ "listing-source-service",
+ "localization",
+ "money",
+ "openssl",
+ "party-core",
+ "platform-postgres",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "strum 0.28.0",
+ "test-api",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "listing-source-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain-primitives",
+ "fake",
+ "listing-source-core",
+ "localization",
+ "money",
+ "party-core",
+ "party-service",
+ "serde",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "user-service",
+]
+
+[[package]]
 name = "litemap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4559,14 +4627,15 @@ version = "0.1.0"
 dependencies = [
  "domain-primitives",
  "fake",
+ "listing-source-core",
  "localization",
  "money",
+ "partnership-core",
+ "party-core",
  "product-listing-core",
  "rstest",
  "search-filter-core",
  "serde",
- "shop-core",
- "shop-partner-core",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "thiserror 2.0.20",
@@ -4597,15 +4666,16 @@ dependencies = [
  "aws-sdk-sesv2",
  "domain-primitives",
  "handlebars",
+ "listing-source-core",
  "localization",
  "money",
  "notification-core",
  "notification-email",
  "notification-service",
+ "party-core",
  "product-listing-core",
  "rstest",
  "serde_json",
- "shop-core",
  "url",
  "user-core",
 ]
@@ -4617,19 +4687,21 @@ dependencies = [
  "application",
  "async-trait",
  "domain-primitives",
+ "listing-source-core",
  "localization",
  "money",
  "notification-core",
  "notification-email",
  "notification-service",
+ "partnership-core",
+ "party-core",
  "platform-postgres",
  "product-listing-core",
  "search-filter-core",
  "serde",
  "serde-email",
  "serde_json",
- "shop-core",
- "shop-partner-core",
+ "serial_test",
  "sqlx",
  "strum 0.28.0",
  "test-api",
@@ -4648,13 +4720,14 @@ dependencies = [
  "application",
  "async-trait",
  "fake",
+ "listing-source-core",
  "localization",
  "mockall",
  "notification-core",
  "notification-service",
+ "partnership-core",
+ "party-core",
  "rstest",
- "shop-core",
- "shop-partner-core",
  "thiserror 2.0.20",
  "time",
  "tokio",
@@ -4970,6 +5043,126 @@ dependencies = [
  "regex-syntax",
  "structmeta",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "partnership-core"
+version = "0.1.0"
+dependencies = [
+ "fake",
+ "listing-source-core",
+ "party-core",
+ "strum 0.28.0",
+ "strum_macros 0.28.0",
+ "thiserror 2.0.20",
+ "user-core",
+ "uuid",
+]
+
+[[package]]
+name = "partnership-postgres"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain-primitives",
+ "fake",
+ "listing-source-core",
+ "listing-source-postgres",
+ "notification-postgres",
+ "notification-service",
+ "partnership-core",
+ "partnership-service",
+ "party-core",
+ "party-postgres",
+ "platform-postgres",
+ "serde",
+ "serde-email",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "strum 0.28.0",
+ "test-api",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "url",
+ "user-core",
+ "user-postgres",
+ "uuid",
+]
+
+[[package]]
+name = "partnership-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain-primitives",
+ "fake",
+ "listing-source-core",
+ "listing-source-service",
+ "notification-core",
+ "notification-service",
+ "partnership-core",
+ "party-core",
+ "party-service",
+ "serde",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "user-core",
+ "user-service",
+]
+
+[[package]]
+name = "party-core"
+version = "0.1.0"
+dependencies = [
+ "domain-primitives",
+ "serde-email",
+ "slug",
+ "thiserror 2.0.20",
+ "uuid",
+]
+
+[[package]]
+name = "party-postgres"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "party-core",
+ "party-service",
+ "platform-postgres",
+ "serde-email",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "party-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain-primitives",
+ "fake",
+ "party-core",
+ "serde",
+ "serde-email",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tracing",
+ "user-service",
 ]
 
 [[package]]
@@ -5330,6 +5523,7 @@ dependencies = [
 name = "platform-opensearch"
 version = "0.1.0"
 dependencies = [
+ "opensearch",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -5471,17 +5665,17 @@ dependencies = [
  "domain-primitives",
  "fake",
  "fxrate-core",
- "geo",
  "html-escape",
  "indexmap 2.14.0",
- "isocountry",
+ "listing-source-core",
  "localization",
  "money",
  "regex",
  "rstest",
  "serde",
  "serde_fields",
- "shop-core",
+ "serde_json",
+ "slug",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "thiserror 2.0.20",
@@ -5498,9 +5692,8 @@ dependencies = [
  "async-trait",
  "domain-primitives",
  "fxrate-core",
- "geo",
  "indexmap 2.14.0",
- "isocountry",
+ "listing-source-core",
  "localization",
  "money",
  "opensearch",
@@ -5512,7 +5705,6 @@ dependencies = [
  "serde_fields",
  "serde_json",
  "serial_test",
- "shop-core",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "test-api",
@@ -5521,6 +5713,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -5531,9 +5724,8 @@ dependencies = [
  "async-trait",
  "domain-primitives",
  "fxrate-core",
- "geo",
  "indexmap 2.14.0",
- "isocountry",
+ "listing-source-core",
  "localization",
  "money",
  "notification-core",
@@ -5545,7 +5737,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
- "shop-core",
  "sqlx",
  "strum 0.28.0",
  "test-api",
@@ -5568,19 +5759,18 @@ dependencies = [
  "fake",
  "fxrate-core",
  "fxrate-service",
- "geo",
  "html-to-markdown-rs",
  "indexmap 2.14.0",
+ "listing-source-core",
+ "listing-source-service",
  "localization",
  "money",
  "notification-core",
  "notification-service",
+ "party-core",
  "product-listing-core",
  "search-filter-core",
  "serde_json",
- "shop-core",
- "shop-partner-core",
- "shop-service",
  "strum 0.28.0",
  "thiserror 2.0.20",
  "time",
@@ -5605,6 +5795,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "public-network-policy"
+version = "0.1.0"
 
 [[package]]
 name = "query_map"
@@ -6351,9 +6545,9 @@ dependencies = [
  "application",
  "async-trait",
  "domain-primitives",
- "geo",
+ "fxrate-core",
  "indexmap 2.14.0",
- "isocountry",
+ "listing-source-core",
  "localization",
  "money",
  "opensearch",
@@ -6366,7 +6560,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
- "shop-core",
  "strum 0.28.0",
  "test-api",
  "thiserror 2.0.20",
@@ -6374,6 +6567,7 @@ dependencies = [
  "tokio",
  "url",
  "user-core",
+ "uuid",
 ]
 
 [[package]]
@@ -6384,8 +6578,7 @@ dependencies = [
  "async-trait",
  "domain-primitives",
  "fxrate-core",
- "geo",
- "isocountry",
+ "listing-source-core",
  "localization",
  "money",
  "platform-postgres",
@@ -6395,7 +6588,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
- "shop-core",
  "sqlx",
  "strum 0.28.0",
  "test-api",
@@ -6416,10 +6608,9 @@ dependencies = [
  "embedding",
  "fxrate-core",
  "fxrate-service",
- "geo",
  "indexmap 2.14.0",
- "isocountry",
  "large-language-model",
+ "listing-source-core",
  "localization",
  "money",
  "notification-core",
@@ -6429,7 +6620,6 @@ dependencies = [
  "search-filter-core",
  "serde",
  "serde_json",
- "shop-core",
  "strum 0.28.0",
  "thiserror 2.0.20",
  "time",
@@ -6821,157 +7011,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
-name = "shop-core"
-version = "0.1.0"
-dependencies = [
- "domain-primitives",
- "fake",
- "geo",
- "isocountry",
- "localization",
- "money",
- "percent-encoding",
- "serde",
- "serde-email",
- "slug",
- "strum 0.28.0",
- "strum_macros 0.28.0",
- "thiserror 2.0.20",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "shop-partner-core"
-version = "0.1.0"
-dependencies = [
- "fake",
- "serde",
- "shop-core",
- "strum 0.28.0",
- "strum_macros 0.28.0",
- "thiserror 2.0.20",
- "user-core",
- "uuid",
-]
-
-[[package]]
-name = "shop-partner-postgres"
-version = "0.1.0"
-dependencies = [
- "application",
- "async-trait",
- "domain-primitives",
- "geo",
- "isocountry",
- "localization",
- "money",
- "notification-service",
- "platform-postgres",
- "rstest",
- "serde-email",
- "serial_test",
- "shop-core",
- "shop-partner-core",
- "shop-partner-service",
- "shop-postgres",
- "shop-service",
- "sqlx",
- "strum 0.28.0",
- "strum_macros 0.28.0",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "user-core",
- "user-postgres",
- "user-service",
- "uuid",
-]
-
-[[package]]
-name = "shop-partner-service"
-version = "0.1.0"
-dependencies = [
- "application",
- "async-trait",
- "domain-primitives",
- "fake",
- "geo",
- "localization",
- "money",
- "notification-core",
- "notification-service",
- "serde",
- "serde-email",
- "shop-core",
- "shop-partner-core",
- "shop-service",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "url",
- "user-core",
- "user-service",
-]
-
-[[package]]
-name = "shop-postgres"
-version = "0.1.0"
-dependencies = [
- "application",
- "async-trait",
- "domain-primitives",
- "geo",
- "isocountry",
- "localization",
- "money",
- "openssl",
- "platform-postgres",
- "rstest",
- "serde",
- "serde-email",
- "serde_json",
- "serial_test",
- "shop-core",
- "shop-service",
- "sqlx",
- "strum 0.28.0",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "url",
- "user-core",
- "uuid",
-]
-
-[[package]]
-name = "shop-service"
-version = "0.1.0"
-dependencies = [
- "application",
- "async-trait",
- "domain-primitives",
- "fake",
- "geo",
- "isocountry",
- "localization",
- "money",
- "serde",
- "serde-email",
- "shop-core",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "url",
- "user-core",
- "user-service",
-]
-
-[[package]]
 name = "shopify-lambda"
 version = "0.1.0"
 dependencies = [
@@ -6984,6 +7023,9 @@ dependencies = [
  "html-to-markdown-rs",
  "indexmap 2.14.0",
  "lambda_runtime",
+ "listing-source-core",
+ "listing-source-postgres",
+ "listing-source-service",
  "localization",
  "money",
  "platform-observability",
@@ -6994,9 +7036,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
- "shop-core",
- "shop-postgres",
- "shop-service",
  "sqlx",
  "strum 0.28.0",
  "test-api",
@@ -7723,6 +7762,7 @@ dependencies = [
  "libc",
  "mrml",
  "opensearch",
+ "product-listing-core",
  "reqwest 0.12.28",
  "rstest",
  "serde",
@@ -8626,13 +8666,13 @@ dependencies = [
  "fake",
  "fxrate-core",
  "fxrate-service",
+ "listing-source-core",
  "localization",
  "money",
  "product-listing-core",
  "product-listing-service",
  "serde",
  "serde-email",
- "shop-core",
  "strum 0.28.0",
  "thiserror 2.0.20",
  "time",

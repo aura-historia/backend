@@ -1,7 +1,10 @@
 use crate::document::SearchFilterDocument;
 use application::error::box_error;
 use application::pagination::{Cursor, CursoredResult};
-use platform_opensearch::search_response::SearchResponse;
+use platform_opensearch::{
+    response::{OpenSearchResponse, read_response},
+    search_response::SearchResponse,
+};
 
 use opensearch::{
     DeleteParts, IndexParts, OpenSearch, SearchParts,
@@ -71,20 +74,25 @@ impl OpenSearchSearchFilterIndex {
                 None,
             )
             .await
-            .map_err(percolation_error)?
-            .error_for_status_code()
             .map_err(percolation_error)?;
-        let payload = response.text().await.map_err(percolation_error)?;
-        let response = serde_json::from_str::<PointInTimeResponse>(&payload).map_err(|source| {
-            SearchFilterIndexError::PercolateFailed {
-                source: box_error(source),
-            }
-        })?;
+        let response = read_response(response)
+            .await
+            .map_err(percolation_response_read_error)?;
+        if !response.status().is_success() {
+            return Err(percolation_status_error(response));
+        }
+        let response =
+            serde_json::from_str::<PointInTimeResponse>(response.body()).map_err(|source| {
+                SearchFilterIndexError::PercolateFailed {
+                    source: box_error(source),
+                }
+            })?;
         Ok(response.pit_id)
     }
 
     async fn close_point_in_time(&self, pit_id: &str) -> Result<(), SearchFilterIndexError> {
-        self.client
+        let response = self
+            .client
             .send(
                 Method::Delete,
                 "/_search/point_in_time",
@@ -94,10 +102,15 @@ impl OpenSearchSearchFilterIndex {
                 None,
             )
             .await
-            .map_err(percolation_error)?
-            .error_for_status_code()
-            .map(|_| ())
-            .map_err(percolation_error)
+            .map_err(percolation_error)?;
+        let response = read_response(response)
+            .await
+            .map_err(percolation_response_read_error)?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(percolation_status_error(response))
+        }
     }
 
     async fn percolate_all(
@@ -122,19 +135,17 @@ impl OpenSearchSearchFilterIndex {
                 .send()
                 .await
                 .map_err(percolation_error)?;
-            let status = response.status_code();
-            let payload = response.text().await.map_err(percolation_error)?;
-            if !status.is_success() {
-                return Err(SearchFilterIndexError::PercolateFailed {
-                    source: box_error(std::io::Error::other(format!(
-                        "OpenSearch percolation returned {status}: {payload}"
-                    ))),
-                });
+            let response = read_response(response)
+                .await
+                .map_err(percolation_response_read_error)?;
+            if !response.status().is_success() {
+                return Err(percolation_status_error(response));
             }
-            let response = serde_json::from_str::<SearchResponse<SearchFilterDocument>>(&payload)
-                .map_err(|source| SearchFilterIndexError::InvalidDocument {
-                source: box_error(source),
-            })?;
+            let response =
+                serde_json::from_str::<SearchResponse<SearchFilterDocument>>(response.body())
+                    .map_err(|source| SearchFilterIndexError::InvalidDocument {
+                        source: box_error(source),
+                    })?;
             let total = complete_percolation_total(&response)?;
 
             if let Some(expected) = expected_total {
@@ -230,6 +241,24 @@ fn percolation_error(source: opensearch::Error) -> SearchFilterIndexError {
     }
 }
 
+fn percolation_response_read_error(
+    source: platform_opensearch::response::OpenSearchResponseReadError,
+) -> SearchFilterIndexError {
+    SearchFilterIndexError::PercolateFailed {
+        source: box_error(source),
+    }
+}
+
+fn percolation_status_error(response: OpenSearchResponse) -> SearchFilterIndexError {
+    SearchFilterIndexError::PercolateFailed {
+        source: box_error(std::io::Error::other(format!(
+            "OpenSearch percolation returned {}: {}",
+            response.status(),
+            response.body(),
+        ))),
+    }
+}
+
 fn build_percolate_body(
     product_document: &serde_json::Value,
     pit_id: &str,
@@ -276,6 +305,7 @@ impl SearchFilterIndex for OpenSearchSearchFilterIndex {
         projection_write_outcome(response, |source| SearchFilterIndexError::WriteFailed {
             source,
         })
+        .await
     }
 
     async fn delete(
@@ -296,6 +326,7 @@ impl SearchFilterIndex for OpenSearchSearchFilterIndex {
         projection_write_outcome(response, |source| SearchFilterIndexError::DeleteFailed {
             source,
         })
+        .await
     }
 
     async fn percolate(
@@ -332,22 +363,27 @@ impl SearchFilterIndex for OpenSearchSearchFilterIndex {
             .await
             .map_err(|source| SearchFilterIndexError::QueryFailed {
                 source: box_error(source),
-            })?
-            .error_for_status_code()
-            .map_err(|source| SearchFilterIndexError::QueryFailed {
-                source: box_error(source),
             })?;
-        let payload =
-            response
-                .text()
-                .await
-                .map_err(|source| SearchFilterIndexError::QueryFailed {
-                    source: box_error(source),
-                })?;
-        let response = serde_json::from_str::<SearchResponse<SearchFilterDocument>>(&payload)
-            .map_err(|source| SearchFilterIndexError::InvalidDocument {
+        let response = read_response(response).await.map_err(|source| {
+            SearchFilterIndexError::QueryFailed {
                 source: box_error(source),
-            })?;
+            }
+        })?;
+        if !response.status().is_success() {
+            return Err(SearchFilterIndexError::QueryFailed {
+                source: box_error(std::io::Error::other(format!(
+                    "OpenSearch search-filter query returned {}: {}",
+                    response.status(),
+                    response.body(),
+                ))),
+            });
+        }
+        let response = serde_json::from_str::<SearchResponse<SearchFilterDocument>>(
+            response.body(),
+        )
+        .map_err(|source| SearchFilterIndexError::InvalidDocument {
+            source: box_error(source),
+        })?;
         let total = response.hits.total.value;
         let search_after = response.hits.hits.last().and_then(|hit| hit.sort.clone());
         let items: Vec<_> = response
@@ -370,17 +406,24 @@ impl SearchFilterIndex for OpenSearchSearchFilterIndex {
     }
 }
 
-fn projection_write_outcome(
+async fn projection_write_outcome(
     response: opensearch::http::response::Response,
-    error: impl FnOnce(application::error::BoxError) -> SearchFilterIndexError,
+    error: impl Fn(application::error::BoxError) -> SearchFilterIndexError,
 ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError> {
-    if response.status_code() == StatusCode::CONFLICT {
+    let response = read_response(response)
+        .await
+        .map_err(|source| error(box_error(source)))?;
+    if response.status() == StatusCode::CONFLICT {
         return Ok(SearchFilterProjectionWriteOutcome::Stale);
     }
-    response
-        .error_for_status_code()
-        .map(|_| SearchFilterProjectionWriteOutcome::Applied)
-        .map_err(|source| error(box_error(source)))
+    if response.status().is_success() {
+        return Ok(SearchFilterProjectionWriteOutcome::Applied);
+    }
+    Err(error(box_error(std::io::Error::other(format!(
+        "OpenSearch search-filter projection returned {}: {}",
+        response.status(),
+        response.body(),
+    )))))
 }
 
 fn build_query_body(query: &SearchFilterIndexQuery) -> serde_json::Value {

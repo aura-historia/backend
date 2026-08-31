@@ -22,6 +22,7 @@ members = [
     "src/money",
     "src/embedding",
     "src/image-fetcher",
+    "src/public-network-policy",
     "src/geo",
     "src/search-filter-core",
     "src/search-filter-service",
@@ -44,12 +45,15 @@ members = [
     "src/watchlist-service",
     "src/watchlist-postgres",
     "src/test-api",
-    "src/shop-core",
-    "src/shop-service",
-    "src/shop-postgres",
-    "src/shop-partner-core",
-    "src/shop-partner-service",
-    "src/shop-partner-postgres",
+    "src/party-core",
+    "src/party-service",
+    "src/party-postgres",
+    "src/listing-source-core",
+    "src/listing-source-service",
+    "src/listing-source-postgres",
+    "src/partnership-core",
+    "src/partnership-service",
+    "src/partnership-postgres",
     "src/shopify-lambda",
     "src/stripe-lambda",
     "src/user-core",
@@ -94,6 +98,7 @@ localization = { path = "src/localization" }
 money = { path = "src/money" }
 embedding = { path = "src/embedding" }
 image-fetcher = { path = "src/image-fetcher" }
+public-network-policy = { path = "src/public-network-policy" }
 geo = { path = "src/geo" }
 google-cloud-auth = "1.12.0"
 derive_builder = "0.20.2"
@@ -107,12 +112,15 @@ search-filter-service = { path = "src/search-filter-service" }
 search-filter-postgres = { path = "src/search-filter-postgres" }
 search-filter-opensearch = { path = "src/search-filter-opensearch" }
 large-language-model = { path = "src/large-language-model" }
-shop-core = { path = "src/shop-core" }
-shop-service = { path = "src/shop-service" }
-shop-postgres = { path = "src/shop-postgres" }
-shop-partner-core = { path = "src/shop-partner-core" }
-shop-partner-service = { path = "src/shop-partner-service" }
-shop-partner-postgres = { path = "src/shop-partner-postgres" }
+party-core = { path = "src/party-core" }
+party-service = { path = "src/party-service" }
+party-postgres = { path = "src/party-postgres" }
+listing-source-core = { path = "src/listing-source-core" }
+listing-source-service = { path = "src/listing-source-service" }
+listing-source-postgres = { path = "src/listing-source-postgres" }
+partnership-core = { path = "src/partnership-core" }
+partnership-service = { path = "src/partnership-service" }
+partnership-postgres = { path = "src/partnership-postgres" }
 notification-core = { path = "src/notification-core" }
 notification-email = { path = "src/notification-email" }
 notification-email-aws = { path = "src/notification-email-aws" }

@@ -427,20 +427,20 @@ async fn seed_watchlist_entries(
     count: usize,
     start: OffsetDateTime,
 ) -> Vec<uuid::Uuid> {
-    let shop_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
     let mut tx = pool
         .begin()
         .await
         .unwrap_or_else(|error| panic!("failed to begin product seed transaction: {error:?}"));
     sqlx::query(
-        "INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, $3, 'MARKETPLACE', 'SCRAPED', '{}')",
+        "WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), concat($3, ' operator')) RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $1, $2, $3, party_id FROM operator",
     )
-    .bind(shop_id)
-    .bind(format!("tier-entitlements-shop-{shop_id}"))
-    .bind("Tier entitlement test shop")
+    .bind(listing_source_id)
+    .bind(format!("tier-entitlements-source-{listing_source_id}"))
+    .bind("Tier entitlement test source")
     .execute(&mut *tx)
     .await
-    .unwrap_or_else(|error| panic!("failed to seed shop: {error:?}"));
+    .unwrap_or_else(|error| panic!("failed to seed source: {error:?}"));
 
     let mut product_listing_ids = Vec::with_capacity(count);
     for index in 0..count {
@@ -455,12 +455,15 @@ async fn seed_watchlist_entries(
         .await
         .unwrap_or_else(|error| panic!("failed to seed product-listing event: {error:?}"));
         sqlx::query(
-            "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, availability, lifecycle, url) VALUES ($1, $2, $3, $3, $4, $4, $5, 'AVAILABLE', 'ACTIVE', 'https://example.com/product-listings')",
+            "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, availability, lifecycle, url) VALUES ($1, $2, $3, $3, $4, $5, 'AVAILABLE', 'ACTIVE', 'https://example.com/product-listings')",
         )
         .bind(product_listing_id)
-        .bind(format!("tier-entitlements-product-{product_listing_id}"))
+        .bind(product_listing_title_slug_id(
+            "tier-entitlements-product",
+            product_listing_id,
+        ))
         .bind(event_id)
-        .bind(shop_id)
+        .bind(listing_source_id)
         .bind(format!("tier-entitlements-{index}"))
         .execute(&mut *tx)
         .await
@@ -563,4 +566,8 @@ async fn count_state(
         .fetch_one(pool)
         .await
         .unwrap_or_else(|error| panic!("failed to count resource state: {error:?}"))
+}
+
+fn product_listing_title_slug_id(prefix: &str, product_listing_id: uuid::Uuid) -> String {
+    format!("{prefix}-{}", &product_listing_id.simple().to_string()[..6])
 }

@@ -1,13 +1,14 @@
+use crate::CrawlerDomainId;
+use listing_source_core::ListingSourceId;
 use serde::{Deserialize, Serialize};
-use shop_core::shop_id::ShopId;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrawlerReview {
     pub review_id: uuid::Uuid,
-    pub shop_id: ShopId,
-    pub shop_name: Option<String>,
-    pub domain_id: Option<uuid::Uuid>,
+    pub listing_source_id: ListingSourceId,
+    pub listing_source_name: Option<String>,
+    pub domain_id: Option<CrawlerDomainId>,
     pub artifact_type: String,
     pub status: String,
     pub reason: String,

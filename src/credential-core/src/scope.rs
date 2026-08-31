@@ -3,11 +3,6 @@ use std::fmt::{Display, Formatter};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Scope {
     ProductListingsWrite,
-    ShopsRead,
-    ShopsWrite,
-    PartnerShopApplicationsWrite,
-    PartnerShopsRead,
-    PartnerShopsWrite,
     UsersRead,
     UsersWrite,
     AccessTokensRead,
@@ -21,11 +16,6 @@ impl Scope {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ProductListingsWrite => "product-listings:write",
-            Self::ShopsRead => "shops:read",
-            Self::ShopsWrite => "shops:write",
-            Self::PartnerShopApplicationsWrite => "partner-shop-applications:write",
-            Self::PartnerShopsRead => "partner-shops:read",
-            Self::PartnerShopsWrite => "partner-shops:write",
             Self::UsersRead => "users:read",
             Self::UsersWrite => "users:write",
             Self::AccessTokensRead => "access-tokens:read",

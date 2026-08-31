@@ -1,9 +1,10 @@
 use localization::Language;
 use std::collections::HashMap;
 
-use crate::url::append_utm_params;
+use crate::url::referral_configuration;
 use application::error::{BoxError, box_error, static_error};
 use domain_primitives::event_id::EventId;
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, outbound_url};
 use money::{Currency, MonetaryAmount, Price};
 use platform_postgres::SqlxTransaction;
 use product_listing_core::{
@@ -11,18 +12,16 @@ use product_listing_core::{
     listing_availability::ListingAvailability,
     product_listing_id::ProductListingId,
     product_listing_slug_id::ProductListingSlugId,
-    shop_listing_id::ShopListingId,
+    source_listing_id::SourceListingId,
     title::Title,
 };
 use product_listing_service::ports::{
-    ProductListingWatchlistNotificationChange, ProductListingWatchlistNotificationSource,
-    ProductListingWatchlistNotificationSourceReadError,
+    ListingSourceSummary, ProductListingWatchlistNotificationChange,
+    ProductListingWatchlistNotificationSource, ProductListingWatchlistNotificationSourceReadError,
     ProductListingWatchlistNotificationSourceReader,
     ProductListingWatchlistNotificationSourceReaderFactory,
 };
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
+
 use sqlx::PgConnection;
 
 use super::product_listing_details_reader::images;
@@ -41,11 +40,12 @@ struct SourceRow {
     product_listing_id: uuid::Uuid,
     event_type: String,
     payload: serde_json::Value,
-    product_listing_slug_id: String,
-    shop_id: uuid::Uuid,
-    shop_listing_id: String,
-    shop_slug_id: String,
-    shop_name: String,
+    product_listing_title_slug_id: String,
+    listing_source_id: uuid::Uuid,
+    source_listing_id: String,
+    listing_source_slug_id: String,
+    listing_source_name: String,
+    listing_source_referral_configuration: Option<serde_json::Value>,
     title_text: Option<String>,
     title_language: Option<String>,
     product_images: serde_json::Value,
@@ -140,15 +140,17 @@ impl ProductListingWatchlistNotificationSourceReader
             r#"
             SELECT
                 event.event_id, event.event_time, event.product_listing_id, event.event_type, event.payload,
-                product.product_listing_slug_id, product.shop_id, product.shop_listing_id AS shop_listing_id,
-                shop.shop_slug_id, shop.name AS shop_name,
+                product.product_listing_title_slug_id, product.listing_source_id, product.source_listing_id,
+                listing_source.listing_source_slug_id, listing_source.name AS listing_source_name,
+                listing_source.referral_configuration AS listing_source_referral_configuration,
                 product.title_text, product.title_language, product.product_images,
                 assessment.decision AS content_policy_decision,
                 assessment.category AS content_policy_category,
                 product.url
             FROM product_listing_events event
             JOIN product_listings product ON product.product_listing_id = event.product_listing_id
-            JOIN shops shop ON shop.shop_id = product.shop_id
+            JOIN listing_sources listing_source
+              ON listing_source.listing_source_id = product.listing_source_id
             LEFT JOIN product_listing_content_assessments assessment
                 ON assessment.product_listing_id = product.product_listing_id
                 AND assessment.source_event_id = product.content_source_event_id
@@ -195,24 +197,41 @@ impl ProductListingWatchlistNotificationSourceReader
             .next();
         let url = url::Url::parse(&row.url)
             .map_err(WatchlistNotificationSourceMappingError::with_source)?;
+        let view_url = outbound_url(
+            referral_configuration(row.listing_source_referral_configuration.as_ref())
+                .map_err(|_| {
+                    WatchlistNotificationSourceMappingError::invalid(
+                        "persisted watchlist notification source referral configuration is invalid",
+                    )
+                })?
+                .as_ref(),
+            &url,
+        )
+        .map_err(WatchlistNotificationSourceMappingError::with_source)?;
         Ok(Some(ProductListingWatchlistNotificationSource {
             event_id: EventId::from(row.event_id),
             event_time: row.event_time,
             product_listing_id: ProductListingId::from(row.product_listing_id),
-            product_listing_slug_id: ProductListingSlugId::raw(&row.product_listing_slug_id)
+            product_listing_title_slug_id: ProductListingSlugId::raw(
+                &row.product_listing_title_slug_id,
+            )
+            .map_err(WatchlistNotificationSourceMappingError::with_source)?,
+            source: ListingSourceSummary {
+                listing_source_id: ListingSourceId::from(row.listing_source_id),
+                name: ListingSourceName::try_from(row.listing_source_name)
+                    .map_err(WatchlistNotificationSourceMappingError::with_source)?,
+                slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id)
+                    .map_err(WatchlistNotificationSourceMappingError::with_source)?,
+            },
+            source_listing_id: SourceListingId::try_from(row.source_listing_id)
                 .map_err(WatchlistNotificationSourceMappingError::with_source)?,
-            shop_id: ShopId::from(row.shop_id),
-            shop_listing_id: ShopListingId::from(row.shop_listing_id),
-            shop_slug_id: ShopSlugId::raw(&row.shop_slug_id)
-                .map_err(WatchlistNotificationSourceMappingError::with_source)?,
-            shop_name: ShopName::from(row.shop_name),
             title: (!title.is_empty()).then_some(title),
             image,
             content_policy: content_policy(
                 row.content_policy_decision.as_deref(),
                 row.content_policy_category.as_deref(),
             )?,
-            view_url: append_utm_params(url.clone()),
+            view_url,
             url,
             change,
         }))

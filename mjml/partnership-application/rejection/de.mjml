@@ -1,0 +1,14 @@
+<mjml>
+  <mj-head>
+    <mj-title>Update zu deinem Partnerschaftsantrag: {{party_name}}</mj-title>
+    <mj-preview>Es gibt ein Update zu deinem Partnerschaftsantrag für {{listing_source_name}}.</mj-preview>
+  </mj-head>
+  <mj-body background-color="#F7F4E9" width="600px">
+    <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
+      <mj-column>
+        <mj-text>{{#if first_name}}Hallo {{first_name}},{{else}}Hallo,{{/if}}</mj-text>
+        <mj-text>Dein Partnerschaftsantrag für <b>{{party_name}}</b> und <b>{{listing_source_name}}</b> wurde diesmal nicht genehmigt.</mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

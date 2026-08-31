@@ -3,11 +3,8 @@ use crate::product_listing_percolation_document::{
 };
 use application::error::box_error;
 use fxrate_core::FxRateSnapshot;
-use opensearch::{
-    DeleteParts, IndexParts, OpenSearch,
-    http::{StatusCode, response::Response},
-    params::VersionType,
-};
+use opensearch::{DeleteParts, IndexParts, OpenSearch, http::StatusCode, params::VersionType};
+use platform_opensearch::response::read_response;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::ports::{
     ProductListingSearchFilterMatchSource, ProductListingSearchProjection,
@@ -112,20 +109,21 @@ fn document_error(
 }
 
 async fn write_response_outcome(
-    response: Response,
+    response: opensearch::http::response::Response,
     is_write: bool,
 ) -> Result<ProductListingSearchProjectionWriteOutcome, ProductListingSearchProjectionWriteError> {
-    let status = response.status_code();
+    let response = read_response(response).await.map_err(|source| {
+        projection_write_error(is_write, application::error::box_error(source))
+    })?;
+    let status = response.status();
     if let Ok(outcome) = write_outcome(status, is_write) {
         return Ok(outcome);
     }
-    let payload = response.text().await.map_err(|source| {
-        projection_write_error(is_write, application::error::box_error(source))
-    })?;
     Err(projection_write_error(
         is_write,
         application::error::box_error(std::io::Error::other(format!(
-            "OpenSearch ProductListing projection returned {status}: {payload}",
+            "OpenSearch ProductListing projection returned {status}: {}",
+            response.body(),
         ))),
     ))
 }

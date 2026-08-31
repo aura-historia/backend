@@ -374,17 +374,17 @@ label {
     margin-top: 1px;
 }
 
-.shop-group {
+.listing-source-group {
     border: 1px solid var(--line-soft);
     border-radius: var(--radius);
     background: var(--panel);
 }
 
-.shop-group + .shop-group {
+.listing-source-group + .listing-source-group {
     margin-top: 8px;
 }
 
-.shop-group-head {
+.listing-source-group-head {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -395,17 +395,17 @@ label {
     cursor: pointer;
 }
 
-.shop-review-list {
+.listing-source-review-list {
     display: grid;
     gap: 3px;
     padding: 4px;
 }
 
-.shop-review-list.collapsed {
+.listing-source-review-list.collapsed {
     display: none;
 }
 
-.shop-group-actions {
+.listing-source-group-actions {
     display: flex;
     align-items: center;
     gap: 6px;

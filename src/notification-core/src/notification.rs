@@ -1,17 +1,18 @@
 use crate::{notification_id::NotificationId, notification_kind::NotificationKind};
 use domain_primitives::event_id::EventId;
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use localization::Localized;
 use money::Price;
+use partnership_core::partnership_application_id::PartnershipApplicationId;
+use party_core::party_name::PartyName;
 use product_listing_core::{
     content_policy::ContentPolicyDecision, listing_availability::ListingAvailability,
     product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
-    shop_listing_id::ShopListingId, title::Title,
+    source_listing_id::SourceListingId, title::Title,
 };
 use search_filter_core::{
     user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
 };
-use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
-use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use std::collections::HashMap;
 use url::Url;
 use user_core::user_id::UserId;
@@ -104,10 +105,10 @@ pub enum NotificationContent {
         snapshot: ProductListingNotificationSnapshot,
         user_search_filter_name: UserSearchFilterName,
     },
-    PartnerApplication {
-        partner_shop_application_id: PartnerShopApplicationId,
-        snapshot: PartnerApplicationNotificationSnapshot,
-        decision: PartnerApplicationDecision,
+    PartnershipApplication {
+        partnership_application_id: PartnershipApplicationId,
+        snapshot: PartnershipApplicationNotificationSnapshot,
+        decision: PartnershipApplicationDecision,
     },
 }
 
@@ -123,14 +124,14 @@ impl NotificationContent {
                 ..
             } => NotificationKind::WatchlistAvailabilityChanged,
             Self::SearchFilter { .. } => NotificationKind::SearchFilterMatch,
-            Self::PartnerApplication {
-                decision: PartnerApplicationDecision::Approved,
+            Self::PartnershipApplication {
+                decision: PartnershipApplicationDecision::Approved,
                 ..
-            } => NotificationKind::PartnerApplicationApproved,
-            Self::PartnerApplication {
-                decision: PartnerApplicationDecision::Rejected,
+            } => NotificationKind::PartnershipApplicationApproved,
+            Self::PartnershipApplication {
+                decision: PartnershipApplicationDecision::Rejected,
                 ..
-            } => NotificationKind::PartnerApplicationRejected,
+            } => NotificationKind::PartnershipApplicationRejected,
         }
     }
 
@@ -142,7 +143,7 @@ impl NotificationContent {
             | Self::SearchFilter {
                 origin_event_id, ..
             } => Some(*origin_event_id),
-            Self::PartnerApplication { .. } => None,
+            Self::PartnershipApplication { .. } => None,
         }
     }
 
@@ -154,7 +155,7 @@ impl NotificationContent {
             | Self::SearchFilter {
                 product_listing_id, ..
             } => Some(*product_listing_id),
-            Self::PartnerApplication { .. } => None,
+            Self::PartnershipApplication { .. } => None,
         }
     }
 
@@ -185,12 +186,12 @@ impl NotificationContent {
                 user_search_filter_id,
                 user_search_filter_name,
             },
-            Self::PartnerApplication {
-                partner_shop_application_id,
+            Self::PartnershipApplication {
+                partnership_application_id,
                 snapshot,
                 decision,
-            } => LocalizedNotificationContent::PartnerApplication {
-                partner_shop_application_id,
+            } => LocalizedNotificationContent::PartnershipApplication {
+                partnership_application_id,
                 snapshot,
                 decision,
             },
@@ -200,11 +201,11 @@ impl NotificationContent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingNotificationSnapshot {
-    pub shop_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub shop_slug_id: ShopSlugId,
-    pub product_listing_slug_id: ProductListingSlugId,
-    pub shop_name: ShopName,
+    pub listing_source_id: ListingSourceId,
+    pub source_listing_id: SourceListingId,
+    pub listing_source_slug_id: ListingSourceSlugId,
+    pub product_listing_title_slug_id: ProductListingSlugId,
+    pub listing_source_name: ListingSourceName,
     pub title: Option<HashMap<localization::Language, Title>>,
     pub image: Option<Url>,
     pub content_policy: Option<ContentPolicyDecision>,
@@ -218,11 +219,11 @@ impl ProductListingNotificationSnapshot {
         preferred_languages: &[localization::Language],
     ) -> LocalizedProductListingNotificationSnapshot {
         LocalizedProductListingNotificationSnapshot {
-            shop_id: self.shop_id,
-            shop_listing_id: self.shop_listing_id,
-            shop_slug_id: self.shop_slug_id,
-            product_listing_slug_id: self.product_listing_slug_id,
-            shop_name: self.shop_name,
+            listing_source_id: self.listing_source_id,
+            source_listing_id: self.source_listing_id,
+            listing_source_slug_id: self.listing_source_slug_id,
+            product_listing_title_slug_id: self.product_listing_title_slug_id,
+            listing_source_name: self.listing_source_name,
             title: self
                 .title
                 .and_then(|titles| localization::Language::resolve(preferred_languages, titles)),
@@ -235,13 +236,14 @@ impl ProductListingNotificationSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PartnerApplicationNotificationSnapshot {
-    pub shop_name: ShopName,
+pub struct PartnershipApplicationNotificationSnapshot {
+    pub party_name: PartyName,
+    pub listing_source_name: ListingSourceName,
     pub image: Option<Url>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PartnerApplicationDecision {
+pub enum PartnershipApplicationDecision {
     Approved,
     Rejected,
 }
@@ -292,20 +294,20 @@ pub enum LocalizedNotificationContent {
         user_search_filter_id: UserSearchFilterId,
         user_search_filter_name: UserSearchFilterName,
     },
-    PartnerApplication {
-        partner_shop_application_id: PartnerShopApplicationId,
-        snapshot: PartnerApplicationNotificationSnapshot,
-        decision: PartnerApplicationDecision,
+    PartnershipApplication {
+        partnership_application_id: PartnershipApplicationId,
+        snapshot: PartnershipApplicationNotificationSnapshot,
+        decision: PartnershipApplicationDecision,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductListingNotificationSnapshot {
-    pub shop_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub shop_slug_id: ShopSlugId,
-    pub product_listing_slug_id: ProductListingSlugId,
-    pub shop_name: ShopName,
+    pub listing_source_id: ListingSourceId,
+    pub source_listing_id: SourceListingId,
+    pub listing_source_slug_id: ListingSourceSlugId,
+    pub product_listing_title_slug_id: ProductListingSlugId,
+    pub listing_source_name: ListingSourceName,
     pub title: Option<Localized<localization::Language, Title>>,
     pub image: Option<Url>,
     pub content_policy: Option<ContentPolicyDecision>,

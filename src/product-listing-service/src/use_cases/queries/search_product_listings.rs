@@ -1,11 +1,12 @@
 use crate::ports::{
-    CompiledProductListingSearch, ProductListingContentAssessmentReadError,
-    ProductListingContentAssessmentReader, ProductListingPriceFilterPlan,
-    ProductListingSearchReadError, ProductListingSearchReadRequest, ProductListingSearchReader,
-    ProductListingUserStateReader,
+    CompiledProductListingSearch, ListingSourceSummaryReader,
+    ProductListingContentAssessmentReadError, ProductListingContentAssessmentReader,
+    ProductListingPriceFilterPlan, ProductListingSearchReadError, ProductListingSearchReadRequest,
+    ProductListingSearchReader, ProductListingUserStateReader,
 };
 use crate::use_cases::queries::product_listing_summary_personalization::{
-    ProductListingSummaryPersonalizationError, hydrate_product_search_items,
+    ProductListingSummaryPersonalizationError, hydrate_listing_source_summaries,
+    hydrate_product_search_items,
 };
 use application::error::{BoxError, box_error};
 use application::operation_context::{OperationContext, Principal};
@@ -31,10 +32,9 @@ use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
-use product_listing_core::shop_listing_id::ShopListingId;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
+use crate::ports::ListingSourceSummary;
+use listing_source_core::ListingSourceId;
+use product_listing_core::source_listing_id::SourceListingId;
 
 use crate::user_state::ProductListingUserState;
 use indexmap::IndexSet;
@@ -70,20 +70,16 @@ pub struct ProductListingSearchCursor {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingSearchItem {
     pub product_listing_id: ProductListingId,
-    pub product_listing_slug_id: ProductListingSlugId,
+    pub product_listing_title_slug_id: ProductListingSlugId,
     pub event_id: EventId,
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub shop_name: ShopName,
-    pub shop_slug_id: ShopSlugId,
+    pub listing_source_id: ListingSourceId,
+    pub source_listing_id: SourceListingId,
     pub title: Option<Localized<Language, Title>>,
     pub display_price: Option<Price>,
     pub price_valuation: ProductListingSummaryPriceValuation,
     pub availability: Option<ListingAvailability>,
     pub lifecycle: ListingLifecycle,
     pub url: Url,
-    pub view_url: Url,
     pub images: IndexSet<ProductListingImage>,
     pub updated: OffsetDateTime,
 }
@@ -91,13 +87,10 @@ pub struct ProductListingSearchItem {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingSummary {
     pub product_listing_id: ProductListingId,
-    pub product_listing_slug_id: ProductListingSlugId,
+    pub product_listing_title_slug_id: Option<ProductListingSlugId>,
     pub event_id: EventId,
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shop_listing_id: ShopListingId,
-    pub shop_name: ShopName,
-    pub shop_slug_id: ShopSlugId,
+    pub source: ListingSourceSummary,
+    pub source_listing_id: SourceListingId,
     pub title: Option<Localized<Language, Title>>,
     pub display_price: Option<Price>,
     pub price_valuation: ProductListingSummaryPriceValuation,
@@ -124,8 +117,16 @@ pub enum ProductListingSummaryPriceValuation {
 
 pub type PersonalizedProductListingSummary =
     Personalized<ProductListingSummary, ProductListingUserState>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ProductListingSearchItemWithSource {
+    pub(crate) item: ProductListingSearchItem,
+    pub(crate) source: ListingSourceSummary,
+    pub(crate) view_url: Url,
+}
+
 pub(crate) type PersonalizedProductListingSearchItem =
-    Personalized<ProductListingSearchItem, ProductListingUserState>;
+    Personalized<ProductListingSearchItemWithSource, ProductListingUserState>;
 pub type ProductListingSearchReadResult = CursoredResult<ProductListingSearchItem, Value>;
 pub type SearchProductListingsResult =
     CursoredResult<PersonalizedProductListingSummary, ProductListingSearchCursor>;
@@ -158,6 +159,18 @@ pub enum SearchProductListingsError {
         #[source]
         source: BoxError,
     },
+    #[error("listing source summary query failed")]
+    ListingSourceSummaryQueryFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("listing source summary read model is invalid")]
+    ListingSourceSummaryReadModelInvalid {
+        #[source]
+        source: BoxError,
+    },
+    #[error("listing source summary is missing for listing source {listing_source_id}")]
+    ListingSourceSummaryMissing { listing_source_id: ListingSourceId },
     #[error("product user state query failed")]
     ProductListingUserStateQueryFailed {
         #[source]
@@ -197,21 +210,23 @@ pub trait SearchProductListingsUseCase: Send + Sync {
     ) -> Result<SearchProductListingsResult, SearchProductListingsError>;
 }
 
-pub struct SearchProductListingsHandler<UoW, R, F, E, U, A> {
+pub struct SearchProductListingsHandler<UoW, R, F, E, L, U, A> {
     unit_of_work: UoW,
     reader: R,
     fx_rates: F,
     embeddings: E,
+    listing_sources: L,
     user_states: U,
     assessments: A,
 }
 
-impl<UoW, R, F, E, U, A> SearchProductListingsHandler<UoW, R, F, E, U, A> {
+impl<UoW, R, F, E, L, U, A> SearchProductListingsHandler<UoW, R, F, E, L, U, A> {
     pub fn new(
         unit_of_work: UoW,
         reader: R,
         fx_rates: F,
         embeddings: E,
+        listing_sources: L,
         user_states: U,
         assessments: A,
     ) -> Self {
@@ -220,6 +235,7 @@ impl<UoW, R, F, E, U, A> SearchProductListingsHandler<UoW, R, F, E, U, A> {
             reader,
             fx_rates,
             embeddings,
+            listing_sources,
             user_states,
             assessments,
         }
@@ -227,13 +243,14 @@ impl<UoW, R, F, E, U, A> SearchProductListingsHandler<UoW, R, F, E, U, A> {
 }
 
 #[async_trait::async_trait]
-impl<UoW, R, F, E, U, A> SearchProductListingsUseCase
-    for SearchProductListingsHandler<UoW, R, F, E, U, A>
+impl<UoW, R, F, E, L, U, A> SearchProductListingsUseCase
+    for SearchProductListingsHandler<UoW, R, F, E, L, U, A>
 where
     UoW: UnitOfWork,
     R: ProductListingSearchReader,
     F: FxRateSnapshotRepositoryFactory<UoW::Tx>,
     E: EmbeddingGenerator,
+    L: ListingSourceSummaryReader,
     U: ProductListingUserStateReader,
     A: ProductListingContentAssessmentReader,
 {
@@ -299,8 +316,8 @@ where
                 }
             }),
         };
-        let mut items = result
-            .items
+        let mut items = hydrate_listing_source_summaries(result.items, &self.listing_sources)
+            .await?
             .into_iter()
             .map(|item| Personalized {
                 item,
@@ -328,7 +345,7 @@ where
 {
     let ids = products
         .iter()
-        .map(|product| product.item.product_listing_id)
+        .map(|product| product.item.item.product_listing_id)
         .collect::<Vec<_>>();
     let current = assessments.find_current_assessments(&ids).await?;
 
@@ -336,7 +353,7 @@ where
         .into_iter()
         .map(|product| {
             let decision = current
-                .get(&product.item.product_listing_id)
+                .get(&product.item.item.product_listing_id)
                 .map(|assessment| assessment.decision);
             let show_all = product.user_state.as_ref().is_some_and(|state| {
                 state
@@ -346,22 +363,24 @@ where
             let visible = may_show_product_listing_images(decision, show_all);
             Personalized {
                 item: ProductListingSummary {
-                    product_listing_id: product.item.product_listing_id,
-                    product_listing_slug_id: product.item.product_listing_slug_id,
-                    event_id: product.item.event_id,
-                    shop_id: product.item.shop_id,
-                    seller_id: product.item.seller_id,
-                    shop_listing_id: product.item.shop_listing_id,
-                    shop_name: product.item.shop_name,
-                    shop_slug_id: product.item.shop_slug_id,
-                    title: product.item.title,
-                    display_price: product.item.display_price,
-                    price_valuation: product.item.price_valuation,
-                    availability: product.item.availability,
-                    lifecycle: product.item.lifecycle,
-                    url: product.item.url,
+                    product_listing_id: product.item.item.product_listing_id,
+                    product_listing_title_slug_id: (!product
+                        .user_state
+                        .as_ref()
+                        .is_some_and(|state| state.search_filter.hidden))
+                    .then_some(product.item.item.product_listing_title_slug_id),
+                    event_id: product.item.item.event_id,
+                    source: product.item.source,
+                    source_listing_id: product.item.item.source_listing_id,
+                    title: product.item.item.title,
+                    display_price: product.item.item.display_price,
+                    price_valuation: product.item.item.price_valuation,
+                    availability: product.item.item.availability,
+                    lifecycle: product.item.item.lifecycle,
+                    url: product.item.item.url,
                     view_url: product.item.view_url,
                     images: product
+                        .item
                         .item
                         .images
                         .into_iter()
@@ -372,7 +391,7 @@ where
                         )
                         .collect(),
                     content_policy: decision,
-                    updated: product.item.updated,
+                    updated: product.item.item.updated,
                 },
                 user_state: product.user_state,
             }
@@ -506,6 +525,18 @@ impl From<ProductListingContentAssessmentReadError> for SearchProductListingsErr
 impl From<ProductListingSummaryPersonalizationError> for SearchProductListingsError {
     fn from(error: ProductListingSummaryPersonalizationError) -> Self {
         match error {
+            ProductListingSummaryPersonalizationError::ListingSourceSummaryQueryFailed {
+                source,
+            } => Self::ListingSourceSummaryQueryFailed { source },
+            ProductListingSummaryPersonalizationError::ListingSourceSummaryReadModelInvalid {
+                source,
+            } => Self::ListingSourceSummaryReadModelInvalid { source },
+            ProductListingSummaryPersonalizationError::ListingSourceSummaryMissing {
+                listing_source_id,
+            } => Self::ListingSourceSummaryMissing { listing_source_id },
+            ProductListingSummaryPersonalizationError::ViewUrlInvalid { .. } => {
+                Self::ProductListingSearchReadModelInvalid
+            }
             ProductListingSummaryPersonalizationError::UserStateQueryFailed { source } => {
                 Self::ProductListingUserStateQueryFailed { source }
             }
@@ -609,6 +640,9 @@ mod tests {
 
     #[derive(Clone, Copy)]
     struct EmptyAssessmentReader;
+
+    #[derive(Clone, Copy)]
+    struct StaticListingSourceSummaryReader;
 
     #[derive(Clone)]
     struct StaticAssessmentReader {
@@ -789,6 +823,41 @@ mod tests {
     }
 
     #[async_trait::async_trait]
+    impl ListingSourceSummaryReader for StaticListingSourceSummaryReader {
+        async fn find_summaries(
+            &self,
+            listing_source_ids: &[ListingSourceId],
+        ) -> Result<
+            HashMap<ListingSourceId, crate::ports::ListingSourceSummaryWithReferral>,
+            crate::ports::ListingSourceSummaryReadError,
+        > {
+            Ok(listing_source_ids
+                .iter()
+                .copied()
+                .map(|listing_source_id| {
+                    (
+                        listing_source_id,
+                        crate::ports::ListingSourceSummaryWithReferral {
+                            summary: ListingSourceSummary {
+                                listing_source_id,
+                                name: listing_source_core::ListingSourceName::try_from("Source")
+                                    .unwrap_or_else(|error| {
+                                        panic!("invalid test listing source name: {error}")
+                                    }),
+                                slug_id: listing_source_core::ListingSourceSlugId::raw("source")
+                                    .unwrap_or_else(|error| {
+                                        panic!("valid test listing source slug: {error}")
+                                    }),
+                            },
+                            referral_configuration: None,
+                        },
+                    )
+                })
+                .collect())
+        }
+    }
+
+    #[async_trait::async_trait]
     impl ProductListingContentAssessmentReader for EmptyAssessmentReader {
         async fn find_current_assessments(
             &self,
@@ -858,6 +927,7 @@ mod tests {
         FakeSearchReader,
         FakeFxRateSnapshotRepositoryFactory,
         FakeEmbeddingGenerator,
+        StaticListingSourceSummaryReader,
         FakeUserStatesReader,
         EmptyAssessmentReader,
     > {
@@ -872,6 +942,7 @@ mod tests {
             FakeEmbeddingGenerator {
                 state: Arc::clone(state),
             },
+            StaticListingSourceSummaryReader,
             FakeUserStatesReader {
                 state: Arc::clone(state),
             },
@@ -899,13 +970,12 @@ mod tests {
         Ok(ProductListingSearchReadResult {
             items: vec![ProductListingSearchItem {
                 product_listing_id: ProductListingId::new(),
-                product_listing_slug_id: ProductListingSlugId::from("cabinet-abcdef"),
+                product_listing_title_slug_id: ProductListingSlugId::raw("cabinet-a1b2c3")
+                    .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
                 event_id: EventId::new(),
-                shop_id: ShopId::new(),
-                seller_id: ShopId::new(),
-                shop_listing_id: ShopListingId::new(),
-                shop_name: ShopName::from("Shop"),
-                shop_slug_id: ShopSlugId::from("shop"),
+                listing_source_id: ListingSourceId::new(),
+                source_listing_id: SourceListingId::try_from("cabinet-1")
+                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                 title: Some(Localized {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),
@@ -918,7 +988,6 @@ mod tests {
                 availability: Some(ListingAvailability::InStock),
                 lifecycle: ListingLifecycle::Active,
                 url: Url::parse("https://shop.example/products/1")?,
-                view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
                 images: IndexSet::<ProductListingImage>::new(),
                 updated: OffsetDateTime::UNIX_EPOCH,
             }],
@@ -928,6 +997,22 @@ mod tests {
             },
             total: Some(1),
         })
+    }
+
+    fn search_item_with_source(
+        item: ProductListingSearchItem,
+    ) -> ProductListingSearchItemWithSource {
+        ProductListingSearchItemWithSource {
+            source: ListingSourceSummary {
+                listing_source_id: item.listing_source_id,
+                name: listing_source_core::ListingSourceName::try_from("Source")
+                    .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+                slug_id: listing_source_core::ListingSourceSlugId::raw("source")
+                    .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+            },
+            view_url: item.url.clone(),
+            item,
+        }
     }
 
     fn snapshot() -> Result<FxRateSnapshot, fxrate_core::FxRateSnapshotError> {
@@ -1010,7 +1095,7 @@ mod tests {
                 ..Default::default()
             });
             products.push(Personalized {
-                item: summary,
+                item: search_item_with_source(summary),
                 user_state,
             });
         }
@@ -1045,7 +1130,7 @@ mod tests {
     async fn should_propagate_summary_content_assessment_reader_failure()
     -> Result<(), Box<dyn std::error::Error>> {
         let products = vec![Personalized {
-            item: search_result()?.items.remove(0),
+            item: search_item_with_source(search_result()?.items.remove(0)),
             user_state: None,
         }];
 
@@ -1359,10 +1444,8 @@ mod tests {
             .execute(&user_context(user_id), request())
             .await?;
 
-        assert_eq!(
-            ProductListingId::from(uuid::Uuid::nil()),
-            result.items[0].item.product_listing_id
-        );
+        assert_eq!(product_listing_id, result.items[0].item.product_listing_id);
+        assert_eq!(None, result.items[0].item.product_listing_title_slug_id);
         assert_eq!(
             Some(true),
             result.items[0]

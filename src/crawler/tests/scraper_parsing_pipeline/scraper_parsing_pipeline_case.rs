@@ -39,9 +39,9 @@ struct FixtureJson {
 
 /// Load all fixture cases from `tests/fixtures/fixtures.json`.
 ///
-/// Adding a new shop or a new case for an existing shop requires only:
-///   1. Drop the HTML file in `tests/fixtures/html/<shop>[_variant].html`.
-///   2. Add the shop's cached schemas to `tests/fixtures/schemas/<shop>.json`.
+/// Adding a new ListingSource or a new case for an existing ListingSource requires only:
+///   1. Drop the HTML file in `tests/fixtures/html/<listing_source>[_variant].html`.
+///   2. Add the ListingSource cached schemas to `tests/fixtures/schemas/<listing_source>.json`.
 ///   3. Append an element to `tests/fixtures/fixtures.json` with
 ///      `schemas_file`, `schema_index`, `html`, `raw_state`, `availability_record`,
 ///      `raw`, and `normalized` fields.
@@ -107,7 +107,7 @@ fn parse_availability_record(s: &str) -> Option<ListingAvailability> {
 
 fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectation {
     NormalizedExpectation {
-        shop_listing_id: data.shop_listing_id,
+        source_listing_id: data.source_listing_id,
         title: data.title,
         description: data.description.map(|description| {
             product_listing_core::description::Description::from(description.as_str()).to_string()
@@ -121,7 +121,7 @@ fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectatio
             data.price_estimate_max,
             data.price_estimate_max_currency.as_deref(),
         ),
-        seller_name: data.seller_name,
+
         availability: parse_availability(data.availability.as_deref()),
         url: data.url,
         images: data.images,

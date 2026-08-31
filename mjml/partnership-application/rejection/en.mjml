@@ -1,0 +1,14 @@
+<mjml>
+  <mj-head>
+    <mj-title>Partnership application update: {{party_name}}</mj-title>
+    <mj-preview>An update on your partnership application for {{listing_source_name}}.</mj-preview>
+  </mj-head>
+  <mj-body background-color="#F7F4E9" width="600px">
+    <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
+      <mj-column>
+        <mj-text>{{#if first_name}}Hello {{first_name}},{{else}}Hello,{{/if}}</mj-text>
+        <mj-text>Your partnership application for <b>{{party_name}}</b> and <b>{{listing_source_name}}</b> was not approved at this time.</mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

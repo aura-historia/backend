@@ -252,53 +252,7 @@ fn resolved_addresses_are_safe(addresses: &[SocketAddr]) -> bool {
 }
 
 fn is_publicly_routable_ip(address: IpAddr) -> bool {
-    match address {
-        IpAddr::V4(address) => {
-            let [first, second, _, _] = address.octets();
-            !address.is_unspecified()
-                && first != 0
-                && !address.is_private()
-                && !address.is_loopback()
-                && !address.is_link_local()
-                && !address.is_broadcast()
-                && !address.is_multicast()
-                && !(first == 100 && (64..=127).contains(&second))
-                && !(first == 192 && second == 0)
-                && !(first == 192 && second == 2)
-                && !(first == 198 && (second == 18 || second == 19))
-                && !(first == 198 && second == 51)
-                && !(first == 203 && second == 0)
-                && first < 240
-        }
-        IpAddr::V6(address) => {
-            if address.is_unspecified() || address.is_loopback() || address.is_multicast() {
-                return false;
-            }
-
-            if let Some(address) = address.to_ipv4_mapped() {
-                return is_publicly_routable_ip(IpAddr::V4(address));
-            }
-
-            let octets = address.octets();
-            if octets[..12].iter().all(|octet| *octet == 0) {
-                return is_publicly_routable_ip(IpAddr::V4(std::net::Ipv4Addr::new(
-                    octets[12], octets[13], octets[14], octets[15],
-                )));
-            }
-
-            let segments = address.segments();
-            !address.is_unspecified()
-                && !address.is_loopback()
-                && !address.is_multicast()
-                && (segments[0] & 0xfe00) != 0xfc00
-                && (segments[0] & 0xffc0) != 0xfe80
-                && !(segments[0] == 0x2001 && segments[1] < 0x0200)
-                && !(segments[0] == 0x2001 && segments[1] == 0x0db8)
-                && segments[0] != 0x2002
-                && !(segments[0] == 0x64 && segments[1] == 0xff9b)
-                && !(segments[0] == 0x100 && segments[1] == 0)
-        }
-    }
+    public_network_policy::is_safe_public_http_destination(address)
 }
 fn image_fetch_backoff(attempt: usize) -> Duration {
     let multiplier = 1_u32 << attempt.saturating_sub(1);

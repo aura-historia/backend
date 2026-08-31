@@ -1,6 +1,5 @@
 use application::error::box_error;
 use domain_primitives::event_id::EventId;
-use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use fxrate_core::FxRateId;
 use product_listing_core::listing_availability::ListingAvailability;
@@ -10,14 +9,8 @@ use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
-use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use user_core::user_id::UserId;
 
-use geo::{
-    core::distance::{Distance, DistanceUnit, GeoDistanceQuery},
-    data::continent_data::ContinentData,
-};
-use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
 use product_listing_core::product_listing_search::{
@@ -31,7 +24,6 @@ use search_filter_service::ports::{
     SearchFilterRepositoryError, SearchFilterView,
 };
 use serde::{Deserialize, Serialize};
-use shop_core::shop_type::ShopType;
 use sqlx::FromRow;
 use std::{collections::HashSet, error::Error, fmt};
 use strum::IntoEnumIterator;
@@ -339,24 +331,6 @@ where
         .collect()
 }
 
-mod distance_unit {
-    use super::*;
-
-    pub(crate) fn serialize<S>(value: &DistanceUnit, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serialize_code(value, serializer, DistanceUnit::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<DistanceUnit, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserialize_code(deserializer, DistanceUnit::from_code)
-    }
-}
-
 mod language {
     use super::*;
 
@@ -390,24 +364,6 @@ mod currency {
         D: serde::Deserializer<'de>,
     {
         deserialize_code(deserializer, Currency::from_code)
-    }
-}
-
-mod shop_type {
-    use super::*;
-
-    pub(crate) fn serialize<S>(values: &HashSet<ShopType>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serialize_set_code(values, serializer, ShopType::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<HashSet<ShopType>, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserialize_set_code(deserializer, ShopType::from_code)
     }
 }
 
@@ -457,58 +413,6 @@ mod listing_orderability {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-struct DistanceJson {
-    amount: f64,
-    #[serde(with = "distance_unit")]
-    unit: DistanceUnit,
-}
-
-impl From<Distance> for DistanceJson {
-    fn from(value: Distance) -> Self {
-        Self {
-            amount: value.amount,
-            unit: value.unit,
-        }
-    }
-}
-
-impl From<DistanceJson> for Distance {
-    fn from(value: DistanceJson) -> Self {
-        Self {
-            amount: value.amount,
-            unit: value.unit,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-struct GeoDistanceQueryJson {
-    lat: f64,
-    lon: f64,
-    distance: DistanceJson,
-}
-
-impl From<GeoDistanceQuery> for GeoDistanceQueryJson {
-    fn from(value: GeoDistanceQuery) -> Self {
-        Self {
-            lat: value.lat,
-            lon: value.lon,
-            distance: value.distance.into(),
-        }
-    }
-}
-
-impl From<GeoDistanceQueryJson> for GeoDistanceQuery {
-    fn from(value: GeoDistanceQueryJson) -> Self {
-        Self {
-            lat: value.lat,
-            lon: value.lon,
-            distance: value.distance.into(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductListingSearchJson {
@@ -519,19 +423,8 @@ struct ProductListingSearchJson {
     product_listing_query: Vec<domain_primitives::query::text_query::TextQuery<1>>,
     enhanced_search_description: Option<String>,
     exclude_product_listing_id_query: HashSet<ProductListingId>,
-    shop_name_query: HashSet<ShopName>,
-    exclude_shop_name_query: HashSet<ShopName>,
-    seller_name_query: HashSet<ShopName>,
-    exclude_seller_name_query: HashSet<ShopName>,
-    shop_slug_id_query: HashSet<ShopSlugId>,
-    exclude_shop_slug_id_query: HashSet<ShopSlugId>,
-    seller_slug_id_query: HashSet<SellerSlugId>,
-    exclude_seller_slug_id_query: HashSet<SellerSlugId>,
-    #[serde(with = "shop_type")]
-    shop_type_query: HashSet<ShopType>,
-    country_query: HashSet<CountryCode>,
-    continent_query: HashSet<ContinentData>,
-    geo_address_distance_query: Option<GeoDistanceQueryJson>,
+    listing_source_id_query: HashSet<uuid::Uuid>,
+    exclude_listing_source_id_query: HashSet<uuid::Uuid>,
     price_query: Option<RangeQuery<u64>>,
     availability_query: Option<ListingAvailabilityQueryJson>,
     created_query: Option<TimeRangeJson>,
@@ -607,18 +500,18 @@ impl TryFrom<&ProductListingSearch> for ProductListingSearchJson {
                 .iter()
                 .copied()
                 .collect(),
-            shop_name_query: v.shop_name_query.iter().cloned().collect(),
-            exclude_shop_name_query: v.exclude_shop_name_query.iter().cloned().collect(),
-            seller_name_query: v.seller_name_query.iter().cloned().collect(),
-            exclude_seller_name_query: v.exclude_seller_name_query.iter().cloned().collect(),
-            shop_slug_id_query: v.shop_slug_id_query.iter().cloned().collect(),
-            exclude_shop_slug_id_query: v.exclude_shop_slug_id_query.iter().cloned().collect(),
-            seller_slug_id_query: v.seller_slug_id_query.iter().cloned().collect(),
-            exclude_seller_slug_id_query: v.exclude_seller_slug_id_query.iter().cloned().collect(),
-            shop_type_query: v.shop_type_query.iter().copied().collect(),
-            country_query: v.country_query.iter().copied().collect(),
-            continent_query: v.continent_query.iter().copied().map(Into::into).collect(),
-            geo_address_distance_query: v.geo_address_distance_query.map(Into::into),
+            listing_source_id_query: v
+                .listing_source_id_query
+                .iter()
+                .copied()
+                .map(uuid::Uuid::from)
+                .collect(),
+            exclude_listing_source_id_query: v
+                .exclude_listing_source_id_query
+                .iter()
+                .copied()
+                .map(uuid::Uuid::from)
+                .collect(),
             price_query: v.price_query.map(|v| v.map(u64::from)),
             availability_query: v.availability_query.as_ref().map(|query| {
                 ListingAvailabilityQueryJson {
@@ -655,22 +548,16 @@ pub(crate) fn product_search_from_json(
             .transpose()
             .map_err(ProductListingSearchJsonMappingError::EnhancedSearchDescription)?,
         exclude_product_listing_id_query: j.exclude_product_listing_id_query.into(),
-        shop_name_query: j.shop_name_query.into(),
-        exclude_shop_name_query: j.exclude_shop_name_query.into(),
-        seller_name_query: j.seller_name_query.into(),
-        exclude_seller_name_query: j.exclude_seller_name_query.into(),
-        shop_slug_id_query: j.shop_slug_id_query.into(),
-        exclude_shop_slug_id_query: j.exclude_shop_slug_id_query.into(),
-        seller_slug_id_query: j.seller_slug_id_query.into(),
-        exclude_seller_slug_id_query: j.exclude_seller_slug_id_query.into(),
-        shop_type_query: j.shop_type_query.into(),
-        country_query: j.country_query.into(),
-        continent_query: j
-            .continent_query
+        listing_source_id_query: j
+            .listing_source_id_query
             .into_iter()
             .map(Into::into)
-            .collect::<AnyOfQuery<_>>(),
-        geo_address_distance_query: j.geo_address_distance_query.map(Into::into),
+            .collect(),
+        exclude_listing_source_id_query: j
+            .exclude_listing_source_id_query
+            .into_iter()
+            .map(Into::into)
+            .collect(),
         price_query: j.price_query.map(|v| v.map(Into::into)),
         availability_query: j.availability_query.map(|query| ListingAvailabilityQuery {
             any_of: query.availability.into(),
@@ -693,31 +580,9 @@ pub(crate) fn product_search_to_json(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use listing_source_core::ListingSourceId;
     use localization::Language;
     use money::Currency;
-
-    #[test]
-    fn should_round_trip_geo_distance_query_with_legacy_json_shape()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let search = ProductListingSearch::new(Language::De, Currency::Usd)
-            .with_geo_address_distance_query(GeoDistanceQuery {
-                lat: 52.52,
-                lon: 13.405,
-                distance: Distance {
-                    amount: 50.0,
-                    unit: DistanceUnit::Kilometers,
-                },
-            });
-
-        let json = product_search_to_json(&search)?;
-
-        assert_eq!(
-            Some(&serde_json::json!("KILOMETERS")),
-            json.pointer("/geo_address_distance_query/distance/unit")
-        );
-        assert_eq!(search, product_search_from_json(json)?);
-        Ok(())
-    }
 
     #[test]
     fn should_round_trip_full_product_search_json() {
@@ -738,27 +603,39 @@ mod tests {
     }
 
     #[test]
-    fn should_preserve_canonical_product_search_leaf_codes() -> Result<(), Box<dyn Error>> {
+    fn should_round_trip_listing_source_id_filters() -> Result<(), Box<dyn Error>> {
+        let included = ListingSourceId::from(uuid::Uuid::from_u128(1));
+        let excluded = ListingSourceId::from(uuid::Uuid::from_u128(2));
+        let search = ProductListingSearch::new(Language::En, Currency::Eur)
+            .with_listing_source_id_query(HashSet::from([included]).into())
+            .with_exclude_listing_source_id_query(HashSet::from([excluded]).into());
+
+        let persisted = product_search_to_json(&search)?;
+
+        assert_eq!(
+            Some(&serde_json::json!(included.to_string())),
+            persisted.pointer("/listing_source_id_query/0")
+        );
+        assert_eq!(
+            Some(&serde_json::json!(excluded.to_string())),
+            persisted.pointer("/exclude_listing_source_id_query/0")
+        );
+        assert_eq!(search, product_search_from_json(persisted)?);
+        Ok(())
+    }
+
+    #[test]
+    fn should_preserve_canonical_availability_query_codes() -> Result<(), Box<dyn Error>> {
         let mut persisted =
             product_search_to_json(&ProductListingSearch::new(Language::En, Currency::Eur))?;
-        persisted["shop_type_query"] = serde_json::json!(["COMMERCIAL_DEALER"]);
         persisted["availability_query"] = serde_json::json!({
             "availability": ["IN_STOCK"],
             "orderability": ["ORDERABLE_NOW"],
             "include_unspecified": true
         });
-        persisted["geo_address_distance_query"] = serde_json::json!({
-            "lat": 52.52,
-            "lon": 13.405,
-            "distance": {"amount": 50.0, "unit": "KILOMETERS"}
-        });
 
         assert_eq!(Some(&serde_json::json!("en")), persisted.get("language"));
         assert_eq!(Some(&serde_json::json!("EUR")), persisted.get("currency"));
-        assert_eq!(
-            Some(&serde_json::json!("COMMERCIAL_DEALER")),
-            persisted.pointer("/shop_type_query/0")
-        );
         assert_eq!(
             Some(&serde_json::json!("IN_STOCK")),
             persisted.pointer("/availability_query/availability/0")
@@ -771,19 +648,10 @@ mod tests {
             Some(&serde_json::json!(true)),
             persisted.pointer("/availability_query/include_unspecified")
         );
-        assert_eq!(
-            Some(&serde_json::json!("KILOMETERS")),
-            persisted.pointer("/geo_address_distance_query/distance/unit")
-        );
 
         let decoded = product_search_from_json(persisted)?;
         assert_eq!(Language::En, decoded.language);
         assert_eq!(Currency::Eur, decoded.currency);
-        assert!(
-            decoded
-                .shop_type_query
-                .contains(&ShopType::CommercialDealer)
-        );
         assert_eq!(
             Some(ListingAvailabilityQuery {
                 any_of: HashSet::from([ListingAvailability::InStock]).into(),
@@ -791,12 +659,6 @@ mod tests {
                 include_unspecified: true,
             }),
             decoded.availability_query
-        );
-        assert_eq!(
-            Some(DistanceUnit::Kilometers),
-            decoded
-                .geo_address_distance_query
-                .map(|query| query.distance.unit)
         );
         Ok(())
     }
@@ -840,10 +702,27 @@ mod tests {
             None => panic!("product search JSON must be an object"),
         };
 
-        assert_eq!(23, object.len());
+        assert_eq!(13, object.len());
         assert!(object.contains_key("auction_end_query"));
-        assert!(object.contains_key("exclude_seller_slug_id_query"));
-        assert!(object.contains_key("geo_address_distance_query"));
+        assert!(object.contains_key("listing_source_id_query"));
+        assert!(object.contains_key("exclude_listing_source_id_query"));
+        assert!(
+            !object.contains_key("obsolete_query"),
+            "unknown keys must not persist"
+        );
+    }
+
+    #[test]
+    fn should_reject_obsolete_product_search_filter_keys() -> Result<(), Box<dyn Error>> {
+        let mut persisted =
+            product_search_to_json(&ProductListingSearch::new(Language::En, Currency::Eur))?;
+        persisted["obsolete_query"] = serde_json::json!([]);
+
+        assert!(matches!(
+            product_search_from_json(persisted),
+            Err(ProductListingSearchJsonMappingError::Deserialize(_))
+        ));
+        Ok(())
     }
 
     #[test]

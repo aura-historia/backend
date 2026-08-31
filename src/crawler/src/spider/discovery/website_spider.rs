@@ -8,10 +8,14 @@ use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 use url::Url;
 
+use crate::network::policy::{is_same_or_www_host, resolve_public_http_target};
 use crate::spider::utils::url::CrawledUrl;
 
 const SPIDER_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36";
 const SPIDER_ACCEPT_ENCODING: &str = "gzip, br, deflate";
+const MAX_ROOT_REDIRECTS: usize = 5;
+const SPIDER_MAX_BODY_BYTES_ENV: &str = "SPIDER_MAX_SIZE_BYTES";
+const DEFAULT_MAX_RESPONSE_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 fn spider_request_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
@@ -115,6 +119,12 @@ pub struct CrawlerConfig {
     pub bloom_capacity: usize,
     pub bloom_fp_rate: f64,
     pub channel_size: usize,
+    /// Maximum pages accepted in one crawl, including the root page.
+    pub max_pages_per_crawl: u32,
+    /// Whole-crawl wall-clock budget; request timeout remains per request.
+    pub max_crawl_duration: std::time::Duration,
+    /// Hard page-body ceiling enforced by Spider's streaming transport.
+    pub max_response_body_bytes: usize,
 }
 
 impl Default for CrawlerConfig {
@@ -126,6 +136,9 @@ impl Default for CrawlerConfig {
             bloom_capacity: 100_000,
             bloom_fp_rate: 0.001,
             channel_size: 1000,
+            max_pages_per_crawl: 10_000,
+            max_crawl_duration: std::time::Duration::from_secs(10 * 60),
+            max_response_body_bytes: DEFAULT_MAX_RESPONSE_BODY_BYTES,
         }
     }
 }
@@ -133,7 +146,7 @@ impl Default for CrawlerConfig {
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait Spider: Send + Sync {
-    async fn crawl(&self, shop_url: &str) -> Result<SpiderCrawl, SpiderDiscoveryError>;
+    async fn crawl(&self, crawl_root_url: &str) -> Result<SpiderCrawl, SpiderDiscoveryError>;
 }
 
 pub struct SpiderImpl {
@@ -152,14 +165,144 @@ impl Default for SpiderImpl {
     }
 }
 
+fn configured_spider_body_limit(
+    configured: Option<&str>,
+    maximum: usize,
+) -> Result<(), SpiderDiscoveryError> {
+    let configured = configured
+        .ok_or_else(|| {
+            SpiderDiscoveryError::Discovery(format!(
+                "{SPIDER_MAX_BODY_BYTES_ENV} must be set to the crawler page-body limit"
+            ))
+        })?
+        .parse::<usize>()
+        .map_err(|_| {
+            SpiderDiscoveryError::Discovery(format!(
+                "{SPIDER_MAX_BODY_BYTES_ENV} must be an integer page-body limit"
+            ))
+        })?;
+    if !(1_048_576..=maximum).contains(&configured) {
+        return Err(SpiderDiscoveryError::Discovery(format!(
+            "{SPIDER_MAX_BODY_BYTES_ENV} must be between 1048576 and {maximum} bytes"
+        )));
+    }
+    Ok(())
+}
+
+fn configured_host_whitelist(url: &Url) -> Result<String, SpiderDiscoveryError> {
+    let host = url.host_str().ok_or_else(|| {
+        SpiderDiscoveryError::Discovery("configured crawler URL has no host".to_string())
+    })?;
+    Ok(format!(
+        r"^https?://{}(?::(?:80|443))?(?:/|$)",
+        regex::escape(host)
+    ))
+}
+
+async fn spider_public_http_client(
+    url: &Url,
+    timeout: std::time::Duration,
+) -> Result<spider::reqwest::Client, SpiderDiscoveryError> {
+    let target = resolve_public_http_target(url, timeout)
+        .await
+        .map_err(|error| SpiderDiscoveryError::Discovery(error.to_string()))?;
+    let mut builder = spider::reqwest::Client::builder()
+        .redirect(spider::reqwest::redirect::Policy::none())
+        .timeout(timeout)
+        .connect_timeout(timeout)
+        .no_proxy();
+    for address in target.addresses {
+        builder = builder.resolve(&target.host, address);
+    }
+    builder
+        .build()
+        .map_err(|error| SpiderDiscoveryError::Discovery(error.to_string()))
+}
+
+fn root_redirect_target(
+    configured_root: &Url,
+    current_root: &Url,
+    location: &str,
+) -> Result<Url, SpiderDiscoveryError> {
+    let redirect_target = current_root.join(location).map_err(|_| {
+        SpiderDiscoveryError::Discovery("crawl-root redirect location is invalid".to_string())
+    })?;
+
+    if !is_same_or_www_host(configured_root, &redirect_target) {
+        return Err(SpiderDiscoveryError::Discovery(
+            "crawl-root redirect target is outside the configured bare/www host".to_string(),
+        ));
+    }
+
+    Ok(redirect_target)
+}
+
+async fn preflight_crawl_root(
+    configured_root: Url,
+    timeout: std::time::Duration,
+) -> Result<Url, SpiderDiscoveryError> {
+    let mut current_root = configured_root.clone();
+
+    for redirect_count in 0..=MAX_ROOT_REDIRECTS {
+        let client = spider_public_http_client(&current_root, timeout).await?;
+        let response = client
+            .get(current_root.clone())
+            .send()
+            .await
+            .map_err(|error| SpiderDiscoveryError::Discovery(error.to_string()))?;
+
+        if !response.status().is_redirection() {
+            return Ok(current_root);
+        }
+
+        if redirect_count == MAX_ROOT_REDIRECTS {
+            return Err(SpiderDiscoveryError::Discovery(
+                "crawl-root redirect limit exceeded".to_string(),
+            ));
+        }
+
+        let location = response
+            .headers()
+            .get("location")
+            .ok_or_else(|| {
+                SpiderDiscoveryError::Discovery(
+                    "crawl-root redirect response has no location".to_string(),
+                )
+            })?
+            .to_str()
+            .map_err(|_| {
+                SpiderDiscoveryError::Discovery(
+                    "crawl-root redirect location is invalid".to_string(),
+                )
+            })?;
+        current_root = root_redirect_target(&configured_root, &current_root, location)?;
+    }
+
+    Err(SpiderDiscoveryError::Discovery(
+        "crawl-root redirect limit exceeded".to_string(),
+    ))
+}
+
 #[async_trait::async_trait]
 impl Spider for SpiderImpl {
-    async fn crawl(&self, shop_url: &str) -> Result<SpiderCrawl, SpiderDiscoveryError> {
+    async fn crawl(&self, crawl_root_url: &str) -> Result<SpiderCrawl, SpiderDiscoveryError> {
+        configured_spider_body_limit(
+            std::env::var(SPIDER_MAX_BODY_BYTES_ENV).ok().as_deref(),
+            self.config.max_response_body_bytes,
+        )?;
         let (tx, rx) = mpsc::channel(self.config.channel_size);
         let (status_tx, status_rx) = oneshot::channel();
         let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
 
-        let mut website = Website::new(shop_url);
+        let configured_root = Url::parse(crawl_root_url).map_err(|_| {
+            SpiderDiscoveryError::Discovery("configured crawler URL is invalid".to_string())
+        })?;
+        let request_timeout = std::time::Duration::from_secs(self.config.request_timeout_secs);
+        let root_url = preflight_crawl_root(configured_root, request_timeout).await?;
+        let client = spider_public_http_client(&root_url, request_timeout).await?;
+        let host_whitelist = configured_host_whitelist(&root_url)?;
+        let mut website = Website::new(root_url.as_str());
+        website.set_http_client(client);
 
         let blacklist_regex = CrawledUrl::blacklist_patterns();
         let auto_throttle_config = AutoThrottleConfig {
@@ -176,12 +319,15 @@ impl Spider for SpiderImpl {
 
         website
             .with_blacklist_url(Some(blacklist_regex))
+            .with_whitelist_url(Some(vec![host_whitelist.into()]))
             .with_respect_robots_txt(true)
             .with_headers(Some(spider_request_headers()))
             .with_user_agent(Some(SPIDER_USER_AGENT))
             .with_request_timeout(Some(std::time::Duration::from_secs(
                 self.config.request_timeout_secs,
             )))
+            .with_crawl_timeout(Some(self.config.max_crawl_duration))
+            .with_limit(self.config.max_pages_per_crawl)
             .with_delay(
                 std::time::Duration::from_millis(self.config.delay_millis).as_millis() as u64,
             )
@@ -200,21 +346,27 @@ impl Spider for SpiderImpl {
         });
 
         let config = self.config.clone();
-        let shop_url = shop_url.to_string();
+        let crawl_root_url = root_url.to_string();
         tokio::spawn(async move {
             let mut bloom = Bloom::new_for_fp_rate(config.bloom_capacity, config.bloom_fp_rate)
                 .expect("bloom filter init failed");
             let mut diagnostics = CrawlDiagnostics::default();
             let mut first_page_seen = false;
+            let configured_root = Url::parse(&crawl_root_url).ok();
+            let mut root_redirect_rejected = false;
 
             while let Ok(page) = spider_rx.recv().await {
                 if !first_page_seen {
                     diagnostics = diagnostics_from_library_page(
-                        &shop_url,
+                        &crawl_root_url,
                         page.get_url(),
                         page.status_code.as_u16(),
                         page.final_redirect_destination.as_deref(),
                         page.anti_bot_tech,
+                    );
+                    root_redirect_rejected = matches!(
+                        diagnostics.failure_kind,
+                        Some(CrawlFailureKind::RedirectProblem)
                     );
                     first_page_seen = true;
                 }
@@ -226,6 +378,14 @@ impl Spider for SpiderImpl {
                 } else {
                     continue;
                 };
+
+                if root_redirect_rejected
+                    || !configured_root
+                        .as_ref()
+                        .is_some_and(|root| is_same_or_www_host(root, normalized.as_url()))
+                {
+                    continue;
+                }
 
                 if normalized.is_blacklisted() {
                     continue;
@@ -255,23 +415,8 @@ impl Spider for SpiderImpl {
     }
 }
 
-fn is_same_or_www_host(original_url: &Url, resolved_url: &Url) -> bool {
-    let Some(original_host) = original_url.host_str() else {
-        return false;
-    };
-    let Some(resolved_host) = resolved_url.host_str() else {
-        return false;
-    };
-
-    strip_www(original_host).eq_ignore_ascii_case(strip_www(resolved_host))
-}
-
-fn strip_www(host: &str) -> &str {
-    host.strip_prefix("www.").unwrap_or(host)
-}
-
 fn diagnostics_from_library_page(
-    shop_url: &str,
+    crawl_root_url: &str,
     page_url: &str,
     status_code: u16,
     final_redirect_destination: Option<&str>,
@@ -286,7 +431,9 @@ fn diagnostics_from_library_page(
         ..CrawlDiagnostics::default()
     };
 
-    if let Some(signal) = page_diagnostic_signal(shop_url, &final_url, status_code, anti_bot_tech) {
+    if let Some(signal) =
+        page_diagnostic_signal(crawl_root_url, &final_url, status_code, anti_bot_tech)
+    {
         diagnostics.apply_signal(signal);
     }
 
@@ -294,14 +441,14 @@ fn diagnostics_from_library_page(
 }
 
 fn page_diagnostic_signal(
-    shop_url: &str,
+    crawl_root_url: &str,
     final_url: &str,
     status_code: u16,
     anti_bot_tech: AntiBotTech,
 ) -> Option<DiagnosticSignal> {
     anti_bot_signal(anti_bot_tech)
         .or_else(|| status_code_signal(status_code))
-        .or_else(|| redirect_signal(shop_url, final_url))
+        .or_else(|| redirect_signal(crawl_root_url, final_url))
 }
 
 fn anti_bot_signal(anti_bot_tech: AntiBotTech) -> Option<DiagnosticSignal> {
@@ -336,8 +483,8 @@ fn status_code_signal(status_code: u16) -> Option<DiagnosticSignal> {
     }
 }
 
-fn redirect_signal(shop_url: &str, final_url: &str) -> Option<DiagnosticSignal> {
-    let original = Url::parse(shop_url).ok()?;
+fn redirect_signal(crawl_root_url: &str, final_url: &str) -> Option<DiagnosticSignal> {
+    let original = Url::parse(crawl_root_url).ok()?;
     let resolved = Url::parse(final_url).ok()?;
 
     (!is_same_or_www_host(&original, &resolved)).then_some(DiagnosticSignal::new(
@@ -398,10 +545,82 @@ mod tests {
     use super::*;
 
     #[test]
+    fn should_allow_only_configured_host_in_spider_fetch_graph() {
+        let pattern =
+            configured_host_whitelist(&Url::parse("https://example.com").unwrap()).unwrap();
+        let whitelist = regex::Regex::new(&pattern).unwrap();
+
+        assert!(whitelist.is_match("https://example.com/product/1"));
+        assert!(!whitelist.is_match("https://www.example.com/product/1"));
+        assert!(!whitelist.is_match("https://internal.example.com/product/1"));
+        assert!(!whitelist.is_match("https://example.com.evil.test/product/1"));
+        assert!(!whitelist.is_match("http://127.0.0.1/product/1"));
+    }
+
+    #[test]
+    fn should_build_exact_www_host_graph_after_www_root_preflight() {
+        let pattern =
+            configured_host_whitelist(&Url::parse("https://www.example.com/").unwrap()).unwrap();
+        let whitelist = regex::Regex::new(&pattern).unwrap();
+
+        assert!(whitelist.is_match("https://www.example.com/product/1"));
+        assert!(!whitelist.is_match("https://example.com/product/1"));
+    }
+
+    #[test]
+    fn should_resolve_relative_root_redirect_on_configured_host() {
+        let configured = Url::parse("https://www.example.com/catalog").unwrap();
+        let target = root_redirect_target(&configured, &configured, "/").unwrap();
+
+        assert_eq!(target.as_str(), "https://www.example.com/");
+    }
+
+    #[test]
+    fn should_allow_root_redirect_from_bare_host_to_www_host() {
+        let configured = Url::parse("https://example.com/catalog").unwrap();
+        let target =
+            root_redirect_target(&configured, &configured, "https://www.example.com/").unwrap();
+
+        assert_eq!(target.as_str(), "https://www.example.com/");
+    }
+
+    #[test]
+    fn should_reject_root_redirect_to_unrelated_host() {
+        let configured = Url::parse("https://example.com/catalog").unwrap();
+        let error =
+            root_redirect_target(&configured, &configured, "https://other.example/").unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("outside the configured bare/www host")
+        );
+    }
+
+    #[test]
+    fn should_bound_root_redirects() {
+        assert_eq!(MAX_ROOT_REDIRECTS, 5);
+    }
+
+    #[test]
+    fn should_require_a_bounded_spider_transport_body_limit() {
+        assert!(configured_spider_body_limit(Some("8388608"), 8 * 1024 * 1024).is_ok());
+        assert!(configured_spider_body_limit(None, 8 * 1024 * 1024).is_err());
+        assert!(configured_spider_body_limit(Some("not-a-number"), 8 * 1024 * 1024).is_err());
+        assert!(configured_spider_body_limit(Some("8388609"), 8 * 1024 * 1024).is_err());
+    }
+
+    #[test]
     fn should_use_conservative_website_concurrency_limit_by_default() {
         let config = CrawlerConfig::default();
 
         assert_eq!(config.concurrency_limit, 8);
+        assert_eq!(config.max_pages_per_crawl, 10_000);
+        assert_eq!(config.max_response_body_bytes, 8 * 1024 * 1024);
+        assert_eq!(
+            config.max_crawl_duration,
+            std::time::Duration::from_secs(10 * 60)
+        );
     }
 
     fn page_diagnostics(url: &str, status_code: u16) -> CrawlDiagnostics {
@@ -461,7 +680,7 @@ mod tests {
     #[test]
     fn should_reject_redirect_to_other_subdomain() {
         let original = Url::parse("https://example.com").unwrap();
-        let resolved = Url::parse("https://shop.example.com/").unwrap();
+        let resolved = Url::parse("https://catalog.example.com/").unwrap();
 
         assert!(!is_same_or_www_host(&original, &resolved));
     }

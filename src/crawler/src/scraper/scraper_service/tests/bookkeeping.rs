@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn should_persist_scraped_state_before_marking_url_as_scraped() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -11,7 +11,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
         .once()
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
-    let schema = shops_product_schema(id);
+    let schema = listing_source_product_schemas(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
     let mut schema_svc = MockProductListingSchemaService::new();
@@ -51,11 +51,13 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
     cand_svc
         .expect_set_presence()
         .once()
-        .withf(move |received_shop_id, received_url, received_state| {
-            *received_shop_id == id
-                && received_url == &url_for_set_presence
-                && *received_state == UrlPresence::Present
-        })
+        .withf(
+            move |received_listing_source_id, received_url, received_state| {
+                *received_listing_source_id == id
+                    && received_url == &url_for_set_presence
+                    && *received_state == UrlPresence::Present
+            },
+        )
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -64,7 +66,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service

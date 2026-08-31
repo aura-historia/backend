@@ -6,9 +6,9 @@ use aura_historia_api::auth::{
     TransportPrincipal,
 };
 use aura_historia_api::state::{
-    AppState, BillingState, NewsletterState, NotificationsState, OAuthState,
-    PartnerApplicationsState, PartnerProductListingsState, ProductListingsState,
-    SearchFiltersState, ShopsState, UsersState, WatchlistState, WebhooksState,
+    AppState, BillingState, ListingSourcesState, NewsletterState, NotificationsState, OAuthState,
+    PartnerProductListingsState, PartnershipApplicationsState, ProductListingsState,
+    SearchFiltersState, UsersState, WatchlistState, WebhooksState,
 };
 use aura_historia_api::{app, state};
 use billing_service::ports::{
@@ -25,7 +25,10 @@ use embedding::{
 };
 use fxrate_core::FxRateId;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
-use geo::{Geocoder, GeocodingError};
+use listing_source_postgres::{SqlxListingSourceReaders, SqlxListingSourceRepositoryFactory};
+use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceHandler;
+use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceHandler;
+use listing_source_service::use_cases::queries::get_listing_source::GetListingSourceHandler;
 use notification_postgres::{
     SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
     SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
@@ -50,20 +53,42 @@ use oauth_service::use_cases::{
     IntrospectTokenHandler, ListOAuthClientsHandler, RevokeTokenHandler,
     TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
 };
+use partnership_postgres::{
+    SqlxListingSourceAuthorization, SqlxListingSourceGrantRepositoryFactory,
+    SqlxPartnershipApplicationReaderFactory, SqlxPartnershipApplicationRepositoryFactory,
+    SqlxPartnershipRepositoryFactory,
+};
+use partnership_service::use_cases::{
+    commands::{
+        approve_partnership_application::ApprovePartnershipApplicationHandler,
+        mark_partnership_application_in_review::MarkPartnershipApplicationInReviewHandler,
+        reject_partnership_application::RejectPartnershipApplicationHandler,
+        submit_partnership_application::SubmitPartnershipApplicationHandler,
+        withdraw_partnership_application::WithdrawPartnershipApplicationHandler,
+    },
+    queries::{
+        get_own_partnership_application::GetOwnPartnershipApplicationHandler,
+        get_partnership_application::GetPartnershipApplicationHandler,
+        list_admin_partnership_applications::ListAdminPartnershipApplicationsHandler,
+        list_administered_listing_sources::ListAdministeredListingSourcesHandler,
+        list_own_partnership_applications::ListOwnPartnershipApplicationsHandler,
+    },
+};
+use party_postgres::SqlxPartyRepositoryFactory;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing_id::ProductListingId;
+use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_opensearch::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
 };
 use product_listing_postgres::{
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingContentAssessmentReader,
-    SqlxProductListingDetailsBatchReader, SqlxProductListingDetailsReaderFactory,
-    SqlxProductListingEmbeddingReaderFactory, SqlxProductListingEventReaderFactory,
-    SqlxProductListingEventStoreFactory, SqlxProductListingRepositoryFactory,
-    SqlxProductListingUserStateReader, SqlxProductListingWatchlistDetailsReaderFactory,
+    SqlxListingSourceSummaryReader, SqlxPartnerProductListingAuthorizerFactory,
+    SqlxProductListingContentAssessmentReader, SqlxProductListingDetailsBatchReader,
+    SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
+    SqlxProductListingEventReaderFactory, SqlxProductListingEventStoreFactory,
+    SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
+    SqlxProductListingWatchlistDetailsReaderFactory,
 };
-use shop_core::domain::Domain;
-use shop_core::shop_id::ShopId;
 use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user_id::UserId;
 
@@ -82,29 +107,6 @@ use search_filter_service::use_cases::{
     ListOwnedSearchFiltersHandler, ListSearchFilterMatchesHandler, UpdateOwnedSearchFilterHandler,
     UpdateSearchFilterMatchFeedbackHandler,
 };
-use shop_core::partner_status::ShopPartnerStatus;
-use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
-use shop_core::shop_type::ShopType;
-use shop_partner_postgres::{
-    SqlxPartnerShopApplicationReaderFactory, SqlxPartnerShopApplicationRepositoryFactory,
-    SqlxUserPartnerShopMembershipRepositoryFactory,
-};
-use shop_partner_service::use_cases::{
-    AdminDecidePartnerShopApplicationHandler, AdminGetPartnerShopApplicationHandler,
-    AdminListPartnerShopApplicationsHandler, AdminUpdatePartnerShopApplicationHandler,
-    CreatePartnerShopApplicationHandler, GetPartnerShopApplicationHandler,
-    ListPartnerShopApplicationsHandler, WithdrawPartnerShopApplicationHandler,
-};
-use shop_postgres::{
-    SqlxPartnerShopReaderFactory, SqlxShopRepositoryFactory,
-    SqlxWoocommerceWebhookShopReaderFactory, SqlxWoocommerceWebhookSignatureVerifierFactory,
-};
-use shop_service::ports::{ShopRepository, ShopRepositoryFactory};
-use shop_service::use_cases::commands::create_shop::CreateShopHandler;
-use shop_service::use_cases::commands::update_shop::UpdateShopHandler;
-use shop_service::use_cases::queries::get_shop::GetShopHandler;
-use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsHandler;
-use shop_service::use_cases::queries::search_shops::SearchShopsHandler;
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
@@ -229,21 +231,6 @@ impl NewsletterSubscriptionWriter for SuccessfulNewsletterWriter {
     }
 }
 
-#[derive(Clone, Copy)]
-struct RejectGeocoder;
-
-#[async_trait::async_trait]
-impl Geocoder for RejectGeocoder {
-    async fn geocode(
-        &self,
-        _address: &shop_core::address::StructuredAddress,
-    ) -> Result<shop_core::address::GeoAddress, GeocodingError> {
-        Err(GeocodingError::temporarily_unavailable(
-            std::io::Error::other("geocoding unavailable"),
-        ))
-    }
-}
-
 pub fn aura_api_app() -> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
     Box::pin(async { app(test_state(TestEmbeddingGenerator::Success).await) })
 }
@@ -358,16 +345,44 @@ async fn seed_watchlist_entry(
     }
 }
 
-pub async fn seed_partner_shop(user_id: UserId, shop_id: ShopId) {
+pub async fn seed_partnership_membership(user_id: UserId, listing_source_id: uuid::Uuid) {
     let pool = get_postgres_client().await;
-    if let Err(error) =
-        sqlx::query("INSERT INTO user_partner_shops (user_id, shop_id) VALUES ($1, $2)")
-            .bind(uuid::Uuid::from(user_id))
-            .bind(uuid::Uuid::from(shop_id))
-            .execute(&pool)
-            .await
+    if let Err(error) = sqlx::query(
+        r#"
+        INSERT INTO partnership_members (user_id, partnership_id)
+        SELECT $1, partnership.partnership_id
+        FROM listing_sources source
+        JOIN partnerships partnership ON partnership.party_id = source.operator_party_id
+        WHERE source.listing_source_id = $2
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(listing_source_id)
+    .execute(&pool)
+    .await
     {
-        panic!("failed to seed partner-shop membership: {error}");
+        panic!("failed to seed partnership membership: {error}");
+    }
+}
+
+pub async fn seed_operator_partnership_listing_source_grant(listing_source_id: uuid::Uuid) {
+    let pool = get_postgres_client().await;
+    if let Err(error) = sqlx::query(
+        r#"
+        INSERT INTO partnership_listing_source_grants (partnership_id, listing_source_id)
+        SELECT partnership.partnership_id, source.listing_source_id
+        FROM listing_sources source
+        JOIN partnerships partnership ON partnership.party_id = source.operator_party_id
+        WHERE source.listing_source_id = $1
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(listing_source_id)
+    .execute(&pool)
+    .await
+    {
+        panic!("failed to seed operator listing-source grant: {error}");
     }
 }
 
@@ -402,60 +417,60 @@ pub async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> R
     raw
 }
 
-pub async fn seed_shop() -> Shop {
+pub async fn seed_listing_source() -> uuid::Uuid {
+    let party_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
     let pool = get_postgres_client().await;
-    let unit_of_work = SqlxUnitOfWork::new(pool);
-    let repositories = SqlxShopRepositoryFactory::new();
-    let id = ShopId::new();
-    let mut shop = Shop::create(NewShop {
-        id,
-        name: shop_core::shop_name::ShopName::from(format!("API Acceptance Shop {id}").as_str()),
-        shop_type: ShopType::CommercialDealer,
-        domains: HashSet::from([domain(format!("api-acceptance-{id}.example").as_str())]),
-        shopify: None,
-        woocommerce: None,
-        presentation: ShopPresentation {
-            url: Some(url("https://api-acceptance.example/")),
-            image: None,
-        },
-        address: None,
-        contact: ShopContact::default(),
-        partner_status: ShopPartnerStatus::Partnered,
-        affiliate_configuration: None,
-    });
-    let _ = shop.publish();
-
-    let mut tx = unit_of_work
+    let mut transaction = pool
         .begin()
         .await
-        .unwrap_or_else(|error| panic!("failed to begin shop seed transaction: {error}"));
-    if let Err(error) = repositories.in_transaction(&mut tx).insert(&shop).await {
-        panic!("failed to insert shop: {error:?}");
-    }
-    if let Err(error) = tx.commit().await {
-        panic!("failed to commit shop seed transaction: {error}");
-    }
-    shop
-}
+        .unwrap_or_else(|error| panic!("failed to begin listing-source seed transaction: {error}"));
 
-pub async fn product_route_slugs(product_listing_id: ProductListingId) -> (String, String) {
-    let pool = get_postgres_client().await;
-    sqlx::query_as(
-        "SELECT shops.shop_slug_id, product_listings.product_listing_slug_id FROM product_listings JOIN shops ON shops.shop_id = product_listings.shop_id WHERE product_listings.product_listing_id = $1",
+    sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
+        .bind(party_id)
+        .bind(format!("api-acceptance-party-{party_id}"))
+        .bind(format!("API Acceptance Party {party_id}"))
+        .execute(&mut *transaction)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed party: {error}"));
+    sqlx::query(
+        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, url) VALUES ($1, $2, $3, $4, $5)",
     )
-    .bind(uuid::Uuid::from(product_listing_id))
-    .fetch_one(&pool)
+    .bind(listing_source_id)
+    .bind(format!("api-acceptance-source-{listing_source_id}"))
+    .bind(format!("API Acceptance Listing Source {listing_source_id}"))
+    .bind(party_id)
+    .bind("https://api-acceptance.example/")
+    .execute(&mut *transaction)
     .await
-    .unwrap_or_else(|error| panic!("failed to read seeded product slugs: {error}"))
+    .unwrap_or_else(|error| panic!("failed to seed listing source: {error}"));
+    sqlx::query(
+        "INSERT INTO listing_source_ingestion_methods (listing_source_id, ingestion_method) VALUES ($1, 'PARTNER_API')",
+    )
+    .bind(listing_source_id)
+    .execute(&mut *transaction)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed listing-source ingestion method: {error}"));
+    sqlx::query("INSERT INTO partnerships (partnership_id, party_id) VALUES ($1, $2)")
+        .bind(uuid::Uuid::new_v4())
+        .bind(party_id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed partnership: {error}"));
+    transaction.commit().await.unwrap_or_else(|error| {
+        panic!("failed to commit listing-source seed transaction: {error}")
+    });
+    listing_source_id
 }
 
 pub async fn seed_product() -> ProductListingId {
-    let shop = seed_shop().await;
+    let listing_source_id = seed_listing_source().await;
     let product_listing_id = ProductListingId::new();
-    let product_listing_slug_id =
-        product_listing_core::product_listing_slug_id::ProductListingSlugId::from(
-            "acceptance-product",
-        );
+    let product_listing_title_slug_id = ProductListingSlugId::from_title_and_suffix(
+        "acceptance product",
+        &uuid::Uuid::from(product_listing_id).simple().to_string()[..6],
+    )
+    .unwrap_or_else(|error| panic!("valid fixture title slug: {error}"));
     let event_id = uuid::Uuid::new_v4();
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;
@@ -463,25 +478,19 @@ pub async fn seed_product() -> ProductListingId {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("failed to begin product seed transaction: {error}"));
-    if let Err(error) = sqlx::query("SET CONSTRAINTS ALL DEFERRED")
-        .execute(&mut *tx)
-        .await
-    {
-        panic!("failed to defer product seed constraints: {error}");
-    }
     if let Err(error) = sqlx::query(
         r#"
         INSERT INTO product_listings (
-            product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id,
-            availability, lifecycle, url
-        ) VALUES ($1, $2, $3, $3, $4, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
+            product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id,
+            listing_source_id, source_listing_id, availability, lifecycle, url
+        ) VALUES ($1, $2, $3, $3, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
         "#,
     )
     .bind(uuid::Uuid::from(product_listing_id))
-    .bind(product_listing_slug_id.as_ref())
+    .bind(product_listing_title_slug_id.as_ref())
     .bind(event_id)
-    .bind(uuid::Uuid::from(shop.id()))
-    .bind(format!("shops-product-{product_listing_id}"))
+    .bind(listing_source_id)
+    .bind(format!("listing-source-product-{product_listing_id}"))
     .bind("https://api-acceptance.example/product")
     .execute(&mut *tx)
     .await
@@ -491,18 +500,22 @@ pub async fn seed_product() -> ProductListingId {
     if let Err(error) = sqlx::query(
         r#"
         INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time)
-        VALUES (
-            $1,
-            $2,
-            'PRODUCT_LISTING_CREATED',
-            'DOMAIN',
-            '{"title":null,"description":null,"address":{},"pricing":{},"availability":"AVAILABLE","url":"https://api-acceptance.example/product","images":[],"auction":{}}',
-            now()
-        )
+        VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', $3, now())
         "#,
     )
     .bind(event_id)
     .bind(uuid::Uuid::from(product_listing_id))
+    .bind(serde_json::json!({
+        "title": null,
+        "description": null,
+        "listingSourceId": listing_source_id.to_string(),
+        "sourceListingId": format!("listing-source-product-{product_listing_id}"),
+        "pricing": {},
+        "availability": "AVAILABLE",
+        "url": "https://api-acceptance.example/product",
+        "images": [],
+        "auction": {}
+    }))
     .execute(&mut *tx)
     .await
     {
@@ -550,13 +563,6 @@ pub(super) async fn seed_current_fx_snapshot(pool: &sqlx::PgPool) {
     }
 }
 
-fn domain(value: &str) -> Domain {
-    match Domain::try_from(value) {
-        Ok(domain) => domain,
-        Err(error) => panic!("invalid test domain: {error}"),
-    }
-}
-
 fn url(value: &str) -> Url {
     match Url::parse(value) {
         Ok(url) => url,
@@ -576,6 +582,91 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         AuraAccessTokenAuthenticator::new(access_token_use_case),
     ));
     let opensearch_client = get_opensearch_client().await;
+    let create_listing_source = CreateListingSourceHandler::new(
+        unit_of_work.clone(),
+        SqlxListingSourceRepositoryFactory::new(),
+        SqlxPartyRepositoryFactory::new(),
+        CheckUserAdminHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        ),
+    );
+    let get_listing_source = GetListingSourceHandler::new(
+        SqlxListingSourceReaders::new(pool.clone()),
+        CheckUserAdminHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        ),
+    );
+    let update_listing_source = UpdateListingSourceHandler::new(
+        unit_of_work.clone(),
+        SqlxListingSourceRepositoryFactory::new(),
+        CheckUserAdminHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        ),
+    );
+    let list_administered_listing_sources = ListAdministeredListingSourcesHandler::new(
+        SqlxListingSourceAuthorization::new(pool.clone()),
+    );
+    let submit_partnership_application = SubmitPartnershipApplicationHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipApplicationRepositoryFactory::new(),
+    );
+    let list_own_partnership_applications = ListOwnPartnershipApplicationsHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipApplicationReaderFactory::new(),
+    );
+    let get_own_partnership_application = GetOwnPartnershipApplicationHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipApplicationRepositoryFactory::new(),
+    );
+    let withdraw_partnership_application = WithdrawPartnershipApplicationHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipApplicationRepositoryFactory::new(),
+    );
+    let list_admin_partnership_applications = ListAdminPartnershipApplicationsHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipApplicationReaderFactory::new(),
+        user_postgres::SqlxUserAdminReaderFactory::new(),
+    );
+    let get_partnership_application = GetPartnershipApplicationHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipApplicationRepositoryFactory::new(),
+        user_postgres::SqlxUserAdminReaderFactory::new(),
+    );
+    let mark_partnership_application_in_review = MarkPartnershipApplicationInReviewHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipApplicationRepositoryFactory::new(),
+        user_postgres::SqlxUserAdminReaderFactory::new(),
+    );
+    let approve_partnership_application = ApprovePartnershipApplicationHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipApplicationRepositoryFactory::new(),
+        SqlxPartyRepositoryFactory::new(),
+        SqlxListingSourceRepositoryFactory::new(),
+        SqlxPartnershipRepositoryFactory::new(),
+        SqlxPartnershipRepositoryFactory::new(),
+        SqlxListingSourceGrantRepositoryFactory::new(),
+        user_postgres::SqlxUserAdminReaderFactory::new(),
+        NotificationCreationCoordinatorFactory::new(
+            SqlxNotificationRepositoryFactory::new(),
+            InitialExternalDeliveryPlanReaderFactory,
+            SqlxNotificationDeliveryIntentRepositoryFactory::new(),
+        ),
+    );
+    let reject_partnership_application = RejectPartnershipApplicationHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipApplicationRepositoryFactory::new(),
+        SqlxPartyRepositoryFactory::new(),
+        SqlxListingSourceRepositoryFactory::new(),
+        user_postgres::SqlxUserAdminReaderFactory::new(),
+        NotificationCreationCoordinatorFactory::new(
+            SqlxNotificationRepositoryFactory::new(),
+            InitialExternalDeliveryPlanReaderFactory,
+            SqlxNotificationDeliveryIntentRepositoryFactory::new(),
+        ),
+    );
 
     let products_state = ProductListingsState::new(
         Arc::new(GetProductListingHandler::new(
@@ -588,6 +679,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             SqlxProductListingEmbeddingReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
             OpenSearchProductListingSimilarProductListingsReader::new(opensearch_client.clone()),
+            SqlxListingSourceSummaryReader::new(pool.clone()),
             SqlxProductListingUserStateReader::new(pool.clone()),
             SqlxProductListingContentAssessmentReader::new(pool.clone()),
         )),
@@ -596,6 +688,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             OpenSearchProductListingSearchReader::new(opensearch_client.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
             search_embeddings,
+            SqlxListingSourceSummaryReader::new(pool.clone()),
             SqlxProductListingUserStateReader::new(pool.clone()),
             SqlxProductListingContentAssessmentReader::new(pool.clone()),
         )),
@@ -640,44 +733,17 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             SqlxProductListingRepositoryFactory::new(),
             SqlxProductListingEventStoreFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
-            SqlxWoocommerceWebhookShopReaderFactory::new(),
-            SqlxWoocommerceWebhookSignatureVerifierFactory::new(),
+            SqlxListingSourceReaders::new(pool.clone()),
+            SqlxListingSourceReaders::new(pool.clone()),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
-    let shops_state = ShopsState::new(
-        Arc::new(GetShopHandler::new(
-            unit_of_work.clone(),
-            shop_postgres::SqlxShopDetailsReaderFactory::new(),
-        )),
-        Arc::new(SearchShopsHandler::new(
-            unit_of_work.clone(),
-            shop_postgres::SqlxShopSearchReaderFactory::new(),
-        )),
-        Arc::new(CreateShopHandler::new(
-            unit_of_work.clone(),
-            SqlxShopRepositoryFactory::new(),
-            RejectGeocoder,
-            CheckUserAdminHandler::new(
-                unit_of_work.clone(),
-                user_postgres::SqlxUserAdminReaderFactory::new(),
-            ),
-        )),
-        Arc::new(UpdateShopHandler::new(
-            unit_of_work.clone(),
-            SqlxShopRepositoryFactory::new(),
-            RejectGeocoder,
-            CheckUserAdminHandler::new(
-                unit_of_work.clone(),
-                user_postgres::SqlxUserAdminReaderFactory::new(),
-            ),
-            SqlxPartnerShopReaderFactory::new(),
-        )),
-        Arc::new(ListUserPartnerShopsHandler::new(
-            unit_of_work.clone(),
-            SqlxPartnerShopReaderFactory::new(),
-        )),
+    let listing_sources_state = ListingSourcesState::new(
+        Arc::new(create_listing_source),
+        Arc::new(get_listing_source),
+        Arc::new(update_listing_source),
+        Arc::new(list_administered_listing_sources),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
@@ -826,53 +892,16 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
-    let partner_state = PartnerApplicationsState::new(
-        Arc::new(CreatePartnerShopApplicationHandler::new(
-            unit_of_work.clone(),
-            SqlxPartnerShopApplicationRepositoryFactory::new(),
-            SqlxShopRepositoryFactory::new(),
-            RejectGeocoder,
-        )),
-        Arc::new(ListPartnerShopApplicationsHandler::new(
-            unit_of_work.clone(),
-            SqlxPartnerShopApplicationReaderFactory::new(),
-        )),
-        Arc::new(GetPartnerShopApplicationHandler::new(
-            unit_of_work.clone(),
-            SqlxPartnerShopApplicationRepositoryFactory::new(),
-        )),
-        Arc::new(WithdrawPartnerShopApplicationHandler::new(
-            unit_of_work.clone(),
-            SqlxPartnerShopApplicationRepositoryFactory::new(),
-            SqlxShopRepositoryFactory::new(),
-        )),
-        Arc::new(AdminListPartnerShopApplicationsHandler::new(
-            unit_of_work.clone(),
-            SqlxPartnerShopApplicationReaderFactory::new(),
-            user_postgres::SqlxUserAdminReaderFactory::new(),
-        )),
-        Arc::new(AdminGetPartnerShopApplicationHandler::new(
-            unit_of_work.clone(),
-            SqlxPartnerShopApplicationRepositoryFactory::new(),
-            user_postgres::SqlxUserAdminReaderFactory::new(),
-        )),
-        Arc::new(AdminUpdatePartnerShopApplicationHandler::new(
-            unit_of_work.clone(),
-            SqlxPartnerShopApplicationRepositoryFactory::new(),
-            user_postgres::SqlxUserAdminReaderFactory::new(),
-        )),
-        Arc::new(AdminDecidePartnerShopApplicationHandler::new(
-            unit_of_work.clone(),
-            SqlxPartnerShopApplicationRepositoryFactory::new(),
-            shop_postgres::SqlxShopRepositoryFactory::new(),
-            SqlxUserPartnerShopMembershipRepositoryFactory::new(),
-            user_postgres::SqlxUserAdminReaderFactory::new(),
-            NotificationCreationCoordinatorFactory::new(
-                SqlxNotificationRepositoryFactory::new(),
-                InitialExternalDeliveryPlanReaderFactory,
-                SqlxNotificationDeliveryIntentRepositoryFactory::new(),
-            ),
-        )),
+    let partnership_applications_state = PartnershipApplicationsState::new(
+        Arc::new(submit_partnership_application),
+        Arc::new(list_own_partnership_applications),
+        Arc::new(get_own_partnership_application),
+        Arc::new(withdraw_partnership_application),
+        Arc::new(list_admin_partnership_applications),
+        Arc::new(get_partnership_application),
+        Arc::new(mark_partnership_application_in_review),
+        Arc::new(approve_partnership_application),
+        Arc::new(reject_partnership_application),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
@@ -966,7 +995,11 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
-    state::AppState::new(shops_state, users_state, watchlist_state, partner_state)
+    state::AppState::new()
+        .with_users(users_state)
+        .with_watchlist(watchlist_state)
+        .with_partnership_applications(partnership_applications_state)
+        .with_listing_sources(listing_sources_state)
         .with_newsletter(NewsletterState::new(
             Arc::new(UpsertNewsletterSubscriptionHandler::new(
                 user_postgres::SqlxNewsletterProfileReader::new(get_postgres_client().await),

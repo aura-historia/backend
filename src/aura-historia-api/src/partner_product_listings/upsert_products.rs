@@ -8,16 +8,16 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 
 pub async fn upsert_products(
     State(state): State<PartnerProductListingsState>,
     headers: HeaderMap,
-    Path(raw_shop_id): Path<String>,
+    Path(raw_listing_source_id): Path<String>,
     body: String,
 ) -> Response {
-    let shop_id = match parse_shop_id(&raw_shop_id) {
-        Ok(shop_id) => shop_id,
+    let listing_source_id = match parse_listing_source_id(&raw_listing_source_id) {
+        Ok(listing_source_id) => listing_source_id,
         Err(error) => return error.into_response(),
     };
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
@@ -32,10 +32,10 @@ pub async fn upsert_products(
     let mapped = match products
         .into_iter()
         .map(|product| {
-            let shop_listing_id = product.shop_listing_id.clone();
+            let raw_source_listing_id = product.source_listing_id.clone();
             product
-                .into_command(shop_id)
-                .map(|command| (shop_listing_id, command))
+                .into_command(listing_source_id)
+                .map(|command| (raw_source_listing_id, command))
         })
         .collect::<Result<Vec<_>, ApiError>>()
     {
@@ -46,7 +46,7 @@ pub async fn upsert_products(
     let mut failures = Vec::new();
     let mut first_error = None;
     let mut successes = 0;
-    for (shop_listing_id, command) in mapped {
+    for (source_listing_id, command) in mapped {
         match state.upsert.execute(&context, command).await {
             Ok(_) => successes += 1,
             Err(error) => {
@@ -54,8 +54,8 @@ pub async fn upsert_products(
                 let error_code = error.code();
                 first_error.get_or_insert(error);
                 failures.push(PartnerProductFailureData::new(
-                    shop_id,
-                    shop_listing_id,
+                    listing_source_id,
+                    source_listing_id,
                     error_code,
                 ));
             }
@@ -71,12 +71,14 @@ pub async fn upsert_products(
     (StatusCode::OK, Json(failures)).into_response()
 }
 
-fn parse_shop_id(value: &str) -> Result<ShopId, ApiError> {
-    ShopId::try_from(value).map_err(|_| {
-        ApiError::bad_request(INVALID_UUID)
-            .with_path_field("shopId")
-            .with_detail("Path parameter 'shopId' must be a UUID.")
-    })
+fn parse_listing_source_id(value: &str) -> Result<ListingSourceId, ApiError> {
+    uuid::Uuid::parse_str(value)
+        .map(ListingSourceId::from)
+        .map_err(|_| {
+            ApiError::bad_request(INVALID_UUID)
+                .with_path_field("listingSourceId")
+                .with_detail("Path parameter 'listingSourceId' must be a UUID.")
+        })
 }
 
 #[cfg(test)]
@@ -120,19 +122,19 @@ mod tests {
             .times(2)
             .withf(|_, command| {
                 matches!(
-                    (command.shop_listing_id.as_ref(), &command.availability),
+                    (command.source_listing_id.as_ref(), &command.availability),
                     ("first", application::patch_field::PatchField::Unchanged)
                         | ("second", application::patch_field::PatchField::Clear)
                 )
             })
             .returning(|_, _| Ok(created()));
         let app = app(upsert);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
-            r#"[{"shopListingId":"first"},{"shopListingId":"second","availability":null}]"#,
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            r#"[{"sourceListingId":"first"},{"sourceListingId":"second","availability":null}]"#,
             true,
         )
         .await?;
@@ -151,7 +153,7 @@ mod tests {
             .times(3)
             .withf(|_, command| {
                 matches!(
-                    (command.shop_listing_id.as_ref(), &command.price),
+                    (command.source_listing_id.as_ref(), &command.price),
                     ("omitted", application::patch_field::PatchField::Unchanged)
                         | ("clear", application::patch_field::PatchField::Clear)
                         | ("set", application::patch_field::PatchField::Set(_))
@@ -159,15 +161,15 @@ mod tests {
             })
             .returning(|_, _| Ok(created()));
         let app = app(upsert);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[
-                {"shopListingId":"omitted"},
-                {"shopListingId":"clear","price":null},
-                {"shopListingId":"set","price":{"amount":12000,"currency":"EUR"}}
+                {"sourceListingId":"omitted"},
+                {"sourceListingId":"clear","price":null},
+                {"sourceListingId":"set","price":{"amount":12000,"currency":"EUR"}}
             ]"#,
             true,
         )
@@ -193,13 +195,13 @@ mod tests {
             })
             .returning(|_, _| Ok(created()));
         let app = app(upsert);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[{
-                "shopListingId":"patched",
+                "sourceListingId":"patched",
                 "priceEstimateMin":{"amount":10000,"currency":"EUR"},
                 "priceEstimateMax":{"amount":20000,"currency":"EUR"},
                 "images":["https://example.com/image.jpg"],
@@ -227,12 +229,12 @@ mod tests {
             })
             .returning(|_, _| Ok(created()));
         let app = app(upsert);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
-            r#"[{"shopListingId":"empty-images","images":[]}]"#,
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            r#"[{"sourceListingId":"empty-images","images":[]}]"#,
             true,
         )
         .await?;
@@ -252,7 +254,7 @@ mod tests {
             .withf(|_, command| {
                 matches!(
                     (
-                        command.shop_listing_id.as_ref(),
+                        command.source_listing_id.as_ref(),
                         &command.price_estimate_min,
                         &command.price_estimate_max,
                         &command.images,
@@ -278,15 +280,15 @@ mod tests {
             })
             .returning(|_, _| Ok(created()));
         let app = app(upsert);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[
-                {"shopListingId":"omitted"},
+                {"sourceListingId":"omitted"},
                 {
-                    "shopListingId":"clear",
+                    "sourceListingId":"clear",
                     "priceEstimateMin":null,
                     "priceEstimateMax":null,
                     "auctionStart":null,
@@ -308,14 +310,14 @@ mod tests {
         let mut upsert = MockUpsertUseCase::new();
         upsert.expect_execute().never();
         let app = app(upsert);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
             r#"[
-                {"shopListingId":"valid"},
-                {"shopListingId":"invalid","images":null}
+                {"sourceListingId":"valid"},
+                {"sourceListingId":"invalid","images":null}
             ]"#,
             true,
         )
@@ -331,7 +333,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let mut upsert = MockUpsertUseCase::new();
         upsert.expect_execute().times(2).returning(|_, command| {
-            if command.shop_listing_id.as_ref() == "failed" {
+            if command.source_listing_id.as_ref() == "failed" {
                 Err(UpsertProductListingError::InvalidProductListing {
                     source: application::error::static_error("invalid test product listing"),
                 })
@@ -340,12 +342,12 @@ mod tests {
             }
         });
         let app = app(upsert);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
-            r#"[{"shopListingId":"created"},{"shopListingId":"failed"}]"#,
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            r#"[{"sourceListingId":"created"},{"sourceListingId":"failed"}]"#,
             true,
         )
         .await?;
@@ -353,8 +355,8 @@ mod tests {
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
             json!([{
-                "shopId": shop_id.to_string(),
-                "shopListingId": "failed",
+                "listingSourceId": listing_source_id.to_string(),
+                "sourceListingId": "failed",
                 "error": "BAD_BODY_VALUE"
             }]),
             body_json(response).await?
@@ -372,12 +374,12 @@ mod tests {
             })
         });
         let app = app(upsert);
-        let shop_id = ShopId::new();
+        let listing_source_id = ListingSourceId::new();
 
         let response = request(
             &app,
-            &format!("/api/v1/shops/{shop_id}/product-listings"),
-            r#"[{"shopListingId":"invalid"}]"#,
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            r#"[{"sourceListingId":"invalid"}]"#,
             true,
         )
         .await?;
@@ -396,7 +398,7 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/shops/{shop_id}/product-listings",
+                "/api/v1/listing-sources/{listing_source_id}/product-listings",
                 axum::routing::put(upsert_products),
             )
             .with_state(state)
@@ -417,7 +419,8 @@ mod tests {
     fn created() -> UpsertProductListingResult {
         UpsertProductListingResult::Created(CreateProductListingResult {
             product_listing_id: ProductListingId::new(),
-            product_listing_slug_id: ProductListingSlugId::from("upserted-product"),
+            product_listing_title_slug_id: ProductListingSlugId::raw("upserted-product-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
             event_id: EventId::new(),
         })
     }

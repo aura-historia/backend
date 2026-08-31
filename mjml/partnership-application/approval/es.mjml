@@ -1,0 +1,14 @@
+<mjml>
+  <mj-head>
+    <mj-title>Solicitud de asociación aprobada: {{party_name}}</mj-title>
+    <mj-preview>Tu solicitud de asociación para {{listing_source_name}} ha sido aprobada.</mj-preview>
+  </mj-head>
+  <mj-body background-color="#F7F4E9" width="600px">
+    <mj-section background-color="#ffffff" padding="32px" border-radius="12px">
+      <mj-column>
+        <mj-text>{{#if first_name}}Hola {{first_name}},{{else}}Hola,{{/if}}</mj-text>
+        <mj-text>Tu solicitud de asociación para <b>{{party_name}}</b> y <b>{{listing_source_name}}</b> ha sido aprobada.</mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

@@ -1,33 +1,31 @@
 //! Service for fetching scraper candidates — product URLs that are due for re-scraping.
 //!
-//! A scraper candidate is a URL stored in `shop_urls` that is due for scraping by recency and
+//! A scraper candidate is a URL stored in `listing_source_urls` that is due for scraping by recency and
 //! retry, presence, and availability rules. Hash comparison is performed in-memory by the scraper after fetching HTML.
-//! Each candidate carries the shop metadata (`shop_id`, `shop_name`, `shop_type`) needed to build
+//! Each candidate carries the ListingSource identity needed to build
 //! an [`UpsertProductListingCommand`] without an additional lookup, as well as snapshots of the last
 //! successfully scraped field values used for change detection.
 
 use async_trait::async_trait;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_type::ShopType;
+use listing_source_core::ListingSourceId;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use url::Url;
 
 use crate::scraper::normalization::product::NormalizedProduct;
-use crate::scraper::scraper_service::DEFAULT_MAX_LLM_CALLS_PER_SHOP;
-use crate::service::shop_registration::shop_type_from_db;
+use crate::scraper::scraper_service::DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE;
+
 use crate::spider::classification::url_metadata::{UrlClass, UrlPresence};
 
 // ---------------------------------------------------------------------------
 // ScraperCandidate
 // ---------------------------------------------------------------------------
 
-/// A product URL that is eligible for scraping, together with the shop context and the
+/// A product URL that is eligible for scraping, together with the ListingSource context and the
 /// last-scraped field snapshots used to detect whether the product has actually changed.
 pub struct ScraperCandidate {
-    pub shop_id: ShopId,
-    pub shop_name: String,
-    pub shop_type: ShopType,
+    pub listing_source_id: ListingSourceId,
+    pub listing_source_name: String,
     pub url_pattern: Option<String>,
     pub url: Url,
     /// SHA-256 hash of the HTML `<main>` fragment (or full HTML) from the last successful scrape.
@@ -53,10 +51,10 @@ pub struct ScraperCandidate {
     pub last_scraped_availability: Option<String>,
 }
 
-/// Per-shop LLM usage snapshot for operational logging.
-pub struct ShopLlmUsage {
-    pub shop_id: ShopId,
-    pub shop_name: String,
+/// Per-ListingSource LLM usage snapshot for operational logging.
+pub struct ListingSourceLlmUsage {
+    pub listing_source_id: ListingSourceId,
+    pub listing_source_name: String,
     pub llm_calls_count: i64,
 }
 
@@ -184,21 +182,21 @@ pub trait ScraperCandidateService: Send + Sync {
         urls_per_domain: i64,
         excluded_domains: &[String],
     ) -> Result<Vec<ScraperCandidate>, sqlx::Error>;
-    /// Returns a random sample of product URLs for a shop (excluding the current
+    /// Returns a random sample of product URLs for a ListingSource (excluding the current
     /// URL) to seed first-time schema generation with additional page layouts.
     ///
     /// This query intentionally uses `ORDER BY RANDOM()` because the path is
     /// only used on schema cache misses, which are rare (typically one-time per
-    /// shop unless schema rows are reset).
+    /// ListingSource unless schema rows are reset).
     async fn get_random_product_urls_for_schema_seed(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         exclude_url: &Url,
         limit: i64,
     ) -> Result<Vec<Url>, sqlx::Error>;
     async fn mark_as_scraped(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         hash: &str,
         snapshot: &ProductListingSnapshot,
@@ -208,25 +206,25 @@ pub trait ScraperCandidateService: Send + Sync {
     /// product has not changed so only the timestamp needs refreshing.
     async fn touch_scraped(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         hash: &str,
     ) -> Result<(), sqlx::Error>;
     async fn set_presence(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         state: UrlPresence,
     ) -> Result<(), sqlx::Error>;
     async fn set_class(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         url_class: UrlClass,
     ) -> Result<(), sqlx::Error>;
     async fn mark_fetch_failure(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         error_kind: &str,
         error_message: &str,
@@ -241,41 +239,41 @@ pub trait ScraperCandidateService: Send + Sync {
     /// server being unavailable and should not suppress future fetches.
     async fn mark_scraper_failure(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         error_kind: &str,
         error_message: &str,
     ) -> Result<(), sqlx::Error>;
 
-    /// Increment per-shop LLM call counter used by schema generation flows.
-    async fn increment_shop_llm_calls(
+    /// Increment per-ListingSource LLM call counter used by schema generation flows.
+    async fn increment_listing_source_llm_calls(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         delta: i64,
     ) -> Result<(), sqlx::Error>;
 
-    /// Try to increment per-shop LLM call counter if the configured max would
+    /// Try to increment per-ListingSource LLM call counter if the configured max would
     /// not be exceeded. Returns `true` when incremented, `false` when blocked
     /// by the limit.
-    async fn try_increment_shop_llm_calls_with_limit(
+    async fn try_increment_listing_source_llm_calls_with_limit(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         delta: i64,
         max_calls: i64,
     ) -> Result<bool, sqlx::Error>;
 
-    /// Returns whether the per-shop LLM-call budget is already exhausted.
-    async fn is_shop_llm_budget_exhausted(
+    /// Returns whether the per-ListingSource LLM-call budget is already exhausted.
+    async fn is_listing_source_llm_budget_exhausted(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         max_calls: i64,
     ) -> Result<bool, sqlx::Error>;
 
-    /// Returns per-shop LLM call counts for the provided shop IDs.
-    async fn get_shop_llm_usage(
+    /// Returns per-ListingSource LLM call counts for the provided ListingSource IDs.
+    async fn get_listing_source_llm_usage(
         &self,
-        shop_ids: Vec<ShopId>,
-    ) -> Result<Vec<ShopLlmUsage>, sqlx::Error>;
+        listing_source_ids: Vec<ListingSourceId>,
+    ) -> Result<Vec<ListingSourceLlmUsage>, sqlx::Error>;
 }
 
 // ---------------------------------------------------------------------------
@@ -284,27 +282,33 @@ pub trait ScraperCandidateService: Send + Sync {
 
 pub struct ScraperCandidateServiceImpl {
     pool: PgPool,
-    max_llm_calls_per_shop: i64,
+    max_llm_calls_per_listing_source: i64,
 }
 
 impl ScraperCandidateServiceImpl {
     pub fn new(pool: PgPool) -> Self {
-        Self::new_with_max_llm_calls_per_shop(pool, DEFAULT_MAX_LLM_CALLS_PER_SHOP)
+        Self::new_with_max_llm_calls_per_listing_source(
+            pool,
+            DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
+        )
     }
 
-    pub fn new_with_max_llm_calls_per_shop(pool: PgPool, max_llm_calls_per_shop: i64) -> Self {
+    pub fn new_with_max_llm_calls_per_listing_source(
+        pool: PgPool,
+        max_llm_calls_per_listing_source: i64,
+    ) -> Self {
         Self {
             pool,
-            max_llm_calls_per_shop,
+            max_llm_calls_per_listing_source,
         }
     }
 }
 
 #[derive(sqlx::FromRow)]
 struct ScraperCandidateRow {
-    shop_id: uuid::Uuid,
-    shop_name: String,
-    shop_type: Option<String>,
+    listing_source_id: uuid::Uuid,
+    listing_source_name: String,
+
     url_pattern: Option<String>,
     url: String,
     last_scraped_hash: Option<String>,
@@ -322,7 +326,7 @@ struct ScraperCandidateRow {
 const SCRAPER_CANDIDATE_QUERY: &str = r#"
     WITH eligible_urls AS (
         SELECT
-            su.shop_id, s.shop_name, s.shop_type, s.url_pattern, su.url,
+            su.listing_source_id, s.listing_source_name, sd.url_pattern, su.url,
             lower(substring(su.url from '^[a-z][a-z0-9+.-]*://([^/:?#]+)')) AS normalized_host,
             su.last_scraped,
             su.last_scraped_hash,
@@ -335,9 +339,11 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
             su.last_scraped_auction_end,
             su.last_scraped_presence,
             su.last_scraped_availability
-        FROM shop_urls su
-        JOIN shops s ON s.shop_id = su.shop_id
-        WHERE s.active = TRUE
+        FROM listing_source_urls su
+        JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
+        JOIN listing_source_domains sd
+          ON sd.listing_source_id = su.listing_source_id AND sd.domain_id = su.domain_id
+        WHERE s.crawl_enabled = TRUE
           AND s.llm_calls_count < $3
           AND su.url_class = 'product'
           AND su.last_scraped_presence = 'PRESENT'
@@ -346,7 +352,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
           AND NOT EXISTS (
               SELECT 1
               FROM crawler_reviews cr
-              WHERE cr.shop_id = su.shop_id
+              WHERE cr.listing_source_id = su.listing_source_id
                 AND cr.artifact_type = 'PRODUCT_SCHEMA'
                 AND cr.status = 'PENDING_REVIEW'
           )
@@ -373,7 +379,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
         JOIN selected_domains sd ON sd.normalized_host = eu.normalized_host
     )
     SELECT
-        shop_id, shop_name, shop_type, url_pattern, url,
+        listing_source_id, listing_source_name, url_pattern, url,
         last_scraped_hash,
         last_scraped_price,
         last_scraped_price_estimate_min,
@@ -400,7 +406,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         let rows = sqlx::query_as::<_, ScraperCandidateRow>(SCRAPER_CANDIDATE_QUERY)
             .bind(domain_limit)
             .bind(urls_per_domain)
-            .bind(self.max_llm_calls_per_shop)
+            .bind(self.max_llm_calls_per_listing_source)
             .bind(excluded_domains)
             .fetch_all(&self.pool)
             .await?;
@@ -410,13 +416,9 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             let Some(url) = Url::parse(&row.url).ok() else {
                 continue;
             };
-            let Some(shop_type) = shop_type_from_db(row.shop_type.as_deref()) else {
-                continue;
-            };
             candidates.push(ScraperCandidate {
-                shop_id: ShopId::from(row.shop_id),
-                shop_name: row.shop_name,
-                shop_type,
+                listing_source_id: ListingSourceId::from(row.listing_source_id),
+                listing_source_name: row.listing_source_name,
                 url_pattern: row.url_pattern,
                 url,
                 last_scraped_hash: row.last_scraped_hash,
@@ -437,29 +439,29 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
     async fn get_random_product_urls_for_schema_seed(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         exclude_url: &Url,
         limit: i64,
     ) -> Result<Vec<Url>, sqlx::Error> {
-        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
         let rows: Vec<(String,)> = sqlx::query_as(
             r#"
             SELECT su.url
-            FROM shop_urls su
-            JOIN shops s ON s.shop_id = su.shop_id
-            WHERE s.active = TRUE
-              AND su.shop_id = $1
+            FROM listing_source_urls su
+            JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
+            WHERE s.crawl_enabled = TRUE
+              AND su.listing_source_id = $1
               AND su.url_class = 'product'
               AND su.last_scraped_presence = 'PRESENT'
               AND su.url <> $2
             -- Intentional: schema seeding runs on a rare path (typically once per
-            -- shop), so ORDER BY RANDOM() keeps this simple. If rows per shop grow
+            -- ListingSource), so ORDER BY RANDOM() keeps this simple. If rows per ListingSource grow
             -- to millions, switch to TABLESAMPLE BERNOULLI or keyset-random.
             ORDER BY RANDOM()
             LIMIT $3
             "#,
         )
-        .bind(shop_id_uuid)
+        .bind(listing_source_id_uuid)
         .bind(exclude_url.to_string())
         .bind(limit)
         .fetch_all(&self.pool)
@@ -473,16 +475,16 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
     async fn mark_as_scraped(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         hash: &str,
         snapshot: &ProductListingSnapshot,
     ) -> Result<(), sqlx::Error> {
-        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
         let url_str = url.to_string();
 
         sqlx::query(
-            "UPDATE shop_urls
+            "UPDATE listing_source_urls
              SET last_scraped = NOW(),
                  last_scraped_hash = $3,
                  last_scraped_price = $4,
@@ -500,9 +502,9 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_status_code = NULL,
                  next_retry_at = NULL,
                  updated = NOW()
-             WHERE shop_id = $1 AND url = $2 AND url_class = 'product'",
+             WHERE listing_source_id = $1 AND url = $2 AND url_class = 'product'",
         )
-        .bind(shop_id_uuid)
+        .bind(listing_source_id_uuid)
         .bind(url_str)
         .bind(hash)
         .bind(&snapshot.price)
@@ -521,15 +523,15 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
     async fn touch_scraped(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         hash: &str,
     ) -> Result<(), sqlx::Error> {
-        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
         let url_str = url.to_string();
 
         sqlx::query(
-            "UPDATE shop_urls
+            "UPDATE listing_source_urls
              SET last_scraped = NOW(),
                  last_scraped_hash = $3,
                  failure_count = 0,
@@ -538,9 +540,9 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_status_code = NULL,
                  next_retry_at = NULL,
                  updated = NOW()
-             WHERE shop_id = $1 AND url = $2 AND url_class = 'product'",
+             WHERE listing_source_id = $1 AND url = $2 AND url_class = 'product'",
         )
-        .bind(shop_id_uuid)
+        .bind(listing_source_id_uuid)
         .bind(url_str)
         .bind(hash)
         .execute(&self.pool)
@@ -551,22 +553,22 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
     async fn set_presence(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         presence: UrlPresence,
     ) -> Result<(), sqlx::Error> {
-        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
         let url_str = url.to_string();
         let presence_str = presence.to_string();
 
         sqlx::query(
-            "UPDATE shop_urls
+            "UPDATE listing_source_urls
              SET last_scraped_presence = $3,
                  next_retry_at = NULL,
                  updated = NOW()
-             WHERE shop_id = $1 AND url = $2 AND url_class = 'product'",
+             WHERE listing_source_id = $1 AND url = $2 AND url_class = 'product'",
         )
-        .bind(shop_id_uuid)
+        .bind(listing_source_id_uuid)
         .bind(url_str)
         .bind(presence_str)
         .execute(&self.pool)
@@ -577,22 +579,22 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
     async fn set_class(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         url_class: UrlClass,
     ) -> Result<(), sqlx::Error> {
-        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
         let url_str = url.to_string();
         let url_class_str = url_class.to_string();
 
         sqlx::query(
-            "UPDATE shop_urls
+            "UPDATE listing_source_urls
              SET url_class = $3,
                  next_retry_at = NULL,
                  updated = NOW()
-             WHERE shop_id = $1 AND url = $2",
+             WHERE listing_source_id = $1 AND url = $2",
         )
-        .bind(shop_id_uuid)
+        .bind(listing_source_id_uuid)
         .bind(url_str)
         .bind(url_class_str)
         .execute(&self.pool)
@@ -603,27 +605,27 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
     async fn mark_fetch_failure(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         error_kind: &str,
         error_message: &str,
         status_code: Option<i32>,
         next_retry_at: OffsetDateTime,
     ) -> Result<(), sqlx::Error> {
-        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
         let url_str = url.to_string();
 
         sqlx::query(
-            "UPDATE shop_urls
+            "UPDATE listing_source_urls
              SET failure_count = failure_count + 1,
                  last_error_kind = $3,
                  last_error_message = $4,
                  last_status_code = $5,
                  next_retry_at = $6,
                  updated = NOW()
-             WHERE shop_id = $1 AND url = $2 AND url_class = 'product'",
+             WHERE listing_source_id = $1 AND url = $2 AND url_class = 'product'",
         )
-        .bind(shop_id_uuid)
+        .bind(listing_source_id_uuid)
         .bind(url_str)
         .bind(error_kind)
         .bind(error_message)
@@ -637,22 +639,22 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
     async fn mark_scraper_failure(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         url: &Url,
         error_kind: &str,
         error_message: &str,
     ) -> Result<(), sqlx::Error> {
-        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
         let url_str = url.to_string();
 
         sqlx::query(
-            "UPDATE shop_urls
+            "UPDATE listing_source_urls
              SET last_error_kind = $3,
                  last_error_message = $4,
                  updated = NOW()
-             WHERE shop_id = $1 AND url = $2 AND url_class = 'product'",
+             WHERE listing_source_id = $1 AND url = $2 AND url_class = 'product'",
         )
-        .bind(shop_id_uuid)
+        .bind(listing_source_id_uuid)
         .bind(url_str)
         .bind(error_kind)
         .bind(error_message)
@@ -662,18 +664,18 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         Ok(())
     }
 
-    async fn increment_shop_llm_calls(
+    async fn increment_listing_source_llm_calls(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         delta: i64,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "UPDATE shops
+            "UPDATE listing_sources
              SET llm_calls_count = llm_calls_count + $2,
                  updated = NOW()
-             WHERE shop_id = $1",
+             WHERE listing_source_id = $1",
         )
-        .bind(uuid::Uuid::from(*shop_id))
+        .bind(uuid::Uuid::from(*listing_source_id))
         .bind(delta)
         .execute(&self.pool)
         .await?;
@@ -681,20 +683,20 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         Ok(())
     }
 
-    async fn try_increment_shop_llm_calls_with_limit(
+    async fn try_increment_listing_source_llm_calls_with_limit(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         delta: i64,
         max_calls: i64,
     ) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
-            "UPDATE shops
+            "UPDATE listing_sources
              SET llm_calls_count = llm_calls_count + $2,
                  updated = NOW()
-             WHERE shop_id = $1
+             WHERE listing_source_id = $1
                AND llm_calls_count + $2 <= $3",
         )
-        .bind(uuid::Uuid::from(*shop_id))
+        .bind(uuid::Uuid::from(*listing_source_id))
         .bind(delta)
         .bind(max_calls)
         .execute(&self.pool)
@@ -703,17 +705,17 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn is_shop_llm_budget_exhausted(
+    async fn is_listing_source_llm_budget_exhausted(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         max_calls: i64,
     ) -> Result<bool, sqlx::Error> {
         let exhausted = sqlx::query_scalar::<_, bool>(
             "SELECT llm_calls_count >= $2
-             FROM shops
-             WHERE shop_id = $1",
+             FROM listing_sources
+             WHERE listing_source_id = $1",
         )
-        .bind(uuid::Uuid::from(*shop_id))
+        .bind(uuid::Uuid::from(*listing_source_id))
         .bind(max_calls)
         .fetch_optional(&self.pool)
         .await?
@@ -722,19 +724,22 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         Ok(exhausted)
     }
 
-    async fn get_shop_llm_usage(
+    async fn get_listing_source_llm_usage(
         &self,
-        shop_ids: Vec<ShopId>,
-    ) -> Result<Vec<ShopLlmUsage>, sqlx::Error> {
-        if shop_ids.is_empty() {
+        listing_source_ids: Vec<ListingSourceId>,
+    ) -> Result<Vec<ListingSourceLlmUsage>, sqlx::Error> {
+        if listing_source_ids.is_empty() {
             return Ok(Vec::new());
         }
 
-        let ids: Vec<uuid::Uuid> = shop_ids.into_iter().map(uuid::Uuid::from).collect();
+        let ids: Vec<uuid::Uuid> = listing_source_ids
+            .into_iter()
+            .map(uuid::Uuid::from)
+            .collect();
         let rows: Vec<(uuid::Uuid, Option<String>, i64)> = sqlx::query_as(
-            "SELECT shop_id, shop_name, llm_calls_count
-             FROM shops
-             WHERE shop_id = ANY($1::uuid[])",
+            "SELECT listing_source_id, listing_source_name, llm_calls_count
+             FROM listing_sources
+             WHERE listing_source_id = ANY($1::uuid[])",
         )
         .bind(ids)
         .fetch_all(&self.pool)
@@ -742,9 +747,9 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 
         Ok(rows
             .into_iter()
-            .map(|(id, name, llm_calls_count)| ShopLlmUsage {
-                shop_id: id.into(),
-                shop_name: name.unwrap_or_else(|| id.to_string()),
+            .map(|(id, name, llm_calls_count)| ListingSourceLlmUsage {
+                listing_source_id: id.into(),
+                listing_source_name: name.unwrap_or_else(|| id.to_string()),
                 llm_calls_count,
             })
             .collect())
@@ -757,7 +762,7 @@ mod tests {
     use crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping;
     use localization::{Language, Localized};
     use product_listing_core::{
-        listing_availability::ListingAvailability, shop_listing_id::ShopListingId, title::Title,
+        listing_availability::ListingAvailability, source_listing_id::SourceListingId, title::Title,
     };
 
     fn base_url() -> Url {
@@ -766,13 +771,13 @@ mod tests {
 
     fn product(availability: ListingAvailabilityMapping) -> NormalizedProduct {
         NormalizedProduct {
-            shop_listing_id: ShopListingId::from("SKU-1"),
+            source_listing_id: SourceListingId::try_from("SKU-1")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
             title: Localized::new(Language::En, Title::from("Test listing")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            seller_name: None,
             availability,
             url: base_url(),
             images: vec![],
@@ -784,9 +789,8 @@ mod tests {
 
     fn candidate(snapshot: &ProductListingSnapshot) -> ScraperCandidate {
         ScraperCandidate {
-            shop_id: ShopId::new(),
-            shop_name: "Test".to_owned(),
-            shop_type: ShopType::CommercialDealer,
+            listing_source_id: ListingSourceId::new(),
+            listing_source_name: "Test".to_owned(),
             url_pattern: None,
             url: base_url(),
             last_scraped_hash: Some("hash".to_owned()),

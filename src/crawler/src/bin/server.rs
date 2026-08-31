@@ -1,7 +1,7 @@
 //! Production server binary for the crawler.
 //!
 //! Wires crawler-local Postgres, authoritative business Postgres, and the LLM, then starts the
-//! [`CrawlerCronJob`] loop that continuously spiders shop websites, scrapes product pages,
+//! [`CrawlerCronJob`] loop that continuously spiders ListingSource websites, scrapes product pages,
 //! and pushes normalized products through the canonical product upsert use case.
 //!
 //! # Connection pool sizing
@@ -15,7 +15,7 @@
 //! | Variable                        | Purpose                                                        |
 //! |---------------------------------|----------------------------------------------------------------|
 //! | `LOCAL_DB_URL`                  | Crawler-local Postgres URL (`crawler_server`)                  |
-//! | `BUSINESS_DATABASE_URL`         | Required authoritative Postgres URL for shops and products     |
+//! | `BUSINESS_DATABASE_URL`         | Required authoritative Postgres URL for listing_sources and products     |
 //! | `VERTEX_AI_PROJECT_ID`          | Required Google Cloud project for Vertex AI                    |
 //! | `VERTEX_AI_LOCATION`            | Required Vertex AI location                                    |
 //! | `GOOGLE_APPLICATION_CREDENTIALS`| Optional local Application Default Credentials file             |
@@ -27,6 +27,7 @@
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between crawler LLM request starts (default: `2000`) |
 //! | `CRAWLER_CLOUDWATCH_LOG_GROUP`  | Optional CloudWatch Logs group name for crawler server logs    |
 //! | `CRAWLER_CLOUDWATCH_LOG_STREAM` | Optional CloudWatch Logs stream name; defaults to host name    |
+//! | `SPIDER_MAX_SIZE_BYTES`          | Required Spider transport page-body ceiling; set to `8388608`  |
 //!
 //! # CloudWatch IAM permissions
 //!
@@ -36,10 +37,6 @@
 //! - `logs:CreateLogStream`
 //! - `logs:PutLogEvents`
 
-use application::{
-    operation_context::{CorrelationId, OperationContext, Principal, RequestId},
-    pagination::Cursor,
-};
 use async_trait::async_trait;
 use aws_config::BehaviorVersion;
 use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
@@ -47,7 +44,11 @@ use aws_sdk_cloudwatchlogs::error::SdkError;
 use aws_sdk_cloudwatchlogs::operation::create_log_group::CreateLogGroupError;
 use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
-use crawler::local_db::{SERVER_DB_NAME, bootstrap_local_database, server_db_url};
+use crawler::local_db::{
+    SERVER_DB_NAME, bootstrap_local_database,
+    crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl,
+    server_db_url,
+};
 use crawler::logging::{
     CloudWatchBootstrapClient, CloudWatchBootstrapError, CloudWatchLoggingConfig,
     HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, cloudwatch_logging_config,
@@ -56,7 +57,7 @@ use crawler::logging::{
 use crawler::review::repository::CrawlerReviewRepository;
 use crawler::review::server::{ReviewServer, ReviewServerConfig};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
-use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
+use crawler::scraper::css_selector::product_schema_repository::ListingSourceProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
 use crawler::scraper::normalization::listing_availability_mapping_repository::ListingAvailabilityMappingRepositoryImpl;
@@ -65,33 +66,30 @@ use crawler::scraper::normalization::product_normalization_service::ProductListi
 use crawler::scraper::scraper_service::{
     DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
+use crawler::service::crawler_domain_configuration::CrawlerDomainAdministrationHandler;
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
-use crawler::service::product_push::ProductListingPushServiceImpl;
-use crawler::service::shop_registration::{
-    RegisteredShop, ShopRegistrationRepositoryImpl, ShopRegistrationService,
-    ShopRegistrationSource, ShopSyncError,
+use crawler::service::listing_source_registration::{
+    ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
+    ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
 };
+use crawler::service::product_push::ProductListingPushServiceImpl;
 use crawler::spider::advisory_lock::LocalLockManager;
 use crawler::spider::candidate_service::SpiderCandidateServiceImpl;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
-use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepositoryImpl;
+use crawler::spider::classification::url_pattern_repository::ListingSourceUrlPatternRepositoryImpl;
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
 use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
+use listing_source_postgres::SqlxListingSourceReaders;
+use listing_source_service::ports::WebCrawlSourceReader;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
     SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventStoreFactory,
     SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::use_cases::UpsertProductListingHandler;
-use shop_core::{partner_status::ShopPartnerStatus, shop_id::ShopId};
-use shop_postgres::SqlxShopSearchReaderFactory;
-use shop_service::{
-    shop_search::ShopSearch,
-    use_cases::{SearchShopsHandler, SearchShopsRequest, SearchShopsUseCase, ShopSummary},
-};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use std::time::Duration;
@@ -101,78 +99,38 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 // ---------------------------------------------------------------------------
-// ShopRegistrationSource backed by canonical Shop search in Postgres
+// ListingSourceRegistrationSource backed only by WebCrawlSourceReader.
 // ---------------------------------------------------------------------------
 
-struct PostgresShopSource {
-    search_shops: Box<dyn SearchShopsUseCase>,
-    operation_context: OperationContext,
+struct PostgresWebCrawlSource {
+    sources: Box<dyn WebCrawlSourceReader>,
 }
 
-impl PostgresShopSource {
-    fn new(search_shops: Box<dyn SearchShopsUseCase>) -> Self {
-        Self {
-            search_shops,
-            operation_context: OperationContext {
-                principal: Principal::System,
-                request_id: RequestId::new("crawler-shop-registration"),
-                correlation_id: CorrelationId::new("crawler-shop-registration"),
-            },
-        }
+impl PostgresWebCrawlSource {
+    fn new(sources: Box<dyn WebCrawlSourceReader>) -> Self {
+        Self { sources }
     }
 }
 
-fn should_sync_shop(shop: &ShopSummary) -> bool {
-    !matches!(shop.partner_status, ShopPartnerStatus::Partnered)
-        && shop.domains.iter().any(|domain| {
-            ["anticoantico.com", "antik-und-stil.com", "antixx.de"].contains(&domain.as_str())
-        })
-}
-
 #[async_trait]
-impl ShopRegistrationSource for PostgresShopSource {
-    async fn fetch_registered_shops(&self) -> Result<Vec<RegisteredShop>, ShopSyncError> {
-        let mut registered_shops = Vec::new();
-        let mut cursor: Option<Cursor<ShopId>> = None;
-
-        loop {
-            let result = self
-                .search_shops
-                .execute(
-                    &self.operation_context,
-                    SearchShopsRequest {
-                        search: ShopSearch::default(),
-                        sort: None,
-                        cursor,
-                    },
-                )
-                .await
-                .map_err(|error| ShopSyncError::FetchError(error.to_string()))?;
-
-            let page_size = result.items.len();
-            let has_next_page = result.cursor.search_after.is_some();
-            for shop in result.items {
-                if !should_sync_shop(&shop) {
-                    continue;
-                }
-
-                registered_shops.push(RegisteredShop {
-                    shop_id: shop.shop_id,
-                    shop_name: shop.name.to_string(),
-                    shop_slug: shop.shop_slug_id.to_string(),
-                    shop_type: shop.shop_type,
-                    domains: shop.domains.into_iter().collect(),
-                });
-            }
-
-            if page_size == 0 || !has_next_page {
-                break;
-            }
-
-            cursor = Some(result.cursor);
-        }
-
-        Ok(registered_shops)
+impl ListingSourceRegistrationSource for PostgresWebCrawlSource {
+    async fn fetch_registered_listing_sources(
+        &self,
+    ) -> Result<Vec<RegisteredListingSource>, ListingSourceSyncError> {
+        self.sources
+            .list_sources()
+            .await
+            .map_err(|error| ListingSourceSyncError::FetchError(error.to_string()))?
+            .into_iter()
+            .map(|source| {
+                Ok(RegisteredListingSource {
+                    listing_source_id: source.listing_source_id,
+                    listing_source_name: source.listing_source_name,
+                    listing_source_slug: source.listing_source_slug,
+                    crawl_enabled: source.web_crawl_enabled,
+                })
+            })
+            .collect()
     }
 }
 
@@ -370,7 +328,8 @@ async fn main() {
                 config.scraper_auto_throttle_target_concurrency,
             scraper_auto_throttle_max_delay_ms = config.scraper_auto_throttle_max_delay.as_millis(),
             scraper_auto_throttle_alpha = config.scraper_auto_throttle_alpha,
-            scraper_max_llm_calls_per_shop = config.scraper_max_llm_calls_per_shop,
+            scraper_max_llm_calls_per_listing_source =
+                config.scraper_max_llm_calls_per_listing_source,
             push_batch_size = config.effective_push_batch_size(),
             push_queue_capacity = config.effective_push_queue_capacity(),
             push_max_batch_age_ms = config.effective_push_max_batch_age().as_millis(),
@@ -412,7 +371,7 @@ async fn main() {
             .connect(&business_database_url)
             .await
             .expect("Failed to connect to authoritative business Postgres");
-        let business_unit_of_work = SqlxUnitOfWork::new(business_pool);
+        let business_unit_of_work = SqlxUnitOfWork::new(business_pool.clone());
         info!(
             max_connections = business_db_max_connections,
             product_push_max_concurrency = config.effective_push_max_concurrency(),
@@ -465,9 +424,9 @@ async fn main() {
             .create_model(vertex_ai_models.product_schema.clone())
             .expect("failed to initialize Vertex AI model for fresh schema generation");
 
-        let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
-            pool.clone(),
-        ))));
+        let schema_repo = Box::new(ListingSourceProductSchemaRepositoryImpl::new(Box::leak(
+            Box::new(pool.clone()),
+        )));
         let schema_svc = ProductListingSchemaServiceImpl::new(
             create_schema_llm,
             single_schema_llm,
@@ -479,9 +438,9 @@ async fn main() {
         )));
 
         let scraper_candidates = Box::new(
-            ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
+            ScraperCandidateServiceImpl::new_with_max_llm_calls_per_listing_source(
                 pool.clone(),
-                config.scraper_max_llm_calls_per_shop,
+                config.scraper_max_llm_calls_per_listing_source,
             ),
         );
 
@@ -494,20 +453,20 @@ async fn main() {
                 Box::new(schema_svc),
                 Box::new(normalization_svc),
                 Arc::new(
-                    ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
+                    ScraperCandidateServiceImpl::new_with_max_llm_calls_per_listing_source(
                         pool.clone(),
-                        config.scraper_max_llm_calls_per_shop,
+                        config.scraper_max_llm_calls_per_listing_source,
                     ),
                 ),
                 config.scraper_schema_seed_pages,
-                config.scraper_max_llm_calls_per_shop,
+                config.scraper_max_llm_calls_per_listing_source,
             )
             .with_removed_page_schema_repository(removed_page_schema_repo)
             .with_review_gate(review_repo.clone(), review_required),
         );
 
         let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
-        let url_pattern_repo = Box::new(ShopUrlPatternRepositoryImpl::new(pool.clone()));
+        let url_pattern_repo = Box::new(ListingSourceUrlPatternRepositoryImpl::new(pool.clone()));
 
         let classification_llm = vertex_ai_config
             .create_model(vertex_ai_models.url_classification.clone())
@@ -538,14 +497,14 @@ async fn main() {
 
         let spider_candidates = Box::new(SpiderCandidateServiceImpl::new(pool.clone()));
 
-        // 5. Wire shop registration from authoritative Postgres.
-        let search_shops = SearchShopsHandler::new(
-            business_unit_of_work.clone(),
-            SqlxShopSearchReaderFactory::new(),
-        );
-        let shop_source = Box::new(PostgresShopSource::new(Box::new(search_shops)));
-        let shop_repo = Box::new(ShopRegistrationRepositoryImpl::new(pool.clone()));
-        let shop_registration = ShopRegistrationService::new(shop_source, shop_repo);
+        // 5. Sync crawler scope from authoritative WebCrawl sources.
+        let listing_source_source = Box::new(PostgresWebCrawlSource::new(Box::new(
+            SqlxListingSourceReaders::new(business_pool.clone()),
+        )));
+        let listing_source_repo =
+            Box::new(ListingSourceRegistrationRepositoryImpl::new(pool.clone()));
+        let listing_source_registration =
+            ListingSourceRegistrationService::new(listing_source_source, listing_source_repo);
 
         // 6. Wire product push through authoritative Postgres.
         let upsert_product = UpsertProductListingHandler::new(
@@ -560,7 +519,8 @@ async fn main() {
         ));
 
         let db_max_connections = config.effective_db_max_connections();
-        let scraper_max_llm_calls_per_shop = config.scraper_max_llm_calls_per_shop;
+        let scraper_max_llm_calls_per_listing_source =
+            config.scraper_max_llm_calls_per_listing_source;
         let push_batch_size = config.effective_push_batch_size();
         let push_queue_capacity = config.effective_push_queue_capacity();
         let push_max_batch_age_ms = config.effective_push_max_batch_age().as_millis();
@@ -574,14 +534,14 @@ async fn main() {
             spider_svc,
             scraper_candidates,
             scraper_svc,
-            shop_registration,
+            listing_source_registration,
             product_push,
         );
 
         // 8. Run forever
         info!(
             db_max_connections,
-            scraper_max_llm_calls_per_shop,
+            scraper_max_llm_calls_per_listing_source,
             push_batch_size,
             push_queue_capacity,
             push_max_batch_age_ms,
@@ -596,7 +556,13 @@ async fn main() {
             review_bind_addr = %review_config.bind_addr,
             "Crawler Server is fully initialized. Starting background tasks..."
         );
-        let review_server = ReviewServer::new(review_repo, review_config);
+        let review_server = ReviewServer::new(
+            review_repo,
+            Arc::new(CrawlerDomainAdministrationHandler::new(Arc::new(
+                CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()),
+            ))),
+            review_config,
+        );
         let review_handle = tokio::spawn(async move {
             review_server
                 .run()
@@ -618,50 +584,4 @@ async fn main() {
     }
     .instrument(tracing::info_span!("crawler_startup"))
     .await;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::should_sync_shop;
-    use shop_core::{
-        domain::Domain, partner_status::ShopPartnerStatus, shop_id::ShopId, shop_name::ShopName,
-        shop_slug_id::ShopSlugId, shop_type::ShopType,
-    };
-    use shop_service::use_cases::ShopSummary;
-    use time::OffsetDateTime;
-
-    fn mk_shop(partner_status: ShopPartnerStatus, domain: &str) -> ShopSummary {
-        ShopSummary {
-            shop_id: ShopId::new(),
-            shop_slug_id: ShopSlugId::from("test-shop"),
-            name: ShopName::from("Test Shop"),
-            shop_type: ShopType::CommercialDealer,
-            partner_status,
-            domains: vec![Domain::try_from(domain).unwrap()],
-            image: None,
-            created: OffsetDateTime::now_utc(),
-            updated: OffsetDateTime::now_utc(),
-        }
-    }
-
-    #[test]
-    fn should_exclude_partnered_shop_even_when_domain_is_allowed() {
-        let shop = mk_shop(ShopPartnerStatus::Partnered, "anticoantico.com");
-
-        assert!(!should_sync_shop(&shop));
-    }
-
-    #[test]
-    fn should_include_scraped_shop_when_domain_is_allowed() {
-        let shop = mk_shop(ShopPartnerStatus::Scraped, "anticoantico.com");
-
-        assert!(should_sync_shop(&shop));
-    }
-
-    #[test]
-    fn should_exclude_scraped_shop_when_domain_is_not_allowed() {
-        let shop = mk_shop(ShopPartnerStatus::Scraped, "example.com");
-
-        assert!(!should_sync_shop(&shop));
-    }
 }

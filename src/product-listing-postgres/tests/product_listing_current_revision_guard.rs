@@ -84,28 +84,36 @@ async fn current_revision_guard_lock_flow() -> Result<(), Box<dyn std::error::Er
 async fn seed_product(pool: &sqlx::PgPool) -> Result<(ProductListingId, EventId), sqlx::Error> {
     let product_listing_id = ProductListingId::new();
     let event_id = EventId::new();
-    let shop_id = uuid::Uuid::new_v4();
+    let party_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
     let product_uuid = uuid::Uuid::from(product_listing_id);
     let slug_suffix = product_uuid.simple().to_string()[..6].to_owned();
     let mut transaction = pool.begin().await?;
     sqlx::query(
-        "INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, $3, 'COMMERCIAL_DEALER', 'SCRAPED', '{}')",
+        "INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, 'Revision guard party')",
     )
-    .bind(shop_id)
-    .bind(format!("revision-guard-shop-{shop_id}"))
-    .bind("Revision guard shop")
+    .bind(party_id)
+    .bind(format!("revision-guard-party-{party_id}"))
     .execute(&mut *transaction)
     .await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $4, $5, $6, 'en', 'Revision guard description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')",
+        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, 'Revision guard source', $3)",
+    )
+    .bind(listing_source_id)
+    .bind(format!("revision-guard-source-{listing_source_id}"))
+    .bind(party_id)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, $6, 'en', 'Revision guard description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')",
     )
     .bind(product_uuid)
-    .bind(format!("revision-guard-product-{slug_suffix}"))
+    .bind(format!("revision-guard-{slug_suffix}"))
     .bind(uuid::Uuid::from(event_id))
-    .bind(shop_id)
+    .bind(listing_source_id)
     .bind(product_uuid.to_string())
     .bind("Revision guard product")
-    .execute(&mut *transaction)
+        .execute(&mut *transaction)
     .await?;
     sqlx::query(
         "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())",

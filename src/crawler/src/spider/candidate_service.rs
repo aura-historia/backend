@@ -1,11 +1,12 @@
+use crate::CrawlerDomainId;
 use async_trait::async_trait;
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 use sqlx::PgPool;
 
 pub struct SpiderCandidate {
-    pub shop_id: ShopId,
-    pub domain_id: uuid::Uuid,
-    pub shop_domain: String,
+    pub listing_source_id: ListingSourceId,
+    pub domain_id: CrawlerDomainId,
+    pub listing_source_domain: String,
     pub crawl_failure_count: i32,
     pub last_crawl_error_kind: Option<String>,
 }
@@ -16,16 +17,16 @@ pub trait SpiderCandidateService: Send + Sync {
     async fn get_candidates(
         &self,
         limit: i64,
-        excluded_domain_ids: &[uuid::Uuid],
+        excluded_domain_ids: &[CrawlerDomainId],
     ) -> Result<Vec<SpiderCandidate>, sqlx::Error>;
     async fn mark_crawl_failure(
         &self,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
         error_kind: &str,
         crawl_failure_count: i32,
         next_crawl_at: time::OffsetDateTime,
     ) -> Result<(), sqlx::Error>;
-    async fn reset_crawl_failure(&self, domain_id: &uuid::Uuid) -> Result<(), sqlx::Error>;
+    async fn reset_crawl_failure(&self, domain_id: &CrawlerDomainId) -> Result<(), sqlx::Error>;
 }
 
 pub struct SpiderCandidateServiceImpl {
@@ -40,9 +41,9 @@ impl SpiderCandidateServiceImpl {
 
 #[derive(sqlx::FromRow)]
 struct SpiderCandidateRow {
-    shop_id: uuid::Uuid,
+    listing_source_id: uuid::Uuid,
     domain_id: uuid::Uuid,
-    shop_domain: String,
+    listing_source_domain: String,
     crawl_failure_count: i32,
     last_crawl_error_kind: Option<String>,
 }
@@ -52,18 +53,23 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
     async fn get_candidates(
         &self,
         limit: i64,
-        excluded_domain_ids: &[uuid::Uuid],
+        excluded_domain_ids: &[CrawlerDomainId],
     ) -> Result<Vec<SpiderCandidate>, sqlx::Error> {
+        let excluded_domain_ids: Vec<uuid::Uuid> = excluded_domain_ids
+            .iter()
+            .copied()
+            .map(Into::into)
+            .collect();
         let rows = sqlx::query_as::<_, SpiderCandidateRow>(
             r#"
-            SELECT s.shop_id,
+            SELECT s.listing_source_id,
                    sd.domain_id,
-                   sd.shop_domain,
+                   sd.crawl_root_host AS listing_source_domain,
                    sd.crawl_failure_count,
                    sd.last_crawl_error_kind
-            FROM shops s
-            JOIN shop_domains sd ON sd.shop_id = s.shop_id
-            WHERE s.active = TRUE
+            FROM listing_sources s
+            JOIN listing_source_domains sd ON sd.listing_source_id = s.listing_source_id
+            WHERE s.crawl_enabled = TRUE
               AND (sd.last_crawled IS NULL OR sd.last_crawled < NOW() - INTERVAL '7 days')
               AND (sd.next_crawl_at IS NULL OR sd.next_crawl_at <= NOW())
               AND NOT (sd.domain_id = ANY($2))
@@ -79,9 +85,9 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         Ok(rows
             .into_iter()
             .map(|row| SpiderCandidate {
-                shop_id: ShopId::from(row.shop_id),
-                domain_id: row.domain_id,
-                shop_domain: row.shop_domain,
+                listing_source_id: ListingSourceId::from(row.listing_source_id),
+                domain_id: row.domain_id.into(),
+                listing_source_domain: row.listing_source_domain,
                 crawl_failure_count: row.crawl_failure_count,
                 last_crawl_error_kind: row.last_crawl_error_kind,
             })
@@ -90,19 +96,19 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
 
     async fn mark_crawl_failure(
         &self,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
         error_kind: &str,
         crawl_failure_count: i32,
         next_crawl_at: time::OffsetDateTime,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "UPDATE shop_domains
+            "UPDATE listing_source_domains
              SET crawl_failure_count = $3,
                  last_crawl_error_kind = $2,
                  next_crawl_at = $4
              WHERE domain_id = $1",
         )
-        .bind(domain_id)
+        .bind(uuid::Uuid::from(*domain_id))
         .bind(error_kind)
         .bind(crawl_failure_count)
         .bind(next_crawl_at)
@@ -112,15 +118,15 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         Ok(())
     }
 
-    async fn reset_crawl_failure(&self, domain_id: &uuid::Uuid) -> Result<(), sqlx::Error> {
+    async fn reset_crawl_failure(&self, domain_id: &CrawlerDomainId) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "UPDATE shop_domains
+            "UPDATE listing_source_domains
              SET crawl_failure_count = 0,
                  last_crawl_error_kind = NULL,
                  next_crawl_at = NULL
              WHERE domain_id = $1",
         )
-        .bind(domain_id)
+        .bind(uuid::Uuid::from(*domain_id))
         .execute(&self.pool)
         .await?;
 

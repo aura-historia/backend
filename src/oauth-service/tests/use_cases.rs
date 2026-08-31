@@ -1033,7 +1033,7 @@ async fn should_reject_authorize_with_invalid_scope() {
                 response_type: OAuthResponseType::Code,
                 client_id: client.client_id(),
                 redirect_uri: url("https://client.example/callback"),
-                scope: HashSet::from([Scope::ShopsRead]),
+                scope: HashSet::from([Scope::UsersRead]),
                 state: None,
                 code_challenge: OAuthCodeChallenge::from("challenge"),
                 code_challenge_method: CodeChallengeMethod::S256,

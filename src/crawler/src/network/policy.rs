@@ -1,7 +1,155 @@
-use std::time::Duration;
+use std::{
+    net::{IpAddr, SocketAddr},
+    time::Duration,
+};
+use url::Url;
+
+const ALLOWED_HTTP_PORTS: &[u16] = &[80, 443];
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PublicTargetError {
+    #[error("target must use HTTP or HTTPS without userinfo")]
+    InvalidUrl,
+    #[error("target must use a DNS hostname, not an IP literal")]
+    IpLiteral,
+    #[error("target port is not permitted")]
+    InvalidPort,
+    #[error("target DNS resolution timed out")]
+    ResolutionTimeout,
+    #[error("target DNS resolution failed")]
+    Resolution,
+    #[error("target does not resolve exclusively to public addresses")]
+    UnsafeResolution,
+    #[error("redirect target is invalid")]
+    InvalidRedirect,
+}
+
+/// A DNS target resolved immediately before an outbound request.
+///
+/// Every returned address is public and is pinned into the reqwest client that
+/// makes the request, preventing a later DNS rebind from changing the peer.
+#[derive(Debug, Clone)]
+pub struct PublicTarget {
+    pub host: String,
+    pub addresses: Vec<SocketAddr>,
+}
+
+pub fn validate_public_http_url(url: &Url) -> Result<(&str, u16), PublicTargetError> {
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(PublicTargetError::InvalidUrl);
+    }
+
+    let host = url
+        .host_str()
+        .filter(|host| !host.is_empty())
+        .ok_or(PublicTargetError::InvalidUrl)?;
+    if matches!(url.host(), Some(url::Host::Ipv4(_) | url::Host::Ipv6(_)))
+        || host.trim_matches(['[', ']']).parse::<IpAddr>().is_ok()
+    {
+        return Err(PublicTargetError::IpLiteral);
+    }
+
+    let port = url
+        .port_or_known_default()
+        .filter(|port| ALLOWED_HTTP_PORTS.contains(port))
+        .ok_or(PublicTargetError::InvalidPort)?;
+    Ok((host, port))
+}
+
+pub async fn resolve_public_http_target(
+    url: &Url,
+    timeout: Duration,
+) -> Result<PublicTarget, PublicTargetError> {
+    let (host, port) = validate_public_http_url(url)?;
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty() {
+        return Err(PublicTargetError::InvalidUrl);
+    }
+    let addresses = tokio::time::timeout(timeout, tokio::net::lookup_host((host.as_str(), port)))
+        .await
+        .map_err(|_| PublicTargetError::ResolutionTimeout)?
+        .map_err(|_| PublicTargetError::Resolution)?
+        .collect::<Vec<_>>();
+
+    if addresses.is_empty()
+        || addresses
+            .iter()
+            .any(|address| !is_publicly_routable_ip(address.ip()))
+    {
+        return Err(PublicTargetError::UnsafeResolution);
+    }
+
+    Ok(PublicTarget { host, addresses })
+}
+
+pub async fn public_http_client(
+    url: &Url,
+    timeout: Duration,
+    http1_only: bool,
+) -> Result<reqwest::Client, PublicTargetError> {
+    let target = resolve_public_http_target(url, timeout).await?;
+    let mut builder = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(timeout)
+        .connect_timeout(timeout)
+        .no_proxy();
+    if http1_only {
+        builder = builder.http1_only();
+    }
+    for address in target.addresses {
+        builder = builder.resolve(&target.host, address);
+    }
+    builder.build().map_err(|_| PublicTargetError::InvalidUrl)
+}
+
+pub fn redirect_target(
+    current_url: &Url,
+    response: &reqwest::Response,
+) -> Result<Url, PublicTargetError> {
+    let location = response
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .ok_or(PublicTargetError::InvalidRedirect)?
+        .to_str()
+        .map_err(|_| PublicTargetError::InvalidRedirect)?;
+    current_url
+        .join(location)
+        .map_err(|_| PublicTargetError::InvalidRedirect)
+}
+
+pub fn is_same_or_www_host(left: &Url, right: &Url) -> bool {
+    let Some(left) = left.host_str() else {
+        return false;
+    };
+    let Some(right) = right.host_str() else {
+        return false;
+    };
+    canonical_crawler_domain(left) == canonical_crawler_domain(right)
+}
+
+pub fn url_matches_configured_domain(url: &Url, domain: &str) -> bool {
+    url.host_str()
+        .is_some_and(|host| canonical_crawler_domain(host) == canonical_crawler_domain(domain))
+}
+
+/// Crawler ownership identity: lowercase DNS host, no trailing dot, and at
+/// most one leading `www.` removed. This is deliberately crawler-local.
+pub fn canonical_crawler_domain(host: &str) -> String {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    host.strip_prefix("www.").unwrap_or(&host).to_owned()
+}
+
+/// Compatibility name for the shared outbound HTTP destination policy.
+pub fn is_publicly_routable_ip(address: IpAddr) -> bool {
+    public_network_policy::is_safe_public_http_destination(address)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetworkErrorKind {
+    UnsafeTarget,
     Timeout,
     Connect,
     Request,
@@ -65,7 +213,9 @@ pub fn action_for(kind: NetworkErrorKind) -> NetworkAction {
         | NetworkErrorKind::Timeout
         | NetworkErrorKind::Connect
         | NetworkErrorKind::Request => NetworkAction::Retry,
-        NetworkErrorKind::HttpStatus(_) | NetworkErrorKind::Unknown => NetworkAction::Terminal,
+        NetworkErrorKind::UnsafeTarget
+        | NetworkErrorKind::HttpStatus(_)
+        | NetworkErrorKind::Unknown => NetworkAction::Terminal,
     }
 }
 
@@ -101,10 +251,11 @@ pub fn inline_retry_backoff_for(policy: RetryPolicy, attempt: u32) -> Duration {
 /// Durable cooldown persisted after all inline fetch attempts fail.
 ///
 /// Do not use this inside a domain worker between fetch attempts; use
-/// [`inline_retry_backoff_for`] there so one slow shop cannot block the worker
+/// [`inline_retry_backoff_for`] there so one slow crawl root cannot block the worker
 /// for minutes.
 pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
     match kind {
+        NetworkErrorKind::UnsafeTarget => Duration::from_secs(24 * 60 * 60),
         NetworkErrorKind::HttpStatus(429) => Duration::from_secs(10),
         NetworkErrorKind::HttpStatus(503) | NetworkErrorKind::HttpStatus(504) => {
             Duration::from_secs(15 * 60)
@@ -252,5 +403,96 @@ mod tests {
         let policy = RetryPolicy::default();
 
         assert_eq!(inline_retry_backoff_for(policy, 3), Duration::from_secs(2));
+    }
+
+    #[test]
+    fn should_reject_ip_literals_userinfo_and_nonstandard_ports() {
+        for raw_url in [
+            "http://127.0.0.1/",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://[::1]/",
+            "https://user:password@example.com/",
+            "https://example.com:8080/",
+        ] {
+            let url = Url::parse(raw_url).unwrap();
+            assert!(
+                validate_public_http_url(&url).is_err(),
+                "{raw_url} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn should_reject_private_special_use_and_mixed_addresses() {
+        for raw_address in [
+            "10.0.0.1",
+            "100.64.0.1",
+            "127.0.0.1",
+            "169.254.169.254",
+            "192.168.1.1",
+            "::1",
+            "::ffff:1.1.1.1",
+            "fc00::1",
+            "fe80::1",
+            "fec0::1",
+            "2001:db8::1",
+            "4000::1",
+            "6000::1",
+            "8000::1",
+            "a000::1",
+            "c000::1",
+            "e000::1",
+            "64:ff9b:1::1",
+            "100:0:0:1::1",
+            "3fff::1",
+            "5f00::1",
+        ] {
+            assert!(
+                !is_publicly_routable_ip(raw_address.parse().unwrap()),
+                "{raw_address} must be rejected"
+            );
+        }
+        assert!(is_publicly_routable_ip("1.1.1.1".parse().unwrap()));
+        assert!(is_publicly_routable_ip(
+            "2606:4700:4700::1111".parse().unwrap()
+        ));
+        let public = SocketAddr::from(([1, 1, 1, 1], 443));
+        let private = SocketAddr::from(([10, 0, 0, 1], 443));
+        assert!(is_publicly_routable_ip(public.ip()));
+        assert!(
+            ![public, private]
+                .iter()
+                .all(|address| is_publicly_routable_ip(address.ip()))
+        );
+    }
+
+    #[test]
+    fn should_keep_public_neighbors_of_special_use_prefixes_routable() {
+        for raw_address in [
+            "192.1.0.1",
+            "192.2.0.1",
+            "198.50.0.1",
+            "198.52.0.1",
+            "203.1.0.1",
+        ] {
+            assert!(
+                is_publicly_routable_ip(raw_address.parse().unwrap()),
+                "{raw_address} must not be rejected by a broad octet rule"
+            );
+        }
+    }
+
+    #[test]
+    fn should_match_only_bare_and_www_host_variants() {
+        let bare = Url::parse("https://example.com/products/1").unwrap();
+        let www = Url::parse("https://www.example.com/products/1").unwrap();
+        let subdomain = Url::parse("https://catalog.example.com/products/1").unwrap();
+
+        assert!(is_same_or_www_host(&bare, &www));
+        assert_eq!(canonical_crawler_domain("Example.COM."), "example.com");
+        assert_eq!(canonical_crawler_domain("www.example.com"), "example.com");
+        assert!(url_matches_configured_domain(&www, "example.com"));
+        assert!(!is_same_or_www_host(&bare, &subdomain));
+        assert!(!url_matches_configured_domain(&subdomain, "example.com"));
     }
 }

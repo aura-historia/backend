@@ -5,15 +5,11 @@ use crate::product_listing_id::ProductListingId;
 use domain_primitives::query::any_of_query::AnyOfQuery;
 use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
-use geo::core::continent::Continent;
-use geo::core::distance::GeoDistanceQuery;
-use isocountry::CountryCode;
+use listing_source_core::ListingSourceId;
 use localization::Language;
 use money::Currency;
 use money::MonetaryAmount;
 use serde_fields::SerdeField;
-use shop_core::shop_type::ShopType;
-use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -100,18 +96,8 @@ pub struct ProductListingSearch {
     pub product_listing_query: Vec<TextQuery<1>>,
     pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub exclude_product_listing_id_query: AnyOfQuery<ProductListingId>,
-    pub shop_name_query: AnyOfQuery<ShopName>,
-    pub exclude_shop_name_query: AnyOfQuery<ShopName>,
-    pub seller_name_query: AnyOfQuery<ShopName>,
-    pub exclude_seller_name_query: AnyOfQuery<ShopName>,
-    pub shop_slug_id_query: AnyOfQuery<ShopSlugId>,
-    pub exclude_shop_slug_id_query: AnyOfQuery<ShopSlugId>,
-    pub seller_slug_id_query: AnyOfQuery<SellerSlugId>,
-    pub exclude_seller_slug_id_query: AnyOfQuery<SellerSlugId>,
-    pub shop_type_query: AnyOfQuery<ShopType>,
-    pub country_query: AnyOfQuery<CountryCode>,
-    pub continent_query: AnyOfQuery<Continent>,
-    pub geo_address_distance_query: Option<GeoDistanceQuery>,
+    pub listing_source_id_query: AnyOfQuery<ListingSourceId>,
+    pub exclude_listing_source_id_query: AnyOfQuery<ListingSourceId>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub availability_query: Option<ListingAvailabilityQuery>,
     pub created_query: Option<RangeQuery<OffsetDateTime>>,
@@ -128,18 +114,8 @@ impl ProductListingSearch {
             product_listing_query: Vec::new(),
             enhanced_search_description: None,
             exclude_product_listing_id_query: AnyOfQuery::default(),
-            shop_name_query: AnyOfQuery::default(),
-            exclude_shop_name_query: AnyOfQuery::default(),
-            seller_name_query: AnyOfQuery::default(),
-            exclude_seller_name_query: AnyOfQuery::default(),
-            shop_slug_id_query: AnyOfQuery::default(),
-            exclude_shop_slug_id_query: AnyOfQuery::default(),
-            seller_slug_id_query: AnyOfQuery::default(),
-            exclude_seller_slug_id_query: AnyOfQuery::default(),
-            shop_type_query: AnyOfQuery::default(),
-            country_query: AnyOfQuery::default(),
-            continent_query: AnyOfQuery::default(),
-            geo_address_distance_query: None,
+            listing_source_id_query: AnyOfQuery::default(),
+            exclude_listing_source_id_query: AnyOfQuery::default(),
             price_query: None,
             availability_query: None,
             created_query: None,
@@ -170,81 +146,19 @@ impl ProductListingSearch {
         self
     }
 
-    pub fn with_shop_name_query(mut self, shop_name_query: AnyOfQuery<ShopName>) -> Self {
-        self.shop_name_query = shop_name_query;
-        self
-    }
-
-    pub fn with_exclude_shop_name_query(
+    pub fn with_listing_source_id_query(
         mut self,
-        exclude_shop_name_query: AnyOfQuery<ShopName>,
+        listing_source_id_query: AnyOfQuery<ListingSourceId>,
     ) -> Self {
-        self.exclude_shop_name_query = exclude_shop_name_query;
+        self.listing_source_id_query = listing_source_id_query;
         self
     }
 
-    pub fn with_seller_name_query(mut self, seller_name_query: AnyOfQuery<ShopName>) -> Self {
-        self.seller_name_query = seller_name_query;
-        self
-    }
-
-    pub fn with_exclude_seller_name_query(
+    pub fn with_exclude_listing_source_id_query(
         mut self,
-        exclude_seller_name_query: AnyOfQuery<ShopName>,
+        exclude_listing_source_id_query: AnyOfQuery<ListingSourceId>,
     ) -> Self {
-        self.exclude_seller_name_query = exclude_seller_name_query;
-        self
-    }
-
-    pub fn with_shop_slug_id_query(mut self, shop_slug_id_query: AnyOfQuery<ShopSlugId>) -> Self {
-        self.shop_slug_id_query = shop_slug_id_query;
-        self
-    }
-
-    pub fn with_exclude_shop_slug_id_query(
-        mut self,
-        exclude_shop_slug_id_query: AnyOfQuery<ShopSlugId>,
-    ) -> Self {
-        self.exclude_shop_slug_id_query = exclude_shop_slug_id_query;
-        self
-    }
-
-    pub fn with_seller_slug_id_query(
-        mut self,
-        seller_slug_id_query: AnyOfQuery<SellerSlugId>,
-    ) -> Self {
-        self.seller_slug_id_query = seller_slug_id_query;
-        self
-    }
-
-    pub fn with_exclude_seller_slug_id_query(
-        mut self,
-        exclude_seller_slug_id_query: AnyOfQuery<SellerSlugId>,
-    ) -> Self {
-        self.exclude_seller_slug_id_query = exclude_seller_slug_id_query;
-        self
-    }
-
-    pub fn with_shop_type_query(mut self, shop_type_query: AnyOfQuery<ShopType>) -> Self {
-        self.shop_type_query = shop_type_query;
-        self
-    }
-
-    pub fn with_country_query(mut self, country_query: AnyOfQuery<CountryCode>) -> Self {
-        self.country_query = country_query;
-        self
-    }
-
-    pub fn with_continent_query(mut self, continent_query: AnyOfQuery<Continent>) -> Self {
-        self.continent_query = continent_query;
-        self
-    }
-
-    pub fn with_geo_address_distance_query(
-        mut self,
-        geo_address_distance_query: GeoDistanceQuery,
-    ) -> Self {
-        self.geo_address_distance_query = Some(geo_address_distance_query);
+        self.exclude_listing_source_id_query = exclude_listing_source_id_query;
         self
     }
 
@@ -300,12 +214,18 @@ mod tests {
     #[test]
     fn should_set_builder_fields() {
         let product_listing_id = ProductListingId::new();
+        let listing_source_id = ListingSourceId::new();
+        let excluded_listing_source_id = ListingSourceId::new();
         let search = ProductListingSearch::new(Language::En, Currency::Usd)
             .with_product_listing_query(text_query("vase"))
             .with_enhanced_search_description(
                 EnhancedSearchDescription::try_from("bronze").unwrap(),
             )
             .with_exclude_product_listing_id_query(HashSet::from([product_listing_id]).into())
+            .with_listing_source_id_query(HashSet::from([listing_source_id]).into())
+            .with_exclude_listing_source_id_query(
+                HashSet::from([excluded_listing_source_id]).into(),
+            )
             .with_availability_query(ListingAvailabilityQuery {
                 any_of: HashSet::from([ListingAvailability::Available]).into(),
                 ..Default::default()
@@ -321,6 +241,12 @@ mod tests {
             search
                 .exclude_product_listing_id_query
                 .contains(&product_listing_id)
+        );
+        assert!(search.listing_source_id_query.contains(&listing_source_id));
+        assert!(
+            search
+                .exclude_listing_source_id_query
+                .contains(&excluded_listing_source_id)
         );
         assert!(
             search
@@ -365,18 +291,8 @@ pub mod faker {
                 product_listing_query: config.fake_with_rng(rng),
                 enhanced_search_description: None,
                 exclude_product_listing_id_query: config.fake_with_rng(rng),
-                shop_name_query: config.fake_with_rng(rng),
-                exclude_shop_name_query: config.fake_with_rng(rng),
-                seller_name_query: config.fake_with_rng(rng),
-                exclude_seller_name_query: config.fake_with_rng(rng),
-                shop_slug_id_query: config.fake_with_rng(rng),
-                exclude_shop_slug_id_query: config.fake_with_rng(rng),
-                seller_slug_id_query: config.fake_with_rng(rng),
-                exclude_seller_slug_id_query: config.fake_with_rng(rng),
-                shop_type_query: config.fake_with_rng(rng),
-                country_query: Default::default(),
-                continent_query: config.fake_with_rng(rng),
-                geo_address_distance_query: None,
+                listing_source_id_query: AnyOfQuery::default(),
+                exclude_listing_source_id_query: AnyOfQuery::default(),
                 price_query: config.fake_with_rng(rng),
                 availability_query: None,
                 created_query: fake_range_query_datetime(config, rng),
@@ -414,8 +330,11 @@ pub mod faker {
         use fake::{Fake, Faker};
 
         #[test]
-        fn should_fake_product_listing_search_with_availability_query() {
-            let _search = Faker.fake::<ProductListingSearch>();
+        fn should_fake_product_listing_search() {
+            let search = Faker.fake::<ProductListingSearch>();
+
+            assert!(search.listing_source_id_query.is_empty());
+            assert!(search.exclude_listing_source_id_query.is_empty());
         }
     }
 }

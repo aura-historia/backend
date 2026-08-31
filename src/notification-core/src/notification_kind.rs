@@ -4,8 +4,8 @@ pub enum NotificationKind {
     WatchlistPriceChanged,
     WatchlistAvailabilityChanged,
     SearchFilterMatch,
-    PartnerApplicationApproved,
-    PartnerApplicationRejected,
+    PartnershipApplicationApproved,
+    PartnershipApplicationRejected,
 }
 
 impl NotificationKind {
@@ -14,8 +14,8 @@ impl NotificationKind {
             Self::WatchlistPriceChanged => "WATCHLIST_PRICE_CHANGED",
             Self::WatchlistAvailabilityChanged => "WATCHLIST_AVAILABILITY_CHANGED",
             Self::SearchFilterMatch => "SEARCH_FILTER_MATCH",
-            Self::PartnerApplicationApproved => "PARTNER_APPLICATION_APPROVED",
-            Self::PartnerApplicationRejected => "PARTNER_APPLICATION_REJECTED",
+            Self::PartnershipApplicationApproved => "PARTNERSHIP_APPLICATION_APPROVED",
+            Self::PartnershipApplicationRejected => "PARTNERSHIP_APPLICATION_REJECTED",
         }
     }
 }
@@ -40,8 +40,8 @@ mod tests {
                 "WATCHLIST_PRICE_CHANGED",
                 "WATCHLIST_AVAILABILITY_CHANGED",
                 "SEARCH_FILTER_MATCH",
-                "PARTNER_APPLICATION_APPROVED",
-                "PARTNER_APPLICATION_REJECTED",
+                "PARTNERSHIP_APPLICATION_APPROVED",
+                "PARTNERSHIP_APPLICATION_REJECTED",
             ],
             kinds
                 .into_iter()

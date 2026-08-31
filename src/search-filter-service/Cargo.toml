@@ -8,19 +8,16 @@ async-trait = { workspace = true }
 application = { workspace = true }
 domain-primitives = { workspace = true }
 embedding = { workspace = true }
-geo = { workspace = true }
-
 fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
-isocountry = { workspace = true }
 large-language-model = { workspace = true }
+listing-source-core = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
 product-listing-core = { workspace = true }
 product-listing-service = { workspace = true }
-shop-core = { workspace = true }
 search-filter-core = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "time"] }

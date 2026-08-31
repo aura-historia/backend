@@ -34,89 +34,136 @@ CREATE TABLE users (
 
 CREATE INDEX users_created_idx ON users (created DESC);
 
-CREATE TABLE shops (
-    shop_id uuid PRIMARY KEY,
-    shop_slug_id text NOT NULL UNIQUE,
+CREATE TABLE parties (
+    party_id uuid PRIMARY KEY,
+    party_slug_id text NOT NULL,
+    CONSTRAINT parties_slug_unique UNIQUE (party_slug_id),
     name text NOT NULL,
-    shop_type text NOT NULL,
-    partner_status text NOT NULL,
-    lifecycle text NOT NULL DEFAULT 'DRAFTED',
-    shop_domains text[] NOT NULL DEFAULT '{}',
-    shopify_domain text UNIQUE,
-    shopify_currency text,
-    shopify_language text,
-    woocommerce_webhook_secret text,
-    woocommerce_currency text,
-    woocommerce_language text,
-    url text,
-    view_url text,
-    image text,
-    structured_address_addressline text,
-    structured_address_addressline_extra text,
-    structured_address_locality text,
-    structured_address_region text,
-    structured_address_postal_code text,
-    structured_address_country text,
-    geo_address_lat double precision,
-    geo_address_lon double precision,
     phone text,
     email text,
-    affiliate_configuration jsonb,
     version bigint NOT NULL DEFAULT 1,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT shops_type_check CHECK (shop_type IN ('AUCTION_HOUSE', 'AUCTION_PLATFORM', 'COMMERCIAL_DEALER', 'MARKETPLACE')),
-    CONSTRAINT shops_partner_status_check CHECK (partner_status IN ('SCRAPED', 'PARTNERED')),
-    CONSTRAINT shops_lifecycle_check CHECK (lifecycle IN ('DRAFTED', 'PUBLISHED', 'DISCARDED')),
-    CONSTRAINT shops_shopify_currency_check CHECK (shopify_currency IS NULL OR shopify_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
-    CONSTRAINT shops_woocommerce_currency_check CHECK (woocommerce_currency IS NULL OR woocommerce_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
-    CONSTRAINT shops_shopify_language_check CHECK (shopify_language IS NULL OR shopify_language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
-    CONSTRAINT shops_woocommerce_language_check CHECK (woocommerce_language IS NULL OR woocommerce_language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
-    CONSTRAINT shops_geo_pair_check CHECK ((geo_address_lat IS NULL) = (geo_address_lon IS NULL)),
-    CONSTRAINT shops_geo_lat_range CHECK (geo_address_lat IS NULL OR geo_address_lat BETWEEN -90 AND 90),
-    CONSTRAINT shops_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180),
-    CONSTRAINT shops_affiliate_configuration_object CHECK (affiliate_configuration IS NULL OR jsonb_typeof(affiliate_configuration) = 'object'),
-    CONSTRAINT shops_version_positive CHECK (version >= 1)
+    CONSTRAINT parties_party_slug_id_format CHECK (party_slug_id ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+    CONSTRAINT parties_name_nonblank CHECK (length(trim(name)) > 0),
+    CONSTRAINT parties_name_max_bytes CHECK (octet_length(name) <= 255),
+    CONSTRAINT parties_version_positive CHECK (version >= 1)
 );
 
-CREATE INDEX shops_shop_domains_gin_idx ON shops USING gin (shop_domains);
-CREATE INDEX shops_partner_status_updated_idx ON shops (partner_status, updated DESC);
-CREATE INDEX shops_published_name_shop_id_idx
-    ON shops (name ASC, shop_id ASC)
-    WHERE lifecycle = 'PUBLISHED';
-CREATE INDEX shops_published_updated_shop_id_idx
-    ON shops (updated DESC, shop_id ASC)
-    WHERE lifecycle = 'PUBLISHED';
-CREATE INDEX shops_published_created_shop_id_idx
-    ON shops (created DESC, shop_id ASC)
-    WHERE lifecycle = 'PUBLISHED';
-
-CREATE TABLE user_partner_shops (
-    user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    shop_id uuid NOT NULL REFERENCES shops(shop_id) ON DELETE CASCADE,
+CREATE TABLE listing_sources (
+    listing_source_id uuid PRIMARY KEY,
+    listing_source_slug_id text NOT NULL,
+    CONSTRAINT listing_sources_slug_unique UNIQUE (listing_source_slug_id),
+    name text NOT NULL,
+    operator_party_id uuid NOT NULL REFERENCES parties(party_id) ON DELETE RESTRICT,
+    url text,
+    image text,
+    referral_configuration jsonb,
+    version bigint NOT NULL DEFAULT 1,
     created timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, shop_id)
+    updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT listing_sources_listing_source_slug_id_format CHECK (listing_source_slug_id ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+    CONSTRAINT listing_sources_name_nonblank CHECK (length(trim(name)) > 0),
+    CONSTRAINT listing_sources_name_max_bytes CHECK (octet_length(name) <= 255),
+    CONSTRAINT listing_sources_referral_configuration_object CHECK (referral_configuration IS NULL OR jsonb_typeof(referral_configuration) = 'object'),
+    CONSTRAINT listing_sources_version_positive CHECK (version >= 1)
 );
 
-CREATE INDEX user_partner_shops_shop_id_idx ON user_partner_shops (shop_id);
+CREATE TABLE listing_source_ingestion_methods (
+    listing_source_id uuid NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
+    ingestion_method text NOT NULL,
+    PRIMARY KEY (listing_source_id, ingestion_method),
+    CONSTRAINT listing_source_ingestion_methods_check CHECK (ingestion_method IN ('WEB_CRAWL', 'SHOPIFY', 'WOOCOMMERCE', 'PARTNER_API'))
+);
 
-CREATE TABLE partner_shop_applications (
-    partner_shop_application_id uuid PRIMARY KEY,
+CREATE TABLE listing_source_shopify_ingestion_configurations (
+    listing_source_id uuid PRIMARY KEY REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
+    domain text NOT NULL,
+    CONSTRAINT listing_source_shopify_domain_unique UNIQUE (domain),
+    currency text,
+    language text,
+    CONSTRAINT listing_source_shopify_currency_check CHECK (currency IS NULL OR currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT listing_source_shopify_language_check CHECK (language IS NULL OR language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar'))
+);
+
+CREATE TABLE listing_source_woocommerce_ingestion_configurations (
+    listing_source_id uuid PRIMARY KEY REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
+    webhook_secret text,
+    currency text,
+    language text,
+    CONSTRAINT listing_source_woocommerce_currency_check CHECK (currency IS NULL OR currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT listing_source_woocommerce_language_check CHECK (language IS NULL OR language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar'))
+);
+
+CREATE INDEX listing_sources_operator_party_id_idx ON listing_sources (operator_party_id);
+CREATE INDEX listing_source_ingestion_methods_method_idx ON listing_source_ingestion_methods (ingestion_method, listing_source_id);
+
+
+CREATE TABLE partnerships (
+    partnership_id uuid PRIMARY KEY,
+    party_id uuid NOT NULL UNIQUE REFERENCES parties(party_id) ON DELETE CASCADE,
+    version bigint NOT NULL DEFAULT 1,
+    created timestamptz NOT NULL DEFAULT now(),
+    updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT partnerships_version_positive CHECK (version >= 1)
+);
+
+CREATE TABLE partnership_members (
+    user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    partnership_id uuid NOT NULL REFERENCES partnerships(partnership_id) ON DELETE CASCADE,
+    created timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, partnership_id)
+);
+
+CREATE TABLE partnership_listing_source_grants (
+    partnership_id uuid NOT NULL REFERENCES partnerships(partnership_id) ON DELETE CASCADE,
+    listing_source_id uuid NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
+    created timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (partnership_id, listing_source_id)
+);
+
+CREATE TABLE partnership_applications (
+    partnership_application_id uuid PRIMARY KEY,
     applicant_user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     business_state text NOT NULL,
-    payload_type text NOT NULL,
-    shop_id uuid NOT NULL REFERENCES shops(shop_id) ON DELETE RESTRICT,
+    proposal jsonb NOT NULL,
+    approved_partnership_id uuid REFERENCES partnerships(partnership_id),
+    approved_listing_source_id uuid REFERENCES listing_sources(listing_source_id),
     version bigint NOT NULL DEFAULT 1,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT partner_shop_applications_business_state_check CHECK (business_state IN ('SUBMITTED', 'IN_REVIEW', 'REJECTED', 'APPROVED', 'WITHDRAWN')),
-    CONSTRAINT partner_shop_applications_payload_type_check CHECK (payload_type IN ('EXISTING', 'NEW')),
-    CONSTRAINT partner_shop_applications_version_positive CHECK (version >= 1)
+    CONSTRAINT partnership_applications_business_state_check CHECK (business_state IN ('SUBMITTED', 'IN_REVIEW', 'APPROVED', 'REJECTED', 'WITHDRAWN')),
+    CONSTRAINT partnership_applications_proposal_shape_check CHECK (
+        jsonb_typeof(proposal) = 'object'
+        AND proposal->>'type' IN ('EXISTING_LISTING_SOURCE', 'PROPOSED_LISTING_SOURCE')
+        AND (
+            (
+                proposal->>'type' = 'EXISTING_LISTING_SOURCE'
+                AND jsonb_typeof(proposal->'listing_source_id') = 'string'
+            )
+            OR (
+                proposal->>'type' = 'PROPOSED_LISTING_SOURCE'
+                AND jsonb_typeof(proposal->'party') = 'object'
+                AND jsonb_typeof(proposal->'listing_source') = 'object'
+            )
+        )
+    ),
+    CONSTRAINT partnership_applications_approval_result_check CHECK (
+        (business_state = 'APPROVED'
+            AND approved_partnership_id IS NOT NULL
+            AND approved_listing_source_id IS NOT NULL)
+        OR (business_state <> 'APPROVED'
+            AND approved_partnership_id IS NULL
+            AND approved_listing_source_id IS NULL)
+    ),
+    CONSTRAINT partnership_applications_version_positive CHECK (version >= 1)
 );
 
-CREATE INDEX partner_shop_applications_applicant_created_idx ON partner_shop_applications (applicant_user_id, created DESC);
-CREATE INDEX partner_shop_applications_business_state_created_idx ON partner_shop_applications (business_state, created DESC);
-CREATE INDEX partner_shop_applications_shop_id_idx ON partner_shop_applications (shop_id);
+CREATE INDEX partnership_members_partnership_id_idx ON partnership_members (partnership_id);
+CREATE INDEX partnership_listing_source_grants_listing_source_id_idx
+    ON partnership_listing_source_grants (listing_source_id, partnership_id);
+CREATE INDEX partnership_applications_applicant_created_idx ON partnership_applications (applicant_user_id, created DESC);
+CREATE INDEX partnership_applications_business_state_created_idx ON partnership_applications (business_state, created DESC);
 
 CREATE TABLE fx_rates (
     fx_rate_id uuid PRIMARY KEY,
@@ -140,20 +187,13 @@ CREATE TABLE fx_rate_quotes (
 
 CREATE TABLE product_listings (
     product_listing_id uuid PRIMARY KEY,
-    product_listing_slug_id text NOT NULL,
+    product_listing_title_slug_id text NOT NULL,
     event_id uuid NOT NULL,
     content_source_event_id uuid NOT NULL,
-    shop_id uuid NOT NULL REFERENCES shops(shop_id),
-    seller_id uuid NOT NULL REFERENCES shops(shop_id),
-    shop_listing_id text NOT NULL,
-    structured_address_addressline text,
-    structured_address_addressline_extra text,
-    structured_address_locality text,
-    structured_address_region text,
-    structured_address_postal_code text,
-    structured_address_country text,
-    geo_address_lat double precision,
-    geo_address_lon double precision,
+    listing_source_id uuid NOT NULL
+        REFERENCES listing_sources(listing_source_id)
+        ON DELETE CASCADE,
+    source_listing_id text NOT NULL,
     title_text text,
     title_language text,
     description_text text,
@@ -176,8 +216,18 @@ CREATE TABLE product_listings (
     auction_end timestamptz,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT product_listings_shop_product_unique UNIQUE (shop_id, shop_listing_id),
-    CONSTRAINT product_listings_slug_unique UNIQUE (product_listing_slug_id),
+    CONSTRAINT product_listings_listing_source_listing_unique UNIQUE (listing_source_id, source_listing_id),
+    CONSTRAINT product_listings_title_slug_unique UNIQUE (product_listing_title_slug_id),
+    CONSTRAINT product_listings_source_listing_id_check CHECK (
+        octet_length(source_listing_id) BETWEEN 1 AND 512
+        AND source_listing_id !~ '(^[[:space:]]|[[:space:]]$)'
+    ),
+    CONSTRAINT product_listings_title_slug_id_format CHECK (
+        product_listing_title_slug_id ~ '^[a-z0-9]+(-[a-z0-9]+)*-[0-9a-f]{6}$'
+    ),
+    CONSTRAINT product_listings_title_slug_id_max_bytes CHECK (
+        octet_length(product_listing_title_slug_id) <= 120
+    ),
     CONSTRAINT product_listings_availability_check CHECK (availability IS NULL OR availability IN ('AVAILABLE', 'IN_STOCK', 'LIMITED_AVAILABILITY', 'BACK_ORDER', 'MADE_TO_ORDER', 'PRE_ORDER', 'PRE_SALE', 'UNAVAILABLE', 'RESERVED', 'OUT_OF_STOCK', 'SOLD_OUT')),
     CONSTRAINT product_listings_lifecycle_check CHECK (lifecycle IN ('ACTIVE', 'WITHDRAWN')),
     CONSTRAINT product_listings_withdrawn_availability_check CHECK (lifecycle <> 'WITHDRAWN' OR availability IS NULL),
@@ -195,16 +245,13 @@ CREATE TABLE product_listings (
     CONSTRAINT product_listings_price_estimate_min_currency_check CHECK (price_estimate_min_currency IS NULL OR price_estimate_min_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT product_listings_price_estimate_max_currency_check CHECK (price_estimate_max_currency IS NULL OR price_estimate_max_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT product_listings_sale_observation_pair_check CHECK ((sale_observation_fx_rate_id IS NULL) = (sale_observed_at IS NULL)),
-    CONSTRAINT product_listings_geo_pair_check CHECK ((geo_address_lat IS NULL) = (geo_address_lon IS NULL)),
-    CONSTRAINT product_listings_geo_lat_range CHECK (geo_address_lat IS NULL OR geo_address_lat BETWEEN -90 AND 90),
-    CONSTRAINT product_listings_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180),
     CONSTRAINT product_listings_images_array CHECK (jsonb_typeof(product_images) = 'array'),
     CONSTRAINT product_listings_embedding_dimension_check CHECK (embedding IS NULL OR (array_ndims(embedding) = 1 AND cardinality(embedding) = 768)),
     CONSTRAINT product_listings_projection_version_positive CHECK (projection_version >= 1),
     CONSTRAINT product_listings_auction_order_check CHECK (auction_start IS NULL OR auction_end IS NULL OR auction_start <= auction_end)
 );
 
-CREATE INDEX product_listings_seller_id_idx ON product_listings (seller_id);
+CREATE INDEX product_listings_listing_source_id_idx ON product_listings (listing_source_id);
 CREATE INDEX product_listings_lifecycle_updated_idx ON product_listings (lifecycle, updated DESC);
 CREATE INDEX product_listings_sale_observation_fx_rate_id_idx ON product_listings (sale_observation_fx_rate_id);
 
@@ -403,6 +450,7 @@ CREATE TABLE notifications (
     product_listing_id uuid,
     user_search_filter_id uuid,
     partner_shop_application_id uuid,
+    partnership_application_id uuid,
 
     payload_version smallint NOT NULL DEFAULT 1,
     payload jsonb NOT NULL,
@@ -418,7 +466,9 @@ CREATE TABLE notifications (
             'WATCHLIST_AVAILABILITY_CHANGED',
             'SEARCH_FILTER_MATCH',
             'PARTNER_APPLICATION_APPROVED',
-            'PARTNER_APPLICATION_REJECTED'
+            'PARTNER_APPLICATION_REJECTED',
+            'PARTNERSHIP_APPLICATION_APPROVED',
+            'PARTNERSHIP_APPLICATION_REJECTED'
         )
     ),
 
@@ -459,6 +509,19 @@ CREATE TABLE notifications (
             AND product_listing_id IS NULL
             AND user_search_filter_id IS NULL
             AND partner_shop_application_id IS NOT NULL
+            AND partnership_application_id IS NULL
+        )
+        OR
+        (
+            kind IN (
+                'PARTNERSHIP_APPLICATION_APPROVED',
+                'PARTNERSHIP_APPLICATION_REJECTED'
+            )
+            AND origin_event_id IS NULL
+            AND product_listing_id IS NULL
+            AND user_search_filter_id IS NULL
+            AND partner_shop_application_id IS NULL
+            AND partnership_application_id IS NOT NULL
         )
     )
 );
@@ -487,6 +550,16 @@ CREATE UNIQUE INDEX notifications_partner_application_identity_idx
     WHERE kind IN (
         'PARTNER_APPLICATION_APPROVED',
         'PARTNER_APPLICATION_REJECTED'
+    );
+
+CREATE UNIQUE INDEX notifications_partnership_application_identity_idx
+    ON notifications (
+        user_id,
+        partnership_application_id
+    )
+    WHERE kind IN (
+        'PARTNERSHIP_APPLICATION_APPROVED',
+        'PARTNERSHIP_APPLICATION_REJECTED'
     );
 
 CREATE INDEX notifications_user_created_idx

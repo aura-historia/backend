@@ -119,7 +119,23 @@ pub enum ExtractionError {
 }
 
 impl ExtractionRule {
-    /// Apply this extraction rule to the given parsed HTML document.
+    pub(crate) fn validate(&self) -> Result<(), ExtractionError> {
+        parse_selector(&self.selector)?;
+        for selector in &self.additional_selectors {
+            parse_selector(selector)?;
+        }
+        if let ExtractionKind::Attribute { name } = &self.extract
+            && name.as_ref().trim().is_empty()
+        {
+            return Err(ExtractionError::MissingAttribute {
+                selector: self.selector.to_string(),
+                attribute: String::new(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Apply this extraction rule to the given parsed HTML document,
     ///
     /// Every configured selector (primary + additional) is evaluated in order.
     /// Results from each selector are aggregated into a single `Vec<String>`.
@@ -1217,7 +1233,7 @@ mod tests {
         let doc = Html::parse_document(
             r#"
             <html><body>
-                <a href="https://shop.com/category/table">
+                <a href="https://catalog.example.com/category/table">
                     <img class="product" src="https://cdn.example.com/images/product/abc123">
                 </a>
             </body></html>
@@ -1302,7 +1318,7 @@ mod tests {
         let doc = Html::parse_document(
             r#"
             <html><body>
-                <a href="https://shop.com/uploads/photo.webp">
+                <a href="https://catalog.example.com/uploads/photo.webp">
                     <img class="product">
                 </a>
             </body></html>
@@ -1313,7 +1329,7 @@ mod tests {
         let result = r.apply(&doc).unwrap();
         assert_eq!(
             image_candidates(&result[0]),
-            vec!["https://shop.com/uploads/photo.webp"]
+            vec!["https://catalog.example.com/uploads/photo.webp"]
         );
     }
 

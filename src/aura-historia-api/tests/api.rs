@@ -20,10 +20,6 @@ mod partner_product_listings;
 mod product_listings;
 #[path = "api_cases/search_filters.rs"]
 mod search_filters;
-#[path = "api_cases/shop.rs"]
-mod shop;
-#[path = "api_cases/shop_partner.rs"]
-mod shop_partner;
 #[path = "api_cases/users.rs"]
 mod users;
 #[path = "api_cases/watchlist.rs"]

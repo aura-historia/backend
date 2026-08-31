@@ -1,12 +1,12 @@
 use super::*;
-use crate::scraper::css_selector::product_schema::ShopsProductSchema;
+use crate::scraper::css_selector::product_schema::ListingSourceProductSchema;
 use crate::scraper::css_selector::product_schema_service::GeneratedSingleSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::MockRemovedPageSchemaRepository;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::spider::classification::url_metadata::UrlClass;
-use shop_core::shop_id::ShopId;
+use listing_source_core::ListingSourceId;
 
 fn invalid_schema() -> ProductCssSelectorSchema {
     let mut schema = minimal_schema();
@@ -14,9 +14,9 @@ fn invalid_schema() -> ProductCssSelectorSchema {
     schema
 }
 
-fn existing_invalid_schema(shop_id: ShopId) -> ShopsProductSchema {
-    ShopsProductSchema {
-        shop_id,
+fn existing_invalid_schema(listing_source_id: ListingSourceId) -> ListingSourceProductSchema {
+    ListingSourceProductSchema {
+        listing_source_id,
         product_schemas: vec![invalid_schema()],
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
@@ -47,7 +47,7 @@ fn normalizer_with_success(url: Url) -> MockProductListingNormalizationService {
 
 #[tokio::test]
 async fn should_use_yaml_only_when_single_schema_applies() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut schema_svc = MockProductListingSchemaService::new();
@@ -74,8 +74,8 @@ async fn should_use_yaml_only_when_single_schema_applies() {
         .once()
         .returning(move |_, schemas| {
             Box::pin(async move {
-                Ok(ShopsProductSchema {
-                    shop_id: id,
+                Ok(ListingSourceProductSchema {
+                    listing_source_id: id,
                     product_schemas: schemas,
                     created: OffsetDateTime::now_utc(),
                     updated: OffsetDateTime::now_utc(),
@@ -93,7 +93,7 @@ async fn should_use_yaml_only_when_single_schema_applies() {
         Box::new(normalizer_with_success(url.clone())),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let result = service.scrape(&id, &url, None, None).await.unwrap();
@@ -102,7 +102,7 @@ async fn should_use_yaml_only_when_single_schema_applies() {
 
 #[tokio::test]
 async fn should_fail_when_fresh_schema_does_not_apply_after_initial_schema_failure() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut schema_svc = MockProductListingSchemaService::new();
@@ -136,7 +136,7 @@ async fn should_fail_when_fresh_schema_does_not_apply_after_initial_schema_failu
         Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();
@@ -157,7 +157,7 @@ async fn should_fail_when_fresh_schema_does_not_apply_after_initial_schema_failu
 
 #[tokio::test]
 async fn should_fail_when_fresh_schema_application_fails() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut schema_svc = MockProductListingSchemaService::new();
@@ -191,7 +191,7 @@ async fn should_fail_when_fresh_schema_application_fails() {
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();
@@ -212,7 +212,7 @@ async fn should_fail_when_fresh_schema_application_fails() {
 
 #[tokio::test]
 async fn should_not_consume_second_budget_call_when_fresh_schema_does_not_apply() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut schema_svc = MockProductListingSchemaService::new();
@@ -239,7 +239,7 @@ async fn should_not_consume_second_budget_call_when_fresh_schema_does_not_apply(
     let norm_svc = MockProductListingNormalizationService::new();
     let mut cand_svc = MockScraperCandidateService::new();
     cand_svc
-        .expect_try_increment_shop_llm_calls_with_limit()
+        .expect_try_increment_listing_source_llm_calls_with_limit()
         .once()
         .returning(move |_, _, _| Box::pin(async move { Ok(true) }));
 
@@ -249,7 +249,7 @@ async fn should_not_consume_second_budget_call_when_fresh_schema_does_not_apply(
         Box::new(norm_svc),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();
@@ -261,7 +261,7 @@ async fn should_not_consume_second_budget_call_when_fresh_schema_does_not_apply(
 
 #[tokio::test]
 async fn should_mark_withdrawn_when_fresh_generation_classifies_removed() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
     let removed_html =
         r#"<main><h1 id="removed-message">ProductListing no longer available</h1></main>"#;
@@ -308,8 +308,9 @@ async fn should_mark_withdrawn_when_fresh_generation_classifies_removed() {
     removed_repo
         .expect_insert_removed_page_schema()
         .once()
-        .withf(move |received_shop_id, row| {
-            *received_shop_id == id && row.removed_page_schemas == vec![removed_schema.clone()]
+        .withf(move |received_listing_source_id, row| {
+            *received_listing_source_id == id
+                && row.removed_page_schemas == vec![removed_schema.clone()]
         })
         .returning(|_, row| {
             let row = row.clone();
@@ -323,11 +324,13 @@ async fn should_mark_withdrawn_when_fresh_generation_classifies_removed() {
     cand_svc
         .expect_set_presence()
         .once()
-        .withf(move |received_shop_id, received_url, received_state| {
-            *received_shop_id == id
-                && received_url == &url_for_state
-                && *received_state == UrlPresence::Withdrawn
-        })
+        .withf(
+            move |received_listing_source_id, received_url, received_state| {
+                *received_listing_source_id == id
+                    && received_url == &url_for_state
+                    && *received_state == UrlPresence::Withdrawn
+            },
+        )
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -336,7 +339,7 @@ async fn should_mark_withdrawn_when_fresh_generation_classifies_removed() {
         Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     )
     .with_removed_page_schema_repository(Box::new(removed_repo));
 
@@ -347,7 +350,7 @@ async fn should_mark_withdrawn_when_fresh_generation_classifies_removed() {
 
 #[tokio::test]
 async fn should_mark_other_when_fresh_generation_classifies_not_product() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
     let category_html = r#"<main class="category"><h1>Latest antiques</h1></main>"#;
 
@@ -384,11 +387,13 @@ async fn should_mark_other_when_fresh_generation_classifies_not_product() {
     cand_svc
         .expect_set_class()
         .once()
-        .withf(move |received_shop_id, received_url, received_class| {
-            *received_shop_id == id
-                && received_url == &url_for_class
-                && *received_class == UrlClass::Other
-        })
+        .withf(
+            move |received_listing_source_id, received_url, received_class| {
+                *received_listing_source_id == id
+                    && received_url == &url_for_class
+                    && *received_class == UrlClass::Other
+            },
+        )
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -397,7 +402,7 @@ async fn should_mark_other_when_fresh_generation_classifies_not_product() {
         Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();
@@ -409,7 +414,7 @@ async fn should_reject_low_confidence_fresh_classification(
     confidence: SchemaLlmEvaluationConfidence,
     removed: bool,
 ) {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -468,7 +473,7 @@ async fn should_reject_low_confidence_fresh_classification(
         Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     )
     .with_removed_page_schema_repository(Box::new(removed_repo));
 
@@ -505,7 +510,7 @@ async fn should_reject_low_confidence_not_product_classification_without_side_ef
 
 #[tokio::test]
 async fn should_not_change_state_or_class_when_fresh_classification_does_not_match_html() {
-    let id = shop_id();
+    let id = listing_source_id();
     let url = product_url();
     let html = r#"<main><h1>Still a weird page</h1></main>"#;
 
@@ -551,7 +556,7 @@ async fn should_not_change_state_or_class_when_fresh_classification_does_not_mat
         Box::new(MockProductListingNormalizationService::new()),
         Arc::new(cand_svc),
         1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();

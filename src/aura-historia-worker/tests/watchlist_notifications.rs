@@ -617,21 +617,21 @@ async fn seed_product(
 ) -> Result<ProductListingId, sqlx::Error> {
     let product_listing_id = ProductListingId::new();
     let product_uuid = uuid::Uuid::from(product_listing_id);
-    let shop_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
     let product_slug_suffix = product_uuid.simple().to_string()[..6].to_owned();
-    sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, $3, 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
-        .bind(shop_id)
-        .bind(format!("worker-watchlist-shop-{shop_id}"))
-        .bind("Worker watchlist shop")
+    sqlx::query("WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), concat($3, ' operator')) RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $1, $2, $3, party_id FROM operator")
+        .bind(listing_source_id)
+        .bind(format!("worker-watchlist-source-{listing_source_id}"))
+        .bind("Worker watchlist source")
         .execute(&mut **transaction)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_slug_id, event_id, content_source_event_id, shop_id, seller_id, shop_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $4, $5, 'Worker watchlist product', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Worker watchlist product', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-watchlist-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))
-        .bind(shop_id)
-        .bind(shop_id)
+        .bind(listing_source_id)
         .bind(product_uuid.to_string())
+
         .execute(&mut **transaction)
         .await?;
     Ok(product_listing_id)

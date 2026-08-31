@@ -315,7 +315,7 @@ mod tests {
         for field in [
             "description",
             "price",
-            "shop_listing_id",
+            "source_listing_id",
             "auction_start",
             "auction_end",
         ] {

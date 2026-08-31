@@ -1,5 +1,5 @@
+use listing_source_core::{Domain, InvalidDomain as NoDomainError};
 use regex::Regex;
-use shop_core::domain::{Domain, NoDomainError};
 use spider::compact_str::CompactString;
 use url_normalize::Options;
 
@@ -163,8 +163,12 @@ impl TryFrom<&str> for CrawledUrl {
     }
 }
 
-pub fn extract_shop_base_url(shop_url: &str) -> Result<Domain, NoDomainError> {
-    Domain::try_from(shop_url)
+pub fn extract_crawl_root_domain(crawl_root_url: &str) -> Result<Domain, NoDomainError> {
+    let parsed = url::Url::parse(crawl_root_url).map_err(|_| NoDomainError::new(crawl_root_url))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| NoDomainError::new(crawl_root_url))?;
+    Domain::try_from(host)
 }
 
 #[cfg(test)]

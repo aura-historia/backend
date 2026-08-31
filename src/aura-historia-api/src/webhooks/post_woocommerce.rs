@@ -7,11 +7,11 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use base64::Engine;
 use indexmap::IndexSet;
+use listing_source_core::ListingSourceId;
 use product_listing_service::use_cases::{
     IngestWoocommerceProductListingCommand, WoocommerceProductEventKind,
 };
 use serde::Deserialize;
-use shop_core::shop_id::ShopId;
 use url::Url;
 
 const TOPIC_HEADER: &str = "x-wc-webhook-topic";
@@ -46,17 +46,12 @@ struct WoocommerceImageDto {
 pub async fn post_woocommerce(
     State(state): State<WebhooksState>,
     headers: HeaderMap,
-    Path(raw_shop_id): Path<String>,
+    Path(raw_listing_source_id): Path<String>,
     body: Bytes,
 ) -> Response {
-    let shop_id = match ShopId::try_from(raw_shop_id.as_str()) {
+    let listing_source_id = match parse_listing_source_id(&raw_listing_source_id) {
         Ok(value) => value,
-        Err(_) => {
-            return ApiError::bad_request(INVALID_UUID)
-                .with_path_field("shopId")
-                .with_detail("Path parameter 'shopId' must be a UUID.")
-                .into_response();
-        }
+        Err(error) => return error.into_response(),
     };
     if body.is_empty() {
         return ApiError::bad_request(BAD_BODY_VALUE)
@@ -79,6 +74,16 @@ pub async fn post_woocommerce(
                 .into_response();
         }
     };
+    let source_listing_id = match product_listing_core::source_listing_id::SourceListingId::try_from(
+        payload.id.to_string(),
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            return ApiError::bad_request(BAD_BODY_VALUE)
+                .with_detail(error.to_string())
+                .into_response();
+        }
+    };
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return *response,
@@ -88,13 +93,11 @@ pub async fn post_woocommerce(
         .execute(
             &context,
             IngestWoocommerceProductListingCommand {
-                shop_id,
+                listing_source_id,
                 kind,
                 signature,
                 raw_body: body.to_vec(),
-                shop_listing_id: product_listing_core::shop_listing_id::ShopListingId::from(
-                    payload.id.to_string(),
-                ),
+                source_listing_id,
                 title: payload.name,
                 permalink: payload.permalink,
                 description_html: payload.description,
@@ -114,6 +117,16 @@ pub async fn post_woocommerce(
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => ApiError::from(error).into_response(),
     }
+}
+
+fn parse_listing_source_id(value: &str) -> Result<ListingSourceId, ApiError> {
+    uuid::Uuid::parse_str(value)
+        .map(ListingSourceId::from)
+        .map_err(|_| {
+            ApiError::bad_request(INVALID_UUID)
+                .with_path_field("listingSourceId")
+                .with_detail("Path parameter 'listingSourceId' must be a UUID.")
+        })
 }
 
 fn event_kind(headers: &HeaderMap) -> Result<WoocommerceProductEventKind, ApiError> {
@@ -155,6 +168,22 @@ fn signature(headers: &HeaderMap) -> Result<Vec<u8>, ApiError> {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
+
+    #[test]
+    fn should_parse_listing_source_id() {
+        let listing_source_id = ListingSourceId::new();
+
+        let parsed = parse_listing_source_id(&listing_source_id.to_string());
+
+        assert!(matches!(parsed, Ok(actual) if actual == listing_source_id));
+    }
+
+    #[test]
+    fn should_reject_invalid_listing_source_id() {
+        let error = parse_listing_source_id("not-a-uuid");
+
+        assert!(matches!(error, Err(error) if error.code() == INVALID_UUID));
+    }
 
     #[test]
     fn should_map_supported_woocommerce_topics() {

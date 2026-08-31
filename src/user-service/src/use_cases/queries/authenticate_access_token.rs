@@ -181,7 +181,7 @@ mod tests {
     #[tokio::test]
     async fn should_authenticate_unexpired_access_token() {
         let user_id = UserId::new();
-        let scopes = HashSet::from([Scope::ShopsWrite]);
+        let scopes = HashSet::from([Scope::ProductListingsWrite]);
         let reader = FakeAuthenticationReader::default();
         lock(&reader.0).authentication = Some(AccessTokenAuthentication {
             access_token_id: AccessTokenId::new(),

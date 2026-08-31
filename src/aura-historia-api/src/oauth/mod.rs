@@ -73,11 +73,6 @@ fn parse_scope_with_field(
 ) -> Result<Scope, Response> {
     let scope = match value {
         "product-listings:write" => Scope::ProductListingsWrite,
-        "shops:read" => Scope::ShopsRead,
-        "shops:write" => Scope::ShopsWrite,
-        "partner-shop-applications:write" => Scope::PartnerShopApplicationsWrite,
-        "partner-shops:read" => Scope::PartnerShopsRead,
-        "partner-shops:write" => Scope::PartnerShopsWrite,
         "users:read" => Scope::UsersRead,
         "users:write" => Scope::UsersWrite,
         "access-tokens:read" => Scope::AccessTokensRead,

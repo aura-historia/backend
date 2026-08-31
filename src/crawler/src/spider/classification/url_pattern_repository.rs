@@ -1,215 +1,216 @@
-//! Repository for persisting and retrieving product URL patterns per shop.
-//!
-//! A *shop URL pattern* is a regex string that identifies product pages within a given shop's
-//! domain. Once a pattern has been discovered by the spider it is stored here so that subsequent
-//! runs can skip the classification step and use the cached pattern directly.
-//!
-//! Locking is handled at the crawler dispatcher level via in-memory domain/url locks; see
-//! [`crate::spider::advisory_lock`]. No `locked_at` column or lock methods live here.
+//! Repository for crawler-domain URL patterns and crawl scheduling state.
 
+use crate::CrawlerDomainId;
 use async_trait::async_trait;
-use shop_core::domain::Domain;
-use shop_core::shop_id::ShopId;
+use listing_source_core::{Domain, ListingSourceId};
 use sqlx::{FromRow, PgPool, Row};
+use strum::IntoEnumIterator;
+use thiserror::Error;
 use time::OffsetDateTime;
 
-/// A full row joined from the `shops` and `shop_domains` tables.
-#[derive(Debug, Clone)]
-pub struct ShopUrlPatternRecord {
-    /// The unique shop identifier used as the primary key.
-    pub shop_id: ShopId,
-    /// The domain of the shop.
-    pub shop_domain: Domain,
-    /// The stored regex pattern, if any has been confirmed for this shop.
-    pub url_pattern: Option<String>,
-    /// When the shop domain was last crawled successfully.
-    pub last_crawled: Option<OffsetDateTime>,
-    /// When this record was first created.
-    pub created: OffsetDateTime,
-    /// When this record was last updated.
-    pub updated: OffsetDateTime,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumIter)]
+pub enum UrlPatternState {
+    Unknown,
+    Matched,
+    NoPattern,
 }
 
-impl FromRow<'_, sqlx::postgres::PgRow> for ShopUrlPatternRecord {
-    fn from_row(row: &sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
-        let shop_id: uuid::Uuid = row.try_get("shop_id")?;
-        let shop_domain_str: String = row.try_get("shop_domain")?;
-        let shop_domain =
-            Domain::try_from(shop_domain_str).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+impl UrlPatternState {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "UNKNOWN",
+            Self::Matched => "MATCHED",
+            Self::NoPattern => "NO_PATTERN",
+        }
+    }
+}
 
+#[derive(Debug, Error)]
+#[error("invalid persisted URL-pattern state: {0}")]
+struct UrlPatternStateParseError(String);
+
+impl UrlPatternState {
+    fn from_persisted(value: String) -> Result<Self, UrlPatternStateParseError> {
+        Self::iter()
+            .find(|state| state.as_str() == value)
+            .ok_or(UrlPatternStateParseError(value))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ListingSourceUrlPatternRecord {
+    pub listing_source_id: ListingSourceId,
+    pub domain_id: CrawlerDomainId,
+    pub listing_source_domain: Domain,
+    pub url_pattern: Option<String>,
+    pub url_pattern_state: UrlPatternState,
+    pub last_crawled: Option<OffsetDateTime>,
+}
+
+impl FromRow<'_, sqlx::postgres::PgRow> for ListingSourceUrlPatternRecord {
+    fn from_row(row: &sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        let listing_source_id: uuid::Uuid = row.try_get("listing_source_id")?;
+        let listing_source_domain =
+            Domain::try_from(row.try_get::<String, _>("listing_source_domain")?)
+                .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
         Ok(Self {
-            shop_id: shop_id.into(),
-            shop_domain,
+            listing_source_id: listing_source_id.into(),
+            domain_id: row.try_get::<uuid::Uuid, _>("domain_id")?.into(),
+            listing_source_domain,
             url_pattern: row.try_get("url_pattern")?,
+            url_pattern_state: UrlPatternState::from_persisted(
+                row.try_get::<String, _>("url_pattern_state")?,
+            )
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
             last_crawled: row.try_get("last_crawled")?,
-            created: row.try_get("created")?,
-            updated: row.try_get("updated")?,
         })
     }
 }
 
-/// Persistence contract for shop URL patterns.
-///
-/// Each shop (identified by its ID) can have at most one associated pattern.
-/// The pattern is stored as a raw regex string and is `None` when no pattern has been
-/// confirmed for that shop yet.
 #[async_trait]
 #[mockall::automock]
-pub trait ShopUrlPatternRepository: Send + Sync {
-    /// Returns the stored record for `shop_id`, or `None` if none has been saved yet.
+pub trait ListingSourceUrlPatternRepository: Send + Sync {
     async fn find_pattern(
         &self,
-        shop_id: &ShopId,
-    ) -> Result<Option<ShopUrlPatternRecord>, sqlx::Error>;
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+    ) -> Result<Option<ListingSourceUrlPatternRecord>, sqlx::Error>;
 
-    /// Persists `pattern` for `shop_id` with `shop_domain`.
-    ///
-    /// On first write `created` is set to the current time. Subsequent writes only
-    /// update `pattern` and `updated`, leaving `created` untouched.
-    ///
-    /// Passing `None` explicitly clears the pattern for the given shop.
     async fn save_pattern(
         &self,
-        shop_id: &ShopId,
-        shop_domain: &Domain,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
         pattern: Option<&str>,
     ) -> Result<(), sqlx::Error>;
 
-    /// Marks the shop domain as having been crawled now.
-    async fn mark_as_crawled(
+    async fn save_no_pattern(
         &self,
-        shop_id: &ShopId,
-        shop_domain: &Domain,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
     ) -> Result<(), sqlx::Error>;
 
-    /// Increments the per-shop LLM call counter.
-    async fn increment_shop_llm_calls(
+    async fn mark_as_crawled(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+    ) -> Result<(), sqlx::Error>;
+
+    async fn increment_listing_source_llm_calls(
+        &self,
+        listing_source_id: &ListingSourceId,
         delta: i64,
     ) -> Result<(), sqlx::Error>;
 }
 
-/// PostgreSQL-backed implementation of [`ShopUrlPatternRepository`].
-///
-/// Patterns are stored in the `shops` table keyed by `shop_id`.
-/// Domain-level crawl state (`last_crawled`) lives in `shop_domains`.
-/// Locking is delegated to the cron-level in-memory lock manager; see [`crate::spider::advisory_lock`].
-pub struct ShopUrlPatternRepositoryImpl {
+pub struct ListingSourceUrlPatternRepositoryImpl {
     pool: PgPool,
 }
 
-impl ShopUrlPatternRepositoryImpl {
+impl ListingSourceUrlPatternRepositoryImpl {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 }
 
 #[async_trait]
-impl ShopUrlPatternRepository for ShopUrlPatternRepositoryImpl {
+impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl {
     async fn find_pattern(
         &self,
-        shop_id: &ShopId,
-    ) -> Result<Option<ShopUrlPatternRecord>, sqlx::Error> {
-        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
-        sqlx::query_as::<_, ShopUrlPatternRecord>(
-            "SELECT s.shop_id, sd.shop_domain, s.url_pattern, sd.last_crawled,
-                    s.created, s.updated
-             FROM shops s
-             JOIN shop_domains sd ON sd.shop_id = s.shop_id
-             WHERE s.shop_id = $1
-             LIMIT 1",
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+    ) -> Result<Option<ListingSourceUrlPatternRecord>, sqlx::Error> {
+        sqlx::query_as::<_, ListingSourceUrlPatternRecord>(
+            "SELECT listing_source_id, domain_id, listing_source_domain, \
+                    url_pattern, url_pattern_state, last_crawled \
+             FROM listing_source_domains \
+             WHERE listing_source_id = $1 AND domain_id = $2",
         )
-        .bind(shop_id_uuid)
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(uuid::Uuid::from(*domain_id))
         .fetch_optional(&self.pool)
         .await
     }
 
     async fn save_pattern(
         &self,
-        shop_id: &ShopId,
-        shop_domain: &Domain,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
         pattern: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
-
-        // Upsert the shop row (url_pattern lives here)
-        sqlx::query(
-            "INSERT INTO shops (shop_id, url_pattern, created, updated)
-             VALUES ($1, $2, NOW(), NOW())
-             ON CONFLICT (shop_id)
-             DO UPDATE SET
-                 url_pattern = EXCLUDED.url_pattern,
-                 updated = NOW()",
+        let result = sqlx::query(
+            "UPDATE listing_source_domains \
+             SET url_pattern = $3, \
+                 url_pattern_state = CASE WHEN $3 IS NULL THEN 'UNKNOWN' ELSE 'MATCHED' END \
+             WHERE listing_source_id = $1 AND domain_id = $2",
         )
-        .bind(shop_id_uuid)
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(uuid::Uuid::from(*domain_id))
         .bind(pattern)
         .execute(&self.pool)
         .await?;
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
+        Ok(())
+    }
 
-        // Upsert the domain row
-        sqlx::query(
-            "INSERT INTO shop_domains (shop_id, shop_domain)
-             VALUES ($1, $2)
-             ON CONFLICT (shop_domain) DO NOTHING",
+    async fn save_no_pattern(
+        &self,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
+    ) -> Result<(), sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE listing_source_domains \
+             SET url_pattern = NULL, url_pattern_state = 'NO_PATTERN' \
+             WHERE listing_source_id = $1 AND domain_id = $2",
         )
-        .bind(shop_id_uuid)
-        .bind(shop_domain.as_str())
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(uuid::Uuid::from(*domain_id))
         .execute(&self.pool)
         .await?;
-
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
         Ok(())
     }
 
     async fn mark_as_crawled(
         &self,
-        shop_id: &ShopId,
-        shop_domain: &Domain,
+        listing_source_id: &ListingSourceId,
+        domain_id: &CrawlerDomainId,
     ) -> Result<(), sqlx::Error> {
-        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
-
-        // Ensure the shop exists
-        sqlx::query(
-            "INSERT INTO shops (shop_id, created, updated)
-             VALUES ($1, NOW(), NOW())
-             ON CONFLICT (shop_id) DO NOTHING",
+        let result = sqlx::query(
+            "UPDATE listing_source_domains \
+             SET last_crawled = NOW() \
+             WHERE listing_source_id = $1 AND domain_id = $2",
         )
-        .bind(shop_id_uuid)
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(uuid::Uuid::from(*domain_id))
         .execute(&self.pool)
         .await?;
-
-        // Upsert domain and stamp last_crawled
-        sqlx::query(
-            "INSERT INTO shop_domains (shop_id, shop_domain, last_crawled)
-             VALUES ($1, $2, NOW())
-             ON CONFLICT (shop_domain)
-             DO UPDATE SET last_crawled = NOW()",
-        )
-        .bind(shop_id_uuid)
-        .bind(shop_domain.as_str())
-        .execute(&self.pool)
-        .await?;
-
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
         Ok(())
     }
 
-    async fn increment_shop_llm_calls(
+    async fn increment_listing_source_llm_calls(
         &self,
-        shop_id: &ShopId,
+        listing_source_id: &ListingSourceId,
         delta: i64,
     ) -> Result<(), sqlx::Error> {
-        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
-        sqlx::query(
-            "UPDATE shops
-             SET llm_calls_count = llm_calls_count + $2,
-                 updated = NOW()
-             WHERE shop_id = $1",
+        let result = sqlx::query(
+            "UPDATE listing_sources \
+             SET llm_calls_count = llm_calls_count + $2, updated = NOW() \
+             WHERE listing_source_id = $1",
         )
-        .bind(shop_id_uuid)
+        .bind(uuid::Uuid::from(*listing_source_id))
         .bind(delta)
         .execute(&self.pool)
         .await?;
-
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
         Ok(())
     }
 }

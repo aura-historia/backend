@@ -4,6 +4,10 @@ use crate::ports::{
     ProductListingEventStoreError, ProductListingEventStoreFactory, ProductListingRepository,
     ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
 };
+use crate::product_listing_title_slug_creation::{
+    ProductListingTitleSlugGenerator, RandomProductListingTitleSlugGenerator,
+    TitleSlugCollisionRetry, title_slug_collision_retry,
+};
 use crate::use_cases::{
     CreateProductListingResult, UpdateProductListingResult, UpsertProductListingResult,
     WithdrawProductListingResult,
@@ -15,26 +19,24 @@ use application::operation_context::{
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
 use indexmap::IndexSet;
+use listing_source_core::ListingSourceId;
+use listing_source_service::ports::{
+    ListingSourceReadError, WoocommerceSignatureVerification, WoocommerceSignatureVerifier,
+    WoocommerceSource, WoocommerceSourceReader,
+};
 use localization::Localized;
 use money::{MonetaryAmount, Price};
-use product_listing_core::description::Description;
-use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::product_listing::{
-    ChangeListingAvailabilityError, ChangeProductListingError, NewProductListing, ProductListing,
-    ProductListingAddress, ProductListingAuction, ProductListingPricing,
-    RehydrateProductListingError,
-};
-use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
-use product_listing_core::product_listing_image::ProductListingImage;
-
-use product_listing_core::shop_listing_id::ShopListingId;
-use product_listing_core::title::Title;
-use shop_core::partner_status::ShopPartnerStatus;
-use shop_core::shop_id::ShopId;
-use shop_service::ports::{
-    WoocommerceWebhookShop, WoocommerceWebhookShopReadError, WoocommerceWebhookShopReader,
-    WoocommerceWebhookShopReaderFactory, WoocommerceWebhookSignatureVerification,
-    WoocommerceWebhookSignatureVerifier, WoocommerceWebhookSignatureVerifierFactory,
+use product_listing_core::{
+    description::Description,
+    listing_availability::ListingAvailability,
+    product_listing::{
+        ChangeListingAvailabilityError, ChangeProductListingError, NewProductListing,
+        ProductListing, ProductListingAuction, ProductListingPricing, RehydrateProductListingError,
+    },
+    product_listing_id::{ProductListingId, ProductListingKey},
+    product_listing_image::ProductListingImage,
+    source_listing_id::SourceListingId,
+    title::Title,
 };
 use url::Url;
 use user_core::user_id::UserId;
@@ -48,11 +50,11 @@ pub enum WoocommerceProductEventKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IngestWoocommerceProductListingCommand {
-    pub shop_id: ShopId,
+    pub listing_source_id: ListingSourceId,
     pub kind: WoocommerceProductEventKind,
     pub signature: Vec<u8>,
     pub raw_body: Vec<u8>,
-    pub shop_listing_id: ShopListingId,
+    pub source_listing_id: SourceListingId,
     pub title: Option<String>,
     pub permalink: Option<Url>,
     pub description_html: Option<String>,
@@ -79,7 +81,7 @@ enum WoocommerceListingAction {
 
 #[derive(Debug)]
 struct WoocommerceListingData {
-    shop_listing_id: ShopListingId,
+    source_listing_id: SourceListingId,
     title: Localized<localization::Language, Title>,
     description: Option<Localized<localization::Language, Description>>,
     price: PatchField<Price>,
@@ -96,20 +98,18 @@ pub enum IngestWoocommerceProductListingError {
     MissingUrl,
     #[error("WooCommerce product price is invalid")]
     InvalidPrice,
-    #[error("shop has no WooCommerce currency configured")]
-    MissingShopCurrency,
-    #[error("shop has no WooCommerce language configured")]
-    MissingShopLanguage,
+    #[error("listing source has no WooCommerce currency configured")]
+    MissingListingSourceCurrency,
+    #[error("listing source has no WooCommerce language configured")]
+    MissingListingSourceLanguage,
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
-    #[error("actor may not ingest WooCommerce webhooks for this shop")]
-    ActorMayNotIngestForShop,
-    #[error("shop not found")]
-    ShopNotFound,
-    #[error("shop is not partnered")]
-    ShopNotPartnered,
+    #[error("actor may not ingest WooCommerce webhooks for this listing source")]
+    ActorMayNotIngestForListingSource,
+    #[error("listing source not found")]
+    ListingSourceNotFound,
     #[error("WooCommerce webhook secret is not configured")]
     WebhookSecretNotConfigured,
     #[error("WooCommerce webhook signature is invalid")]
@@ -124,13 +124,13 @@ pub enum IngestWoocommerceProductListingError {
         #[source]
         source: BoxError,
     },
-    #[error("temporary WooCommerce webhook shop read failure")]
-    WebhookShopTemporarilyUnavailable {
+    #[error("temporary WooCommerce listing source read failure")]
+    ListingSourceTemporarilyUnavailable {
         #[source]
         source: BoxError,
     },
-    #[error("invalid WooCommerce webhook shop read model")]
-    InvalidWebhookShopReadModel {
+    #[error("invalid WooCommerce listing source read model")]
+    InvalidListingSourceReadModel {
         #[source]
         source: BoxError,
     },
@@ -141,6 +141,8 @@ pub enum IngestWoocommerceProductListingError {
         #[source]
         source: BoxError,
     },
+    #[error("product listing title slug generation was exhausted")]
+    ProductListingTitleSlugGenerationExhausted,
     #[error("product listing persistence failed")]
     ProductListingPersistenceFailed,
     #[error("product listing event storage failed")]
@@ -160,17 +162,27 @@ pub trait IngestWoocommerceProductListingUseCase: Send + Sync {
     ) -> Result<IngestWoocommerceProductListingResult, IngestWoocommerceProductListingError>;
 }
 
-pub struct IngestWoocommerceProductListingHandler<U, R, E, A, S, V> {
+pub struct IngestWoocommerceProductListingHandler<
+    U,
+    R,
+    E,
+    A,
+    S,
+    V,
+    G = RandomProductListingTitleSlugGenerator,
+> {
     unit_of_work: U,
     products: R,
     events: E,
     authorizer: A,
-    shops: S,
+    sources: S,
     signature_verifier: V,
+    title_slug_generator: G,
 }
 
 enum WoocommerceIngestAttemptError {
-    ShopListingInsertRace,
+    SourceListingInsertRace,
+    TitleSlugCollision,
     Failed(IngestWoocommerceProductListingError),
 }
 
@@ -179,100 +191,113 @@ impl From<IngestWoocommerceProductListingError> for WoocommerceIngestAttemptErro
         Self::Failed(error)
     }
 }
-
 impl From<ProductListingRepositoryError> for WoocommerceIngestAttemptError {
     fn from(error: ProductListingRepositoryError) -> Self {
         Self::Failed(error.into())
     }
 }
-
 impl From<ProductListingEventStoreError> for WoocommerceIngestAttemptError {
     fn from(error: ProductListingEventStoreError) -> Self {
         Self::Failed(error.into())
     }
 }
-
+impl From<PartnerProductListingAuthorizationError> for WoocommerceIngestAttemptError {
+    fn from(error: PartnerProductListingAuthorizationError) -> Self {
+        Self::Failed(error.into())
+    }
+}
 impl From<ChangeListingAvailabilityError> for WoocommerceIngestAttemptError {
     fn from(error: ChangeListingAvailabilityError) -> Self {
         Self::Failed(error.into())
     }
 }
-
 impl From<ChangeProductListingError> for WoocommerceIngestAttemptError {
     fn from(error: ChangeProductListingError) -> Self {
         Self::Failed(error.into())
     }
 }
-
 impl From<RehydrateProductListingError> for WoocommerceIngestAttemptError {
     fn from(error: RehydrateProductListingError) -> Self {
         Self::Failed(error.into())
     }
 }
 
-impl<U, R, E, A, S, V> IngestWoocommerceProductListingHandler<U, R, E, A, S, V> {
+impl<U, R, E, A, S, V>
+    IngestWoocommerceProductListingHandler<U, R, E, A, S, V, RandomProductListingTitleSlugGenerator>
+{
     pub fn new(
         unit_of_work: U,
         products: R,
         events: E,
         authorizer: A,
-        shops: S,
+        sources: S,
         signature_verifier: V,
+    ) -> Self {
+        Self::with_title_slug_generator(
+            unit_of_work,
+            products,
+            events,
+            authorizer,
+            sources,
+            signature_verifier,
+            RandomProductListingTitleSlugGenerator,
+        )
+    }
+}
+
+impl<U, R, E, A, S, V, G> IngestWoocommerceProductListingHandler<U, R, E, A, S, V, G> {
+    pub(crate) fn with_title_slug_generator(
+        unit_of_work: U,
+        products: R,
+        events: E,
+        authorizer: A,
+        sources: S,
+        signature_verifier: V,
+        title_slug_generator: G,
     ) -> Self {
         Self {
             unit_of_work,
             products,
             events,
             authorizer,
-            shops,
+            sources,
             signature_verifier,
+            title_slug_generator,
         }
     }
 }
 
-impl<U, R, E, A, S, V> IngestWoocommerceProductListingHandler<U, R, E, A, S, V>
+impl<U, R, E, A, S, V, G> IngestWoocommerceProductListingHandler<U, R, E, A, S, V, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventStoreFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
-    S: WoocommerceWebhookShopReaderFactory<U::Tx>,
-    V: WoocommerceWebhookSignatureVerifierFactory<U::Tx>,
+    S: WoocommerceSourceReader,
+    V: WoocommerceSignatureVerifier,
+    G: ProductListingTitleSlugGenerator,
 {
     async fn validate_webhook(
         &self,
-        tx: &mut U::Tx,
-        context: &OperationContext,
-        shop_id: ShopId,
+        listing_source_id: ListingSourceId,
         body: &[u8],
         signature: &[u8],
-    ) -> Result<WoocommerceWebhookShop, IngestWoocommerceProductListingError> {
-        if let Some(actor_id) = partner_actor(&context.principal) {
-            self.authorizer
-                .in_transaction(tx)
-                .authorize(actor_id, shop_id)
-                .await?;
-        }
-        let shop = self
-            .shops
-            .in_transaction(tx)
-            .find_for_webhook(shop_id)
+    ) -> Result<WoocommerceSource, IngestWoocommerceProductListingError> {
+        let source = self
+            .sources
+            .find_by_id(listing_source_id)
             .await?
-            .ok_or(IngestWoocommerceProductListingError::ShopNotFound)?;
-        if shop.partner_status != ShopPartnerStatus::Partnered {
-            return Err(IngestWoocommerceProductListingError::ShopNotPartnered);
-        }
+            .ok_or(IngestWoocommerceProductListingError::ListingSourceNotFound)?;
         match self
             .signature_verifier
-            .verifier_in_transaction(tx)
-            .verify(shop_id, body, signature)
+            .verify(listing_source_id, body, signature)
             .await?
         {
-            WoocommerceWebhookSignatureVerification::Valid => Ok(shop),
-            WoocommerceWebhookSignatureVerification::Invalid => {
+            WoocommerceSignatureVerification::Valid => Ok(source),
+            WoocommerceSignatureVerification::Invalid => {
                 Err(IngestWoocommerceProductListingError::InvalidSignature)
             }
-            WoocommerceWebhookSignatureVerification::SecretNotConfigured => {
+            WoocommerceSignatureVerification::SecretNotConfigured => {
                 Err(IngestWoocommerceProductListingError::WebhookSecretNotConfigured)
             }
         }
@@ -281,10 +306,11 @@ where
     async fn upsert(
         &self,
         tx: &mut U::Tx,
-        shop: &WoocommerceWebhookShop,
+        source: &WoocommerceSource,
         data: WoocommerceListingData,
+        new_product_listing_id: ProductListingId,
     ) -> Result<UpsertProductListingResult, WoocommerceIngestAttemptError> {
-        let key = ProductListingKey::new(shop.shop_id, data.shop_listing_id.clone());
+        let key = ProductListingKey::new(source.listing_source_id, data.source_listing_id.clone());
         let existing = self.products.in_transaction(tx).find_by_key(&key).await?;
         match existing {
             Some(loaded) => {
@@ -336,12 +362,21 @@ where
                 ))
             }
             None => {
+                let title_slug_id = self
+                    .title_slug_generator
+                    .generate(data.title.payload.as_ref())
+                    .map_err(
+                        |_| IngestWoocommerceProductListingError::InvalidProductListing {
+                            source: box_error(std::io::Error::other(
+                                "invalid generated title slug",
+                            )),
+                        },
+                    )?;
                 let mut listing = ProductListing::create(NewProductListing {
-                    id: ProductListingId::new(),
-                    shop_id: shop.shop_id,
-                    seller_id: shop.shop_id,
-                    shop_listing_id: data.shop_listing_id,
-                    address: ProductListingAddress::default(),
+                    id: new_product_listing_id,
+                    title_slug_id,
+                    listing_source_id: source.listing_source_id,
+                    source_listing_id: data.source_listing_id,
                     title: Some(data.title),
                     description: data.description,
                     pricing: ProductListingPricing {
@@ -376,8 +411,11 @@ where
                     .insert(&listing, event_id)
                     .await
                     .map_err(|error| match error {
-                        ProductListingRepositoryError::ShopListingAlreadyExists => {
-                            WoocommerceIngestAttemptError::ShopListingInsertRace
+                        ProductListingRepositoryError::SourceListingAlreadyExists => {
+                            WoocommerceIngestAttemptError::SourceListingInsertRace
+                        }
+                        ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists => {
+                            WoocommerceIngestAttemptError::TitleSlugCollision
                         }
                         error => WoocommerceIngestAttemptError::Failed(error.into()),
                     })?;
@@ -387,7 +425,7 @@ where
                 Ok(UpsertProductListingResult::Created(
                     CreateProductListingResult {
                         product_listing_id: persisted.value.id(),
-                        product_listing_slug_id: persisted.value.slug_id().clone(),
+                        product_listing_title_slug_id: persisted.value.title_slug_id().clone(),
                         event_id,
                     },
                 ))
@@ -436,25 +474,30 @@ where
         &self,
         context: &OperationContext,
         command: IngestWoocommerceProductListingCommand,
+        new_product_listing_id: ProductListingId,
     ) -> Result<IngestWoocommerceProductListingResult, WoocommerceIngestAttemptError> {
         context
             .require()
             .credential_capability(CredentialCapability::ProductListingsWrite)
             .authorize::<IngestWoocommerceProductListingError>()?;
+        let source = self
+            .validate_webhook(
+                command.listing_source_id,
+                &command.raw_body,
+                &command.signature,
+            )
+            .await?;
         let mut tx = self
             .unit_of_work
             .begin()
             .await
             .map_err(|_| IngestWoocommerceProductListingError::BeginTransactionFailed)?;
-        let shop = self
-            .validate_webhook(
-                &mut tx,
-                context,
-                command.shop_id,
-                &command.raw_body,
-                &command.signature,
-            )
-            .await?;
+        if let Some(actor_id) = partner_actor(&context.principal) {
+            self.authorizer
+                .in_transaction(&mut tx)
+                .authorize(actor_id, source.listing_source_id)
+                .await?;
+        }
         let result = match listing_action(
             command.kind,
             command.status.as_deref(),
@@ -464,15 +507,20 @@ where
             WoocommerceListingAction::Withdraw => self
                 .withdraw(
                     &mut tx,
-                    ProductListingKey::new(shop.shop_id, command.shop_listing_id),
+                    ProductListingKey::new(source.listing_source_id, command.source_listing_id),
                 )
                 .await?
                 .map(IngestWoocommerceProductListingResult::Withdrawn)
                 .unwrap_or(IngestWoocommerceProductListingResult::Ignored),
             WoocommerceListingAction::Upsert(availability) => {
                 IngestWoocommerceProductListingResult::Upserted(
-                    self.upsert(&mut tx, &shop, listing_data(command, availability, &shop)?)
-                        .await?,
+                    self.upsert(
+                        &mut tx,
+                        &source,
+                        listing_data(command, availability, &source)?,
+                        new_product_listing_id,
+                    )
+                    .await?,
                 )
             }
         };
@@ -484,34 +532,52 @@ where
 }
 
 #[async_trait::async_trait]
-impl<U, R, E, A, S, V> IngestWoocommerceProductListingUseCase
-    for IngestWoocommerceProductListingHandler<U, R, E, A, S, V>
+impl<U, R, E, A, S, V, G> IngestWoocommerceProductListingUseCase
+    for IngestWoocommerceProductListingHandler<U, R, E, A, S, V, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
     E: ProductListingEventStoreFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
-    S: WoocommerceWebhookShopReaderFactory<U::Tx>,
-    V: WoocommerceWebhookSignatureVerifierFactory<U::Tx>,
+    S: WoocommerceSourceReader,
+    V: WoocommerceSignatureVerifier,
+    G: ProductListingTitleSlugGenerator,
 {
-    #[tracing::instrument(name = "ingest_woocommerce_product_listing", skip_all, fields(shop_id = %command.shop_id, shop_listing_id = %command.shop_listing_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    #[tracing::instrument(name = "ingest_woocommerce_product_listing", skip_all, fields(listing_source_id = %command.listing_source_id, source_listing_id = %command.source_listing_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
         &self,
         context: &OperationContext,
         command: IngestWoocommerceProductListingCommand,
     ) -> Result<IngestWoocommerceProductListingResult, IngestWoocommerceProductListingError> {
-        match self.execute_attempt(context, command.clone()).await {
-            Ok(result) => Ok(result),
-            Err(WoocommerceIngestAttemptError::ShopListingInsertRace) => {
-                match self.execute_attempt(context, command).await {
-                    Ok(result) => Ok(result),
-                    Err(WoocommerceIngestAttemptError::ShopListingInsertRace) => {
-                        Err(IngestWoocommerceProductListingError::ProductListingPersistenceFailed)
+        let new_product_listing_id = ProductListingId::new();
+        let mut source_listing_races = 0;
+        let mut title_slug_attempts = 0;
+        loop {
+            match self
+                .execute_attempt(context, command.clone(), new_product_listing_id)
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(WoocommerceIngestAttemptError::SourceListingInsertRace) => {
+                    source_listing_races += 1;
+                    if source_listing_races > 1 {
+                        return Err(
+                            IngestWoocommerceProductListingError::ProductListingPersistenceFailed,
+                        );
                     }
-                    Err(WoocommerceIngestAttemptError::Failed(error)) => Err(error),
                 }
+                Err(WoocommerceIngestAttemptError::TitleSlugCollision) => {
+                    title_slug_attempts += 1;
+                    if title_slug_collision_retry(title_slug_attempts, true)
+                        == TitleSlugCollisionRetry::Exhausted
+                    {
+                        return Err(
+                            IngestWoocommerceProductListingError::ProductListingTitleSlugGenerationExhausted,
+                        );
+                    }
+                }
+                Err(WoocommerceIngestAttemptError::Failed(error)) => return Err(error),
             }
-            Err(WoocommerceIngestAttemptError::Failed(error)) => Err(error),
         }
     }
 }
@@ -526,11 +592,11 @@ fn partner_actor(principal: &Principal) -> Option<UserId> {
 fn listing_data(
     command: IngestWoocommerceProductListingCommand,
     availability: PatchField<ListingAvailability>,
-    shop: &WoocommerceWebhookShop,
+    source: &WoocommerceSource,
 ) -> Result<WoocommerceListingData, IngestWoocommerceProductListingError> {
-    let language = shop
+    let language = source
         .language
-        .ok_or(IngestWoocommerceProductListingError::MissingShopLanguage)?;
+        .ok_or(IngestWoocommerceProductListingError::MissingListingSourceLanguage)?;
     let title = command
         .title
         .as_deref()
@@ -553,10 +619,10 @@ fn listing_data(
         .map(ProductListingImage::new)
         .collect();
     Ok(WoocommerceListingData {
-        shop_listing_id: command.shop_listing_id,
+        source_listing_id: command.source_listing_id,
         title: Localized::new(language, Title::from(title)),
         description,
-        price: match parse_price(command.price.as_deref(), shop.currency)? {
+        price: match parse_price(command.price.as_deref(), source.currency)? {
             Some(price) => PatchField::Set(price),
             None => PatchField::Clear,
         },
@@ -573,7 +639,8 @@ fn parse_price(
     let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
         return Ok(None);
     };
-    let currency = currency.ok_or(IngestWoocommerceProductListingError::MissingShopCurrency)?;
+    let currency =
+        currency.ok_or(IngestWoocommerceProductListingError::MissingListingSourceCurrency)?;
     let (major, minor) = value.trim().split_once('.').unwrap_or((value.trim(), ""));
     if !major.chars().all(|value| value.is_ascii_digit())
         || !minor.chars().all(|value| value.is_ascii_digit())
@@ -639,8 +706,12 @@ impl From<OperationAuthorizationError> for IngestWoocommerceProductListingError 
 impl From<PartnerProductListingAuthorizationError> for IngestWoocommerceProductListingError {
     fn from(error: PartnerProductListingAuthorizationError) -> Self {
         match error {
-            PartnerProductListingAuthorizationError::ShopNotFound => Self::ShopNotFound,
-            PartnerProductListingAuthorizationError::Forbidden => Self::ActorMayNotIngestForShop,
+            PartnerProductListingAuthorizationError::ListingSourceNotFound => {
+                Self::ListingSourceNotFound
+            }
+            PartnerProductListingAuthorizationError::Forbidden => {
+                Self::ActorMayNotIngestForListingSource
+            }
             PartnerProductListingAuthorizationError::TemporarilyUnavailable { source } => {
                 Self::PartnerAuthorizationTemporarilyUnavailable { source }
             }
@@ -651,46 +722,15 @@ impl From<PartnerProductListingAuthorizationError> for IngestWoocommerceProductL
     }
 }
 
-impl From<WoocommerceWebhookShopReadError> for IngestWoocommerceProductListingError {
-    fn from(error: WoocommerceWebhookShopReadError) -> Self {
+impl From<ListingSourceReadError> for IngestWoocommerceProductListingError {
+    fn from(error: ListingSourceReadError) -> Self {
         match error {
-            WoocommerceWebhookShopReadError::TemporarilyUnavailable { source } => {
-                Self::WebhookShopTemporarilyUnavailable { source }
+            ListingSourceReadError::TemporarilyUnavailable { source } => {
+                Self::ListingSourceTemporarilyUnavailable { source }
             }
-            WoocommerceWebhookShopReadError::InvalidReadModel { source } => {
-                Self::InvalidWebhookShopReadModel { source }
+            ListingSourceReadError::InvalidReadModel { source } => {
+                Self::InvalidListingSourceReadModel { source }
             }
-        }
-    }
-}
-
-impl From<ProductListingRepositoryError> for IngestWoocommerceProductListingError {
-    fn from(_: ProductListingRepositoryError) -> Self {
-        Self::ProductListingPersistenceFailed
-    }
-}
-
-impl From<ProductListingEventStoreError> for IngestWoocommerceProductListingError {
-    fn from(_: ProductListingEventStoreError) -> Self {
-        Self::ProductListingEventStoreFailed
-    }
-}
-
-impl From<ChangeListingAvailabilityError> for IngestWoocommerceProductListingError {
-    fn from(_: ChangeListingAvailabilityError) -> Self {
-        Self::ListingWithdrawn
-    }
-}
-
-impl From<ChangeProductListingError> for IngestWoocommerceProductListingError {
-    fn from(error: ChangeProductListingError) -> Self {
-        match error {
-            ChangeProductListingError::ListingWithdrawn => Self::ListingWithdrawn,
-            ChangeProductListingError::GeoLatitudeOutOfRange
-            | ChangeProductListingError::GeoLongitudeOutOfRange
-            | ChangeProductListingError::AuctionStartAfterEnd => Self::InvalidProductListing {
-                source: box_error(error),
-            },
         }
     }
 }
@@ -702,65 +742,747 @@ impl From<RehydrateProductListingError> for IngestWoocommerceProductListingError
         }
     }
 }
+impl From<ChangeListingAvailabilityError> for IngestWoocommerceProductListingError {
+    fn from(error: ChangeListingAvailabilityError) -> Self {
+        match error {
+            ChangeListingAvailabilityError::ListingWithdrawn => Self::ListingWithdrawn,
+        }
+    }
+}
+impl From<ChangeProductListingError> for IngestWoocommerceProductListingError {
+    fn from(error: ChangeProductListingError) -> Self {
+        match error {
+            ChangeProductListingError::ListingWithdrawn => Self::ListingWithdrawn,
+            error => Self::InvalidProductListing {
+                source: box_error(error),
+            },
+        }
+    }
+}
+impl From<ProductListingRepositoryError> for IngestWoocommerceProductListingError {
+    fn from(_: ProductListingRepositoryError) -> Self {
+        Self::ProductListingPersistenceFailed
+    }
+}
+impl From<ProductListingEventStoreError> for IngestWoocommerceProductListingError {
+    fn from(_: ProductListingEventStoreError) -> Self {
+        Self::ProductListingEventStoreFailed
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::operation_context::{CorrelationId, RequestId};
+    use application::transaction::TransactionError;
+    use domain_primitives::{event_id::EventId, versioned::Versioned};
+    use product_listing_core::product_listing_slug_id::ProductListingSlugId;
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex, MutexGuard};
 
     #[test]
-    fn should_map_published_stock_statuses_without_creating_sale_observations() {
-        let cases = [
-            (
-                Some("instock"),
-                PatchField::Set(ListingAvailability::InStock),
-            ),
-            (
-                Some("outofstock"),
-                PatchField::Set(ListingAvailability::OutOfStock),
-            ),
-            (
-                Some("onbackorder"),
-                PatchField::Set(ListingAvailability::BackOrder),
-            ),
-            (None, PatchField::Unchanged),
-            (Some("unsupported"), PatchField::Unchanged),
-        ];
-
-        for (stock_status, expected) in cases {
-            assert!(matches!(
-                listing_action(WoocommerceProductEventKind::Update, Some("publish"), stock_status),
-                WoocommerceListingAction::Upsert(actual) if actual == expected
-            ));
-        }
-    }
-
-    #[test]
-    fn should_withdraw_only_authoritative_non_public_observations() {
-        for status in ["trash", "draft", "pending", "private"] {
-            assert!(matches!(
-                listing_action(WoocommerceProductEventKind::Update, Some(status), None),
-                WoocommerceListingAction::Withdraw
-            ));
-        }
-        assert!(matches!(
-            listing_action(WoocommerceProductEventKind::Delete, None, None),
-            WoocommerceListingAction::Withdraw
-        ));
-    }
-
-    #[test]
-    fn should_ignore_missing_or_unsupported_status() {
-        assert!(matches!(
-            listing_action(WoocommerceProductEventKind::Update, None, None),
-            WoocommerceListingAction::Ignore
-        ));
-        assert!(matches!(
+    fn should_preserve_existing_availability_for_unrecognized_stock_status() {
+        assert_eq!(
+            WoocommerceListingAction::Upsert(PatchField::Unchanged),
             listing_action(
                 WoocommerceProductEventKind::Update,
-                Some("future-status"),
-                Some("instock")
-            ),
-            WoocommerceListingAction::Ignore
+                Some("publish"),
+                Some("unknown"),
+            )
+        );
+    }
+
+    #[test]
+    fn should_withdraw_deleted_product() {
+        assert_eq!(
+            WoocommerceListingAction::Withdraw,
+            listing_action(WoocommerceProductEventKind::Delete, None, None)
+        );
+    }
+
+    #[test]
+    fn should_require_currency_only_when_price_exists() {
+        assert!(matches!(parse_price(None, None), Ok(None)));
+        assert!(matches!(
+            parse_price(Some("42.00"), None),
+            Err(IngestWoocommerceProductListingError::MissingListingSourceCurrency)
         ));
+    }
+
+    struct State {
+        candidates: Vec<ProductListingSlugId>,
+        begins: usize,
+        commits: usize,
+        rollbacks: usize,
+        finds: VecDeque<Option<Versioned<ProductListing, EventId>>>,
+        inserts: VecDeque<Result<(), ProductListingRepositoryError>>,
+        updates: usize,
+        events: usize,
+        event_results: VecDeque<Result<(), ProductListingEventStoreError>>,
+        authorizations: usize,
+        source: Option<WoocommerceSource>,
+        signature: WoocommerceSignatureVerification,
+        source_reads: usize,
+        signature_checks: usize,
+        commit_results: VecDeque<Result<(), TransactionError>>,
+    }
+
+    impl Default for State {
+        fn default() -> Self {
+            Self {
+                candidates: Vec::new(),
+                begins: 0,
+                commits: 0,
+                rollbacks: 0,
+                finds: VecDeque::new(),
+                inserts: VecDeque::new(),
+                updates: 0,
+                events: 0,
+                event_results: VecDeque::new(),
+                authorizations: 0,
+                source: None,
+                signature: WoocommerceSignatureVerification::Valid,
+                source_reads: 0,
+                signature_checks: 0,
+                commit_results: VecDeque::new(),
+            }
+        }
+    }
+
+    type SharedState = Arc<Mutex<State>>;
+
+    #[derive(Clone)]
+    struct UowFake(SharedState);
+    struct TxFake(SharedState, bool);
+    #[derive(Clone)]
+    struct ProductsFake(SharedState);
+    struct RepositoryFake(SharedState);
+    #[derive(Clone)]
+    struct EventsFake(SharedState);
+    struct EventStoreFake(SharedState);
+    #[derive(Clone)]
+    struct AuthorizerFake(SharedState);
+    struct AuthorizationFake(SharedState);
+    #[derive(Clone)]
+    struct SourcesFake(SharedState);
+    #[derive(Clone)]
+    struct SignatureVerifierFake(SharedState);
+    #[derive(Clone)]
+    struct GeneratorFake(SharedState);
+
+    impl Drop for TxFake {
+        fn drop(&mut self) {
+            if !self.1 {
+                lock(&self.0).rollbacks += 1;
+            }
+        }
+    }
+
+    fn lock(state: &SharedState) -> MutexGuard<'_, State> {
+        match state.lock() {
+            Ok(state) => state,
+            Err(error) => error.into_inner(),
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for UowFake {
+        type Tx = TxFake;
+
+        async fn begin(&self) -> Result<TxFake, TransactionError> {
+            lock(&self.0).begins += 1;
+            Ok(TxFake(Arc::clone(&self.0), false))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for TxFake {
+        async fn commit(mut self) -> Result<(), TransactionError> {
+            let result = lock(&self.0).commit_results.pop_front().unwrap_or(Ok(()));
+            if result.is_ok() {
+                self.1 = true;
+                lock(&self.0).commits += 1;
+            }
+            result
+        }
+    }
+
+    impl ProductListingRepositoryFactory<TxFake> for ProductsFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TxFake,
+        ) -> impl ProductListingRepository + 'tx {
+            RepositoryFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductListingRepository for RepositoryFake {
+        async fn find_by_id(
+            &mut self,
+            _: ProductListingId,
+        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
+        {
+            Ok(None)
+        }
+
+        async fn find_by_key(
+            &mut self,
+            _: &ProductListingKey,
+        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
+        {
+            Ok(lock(&self.0).finds.pop_front().flatten())
+        }
+
+        async fn insert(
+            &mut self,
+            listing: &ProductListing,
+            event_id: EventId,
+        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            match lock(&self.0).inserts.pop_front().unwrap_or(Ok(())) {
+                Ok(()) => Ok(Versioned::new(listing.clone(), event_id)),
+                Err(error) => Err(error),
+            }
+        }
+
+        async fn update(
+            &mut self,
+            listing: &ProductListing,
+            _: EventId,
+            event_id: EventId,
+        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            lock(&self.0).updates += 1;
+            Ok(Versioned::new(listing.clone(), event_id))
+        }
+    }
+
+    impl ProductListingEventStoreFactory<TxFake> for EventsFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TxFake,
+        ) -> impl ProductListingEventStore + 'tx {
+            EventStoreFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductListingEventStore for EventStoreFake {
+        async fn append(
+            &mut self,
+            _: &crate::ports::product_listing_event_store::ProductListingEvent,
+        ) -> Result<(), ProductListingEventStoreError> {
+            let mut state = lock(&self.0);
+            state.events += 1;
+            state.event_results.pop_front().unwrap_or(Ok(()))
+        }
+    }
+
+    impl PartnerProductListingAuthorizerFactory<TxFake> for AuthorizerFake {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TxFake,
+        ) -> impl PartnerProductListingAuthorizer + 'tx {
+            AuthorizationFake(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PartnerProductListingAuthorizer for AuthorizationFake {
+        async fn authorize(
+            &mut self,
+            _: UserId,
+            _: ListingSourceId,
+        ) -> Result<(), PartnerProductListingAuthorizationError> {
+            lock(&self.0).authorizations += 1;
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl WoocommerceSourceReader for SourcesFake {
+        async fn find_by_id(
+            &self,
+            _: ListingSourceId,
+        ) -> Result<Option<WoocommerceSource>, ListingSourceReadError> {
+            let mut state = lock(&self.0);
+            state.source_reads += 1;
+            Ok(state.source.clone())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl WoocommerceSignatureVerifier for SignatureVerifierFake {
+        async fn verify(
+            &self,
+            _: ListingSourceId,
+            _: &[u8],
+            _: &[u8],
+        ) -> Result<WoocommerceSignatureVerification, ListingSourceReadError> {
+            let mut state = lock(&self.0);
+            state.signature_checks += 1;
+            Ok(state.signature)
+        }
+    }
+
+    impl ProductListingTitleSlugGenerator for GeneratorFake {
+        fn generate(
+            &self,
+            _: &str,
+        ) -> Result<
+            ProductListingSlugId,
+            product_listing_core::product_listing_slug_id::InvalidProductListingSlugId,
+        > {
+            let candidate = ProductListingSlugId::from_title_and_suffix(
+                "listing",
+                &format!("{:06x}", lock(&self.0).candidates.len() + 1),
+            )?;
+            lock(&self.0).candidates.push(candidate.clone());
+            Ok(candidate)
+        }
+    }
+
+    fn state() -> SharedState {
+        let listing_source_id = ListingSourceId::new();
+        Arc::new(Mutex::new(State {
+            source: Some(WoocommerceSource {
+                listing_source_id,
+                currency: Some(money::Currency::Eur),
+                language: Some(localization::Language::En),
+            }),
+            signature: WoocommerceSignatureVerification::Valid,
+            ..Default::default()
+        }))
+    }
+
+    fn source_id(state: &SharedState) -> ListingSourceId {
+        lock(state)
+            .source
+            .as_ref()
+            .map(|source| source.listing_source_id)
+            .unwrap_or_else(|| panic!("test source exists"))
+    }
+
+    fn context() -> OperationContext {
+        OperationContext {
+            principal: Principal::User(UserId::new()),
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+
+    fn command(state: &SharedState) -> IngestWoocommerceProductListingCommand {
+        IngestWoocommerceProductListingCommand {
+            listing_source_id: source_id(state),
+            kind: WoocommerceProductEventKind::Create,
+            signature: vec![1],
+            raw_body: vec![2],
+            source_listing_id: SourceListingId::try_from("source-listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            title: Some("Listing".to_owned()),
+            permalink: Some(
+                Url::parse("https://example.com/listing")
+                    .unwrap_or_else(|error| panic!("valid listing URL: {error}")),
+            ),
+            description_html: None,
+            short_description_html: None,
+            price: Some("42.00".to_owned()),
+            status: Some("publish".to_owned()),
+            stock_status: Some("instock".to_owned()),
+            image_urls: IndexSet::new(),
+        }
+    }
+
+    fn handler(
+        state: &SharedState,
+    ) -> IngestWoocommerceProductListingHandler<
+        UowFake,
+        ProductsFake,
+        EventsFake,
+        AuthorizerFake,
+        SourcesFake,
+        SignatureVerifierFake,
+        GeneratorFake,
+    > {
+        IngestWoocommerceProductListingHandler::with_title_slug_generator(
+            UowFake(Arc::clone(state)),
+            ProductsFake(Arc::clone(state)),
+            EventsFake(Arc::clone(state)),
+            AuthorizerFake(Arc::clone(state)),
+            SourcesFake(Arc::clone(state)),
+            SignatureVerifierFake(Arc::clone(state)),
+            GeneratorFake(Arc::clone(state)),
+        )
+    }
+
+    fn existing_listing(listing_source_id: ListingSourceId) -> Versioned<ProductListing, EventId> {
+        let mut listing = ProductListing::create(NewProductListing {
+            id: ProductListingId::new(),
+            title_slug_id: ProductListingSlugId::from_title_and_suffix("listing", "000001")
+                .unwrap_or_else(|error| panic!("valid title slug: {error}")),
+            listing_source_id,
+            source_listing_id: SourceListingId::try_from("source-listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            title: Some(Localized::new(
+                localization::Language::En,
+                Title::from("Listing"),
+            )),
+            description: None,
+            pricing: ProductListingPricing {
+                price: Some(Price::new(
+                    MonetaryAmount::from(100_u64),
+                    money::Currency::Eur,
+                )),
+                ..Default::default()
+            },
+            availability: None,
+            url: Url::parse("https://example.com/old-listing")
+                .unwrap_or_else(|error| panic!("valid old listing URL: {error}")),
+            images: IndexSet::new(),
+            auction: ProductListingAuction::default(),
+        })
+        .unwrap_or_else(|error| panic!("valid existing listing: {error}"));
+        listing.take_pending_event_payloads();
+        Versioned::new(listing, EventId::new())
+    }
+
+    #[tokio::test]
+    async fn should_retry_title_slug_collision_then_commit_created_listing() {
+        let state = state();
+        lock(&state).inserts = VecDeque::from([
+            Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+            Ok(()),
+        ]);
+
+        assert!(matches!(
+            handler(&state).execute(&context(), command(&state)).await,
+            Ok(IngestWoocommerceProductListingResult::Upserted(
+                UpsertProductListingResult::Created(_)
+            ))
+        ));
+
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks
+            ),
+            (2, 2, 1, 1)
+        );
+        assert_eq!(
+            (
+                state.events,
+                state.authorizations,
+                state.source_reads,
+                state.signature_checks
+            ),
+            (1, 2, 2, 2)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_exhaust_after_five_title_slug_collisions() {
+        let state = state();
+        lock(&state).inserts = VecDeque::from([
+            Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+            Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+            Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+            Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+            Err(ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists),
+        ]);
+
+        assert!(matches!(
+            handler(&state).execute(&context(), command(&state)).await,
+            Err(IngestWoocommerceProductListingError::ProductListingTitleSlugGenerationExhausted)
+        ));
+
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks
+            ),
+            (5, 5, 0, 5)
+        );
+        assert_eq!(
+            (
+                state.events,
+                state.authorizations,
+                state.source_reads,
+                state.signature_checks
+            ),
+            (0, 5, 5, 5)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_rerun_source_key_race_then_update_winning_listing_without_new_candidate() {
+        let state = state();
+        let listing_source_id = source_id(&state);
+        lock(&state).finds = VecDeque::from([None, Some(existing_listing(listing_source_id))]);
+        lock(&state).inserts = VecDeque::from([Err(
+            ProductListingRepositoryError::SourceListingAlreadyExists,
+        )]);
+
+        assert!(matches!(
+            handler(&state).execute(&context(), command(&state)).await,
+            Ok(IngestWoocommerceProductListingResult::Upserted(
+                UpsertProductListingResult::Updated(_)
+            ))
+        ));
+
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks
+            ),
+            (1, 2, 1, 1)
+        );
+        assert_eq!(
+            (
+                state.updates,
+                state.events,
+                state.authorizations,
+                state.source_reads,
+                state.signature_checks
+            ),
+            (1, 3, 2, 2, 2)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_update_existing_listing_without_generating_candidate() {
+        let state = state();
+        let listing_source_id = source_id(&state);
+        lock(&state).finds = VecDeque::from([Some(existing_listing(listing_source_id))]);
+
+        assert!(matches!(
+            handler(&state).execute(&context(), command(&state)).await,
+            Ok(IngestWoocommerceProductListingResult::Upserted(
+                UpsertProductListingResult::Updated(_)
+            ))
+        ));
+
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks
+            ),
+            (0, 1, 1, 0)
+        );
+        assert_eq!(
+            (state.updates, state.events, state.authorizations),
+            (1, 3, 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_not_generate_candidate_for_ignored_event() {
+        let state = state();
+        let mut command = command(&state);
+        command.status = Some("future".to_owned());
+
+        assert!(matches!(
+            handler(&state).execute(&context(), command).await,
+            Ok(IngestWoocommerceProductListingResult::Ignored)
+        ));
+
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.events
+            ),
+            (0, 1, 1, 0, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_withdraw_existing_listing_without_generating_candidate() {
+        let state = state();
+        let listing_source_id = source_id(&state);
+        lock(&state).finds = VecDeque::from([Some(existing_listing(listing_source_id))]);
+        let mut command = command(&state);
+        command.kind = WoocommerceProductEventKind::Delete;
+
+        assert!(matches!(
+            handler(&state).execute(&context(), command).await,
+            Ok(IngestWoocommerceProductListingResult::Withdrawn(_))
+        ));
+
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks
+            ),
+            (0, 1, 1, 0)
+        );
+        assert_eq!(
+            (state.updates, state.events, state.authorizations),
+            (1, 1, 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_not_generate_candidate_for_invalid_signature() {
+        let state = state();
+        lock(&state).signature = WoocommerceSignatureVerification::Invalid;
+
+        assert!(matches!(
+            handler(&state).execute(&context(), command(&state)).await,
+            Err(IngestWoocommerceProductListingError::InvalidSignature)
+        ));
+
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks
+            ),
+            (0, 0, 0, 0)
+        );
+        assert_eq!((state.source_reads, state.signature_checks), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn should_not_generate_candidate_when_source_is_missing() {
+        let state = state();
+        let mut command = command(&state);
+        lock(&state).source = None;
+        command.listing_source_id = ListingSourceId::new();
+
+        assert!(matches!(
+            handler(&state).execute(&context(), command).await,
+            Err(IngestWoocommerceProductListingError::ListingSourceNotFound)
+        ));
+
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks
+            ),
+            (0, 0, 0, 0)
+        );
+        assert_eq!((state.source_reads, state.signature_checks), (1, 0));
+    }
+
+    #[tokio::test]
+    async fn should_not_generate_candidate_when_unauthorized() {
+        let state = state();
+        let context = OperationContext {
+            principal: Principal::Anonymous,
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        };
+
+        assert!(matches!(
+            handler(&state).execute(&context, command(&state)).await,
+            Err(IngestWoocommerceProductListingError::AuthenticatedActorRequired)
+        ));
+
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks
+            ),
+            (0, 0, 0, 0)
+        );
+        assert_eq!((state.source_reads, state.signature_checks), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn should_not_retry_unrelated_repository_error() {
+        let state = state();
+        lock(&state).inserts = VecDeque::from([Err(
+            ProductListingRepositoryError::ProductListingInsertFailed,
+        )]);
+
+        assert!(matches!(
+            handler(&state).execute(&context(), command(&state)).await,
+            Err(IngestWoocommerceProductListingError::ProductListingPersistenceFailed)
+        ));
+
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.events
+            ),
+            (1, 1, 0, 1, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_not_retry_event_store_error() {
+        let state = state();
+        lock(&state).event_results = VecDeque::from([Err(
+            ProductListingEventStoreError::ProductListingEventAppendFailed,
+        )]);
+
+        assert!(matches!(
+            handler(&state).execute(&context(), command(&state)).await,
+            Err(IngestWoocommerceProductListingError::ProductListingEventStoreFailed)
+        ));
+
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.events
+            ),
+            (1, 1, 0, 1, 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_not_retry_commit_error() {
+        let state = state();
+        lock(&state).commit_results = VecDeque::from([Err(TransactionError::CommitFailed)]);
+
+        assert!(matches!(
+            handler(&state).execute(&context(), command(&state)).await,
+            Err(IngestWoocommerceProductListingError::CommitTransactionFailed)
+        ));
+
+        let state = lock(&state);
+        assert_eq!(
+            (
+                state.candidates.len(),
+                state.begins,
+                state.commits,
+                state.rollbacks,
+                state.events
+            ),
+            (1, 1, 0, 1, 1)
+        );
     }
 }
