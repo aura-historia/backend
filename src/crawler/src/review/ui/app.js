@@ -15,7 +15,7 @@ let selectedReviewRefreshReason = '';
 let sidebarCollapsed = localStorage.getItem('crawlerReviewSidebarCollapsed') === 'true';
 let theme = document.documentElement.dataset.theme || localStorage.getItem('crawlerReviewTheme') || 'light';
 let reviewSearchTerm = '';
-let collapsedShopGroups = new Set(JSON.parse(localStorage.getItem('crawlerReviewCollapsedShopGroups') || '[]'));
+let collapsedListingSourceGroups = new Set(JSON.parse(localStorage.getItem('crawlerReviewCollapsedShopGroups') || '[]'));
 let previewUrlOverride = '';
 
 const selectorFields = [
@@ -84,20 +84,20 @@ async function loadReviews() {
 function renderReviewGroups(reviews) {
     const query = reviewSearchTerm.trim().toLowerCase();
     const groups = [];
-    const byShop = new Map();
+    const byListingSource = new Map();
     for (const review of reviews) {
         if (query && !reviewMatchesSearch(review, query)) continue;
-        const shopKey = review.listing_source_id || 'unknown-shop';
-        if (!byShop.has(shopKey)) {
+        const listingSourceKey = review.listing_source_id || 'unknown-listing-source';
+        if (!byListingSource.has(listingSourceKey)) {
             const group = {
-                shopId: shopKey,
-                shopName: review.listing_source_name || review.listing_source_id || 'Unknown shop',
+                listingSourceId: listingSourceKey,
+                listingSourceName: review.listing_source_name || review.listing_source_id || 'Unknown listing source',
                 reviews: []
             };
-            byShop.set(shopKey, group);
+            byListingSource.set(listingSourceKey, group);
             groups.push(group);
         }
-        byShop.get(shopKey).reviews.push(review);
+        byListingSource.get(listingSourceKey).reviews.push(review);
     }
 
     if (!groups.length) {
@@ -107,19 +107,19 @@ function renderReviewGroups(reviews) {
     return groups.map(group => {
         const pendingCount = group.reviews.filter(review => review.status === 'PENDING_REVIEW').length;
         const productSchemaCount = group.reviews.filter(review => review.artifact_type === 'PRODUCT_SCHEMA').length;
-        const collapsed = collapsedShopGroups.has(group.shopId);
-        return `<div class="shop-group">
-          <div class="shop-group-head" onclick="toggleShopGroup('${escapeHtmlAttr(group.shopId)}')">
+        const collapsed = collapsedListingSourceGroups.has(group.listingSourceId);
+        return `<div class="listing-source-group">
+          <div class="listing-source-group-head" onclick="toggleListingSourceGroup('${escapeHtmlAttr(group.listingSourceId)}')">
             <div>
-              <div class="queue-title">${escapeHtml(group.shopName)}</div>
+              <div class="queue-title">${escapeHtml(group.listingSourceName)}</div>
               <div class="queue-meta">${productSchemaCount} schema review${productSchemaCount === 1 ? '' : 's'} / ${group.reviews.length} total</div>
             </div>
-            <div class="shop-group-actions">
+            <div class="listing-source-group-actions">
               ${statusBadge(`${pendingCount} pending`)}
               <span class="collapse-indicator">${collapsed ? '+' : '-'}</span>
             </div>
           </div>
-          <div class="shop-review-list ${collapsed ? 'collapsed' : ''}">
+          <div class="listing-source-review-list ${collapsed ? 'collapsed' : ''}">
             ${group.reviews.map(renderReviewQueueItem).join('')}
           </div>
         </div>`;
@@ -142,13 +142,13 @@ function setReviewSearch(value) {
     loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 }
 
-function toggleShopGroup(shopId) {
-    if (collapsedShopGroups.has(shopId)) {
-        collapsedShopGroups.delete(shopId);
+function toggleListingSourceGroup(listingSourceId) {
+    if (collapsedListingSourceGroups.has(listingSourceId)) {
+        collapsedListingSourceGroups.delete(listingSourceId);
     } else {
-        collapsedShopGroups.add(shopId);
+        collapsedListingSourceGroups.add(listingSourceId);
     }
-    localStorage.setItem('crawlerReviewCollapsedShopGroups', JSON.stringify([...collapsedShopGroups]));
+    localStorage.setItem('crawlerReviewCollapsedShopGroups', JSON.stringify([...collapsedListingSourceGroups]));
     loadReviews().catch(err => document.getElementById('reviewList').textContent = err);
 }
 
@@ -421,7 +421,7 @@ function renderSchemaOrderControls(schemas) {
     return `<div class="schema-order-card">
       <div>
         <h3>Schema Order</h3>
-        <div class="muted">Approval writes schemas in this order for the shop.</div>
+        <div class="muted">Approval writes schemas in this order for the ListingSource.</div>
       </div>
       <div class="schema-order-list">
         ${schemas.map((_, i) => `<button class="schema-chip ${i === selectedSchemaIndex ? 'active' : ''}" onclick="selectedSchemaIndex=${i}; normalizeSchemaSelection(); rerenderWorkbench()">${schemaLabel(i)}</button>`).join('')}

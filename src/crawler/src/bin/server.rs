@@ -1,7 +1,7 @@
 //! Production server binary for the crawler.
 //!
 //! Wires crawler-local Postgres, authoritative business Postgres, and the LLM, then starts the
-//! [`CrawlerCronJob`] loop that continuously spiders shop websites, scrapes product pages,
+//! [`CrawlerCronJob`] loop that continuously spiders ListingSource websites, scrapes product pages,
 //! and pushes normalized products through the canonical product upsert use case.
 //!
 //! # Connection pool sizing
@@ -43,7 +43,11 @@ use aws_sdk_cloudwatchlogs::error::SdkError;
 use aws_sdk_cloudwatchlogs::operation::create_log_group::CreateLogGroupError;
 use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
-use crawler::local_db::{SERVER_DB_NAME, bootstrap_local_database, server_db_url};
+use crawler::local_db::{
+    SERVER_DB_NAME, bootstrap_local_database,
+    crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl,
+    server_db_url,
+};
 use crawler::logging::{
     CloudWatchBootstrapClient, CloudWatchBootstrapError, CloudWatchLoggingConfig,
     HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, cloudwatch_logging_config,
@@ -61,9 +65,7 @@ use crawler::scraper::normalization::product_normalization_service::ProductListi
 use crawler::scraper::scraper_service::{
     DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
 };
-use crawler::service::crawler_domain_configuration::{
-    CrawlerDomainAdministrationHandler, CrawlerDomainConfigurationRepositoryImpl,
-};
+use crawler::service::crawler_domain_configuration::CrawlerDomainAdministrationHandler;
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,

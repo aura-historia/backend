@@ -1,3 +1,4 @@
+use crawler::CrawlerDomainId;
 use crawler::spider::classification::url_metadata::{UrlClass, UrlPresence};
 use crawler::spider::classification::url_metadata_repository::{
     UrlMetadataRepository, UrlMetadataRepositoryError, UrlMetadataRepositoryImpl,
@@ -23,8 +24,8 @@ async fn insert_domain(
     pool: &sqlx::PgPool,
     listing_source_id: ListingSourceId,
     domain: &str,
-) -> uuid::Uuid {
-    sqlx::query_scalar(
+) -> CrawlerDomainId {
+    sqlx::query_scalar::<_, uuid::Uuid>(
         "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain) \
          VALUES ($1, $2) RETURNING domain_id",
     )
@@ -33,6 +34,7 @@ async fn insert_domain(
     .fetch_one(pool)
     .await
     .unwrap()
+    .into()
 }
 
 #[serial_test::serial]
@@ -279,7 +281,7 @@ async fn should_delete_urls_when_their_domain_is_deleted() {
         "DELETE FROM listing_source_domains WHERE listing_source_id = $1 AND domain_id = $2",
     )
     .bind(uuid::Uuid::from(listing_source_id))
-    .bind(domain_id)
+    .bind(uuid::Uuid::from(domain_id))
     .execute(&pool)
     .await
     .unwrap();
@@ -351,7 +353,7 @@ async fn should_reject_cross_source_url_claim_when_requested_domain_does_not_own
     .await
     .unwrap();
     assert_eq!(row.0, uuid::Uuid::from(source_a));
-    assert_eq!(row.1, domain_a);
+    assert_eq!(row.1, uuid::Uuid::from(domain_a));
     assert_eq!(row.2, "product");
 }
 
@@ -384,7 +386,7 @@ async fn should_reject_same_source_url_reassignment_between_equivalent_domains()
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(row.0, first_domain);
+    assert_eq!(row.0, uuid::Uuid::from(first_domain));
     assert_eq!(row.1, "other");
 }
 
@@ -454,7 +456,7 @@ async fn should_accept_bare_and_www_domain_equivalence_but_reject_other_subdomai
         .upsert_link(
             &source,
             &domain,
-            &Url::parse("https://shop.example.com/products/2").unwrap(),
+            &Url::parse("https://catalog.example.com/products/2").unwrap(),
             &UrlClass::ProductListing,
         )
         .await;

@@ -1,3 +1,4 @@
+use crate::CrawlerDomainId;
 use crate::network::policy::url_matches_configured_domain;
 use crate::spider::classification::url_metadata::{UrlClass, UrlPresence};
 use async_trait::async_trait;
@@ -8,7 +9,7 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone)]
 pub struct SpiderUrlRecord {
     pub listing_source_id: ListingSourceId,
-    pub domain_id: uuid::Uuid,
+    pub domain_id: CrawlerDomainId,
     pub url: url::Url,
     pub url_class: UrlClass,
     pub state: UrlPresence,
@@ -34,7 +35,7 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
             .map_err(|error: String| sqlx::Error::Decode(error.into()))?;
         Ok(Self {
             listing_source_id: listing_source_id.into(),
-            domain_id,
+            domain_id: domain_id.into(),
             url,
             url_class,
             state,
@@ -51,7 +52,7 @@ pub enum UrlMetadataRepositoryError {
     #[error("crawler domain does not belong to ListingSource")]
     DomainNotOwnedByListingSource {
         listing_source_id: ListingSourceId,
-        domain_id: uuid::Uuid,
+        domain_id: CrawlerDomainId,
     },
     #[error("URL host does not match the configured crawler domain")]
     UrlHostDoesNotMatchDomain { url: url::Url, domain: String },
@@ -64,8 +65,8 @@ pub enum UrlMetadataRepositoryError {
     #[error("URL is already owned by another crawler domain")]
     UrlOwnedByAnotherDomain {
         url: url::Url,
-        current_domain_id: uuid::Uuid,
-        requested_domain_id: uuid::Uuid,
+        current_domain_id: CrawlerDomainId,
+        requested_domain_id: CrawlerDomainId,
     },
     #[error("crawler URL persistence failed")]
     Database {
@@ -80,7 +81,7 @@ pub trait UrlMetadataRepository: Send + Sync {
     async fn upsert_link(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
         url: &url::Url,
         url_class: &UrlClass,
     ) -> Result<SpiderUrlRecord, UrlMetadataRepositoryError>;
@@ -88,7 +89,7 @@ pub trait UrlMetadataRepository: Send + Sync {
     async fn upsert_links_batch(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
         urls: &[url::Url],
         url_classes: &[UrlClass],
     ) -> Result<Vec<SpiderUrlRecord>, UrlMetadataRepositoryError>;
@@ -120,7 +121,7 @@ impl UrlMetadataRepositoryImpl {
     async fn verify_domain_owner(
         transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         listing_source_id: ListingSourceId,
-        domain_id: uuid::Uuid,
+        domain_id: CrawlerDomainId,
     ) -> Result<String, UrlMetadataRepositoryError> {
         let domain = sqlx::query_scalar::<_, String>(
             "SELECT listing_source_domain FROM listing_source_domains \
@@ -128,7 +129,7 @@ impl UrlMetadataRepositoryImpl {
              FOR KEY SHARE",
         )
         .bind(uuid::Uuid::from(listing_source_id))
-        .bind(domain_id)
+        .bind(uuid::Uuid::from(domain_id))
         .fetch_optional(&mut **transaction)
         .await
         .map_err(database_error)?;
@@ -141,7 +142,7 @@ impl UrlMetadataRepositoryImpl {
     async fn validate_existing_url_ownership(
         transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         listing_source_id: ListingSourceId,
-        domain_id: uuid::Uuid,
+        domain_id: CrawlerDomainId,
         urls: &[String],
     ) -> Result<(), UrlMetadataRepositoryError> {
         let rows = sqlx::query(
@@ -171,7 +172,10 @@ impl UrlMetadataRepositoryImpl {
                     current_listing_source_id,
                 });
             }
-            let current_domain_id = row.try_get("domain_id").map_err(database_error)?;
+            let current_domain_id = row
+                .try_get::<uuid::Uuid, _>("domain_id")
+                .map_err(database_error)?
+                .into();
             if current_domain_id != domain_id {
                 return Err(UrlMetadataRepositoryError::UrlOwnedByAnotherDomain {
                     url,
@@ -200,7 +204,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
     async fn upsert_link(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
         url: &url::Url,
         url_class: &UrlClass,
     ) -> Result<SpiderUrlRecord, UrlMetadataRepositoryError> {
@@ -227,7 +231,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
              RETURNING listing_source_id, domain_id, url, url_class, last_scraped_presence, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id)
+        .bind(uuid::Uuid::from(*domain_id))
         .bind(url.as_str())
         .bind(url_class.to_string())
         .fetch_optional(&mut *transaction)
@@ -253,7 +257,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
     async fn upsert_links_batch(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
         urls: &[url::Url],
         url_classes: &[UrlClass],
     ) -> Result<Vec<SpiderUrlRecord>, UrlMetadataRepositoryError> {
@@ -290,7 +294,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
              RETURNING listing_source_id, domain_id, url, url_class, last_scraped_presence, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id)
+        .bind(uuid::Uuid::from(*domain_id))
         .bind(&url_strings)
         .bind(url_classes.iter().map(ToString::to_string).collect::<Vec<_>>())
         .fetch_all(&mut *transaction)

@@ -1,3 +1,4 @@
+use crate::CrawlerDomainId;
 use crate::review::model::*;
 use crate::review::schema_evaluation::evaluate_schema_matrix_for_live_review_pages;
 use crate::scraper::css_selector::product_schema::{
@@ -100,7 +101,7 @@ impl CrawlerReviewRepository {
     pub async fn has_pending_url_pattern_review(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
     ) -> Result<bool, sqlx::Error> {
         sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS (SELECT 1 FROM crawler_reviews \
@@ -108,7 +109,7 @@ impl CrawlerReviewRepository {
                AND artifact_type = 'URL_PATTERN' AND status = 'PENDING_REVIEW')",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id)
+        .bind(uuid::Uuid::from(*domain_id))
         .fetch_one(&self.pool)
         .await
     }
@@ -116,7 +117,7 @@ impl CrawlerReviewRepository {
     pub async fn latest_pending_url_pattern_review_id(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
     ) -> Result<Option<uuid::Uuid>, sqlx::Error> {
         sqlx::query_scalar::<_, uuid::Uuid>(
             "SELECT review_id FROM crawler_reviews \
@@ -125,7 +126,7 @@ impl CrawlerReviewRepository {
              ORDER BY created DESC LIMIT 1",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id)
+        .bind(uuid::Uuid::from(*domain_id))
         .fetch_optional(&self.pool)
         .await
     }
@@ -296,7 +297,7 @@ impl CrawlerReviewRepository {
     pub async fn create_url_pattern_review(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
         reason: &str,
         candidate_pattern: Option<&Regex>,
         urls: &[String],
@@ -318,7 +319,7 @@ impl CrawlerReviewRepository {
              WHERE listing_source_id = $1 AND domain_id = $2 FOR KEY SHARE)",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id)
+        .bind(uuid::Uuid::from(*domain_id))
         .fetch_one(&mut *transaction)
         .await?;
         if !domain_owned {
@@ -331,7 +332,7 @@ impl CrawlerReviewRepository {
              DO NOTHING RETURNING review_id",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id)
+        .bind(uuid::Uuid::from(*domain_id))
         .bind(reason)
         .bind(candidate_payload)
         .bind(validation_summary)
@@ -347,7 +348,7 @@ impl CrawlerReviewRepository {
                      ORDER BY created DESC LIMIT 1",
                 )
                 .bind(uuid::Uuid::from(*listing_source_id))
-                .bind(domain_id)
+                .bind(uuid::Uuid::from(*domain_id))
                 .fetch_one(&mut *transaction)
                 .await?,
                 false,
@@ -601,7 +602,9 @@ impl CrawlerReviewRepository {
         .ok_or(ReviewRepositoryError::NotPending(review_id))?;
         let listing_source_id =
             ListingSourceId::from(review.try_get::<uuid::Uuid, _>("listing_source_id")?);
-        let domain_id: Option<uuid::Uuid> = review.try_get("domain_id")?;
+        let domain_id: Option<CrawlerDomainId> = review
+            .try_get::<Option<uuid::Uuid>, _>("domain_id")?
+            .map(Into::into);
         let artifact_type: String = review.try_get("artifact_type")?;
         let reason: String = review.try_get("reason")?;
         let candidate_payload: serde_json::Value = review.try_get("candidate_payload")?;
@@ -622,7 +625,7 @@ impl CrawlerReviewRepository {
                      WHERE listing_source_id = $1 AND domain_id = $2",
                 )
                 .bind(uuid::Uuid::from(listing_source_id))
-                .bind(domain_id)
+                .bind(uuid::Uuid::from(domain_id))
                 .bind(pattern)
                 .execute(&mut *transaction)
                 .await?;
@@ -683,7 +686,7 @@ impl CrawlerReviewRepository {
         .bind(uuid::Uuid::from(listing_source_id))
         .bind(&artifact_type)
         .bind(review_id)
-        .bind(domain_id)
+        .bind(domain_id.map(uuid::Uuid::from))
         .execute(&mut *transaction)
         .await?;
         match artifact_type.as_str() {
@@ -707,7 +710,7 @@ impl CrawlerReviewRepository {
                        AND last_crawl_error_kind = 'PendingUrlPatternReview'",
                 )
                 .bind(uuid::Uuid::from(listing_source_id))
-                .bind(domain_id)
+                .bind(domain_id.map(uuid::Uuid::from))
                 .execute(&mut *transaction)
                 .await?;
             }
@@ -849,7 +852,9 @@ fn row_to_review(row: sqlx::postgres::PgRow) -> Result<CrawlerReview, sqlx::Erro
             row.try_get::<uuid::Uuid, _>("listing_source_id")?,
         ),
         listing_source_name: row.try_get("listing_source_name")?,
-        domain_id: row.try_get("domain_id")?,
+        domain_id: row
+            .try_get::<Option<uuid::Uuid>, _>("domain_id")?
+            .map(Into::into),
         artifact_type: row.try_get("artifact_type")?,
         status: row.try_get("status")?,
         reason: row.try_get("reason")?,

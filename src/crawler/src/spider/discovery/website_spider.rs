@@ -134,7 +134,7 @@ impl Default for CrawlerConfig {
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait Spider: Send + Sync {
-    async fn crawl(&self, shop_url: &str) -> Result<SpiderCrawl, SpiderDiscoveryError>;
+    async fn crawl(&self, crawl_root_url: &str) -> Result<SpiderCrawl, SpiderDiscoveryError>;
 }
 
 pub struct SpiderImpl {
@@ -185,12 +185,12 @@ async fn spider_public_http_client(
 
 #[async_trait::async_trait]
 impl Spider for SpiderImpl {
-    async fn crawl(&self, shop_url: &str) -> Result<SpiderCrawl, SpiderDiscoveryError> {
+    async fn crawl(&self, crawl_root_url: &str) -> Result<SpiderCrawl, SpiderDiscoveryError> {
         let (tx, rx) = mpsc::channel(self.config.channel_size);
         let (status_tx, status_rx) = oneshot::channel();
         let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
 
-        let root_url = Url::parse(shop_url).map_err(|_| {
+        let root_url = Url::parse(crawl_root_url).map_err(|_| {
             SpiderDiscoveryError::Discovery("configured crawler URL is invalid".to_string())
         })?;
         let client = spider_public_http_client(
@@ -199,7 +199,7 @@ impl Spider for SpiderImpl {
         )
         .await?;
         let host_whitelist = configured_host_whitelist(&root_url)?;
-        let mut website = Website::new(shop_url);
+        let mut website = Website::new(crawl_root_url);
         website.set_http_client(client);
 
         let blacklist_regex = CrawledUrl::blacklist_patterns();
@@ -242,19 +242,19 @@ impl Spider for SpiderImpl {
         });
 
         let config = self.config.clone();
-        let shop_url = shop_url.to_string();
+        let crawl_root_url = crawl_root_url.to_string();
         tokio::spawn(async move {
             let mut bloom = Bloom::new_for_fp_rate(config.bloom_capacity, config.bloom_fp_rate)
                 .expect("bloom filter init failed");
             let mut diagnostics = CrawlDiagnostics::default();
             let mut first_page_seen = false;
-            let configured_root = Url::parse(&shop_url).ok();
+            let configured_root = Url::parse(&crawl_root_url).ok();
             let mut root_redirect_rejected = false;
 
             while let Ok(page) = spider_rx.recv().await {
                 if !first_page_seen {
                     diagnostics = diagnostics_from_library_page(
-                        &shop_url,
+                        &crawl_root_url,
                         page.get_url(),
                         page.status_code.as_u16(),
                         page.final_redirect_destination.as_deref(),
@@ -312,7 +312,7 @@ impl Spider for SpiderImpl {
 }
 
 fn diagnostics_from_library_page(
-    shop_url: &str,
+    crawl_root_url: &str,
     page_url: &str,
     status_code: u16,
     final_redirect_destination: Option<&str>,
@@ -327,7 +327,9 @@ fn diagnostics_from_library_page(
         ..CrawlDiagnostics::default()
     };
 
-    if let Some(signal) = page_diagnostic_signal(shop_url, &final_url, status_code, anti_bot_tech) {
+    if let Some(signal) =
+        page_diagnostic_signal(crawl_root_url, &final_url, status_code, anti_bot_tech)
+    {
         diagnostics.apply_signal(signal);
     }
 
@@ -335,14 +337,14 @@ fn diagnostics_from_library_page(
 }
 
 fn page_diagnostic_signal(
-    shop_url: &str,
+    crawl_root_url: &str,
     final_url: &str,
     status_code: u16,
     anti_bot_tech: AntiBotTech,
 ) -> Option<DiagnosticSignal> {
     anti_bot_signal(anti_bot_tech)
         .or_else(|| status_code_signal(status_code))
-        .or_else(|| redirect_signal(shop_url, final_url))
+        .or_else(|| redirect_signal(crawl_root_url, final_url))
 }
 
 fn anti_bot_signal(anti_bot_tech: AntiBotTech) -> Option<DiagnosticSignal> {
@@ -377,8 +379,8 @@ fn status_code_signal(status_code: u16) -> Option<DiagnosticSignal> {
     }
 }
 
-fn redirect_signal(shop_url: &str, final_url: &str) -> Option<DiagnosticSignal> {
-    let original = Url::parse(shop_url).ok()?;
+fn redirect_signal(crawl_root_url: &str, final_url: &str) -> Option<DiagnosticSignal> {
+    let original = Url::parse(crawl_root_url).ok()?;
     let resolved = Url::parse(final_url).ok()?;
 
     (!is_same_or_www_host(&original, &resolved)).then_some(DiagnosticSignal::new(
@@ -515,7 +517,7 @@ mod tests {
     #[test]
     fn should_reject_redirect_to_other_subdomain() {
         let original = Url::parse("https://example.com").unwrap();
-        let resolved = Url::parse("https://shop.example.com/").unwrap();
+        let resolved = Url::parse("https://catalog.example.com/").unwrap();
 
         assert!(!is_same_or_www_host(&original, &resolved));
     }

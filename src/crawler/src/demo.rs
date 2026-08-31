@@ -1,5 +1,5 @@
 //! Demo binary — runs the full crawler pipeline (spider + scraper) against a set of hardcoded
-//! antique listing_sources without needing a running shop-service.
+//! antique ListingSources without needing a running ListingSource service.
 //!
 //! On startup the demo automatically runs `docker compose up -d` (using the
 //! `docker-compose.yml` inside the `crawler` crate) and waits for Postgres to
@@ -42,7 +42,10 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
-use crawler::local_db::{DEMO_DB_NAME, bootstrap_local_database, demo_db_url};
+use crawler::local_db::{
+    DEMO_DB_NAME, bootstrap_local_database,
+    crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl, demo_db_url,
+};
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::review::repository::CrawlerReviewRepository;
 use crawler::review::server::{ReviewServer, ReviewServerConfig};
@@ -58,7 +61,6 @@ use crawler::scraper::scraper_service::{
 };
 use crawler::service::crawler_domain_configuration::{
     CrawlerDomainAdministrationHandler, CrawlerDomainConfigurationRepository,
-    CrawlerDomainConfigurationRepositoryImpl,
 };
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::listing_source_registration::{
@@ -79,7 +81,7 @@ use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
 use tracing::{Instrument, error, info};
 
 // ---------------------------------------------------------------------------
-// Demo shop source — returns hardcoded listing_sources (no OpenSearch needed)
+// Demo ListingSource source — returns hardcoded ListingSources (no OpenSearch needed)
 // ---------------------------------------------------------------------------
 
 struct DemoListingSourceSource {
@@ -364,7 +366,7 @@ async fn main() {
         );
 
         info!(
-            shop_count = demo_listing_sources().len(),
+            listing_source_count = demo_listing_sources().len(),
             llm_provider = "vertex_ai",
             schema_model = %vertex_ai_models.product_schema,
             listing_availability_mapping_model = %vertex_ai_models.listing_availability_mapping,

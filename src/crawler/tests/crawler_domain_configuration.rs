@@ -1,6 +1,7 @@
+use crawler::CrawlerDomainId;
+use crawler::local_db::crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl;
 use crawler::service::crawler_domain_configuration::{
     CrawlerDomainConfigurationError, CrawlerDomainConfigurationRepository,
-    CrawlerDomainConfigurationRepositoryImpl,
 };
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
@@ -24,7 +25,7 @@ fn source(id: ListingSourceId, enabled: bool) -> RegisteredListingSource {
 async fn insert_pending_review(
     pool: &sqlx::PgPool,
     listing_source_id: ListingSourceId,
-    domain_id: Option<uuid::Uuid>,
+    domain_id: Option<CrawlerDomainId>,
     artifact_type: &str,
 ) -> Result<uuid::Uuid, sqlx::Error> {
     sqlx::query_scalar::<_, uuid::Uuid>(
@@ -34,7 +35,7 @@ async fn insert_pending_review(
          RETURNING review_id",
     )
     .bind(uuid::Uuid::from(listing_source_id))
-    .bind(domain_id)
+    .bind(domain_id.map(uuid::Uuid::from))
     .bind(artifact_type)
     .fetch_one(pool)
     .await
@@ -113,6 +114,35 @@ async fn should_reject_domain_claimed_by_another_listing_source() {
         result,
         Err(CrawlerDomainConfigurationError::DomainOwnedByAnotherListingSource { .. })
     ));
+}
+
+#[serial_test::serial]
+#[aura_integration_test(services = [POSTGRES])]
+async fn should_register_a_concurrent_same_source_domain_once() {
+    let pool = get_postgres_client().await;
+    let registration = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
+    let domains = CrawlerDomainConfigurationRepositoryImpl::new(pool);
+    let listing_source_id = ListingSourceId::new();
+    registration
+        .apply_snapshot(&[source(listing_source_id, true)])
+        .await
+        .unwrap();
+
+    let (first, second) = tokio::join!(
+        domains.register(
+            listing_source_id,
+            Domain::try_from("concurrent-domain.example.com").unwrap(),
+        ),
+        domains.register(
+            listing_source_id,
+            Domain::try_from("concurrent-domain.example.com").unwrap(),
+        ),
+    );
+    let first = first.unwrap();
+    let second = second.unwrap();
+
+    assert_eq!(first.domain_id, second.domain_id);
+    assert_ne!(first.created, second.created);
 }
 
 #[serial_test::serial]

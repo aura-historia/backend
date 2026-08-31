@@ -33,7 +33,7 @@ fn make_listing_source_removed_page_schemas(
     }
 }
 
-async fn insert_shop(pool: &PgPool, listing_source_id: ListingSourceId) {
+async fn insert_listing_source(pool: &PgPool, listing_source_id: ListingSourceId) {
     sqlx::query(
             "INSERT INTO listing_sources \
              (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
@@ -46,11 +46,11 @@ async fn insert_shop(pool: &PgPool, listing_source_id: ListingSourceId) {
 }
 
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_insert_and_find_removed_schema_for_shop() {
+async fn should_insert_and_find_removed_schema_for_listing_source() {
     let pool = get_postgres_client().await;
     let repository = RemovedPageSchemaRepositoryImpl::new(&pool);
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
 
     let row = make_listing_source_removed_page_schemas(listing_source_id);
     repository
@@ -72,36 +72,42 @@ async fn should_insert_and_find_removed_schema_for_shop() {
 }
 
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_update_removed_schema_for_only_target_shop() {
+async fn should_update_removed_schema_for_only_target_listing_source() {
     let pool = get_postgres_client().await;
     let repository = RemovedPageSchemaRepositoryImpl::new(&pool);
-    let shop_a = ListingSourceId::new();
-    let shop_b = ListingSourceId::new();
-    insert_shop(&pool, shop_a).await;
-    insert_shop(&pool, shop_b).await;
+    let first_listing_source_id = ListingSourceId::new();
+    let second_listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, first_listing_source_id).await;
+    insert_listing_source(&pool, second_listing_source_id).await;
 
     repository
-        .insert_removed_page_schema(&shop_a, &make_listing_source_removed_page_schemas(shop_a))
+        .insert_removed_page_schema(
+            &first_listing_source_id,
+            &make_listing_source_removed_page_schemas(first_listing_source_id),
+        )
         .await
         .unwrap();
     repository
-        .insert_removed_page_schema(&shop_b, &make_listing_source_removed_page_schemas(shop_b))
+        .insert_removed_page_schema(
+            &second_listing_source_id,
+            &make_listing_source_removed_page_schemas(second_listing_source_id),
+        )
         .await
         .unwrap();
 
     let updated = vec![removed_schema(".missing", "No longer here")];
     repository
-        .update_removed_page_schema(&shop_a, &updated)
+        .update_removed_page_schema(&first_listing_source_id, &updated)
         .await
         .unwrap();
 
     let found_a = repository
-        .find_removed_page_schema(&shop_a)
+        .find_removed_page_schema(&first_listing_source_id)
         .await
         .unwrap()
         .unwrap();
     let found_b = repository
-        .find_removed_page_schema(&shop_b)
+        .find_removed_page_schema(&second_listing_source_id)
         .await
         .unwrap()
         .unwrap();
@@ -114,11 +120,11 @@ async fn should_update_removed_schema_for_only_target_shop() {
 }
 
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_delete_removed_schema_when_parent_shop_is_deleted() {
+async fn should_delete_removed_schema_when_parent_listing_source_is_deleted() {
     let pool = get_postgres_client().await;
     let repository = RemovedPageSchemaRepositoryImpl::new(&pool);
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
 
     repository
         .insert_removed_page_schema(

@@ -53,7 +53,7 @@ pub trait ProductListingNormalizationService {
     /// Returns `llm_calls_used` with either success or failure.  The value is
     /// `1` when
     /// the availability-mapping LLM fallback was invoked for an unseen raw value,
-    /// and `0` otherwise. Callers use this count against the per-shop LLM budget.
+    /// and `0` otherwise. Callers use this count against the per-ListingSource LLM budget.
     async fn normalize(
         &self,
         raw: RawExtractedProduct,

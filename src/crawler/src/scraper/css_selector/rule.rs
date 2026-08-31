@@ -1217,7 +1217,7 @@ mod tests {
         let doc = Html::parse_document(
             r#"
             <html><body>
-                <a href="https://shop.com/category/table">
+                <a href="https://catalog.example.com/category/table">
                     <img class="product" src="https://cdn.example.com/images/product/abc123">
                 </a>
             </body></html>
@@ -1302,7 +1302,7 @@ mod tests {
         let doc = Html::parse_document(
             r#"
             <html><body>
-                <a href="https://shop.com/uploads/photo.webp">
+                <a href="https://catalog.example.com/uploads/photo.webp">
                     <img class="product">
                 </a>
             </body></html>
@@ -1313,7 +1313,7 @@ mod tests {
         let result = r.apply(&doc).unwrap();
         assert_eq!(
             image_candidates(&result[0]),
-            vec!["https://shop.com/uploads/photo.webp"]
+            vec!["https://catalog.example.com/uploads/photo.webp"]
         );
     }
 

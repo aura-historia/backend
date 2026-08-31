@@ -15,7 +15,7 @@ impl ScraperServiceImpl {
             .await
     }
 
-    /// Charge `n` LLM calls against the per-shop budget.  When `n` is zero
+    /// Charge `n` LLM calls against the per-ListingSource budget. When `n` is zero
     /// this is a no-op.  When the budget would be exceeded the function returns
     /// [`ScraperError::LlmBudgetExceeded`] without modifying the counter.
     #[allow(clippy::result_large_err)]

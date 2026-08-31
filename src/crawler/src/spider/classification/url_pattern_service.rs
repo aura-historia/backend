@@ -1,3 +1,4 @@
+use crate::CrawlerDomainId;
 use listing_source_core::ListingSourceId;
 use std::sync::Arc;
 
@@ -25,7 +26,7 @@ pub enum UrlPatternServiceError {
     Classification(#[from] UrlClassificationError),
 
     #[error(
-        "URL pattern generation is blocked pending review '{review_id}' for shop '{listing_source_id}'"
+        "URL pattern generation is blocked pending review '{review_id}' for ListingSource '{listing_source_id}'"
     )]
     PendingReview {
         listing_source_id: ListingSourceId,
@@ -43,13 +44,13 @@ pub trait UrlPatternService: Send + Sync {
     async fn load_pattern_for_domain(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
     ) -> Result<Option<Regex>, UrlPatternServiceError>;
 
     async fn save_pattern_for_domain(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
         pattern: &Regex,
     ) -> Result<(), UrlPatternServiceError>;
 
@@ -57,7 +58,7 @@ pub trait UrlPatternService: Send + Sync {
     async fn reset_pattern_classification(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
     ) -> Result<(), UrlPatternServiceError>;
 
     /// Asks the inference client to classify a product URL pattern from `urls`, persists the
@@ -68,7 +69,7 @@ pub trait UrlPatternService: Send + Sync {
     async fn classify_and_save(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
         urls: &[String],
     ) -> Result<Option<Regex>, UrlPatternServiceError>;
@@ -77,7 +78,7 @@ pub trait UrlPatternService: Send + Sync {
     async fn mark_as_crawled(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
     ) -> Result<(), UrlPatternServiceError>;
 }
 
@@ -122,7 +123,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
     async fn load_pattern_for_domain(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
     ) -> Result<Option<Regex>, UrlPatternServiceError> {
         let record = self
             .repository
@@ -144,7 +145,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
     async fn save_pattern_for_domain(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
         pattern: &Regex,
     ) -> Result<(), UrlPatternServiceError> {
         self.repository
@@ -156,7 +157,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
     async fn reset_pattern_classification(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
     ) -> Result<(), UrlPatternServiceError> {
         self.repository
             .save_pattern(listing_source_id, domain_id, None)
@@ -171,7 +172,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
     async fn classify_and_save(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
         urls: &[String],
     ) -> Result<Option<Regex>, UrlPatternServiceError> {
@@ -242,7 +243,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
     async fn mark_as_crawled(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
     ) -> Result<(), UrlPatternServiceError> {
         self.repository
             .mark_as_crawled(listing_source_id, domain_id)
@@ -263,7 +264,7 @@ mod tests {
     #[tokio::test]
     async fn should_not_reclassify_completed_no_pattern_domain_until_reset() {
         let listing_source_id = ListingSourceId::new();
-        let domain_id = uuid::Uuid::new_v4();
+        let domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
         let mut repository = MockListingSourceUrlPatternRepository::new();
         repository
             .expect_find_pattern()

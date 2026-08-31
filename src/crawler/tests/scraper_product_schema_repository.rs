@@ -135,7 +135,7 @@ fn make_listing_source_product_schemas(
     }
 }
 
-async fn insert_shop(pool: &PgPool, listing_source_id: ListingSourceId) {
+async fn insert_listing_source(pool: &PgPool, listing_source_id: ListingSourceId) {
     sqlx::query(
             "INSERT INTO listing_sources \
              (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
@@ -170,7 +170,7 @@ async fn should_return_schema_when_exists_for_find() {
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
     let schema = make_listing_source_product_schemas(listing_source_id, minimal_css_schema());
     repository
         .insert_product_schema(&listing_source_id, &schema)
@@ -193,7 +193,7 @@ async fn should_return_none_for_unknown_listing_source_id_when_other_schemas_exi
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
     let known_listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, known_listing_source_id).await;
+    insert_listing_source(&pool, known_listing_source_id).await;
     let schema = make_listing_source_product_schemas(known_listing_source_id, minimal_css_schema());
     repository
         .insert_product_schema(&known_listing_source_id, &schema)
@@ -219,7 +219,7 @@ async fn should_persist_and_return_schema_when_inserting_minimal_schema_for_inse
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
     let schema = make_listing_source_product_schemas(listing_source_id, minimal_css_schema());
     let returned = repository
         .insert_product_schema(&listing_source_id, &schema)
@@ -236,7 +236,7 @@ async fn should_persist_and_return_schema_when_inserting_full_schema_for_insert(
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
     let schema = make_listing_source_product_schemas(listing_source_id, full_css_schema());
     let returned = repository
         .insert_product_schema(&listing_source_id, &schema)
@@ -253,7 +253,7 @@ async fn should_preserve_created_and_updated_timestamps_for_insert() {
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
     let schema = make_listing_source_product_schemas(listing_source_id, minimal_css_schema());
     let created_before = schema.created;
     let updated_before = schema.updated;
@@ -281,8 +281,8 @@ async fn should_allow_inserting_schemas_for_different_listing_source_ids_for_ins
 
     let listing_source_id_a = ListingSourceId::new();
     let listing_source_id_b = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id_a).await;
-    insert_shop(&pool, listing_source_id_b).await;
+    insert_listing_source(&pool, listing_source_id_a).await;
+    insert_listing_source(&pool, listing_source_id_b).await;
 
     repository
         .insert_product_schema(
@@ -320,7 +320,7 @@ async fn should_fail_when_inserting_duplicate_listing_source_id_for_insert() {
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
     let schema = make_listing_source_product_schemas(listing_source_id, minimal_css_schema());
 
     repository
@@ -357,7 +357,7 @@ async fn should_replace_schema_and_refresh_updated_timestamp_for_update() {
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
     let original = make_listing_source_product_schemas(listing_source_id, minimal_css_schema());
     repository
         .insert_product_schema(&listing_source_id, &original)
@@ -394,7 +394,7 @@ async fn should_persist_updated_schema_so_find_returns_new_value_for_update() {
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
     repository
         .insert_product_schema(
             &listing_source_id,
@@ -440,8 +440,8 @@ async fn should_only_update_targeted_listing_source_id_and_leave_others_intact_f
 
     let listing_source_id_a = ListingSourceId::new();
     let listing_source_id_b = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id_a).await;
-    insert_shop(&pool, listing_source_id_b).await;
+    insert_listing_source(&pool, listing_source_id_a).await;
+    insert_listing_source(&pool, listing_source_id_b).await;
 
     repository
         .insert_product_schema(
@@ -488,7 +488,7 @@ async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
 
     // 1. insert
     let inserted = repository
@@ -535,12 +535,12 @@ async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
 }
 
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_delete_product_schema_when_parent_shop_is_deleted() {
+async fn should_delete_product_schema_when_parent_listing_source_is_deleted() {
     let pool = get_postgres_client().await;
     let repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
 
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
 
     repository
         .insert_product_schema(

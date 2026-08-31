@@ -1,3 +1,4 @@
+use crawler::CrawlerDomainId;
 use crawler::spider::classification::url_pattern_repository::{
     ListingSourceUrlPatternRepository, ListingSourceUrlPatternRepositoryImpl, UrlPatternState,
 };
@@ -21,8 +22,8 @@ async fn insert_domain(
     pool: &sqlx::PgPool,
     listing_source_id: ListingSourceId,
     domain: &str,
-) -> uuid::Uuid {
-    sqlx::query_scalar(
+) -> CrawlerDomainId {
+    sqlx::query_scalar::<_, uuid::Uuid>(
         "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain) \
          VALUES ($1, $2) RETURNING domain_id",
     )
@@ -31,6 +32,7 @@ async fn insert_domain(
     .fetch_one(pool)
     .await
     .unwrap()
+    .into()
 }
 
 #[serial_test::serial]
@@ -42,7 +44,10 @@ async fn should_return_none_when_domain_is_missing_for_listing_source() {
     insert_source(&pool, listing_source_id).await;
 
     let found = repository
-        .find_pattern(&listing_source_id, &uuid::Uuid::new_v4())
+        .find_pattern(
+            &listing_source_id,
+            &CrawlerDomainId::from(uuid::Uuid::new_v4()),
+        )
         .await
         .unwrap();
 
@@ -221,7 +226,7 @@ async fn should_reject_pattern_write_for_domain_owned_by_another_listing_source(
     assert!(matches!(result, Err(sqlx::Error::RowNotFound)));
     let stored: Option<String> =
         sqlx::query_scalar("SELECT url_pattern FROM listing_source_domains WHERE domain_id = $1")
-            .bind(domain_id)
+            .bind(uuid::Uuid::from(domain_id))
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -243,7 +248,7 @@ async fn should_reject_crawl_mark_for_domain_owned_by_another_listing_source() {
     assert!(matches!(result, Err(sqlx::Error::RowNotFound)));
     let crawled: Option<time::OffsetDateTime> =
         sqlx::query_scalar("SELECT last_crawled FROM listing_source_domains WHERE domain_id = $1")
-            .bind(domain_id)
+            .bind(uuid::Uuid::from(domain_id))
             .fetch_one(&pool)
             .await
             .unwrap();

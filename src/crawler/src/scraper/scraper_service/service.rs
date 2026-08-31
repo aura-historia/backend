@@ -358,7 +358,7 @@ pub struct ScraperServiceImpl {
     /// Number of HTML pages to seed first-time schema generation with.
     /// `1` means current page only; values >1 trigger best-effort sampling/fetch.
     pub(crate) schema_seed_pages: usize,
-    /// Hard limit for total LLM calls per shop across the whole scrape.
+    /// Hard limit for total LLM calls per ListingSource across the whole scrape.
     pub(crate) max_llm_calls_per_listing_source: i64,
     pub(crate) review_repository: Option<CrawlerReviewRepository>,
     pub(crate) review_required: bool,

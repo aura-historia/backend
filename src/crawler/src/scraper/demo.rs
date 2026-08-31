@@ -86,7 +86,7 @@ use url::Url;
 const DEMO_POOL_MAX_CONNECTIONS: u32 = 5;
 
 // ---------------------------------------------------------------------------
-// Scrape targets — fill in your own shop IDs and URLs below
+// Scrape targets — fill in your own ListingSource IDs and URLs below
 // ---------------------------------------------------------------------------
 
 struct ScrapeTarget {

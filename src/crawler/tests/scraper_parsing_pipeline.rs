@@ -1,19 +1,19 @@
 //! Scraper parsing pipeline integration tests.
 //!
-//! All test cases are driven by fixture JSON and shop schema-cache files:
+//! All test cases are driven by fixture JSON and ListingSource schema-cache files:
 //!   `tests/fixtures/fixtures.json`
 //!
 //! Each element in the JSON array is one test case and contains:
 //!   - `html`         — path to the HTML fixture (relative to crate root)
-//!   - `schema` or `schemas_file` — one schema or a shop schema cache
+//!   - `schema` or `schemas_file` — one schema or a ListingSource schema cache
 //!   - `raw_state`    — the raw state string extracted from the HTML
 //!   - `availability_record` — the expected normalized availability (`AVAILABLE`, `SOLD_OUT`, …)
 //!   - `raw`          — expected raw extraction output
 //!   - `normalized`   — expected normalized product output
 //!
-//! To add a new shop or a new variant (e.g. sold vs available):
-//!   1. Drop the HTML file in `tests/fixtures/html/<shop>[_variant].html`.
-//!   2. Add all cached schemas to `tests/fixtures/schemas/<shop>.json`.
+//! To add a new ListingSource or a new variant (e.g. sold vs available):
+//!   1. Drop the HTML file in `tests/fixtures/html/<listing_source>[_variant].html`.
+//!   2. Add all ListingSource cached schemas to `tests/fixtures/schemas/<listing_source>.json`.
 //!   3. Append an entry to `tests/fixtures/fixtures.json` with `schemas_file`
 //!      and the expected `schema_index`.
 //!      No Rust code changes needed.

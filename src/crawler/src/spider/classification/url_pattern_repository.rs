@@ -1,5 +1,6 @@
 //! Repository for crawler-domain URL patterns and crawl scheduling state.
 
+use crate::CrawlerDomainId;
 use async_trait::async_trait;
 use listing_source_core::{Domain, ListingSourceId};
 use sqlx::{FromRow, PgPool, Row};
@@ -39,7 +40,7 @@ impl UrlPatternState {
 #[derive(Debug, Clone)]
 pub struct ListingSourceUrlPatternRecord {
     pub listing_source_id: ListingSourceId,
-    pub domain_id: uuid::Uuid,
+    pub domain_id: CrawlerDomainId,
     pub listing_source_domain: Domain,
     pub url_pattern: Option<String>,
     pub url_pattern_state: UrlPatternState,
@@ -54,7 +55,7 @@ impl FromRow<'_, sqlx::postgres::PgRow> for ListingSourceUrlPatternRecord {
                 .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
         Ok(Self {
             listing_source_id: listing_source_id.into(),
-            domain_id: row.try_get("domain_id")?,
+            domain_id: row.try_get::<uuid::Uuid, _>("domain_id")?.into(),
             listing_source_domain,
             url_pattern: row.try_get("url_pattern")?,
             url_pattern_state: UrlPatternState::from_persisted(
@@ -72,26 +73,26 @@ pub trait ListingSourceUrlPatternRepository: Send + Sync {
     async fn find_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
     ) -> Result<Option<ListingSourceUrlPatternRecord>, sqlx::Error>;
 
     async fn save_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
         pattern: Option<&str>,
     ) -> Result<(), sqlx::Error>;
 
     async fn save_no_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
     ) -> Result<(), sqlx::Error>;
 
     async fn mark_as_crawled(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
     ) -> Result<(), sqlx::Error>;
 
     async fn increment_listing_source_llm_calls(
@@ -116,7 +117,7 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
     async fn find_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
     ) -> Result<Option<ListingSourceUrlPatternRecord>, sqlx::Error> {
         sqlx::query_as::<_, ListingSourceUrlPatternRecord>(
             "SELECT listing_source_id, domain_id, listing_source_domain, \
@@ -125,7 +126,7 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
              WHERE listing_source_id = $1 AND domain_id = $2",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id)
+        .bind(uuid::Uuid::from(*domain_id))
         .fetch_optional(&self.pool)
         .await
     }
@@ -133,7 +134,7 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
     async fn save_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
         pattern: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         let result = sqlx::query(
@@ -143,7 +144,7 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
              WHERE listing_source_id = $1 AND domain_id = $2",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id)
+        .bind(uuid::Uuid::from(*domain_id))
         .bind(pattern)
         .execute(&self.pool)
         .await?;
@@ -156,7 +157,7 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
     async fn save_no_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
     ) -> Result<(), sqlx::Error> {
         let result = sqlx::query(
             "UPDATE listing_source_domains \
@@ -164,7 +165,7 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
              WHERE listing_source_id = $1 AND domain_id = $2",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id)
+        .bind(uuid::Uuid::from(*domain_id))
         .execute(&self.pool)
         .await?;
         if result.rows_affected() == 0 {
@@ -176,7 +177,7 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
     async fn mark_as_crawled(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &uuid::Uuid,
+        domain_id: &CrawlerDomainId,
     ) -> Result<(), sqlx::Error> {
         let result = sqlx::query(
             "UPDATE listing_source_domains \
@@ -184,7 +185,7 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
              WHERE listing_source_id = $1 AND domain_id = $2",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id)
+        .bind(uuid::Uuid::from(*domain_id))
         .execute(&self.pool)
         .await?;
         if result.rows_affected() == 0 {

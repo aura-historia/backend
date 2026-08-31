@@ -47,7 +47,7 @@ async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_
 }
 
 /// When `normalize` reports 1 LLM call used (new state string hit the LLM
-/// fallback), that call must be charged against the per-shop budget in
+/// fallback), that call must be charged against the per-ListingSource budget in
 /// addition to the schema-generation call.
 #[tokio::test]
 async fn should_charge_budget_for_listing_availability_mapping_llm_call_when_normalization_uses_llm()
@@ -120,7 +120,7 @@ async fn should_charge_budget_for_listing_availability_mapping_llm_call_when_nor
     );
 }
 
-/// When the state mapping LLM call would push the shop over budget, the
+/// When the state mapping LLM call would push the ListingSource over budget, the
 /// scrape must return `LlmBudgetExceeded` even though the product was
 /// successfully normalised.
 #[tokio::test]

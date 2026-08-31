@@ -39,9 +39,9 @@ struct FixtureJson {
 
 /// Load all fixture cases from `tests/fixtures/fixtures.json`.
 ///
-/// Adding a new shop or a new case for an existing shop requires only:
-///   1. Drop the HTML file in `tests/fixtures/html/<shop>[_variant].html`.
-///   2. Add the shop's cached schemas to `tests/fixtures/schemas/<shop>.json`.
+/// Adding a new ListingSource or a new case for an existing ListingSource requires only:
+///   1. Drop the HTML file in `tests/fixtures/html/<listing_source>[_variant].html`.
+///   2. Add the ListingSource cached schemas to `tests/fixtures/schemas/<listing_source>.json`.
 ///   3. Append an element to `tests/fixtures/fixtures.json` with
 ///      `schemas_file`, `schema_index`, `html`, `raw_state`, `availability_record`,
 ///      `raw`, and `normalized` fields.

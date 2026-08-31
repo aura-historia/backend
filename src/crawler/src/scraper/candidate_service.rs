@@ -21,7 +21,7 @@ use crate::spider::classification::url_metadata::{UrlClass, UrlPresence};
 // ScraperCandidate
 // ---------------------------------------------------------------------------
 
-/// A product URL that is eligible for scraping, together with the shop context and the
+/// A product URL that is eligible for scraping, together with the ListingSource context and the
 /// last-scraped field snapshots used to detect whether the product has actually changed.
 pub struct ScraperCandidate {
     pub listing_source_id: ListingSourceId,
@@ -51,7 +51,7 @@ pub struct ScraperCandidate {
     pub last_scraped_availability: Option<String>,
 }
 
-/// Per-shop LLM usage snapshot for operational logging.
+/// Per-ListingSource LLM usage snapshot for operational logging.
 pub struct ListingSourceLlmUsage {
     pub listing_source_id: ListingSourceId,
     pub listing_source_name: String,
@@ -182,12 +182,12 @@ pub trait ScraperCandidateService: Send + Sync {
         urls_per_domain: i64,
         excluded_domains: &[String],
     ) -> Result<Vec<ScraperCandidate>, sqlx::Error>;
-    /// Returns a random sample of product URLs for a shop (excluding the current
+    /// Returns a random sample of product URLs for a ListingSource (excluding the current
     /// URL) to seed first-time schema generation with additional page layouts.
     ///
     /// This query intentionally uses `ORDER BY RANDOM()` because the path is
     /// only used on schema cache misses, which are rare (typically one-time per
-    /// shop unless schema rows are reset).
+    /// ListingSource unless schema rows are reset).
     async fn get_random_product_urls_for_schema_seed(
         &self,
         listing_source_id: &ListingSourceId,
@@ -245,14 +245,14 @@ pub trait ScraperCandidateService: Send + Sync {
         error_message: &str,
     ) -> Result<(), sqlx::Error>;
 
-    /// Increment per-shop LLM call counter used by schema generation flows.
+    /// Increment per-ListingSource LLM call counter used by schema generation flows.
     async fn increment_listing_source_llm_calls(
         &self,
         listing_source_id: &ListingSourceId,
         delta: i64,
     ) -> Result<(), sqlx::Error>;
 
-    /// Try to increment per-shop LLM call counter if the configured max would
+    /// Try to increment per-ListingSource LLM call counter if the configured max would
     /// not be exceeded. Returns `true` when incremented, `false` when blocked
     /// by the limit.
     async fn try_increment_listing_source_llm_calls_with_limit(
@@ -262,14 +262,14 @@ pub trait ScraperCandidateService: Send + Sync {
         max_calls: i64,
     ) -> Result<bool, sqlx::Error>;
 
-    /// Returns whether the per-shop LLM-call budget is already exhausted.
+    /// Returns whether the per-ListingSource LLM-call budget is already exhausted.
     async fn is_listing_source_llm_budget_exhausted(
         &self,
         listing_source_id: &ListingSourceId,
         max_calls: i64,
     ) -> Result<bool, sqlx::Error>;
 
-    /// Returns per-shop LLM call counts for the provided shop IDs.
+    /// Returns per-ListingSource LLM call counts for the provided ListingSource IDs.
     async fn get_listing_source_llm_usage(
         &self,
         listing_source_ids: Vec<ListingSourceId>,
@@ -455,7 +455,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
               AND su.last_scraped_presence = 'PRESENT'
               AND su.url <> $2
             -- Intentional: schema seeding runs on a rare path (typically once per
-            -- shop), so ORDER BY RANDOM() keeps this simple. If rows per shop grow
+            -- ListingSource), so ORDER BY RANDOM() keeps this simple. If rows per ListingSource grow
             -- to millions, switch to TABLESAMPLE BERNOULLI or keyset-random.
             ORDER BY RANDOM()
             LIMIT $3

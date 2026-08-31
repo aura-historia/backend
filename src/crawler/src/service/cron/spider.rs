@@ -1,4 +1,5 @@
 use super::job::CrawlerCronJob;
+use crate::CrawlerDomainId;
 use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for};
 use crate::spider::advisory_lock::DomainLock;
 use crate::spider::candidate_service::SpiderCandidate;
@@ -87,7 +88,7 @@ fn error_kind_for_spider_error(error: &SpiderServiceError) -> &'static str {
 }
 
 struct SpiderSlotOutcome {
-    domain_id: uuid::Uuid,
+    domain_id: CrawlerDomainId,
     succeeded: bool,
     skipped: bool,
 }
@@ -100,7 +101,7 @@ fn spawn_spider_candidate(
     lock_manager: Arc<crate::spider::advisory_lock::LocalLockManager>,
     threshold: usize,
 ) {
-    let shop_url = if candidate.listing_source_domain.starts_with("http") {
+    let crawl_root_url = if candidate.listing_source_domain.starts_with("http") {
         candidate.listing_source_domain.clone()
     } else {
         format!("https://{}", candidate.listing_source_domain)
@@ -110,7 +111,7 @@ fn spawn_spider_candidate(
         "spider_candidate",
         listing_source_id = %candidate.listing_source_id,
         domain_id = %candidate.domain_id,
-        shop_url = %shop_url
+        crawl_root_url = %crawl_root_url
     );
 
     join_set.spawn(
@@ -132,7 +133,7 @@ fn spawn_spider_candidate(
                 .run(
                     &candidate.listing_source_id,
                     &candidate.domain_id,
-                    &shop_url,
+                    &crawl_root_url,
                     threshold,
                 )
                 .await
@@ -275,7 +276,7 @@ impl CrawlerCronJob {
         }
 
         let pass_start = tokio::time::Instant::now();
-        let mut excluded_domain_ids: HashSet<uuid::Uuid> = HashSet::new();
+        let mut excluded_domain_ids: HashSet<CrawlerDomainId> = HashSet::new();
         let mut join_set: JoinSet<SpiderSlotOutcome> = JoinSet::new();
         let mut total = 0usize;
         let mut succeeded = 0usize;
@@ -288,7 +289,7 @@ impl CrawlerCronJob {
             while join_set.len() < spider_concurrency && !fetch_failed {
                 let open_slots = spider_concurrency - join_set.len();
                 let limit = (open_slots as i64).max(1);
-                let excluded: Vec<uuid::Uuid> = excluded_domain_ids.iter().copied().collect();
+                let excluded: Vec<CrawlerDomainId> = excluded_domain_ids.iter().copied().collect();
                 let candidates = match self
                     .spider_candidates
                     .get_candidates(limit, &excluded)
@@ -390,7 +391,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::Notify;
 
-    fn spider_candidate(domain_id: uuid::Uuid) -> SpiderCandidate {
+    fn spider_candidate(domain_id: CrawlerDomainId) -> SpiderCandidate {
         SpiderCandidate {
             listing_source_id: ListingSourceId::new(),
             domain_id,
@@ -408,7 +409,7 @@ mod tests {
 
     #[test]
     fn next_failure_count_increments_for_same_error_kind() {
-        let mut candidate = spider_candidate(uuid::Uuid::new_v4());
+        let mut candidate = spider_candidate(CrawlerDomainId::from(uuid::Uuid::new_v4()));
         candidate.crawl_failure_count = 2;
         candidate.last_crawl_error_kind = Some("InsufficientInferenceSample".to_string());
 
@@ -420,7 +421,7 @@ mod tests {
 
     #[test]
     fn next_failure_count_resets_for_changed_error_kind() {
-        let mut candidate = spider_candidate(uuid::Uuid::new_v4());
+        let mut candidate = spider_candidate(CrawlerDomainId::from(uuid::Uuid::new_v4()));
         candidate.crawl_failure_count = 2;
         candidate.last_crawl_error_kind = Some("TinyCrawl".to_string());
 
@@ -512,7 +513,7 @@ mod tests {
     #[tokio::test]
     async fn should_run_spider_candidates() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = uuid::Uuid::new_v4();
+        let expected_domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
@@ -560,9 +561,9 @@ mod tests {
 
     #[tokio::test]
     async fn should_refill_spider_slot_while_slow_crawl_is_running() {
-        let slow_domain_id = uuid::Uuid::new_v4();
-        let fast_domain_id = uuid::Uuid::new_v4();
-        let refill_domain_id = uuid::Uuid::new_v4();
+        let slow_domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
+        let fast_domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
+        let refill_domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
 
         let mut spider_candidates = MockSpiderCandidateService::new();
         spider_candidates
@@ -657,7 +658,7 @@ mod tests {
     #[tokio::test]
     async fn should_mark_crawl_failure_when_spider_run_errors() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = uuid::Uuid::new_v4();
+        let expected_domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
@@ -709,7 +710,7 @@ mod tests {
     #[tokio::test]
     async fn should_mark_tiny_crawl_failure_with_specific_error_kind() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = uuid::Uuid::new_v4();
+        let expected_domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
@@ -726,11 +727,10 @@ mod tests {
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, shop_url, _| {
-            let shop_url = shop_url.to_string();
+        spider_service.expect_run().returning(|_, _, _, _| {
             Box::pin(async move {
                 Err(crate::spider::service::SpiderServiceError::TinyCrawl {
-                    shop_url,
+                    crawl_root_url: "https://example.com/".to_string(),
                     total_links: 1,
                 })
             })
@@ -760,7 +760,7 @@ mod tests {
     #[tokio::test]
     async fn should_mark_empty_crawl_failure_with_specific_error_kind() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = uuid::Uuid::new_v4();
+        let expected_domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
@@ -777,10 +777,11 @@ mod tests {
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, shop_url, _| {
-            let shop_url = shop_url.to_string();
+        spider_service.expect_run().returning(|_, _, _, _| {
             Box::pin(async move {
-                Err(crate::spider::service::SpiderServiceError::EmptyCrawl { shop_url })
+                Err(crate::spider::service::SpiderServiceError::EmptyCrawl {
+                    crawl_root_url: "https://example.com/".to_string(),
+                })
             })
         });
 
@@ -808,7 +809,7 @@ mod tests {
     #[tokio::test]
     async fn should_mark_insufficient_inference_sample_failure_with_specific_error_kind() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = uuid::Uuid::new_v4();
+        let expected_domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
@@ -825,12 +826,11 @@ mod tests {
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, shop_url, _| {
-            let shop_url = shop_url.to_string();
+        spider_service.expect_run().returning(|_, _, _, _| {
             Box::pin(async move {
                 Err(
                     crate::spider::service::SpiderServiceError::InsufficientInferenceSample {
-                        shop_url,
+                        crawl_root_url: "https://example.com/".to_string(),
                         stage: "end_of_crawl",
                         sample_size: 16,
                         min_sample_size: 20,
@@ -863,7 +863,7 @@ mod tests {
     #[tokio::test]
     async fn should_use_long_cooldown_after_repeated_empty_crawl_failures() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = uuid::Uuid::new_v4();
+        let expected_domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
@@ -885,10 +885,11 @@ mod tests {
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, shop_url, _| {
-            let shop_url = shop_url.to_string();
+        spider_service.expect_run().returning(|_, _, _, _| {
             Box::pin(async move {
-                Err(crate::spider::service::SpiderServiceError::EmptyCrawl { shop_url })
+                Err(crate::spider::service::SpiderServiceError::EmptyCrawl {
+                    crawl_root_url: "https://example.com/".to_string(),
+                })
             })
         });
 
@@ -916,7 +917,7 @@ mod tests {
     #[tokio::test]
     async fn should_use_long_cooldown_after_repeated_insufficient_inference_sample_failures() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = uuid::Uuid::new_v4();
+        let expected_domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
@@ -939,12 +940,11 @@ mod tests {
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, shop_url, _| {
-            let shop_url = shop_url.to_string();
+        spider_service.expect_run().returning(|_, _, _, _| {
             Box::pin(async move {
                 Err(
                     crate::spider::service::SpiderServiceError::InsufficientInferenceSample {
-                        shop_url,
+                        crawl_root_url: "https://example.com/".to_string(),
                         stage: "end_of_crawl",
                         sample_size: 16,
                         min_sample_size: 20,
@@ -979,7 +979,7 @@ mod tests {
         expected_error_kind: &'static str,
     ) {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = uuid::Uuid::new_v4();
+        let expected_domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
@@ -996,24 +996,21 @@ mod tests {
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service
-            .expect_run()
-            .returning(move |_, _, shop_url, _| {
-                let shop_url = shop_url.to_string();
-                Box::pin(async move {
-                    Err(
-                        crate::spider::service::SpiderServiceError::DiagnosticCrawlFailure {
-                            shop_url,
-                            kind,
-                            total_links: 1,
-                            http_status: None,
-                            final_url: None,
-                            redirect_url: None,
-                            diagnostic_reason: Some("test_diagnostic".to_string()),
-                        },
-                    )
-                })
-            });
+        spider_service.expect_run().returning(move |_, _, _, _| {
+            Box::pin(async move {
+                Err(
+                    crate::spider::service::SpiderServiceError::DiagnosticCrawlFailure {
+                        crawl_root_url: "https://example.com/".to_string(),
+                        kind,
+                        total_links: 1,
+                        http_status: None,
+                        final_url: None,
+                        redirect_url: None,
+                        diagnostic_reason: Some("test_diagnostic".to_string()),
+                    },
+                )
+            })
+        });
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
@@ -1058,7 +1055,7 @@ mod tests {
     #[tokio::test]
     async fn should_use_long_cooldown_after_repeated_diagnostic_failures() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = uuid::Uuid::new_v4();
+        let expected_domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
@@ -1080,12 +1077,11 @@ mod tests {
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, shop_url, _| {
-            let shop_url = shop_url.to_string();
+        spider_service.expect_run().returning(|_, _, _, _| {
             Box::pin(async move {
                 Err(
                     crate::spider::service::SpiderServiceError::DiagnosticCrawlFailure {
-                        shop_url,
+                        crawl_root_url: "https://example.com/".to_string(),
                         kind: CrawlFailureKind::RateLimited,
                         total_links: 1,
                         http_status: Some(429),
@@ -1121,7 +1117,7 @@ mod tests {
     #[tokio::test]
     async fn should_skip_spider_candidate_when_domain_lock_is_already_held() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let locked_domain_id = uuid::Uuid::new_v4();
+        let locked_domain_id = CrawlerDomainId::from(uuid::Uuid::new_v4());
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {

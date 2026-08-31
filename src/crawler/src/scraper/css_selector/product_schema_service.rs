@@ -384,7 +384,7 @@ where
             return Ok(existing);
         }
 
-        info!("No product schema found for shop, creating via LLM");
+        info!("No product schema found for ListingSource, creating via LLM");
         let generated = self.create_product_schemas(html_pages).await?;
         self.save_product_schemas(listing_source_id, generated.schemas)
             .await

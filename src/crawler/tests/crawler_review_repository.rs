@@ -1,3 +1,4 @@
+use crawler::CrawlerDomainId;
 use crawler::review::model::{
     PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, STATUS_APPROVED,
     STATUS_PENDING_REVIEW, SchemaReviewPageInput,
@@ -58,7 +59,7 @@ fn schema(title_selector: &str) -> ProductCssSelectorSchema {
     }
 }
 
-async fn insert_shop(pool: &PgPool, listing_source_id: ListingSourceId) {
+async fn insert_listing_source(pool: &PgPool, listing_source_id: ListingSourceId) {
     sqlx::query(
             "INSERT INTO listing_sources \
              (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
@@ -70,8 +71,12 @@ async fn insert_shop(pool: &PgPool, listing_source_id: ListingSourceId) {
         .unwrap();
 }
 
-async fn insert_domain(pool: &PgPool, listing_source_id: ListingSourceId, domain: &str) -> Uuid {
-    sqlx::query_scalar(
+async fn insert_domain(
+    pool: &PgPool,
+    listing_source_id: ListingSourceId,
+    domain: &str,
+) -> CrawlerDomainId {
+    sqlx::query_scalar::<_, Uuid>(
         "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain) \
          VALUES ($1, $2) RETURNING domain_id",
     )
@@ -80,6 +85,7 @@ async fn insert_domain(pool: &PgPool, listing_source_id: ListingSourceId, domain
     .fetch_one(pool)
     .await
     .unwrap()
+    .into()
 }
 
 fn review_pages() -> Vec<SchemaReviewPageInput> {
@@ -95,7 +101,7 @@ async fn fresh_generation_review_page_role_is_persisted() {
     let pool = get_postgres_client().await;
     let review_repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
 
     let review_id = review_repository
         .create_schema_review_with_status(SchemaReviewWithStatusInput {
@@ -163,7 +169,7 @@ async fn should_roll_back_schema_review_when_evidence_insert_fails() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
     sqlx::query(
         "CREATE FUNCTION fail_crawler_review_page_insert() RETURNS trigger LANGUAGE plpgsql AS $$ \
          BEGIN RAISE EXCEPTION 'injected review-page failure'; END; $$",
@@ -213,7 +219,7 @@ async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() 
     let review_repository = CrawlerReviewRepository::new(pool.clone());
     let schema_repository = ListingSourceProductSchemaRepositoryImpl::new(&pool);
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
 
     let initial_schema = schema("h1.old");
     let now = OffsetDateTime::now_utc();
@@ -285,7 +291,7 @@ async fn concurrent_schema_reviews_return_same_pending_review_without_duplicate_
     let pool = get_postgres_client().await;
     let review_repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
 
     let schema = schema("h1");
     let first_repo = review_repository.clone();
@@ -334,7 +340,7 @@ async fn concurrent_url_pattern_reviews_return_same_pending_review_without_dupli
     let pool = get_postgres_client().await;
     let review_repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
     let domain_id = insert_domain(&pool, listing_source_id, "review-pattern.example.com").await;
 
     let pattern = Regex::new("/product/").unwrap();
@@ -391,7 +397,7 @@ async fn invalid_edited_url_pattern_is_rejected_without_changing_live_pattern() 
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
     let domain_id = insert_domain(&pool, listing_source_id, "typed-pattern.example.com").await;
     let pattern = Regex::new("/products/").unwrap();
     let review_id = repository
@@ -424,7 +430,7 @@ async fn invalid_edited_url_pattern_is_rejected_without_changing_live_pattern() 
     ));
     let live_pattern: Option<String> =
         sqlx::query_scalar("SELECT url_pattern FROM listing_source_domains WHERE domain_id = $1")
-            .bind(domain_id)
+            .bind(Uuid::from(domain_id))
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -436,13 +442,13 @@ async fn should_roll_back_pattern_approval_when_status_update_fails() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
     let domain_id = insert_domain(&pool, listing_source_id, "atomic-pattern.example.com").await;
     sqlx::query(
         "UPDATE listing_source_domains SET url_pattern = '/old/', url_pattern_state = 'MATCHED' \
          WHERE domain_id = $1",
     )
-    .bind(domain_id)
+    .bind(Uuid::from(domain_id))
     .execute(&pool)
     .await
     .unwrap();
@@ -484,7 +490,7 @@ async fn should_roll_back_pattern_approval_when_status_update_fails() {
     let pattern: (Option<String>, String) = sqlx::query_as(
         "SELECT url_pattern, url_pattern_state FROM listing_source_domains WHERE domain_id = $1",
     )
-    .bind(domain_id)
+    .bind(Uuid::from(domain_id))
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -511,7 +517,7 @@ async fn should_allow_only_one_concurrent_review_approval() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
     let domain_id =
         insert_domain(&pool, listing_source_id, "concurrent-approval.example.com").await;
     let review_id = repository
@@ -552,12 +558,12 @@ async fn approved_no_pattern_clears_stale_live_pattern_and_sets_no_pattern_state
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    insert_shop(&pool, listing_source_id).await;
+    insert_listing_source(&pool, listing_source_id).await;
     let domain_id = insert_domain(&pool, listing_source_id, "no-pattern.example.com").await;
     sqlx::query(
         "UPDATE listing_source_domains SET url_pattern = '/stale/', url_pattern_state = 'MATCHED' WHERE domain_id = $1",
     )
-    .bind(domain_id)
+    .bind(Uuid::from(domain_id))
     .execute(&pool)
     .await
     .unwrap();
@@ -578,7 +584,7 @@ async fn approved_no_pattern_clears_stale_live_pattern_and_sets_no_pattern_state
     let row: (Option<String>, String) = sqlx::query_as(
         "SELECT url_pattern, url_pattern_state FROM listing_source_domains WHERE domain_id = $1",
     )
-    .bind(domain_id)
+    .bind(Uuid::from(domain_id))
     .fetch_one(&pool)
     .await
     .unwrap();

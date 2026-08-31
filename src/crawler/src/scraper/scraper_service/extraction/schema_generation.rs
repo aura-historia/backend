@@ -35,7 +35,7 @@ impl ScraperServiceImpl {
     /// Obtains product CSS selector schemas for `listing_source_id`, loading them from
     /// the DB or generating them via the LLM if they do not yet exist.
     ///
-    /// The dispatcher gates concurrent scraper work per shop inside one process,
+    /// The dispatcher gates concurrent scraper work per ListingSource inside one process,
     /// while database uniqueness prevents duplicate pending reviews across
     /// processes.
     #[tracing::instrument(skip(self, html), fields(listing_source_id = %listing_source_id, url = %url))]

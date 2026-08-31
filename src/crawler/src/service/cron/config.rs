@@ -27,14 +27,14 @@ pub struct CrawlerCronConfig {
     /// by one product-push batch.
     pub push_max_concurrency: usize,
     /// Maximum connections in the authoritative business Postgres pool used by
-    /// canonical Shop reads and ProductListing writes.
+    /// canonical ListingSource reads and ProductListing writes.
     pub business_db_max_connections: u32,
     pub spider_concurrency: usize,
     /// Per-site in-flight crawl limit for spider::Website.
     pub spider_site_concurrency_limit: usize,
     pub scraper_concurrency: usize,
     pub spider_classify_threshold: usize,
-    /// Number of pages used to seed first-time schema generation per shop.
+    /// Number of pages used to seed first-time schema generation per ListingSource.
     /// `1` means current page only; higher values fetch additional random
     /// product pages on schema cache miss.
     pub scraper_schema_seed_pages: usize,
@@ -46,7 +46,7 @@ pub struct CrawlerCronConfig {
     pub scraper_auto_throttle_max_delay: Duration,
     /// Smoothing factor for per-domain scraper fetch latency.
     pub scraper_auto_throttle_alpha: f64,
-    /// Hard per-shop budget for schema-generation LLM calls.
+    /// Hard per-ListingSource budget for schema-generation LLM calls.
     pub scraper_max_llm_calls_per_listing_source: i64,
     /// Maximum Postgres connections for crawler queries.
     pub db_max_connections: Option<u32>,

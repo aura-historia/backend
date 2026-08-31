@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Crawler be async, Postgres-backed, LLM-assisted ingest system for antique shop sites.
+- Crawler be async, Postgres-backed, LLM-assisted ingest system for antique ListingSource sites.
 - Root modules: `llm_runtime`, `local_db`, `logging`, `network`, `review`, `scraper`, `service`, `spider`, `vertex_ai`.
 - Main neighbors: `application`, `large-language-model`, `listing-source-core`/`listing-source-service`/`listing-source-postgres`, `localization`, `money`, `platform-postgres`, `product-listing-core`/`product-listing-service`/`product-listing-postgres`.
 - Main binaries: `server`, `demo`, `demo-spider`, `demo-scraper`, `fetch-fixture`.
@@ -34,8 +34,8 @@
 - Review and schema cache be safety rail: generated artifacts can be audited, approved, or superseded.
 - Schema generation and fresh single-page generation must use YAML-grounded selectors only. Prefer `null` over guessed optional-field selectors. State selector prompt must choose only availability/cart action nodes and exclude price text.
 - Schema prompt DSL strips script/style and layout noise, including header/footer/nav custom elements.
-- Product schemas may generate configured raw attribute selectors for review/demo/file inspection only. Missing raw attribute selector matches are skipped; extracted raw values are not DB or product-command data. New raw attribute keys need schema regeneration for existing cached shop schemas.
-- Initial multi-page generation accepts product schema responses only. Fresh single-page generation accepts product, removed, and not-product classifications. Removed needs verified selector-bound text or regex evidence, stores shop-scoped `listing_source_removed_page_schemas`, and marks URL `WITHDRAWN`. Not-product needs verified reason and only changes that URL class to `other`; never update shop URL pattern from one page.
+- Product schemas may generate configured raw attribute selectors for review/demo/file inspection only. Missing raw attribute selector matches are skipped; extracted raw values are not DB or product-command data. New raw attribute keys need schema regeneration for existing cached ListingSource schemas.
+- Initial multi-page generation accepts product schema responses only. Fresh single-page generation accepts product, removed, and not-product classifications. Removed needs verified selector-bound text or regex evidence, stores ListingSource-scoped `listing_source_removed_page_schemas`, and marks URL `WITHDRAWN`. Not-product needs verified reason and only changes that URL class to `other`; never update a domain URL pattern from one page.
 - Fresh schema generation creates a brand-new schema from the current page; it never localizes, selector-patches, or mutates a cached schema. Freshly generated schemas are only persisted after they apply and normalize successfully.
 - Cached schema scoring lives in `scraper::scraper_service::extraction::schema_candidates`. Each populated prepared logical field counts once; normalized-away values score zero. `default_currency` and URL-hash fallback IDs do not score. Stored order only breaks score ties.
 - Local dev support live here too: `docker-compose.yml`, `scripts/linux/`, `scripts/windows/`, `migrations/`, and test fixtures under `tests/`.
@@ -73,7 +73,7 @@
 - Crawler truth live in Postgres. OpenSearch be a read-side neighbor, not crawler truth.
 - Review rail be safety feature, not garnish. Keep audit fields and approval modes meaningful.
 - URL classification should stay mostly deterministic after regex inference. A review-approved `NO_PATTERN` state is a completed classification and suppresses fresh inference until an explicit reset returns the domain to `UNKNOWN`. Do not turn every page decision into fresh LLM call.
-- Schema repair should grow cache carefully. Bad generated schema should die fast, not poison shop cache.
+- Schema repair should grow cache carefully. Bad generated schema should die fast, not poison ListingSource cache.
 - Listing-availability mapping should prefer exact or regex reuse before LLM fallback.
 - Price normalization de-dupes repeated visible/accessibility price text only when candidates agree or one clean decimal form beats malformed visual cents.
 - Keep spider per-site concurrency bounded. `spider::Website` default concurrency can explode HTTP/2 stream churn; crawler pins a conservative per-site limit and scraper-owned reqwest clients stay HTTP/1-only.

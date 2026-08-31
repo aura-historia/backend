@@ -32,6 +32,7 @@
 //! cargo run --bin demo-spider -p crawler -- https://www.christies.com/en
 //! ```
 
+use crawler::CrawlerDomainId;
 use listing_source_core::ListingSourceId;
 use std::env;
 use std::fs::File;
@@ -39,11 +40,14 @@ use std::io::BufWriter;
 use std::sync::Arc;
 
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
-use crawler::local_db::{DEMO_SPIDER_DB_NAME, bootstrap_local_database, demo_spider_db_url};
+use crawler::local_db::{
+    DEMO_SPIDER_DB_NAME, bootstrap_local_database,
+    crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl,
+    demo_spider_db_url,
+};
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::service::crawler_domain_configuration::{
     CrawlerDomainConfigurationError, CrawlerDomainConfigurationRepository,
-    CrawlerDomainConfigurationRepositoryImpl,
 };
 use crawler::spider::SpiderRunResult;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
@@ -84,7 +88,7 @@ enum DemoError {
     DomainConfiguration(#[from] CrawlerDomainConfigurationError),
 }
 
-const DEFAULT_SHOP_URL: &str = "https://www.christies.com/en";
+const DEFAULT_CRAWL_ROOT_URL: &str = "https://www.christies.com/en";
 const DEFAULT_CLASSIFY_THRESHOLD: usize = 200;
 /// Spider demo pool size: 1 advisory-lock connection + 4 query connections.
 const DEMO_POOL_MAX_CONNECTIONS: u32 = 5;
@@ -94,7 +98,7 @@ async fn main() {
     dotenvy::dotenv().ok();
     init_logging();
 
-    let shop_url = read_shop_url();
+    let crawl_root_url = read_crawl_root_url();
 
     async {
         let vertex_ai_config = match CrawlerVertexAiConfig::from_env() {
@@ -151,9 +155,9 @@ async fn main() {
 
         let listing_source_id: ListingSourceId =
             uuid::Uuid::from_u128(0xa2000000000000000000000000000001).into();
-        let shop_url_parsed = url::Url::parse(&shop_url)
+        let crawl_root_url_parsed = url::Url::parse(&crawl_root_url)
             .unwrap_or_else(|_| url::Url::parse("https://demo.invalid").unwrap());
-        let demo_domain = shop_url_parsed
+        let demo_domain = crawl_root_url_parsed
             .host_str()
             .unwrap_or("demo.invalid")
             .to_string();
@@ -164,7 +168,7 @@ async fn main() {
             {
                 Ok(id) => id,
                 Err(error) => {
-                    error!(error = ?error, "Failed to insert demo shop rows into DB");
+                    error!(error = ?error, "Failed to insert demo ListingSource rows into DB");
                     return;
                 }
             };
@@ -173,7 +177,7 @@ async fn main() {
             .run(
                 &listing_source_id,
                 &demo_domain_id,
-                &shop_url,
+                &crawl_root_url,
                 DEFAULT_CLASSIFY_THRESHOLD,
             )
             .await
@@ -198,17 +202,17 @@ async fn main() {
     .instrument(tracing::info_span!(
         "crawler_spider_demo",
         entrypoint = "demo-spider",
-        shop_url = %shop_url,
+        crawl_root_url = %crawl_root_url,
         classify_threshold = DEFAULT_CLASSIFY_THRESHOLD
     ))
     .await;
 }
 
 #[tracing::instrument]
-fn read_shop_url() -> String {
+fn read_crawl_root_url() -> String {
     let raw_url = env::args()
         .nth(1)
-        .unwrap_or_else(|| DEFAULT_SHOP_URL.to_string());
+        .unwrap_or_else(|| DEFAULT_CRAWL_ROOT_URL.to_string());
 
     ensure_scheme(&raw_url)
 }
@@ -258,7 +262,7 @@ async fn insert_demo_listing_source_with_domain(
     pool: &PgPool,
     listing_source_id: &ListingSourceId,
     listing_source_domain: &str,
-) -> Result<uuid::Uuid, DemoError> {
+) -> Result<CrawlerDomainId, DemoError> {
     let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
 
     sqlx::query(

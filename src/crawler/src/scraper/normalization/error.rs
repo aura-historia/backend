@@ -22,7 +22,7 @@ pub enum NormalizationError {
     /// This variant is retained so that unit tests can exercise the strict
     /// variant.
     #[error("failed to normalize `source_listing_id`: value is empty after trimming")]
-    ShopsProductIdEmpty,
+    SourceListingIdEmpty,
 
     #[error("failed to normalize `source_listing_id`: {0}")]
     SourceListingIdInvalid(#[source] InvalidSourceListingId),
@@ -103,7 +103,7 @@ impl NormalizationError {
                     "state_database_error_after_llm"
                 }
             },
-            Self::ShopsProductIdEmpty => "source_listing_id_empty",
+            Self::SourceListingIdEmpty => "source_listing_id_empty",
             Self::SourceListingIdInvalid(_) => "source_listing_id_invalid",
             Self::TitleEmpty => "title_empty",
             Self::TitleUnknownLanguage { .. } => "title_unknown_language",
@@ -136,7 +136,7 @@ impl NormalizationError {
                     NormalizationFailureScope::CandidateData
                 }
             },
-            Self::ShopsProductIdEmpty
+            Self::SourceListingIdEmpty
             | Self::SourceListingIdInvalid(_)
             | Self::TitleEmpty
             | Self::TitleUnknownLanguage { .. }

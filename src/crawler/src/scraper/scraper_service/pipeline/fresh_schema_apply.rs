@@ -23,7 +23,7 @@ impl ScraperServiceImpl {
     /// Persistence happens in
     /// [`ScraperServiceImpl::generate_fresh_schema_for_page`] only after the
     /// generated schema also normalizes successfully. This keeps a generated
-    /// schema that applies but produces garbage out of the shop cache.
+    /// schema that applies but produces garbage out of the ListingSource cache.
     ///
     /// On success returns the generated schema, its raw extraction, and the
     /// LLM evaluation so the caller can persist them together.

@@ -1,3 +1,4 @@
+use crate::CrawlerDomainId;
 use crate::review::assets::{
     APP_JS, INDEX_HTML, STYLES_CSS, instrument_live_html, instrument_review_page,
 };
@@ -182,7 +183,7 @@ impl ReviewServer {
                         .into_iter()
                         .map(|domain| {
                             json!({
-                                "domain_id": domain.domain_id,
+                                "domain_id": uuid::Uuid::from(domain.domain_id),
                                 "listing_source_id": domain.listing_source_id,
                                 "domain": domain.domain.as_str(),
                             })
@@ -222,7 +223,7 @@ impl ReviewServer {
                 Ok(domain) => HttpResponse::json(
                     if domain.created { 201 } else { 200 },
                     &json!({
-                        "domain_id": domain.domain_id,
+                        "domain_id": uuid::Uuid::from(domain.domain_id),
                         "listing_source_id": domain.listing_source_id,
                         "domain": domain.domain.as_str(),
                         "created": domain.created,
@@ -251,7 +252,7 @@ impl ReviewServer {
                 Ok(removal) => HttpResponse::json(
                     200,
                     &json!({
-                        "domain_id": removal.domain_id,
+                        "domain_id": uuid::Uuid::from(removal.domain_id),
                         "removed_url_count": removal.removed_url_count,
                         "removed_url_pattern_review_count": removal.removed_url_pattern_review_count,
                     }),
@@ -728,12 +729,12 @@ fn parse_listing_source_id_with_suffix(path: &str, suffix: &str) -> Option<Listi
     uuid::Uuid::parse_str(id).ok().map(Into::into)
 }
 
-fn parse_listing_source_domain_id(path: &str) -> Option<(ListingSourceId, uuid::Uuid)> {
+fn parse_listing_source_domain_id(path: &str) -> Option<(ListingSourceId, CrawlerDomainId)> {
     let rest = path.strip_prefix("/api/listing-sources/")?;
     let (listing_source_id, domain_id) = rest.split_once("/domains/")?;
     Some((
         uuid::Uuid::parse_str(listing_source_id).ok()?.into(),
-        uuid::Uuid::parse_str(domain_id).ok()?,
+        uuid::Uuid::parse_str(domain_id).ok()?.into(),
     ))
 }
 
@@ -813,6 +814,123 @@ fn live_url_fetch_error(url: &str, error: &FetchError) -> HttpResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::crawler_domain_configuration::{
+        CrawlerDomainConfiguration, CrawlerDomainRemoval,
+    };
+
+    struct RejectingDomainAdministration;
+
+    #[async_trait::async_trait]
+    impl CrawlerDomainAdministration for RejectingDomainAdministration {
+        async fn list_crawler_domains(
+            &self,
+            listing_source_id: ListingSourceId,
+        ) -> Result<Vec<CrawlerDomainConfiguration>, CrawlerDomainConfigurationError> {
+            Err(CrawlerDomainConfigurationError::ListingSourceNotFound { listing_source_id })
+        }
+
+        async fn register_crawler_domain(
+            &self,
+            listing_source_id: ListingSourceId,
+            _domain: Domain,
+        ) -> Result<CrawlerDomainConfiguration, CrawlerDomainConfigurationError> {
+            Err(CrawlerDomainConfigurationError::ListingSourceNotFound { listing_source_id })
+        }
+
+        async fn remove_crawler_domain(
+            &self,
+            listing_source_id: ListingSourceId,
+            _domain_id: CrawlerDomainId,
+        ) -> Result<CrawlerDomainRemoval, CrawlerDomainConfigurationError> {
+            Err(CrawlerDomainConfigurationError::ListingSourceNotFound { listing_source_id })
+        }
+    }
+
+    async fn read_request_from_socket_chunks(chunks: &[&[u8]]) -> std::io::Result<Option<String>> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let reader = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await?;
+            read_bounded_request(&mut stream).await
+        });
+        let mut client = TcpStream::connect(address).await?;
+
+        for chunk in chunks {
+            client.write_all(chunk).await?;
+            tokio::task::yield_now().await;
+        }
+        client.shutdown().await?;
+
+        reader.await.map_err(std::io::Error::other)?
+    }
+
+    async fn review_server_for_test(auth_token: Option<&str>) -> Result<ReviewServer, sqlx::Error> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
+        Ok(ReviewServer::new(
+            CrawlerReviewRepository::new(pool),
+            Arc::new(RejectingDomainAdministration),
+            ReviewServerConfig {
+                bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                auth_token: auth_token.map(str::to_owned),
+            },
+        ))
+    }
+
+    #[tokio::test]
+    async fn should_accept_fragmented_content_length_body() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let request = read_request_from_socket_chunks(&[
+            b"POST /api/health HTTP/1.1\r\nContent-Length: 15\r\n\r\n{\"key\":",
+            b"\"value\"}",
+        ])
+        .await?;
+
+        assert_eq!(
+            request.as_deref(),
+            Some("POST /api/health HTTP/1.1\r\nContent-Length: 15\r\n\r\n{\"key\":\"value\"}")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_request_body_larger_than_limit() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let request = format!(
+            "POST /api/health HTTP/1.1\r\nContent-Length: {}\r\n\r\n",
+            MAX_REQUEST_BODY_BYTES + 1
+        );
+        let error = read_request_from_socket_chunks(&[request.as_bytes()])
+            .await
+            .expect_err("oversized request body should be rejected");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "request body exceeds limit");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_transfer_encoding_and_duplicate_content_length()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (request, expected_error) in [
+            (
+                "POST /api/health HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n",
+                "transfer encoding is unsupported",
+            ),
+            (
+                "POST /api/health HTTP/1.1\r\nContent-Length: 0\r\nContent-Length: 0\r\n\r\n",
+                "duplicate content length",
+            ),
+        ] {
+            let error = read_request_from_socket_chunks(&[request.as_bytes()])
+                .await
+                .expect_err("ambiguous request framing should be rejected");
+
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+            assert_eq!(error.to_string(), expected_error);
+        }
+        Ok(())
+    }
 
     #[test]
     fn should_cache_schema_matrix_in_validation_summary() {
@@ -842,6 +960,68 @@ mod tests {
             result,
             Err(ReviewServerConfigError::AuthenticationRequiredForNonLoopback)
         ));
+    }
+
+    #[test]
+    fn should_allow_non_loopback_review_bind_with_authentication_token() {
+        let result = ReviewServerConfig {
+            bind_addr: "0.0.0.0:7878".parse().unwrap(),
+            auth_token: Some("review-token".to_string()),
+        }
+        .validate();
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn should_allow_loopback_review_bind_without_authentication_token() {
+        let result = ReviewServerConfig {
+            bind_addr: "127.0.0.1:7878".parse().unwrap(),
+            auth_token: None,
+        }
+        .validate();
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn should_require_valid_token_for_configured_api_access_and_all_mutations()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let unauthenticated_server = review_server_for_test(None).await?;
+        let unauthenticated_read = unauthenticated_server
+            .route("GET /api/health HTTP/1.1\r\n\r\n")
+            .await
+            .to_string();
+        let unauthenticated_mutation = unauthenticated_server
+            .route("POST /api/health HTTP/1.1\r\n\r\n")
+            .await
+            .to_string();
+        assert!(unauthenticated_read.starts_with("HTTP/1.1 200"));
+        assert!(unauthenticated_mutation.starts_with("HTTP/1.1 401"));
+
+        let authenticated_server = review_server_for_test(Some("review-token")).await?;
+        let missing_token = authenticated_server
+            .route("GET /api/health HTTP/1.1\r\n\r\n")
+            .await
+            .to_string();
+        let invalid_token = authenticated_server
+            .route("GET /api/health HTTP/1.1\r\nAuthorization: Bearer wrong-token\r\n\r\n")
+            .await
+            .to_string();
+        let valid_token = authenticated_server
+            .route("GET /api/health HTTP/1.1\r\nAuthorization: Bearer review-token\r\n\r\n")
+            .await
+            .to_string();
+        let valid_mutation_token = authenticated_server
+            .route("POST /api/health HTTP/1.1\r\nAuthorization: Bearer review-token\r\n\r\n")
+            .await
+            .to_string();
+
+        assert!(missing_token.starts_with("HTTP/1.1 401"));
+        assert!(invalid_token.starts_with("HTTP/1.1 401"));
+        assert!(valid_token.starts_with("HTTP/1.1 200"));
+        assert!(valid_mutation_token.starts_with("HTTP/1.1 404"));
+        Ok(())
     }
 
     #[test]

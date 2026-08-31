@@ -288,7 +288,7 @@ pub fn inline_retry_backoff_for(policy: RetryPolicy, attempt: u32) -> Duration {
 /// Durable cooldown persisted after all inline fetch attempts fail.
 ///
 /// Do not use this inside a domain worker between fetch attempts; use
-/// [`inline_retry_backoff_for`] there so one slow shop cannot block the worker
+/// [`inline_retry_backoff_for`] there so one slow crawl root cannot block the worker
 /// for minutes.
 pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
     match kind {
@@ -492,7 +492,7 @@ mod tests {
     fn should_match_only_bare_and_www_host_variants() {
         let bare = Url::parse("https://example.com/products/1").unwrap();
         let www = Url::parse("https://www.example.com/products/1").unwrap();
-        let subdomain = Url::parse("https://shop.example.com/products/1").unwrap();
+        let subdomain = Url::parse("https://catalog.example.com/products/1").unwrap();
 
         assert!(is_same_or_www_host(&bare, &www));
         assert!(url_matches_configured_domain(&www, "example.com"));

@@ -13,7 +13,7 @@ pub(super) fn normalize_source_listing_id(
 ) -> Result<SourceListingId, NormalizationError> {
     SourceListingId::try_from(raw).map_err(|error| match error {
         product_listing_core::source_listing_id::InvalidSourceListingId::Blank => {
-            NormalizationError::ShopsProductIdEmpty
+            NormalizationError::SourceListingIdEmpty
         }
         error => NormalizationError::SourceListingIdInvalid(error),
     })
@@ -161,13 +161,13 @@ mod tests {
     #[test]
     fn should_return_error_when_source_listing_id_is_empty() {
         let err = normalize_source_listing_id("").unwrap_err();
-        assert!(matches!(err, NormalizationError::ShopsProductIdEmpty));
+        assert!(matches!(err, NormalizationError::SourceListingIdEmpty));
     }
 
     #[test]
     fn should_return_error_when_source_listing_id_is_only_whitespace() {
         let err = normalize_source_listing_id("   ").unwrap_err();
-        assert!(matches!(err, NormalizationError::ShopsProductIdEmpty));
+        assert!(matches!(err, NormalizationError::SourceListingIdEmpty));
     }
 
     // -----------------------------------------------------------------------

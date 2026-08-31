@@ -55,7 +55,7 @@ pub enum ScraperError {
     NormalizationError(#[from] NormalizationError),
 
     #[error(
-        "LLM call budget exceeded for shop '{listing_source_id}' while scraping '{url}' (limit={max_calls})"
+        "LLM call budget exceeded for ListingSource '{listing_source_id}' while scraping '{url}' (limit={max_calls})"
     )]
     LlmBudgetExceeded {
         listing_source_id: ListingSourceId,

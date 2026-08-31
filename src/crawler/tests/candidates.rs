@@ -1,3 +1,4 @@
+use crawler::CrawlerDomainId;
 use crawler::scraper::candidate_service::{
     ProductListingSnapshot, ScraperCandidateService, ScraperCandidateServiceImpl,
 };
@@ -33,7 +34,7 @@ async fn insert_listing_source_with_domain(
     pool: &sqlx::PgPool,
     listing_source_id_uuid: uuid::Uuid,
     domain: &str,
-) -> uuid::Uuid {
+) -> CrawlerDomainId {
     sqlx::query(
         "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
          VALUES ($1, $2, $3, TRUE, NOW(), NOW())",
@@ -48,12 +49,12 @@ async fn insert_listing_source_with_domain(
     insert_domain_for_listing_source(pool, listing_source_id_uuid, domain).await
 }
 
-/// Inserts an additional domain row for an already-existing shop.
+/// Inserts an additional domain row for an already-existing ListingSource.
 async fn insert_domain_for_listing_source(
     pool: &sqlx::PgPool,
     listing_source_id_uuid: uuid::Uuid,
     domain: &str,
-) -> uuid::Uuid {
+) -> CrawlerDomainId {
     let row: (uuid::Uuid,) = sqlx::query_as(
         "INSERT INTO listing_source_domains (listing_source_id, listing_source_domain) VALUES ($1, $2) RETURNING domain_id",
     )
@@ -63,7 +64,7 @@ async fn insert_domain_for_listing_source(
     .await
     .unwrap();
 
-    row.0
+    row.0.into()
 }
 
 // ============================================================================
@@ -139,7 +140,7 @@ async fn spider_should_not_return_candidate_when_recently_crawled() {
     .await;
 
     sqlx::query("UPDATE listing_source_domains SET last_crawled = NOW() WHERE domain_id = $1")
-        .bind(domain_id)
+        .bind(uuid::Uuid::from(domain_id))
         .execute(&pool)
         .await
         .unwrap();
@@ -173,7 +174,7 @@ async fn spider_should_return_candidate_when_crawled_more_than_7_days_ago() {
     sqlx::query(
         "UPDATE listing_source_domains SET last_crawled = NOW() - INTERVAL '8 days' WHERE domain_id = $1",
     )
-    .bind(domain_id)
+    .bind(uuid::Uuid::from(domain_id))
     .execute(&pool)
     .await
     .unwrap();
@@ -248,13 +249,13 @@ async fn spider_should_respect_limit_when_multiple_candidates_exist() {
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates — multiple domains on the same shop are each returned
+// get_candidates — multiple domains on the same ListingSource are each returned
 //                  with their own domain_id
 // ---------------------------------------------------------------------------
 
 #[serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn spider_should_return_each_domain_separately_for_shop_with_multiple_domains() {
+async fn spider_should_return_each_domain_separately_for_listing_source_with_multiple_domains() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
@@ -285,13 +286,13 @@ async fn spider_should_return_each_domain_separately_for_shop_with_multiple_doma
 
     let candidates = service.get_candidates(10, &[]).await.unwrap();
 
-    let ids: Vec<uuid::Uuid> = candidates.iter().map(|c| c.domain_id).collect();
+    let ids: Vec<CrawlerDomainId> = candidates.iter().map(|c| c.domain_id).collect();
     assert!(ids.contains(&domain_id_a), "domain_id_a should be present");
     assert!(ids.contains(&domain_id_b), "domain_id_b should be present");
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates — listing_source_id on the candidate matches the owning shop
+// get_candidates — listing_source_id on the candidate matches the owning ListingSource
 // ---------------------------------------------------------------------------
 
 #[serial]
@@ -304,7 +305,7 @@ async fn spider_should_return_correct_listing_source_id_on_candidate() {
     let domain_id = insert_listing_source_with_domain(
         &pool,
         listing_source_id_uuid,
-        "spider-shopid.example.com",
+        "spider-source-id.example.com",
     )
     .await;
 
@@ -315,10 +316,10 @@ async fn spider_should_return_correct_listing_source_id_on_candidate() {
         .find(|c| c.domain_id == domain_id)
         .expect("candidate for the inserted domain should be present");
 
-    let candidate_shop_uuid: uuid::Uuid = candidate.listing_source_id.into();
+    let candidate_listing_source_uuid: uuid::Uuid = candidate.listing_source_id.into();
     assert_eq!(
-        candidate_shop_uuid, listing_source_id_uuid,
-        "candidate.listing_source_id must match the owning shop"
+        candidate_listing_source_uuid, listing_source_id_uuid,
+        "candidate.listing_source_id must match the owning ListingSource"
     );
 }
 
@@ -346,7 +347,7 @@ async fn spider_should_return_crawl_failure_metadata_on_candidate() {
              last_crawl_error_kind = 'InsufficientInferenceSample'
          WHERE domain_id = $1",
     )
-    .bind(domain_id)
+    .bind(uuid::Uuid::from(domain_id))
     .execute(&pool)
     .await
     .unwrap();
@@ -393,7 +394,7 @@ async fn spider_mark_crawl_failure_should_store_count_kind_and_next_crawl_at() {
          FROM listing_source_domains
          WHERE domain_id = $1",
     )
-    .bind(domain_id)
+    .bind(uuid::Uuid::from(domain_id))
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -436,7 +437,7 @@ async fn spider_should_order_never_crawled_before_stale_crawled() {
     sqlx::query(
         "UPDATE listing_source_domains SET last_crawled = NOW() - INTERVAL '10 days' WHERE domain_id = $1",
     )
-    .bind(domain_id_stale)
+    .bind(uuid::Uuid::from(domain_id_stale))
     .execute(&pool)
     .await
     .unwrap();
@@ -462,11 +463,11 @@ async fn spider_should_order_never_crawled_before_stale_crawled() {
 // SCRAPER CANDIDATE SERVICE
 // ============================================================================
 
-/// Helper: inserts a product URL into listing_source_urls for the given shop/domain.
+/// Helper: inserts a product URL into listing_source_urls for the given ListingSource/domain.
 async fn insert_product_url(
     pool: &sqlx::PgPool,
     listing_source_id_uuid: uuid::Uuid,
-    domain_id: uuid::Uuid,
+    domain_id: CrawlerDomainId,
     url: &str,
 ) {
     let listing_source_id = listing_source_core::ListingSourceId::from(listing_source_id_uuid);
@@ -646,7 +647,7 @@ async fn scraper_should_not_return_candidate_when_url_class_is_not_product() {
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates — inactive shop is NOT returned
+// get_candidates — inactive ListingSource is NOT returned
 // ---------------------------------------------------------------------------
 
 #[serial]
@@ -1255,19 +1256,24 @@ async fn scraper_seed_urls_should_exclude_current_url() {
 }
 
 // ---------------------------------------------------------------------------
-// get_random_product_urls_for_schema_seed — same shop, product class, and presence
+// get_random_product_urls_for_schema_seed — same ListingSource, product class, and presence
 // ---------------------------------------------------------------------------
 
 #[serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn scraper_seed_urls_should_only_include_same_shop_present_product_urls() {
+async fn scraper_seed_urls_should_only_include_same_listing_source_present_product_urls() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
-    let seed_shop_uuid = uuid::Uuid::new_v4();
-    let seed_domain_id =
-        insert_listing_source_with_domain(&pool, seed_shop_uuid, "seed-filters.example.com").await;
-    let seed_listing_source_id = listing_source_core::ListingSourceId::from(seed_shop_uuid);
+    let seed_listing_source_uuid = uuid::Uuid::new_v4();
+    let seed_domain_id = insert_listing_source_with_domain(
+        &pool,
+        seed_listing_source_uuid,
+        "seed-filters.example.com",
+    )
+    .await;
+    let seed_listing_source_id =
+        listing_source_core::ListingSourceId::from(seed_listing_source_uuid);
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
 
     let current_url = url::Url::parse("https://seed-filters.example.com/p/current").unwrap();
@@ -1345,16 +1351,21 @@ async fn scraper_seed_urls_should_only_include_same_shop_present_product_urls() 
     .await
     .unwrap();
 
-    let other_shop_uuid = uuid::Uuid::new_v4();
-    let other_domain_id =
-        insert_listing_source_with_domain(&pool, other_shop_uuid, "seed-other-shop.example.com")
-            .await;
-    let other_listing_source_id = listing_source_core::ListingSourceId::from(other_shop_uuid);
-    let other_shop_url = url::Url::parse("https://seed-other-shop.example.com/p/other").unwrap();
+    let other_listing_source_uuid = uuid::Uuid::new_v4();
+    let other_domain_id = insert_listing_source_with_domain(
+        &pool,
+        other_listing_source_uuid,
+        "seed-other-source.example.com",
+    )
+    .await;
+    let other_listing_source_id =
+        listing_source_core::ListingSourceId::from(other_listing_source_uuid);
+    let other_listing_source_url =
+        url::Url::parse("https://seed-other-source.example.com/p/other").unwrap();
     repo.upsert_link(
         &other_listing_source_id,
         &other_domain_id,
-        &other_shop_url,
+        &other_listing_source_url,
         &UrlClass::ProductListing,
     )
     .await
@@ -1367,7 +1378,7 @@ async fn scraper_seed_urls_should_only_include_same_shop_present_product_urls() 
 
     assert!(
         sampled.iter().any(|u| u == &eligible_url),
-        "eligible product URL from same shop should be included"
+        "eligible product URL from same ListingSource should be included"
     );
     assert!(
         sampled.iter().all(|u| u != &current_url),
@@ -1386,7 +1397,7 @@ async fn scraper_seed_urls_should_only_include_same_shop_present_product_urls() 
         "non-product URLs must be excluded"
     );
     assert!(
-        sampled.iter().all(|u| u != &other_shop_url),
+        sampled.iter().all(|u| u != &other_listing_source_url),
         "URLs from other listing_sources must be excluded"
     );
 }

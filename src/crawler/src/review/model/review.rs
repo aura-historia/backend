@@ -1,3 +1,4 @@
+use crate::CrawlerDomainId;
 use listing_source_core::ListingSourceId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -7,7 +8,7 @@ pub struct CrawlerReview {
     pub review_id: uuid::Uuid,
     pub listing_source_id: ListingSourceId,
     pub listing_source_name: Option<String>,
-    pub domain_id: Option<uuid::Uuid>,
+    pub domain_id: Option<CrawlerDomainId>,
     pub artifact_type: String,
     pub status: String,
     pub reason: String,

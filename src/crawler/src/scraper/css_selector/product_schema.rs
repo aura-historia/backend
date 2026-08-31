@@ -43,13 +43,13 @@ mod faker {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[schemars(
-    description = "Schema of rules for extracting product information from a shop's website using CSS selectors.
-    Each field represents a specific piece of information about the product, and the value is an ExtractionRule that defines how to extract that information from the HTML of the shop's website.
+    description = "Schema of rules for extracting product information from a ListingSource website using CSS selectors.
+    Each field represents a specific piece of information about the product, and the value is an ExtractionRule that defines how to extract that information from the HTML of the ListingSource website.
     The rules are intended to extract raw data from the HTML, not normalized data."
 )]
 pub struct ProductCssSelectorSchema {
     #[schemars(
-        description = "ID of the product on the shop's website. Optional: leave null when the page has no stable product ID."
+        description = "ID of the product on the ListingSource website. Optional: leave null when the page has no stable product ID."
     )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub source_listing_id: Option<ExtractionRule>,
@@ -104,7 +104,7 @@ pub struct ProductCssSelectorSchema {
     pub auction_end: Option<ExtractionRule>,
 
     #[schemars(
-        description = "The default currency for this shop's prices, as an ISO 4217 code (e.g. \
+        description = "The default currency for this ListingSource's prices, as an ISO 4217 code (e.g. \
         \"EUR\", \"GBP\", \"USD\", \"AUD\", \"CAD\", \"NZD\"). \
         This is full-page fallback context, not a selector rule. \
         Set this when the price elements on the page do not include a currency symbol or code \

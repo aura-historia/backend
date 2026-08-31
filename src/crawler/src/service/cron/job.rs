@@ -105,7 +105,7 @@ impl CrawlerCronJob {
     async fn run_listing_source_sync_once(&self) {
         match self.listing_source_registration.sync().await {
             Ok(_) => {}
-            Err(e) => warn!(error = %e, "Shop sync failed"),
+            Err(e) => warn!(error = %e, "ListingSource sync failed"),
         }
     }
 }
