@@ -16,9 +16,9 @@ aura-historia-cron = ["fxrate-postgres", "large-language-model", "platform-obser
 cloudwatch-log-retention-lambda = ["platform-observability"]
 
 embedding = ["image-fetcher"]
-image-fetcher = []
+public-network-policy = []
+image-fetcher = ["public-network-policy"]
 large-language-model = ["application", "image-fetcher"]
-
 
 party-core = ["domain-primitives"]
 party-service = ["application", "domain-primitives", "party-core", "user-service"]
@@ -43,7 +43,7 @@ product-listing-core = ["domain-primitives", "fxrate-core", "listing-source-core
 
 user-service = ["application", "domain-primitives", "geo", "localization", "money", "user-core"]
 cognito-post-confirmation = ["application", "platform-observability", "platform-postgres", "user-core", "user-postgres", "user-service"]
-crawler = ["application", "domain-primitives", "fxrate-postgres", "google-cloud-auth", "large-language-model", "listing-source-core", "listing-source-postgres", "listing-source-service", "localization", "money", "platform-postgres", "product-listing-core", "product-listing-postgres", "product-listing-service"]
+crawler = ["application", "domain-primitives", "fxrate-postgres", "google-cloud-auth", "large-language-model", "listing-source-core", "listing-source-postgres", "listing-source-service", "localization", "money", "platform-postgres", "product-listing-core", "product-listing-postgres", "product-listing-service", "public-network-policy"]
 notification-core = ["domain-primitives", "listing-source-core", "localization", "money", "partnership-core", "party-core", "product-listing-core", "search-filter-core", "user-core"]
 
 oauth-service = ["application", "credential-core", "domain-primitives", "oauth-core", "serde", "user-core", "user-service"]
