@@ -44,33 +44,25 @@ impl ProductListingEmbeddingWriter for SqlxProductListingEmbeddingWriter<'_> {
         &mut self,
         write: &ProductListingEmbeddingWrite,
     ) -> Result<ProductListingEmbeddingWriteOutcome, ProductListingEmbeddingWriteError> {
-        let current_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT current_event_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE",
+        let embedding_source_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT embedding_source_event_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE",
         )
         .bind(uuid::Uuid::from(write.product_listing_id))
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(ProductListingEmbeddingWriteSqlxError)?;
-        let Some(current_event_id) = current_event_id else {
+        let Some(embedding_source_event_id) = embedding_source_event_id else {
             return Ok(ProductListingEmbeddingWriteOutcome::ProductListingNotFound);
         };
-        if EventId::from(current_event_id) != write.source_event_id {
-            return Ok(
-                if duplicate_embedding_exists(self.connection, write).await? {
-                    ProductListingEmbeddingWriteOutcome::Duplicate
-                } else {
-                    ProductListingEmbeddingWriteOutcome::Stale
-                },
-            );
+        if duplicate_embedding_exists(self.connection, write).await? {
+            return Ok(ProductListingEmbeddingWriteOutcome::Duplicate);
+        }
+        if EventId::from(embedding_source_event_id) != write.source_event_id {
+            return Ok(ProductListingEmbeddingWriteOutcome::Stale);
         }
 
         let payload = json!({
             "sourceEventId": write.source_event_id.to_string(),
-            "embedding": write.embedding,
-            "title": {
-                "language": write.title.localization.as_str(),
-                "text": write.title.payload.as_ref(),
-            },
         });
         sqlx::query(
             r#"
@@ -87,7 +79,7 @@ impl ProductListingEmbeddingWriter for SqlxProductListingEmbeddingWriter<'_> {
         .await
         .map_err(ProductListingEmbeddingWriteSqlxError)?;
         let update = sqlx::query(
-            "UPDATE product_listings SET embedding = $1, current_event_id = $2, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $3 AND current_event_id = $4",
+            "UPDATE product_listings SET embedding = $1, current_event_id = $2, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $3 AND embedding_source_event_id = $4",
         )
         .bind(&write.embedding)
         .bind(uuid::Uuid::from(write.enrichment_event_id))
@@ -97,7 +89,7 @@ impl ProductListingEmbeddingWriter for SqlxProductListingEmbeddingWriter<'_> {
         if update.rows_affected() != 1 {
             return Err(ProductListingEmbeddingWriteError::WriteFailed {
                 source: application::error::static_error(
-                    "locked product embedding source event changed unexpectedly",
+                    "locked product embedding source revision changed unexpectedly",
                 ),
             });
         }

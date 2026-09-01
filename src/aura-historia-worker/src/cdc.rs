@@ -720,13 +720,24 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
         DomainJobPayload::ProductListingEvent(base_job.clone()),
     ));
 
-    if event_type == "PRODUCT_LISTING_CHANGED" && changed_payload_requires_watchlist(row)? {
-        jobs.push(domain_job(
-            WorkerQueue::WatchlistNotification,
-            idempotency_key.clone(),
-            ordering_key.clone(),
-            DomainJobPayload::ProductListingEvent(base_job.clone()),
-        ));
+    if event_type == "PRODUCT_LISTING_CHANGED" {
+        if changed_payload_requires_watchlist(row)? {
+            jobs.push(domain_job(
+                WorkerQueue::WatchlistNotification,
+                idempotency_key.clone(),
+                ordering_key.clone(),
+                DomainJobPayload::ProductListingEvent(base_job.clone()),
+            ));
+        }
+
+        if changed_payload_requires_embedding(row)? {
+            jobs.push(domain_job(
+                WorkerQueue::ProductListingEmbed,
+                idempotency_key.clone(),
+                ordering_key.clone(),
+                DomainJobPayload::ProductListingEvent(base_job.clone()),
+            ));
+        }
     }
 
     if event_type == "PRODUCT_LISTING_DISCOVERED" {
@@ -742,9 +753,6 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
             ordering_key.clone(),
             DomainJobPayload::ProductListingEvent(base_job.clone()),
         ));
-    }
-
-    if event_type == "ENRICHMENT_EMBEDDED" {
         jobs.push(domain_job(
             WorkerQueue::ProductListingTranslate,
             idempotency_key,
@@ -776,17 +784,24 @@ fn validate_product_listing_event_contract(
 }
 
 fn changed_payload_requires_watchlist(row: &Value) -> Result<bool, CdcRouteError> {
-    let payload = row
-        .get("payload")
-        .ok_or(CdcRouteError::MissingColumn("payload"))?
-        .as_object()
-        .ok_or(CdcRouteError::InvalidProductListingEventPayload)?;
+    let payload = changed_payload(row)?;
     let price_changed = payload
         .get("pricing")
         .and_then(Value::as_object)
         .is_some_and(|pricing| pricing.contains_key("price"));
 
     Ok(price_changed || payload.contains_key("availability"))
+}
+
+fn changed_payload_requires_embedding(row: &Value) -> Result<bool, CdcRouteError> {
+    Ok(changed_payload(row)?.contains_key("images"))
+}
+
+fn changed_payload(row: &Value) -> Result<&Map<String, Value>, CdcRouteError> {
+    row.get("payload")
+        .ok_or(CdcRouteError::MissingColumn("payload"))?
+        .as_object()
+        .ok_or(CdcRouteError::InvalidProductListingEventPayload)
 }
 
 fn search_filter_changed_job(
@@ -1005,14 +1020,14 @@ mod tests {
     }
 
     #[test]
-    fn should_route_discovered_event_to_projection_percolator_assessment_and_embedding()
+    fn should_route_discovered_event_to_projection_percolator_assessment_embedding_and_translation()
     -> Result<(), Box<dyn std::error::Error>> {
         let jobs = route_change(&product_event_change(
             "PRODUCT_LISTING_DISCOVERED",
             "DOMAIN",
         ))?;
 
-        assert_eq!(4, jobs.len());
+        assert_eq!(5, jobs.len());
         assert!(
             jobs.iter()
                 .any(|job| job.target_queue == WorkerQueue::ProductListingOpenSearch)
@@ -1028,6 +1043,10 @@ mod tests {
         assert!(
             jobs.iter()
                 .any(|job| job.target_queue == WorkerQueue::ProductListingEmbed)
+        );
+        assert!(
+            jobs.iter()
+                .any(|job| job.target_queue == WorkerQueue::ProductListingTranslate)
         );
         assert!(jobs.iter().all(|job| job.idempotency_key.as_str()
             == "product-event:40000000-0000-0000-0000-000000000001"));
@@ -1065,7 +1084,7 @@ mod tests {
     }
 
     #[test]
-    fn should_route_only_discovered_event_to_content_assessment_and_embedding()
+    fn should_route_content_assessment_and_translation_only_for_discovered_event()
     -> Result<(), Box<dyn std::error::Error>> {
         for (event_type, event_group, expected) in [
             ("PRODUCT_LISTING_DISCOVERED", "DOMAIN", true),
@@ -1081,6 +1100,51 @@ mod tests {
                     .any(|job| job.target_queue == WorkerQueue::ProductListingContentAssessment),
                 "assessment {event_type}"
             );
+            assert_eq!(
+                expected,
+                jobs.iter()
+                    .any(|job| job.target_queue == WorkerQueue::ProductListingTranslate),
+                "translation {event_type}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_route_embedding_for_discovered_and_image_changed_events()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (event_type, event_group, payload, expected) in [
+            (
+                "PRODUCT_LISTING_DISCOVERED",
+                "DOMAIN",
+                serde_json::json!({}),
+                true,
+            ),
+            (
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({"images": {"previousCount": 1, "currentCount": 2}}),
+                true,
+            ),
+            (
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({}),
+                false,
+            ),
+            (
+                "ENRICHMENT_EMBEDDED",
+                "ENRICHMENT",
+                serde_json::json!({}),
+                false,
+            ),
+        ] {
+            let jobs = route_change(&product_event_change_with_payload(
+                event_type,
+                event_group,
+                payload,
+            ))?;
+
             assert_eq!(
                 expected,
                 jobs.iter()
@@ -1112,6 +1176,33 @@ mod tests {
                     .count()
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn should_fan_out_embedding_and_watchlist_for_combined_image_and_price_changes()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let jobs = route_change(&product_event_change_with_payload(
+            "PRODUCT_LISTING_CHANGED",
+            "DOMAIN",
+            serde_json::json!({
+                "images": {"previousCount": 1, "currentCount": 2},
+                "pricing": {"price": {}}
+            }),
+        ))?;
+
+        assert_eq!(
+            1,
+            jobs.iter()
+                .filter(|job| job.target_queue == WorkerQueue::ProductListingEmbed)
+                .count()
+        );
+        assert_eq!(
+            1,
+            jobs.iter()
+                .filter(|job| job.target_queue == WorkerQueue::WatchlistNotification)
+                .count()
+        );
         Ok(())
     }
 
@@ -1457,6 +1548,7 @@ mod tests {
         let (percolator_sender, mut percolator_receiver) = in_memory_queue(QueueConfig::new(8))?;
         let (embed_sender, mut embed_receiver) = in_memory_queue(QueueConfig::new(8))?;
         let (assessment_sender, mut assessment_receiver) = in_memory_queue(QueueConfig::new(8))?;
+        let (translation_sender, mut translation_receiver) = in_memory_queue(QueueConfig::new(8))?;
         let registry = WorkerQueueRegistry::new()
             .with_queue(WorkerQueue::ProductListingOpenSearch, product_sender)
             .with_queue(WorkerQueue::SearchFilterPercolator, percolator_sender)
@@ -1464,7 +1556,8 @@ mod tests {
             .with_queue(
                 WorkerQueue::ProductListingContentAssessment,
                 assessment_sender,
-            );
+            )
+            .with_queue(WorkerQueue::ProductListingTranslate, translation_sender);
         let fanout = CdcFanout::new(registry);
         let batch = CdcBatch {
             delivery_id: Some("delivery-1".to_owned()),
@@ -1474,11 +1567,12 @@ mod tests {
 
         let enqueued = fanout.ingest_batch(&batch).await?;
 
-        assert_eq!(4, enqueued);
+        assert_eq!(5, enqueued);
         assert!(product_receiver.recv().await.is_some());
         assert!(percolator_receiver.recv().await.is_some());
         assert!(embed_receiver.recv().await.is_some());
         assert!(assessment_receiver.recv().await.is_some());
+        assert!(translation_receiver.recv().await.is_some());
         Ok(())
     }
 

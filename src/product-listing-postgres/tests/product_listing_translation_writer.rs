@@ -18,7 +18,7 @@ async fn should_store_all_translations_append_enrichment_event_and_advance_curre
  {
     let result: Result<(), Box<dyn std::error::Error>> = async {
     let pool = get_postgres_client().await;
-    let (product_listing_id, source_event_id) = insert_product_with_embedded_event(&pool).await?;
+    let (product_listing_id, source_event_id) = insert_product_with_discovered_event(&pool).await?;
     let enrichment_event_id = EventId::new();
     let write = write(product_listing_id, source_event_id, enrichment_event_id);
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await?;
@@ -60,12 +60,17 @@ async fn should_store_all_translations_append_enrichment_event_and_advance_curre
     assert_eq!("ENRICHMENT_TRANSLATED_TITLES", event.0);
     assert_eq!("ENRICHMENT", event.1);
     assert_eq!(
-        Some("Antique chair"),
+        Some("de"),
         event
             .2
-            .pointer("/titles/en")
+            .pointer("/sourceLanguage")
             .and_then(serde_json::Value::as_str)
     );
+    assert_eq!(
+        Some(&vec![serde_json::Value::String("en".to_owned()), serde_json::Value::String("fr".to_owned())]),
+        event.2.pointer("/targetLanguages").and_then(serde_json::Value::as_array)
+    );
+    assert!(event.2.pointer("/titles").is_none());
     let (current_event, version, projection_version): (uuid::Uuid, i64, i64) =
         sqlx::query_as("SELECT current_event_id, version, projection_version FROM product_listings WHERE product_listing_id = $1")
             .bind(uuid::Uuid::from(product_listing_id))
@@ -86,7 +91,7 @@ async fn should_store_all_translations_append_enrichment_event_and_advance_curre
 async fn should_report_duplicate_without_second_event_when_same_source_is_redelivered() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
-        let (product_listing_id, source_event_id) = insert_product_with_embedded_event(&pool).await?;
+        let (product_listing_id, source_event_id) = insert_product_with_discovered_event(&pool).await?;
         let write = write(product_listing_id, source_event_id, EventId::new());
         apply(&pool, &write).await?;
 
@@ -106,7 +111,7 @@ async fn should_report_duplicate_without_second_event_when_same_source_is_redeli
     .bind(uuid::Uuid::from(product_listing_id))
     .fetch_one(&pool)
     .await?;
-        assert_eq!(2, count, "source embedded event plus one translated event");
+        assert_eq!(1, count, "one translated event for the discovered source");
         Ok(())
     }
     .await;
@@ -117,11 +122,11 @@ async fn should_report_duplicate_without_second_event_when_same_source_is_redeli
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_report_stale_without_writing_when_product_current_event_advanced() {
+async fn should_report_stale_without_writing_when_content_source_event_advanced() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
         let (product_listing_id, source_event_id) =
-            insert_product_with_embedded_event(&pool).await?;
+            insert_product_with_discovered_event(&pool).await?;
         let newer_event_id = insert_event_and_advance_product(
             &pool,
             product_listing_id,
@@ -190,7 +195,7 @@ fn write(
     }
 }
 
-async fn insert_product_with_embedded_event(
+async fn insert_product_with_discovered_event(
     pool: &sqlx::PgPool,
 ) -> Result<(ProductListingId, EventId), sqlx::Error> {
     let product_listing_id = ProductListingId::new();
@@ -211,7 +216,7 @@ async fn insert_product_with_embedded_event(
         .bind(party_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Antiker Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(title_slug("translation-product", product_listing_id))
         .bind(uuid::Uuid::from(event_id))
@@ -219,7 +224,7 @@ async fn insert_product_with_embedded_event(
         .bind(product_listing_id.to_string())
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'ENRICHMENT_EMBEDDED', 'ENRICHMENT', 1, '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, '{}', now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .execute(&mut *tx)
@@ -243,7 +248,7 @@ async fn insert_event_and_advance_product(
         .bind(event_group)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("UPDATE product_listings SET current_event_id = $1, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
+    sqlx::query("UPDATE product_listings SET current_event_id = $1, content_source_event_id = $1, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .execute(&mut *tx)

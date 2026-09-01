@@ -72,8 +72,8 @@ pub use product_listing_embedding_reader::{
     ProductListingEmbeddingReader, ProductListingEmbeddingReaderFactory,
 };
 pub use product_listing_embedding_source_reader::{
-    ProductListingEmbeddingSource, ProductListingEmbeddingSourceReadError,
-    ProductListingEmbeddingSourceReader,
+    ProductListingEmbeddingSource, ProductListingEmbeddingSourceEvent,
+    ProductListingEmbeddingSourceReadError, ProductListingEmbeddingSourceReader,
 };
 pub use product_listing_embedding_writer::{
     ProductListingEmbeddingWrite, ProductListingEmbeddingWriteError,
@@ -94,7 +94,7 @@ pub use product_listing_percolation::{
 pub use product_listing_price_filter_plan::{NativePriceRange, ProductListingPriceFilterPlan};
 pub use product_listing_repository::{
     ProductListingRepository, ProductListingRepositoryError, ProductListingRepositoryFactory,
-    ProductListingStorageVersion, VersionedProductListing,
+    ProductListingStorageVersion, ProductListingWriteEffects, VersionedProductListing,
 };
 pub use product_listing_search_filter_match_source_reader::{
     ProductListingSearchFilterMatchSource, ProductListingSearchFilterMatchSourceEventKind,
@@ -117,8 +117,8 @@ pub use product_listing_title_translator::{
     ProductListingTitleTranslationError, ProductListingTitleTranslator,
 };
 pub use product_listing_translation_source_reader::{
-    ProductListingTranslationSource, ProductListingTranslationSourceReadError,
-    ProductListingTranslationSourceReader,
+    ProductListingTranslationSource, ProductListingTranslationSourceEvent,
+    ProductListingTranslationSourceReadError, ProductListingTranslationSourceReader,
 };
 pub use product_listing_translation_writer::{
     ProductListingTranslationWrite, ProductListingTranslationWriteError,

@@ -3,12 +3,18 @@ use domain_primitives::event_id::EventId;
 use localization::Language;
 use product_listing_core::{product_listing_id::ProductListingId, title::Title};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductListingTranslationSourceEvent {
+    Discovered,
+    Other,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingTranslationSource {
     pub product_listing_id: ProductListingId,
     pub event_id: EventId,
-    pub current_event_id: EventId,
-    pub event_type: String,
+    pub content_source_event_id: EventId,
+    pub event: ProductListingTranslationSourceEvent,
     pub title: Option<Title>,
     pub title_language: Option<Language>,
 }

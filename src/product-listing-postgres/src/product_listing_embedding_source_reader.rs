@@ -6,8 +6,8 @@ use product_listing_core::{
     description::Description, product_listing_id::ProductListingId, title::Title,
 };
 use product_listing_service::ports::{
-    ProductListingEmbeddingSource, ProductListingEmbeddingSourceReadError,
-    ProductListingEmbeddingSourceReader,
+    ProductListingEmbeddingSource, ProductListingEmbeddingSourceEvent,
+    ProductListingEmbeddingSourceReadError, ProductListingEmbeddingSourceReader,
 };
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -22,8 +22,11 @@ pub struct SqlxProductListingEmbeddingSourceReader {
 struct ProductListingEmbeddingSourceRow {
     product_listing_id: uuid::Uuid,
     event_id: uuid::Uuid,
-    current_event_id: uuid::Uuid,
+    embedding_source_event_id: uuid::Uuid,
     event_type: String,
+    event_group: String,
+    event_type_schema_version: i16,
+    payload: serde_json::Value,
     title_text: Option<String>,
     title_language: Option<String>,
     description_text: Option<String>,
@@ -63,7 +66,8 @@ impl ProductListingEmbeddingSourceReader for SqlxProductListingEmbeddingSourceRe
         let row = sqlx::query_as::<_, ProductListingEmbeddingSourceRow>(
             r#"
             SELECT event.event_id, event.product_listing_id, event.event_type,
-                   product.current_event_id,
+                   event.event_group, event.event_type_schema_version, event.payload,
+                   product.embedding_source_event_id,
                    product.title_text, product.title_language,
                    product.description_text, product.description_language,
                    product.product_images
@@ -92,12 +96,41 @@ impl TryFrom<ProductListingEmbeddingSourceRow> for ProductListingEmbeddingSource
         Ok(Self {
             product_listing_id: ProductListingId::from(row.product_listing_id),
             event_id: EventId::from(row.event_id),
-            current_event_id: EventId::from(row.current_event_id),
-            event_type: row.event_type,
+            embedding_source_event_id: EventId::from(row.embedding_source_event_id),
+            event: embedding_event(&row)?,
             title: localized_title(row.title_text, row.title_language)?,
             description: localized_description(row.description_text, row.description_language)?,
             image_url: first_image_url(row.product_images)?,
         })
+    }
+}
+
+fn embedding_event(
+    row: &ProductListingEmbeddingSourceRow,
+) -> Result<ProductListingEmbeddingSourceEvent, ProductListingEmbeddingSourceReadError> {
+    match (
+        row.event_type.as_str(),
+        row.event_group.as_str(),
+        row.event_type_schema_version,
+    ) {
+        ("PRODUCT_LISTING_DISCOVERED", "DOMAIN", 1) => {
+            Ok(ProductListingEmbeddingSourceEvent::Discovered)
+        }
+        ("PRODUCT_LISTING_CHANGED", "DOMAIN", 1) => {
+            let payload = row.payload.as_object().ok_or_else(|| {
+                mapping_error("persisted product embedding changed payload is invalid")
+            })?;
+            match payload.get("images") {
+                Some(serde_json::Value::Object(_)) => {
+                    Ok(ProductListingEmbeddingSourceEvent::ChangedImages)
+                }
+                Some(_) => Err(mapping_error(
+                    "persisted product embedding image change is invalid",
+                )),
+                None => Ok(ProductListingEmbeddingSourceEvent::Other),
+            }
+        }
+        _ => Ok(ProductListingEmbeddingSourceEvent::Other),
     }
 }
 

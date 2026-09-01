@@ -2,7 +2,8 @@ use crate::ports::{
     PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
     PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
     ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_event,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingWriteEffects,
+    stamp_product_listing_event,
 };
 use crate::product_listing_title_slug_creation::{
     ProductListingTitleSlugGenerator, RandomProductListingTitleSlugGenerator,
@@ -229,10 +230,11 @@ where
                     ChangeOutcome::Unchanged
                 };
                 if let Some(event) = event {
+                    let effects = ProductListingWriteEffects::from(&event.payload);
                     product = self
                         .products
                         .in_transaction(tx)
-                        .update(&product, expected_version, event.event_id)
+                        .update(&product, expected_version, event.event_id, effects)
                         .await?
                         .value;
                     self.events.in_transaction(tx).append(&event).await?;
@@ -1013,6 +1015,7 @@ mod tests {
             listing: &ProductListing,
             expected_version: ProductListingStorageVersion,
             _: EventId,
+            _: ProductListingWriteEffects,
         ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             test_lock(&self.0).update_calls += 1;
             Ok(Versioned::new(listing.clone(), expected_version.next()))

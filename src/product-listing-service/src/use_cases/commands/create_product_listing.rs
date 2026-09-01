@@ -354,7 +354,9 @@ impl From<ProductListingEventAppendError> for CreateProductListingError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::{ProductListingStorageVersion, VersionedProductListing};
+    use crate::ports::{
+        ProductListingStorageVersion, ProductListingWriteEffects, VersionedProductListing,
+    };
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::TransactionError;
     use domain_primitives::{event_id::EventId, versioned::Versioned};
@@ -463,6 +465,7 @@ mod tests {
             _: &ProductListing,
             _: ProductListingStorageVersion,
             _: EventId,
+            _: ProductListingWriteEffects,
         ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             lock(&self.0).updates += 1;
             Err(ProductListingRepositoryError::ProductListingUpdateFailed)

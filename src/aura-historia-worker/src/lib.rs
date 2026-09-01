@@ -1210,12 +1210,17 @@ mod tests {
     #[case(
         WorkerScope::ProductListingTranslation,
         WorkerQueue::ProductListingTranslate,
-        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"ENRICHMENT_EMBEDDED","event_group":"ENRICHMENT","event_type_schema_version":1}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_DISCOVERED","event_group":"DOMAIN","event_type_schema_version":1}}]}"#
     )]
     #[case(
         WorkerScope::ProductListingEmbedding,
         WorkerQueue::ProductListingEmbed,
         r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_DISCOVERED","event_group":"DOMAIN","event_type_schema_version":1}}]}"#
+    )]
+    #[case(
+        WorkerScope::ProductListingEmbedding,
+        WorkerQueue::ProductListingEmbed,
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"images":{"previousCount":1,"currentCount":2}}}}]}"#
     )]
     #[case(
         WorkerScope::NotificationDelivery,
@@ -1235,6 +1240,20 @@ mod tests {
         let job = receiver.recv().await.ok_or("scoped consumer stopped")?;
         assert_eq!(consumer_queue, job.target_queue);
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_enqueue_embedded_event_for_product_translation_scope()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let composition = WorkerRuntimeComposition::build(
+            WorkerScope::ProductListingTranslation,
+            QueueConfig::new(1),
+        )?;
+        let (runtime, _receiver) = composition.into_parts();
+        let cdc_json = r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"ENRICHMENT_EMBEDDED","event_group":"ENRICHMENT","event_type_schema_version":1}}]}"#;
+
+        assert_eq!(0, runtime.ingest_cdc_json(cdc_json).await?);
         Ok(())
     }
 
@@ -1315,6 +1334,8 @@ mod tests {
         let (embed_sender, mut embed_receiver) = in_memory_queue::<DomainJob>(QueueConfig::new(8))?;
         let (assessment_sender, mut assessment_receiver) =
             in_memory_queue::<DomainJob>(QueueConfig::new(8))?;
+        let (translation_sender, mut translation_receiver) =
+            in_memory_queue::<DomainJob>(QueueConfig::new(8))?;
         let runtime = WorkerRuntime::new(CdcFanout::new(
             WorkerQueueRegistry::new()
                 .with_queue(WorkerQueue::ProductListingOpenSearch, product_sender)
@@ -1323,7 +1344,8 @@ mod tests {
                 .with_queue(
                     WorkerQueue::ProductListingContentAssessment,
                     assessment_sender,
-                ),
+                )
+                .with_queue(WorkerQueue::ProductListingTranslate, translation_sender),
         ));
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
@@ -1361,6 +1383,7 @@ mod tests {
         assert!(percolator_receiver.recv().await.is_some());
         assert!(embed_receiver.recv().await.is_some());
         assert!(assessment_receiver.recv().await.is_some());
+        assert!(translation_receiver.recv().await.is_some());
         Ok(())
     }
 

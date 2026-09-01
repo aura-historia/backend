@@ -2,7 +2,8 @@ use crate::ports::{
     PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
     PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
     ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_event,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingWriteEffects,
+    stamp_product_listing_event,
 };
 use application::error::{BoxError, box_error};
 use application::operation_context::{
@@ -188,10 +189,11 @@ where
         };
         let current_event_id = event.as_ref().map(|event| event.event_id);
         if let Some(event) = event {
+            let effects = ProductListingWriteEffects::from(&event.payload);
             product = self
                 .products
                 .in_transaction(&mut tx)
-                .update(&product, expected_version, event.event_id)
+                .update(&product, expected_version, event.event_id, effects)
                 .await?
                 .value;
             self.events.in_transaction(&mut tx).append(&event).await?;

@@ -196,6 +196,7 @@ async fn should_support_core_business_relations() {
             product_listing_title_slug_id,
             current_event_id,
             content_source_event_id,
+            embedding_source_event_id,
             listing_source_id,
             source_listing_id,
             title_text,
@@ -208,6 +209,7 @@ async fn should_support_core_business_relations() {
         VALUES (
             '30000000-0000-0000-0000-000000000001',
             '__PRODUCT_LISTING_TITLE_SLUG_ID__',
+            '40000000-0000-0000-0000-000000000001',
             '40000000-0000-0000-0000-000000000001',
             '40000000-0000-0000-0000-000000000001',
             '20000000-0000-0000-0000-000000000002',

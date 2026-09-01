@@ -28,7 +28,7 @@ use product_listing_postgres::{
 };
 use product_listing_service::ports::{
     ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
-    ProductListingRepositoryFactory, stamp_product_listing_event,
+    ProductListingRepositoryFactory, ProductListingWriteEffects, stamp_product_listing_event,
 };
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -556,7 +556,12 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
         .unwrap_or_else(|error| panic!("append discovered product event: {error:?}"));
     products
         .in_transaction(&mut transaction)
-        .update(&product, created.version, current_event_id)
+        .update(
+            &product,
+            created.version,
+            current_event_id,
+            ProductListingWriteEffects::default(),
+        )
         .await
         .unwrap_or_else(|error| panic!("update timestamped history product: {error:?}"));
     events

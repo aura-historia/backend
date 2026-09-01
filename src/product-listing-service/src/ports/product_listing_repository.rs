@@ -3,12 +3,33 @@
 use application::error::BoxError;
 use domain_primitives::event_id::EventId;
 use domain_primitives::versioned::Versioned;
-use product_listing_core::product_listing::ProductListing;
-use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
+use product_listing_core::{
+    product_listing::ProductListing,
+    product_listing_event::ProductListingEventPayload,
+    product_listing_id::{ProductListingId, ProductListingKey},
+};
 
 domain_primitives::version_newtype!(ProductListingStorageVersion);
 
 pub type VersionedProductListing = Versioned<ProductListing, ProductListingStorageVersion>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ProductListingWriteEffects {
+    pub advance_embedding_source: bool,
+}
+
+impl From<&ProductListingEventPayload> for ProductListingWriteEffects {
+    fn from(payload: &ProductListingEventPayload) -> Self {
+        match payload {
+            ProductListingEventPayload::Discovered(_) => Self {
+                advance_embedding_source: true,
+            },
+            ProductListingEventPayload::Changed(changes) => Self {
+                advance_embedding_source: changes.image_count().is_some(),
+            },
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingRepositoryError {
@@ -85,6 +106,7 @@ pub trait ProductListingRepository: Send {
         product: &ProductListing,
         expected_version: ProductListingStorageVersion,
         current_event_id: EventId,
+        effects: ProductListingWriteEffects,
     ) -> Result<VersionedProductListing, ProductListingRepositoryError>;
 }
 

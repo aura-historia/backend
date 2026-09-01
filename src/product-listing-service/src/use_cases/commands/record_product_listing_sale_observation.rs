@@ -2,7 +2,8 @@ use crate::ports::{
     PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
     PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
     ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_event,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingWriteEffects,
+    stamp_product_listing_event,
 };
 use application::error::{BoxError, box_error};
 use application::operation_context::{
@@ -169,10 +170,11 @@ where
             .map(|payload| stamp_product_listing_event(listing.id(), recorded_at, payload));
         let current_event_id = event.as_ref().map(|event| event.event_id);
         if let Some(event) = event {
+            let effects = ProductListingWriteEffects::from(&event.payload);
             listing = self
                 .products
                 .in_transaction(&mut tx)
-                .update(&listing, expected_version, event.event_id)
+                .update(&listing, expected_version, event.event_id, effects)
                 .await?
                 .value;
             self.events.in_transaction(&mut tx).append(&event).await?;
@@ -382,6 +384,7 @@ mod tests {
             product: &ProductListing,
             expected_version: ProductListingStorageVersion,
             current_event_id: EventId,
+            _: ProductListingWriteEffects,
         ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             let persisted = Versioned::new(product.clone(), expected_version.next());
             let mut state = lock(&self.0);

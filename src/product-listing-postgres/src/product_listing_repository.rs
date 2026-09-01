@@ -26,7 +26,7 @@ use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
 use product_listing_service::ports::product_listing_repository::{
     ProductListingRepository, ProductListingRepositoryError, ProductListingRepositoryFactory,
-    ProductListingStorageVersion, VersionedProductListing,
+    ProductListingStorageVersion, ProductListingWriteEffects, VersionedProductListing,
 };
 use serde::{Deserialize, Serialize};
 
@@ -182,14 +182,14 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
             r#"
             INSERT INTO product_listings (
                 product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id,
-                listing_source_id, source_listing_id, title_text, title_language,
+                embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language,
                 description_text, description_language, price_amount, price_currency,
                 price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount,
                 price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at,
                 availability, lifecycle, url, product_images, auction_start, auction_end
             ) VALUES (
-                $1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                $15, $16, $17, $18, $19, $20, $21, $22, $23
+                $1, $2, $3, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
             )
             RETURNING version
             "#,
@@ -247,6 +247,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         product: &ProductListing,
         expected_version: ProductListingStorageVersion,
         current_event_id: EventId,
+        effects: ProductListingWriteEffects,
     ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
         let pricing = product.pricing();
         let auction = product.auction();
@@ -276,32 +277,35 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
             UPDATE product_listings
             SET
                 current_event_id = $1,
-                title_text = $2,
-                title_language = $3,
-                description_text = $4,
-                description_language = $5,
-                price_amount = $6,
-                price_currency = $7,
-                price_estimate_min_amount = $8,
-                price_estimate_min_currency = $9,
-                price_estimate_max_amount = $10,
-                price_estimate_max_currency = $11,
-                sale_observation_fx_rate_id = $12,
-                sale_observed_at = $13,
-                availability = $14,
-                lifecycle = $15,
-                url = $16,
-                product_images = $17,
-                auction_start = $18,
-                auction_end = $19,
+                embedding_source_event_id = CASE WHEN $2 THEN $1 ELSE embedding_source_event_id END,
+                embedding = CASE WHEN $2 THEN NULL ELSE embedding END,
+                title_text = $3,
+                title_language = $4,
+                description_text = $5,
+                description_language = $6,
+                price_amount = $7,
+                price_currency = $8,
+                price_estimate_min_amount = $9,
+                price_estimate_min_currency = $10,
+                price_estimate_max_amount = $11,
+                price_estimate_max_currency = $12,
+                sale_observation_fx_rate_id = $13,
+                sale_observed_at = $14,
+                availability = $15,
+                lifecycle = $16,
+                url = $17,
+                product_images = $18,
+                auction_start = $19,
+                auction_end = $20,
                 version = version + 1,
                 projection_version = projection_version + 1,
                 updated = now()
-            WHERE product_listing_id = $20 AND version = $21
+            WHERE product_listing_id = $21 AND version = $22
             RETURNING version
             "#,
         )
         .bind(uuid::Uuid::from(current_event_id))
+        .bind(effects.advance_embedding_source)
         .bind(title.map(|value| value.payload.as_ref().to_owned()))
         .bind(title.map(|value| value.localization.as_str().to_owned()))
         .bind(description.map(|value| value.payload.as_ref().to_owned()))

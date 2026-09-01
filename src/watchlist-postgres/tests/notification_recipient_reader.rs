@@ -154,7 +154,7 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
         .execute(&mut *tx)
         .await
         .unwrap_or_else(|error| panic!("seed source failed: {error:?}"));
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, listing_source_id, source_listing_id, availability, lifecycle, url) VALUES ($1, $2, $3, $3, $4, $5, NULL, 'ACTIVE', 'https://example.test/product')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, availability, lifecycle, url) VALUES ($1, $2, $3, $3, $3, $4, $5, NULL, 'ACTIVE', 'https://example.test/product')")
         .bind(product_uuid)
         .bind(title_slug_id.as_ref())
         .bind(event_id)

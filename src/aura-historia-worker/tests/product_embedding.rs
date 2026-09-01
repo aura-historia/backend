@@ -57,17 +57,22 @@ async fn should_embed_committed_created_product_event_and_persist_canonical_targ
     let worker = EmbeddingWorker::start().await;
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let (product_listing_id, source_event_id) = insert_product_with_event(&worker.pool, "PRODUCT_LISTING_DISCOVERED", "DOMAIN").await?;
-        let (embedding, current_event_id) = wait_for_embedding(&worker.pool, product_listing_id).await?;
+        let (embedding, current_event_id, embedding_source_event_id) =
+            wait_for_embedding(&worker.pool, product_listing_id).await?;
         assert_eq!(EMBEDDING_DIMENSIONS, embedding.len());
         assert!((embedding[0] - (1.0 / (EMBEDDING_DIMENSIONS as f32).sqrt())).abs() < 0.000_001);
         assert_ne!(uuid::Uuid::from(source_event_id), current_event_id);
-        let (source, language, text, event_embedding_length): (String, String, String, i32) = sqlx::query_as(
-            "SELECT payload ->> 'sourceEventId', payload -> 'title' ->> 'language', payload -> 'title' ->> 'text', jsonb_array_length(payload -> 'embedding') FROM product_listing_events WHERE product_listing_id = $1 AND event_type = 'ENRICHMENT_EMBEDDED'",
-        ).bind(uuid::Uuid::from(product_listing_id)).fetch_one(&worker.pool).await?;
-        assert_eq!(source_event_id.to_string(), source);
-        assert_eq!("de", language);
-        assert_eq!("Antiker Eichenstuhl", text);
-        assert_eq!(EMBEDDING_DIMENSIONS as i32, event_embedding_length);
+        assert_eq!(uuid::Uuid::from(source_event_id), embedding_source_event_id);
+        let payload: serde_json::Value = sqlx::query_scalar(
+            "SELECT payload FROM product_listing_events WHERE product_listing_id = $1 AND event_type = 'ENRICHMENT_EMBEDDED'",
+        )
+        .bind(uuid::Uuid::from(product_listing_id))
+        .fetch_one(&worker.pool)
+        .await?;
+        assert_eq!(
+            serde_json::json!({"sourceEventId": source_event_id.to_string()}),
+            payload
+        );
         Ok(())
     }.await;
     worker
@@ -130,7 +135,35 @@ async fn should_skip_stale_created_event_after_product_revision_advances() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, WORKER_SEQUIN])]
-async fn should_keep_one_embedded_event_when_created_event_is_redelivered() {
+async fn should_reembed_when_committed_image_change_advances_source_marker() {
+    let worker = EmbeddingWorker::start().await;
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let (product_listing_id, _) =
+            insert_product_with_event(&worker.pool, "PRODUCT_LISTING_DISCOVERED", "DOMAIN").await?;
+        let _ = wait_for_embedding(&worker.pool, product_listing_id).await?;
+        let image_event_id = insert_image_change(&worker.pool, product_listing_id).await?;
+
+        let (_, current_event_id, embedding_source_event_id) =
+            wait_for_embedding(&worker.pool, product_listing_id).await?;
+        assert_eq!(uuid::Uuid::from(image_event_id), embedding_source_event_id);
+        assert_ne!(uuid::Uuid::from(image_event_id), current_event_id);
+        assert_embedding_event_count_for_duration(
+            &worker.pool,
+            product_listing_id,
+            2,
+            NO_SIDE_EFFECT_OBSERVATION,
+        )
+        .await
+    }
+    .await;
+    worker
+        .finish(result)
+        .await
+        .unwrap_or_else(|error| panic!("worker cleanup or test failed: {error}"));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, WORKER_SEQUIN])]
+async fn should_not_append_another_embedded_event_when_source_is_redelivered() {
     let worker = EmbeddingWorker::start().await;
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let (product_listing_id, event_id) =
@@ -248,7 +281,7 @@ async fn insert_product_with_event(
     let mut tx = pool.begin().await?;
     sqlx::query("WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), 'Fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $1, $2, 'Embedding worker source', party_id FROM operator")
         .bind(listing_source_id).bind(format!("embedding-worker-source-{listing_source_id}")).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Eichenstuhl', 'de', 'Bemalter Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[{\"url\": \"https://example.test/image.jpg\"}]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Antiker Eichenstuhl', 'de', 'Bemalter Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[{\"url\": \"https://example.test/image.jpg\"}]')")
         .bind(uuid::Uuid::from(product_listing_id)).bind(title_slug_id.as_ref()).bind(uuid::Uuid::from(event_id)).bind(listing_source_id).bind(product_listing_id.to_string())
         .execute(&mut *tx).await?;
     let payload = serde_json::json!({
@@ -282,13 +315,33 @@ async fn insert_product_with_event_then_rollback(
     let mut tx = pool.begin().await?;
     sqlx::query("WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), 'Fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $1, $2, 'Rollback embedding source', party_id FROM operator")
         .bind(listing_source_id).bind(format!("rollback-embedding-source-{listing_source_id}")).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Eichenstuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Antiker Eichenstuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_listing_id)).bind(title_slug_id.as_ref()).bind(uuid::Uuid::from(event_id)).bind(listing_source_id).bind(product_listing_id.to_string())
         .execute(&mut *tx).await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, '{}', now())")
         .bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_listing_id)).execute(&mut *tx).await?;
     tx.rollback().await?;
     Ok(product_listing_id)
+}
+
+async fn insert_image_change(
+    pool: &sqlx::PgPool,
+    product_listing_id: ProductListingId,
+) -> Result<EventId, sqlx::Error> {
+    let event_id = EventId::new();
+    let mut tx = pool.begin().await?;
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, '{\"images\": {\"previousCount\": 1, \"currentCount\": 1}}', now())")
+        .bind(uuid::Uuid::from(event_id))
+        .bind(uuid::Uuid::from(product_listing_id))
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE product_listings SET current_event_id = $1, embedding_source_event_id = $1, embedding = NULL, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
+        .bind(uuid::Uuid::from(event_id))
+        .bind(uuid::Uuid::from(product_listing_id))
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(event_id)
 }
 
 async fn advance_product_revision(
@@ -299,7 +352,7 @@ async fn advance_product_revision(
     let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, '{}', now())")
         .bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_listing_id)).execute(&mut *tx).await?;
-    sqlx::query("UPDATE product_listings SET current_event_id = $1, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
+    sqlx::query("UPDATE product_listings SET current_event_id = $1, embedding_source_event_id = $1, embedding = NULL, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .execute(&mut *tx)
@@ -310,16 +363,16 @@ async fn advance_product_revision(
 async fn wait_for_embedding(
     pool: &sqlx::PgPool,
     product_listing_id: ProductListingId,
-) -> Result<(Vec<f32>, uuid::Uuid), Box<dyn std::error::Error>> {
+) -> Result<(Vec<f32>, uuid::Uuid, uuid::Uuid), Box<dyn std::error::Error>> {
     for _ in 0..POLL_ATTEMPTS {
-        let row: (Option<Vec<f32>>, uuid::Uuid) = sqlx::query_as(
-            "SELECT embedding, current_event_id FROM product_listings WHERE product_listing_id = $1",
+        let row: (Option<Vec<f32>>, uuid::Uuid, uuid::Uuid) = sqlx::query_as(
+            "SELECT embedding, current_event_id, embedding_source_event_id FROM product_listings WHERE product_listing_id = $1",
         )
         .bind(uuid::Uuid::from(product_listing_id))
         .fetch_one(pool)
         .await?;
         if let Some(embedding) = row.0 {
-            return Ok((embedding, row.1));
+            return Ok((embedding, row.1, row.2));
         }
         tokio::time::sleep(POLL_INTERVAL).await;
     }
@@ -356,11 +409,31 @@ async fn assert_embedding_event_count_for_duration(
     duration: Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let deadline = tokio::time::Instant::now() + duration;
+    loop {
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1 AND event_type = 'ENRICHMENT_EMBEDDED'").bind(uuid::Uuid::from(product_listing_id)).fetch_one(pool).await?;
+        if count == expected_count {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(
+                std::io::Error::other(format!(
+                    "timed out waiting for embedded events after source-marker redelivery: expected {expected_count}, got {count}"
+                ))
+                .into(),
+            );
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+
+    let deadline = tokio::time::Instant::now() + duration;
     while tokio::time::Instant::now() < deadline {
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1 AND event_type = 'ENRICHMENT_EMBEDDED'").bind(uuid::Uuid::from(product_listing_id)).fetch_one(pool).await?;
         if count != expected_count {
             return Err(
-                std::io::Error::other("embedded event count changed after redelivery").into(),
+                std::io::Error::other(format!(
+                    "embedded event count changed after source-marker redelivery: expected {expected_count}, got {count}"
+                ))
+                .into(),
             );
         }
         tokio::time::sleep(POLL_INTERVAL).await;

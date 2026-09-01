@@ -107,7 +107,7 @@ async fn seed_product(pool: &sqlx::PgPool) -> Result<(ProductListingId, EventId)
     .execute(&mut *transaction)
     .await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, $6, 'en', 'Current event guard description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, $6, 'en', 'Current event guard description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')",
     )
     .bind(product_uuid)
     .bind(format!("current-event-guard-{slug_suffix}"))

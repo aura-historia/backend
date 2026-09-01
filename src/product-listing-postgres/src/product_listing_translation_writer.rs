@@ -44,25 +44,22 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
         &mut self,
         write: &ProductListingTranslationWrite,
     ) -> Result<ProductListingTranslationWriteOutcome, ProductListingTranslationWriteError> {
-        let current_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT current_event_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE",
+        let content_source_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT content_source_event_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE",
         )
         .bind(uuid::Uuid::from(write.product_listing_id))
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(ProductListingTranslationWriteSqlxError)?;
 
-        let Some(current_event_id) = current_event_id else {
+        let Some(content_source_event_id) = content_source_event_id else {
             return Ok(ProductListingTranslationWriteOutcome::ProductListingNotFound);
         };
-        if EventId::from(current_event_id) != write.source_event_id {
-            return Ok(
-                if duplicate_translation_exists(self.connection, write).await? {
-                    ProductListingTranslationWriteOutcome::Duplicate
-                } else {
-                    ProductListingTranslationWriteOutcome::Stale
-                },
-            );
+        if duplicate_translation_exists(self.connection, write).await? {
+            return Ok(ProductListingTranslationWriteOutcome::Duplicate);
+        }
+        if EventId::from(content_source_event_id) != write.source_event_id {
+            return Ok(ProductListingTranslationWriteOutcome::Stale);
         }
 
         for (language, title) in &write.titles {
@@ -86,20 +83,15 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
             .map_err(ProductListingTranslationWriteSqlxError)?;
         }
 
-        let titles = write
+        let target_languages = write
             .titles
-            .iter()
-            .map(|(language, title)| {
-                (
-                    language.as_str().to_owned(),
-                    serde_json::Value::String(title.as_ref().to_owned()),
-                )
-            })
-            .collect::<serde_json::Map<String, serde_json::Value>>();
+            .keys()
+            .map(|language| language.as_str())
+            .collect::<Vec<_>>();
         let payload = json!({
             "sourceEventId": write.source_event_id.to_string(),
             "sourceLanguage": write.source_language.as_str(),
-            "titles": titles,
+            "targetLanguages": target_languages,
         });
         sqlx::query(
             r#"
@@ -117,7 +109,7 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
         .map_err(ProductListingTranslationWriteSqlxError)?;
 
         let update = sqlx::query(
-            "UPDATE product_listings SET current_event_id = $1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2 AND current_event_id = $3",
+            "UPDATE product_listings SET current_event_id = $1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2 AND content_source_event_id = $3",
         )
         .bind(uuid::Uuid::from(write.enrichment_event_id))
         .bind(uuid::Uuid::from(write.product_listing_id))
@@ -128,7 +120,7 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
         if update.rows_affected() != 1 {
             return Err(ProductListingTranslationWriteError::WriteFailed {
                 source: application::error::static_error(
-                    "locked product translation source event changed unexpectedly",
+                    "locked product translation source revision changed unexpectedly",
                 ),
             });
         }

@@ -2,7 +2,8 @@ use crate::ports::{
     PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
     PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
     ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_event,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingWriteEffects,
+    stamp_product_listing_event,
 };
 use crate::product_listing_title_slug_creation::{
     ProductListingTitleSlugGenerator, RandomProductListingTitleSlugGenerator,
@@ -354,10 +355,11 @@ where
                     ChangeOutcome::Unchanged
                 };
                 if let Some(event) = event {
+                    let effects = ProductListingWriteEffects::from(&event.payload);
                     listing = self
                         .products
                         .in_transaction(tx)
-                        .update(&listing, expected_version, event.event_id)
+                        .update(&listing, expected_version, event.event_id, effects)
                         .await?
                         .value;
                     self.events.in_transaction(tx).append(&event).await?;
@@ -455,10 +457,11 @@ where
             stamp_product_listing_event(listing.id(), time::OffsetDateTime::now_utc(), payload)
         });
         if let Some(event) = event {
+            let effects = ProductListingWriteEffects::from(&event.payload);
             listing = self
                 .products
                 .in_transaction(tx)
-                .update(&listing, expected_version, event.event_id)
+                .update(&listing, expected_version, event.event_id, effects)
                 .await?
                 .value;
             self.events.in_transaction(tx).append(&event).await?;
@@ -953,6 +956,7 @@ mod tests {
             listing: &ProductListing,
             expected_version: ProductListingStorageVersion,
             _: EventId,
+            _: ProductListingWriteEffects,
         ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             lock(&self.0).updates += 1;
             Ok(Versioned::new(listing.clone(), expected_version.next()))

@@ -1,10 +1,9 @@
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
-use localization::Language;
-use localization::Localized;
+
 use platform_postgres::SqlxUnitOfWork;
 const EMBEDDING_DIMENSIONS: usize = 768;
-use product_listing_core::{product_listing_id::ProductListingId, title::Title};
+use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_postgres::SqlxProductListingEmbeddingWriterFactory;
 use product_listing_service::ports::{
     ProductListingEmbeddingWrite, ProductListingEmbeddingWriteOutcome,
@@ -48,12 +47,9 @@ async fn should_store_embedding_append_enrichment_event_and_advance_current_even
                 .pointer("/sourceEventId")
                 .and_then(serde_json::Value::as_str)
         );
-        assert_eq!(
-            Some("de"),
-            payload
-                .pointer("/title/language")
-                .and_then(serde_json::Value::as_str)
-        );
+        assert_eq!(1, payload.as_object().map_or(0, serde_json::Map::len));
+        assert!(payload.pointer("/title").is_none());
+        assert!(payload.pointer("/embedding").is_none());
         Ok(())
     }
     .await;
@@ -123,7 +119,6 @@ fn new_write(
         source_event_id,
         enrichment_event_id,
         embedding: vec![0.25; EMBEDDING_DIMENSIONS],
-        title: Localized::new(Language::De, Title::from("Antiker Stuhl")),
     }
 }
 async fn insert_product_with_created_event(
@@ -142,7 +137,7 @@ async fn insert_product_with_created_event(
     .execute(&mut *tx)
     .await?;
     sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, 'Embedding source', $3)").bind(listing_source_id).bind(format!("embedding-source-{listing_source_id}")).bind(party_id).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')").bind(uuid::Uuid::from(product_listing_id)).bind(format!(
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Antiker Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')").bind(uuid::Uuid::from(product_listing_id)).bind(format!(
                 "embedding-product-{}",
                 &product_listing_id.to_string()[..6]
             )).bind(uuid::Uuid::from(event_id)).bind(listing_source_id).bind(product_listing_id.to_string())
@@ -158,7 +153,7 @@ async fn advance_product_current_event(
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, '{}', now())").bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_listing_id)).execute(&mut *tx).await?;
-    sqlx::query("UPDATE product_listings SET current_event_id = $1, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
+    sqlx::query("UPDATE product_listings SET current_event_id = $1, embedding_source_event_id = $1, embedding = NULL, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .execute(&mut *tx)

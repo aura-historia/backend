@@ -180,6 +180,7 @@ CREATE TABLE product_listings (
     version bigint NOT NULL DEFAULT 1,
     current_event_id uuid NOT NULL,
     content_source_event_id uuid NOT NULL,
+    embedding_source_event_id uuid NOT NULL,
     listing_source_id uuid NOT NULL
         REFERENCES listing_sources(listing_source_id)
         ON DELETE CASCADE,
@@ -285,6 +286,12 @@ ALTER TABLE product_listings
 ALTER TABLE product_listings
     ADD CONSTRAINT product_listings_content_source_event_same_product_fkey
     FOREIGN KEY (product_listing_id, content_source_event_id)
+    REFERENCES product_listing_events(product_listing_id, event_id)
+    DEFERRABLE INITIALLY DEFERRED;
+
+ALTER TABLE product_listings
+    ADD CONSTRAINT product_listings_embedding_source_event_same_product_fkey
+    FOREIGN KEY (product_listing_id, embedding_source_event_id)
     REFERENCES product_listing_events(product_listing_id, event_id)
     DEFERRABLE INITIALLY DEFERRED;
 
