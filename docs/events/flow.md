@@ -106,12 +106,14 @@ Minimum ingest steps:
 
 1. Receive CDC envelope.
 2. Validate source/table/operation.
-3. Build domain change from row keys and before/after values.
-4. Derive domain-first `idempotency_key` and `ordering_key`.
-5. Map change to one or more domain jobs.
-6. Enqueue every job to every relevant bounded in-memory queue.
-7. Return `202` to Sequin only after all enqueue operations succeed.
-8. Return non-2xx when fanout fails so Sequin retries.
+3. For `product_listing_events`, parse typed `event_id` and `product_listing_id`; require event type, group, schema version, and an object payload when routing needs it. Accept only v1 pairs: `DOMAIN`/`PRODUCT_LISTING_DISCOVERED`, `DOMAIN`/`PRODUCT_LISTING_CHANGED`, `ENRICHMENT`/`ENRICHMENT_EMBEDDED`, and `ENRICHMENT`/`ENRICHMENT_TRANSLATED_TITLES`.
+4. Reject malformed IDs or payloads and unsupported ProductListing type/group/version pairs before fanout, so Sequin retries them.
+5. Build domain change from row keys and before/after values.
+6. Derive domain-first `idempotency_key` and `ordering_key`.
+7. Map change to one or more domain jobs.
+8. Enqueue every job to every relevant bounded in-memory queue.
+9. Return `202` to Sequin only after all enqueue operations succeed.
+10. Return non-2xx when validation or fanout fails so Sequin retries.
 
 Crash rule:
 
@@ -124,7 +126,7 @@ Crash rule:
 
 | Source table | Operation | Route |
 |---|---|---|
-| `product_listing_events` | INSERT | Projector for every supported event; percolator for every domain/enrichment event; content assessment, embedding, and translation for `PRODUCT_LISTING_DISCOVERED`; embedding also for `PRODUCT_LISTING_CHANGED` whose payload has `images`; watchlist for `PRODUCT_LISTING_CHANGED` whose payload has main-price or availability changes. Image, price, and availability dimensions fan out independently, so a combined payload routes to the union. `ENRICHMENT_EMBEDDED` does not route translation. Lifecycle is a changed-event dimension, not an event group. |
+| `product_listing_events` | INSERT | `DOMAIN`/`PRODUCT_LISTING_DISCOVERED` v1 routes to projector, percolator, content assessment, embedding, and translation. `DOMAIN`/`PRODUCT_LISTING_CHANGED` v1 routes to projector and percolator; main-price or availability dimensions also route watchlist, and an `images` dimension also routes embedding. `ENRICHMENT`/`ENRICHMENT_EMBEDDED` v1 and `ENRICHMENT`/`ENRICHMENT_TRANSLATED_TITLES` v1 route to projector and percolator. Image, price, and availability dimensions fan out independently, so a combined payload routes to the union. Embedded does not route translation. Lifecycle is a changed-event dimension, not an event group. |
 | `product_listings` | INSERT/MODIFY/DELETE | No default downstream route. ProductListing events are the projection trigger to avoid double-firing. Use listing CDC only for future explicit non-event projections. |
 
 | `search_filters` | INSERT/MODIFY/DELETE | Search-filter OpenSearch sync for every persisted change; handlers reread the complete authoritative record. Idempotency: `(user_search_filter_id, version, op)`. |
@@ -191,7 +193,7 @@ Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=product-translation`; it requ
 
 The percolator scope accepts only `product_listing_events` inserts. It enqueues only `DOMAIN` and `ENRICHMENT` ProductListing events, parsing typed event and ProductListing IDs once at CDC ingress, rereads the committed typed ProductListing match source including immutable `product_listing_events.event_time`, and invokes `MatchProductListingEventUseCase`. The use case compares the source event ID with `product_listings.current_event_id` before percolating; a superseded trigger is skipped, never evaluated against newer ProductListing state with its old origin ID. A current withdrawn listing is an explicit inactive-source skip: it performs no percolation, evaluation, or match write. For an accepted active current event with a main source price, it uses the immutable sale snapshot when present; otherwise it reads latest persisted FX with `captured_at <= origin_event_time`, ordered by capture then generation. It converts the price into every supported currency only in the private temporary percolation document. Stored filter queries remain FX-independent. Current active events percolate the canonical OpenSearch filter projection, then batch enhanced candidates through the neutral typed `large-language-model` capability. The service owns the product-match prompt, structured response schema, typed response mapping, retry policy, and first-five-product-image policy; the capability owns Vertex protocol, credentials, image fetch, generic output deserialization, and its configured provider model. The worker selects that model through required `VERTEX_AI_MODEL` configuration, not use-case code. The use case authoritatively rereads active candidates and stores every active idempotent plain or successful-enhanced match. An enhanced candidate failure never prevents those writes: retryable timeout, transport, 429, 5xx, and malformed-response failures return after commit for normal worker retry; permanent provider 4xx failures are explicit in the use-case result and never create a match. Vertex requests use a 10-second connect and 30-second total timeout, bounded concurrency, at most five product-image fetches per evaluation request, structured JSON, and reasons in the filter search language.
 
-Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=search-filter-percolator`; its Sequin subscription must contain only `product_listing_events` inserts. Event groups other than `DOMAIN` and `ENRICHMENT` are acknowledged without a percolator job. ProductListing-event redelivery is safe through the match uniqueness key; price matches retain `EVENT` or `SALE_OBSERVATION` snapshot provenance, while non-price matches retain null valuation provenance. Processed, duplicate, stale, inactive-source, missing-source, and ignored-event outcomes are recorded separately. FX capture has no percolation, ProductListing projection, match, or notification route.
+Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=search-filter-percolator`; its Sequin subscription must contain only `product_listing_events` inserts. Unsupported ProductListing event group/type/version pairs and malformed routing payloads reject before fanout; supported events irrelevant to this scope produce zero jobs and acknowledge normally. ProductListing-event redelivery is safe through the match uniqueness key; price matches retain `EVENT` or `SALE_OBSERVATION` snapshot provenance, while non-price matches retain null valuation provenance. Processed, duplicate, stale, inactive-source, missing-source, and ignored-event outcomes are recorded separately. FX capture has no percolation, ProductListing projection, match, or notification route.
 
 ## Search-filter match notification generator
 

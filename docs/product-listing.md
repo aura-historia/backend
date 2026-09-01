@@ -137,7 +137,7 @@ PRODUCT_LISTING_DISCOVERED
 PRODUCT_LISTING_CHANGED
 ```
 
-Discovery contains immutable source identity, initial title/description, source pricing, availability, URL, image count, and auction. It has no title slug, image URLs, lifecycle, or sale observation. A changed event has a non-empty typed change set. Main price, minimum estimate, maximum estimate, availability, URL, image counts, auction, lifecycle, and sale observation are separate dimensions. Value changes retain first `previous` and final `current`; net-zero value changes disappear. Image changes remain when cardinality is unchanged. Withdrawal records a lifecycle transition with previous availability. Event payload enum values persist explicit canonical codes, not Rust debug output.
+Discovery contains immutable source identity, initial title/description, source pricing, availability, URL, image count, and auction. It has no title slug, image URLs, lifecycle, or sale observation. A changed event has a non-empty typed change set. Main price, minimum estimate, maximum estimate, availability, URL, image counts, auction, lifecycle, and sale observation are separate dimensions. Value changes retain first `previous` and final `current`; net-zero value changes disappear. Image changes remain when cardinality is unchanged. Withdrawal records a lifecycle transition with previous availability. Canonical domain journal rows use group `DOMAIN` and schema version `1`; enrichment journal events are separate from aggregate-core payloads. Event payload enum values persist explicit canonical codes, not Rust debug output.
 
 ## Application, API, and search contracts
 
@@ -191,3 +191,7 @@ The initial schema uses `product_listings`, `product_listing_events`, `product_l
 Authoritative listing columns are nullable `availability`, non-null `lifecycle`, and the paired nullable `sale_observation_fx_rate_id` / `sale_observed_at`. `version` is aggregate concurrency, `current_event_id` is projection-visible state, `projection_version` is the external projection source version, `content_source_event_id` guards text-derived work, and `embedding_source_event_id` guards title/description/first-image embeddings. Discovery initializes both source markers; only image changes advance the embedding marker and clear the stored vector. PostgreSQL validates exact codes, `Withdrawn => availability IS NULL`, and the sale-observation pair. Listing address/geo and seller columns do not exist. PostgreSQL is authoritative; OpenSearch is rebuildable.
 
 Rows keep persisted enum text as `String` and map using fallible exact canonical parsing. Invalid or noncanonical persisted values are rejected; no mapping defaults or case-normalizes corrupt state.
+
+## Public history
+
+`GET /api/v1/product-listings/{productListingId}/history` returns only committed domain `PRODUCT_LISTING_DISCOVERED` and `PRODUCT_LISTING_CHANGED` entries, ordered by occurrence time then event ID. One changed entry represents one committed revision and contains one deterministically ordered `changes` list. History excludes enrichment rows, storage JSON/core payload wrappers, and source image URLs.

@@ -227,6 +227,7 @@ async fn should_support_core_business_relations() {
             product_listing_id,
             event_type,
             event_group,
+            event_type_schema_version,
             payload,
             event_time
         )
@@ -235,7 +236,8 @@ async fn should_support_core_business_relations() {
             '30000000-0000-0000-0000-000000000001',
             'PRODUCT_LISTING_DISCOVERED',
             'DOMAIN',
-            '{"kind": "created"}',
+            1,
+            '{"listingSourceId":"20000000-0000-0000-0000-000000000002","sourceListingId":"external-1","title":{"language":"en","text":"A vase"},"description":null,"pricing":{"price":null,"priceEstimateMin":null,"priceEstimateMax":null},"availability":null,"url":"https://shop.example.com/product_listings/external-1","imageCount":1,"auction":{"start":null,"end":null}}',
             now()
         );
 

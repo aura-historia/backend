@@ -60,9 +60,25 @@ async fn insert_product_event_under_test(pool: &sqlx::PgPool) {
         .execute(&mut *transaction)
         .await
         .unwrap_or_else(|error| panic!("failed to insert Sequin test product: {error}"));
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', '{}', now())")
+    let discovery_payload = serde_json::json!({
+        "listingSourceId": listing_source_id,
+        "sourceListingId": product_listing_id.to_string(),
+        "title": { "language": "en", "text": "Sequin test product" },
+        "description": null,
+        "pricing": {
+            "price": null,
+            "priceEstimateMin": null,
+            "priceEstimateMax": null
+        },
+        "availability": null,
+        "url": "https://example.test/product",
+        "imageCount": 0,
+        "auction": { "start": null, "end": null }
+    });
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, $3, now())")
         .bind(event_id)
         .bind(product_listing_id)
+        .bind(discovery_payload)
         .execute(&mut *transaction)
         .await
         .unwrap_or_else(|error| panic!("failed to insert Sequin test product event: {error}"));

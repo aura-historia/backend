@@ -50,7 +50,7 @@ async fn should_keep_assessment_current_after_price_and_enrichment_events() {
     .await;
     assert!(
         result.is_ok(),
-        "content assessment freshness acceptance failed: {result:?}"
+        "content assessment source-event acceptance failed: {result:?}"
     );
 }
 

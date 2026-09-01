@@ -1286,9 +1286,9 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_old_or_incompatible_product_listing_event_codes() {
+    fn should_reject_unknown_or_incompatible_product_listing_event_codes() {
         for (event_type, event_group) in [
-            ("PRODUCT_LISTING_CREATED", "DOMAIN"),
+            ("PRODUCT_LISTING_UNKNOWN", "DOMAIN"),
             ("PRODUCT_LISTING_CHANGED", "ENRICHMENT"),
             ("ENRICHMENT_EMBEDDED", "DOMAIN"),
         ] {
