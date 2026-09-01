@@ -275,7 +275,6 @@ impl From<&User> for UserDetailsView {
             tier: user.account().tier,
             role: user.account().role,
             stripe_customer_id: user.account().stripe_customer_id.clone(),
-            geo_address: profile.geo_address,
         }
     }
 }

@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use application::error::BoxError;
-use geo::core::address::GeoAddress;
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
@@ -23,7 +22,6 @@ pub struct UserDetailsView {
     pub tier: UserTier,
     pub role: UserRole,
     pub stripe_customer_id: Option<StripeCustomerId>,
-    pub geo_address: Option<GeoAddress>,
 }
 
 #[derive(Debug, thiserror::Error)]

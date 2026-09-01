@@ -1,5 +1,4 @@
 use crate::patch_value::PatchValue;
-use geo::data::address_data::GeoAddressData;
 use localization::Language;
 use money::Currency;
 use serde::{Deserialize, Serialize};
@@ -41,8 +40,6 @@ pub(crate) struct OwnUserData {
     pub(crate) role: UserRole,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) stripe_customer_id: Option<user_core::stripe_customer_id::StripeCustomerId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) geo_address: Option<GeoAddressData>,
 }
 
 impl From<UserDetailsView> for OwnUserData {
@@ -59,7 +56,6 @@ impl From<UserDetailsView> for OwnUserData {
             tier: view.tier,
             role: view.role,
             stripe_customer_id: view.stripe_customer_id,
-            geo_address: view.geo_address.map(Into::into),
         }
     }
 }
@@ -95,8 +91,6 @@ pub(crate) struct AdminUserData {
     pub(crate) role: UserRole,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) stripe_customer_id: Option<user_core::stripe_customer_id::StripeCustomerId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) geo_address: Option<GeoAddressData>,
 }
 
 impl From<UserDetailsView> for AdminUserData {
@@ -113,7 +107,6 @@ impl From<UserDetailsView> for AdminUserData {
             tier: view.tier,
             role: view.role,
             stripe_customer_id: view.stripe_customer_id,
-            geo_address: view.geo_address.map(Into::into),
         }
     }
 }

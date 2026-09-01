@@ -663,7 +663,6 @@ mod tests {
             "shopName",
             "sellerName",
             "shopType",
-            "geoAddress",
         ] {
             assert!(
                 document.get(field).is_none(),

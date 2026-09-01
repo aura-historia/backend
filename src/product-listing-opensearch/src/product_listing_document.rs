@@ -474,7 +474,6 @@ mod tests {
             "shopName",
             "sellerName",
             "shopType",
-            "geoAddress",
             "viewUrl",
         ] {
             assert!(

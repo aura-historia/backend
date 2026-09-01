@@ -366,10 +366,6 @@ fn sample_user_with_profile(
         profile: UserProfile {
             first_name: first_name.map(FirstName::from),
             last_name: last_name.map(LastName::from),
-            geo_address: Some(geo::core::address::GeoAddress {
-                lat: 51.5,
-                lon: -0.1,
-            }),
         },
         preferences: UserPreferences {
             language: Some(Language::En),

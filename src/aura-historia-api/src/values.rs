@@ -1,59 +1,6 @@
-use geo::core::distance::{Distance, DistanceUnit, GeoDistanceQuery};
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub(crate) struct DistanceData {
-    pub(crate) amount: f64,
-    #[serde(with = "crate::wire::distance_unit")]
-    pub(crate) unit: DistanceUnit,
-}
-
-impl From<DistanceData> for Distance {
-    fn from(value: DistanceData) -> Self {
-        Self {
-            amount: value.amount,
-            unit: value.unit,
-        }
-    }
-}
-
-impl From<Distance> for DistanceData {
-    fn from(value: Distance) -> Self {
-        Self {
-            amount: value.amount,
-            unit: value.unit,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub(crate) struct GeoDistanceQueryData {
-    pub(crate) lat: f64,
-    pub(crate) lon: f64,
-    pub(crate) distance: DistanceData,
-}
-
-impl From<GeoDistanceQueryData> for GeoDistanceQuery {
-    fn from(value: GeoDistanceQueryData) -> Self {
-        Self {
-            lat: value.lat,
-            lon: value.lon,
-            distance: value.distance.into(),
-        }
-    }
-}
-
-impl From<GeoDistanceQuery> for GeoDistanceQueryData {
-    fn from(value: GeoDistanceQuery) -> Self {
-        Self {
-            lat: value.lat,
-            lon: value.lon,
-            distance: value.distance.into(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -115,21 +62,7 @@ mod tests {
                 amount: 1,
             })?
         );
-        assert_eq!(
-            serde_json::json!({
-                "lat": 52.52,
-                "lon": 13.405,
-                "distance": { "amount": 50.0, "unit": "KILOMETERS" }
-            }),
-            serde_json::to_value(GeoDistanceQueryData {
-                lat: 52.52,
-                lon: 13.405,
-                distance: DistanceData {
-                    amount: 50.0,
-                    unit: DistanceUnit::Kilometers,
-                },
-            })?
-        );
+
         assert_eq!(
             Currency::Usd,
             serde_json::from_str::<PriceData>(r#"{"currency":"USD","amount":1}"#)?.currency

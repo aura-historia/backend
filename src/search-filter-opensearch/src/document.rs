@@ -601,7 +601,7 @@ mod tests {
         assert!(value.pointer("/search/shopType").is_none());
         assert!(value.pointer("/search/country").is_none());
         assert!(value.pointer("/search/continent").is_none());
-        assert!(value.pointer("/search/geoAddress").is_none());
+
         assert_eq!(
             Some(&serde_json::json!(listing_source_id.to_string())),
             value.pointer("/query/bool/filter/0/terms/listingSourceId/0")

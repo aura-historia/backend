@@ -432,7 +432,6 @@ mod tests {
             tier: UserTier::Free,
             role: UserRole::User,
             stripe_customer_id,
-            geo_address: None,
         }
     }
 

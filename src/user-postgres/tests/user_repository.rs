@@ -294,10 +294,6 @@ fn sample_user(slug: &str, role: UserRole, stripe_customer_id: Option<&str>) -> 
         profile: UserProfile {
             first_name: Some(FirstName::from("Ada")),
             last_name: Some(LastName::from("Lovelace")),
-            geo_address: Some(geo::core::address::GeoAddress {
-                lat: 51.5,
-                lon: -0.1,
-            }),
         },
         preferences: UserPreferences {
             language: Some(Language::En),

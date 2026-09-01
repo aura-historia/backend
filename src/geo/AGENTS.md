@@ -7,9 +7,9 @@
 ## Core Design
 
 - Geo domain, data, and external geocoding/OpenSearch value mapping.
-- `core::distance` owns pure distance query values and canonical `DistanceUnit` codes; `core::continent` owns canonical `Continent` codes; OpenSearch owns distance formatting.
+- `core::address` owns structured-address formatting; `core::distance` owns pure distance values and canonical `DistanceUnit` codes; `core::continent` owns canonical `Continent` codes; OpenSearch owns distance formatting.
 - `data::ContinentData` remains a deliberate legacy compatibility boundary for mixed geo data paths; new adapters use canonical `Continent` with local codecs.
-- `Geocoder` is shared product-neutral geocoding port. `GoogleGeocoder` owns Google HTTP and private DTOs.
+- `Geocoder` is a shared product-neutral address resolution port that returns a formatted address. `GoogleGeocoder` owns Google HTTP and private DTOs.
 - Composition root gives `GoogleGeocoderConfig`; crate reads no environment.
 - Modules stay explicit: `core`, `opensearch`, `data`, `service`.
 - Library crate. Keep domain, adapter, and legacy seams explicit.

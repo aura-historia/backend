@@ -1,4 +1,3 @@
-use geo::core::address::GeoAddress;
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
@@ -31,15 +30,13 @@ pub(crate) struct UserRow {
     pub tier: String,
     pub role: String,
     pub stripe_customer_id: Option<String>,
-    pub geo_address_lat: Option<f64>,
-    pub geo_address_lon: Option<f64>,
     pub version: i64,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
 
 pub(crate) fn user_columns() -> &'static str {
-    "user_id, email, first_name, last_name, language, currency, measurement_unit, show_unassessed_or_sensitive_content, tier, role, stripe_customer_id, geo_address_lat, geo_address_lon, version, created, updated"
+    "user_id, email, first_name, last_name, language, currency, measurement_unit, show_unassessed_or_sensitive_content, tier, role, stripe_customer_id, version, created, updated"
 }
 
 impl TryFrom<UserRow> for VersionedUser {
@@ -75,7 +72,6 @@ impl TryFrom<UserRow> for UserDetailsView {
             tier: parse_tier(&row.tier)?,
             role: parse_role(&row.role)?,
             stripe_customer_id: row.stripe_customer_id.clone().map(StripeCustomerId::from),
-            geo_address: geo_address_from_row(&row)?,
         })
     }
 }
@@ -130,8 +126,6 @@ pub(crate) enum UserRowMappingError {
     #[error("missing user stripe customer id")]
     MissingStripeCustomerId,
 
-    #[error("incomplete user geo address")]
-    IncompleteGeoAddress,
     #[error("invalid user version")]
     InvalidVersion(#[from] domain_primitives::version::InvalidVersionError),
     #[error("invalid rehydrated user")]
@@ -179,7 +173,6 @@ fn profile_from_row(row: &UserRow) -> Result<UserProfile, UserRowMappingError> {
     Ok(UserProfile {
         first_name: row.first_name.clone().map(FirstName::from),
         last_name: row.last_name.clone().map(LastName::from),
-        geo_address: geo_address_from_row(row)?,
     })
 }
 
@@ -198,14 +191,6 @@ fn account_from_row(row: &UserRow) -> Result<UserAccount, UserRowMappingError> {
         role: parse_role(&row.role)?,
         stripe_customer_id: row.stripe_customer_id.clone().map(StripeCustomerId::from),
     })
-}
-
-fn geo_address_from_row(row: &UserRow) -> Result<Option<GeoAddress>, UserRowMappingError> {
-    match (row.geo_address_lat, row.geo_address_lon) {
-        (Some(lat), Some(lon)) => Ok(Some(GeoAddress { lat, lon })),
-        (None, None) => Ok(None),
-        _ => Err(UserRowMappingError::IncompleteGeoAddress),
-    }
 }
 
 fn parse_email(value: &str) -> Result<Email, UserRowMappingError> {
@@ -375,7 +360,6 @@ mod tests {
         assert_eq!(Some(MeasurementUnit::Imperial), details.measurement_unit);
         assert_eq!(UserTier::Pro, details.tier);
         assert_eq!(UserRole::Admin, details.role);
-        assert!(details.geo_address.is_some());
     }
 
     #[test]
@@ -386,8 +370,6 @@ mod tests {
             language: None,
             currency: None,
             measurement_unit: None,
-            geo_address_lat: None,
-            geo_address_lon: None,
             ..user_row()
         };
 
@@ -446,14 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn should_report_mapping_errors_for_geo_stripe_and_version_branches() {
-        assert!(matches!(
-            UserDetailsView::try_from(UserRow {
-                geo_address_lon: None,
-                ..user_row()
-            }),
-            Err(UserRowMappingError::IncompleteGeoAddress)
-        ));
+    fn should_report_mapping_errors_for_stripe_and_version_branches() {
         assert!(matches!(
             UserStripeLookupView::try_from(UserRow {
                 stripe_customer_id: None,
@@ -470,13 +445,6 @@ mod tests {
                 InvalidVersionError::Zero
             ))
         ));
-        assert!(matches!(
-            VersionedUser::try_from(UserRow {
-                geo_address_lat: Some(91.0),
-                ..user_row()
-            }),
-            Err(UserRowMappingError::InvalidUser(_))
-        ));
     }
 
     fn user_row() -> UserRow {
@@ -492,8 +460,6 @@ mod tests {
             tier: "PRO".to_owned(),
             role: "ADMIN".to_owned(),
             stripe_customer_id: Some("cus_test".to_owned()),
-            geo_address_lat: Some(51.5),
-            geo_address_lon: Some(-0.1),
             version: 1,
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,

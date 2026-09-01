@@ -1,5 +1,5 @@
 use crate::core::{
-    address::{GeoAddress, StructuredAddress},
+    address::StructuredAddress,
     continent::Continent,
     distance::{Distance, DistanceUnit},
 };
@@ -41,26 +41,6 @@ pub fn structured_address_from_document(
         continent: country.map(Continent::from),
     };
     (!structured_address.is_empty()).then_some(structured_address)
-}
-
-pub fn geo_address_to_opensearch_point(address: GeoAddress) -> String {
-    format!("{},{}", address.lat, address.lon)
-}
-
-pub fn geo_address_from_opensearch_point(value: &str) -> Option<GeoAddress> {
-    let (lat, lon) = value.split_once(',')?;
-    Some(GeoAddress {
-        lat: lat.trim().parse().ok()?,
-        lon: lon.trim().parse().ok()?,
-    })
-}
-
-pub fn geo_address_to_document(address: Option<GeoAddress>) -> Option<String> {
-    address.map(geo_address_to_opensearch_point)
-}
-
-pub fn geo_address_from_document(geo_point: Option<&str>) -> Option<GeoAddress> {
-    geo_point.and_then(geo_address_from_opensearch_point)
 }
 
 #[cfg(test)]

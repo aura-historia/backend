@@ -3400,8 +3400,6 @@ paths:
 
         `lastName`, and `stripeCustomerId`.
 
-        Geospatial filtering is available via `geoAddress`.
-
         "
       operationId: adminSearchUsers
       tags:
@@ -3465,25 +3463,6 @@ paths:
           example:
             - ADMIN
 
-        - name: geoAddress
-          in: query
-          required: false
-          description:
-            "Optional geospatial proximity filter for the user's indexed coordinates.
-
-            Use deep-object encoding with `geoAddress[lat]`, `geoAddress[lon]`, `geoAddress[distance][amount]`, and `geoAddress[distance][unit]`.
-
-            "
-          style: deepObject
-          explode: true
-          schema:
-            $ref: "#/components/schemas/GeoDistanceQueryData"
-          example:
-            lat: 52.52
-            lon: 13.405
-            distance:
-              amount: 50
-              unit: KILOMETERS
         - name: created[min]
           in: query
           required: false
@@ -3588,9 +3567,6 @@ paths:
                     tier: ULTIMATE
                     role: ADMIN
                     stripeCustomerId: cus_admin_550e8400e29b41d4a716446655440000
-                    geoAddress:
-                      lat: 52.516275
-                      lon: 13.377704
                     created: "2026-01-10T09:00:00Z"
                     updated: "2026-04-25T08:00:00Z"
                   - userId: 7f1c2a88-4e18-4c3a-bf0d-6a0fd5e6d901
@@ -3762,9 +3738,6 @@ paths:
                 tier: ULTIMATE
                 role: ADMIN
                 stripeCustomerId: cus_admin_550e8400e29b41d4a716446655440000
-                geoAddress:
-                  lat: 52.516275
-                  lon: 13.377704
                 created: "2026-01-10T09:00:00Z"
                 updated: "2026-04-25T08:00:00Z"
         "401":
@@ -3889,9 +3862,6 @@ paths:
                 tier: ULTIMATE
                 role: ADMIN
                 stripeCustomerId: cus_admin_550e8400e29b41d4a716446655440000
-                geoAddress:
-                  lat: 52.516275
-                  lon: 13.377704
                 created: "2026-01-10T09:00:00Z"
                 updated: "2026-04-25T09:15:00Z"
         "400":
@@ -9267,54 +9237,7 @@ components:
           format: date-time
           description: Maximum date and time (inclusive, RFC3339 format)
           example: "2024-12-31T23:59:59Z"
-    DistanceUnitData:
-      type: string
-      description: Supported units for geo-distance filters.
-      enum:
-        - MILES
-        - YARDS
-        - FEET
-        - INCHES
-        - KILOMETERS
-        - METERS
-        - CENTIMETERS
-        - MILLIMETERS
-        - NAUTICAL_MILES
-      example: KILOMETERS
-    DistanceData:
-      type: object
-      description: Scalar distance value used by geo-distance filters.
-      required:
-        - amount
-        - unit
-      properties:
-        amount:
-          type: number
-          format: double
-          description: Numeric distance amount.
-          example: 50
-        unit:
-          $ref: "#/components/schemas/DistanceUnitData"
-    GeoDistanceQueryData:
-      type: object
-      description: Geospatial filter matching indexed coordinates within a distance of a reference point.
-      required:
-        - lat
-        - lon
-        - distance
-      properties:
-        lat:
-          type: number
-          format: double
-          description: Reference latitude in decimal degrees.
-          example: 52.52
-        lon:
-          type: number
-          format: double
-          description: Reference longitude in decimal degrees.
-          example: 13.405
-        distance:
-          $ref: "#/components/schemas/DistanceData"
+
     UserSearchFilterCollectionData:
       type: object
       description: Paginated collection of user search filters with flattened pagination
@@ -9345,23 +9268,6 @@ components:
           nullable: true
           example: 127
 
-    GeoAddressData:
-      type: object
-      description: Optional latitude/longitude coordinates associated with the user.
-      required:
-        - lat
-        - lon
-      properties:
-        lat:
-          type: number
-          format: double
-          description: Latitude in decimal degrees.
-          example: 52.516275
-        lon:
-          type: number
-          format: double
-          description: Longitude in decimal degrees.
-          example: 13.377704
     AccessTokenScopeData:
       type: string
       enum:
@@ -10036,10 +9942,7 @@ components:
           type: string
           nullable: true
           description: Persisted Stripe customer identifier, omitted when absent.
-        geoAddress:
-          allOf:
-            - $ref: "#/components/schemas/GeoAddressData"
-          nullable: true
+
     AdminUserAccountData:
       allOf:
         - $ref: "#/components/schemas/OwnUserAccountData"

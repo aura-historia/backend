@@ -1,13 +1,11 @@
 use crate::ports::{UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory};
-use application::error::{BoxError, box_error};
+use application::error::BoxError;
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use application::transaction::{Transaction, UnitOfWork};
 use serde_email::Email;
-use user_core::user::{
-    NewUser, RehydrateUserError, User, UserAccount, UserPreferences, UserProfile,
-};
+use user_core::user::{NewUser, User, UserAccount, UserPreferences, UserProfile};
 use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -119,7 +117,7 @@ where
             tracing::field::display(context.principal.label()),
         );
 
-        let user = User::try_from(command)?;
+        let user = User::from(command);
         let mut tx = self
             .unit_of_work
             .begin()
@@ -157,17 +155,18 @@ where
     }
 }
 
-impl TryFrom<CreateUserCommand> for User {
-    type Error = RehydrateUserError;
-
-    fn try_from(command: CreateUserCommand) -> Result<Self, Self::Error> {
-        User::create(NewUser {
+impl From<CreateUserCommand> for User {
+    fn from(command: CreateUserCommand) -> Self {
+        match User::create(NewUser {
             id: command.user_id,
             email: command.email,
             profile: UserProfile::default(),
             preferences: UserPreferences::default(),
             account: UserAccount::default(),
-        })
+        }) {
+            Ok(user) => user,
+            Err(error) => match error {},
+        }
     }
 }
 
@@ -188,14 +187,6 @@ impl From<&User> for CreateUserResult {
         Self {
             user_id: user.id(),
             email: user.email().clone(),
-        }
-    }
-}
-
-impl From<RehydrateUserError> for CreateUserError {
-    fn from(error: RehydrateUserError) -> Self {
-        Self::InvalidUserState {
-            source: box_error(error),
         }
     }
 }

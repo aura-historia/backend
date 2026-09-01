@@ -1,4 +1,4 @@
-use crate::core::address::{GeoAddress, StructuredAddress};
+use crate::core::address::StructuredAddress;
 use std::error::Error;
 
 const GOOGLE_GEOCODING_V4_URL: &str = "https://geocode.googleapis.com/v4/geocode/address";
@@ -37,7 +37,7 @@ impl GeocodingError {
 
 #[async_trait::async_trait]
 pub trait Geocoder: Send + Sync {
-    async fn geocode(&self, address: &StructuredAddress) -> Result<GeoAddress, GeocodingError>;
+    async fn geocode(&self, address: &StructuredAddress) -> Result<String, GeocodingError>;
 }
 
 #[async_trait::async_trait]
@@ -45,7 +45,7 @@ impl<G> Geocoder for std::sync::Arc<G>
 where
     G: Geocoder + ?Sized,
 {
-    async fn geocode(&self, address: &StructuredAddress) -> Result<GeoAddress, GeocodingError> {
+    async fn geocode(&self, address: &StructuredAddress) -> Result<String, GeocodingError> {
         self.as_ref().geocode(address).await
     }
 }
@@ -83,7 +83,7 @@ impl GoogleGeocoder {
 
 #[async_trait::async_trait]
 impl Geocoder for GoogleGeocoder {
-    async fn geocode(&self, address: &StructuredAddress) -> Result<GeoAddress, GeocodingError> {
+    async fn geocode(&self, address: &StructuredAddress) -> Result<String, GeocodingError> {
         let address = address
             .format_for_geocoding()
             .ok_or_else(|| GeocodingError::internal(EmptyAddress))?;
@@ -106,7 +106,7 @@ impl Geocoder for GoogleGeocoder {
             .json::<GoogleGeocodingResponse>()
             .await
             .map_err(|source| GeocodingError::from(GoogleGeocoderDecodeError(source)))?
-            .into_geo_address()
+            .into_formatted_address()
             .ok_or(GeocodingError::NotFound)
     }
 }
@@ -166,37 +166,23 @@ struct GoogleGeocodingResponse {
 }
 
 impl GoogleGeocodingResponse {
-    fn into_geo_address(self) -> Option<GeoAddress> {
+    fn into_formatted_address(self) -> Option<String> {
         self.results
             .into_iter()
-            .find_map(GoogleGeocodingResult::into_geo_address)
+            .find_map(GoogleGeocodingResult::into_formatted_address)
     }
 }
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GoogleGeocodingResult {
-    location: Option<GoogleGeocodingLocation>,
+    formatted_address: Option<String>,
 }
 
 impl GoogleGeocodingResult {
-    fn into_geo_address(self) -> Option<GeoAddress> {
-        self.location?.into_geo_address()
-    }
-}
-
-#[derive(serde::Deserialize)]
-struct GoogleGeocodingLocation {
-    latitude: Option<f64>,
-    longitude: Option<f64>,
-}
-
-impl GoogleGeocodingLocation {
-    fn into_geo_address(self) -> Option<GeoAddress> {
-        Some(GeoAddress {
-            lat: self.latitude?,
-            lon: self.longitude?,
-        })
+    fn into_formatted_address(self) -> Option<String> {
+        self.formatted_address
+            .filter(|address| !address.trim().is_empty())
     }
 }
 
@@ -208,23 +194,30 @@ mod tests {
     fn should_map_first_complete_google_result() {
         let response = GoogleGeocodingResponse {
             results: vec![
-                GoogleGeocodingResult { location: None },
                 GoogleGeocodingResult {
-                    location: Some(GoogleGeocodingLocation {
-                        latitude: Some(48.8566),
-                        longitude: Some(2.3522),
-                    }),
+                    formatted_address: None,
+                },
+                GoogleGeocodingResult {
+                    formatted_address: Some("10 Downing Street, London".to_owned()),
                 },
             ],
         };
 
         assert_eq!(
-            Some(GeoAddress {
-                lat: 48.8566,
-                lon: 2.3522,
-            }),
-            response.into_geo_address()
+            Some("10 Downing Street, London".to_owned()),
+            response.into_formatted_address()
         );
+    }
+
+    #[test]
+    fn should_ignore_blank_google_result() {
+        let response = GoogleGeocodingResponse {
+            results: vec![GoogleGeocodingResult {
+                formatted_address: Some("  ".to_owned()),
+            }],
+        };
+
+        assert_eq!(None, response.into_formatted_address());
     }
 
     #[test]

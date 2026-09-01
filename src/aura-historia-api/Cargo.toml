@@ -15,7 +15,7 @@ domain-primitives = { workspace = true }
 embedding = { workspace = true }
 fxrate-core = { workspace = true }
 fxrate-postgres = { workspace = true }
-geo = { workspace = true, features = ["data"] }
+
 google-cloud-auth = { workspace = true }
 http = { workspace = true }
 httpdate = { workspace = true }
@@ -26,7 +26,7 @@ oauth-service = { workspace = true }
 opensearch = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
-isocountry = { workspace = true }
+
 jsonwebtokens = { workspace = true }
 listing-source-core = { workspace = true }
 listing-source-postgres = { workspace = true }

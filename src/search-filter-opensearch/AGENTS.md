@@ -8,7 +8,7 @@
 ## Core Design
 
 - Writes canonical documents directly through `user_search_filters`; structural documents own index shape while local codecs preserve legacy values for canonical semantic leaves.
-- ProductListing search documents persist only positive and negative ListingSource ID filters, plus the optional availability query object with canonical exact `ListingAvailability` and derived `ListingOrderability` codes plus `includeUnspecifiedAvailability`; retired Shop, seller, type, location, and geo filters are rejected without aliases.
+- ProductListing search documents persist only positive and negative ListingSource ID filters, plus the optional availability query object with canonical exact `ListingAvailability` and derived `ListingOrderability` codes plus `includeUnspecifiedAvailability`; retired Shop, seller, type, location, and address filters are rejected without aliases.
 - Builds percolator queries from complete authoritative SearchFilter state using the public ProductListing percolator JSON builder. Price ranges target private `priceByCurrency.<currency>` fields and carry no FX metadata. Percolation receives only an application-owned event-time input with closed-world currency values from the service; it has no FX repository or selection policy.
 - Uses Postgres `version` as OpenSearch external versioning; stale or duplicate writes are no-op outcomes.
 - Vertex AI product matching is a service-orchestrated use of the neutral `large-language-model` capability, not part of this OpenSearch adapter.

@@ -392,25 +392,6 @@ pub(crate) mod listing_lifecycle {
     }
 }
 
-pub(crate) mod distance_unit {
-    use super::*;
-    use geo::core::distance::DistanceUnit;
-
-    pub(crate) fn serialize<S>(value: &DistanceUnit, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serialize_code(value, serializer, DistanceUnit::as_str)
-    }
-
-    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<DistanceUnit, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserialize_code(deserializer, DistanceUnit::from_code, None)
-    }
-}
-
 pub(crate) mod measurement_unit {
     use super::*;
     use user_core::measurement_unit::MeasurementUnit;
