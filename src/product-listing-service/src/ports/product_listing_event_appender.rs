@@ -3,30 +3,27 @@
 use application::error::BoxError;
 use domain_primitives::{event::Event, event_id::EventId};
 use product_listing_core::{
-    product_listing::ProductListingEventPayload, product_listing_id::ProductListingId,
+    product_listing_event::ProductListingEventPayload, product_listing_id::ProductListingId,
 };
 use time::OffsetDateTime;
 
 pub type ProductListingEvent = Event<ProductListingId, ProductListingEventPayload>;
 
-pub fn stamp_product_listing_events(
+pub fn stamp_product_listing_event(
     product_listing_id: ProductListingId,
     occurred_at: OffsetDateTime,
-    payloads: Vec<ProductListingEventPayload>,
-) -> Vec<ProductListingEvent> {
-    payloads
-        .into_iter()
-        .map(|payload| Event {
-            aggregate_id: product_listing_id,
-            event_id: EventId::new(),
-            timestamp: occurred_at,
-            payload,
-        })
-        .collect()
+    payload: ProductListingEventPayload,
+) -> ProductListingEvent {
+    Event {
+        aggregate_id: product_listing_id,
+        event_id: EventId::new(),
+        timestamp: occurred_at,
+        payload,
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ProductListingEventStoreError {
+pub enum ProductListingEventAppendError {
     #[error("product listing event already exists")]
     ProductListingEventAlreadyExists,
     #[error("product listing event payload serialization failed")]
@@ -35,17 +32,20 @@ pub enum ProductListingEventStoreError {
         source: BoxError,
     },
     #[error("product listing event append failed")]
-    ProductListingEventAppendFailed,
+    ProductListingEventAppendFailed {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]
-pub trait ProductListingEventStore: Send {
+pub trait ProductListingEventAppender: Send {
     async fn append(
         &mut self,
         event: &ProductListingEvent,
-    ) -> Result<(), ProductListingEventStoreError>;
+    ) -> Result<(), ProductListingEventAppendError>;
 }
 
-pub trait ProductListingEventStoreFactory<Tx>: Send + Sync {
-    fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl ProductListingEventStore + 'tx;
+pub trait ProductListingEventAppenderFactory<Tx>: Send + Sync {
+    fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl ProductListingEventAppender + 'tx;
 }

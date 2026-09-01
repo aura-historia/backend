@@ -11,8 +11,8 @@ pub mod product_listing_details_reader;
 pub mod product_listing_embedding_reader;
 pub mod product_listing_embedding_source_reader;
 pub mod product_listing_embedding_writer;
+pub mod product_listing_event_appender;
 pub mod product_listing_event_reader;
-pub mod product_listing_event_store;
 pub mod product_listing_percolation;
 pub mod product_listing_price_filter_plan;
 pub mod product_listing_repository;
@@ -80,12 +80,12 @@ pub use product_listing_embedding_writer::{
     ProductListingEmbeddingWriteOutcome, ProductListingEmbeddingWriter,
     ProductListingEmbeddingWriterFactory,
 };
+pub use product_listing_event_appender::{
+    ProductListingEventAppendError, ProductListingEventAppender,
+    ProductListingEventAppenderFactory, stamp_product_listing_event,
+};
 pub use product_listing_event_reader::{
     ProductListingEventReadError, ProductListingEventReader, ProductListingEventReaderFactory,
-};
-pub use product_listing_event_store::{
-    ProductListingEventStore, ProductListingEventStoreError, ProductListingEventStoreFactory,
-    stamp_product_listing_events,
 };
 pub use product_listing_percolation::{
     ProductListingPercolationInput, ProductListingPercolationValuation,

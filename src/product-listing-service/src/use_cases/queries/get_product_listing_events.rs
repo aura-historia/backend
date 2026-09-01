@@ -1,11 +1,14 @@
 use crate::ports::{
     ProductListingEventReadError, ProductListingEventReader, ProductListingEventReaderFactory,
 };
-use application::operation_context::OperationContext;
-use application::transaction::{Transaction, UnitOfWork};
+use application::{
+    error::BoxError,
+    operation_context::OperationContext,
+    transaction::{Transaction, UnitOfWork},
+};
 use domain_primitives::event_id::EventId;
 
-use product_listing_core::product_listing::ProductListingEventPayload;
+use product_listing_core::product_listing_event::ProductListingEventPayload;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use time::OffsetDateTime;
@@ -29,7 +32,7 @@ pub struct ProductListingEvent {
 }
 impl ProductListingEvent {
     pub fn event_type(&self) -> &'static str {
-        self.payload.event_type()
+        self.payload.event_type().as_str()
     }
 }
 #[derive(Debug, thiserror::Error)]
@@ -37,9 +40,15 @@ pub enum GetProductListingEventsError {
     #[error("product listing not found")]
     NotFound,
     #[error("product listing event query failed")]
-    QueryFailed,
+    QueryFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("product listing event read model is invalid")]
-    InvalidReadModel,
+    InvalidReadModel {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin product listing history transaction")]
     BeginTransactionFailed,
     #[error("failed to commit product listing history transaction")]
@@ -97,9 +106,11 @@ where
 impl From<ProductListingEventReadError> for GetProductListingEventsError {
     fn from(error: ProductListingEventReadError) -> Self {
         match error {
-            ProductListingEventReadError::ProductListingEventQueryFailed => Self::QueryFailed,
-            ProductListingEventReadError::ProductListingEventReadModelInvalid => {
-                Self::InvalidReadModel
+            ProductListingEventReadError::ProductListingEventQueryFailed { source } => {
+                Self::QueryFailed { source }
+            }
+            ProductListingEventReadError::ProductListingEventReadModelInvalid { source } => {
+                Self::InvalidReadModel { source }
             }
         }
     }

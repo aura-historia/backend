@@ -542,7 +542,7 @@ mod tests {
         );
         assert_eq!(
             ProductListingSearchFilterMatchSourceEventKind::Ignored,
-            event_kind("LIFECYCLE")
+            event_kind("UNKNOWN")
         );
     }
 

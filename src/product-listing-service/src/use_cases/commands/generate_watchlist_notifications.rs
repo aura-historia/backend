@@ -178,17 +178,22 @@ where
         let recipient_count = recipients.len();
         let notifications = recipients
             .into_iter()
-            .map(|recipient| NewNotification {
-                notification: notification_core::notification::Notification::new(
-                    NotificationId::new(),
-                    recipient.user_id,
-                    notification_content(command.event_id, source.clone()),
-                ),
-                external_delivery: if recipient.external_delivery_requested {
-                    ExternalDeliveryRequest::Requested
-                } else {
-                    ExternalDeliveryRequest::None
-                },
+            .flat_map(|recipient| {
+                source.changes.iter().cloned().map({
+                    let source = source.clone();
+                    move |change| NewNotification {
+                        notification: notification_core::notification::Notification::new(
+                            NotificationId::new(),
+                            recipient.user_id,
+                            notification_content(command.event_id, source.clone(), change),
+                        ),
+                        external_delivery: if recipient.external_delivery_requested {
+                            ExternalDeliveryRequest::Requested
+                        } else {
+                            ExternalDeliveryRequest::None
+                        },
+                    }
+                })
             })
             .collect::<Vec<_>>();
         let outcomes = self
@@ -223,8 +228,9 @@ where
 fn notification_content(
     origin_event_id: EventId,
     source: ProductListingWatchlistNotificationSource,
+    source_change: ProductListingWatchlistNotificationChange,
 ) -> NotificationContent {
-    let change = match source.change {
+    let change = match source_change {
         ProductListingWatchlistNotificationChange::PriceChanged {
             old_price,
             new_price,
@@ -351,10 +357,10 @@ mod tests {
                 .unwrap_or_else(|error| panic!("test URL invalid: {error}")),
             view_url: Url::parse("https://example.test/product/view")
                 .unwrap_or_else(|error| panic!("test URL invalid: {error}")),
-            change: ProductListingWatchlistNotificationChange::PriceChanged {
+            changes: vec![ProductListingWatchlistNotificationChange::PriceChanged {
                 old_price: None,
                 new_price: None,
-            },
+            }],
         }
     }
 
@@ -617,6 +623,68 @@ mod tests {
         assert_eq!(0, state.commits);
         assert_eq!(0, state.recipient_count);
         assert!(state.notification_batches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_create_one_notification_per_relevant_change_for_each_recipient() {
+        let state = state();
+        let event_id = EventId::new();
+        let product_listing_id = ProductListingId::new();
+        {
+            let mut state = lock(&state);
+            let mut notification_source =
+                source(event_id, product_listing_id, OffsetDateTime::UNIX_EPOCH);
+            notification_source.changes.push(
+                ProductListingWatchlistNotificationChange::AvailabilityChanged {
+                    old_availability: None,
+                    new_availability: Some(
+                        product_listing_core::listing_availability::ListingAvailability::InStock,
+                    ),
+                },
+            );
+            state.sources.push(notification_source);
+            state.recipients.push(WatchlistNotificationRecipient {
+                user_id: UserId::new(),
+                external_delivery_requested: true,
+            });
+        }
+
+        let result = handler(&state)
+            .execute(command(event_id, product_listing_id))
+            .await;
+
+        assert!(matches!(
+            result,
+            Ok(GenerateWatchlistNotificationsResult::Applied {
+                recipient_count: 1,
+                inserted_count: 2,
+                already_exists_count: 0,
+            })
+        ));
+        let state = lock(&state);
+        assert_eq!(1, state.notification_batches.len());
+        assert_eq!(2, state.notification_batches[0].len());
+        assert!(state.notification_batches[0].iter().all(|notification| {
+            notification.external_delivery == ExternalDeliveryRequest::Requested
+        }));
+        assert!(state.notification_batches[0].iter().any(|notification| {
+            matches!(
+                notification.notification.content(),
+                NotificationContent::Watchlist {
+                    change: NotificationWatchlistChange::PriceChange { .. },
+                    ..
+                }
+            )
+        }));
+        assert!(state.notification_batches[0].iter().any(|notification| {
+            matches!(
+                notification.notification.content(),
+                NotificationContent::Watchlist {
+                    change: NotificationWatchlistChange::AvailabilityChange { .. },
+                    ..
+                }
+            )
+        }));
     }
 
     #[tokio::test]

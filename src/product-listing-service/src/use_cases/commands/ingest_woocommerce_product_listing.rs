@@ -1,8 +1,8 @@
 use crate::ports::{
     PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
-    PartnerProductListingAuthorizerFactory, ProductListingEventStore,
-    ProductListingEventStoreError, ProductListingEventStoreFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
+    PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
+    ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_event,
 };
 use crate::product_listing_title_slug_creation::{
     ProductListingTitleSlugGenerator, RandomProductListingTitleSlugGenerator,
@@ -146,8 +146,11 @@ pub enum IngestWoocommerceProductListingError {
     ProductListingTitleSlugGenerationExhausted,
     #[error("product listing persistence failed")]
     ProductListingPersistenceFailed,
-    #[error("product listing event storage failed")]
-    ProductListingEventStoreFailed,
+    #[error("product listing event append failed")]
+    ProductListingEventAppenderFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin WooCommerce product ingestion transaction")]
     BeginTransactionFailed,
     #[error("failed to commit WooCommerce product ingestion transaction")]
@@ -197,8 +200,8 @@ impl From<ProductListingRepositoryError> for WoocommerceIngestAttemptError {
         Self::Failed(error.into())
     }
 }
-impl From<ProductListingEventStoreError> for WoocommerceIngestAttemptError {
-    fn from(error: ProductListingEventStoreError) -> Self {
+impl From<ProductListingEventAppendError> for WoocommerceIngestAttemptError {
+    fn from(error: ProductListingEventAppendError) -> Self {
         Self::Failed(error.into())
     }
 }
@@ -272,7 +275,7 @@ impl<U, R, E, A, S, V, G> IngestWoocommerceProductListingHandler<U, R, E, A, S, 
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
-    E: ProductListingEventStoreFactory<U::Tx>,
+    E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
     S: WoocommerceSourceReader,
     V: WoocommerceSignatureVerifier,
@@ -338,27 +341,26 @@ where
                 }
                 listing.change_url(data.url)?;
                 listing.replace_images(data.images)?;
-                let events = stamp_product_listing_events(
-                    listing.id(),
-                    time::OffsetDateTime::now_utc(),
-                    listing.take_pending_event_payloads(),
-                );
-                let outcome = if events.is_empty() {
-                    ChangeOutcome::Unchanged
-                } else {
+                let event = listing.take_pending_event_payload().map(|payload| {
+                    stamp_product_listing_event(
+                        listing.id(),
+                        time::OffsetDateTime::now_utc(),
+                        payload,
+                    )
+                });
+                let outcome = if event.is_some() {
                     ChangeOutcome::Changed
+                } else {
+                    ChangeOutcome::Unchanged
                 };
-                let current_event_id = events.last().map(|event| event.event_id);
-                if let Some(current_event_id) = current_event_id {
+                if let Some(event) = event {
                     listing = self
                         .products
                         .in_transaction(tx)
-                        .update(&listing, expected_version, current_event_id)
+                        .update(&listing, expected_version, event.event_id)
                         .await?
                         .value;
-                    for event in &events {
-                        self.events.in_transaction(tx).append(event).await?;
-                    }
+                    self.events.in_transaction(tx).append(&event).await?;
                 }
                 Ok(UpsertProductListingResult::Updated(
                     UpdateProductListingResult {
@@ -401,16 +403,18 @@ where
                     images: data.images,
                     auction: ProductListingAuction::default(),
                 })?;
-                let events = stamp_product_listing_events(
+                let event = stamp_product_listing_event(
                     listing.id(),
                     time::OffsetDateTime::now_utc(),
-                    listing.take_pending_event_payloads(),
+                    listing.take_pending_event_payload().ok_or_else(|| {
+                        IngestWoocommerceProductListingError::InvalidProductListing {
+                            source: box_error(std::io::Error::other(
+                                "created listing has no event",
+                            )),
+                        }
+                    })?,
                 );
-                let event_id = events.last().map(|event| event.event_id).ok_or_else(|| {
-                    IngestWoocommerceProductListingError::InvalidProductListing {
-                        source: box_error(std::io::Error::other("created listing has no event")),
-                    }
-                })?;
+                let event_id = event.event_id;
                 let persisted = self
                     .products
                     .in_transaction(tx)
@@ -425,9 +429,7 @@ where
                         }
                         error => WoocommerceIngestAttemptError::Failed(error.into()),
                     })?;
-                for event in &events {
-                    self.events.in_transaction(tx).append(event).await?;
-                }
+                self.events.in_transaction(tx).append(&event).await?;
                 Ok(UpsertProductListingResult::Created(
                     CreateProductListingResult {
                         product_listing_id: persisted.value.id(),
@@ -449,22 +451,17 @@ where
         let expected_version = loaded.version;
         let mut listing = loaded.value;
         let outcome = listing.withdraw();
-        let events = stamp_product_listing_events(
-            listing.id(),
-            time::OffsetDateTime::now_utc(),
-            listing.take_pending_event_payloads(),
-        );
-        let current_event_id = events.last().map(|event| event.event_id);
-        if let Some(current_event_id) = current_event_id {
+        let event = listing.take_pending_event_payload().map(|payload| {
+            stamp_product_listing_event(listing.id(), time::OffsetDateTime::now_utc(), payload)
+        });
+        if let Some(event) = event {
             listing = self
                 .products
                 .in_transaction(tx)
-                .update(&listing, expected_version, current_event_id)
+                .update(&listing, expected_version, event.event_id)
                 .await?
                 .value;
-            for event in &events {
-                self.events.in_transaction(tx).append(event).await?;
-            }
+            self.events.in_transaction(tx).append(&event).await?;
         }
         Ok(Some(WithdrawProductListingResult {
             product_listing_id: listing.id(),
@@ -539,7 +536,7 @@ impl<U, R, E, A, S, V, G> IngestWoocommerceProductListingUseCase
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
-    E: ProductListingEventStoreFactory<U::Tx>,
+    E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
     S: WoocommerceSourceReader,
     V: WoocommerceSignatureVerifier,
@@ -766,9 +763,11 @@ impl From<ProductListingRepositoryError> for IngestWoocommerceProductListingErro
         Self::ProductListingPersistenceFailed
     }
 }
-impl From<ProductListingEventStoreError> for IngestWoocommerceProductListingError {
-    fn from(_: ProductListingEventStoreError) -> Self {
-        Self::ProductListingEventStoreFailed
+impl From<ProductListingEventAppendError> for IngestWoocommerceProductListingError {
+    fn from(error: ProductListingEventAppendError) -> Self {
+        Self::ProductListingEventAppenderFailed {
+            source: box_error(error),
+        }
     }
 }
 
@@ -821,7 +820,7 @@ mod tests {
         inserts: VecDeque<Result<(), ProductListingRepositoryError>>,
         updates: usize,
         events: usize,
-        event_results: VecDeque<Result<(), ProductListingEventStoreError>>,
+        event_results: VecDeque<Result<(), ProductListingEventAppendError>>,
         authorizations: usize,
         source: Option<WoocommerceSource>,
         signature: WoocommerceSignatureVerification,
@@ -862,7 +861,7 @@ mod tests {
     struct RepositoryFake(SharedState);
     #[derive(Clone)]
     struct EventsFake(SharedState);
-    struct EventStoreFake(SharedState);
+    struct EventAppenderFake(SharedState);
     #[derive(Clone)]
     struct AuthorizerFake(SharedState);
     struct AuthorizationFake(SharedState);
@@ -960,21 +959,21 @@ mod tests {
         }
     }
 
-    impl ProductListingEventStoreFactory<TxFake> for EventsFake {
+    impl ProductListingEventAppenderFactory<TxFake> for EventsFake {
         fn in_transaction<'tx>(
             &'tx self,
             _: &'tx mut TxFake,
-        ) -> impl ProductListingEventStore + 'tx {
-            EventStoreFake(Arc::clone(&self.0))
+        ) -> impl ProductListingEventAppender + 'tx {
+            EventAppenderFake(Arc::clone(&self.0))
         }
     }
 
     #[async_trait::async_trait]
-    impl ProductListingEventStore for EventStoreFake {
+    impl ProductListingEventAppender for EventAppenderFake {
         async fn append(
             &mut self,
-            _: &crate::ports::product_listing_event_store::ProductListingEvent,
-        ) -> Result<(), ProductListingEventStoreError> {
+            _: &crate::ports::product_listing_event_appender::ProductListingEvent,
+        ) -> Result<(), ProductListingEventAppendError> {
             let mut state = lock(&self.0);
             state.events += 1;
             state.event_results.pop_front().unwrap_or(Ok(()))
@@ -1145,8 +1144,50 @@ mod tests {
             auction: ProductListingAuction::default(),
         })
         .unwrap_or_else(|error| panic!("valid existing listing: {error}"));
-        listing.take_pending_event_payloads();
+        listing.take_pending_event_payload();
         Versioned::new(listing, ProductListingStorageVersion::INITIAL)
+    }
+
+    fn unchanged_listing(listing_source_id: ListingSourceId) -> VersionedProductListing {
+        let mut listing = existing_listing(listing_source_id).value;
+        listing
+            .set_price(Price::new(
+                MonetaryAmount::from(4_200_u64),
+                money::Currency::Eur,
+            ))
+            .unwrap_or_else(|error| panic!("valid price update: {error}"));
+        listing
+            .set_availability(ListingAvailability::InStock)
+            .unwrap_or_else(|error| panic!("valid availability update: {error}"));
+        listing
+            .change_url(
+                Url::parse("https://example.com/listing")
+                    .unwrap_or_else(|error| panic!("valid listing URL: {error}")),
+            )
+            .unwrap_or_else(|error| panic!("valid URL update: {error}"));
+        listing.take_pending_event_payload();
+        Versioned::new(listing, ProductListingStorageVersion::INITIAL)
+    }
+
+    #[tokio::test]
+    async fn should_not_persist_or_append_when_existing_woocommerce_listing_is_unchanged() {
+        let state = state();
+        let listing_source_id = source_id(&state);
+        lock(&state).finds = VecDeque::from([Some(unchanged_listing(listing_source_id))]);
+
+        let result = handler(&state).execute(&context(), command(&state)).await;
+
+        assert!(matches!(
+            result,
+            Ok(IngestWoocommerceProductListingResult::Upserted(
+                UpsertProductListingResult::Updated(UpdateProductListingResult {
+                    outcome: ChangeOutcome::Unchanged,
+                    ..
+                })
+            ))
+        ));
+        let state = lock(&state);
+        assert_eq!((state.updates, state.events), (0, 0));
     }
 
     #[tokio::test]
@@ -1256,7 +1297,7 @@ mod tests {
                 state.source_reads,
                 state.signature_checks
             ),
-            (1, 3, 2, 2, 2)
+            (1, 1, 2, 2, 2)
         );
     }
 
@@ -1285,7 +1326,7 @@ mod tests {
         );
         assert_eq!(
             (state.updates, state.events, state.authorizations),
-            (1, 3, 1)
+            (1, 1, 1)
         );
     }
 
@@ -1443,15 +1484,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_not_retry_event_store_error() {
+    async fn should_not_retry_event_appender_error() {
         let state = state();
         lock(&state).event_results = VecDeque::from([Err(
-            ProductListingEventStoreError::ProductListingEventAppendFailed,
+            ProductListingEventAppendError::ProductListingEventAppendFailed {
+                source: application::error::static_error("event append failed"),
+            },
         )]);
 
         assert!(matches!(
             handler(&state).execute(&context(), command(&state)).await,
-            Err(IngestWoocommerceProductListingError::ProductListingEventStoreFailed)
+            Err(IngestWoocommerceProductListingError::ProductListingEventAppenderFailed { .. })
         ));
 
         let state = lock(&state);

@@ -26,7 +26,7 @@ pub struct ProductListingWatchlistNotificationSource {
     pub content_policy: Option<ContentPolicyDecision>,
     pub url: Url,
     pub view_url: Url,
-    pub change: ProductListingWatchlistNotificationChange,
+    pub changes: Vec<ProductListingWatchlistNotificationChange>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

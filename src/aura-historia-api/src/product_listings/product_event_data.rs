@@ -1,17 +1,20 @@
-use crate::product_listings::product_data::ProductListingImageData;
 use crate::values::{LocalizedTextData, PriceData};
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
-
+use listing_source_core::ListingSourceId;
 use product_listing_core::listing_availability::ListingAvailability;
+
 use product_listing_core::product_listing::{
-    ListingSaleObservation, ProductListingAuction, ProductListingEventPayload,
-    ProductListingPricing,
+    ListingSaleObservation, ProductListingAuction, ProductListingPricing,
+};
+use product_listing_core::product_listing_event::{
+    ListingSaleObservationChange, ProductListingChanged, ProductListingDiscovered,
+    ProductListingEventPayload, ProductListingLifecycleChange, ValueChange,
 };
 use product_listing_core::product_listing_id::ProductListingId;
-use product_listing_core::product_listing_image::ProductListingImage;
+use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_service::use_cases::ProductListingEvent;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use time::OffsetDateTime;
 use url::Url;
 
@@ -28,24 +31,17 @@ pub(crate) struct ProductListingEventData {
 
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
-#[allow(clippy::large_enum_variant)]
 enum ProductListingEventPayloadData {
-    Created(ProductListingCreatedHistoryPayloadData),
-    AvailabilityChanged(ListingAvailabilityChangedHistoryPayloadData),
-
-    PriceChanged(ProductListingPriceChangedHistoryPayloadData),
-    UrlChanged(ProductListingUrlChangedHistoryPayloadData),
-    ImagesChanged(ProductListingImagesChangedHistoryPayloadData),
-    AuctionChanged(ProductListingAuctionChangedHistoryPayloadData),
-    Withdrawn(ProductListingWithdrawnHistoryPayloadData),
-    Restored(ProductListingRestoredHistoryPayloadData),
-    SaleObserved(ListingSaleObservationHistoryPayloadData),
-    SaleObservationRetracted(ListingSaleObservationHistoryPayloadData),
+    Discovered(ProductListingDiscoveredHistoryPayloadData),
+    Changed(ProductListingChangedHistoryPayloadData),
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ProductListingCreatedHistoryPayloadData {
+struct ProductListingDiscoveredHistoryPayloadData {
+    listing_source_id: ListingSourceId,
+    #[serde(serialize_with = "crate::wire::source_listing_id::serialize")]
+    source_listing_id: SourceListingId,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<LocalizedTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -54,13 +50,43 @@ struct ProductListingCreatedHistoryPayloadData {
     #[serde(with = "crate::wire::listing_availability::option")]
     availability: Option<ListingAvailability>,
     url: Url,
-    images: Vec<ProductListingImageData>,
+    image_count: usize,
     auction: ProductListingAuctionData,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ListingAvailabilityChangedHistoryPayloadData {
+struct ProductListingChangedHistoryPayloadData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    price: Option<ValueChangeData<Option<PriceData>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    price_estimate_min: Option<ValueChangeData<Option<PriceData>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    price_estimate_max: Option<ValueChangeData<Option<PriceData>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    availability: Option<ListingAvailabilityChangeData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<ValueChangeData<Url>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image_count: Option<ValueChangeData<usize>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auction: Option<ValueChangeData<ProductListingAuctionData>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lifecycle: Option<ProductListingLifecycleChangeData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sale_observation: Option<ListingSaleObservationChangeData>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ValueChangeData<T> {
+    previous: T,
+    current: T,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ListingAvailabilityChangeData {
     #[serde(with = "crate::wire::listing_availability::option")]
     previous: Option<ListingAvailability>,
     #[serde(with = "crate::wire::listing_availability::option")]
@@ -69,37 +95,21 @@ struct ListingAvailabilityChangedHistoryPayloadData {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ProductListingPriceChangedHistoryPayloadData {
-    old_pricing: ProductListingPricingData,
-    new_pricing: ProductListingPricingData,
+struct ProductListingLifecycleChangeData {
+    transition: &'static str,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_previous_availability"
+    )]
+    previous_availability: Option<Option<ListingAvailability>>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ProductListingUrlChangedHistoryPayloadData {
-    old_url: Url,
-    new_url: Url,
+struct ListingSaleObservationChangeData {
+    transition: &'static str,
+    observation: ListingSaleObservationHistoryPayloadData,
 }
-
-#[derive(Debug, Serialize)]
-struct ProductListingImagesChangedHistoryPayloadData {
-    images: Vec<ProductListingImageData>,
-}
-
-#[derive(Debug, Serialize)]
-struct ProductListingAuctionChangedHistoryPayloadData {
-    auction: ProductListingAuctionData,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProductListingWithdrawnHistoryPayloadData {
-    #[serde(with = "crate::wire::listing_availability::option")]
-    previous_availability: Option<ListingAvailability>,
-}
-
-#[derive(Debug, Serialize)]
-struct ProductListingRestoredHistoryPayloadData {}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -144,62 +154,122 @@ impl From<ProductListingEvent> for ProductListingEventData {
 impl From<ProductListingEventPayload> for ProductListingEventPayloadData {
     fn from(value: ProductListingEventPayload) -> Self {
         match value {
-            ProductListingEventPayload::Created(value) => {
-                Self::Created(ProductListingCreatedHistoryPayloadData {
-                    title: value.title.map(Into::into),
-                    description: value.description.map(Into::into),
-
-                    pricing: value.pricing.into(),
-                    availability: value.availability,
-                    url: value.url,
-                    images: images(value.images),
-                    auction: value.auction.into(),
-                })
-            }
-            ProductListingEventPayload::AvailabilityChanged(value) => {
-                Self::AvailabilityChanged(ListingAvailabilityChangedHistoryPayloadData {
-                    previous: value.previous,
-                    current: value.current,
-                })
-            }
-
-            ProductListingEventPayload::PriceChanged(value) => {
-                Self::PriceChanged(ProductListingPriceChangedHistoryPayloadData {
-                    old_pricing: value.old_pricing.into(),
-                    new_pricing: value.new_pricing.into(),
-                })
-            }
-            ProductListingEventPayload::UrlChanged(value) => {
-                Self::UrlChanged(ProductListingUrlChangedHistoryPayloadData {
-                    old_url: value.old_url,
-                    new_url: value.new_url,
-                })
-            }
-            ProductListingEventPayload::ImagesChanged(value) => {
-                Self::ImagesChanged(ProductListingImagesChangedHistoryPayloadData {
-                    images: images(value.images),
-                })
-            }
-            ProductListingEventPayload::AuctionChanged(value) => {
-                Self::AuctionChanged(ProductListingAuctionChangedHistoryPayloadData {
-                    auction: value.auction.into(),
-                })
-            }
-            ProductListingEventPayload::Withdrawn(value) => {
-                Self::Withdrawn(ProductListingWithdrawnHistoryPayloadData {
-                    previous_availability: value.previous_availability,
-                })
-            }
-            ProductListingEventPayload::Restored(_) => {
-                Self::Restored(ProductListingRestoredHistoryPayloadData {})
-            }
-            ProductListingEventPayload::SaleObserved(value) => {
-                Self::SaleObserved(value.observation.into())
-            }
-            ProductListingEventPayload::SaleObservationRetracted(value) => {
-                Self::SaleObservationRetracted(value.observation.into())
-            }
+            ProductListingEventPayload::Discovered(value) => Self::Discovered(value.into()),
+            ProductListingEventPayload::Changed(value) => Self::Changed(value.into()),
         }
+    }
+}
+
+impl From<ProductListingDiscovered> for ProductListingDiscoveredHistoryPayloadData {
+    fn from(value: ProductListingDiscovered) -> Self {
+        Self {
+            listing_source_id: value.listing_source_id(),
+            source_listing_id: value.source_listing_id().clone(),
+            title: value.title().cloned().map(Into::into),
+            description: value.description().cloned().map(Into::into),
+            pricing: value.pricing().into(),
+            availability: value.availability(),
+            url: value.url().clone(),
+            image_count: value.image_count(),
+            auction: value.auction().into(),
+        }
+    }
+}
+
+impl From<ProductListingChanged> for ProductListingChangedHistoryPayloadData {
+    fn from(value: ProductListingChanged) -> Self {
+        Self {
+            price: value.price().map(price_change),
+            price_estimate_min: value.price_estimate_min().map(price_change),
+            price_estimate_max: value.price_estimate_max().map(price_change),
+            availability: value
+                .availability()
+                .map(ListingAvailabilityChangeData::from),
+            url: value.url().map(ValueChangeData::from),
+            image_count: value.image_count().map(ValueChangeData::from),
+            auction: value.auction().map(auction_change),
+            lifecycle: value.lifecycle().map(Into::into),
+            sale_observation: value.sale_observation().map(Into::into),
+        }
+    }
+}
+
+impl<T: Clone> From<&ValueChange<T>> for ValueChangeData<T> {
+    fn from(value: &ValueChange<T>) -> Self {
+        Self {
+            previous: value.previous().clone(),
+            current: value.current().clone(),
+        }
+    }
+}
+
+impl From<&ValueChange<Option<ListingAvailability>>> for ListingAvailabilityChangeData {
+    fn from(value: &ValueChange<Option<ListingAvailability>>) -> Self {
+        Self {
+            previous: *value.previous(),
+            current: *value.current(),
+        }
+    }
+}
+
+fn serialize_previous_availability<S>(
+    value: &Option<Option<ListingAvailability>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match value {
+        Some(value) => crate::wire::listing_availability::option::serialize(value, serializer),
+        None => serializer.serialize_none(),
+    }
+}
+
+impl From<&ProductListingLifecycleChange> for ProductListingLifecycleChangeData {
+    fn from(value: &ProductListingLifecycleChange) -> Self {
+        match value {
+            ProductListingLifecycleChange::Withdrawn {
+                previous_availability,
+            } => Self {
+                transition: "WITHDRAWN",
+                previous_availability: Some(*previous_availability),
+            },
+            ProductListingLifecycleChange::Restored => Self {
+                transition: "RESTORED",
+                previous_availability: None,
+            },
+        }
+    }
+}
+
+impl From<&ListingSaleObservationChange> for ListingSaleObservationChangeData {
+    fn from(value: &ListingSaleObservationChange) -> Self {
+        match value {
+            ListingSaleObservationChange::Observed(observation) => Self {
+                transition: "OBSERVED",
+                observation: (*observation).into(),
+            },
+            ListingSaleObservationChange::Retracted(observation) => Self {
+                transition: "RETRACTED",
+                observation: (*observation).into(),
+            },
+        }
+    }
+}
+
+fn price_change(value: &ValueChange<Option<money::Price>>) -> ValueChangeData<Option<PriceData>> {
+    ValueChangeData {
+        previous: (*value.previous()).map(Into::into),
+        current: (*value.current()).map(Into::into),
+    }
+}
+
+fn auction_change(
+    value: &ValueChange<ProductListingAuction>,
+) -> ValueChangeData<ProductListingAuctionData> {
+    ValueChangeData {
+        previous: (*value.previous()).into(),
+        current: (*value.current()).into(),
     }
 }
 
@@ -229,13 +299,4 @@ impl From<ProductListingAuction> for ProductListingAuctionData {
             end: auction.end,
         }
     }
-}
-
-fn images(images: impl IntoIterator<Item = ProductListingImage>) -> Vec<ProductListingImageData> {
-    // ProductListing history is public-cacheable and currently has no viewer-specific
-    // content-policy presentation context; historical image URLs are redacted here.
-    images
-        .into_iter()
-        .map(|_| ProductListingImageData::redacted())
-        .collect()
 }

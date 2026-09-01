@@ -686,17 +686,22 @@ impl From<&str> for CdcTable {
     }
 }
 
+const PRODUCT_LISTING_EVENT_SCHEMA_VERSION: i64 = 1;
+
 fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
     let row = required_row(change)?;
     let event_id = required_string(row, "event_id")?;
     let product_listing_id = required_string(row, "product_listing_id")?;
     let event_type = required_string(row, "event_type")?;
     let event_group = required_string(row, "event_group")?;
+    let schema_version = required_integer(row, "event_type_schema_version")?;
+    validate_product_listing_event_contract(&event_type, &event_group, schema_version)?;
+
     let base_job = ProductListingEventJob {
         event_id: event_id.clone(),
         product_listing_id: product_listing_id.clone(),
         event_type: event_type.clone(),
-        event_group: event_group.clone(),
+        event_group,
     };
     let idempotency_key = IdempotencyKey::new(format!("product-event:{event_id}"));
     let ordering_key = OrderingKey::new(format!("product:{product_listing_id}"));
@@ -708,19 +713,14 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
         DomainJobPayload::ProductListingEvent(base_job.clone()),
     )];
 
-    if matches!(event_group.as_str(), "DOMAIN" | "ENRICHMENT") {
-        jobs.push(domain_job(
-            WorkerQueue::SearchFilterPercolator,
-            idempotency_key.clone(),
-            ordering_key.clone(),
-            DomainJobPayload::ProductListingEvent(base_job.clone()),
-        ));
-    }
+    jobs.push(domain_job(
+        WorkerQueue::SearchFilterPercolator,
+        idempotency_key.clone(),
+        ordering_key.clone(),
+        DomainJobPayload::ProductListingEvent(base_job.clone()),
+    ));
 
-    if matches!(
-        event_type.as_str(),
-        "PRODUCT_LISTING_PRICE_CHANGED" | "PRODUCT_LISTING_AVAILABILITY_CHANGED"
-    ) {
+    if event_type == "PRODUCT_LISTING_CHANGED" && changed_payload_requires_watchlist(row)? {
         jobs.push(domain_job(
             WorkerQueue::WatchlistNotification,
             idempotency_key.clone(),
@@ -729,16 +729,13 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
         ));
     }
 
-    if event_type == "PRODUCT_LISTING_CREATED" {
+    if event_type == "PRODUCT_LISTING_DISCOVERED" {
         jobs.push(domain_job(
             WorkerQueue::ProductListingContentAssessment,
             idempotency_key.clone(),
             ordering_key.clone(),
             DomainJobPayload::ProductListingEvent(base_job.clone()),
         ));
-    }
-
-    if event_type == "PRODUCT_LISTING_CREATED" {
         jobs.push(domain_job(
             WorkerQueue::ProductListingEmbed,
             idempotency_key.clone(),
@@ -750,13 +747,46 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
     if event_type == "ENRICHMENT_EMBEDDED" {
         jobs.push(domain_job(
             WorkerQueue::ProductListingTranslate,
-            idempotency_key.clone(),
-            ordering_key.clone(),
-            DomainJobPayload::ProductListingEvent(base_job.clone()),
+            idempotency_key,
+            ordering_key,
+            DomainJobPayload::ProductListingEvent(base_job),
         ));
     }
 
     Ok(jobs)
+}
+
+fn validate_product_listing_event_contract(
+    event_type: &str,
+    event_group: &str,
+    schema_version: i64,
+) -> Result<(), CdcRouteError> {
+    if schema_version != PRODUCT_LISTING_EVENT_SCHEMA_VERSION {
+        return Err(CdcRouteError::UnsupportedProductListingEventSchemaVersion { schema_version });
+    }
+
+    match (event_type, event_group) {
+        ("PRODUCT_LISTING_DISCOVERED" | "PRODUCT_LISTING_CHANGED", "DOMAIN")
+        | ("ENRICHMENT_EMBEDDED" | "ENRICHMENT_TRANSLATED_TITLES", "ENRICHMENT") => Ok(()),
+        _ => Err(CdcRouteError::UnsupportedProductListingEvent {
+            event_type: event_type.to_owned(),
+            event_group: event_group.to_owned(),
+        }),
+    }
+}
+
+fn changed_payload_requires_watchlist(row: &Value) -> Result<bool, CdcRouteError> {
+    let payload = row
+        .get("payload")
+        .ok_or(CdcRouteError::MissingColumn("payload"))?
+        .as_object()
+        .ok_or(CdcRouteError::InvalidProductListingEventPayload)?;
+    let price_changed = payload
+        .get("pricing")
+        .and_then(Value::as_object)
+        .is_some_and(|pricing| pricing.contains_key("price"));
+
+    Ok(price_changed || payload.contains_key("availability"))
 }
 
 fn search_filter_changed_job(
@@ -911,6 +941,15 @@ pub enum CdcIngestError {
 pub enum CdcRouteError {
     #[error("CDC table is not configured for this worker: {0}")]
     UnsupportedTableForWorker(String),
+    #[error("CDC change has unsupported product listing event {event_type} in group {event_group}")]
+    UnsupportedProductListingEvent {
+        event_type: String,
+        event_group: String,
+    },
+    #[error("CDC change has unsupported product listing event schema version {schema_version}")]
+    UnsupportedProductListingEventSchemaVersion { schema_version: i64 },
+    #[error("CDC change has a product listing event payload that is not an object")]
+    InvalidProductListingEventPayload,
     #[error("CDC change missing row data")]
     MissingRow,
     #[error("CDC row missing required column {0}")]
@@ -937,6 +976,14 @@ mod tests {
     use crate::{QueueConfig, in_memory_queue};
 
     fn product_event_change(event_type: &str, event_group: &str) -> CdcChange {
+        product_event_change_with_payload(event_type, event_group, serde_json::json!({}))
+    }
+
+    fn product_event_change_with_payload(
+        event_type: &str,
+        event_group: &str,
+        payload: Value,
+    ) -> CdcChange {
         CdcChange {
             schema: Some("public".to_owned()),
             table: "product_listing_events".to_owned(),
@@ -947,6 +994,8 @@ mod tests {
                 "product_listing_id": "30000000-0000-0000-0000-000000000001",
                 "event_type": event_type,
                 "event_group": event_group,
+                "event_type_schema_version": 1,
+                "payload": payload,
             })),
             old_record: None,
             changed_columns: Vec::new(),
@@ -956,9 +1005,12 @@ mod tests {
     }
 
     #[test]
-    fn should_route_product_created_event_to_projection_percolator_and_embed()
+    fn should_route_discovered_event_to_projection_percolator_assessment_and_embedding()
     -> Result<(), Box<dyn std::error::Error>> {
-        let jobs = route_change(&product_event_change("PRODUCT_LISTING_CREATED", "DOMAIN"))?;
+        let jobs = route_change(&product_event_change(
+            "PRODUCT_LISTING_DISCOVERED",
+            "DOMAIN",
+        ))?;
 
         assert_eq!(4, jobs.len());
         assert!(
@@ -988,36 +1040,36 @@ mod tests {
     }
 
     #[test]
-    fn should_route_lifecycle_events_only_to_product_listing_projection()
+    fn should_route_all_supported_events_to_projection_and_percolator()
     -> Result<(), Box<dyn std::error::Error>> {
-        for event_type in ["PRODUCT_LISTING_WITHDRAWN", "PRODUCT_LISTING_RESTORED"] {
-            let jobs = route_change(&product_event_change(event_type, "LIFECYCLE"))?;
+        for (event_type, event_group) in [
+            ("PRODUCT_LISTING_DISCOVERED", "DOMAIN"),
+            ("PRODUCT_LISTING_CHANGED", "DOMAIN"),
+            ("ENRICHMENT_EMBEDDED", "ENRICHMENT"),
+            ("ENRICHMENT_TRANSLATED_TITLES", "ENRICHMENT"),
+        ] {
+            let jobs = route_change(&product_event_change(event_type, event_group))?;
 
-            assert_eq!(1, jobs.len(), "{event_type}");
-            assert_eq!(WorkerQueue::ProductListingOpenSearch, jobs[0].target_queue);
+            assert!(
+                jobs.iter()
+                    .any(|job| job.target_queue == WorkerQueue::ProductListingOpenSearch),
+                "{event_type}"
+            );
+            assert!(
+                jobs.iter()
+                    .any(|job| job.target_queue == WorkerQueue::SearchFilterPercolator),
+                "{event_type}"
+            );
         }
         Ok(())
     }
 
     #[test]
-    fn should_route_only_product_created_event_to_content_assessment()
+    fn should_route_only_discovered_event_to_content_assessment_and_embedding()
     -> Result<(), Box<dyn std::error::Error>> {
         for (event_type, event_group, expected) in [
-            ("PRODUCT_LISTING_CREATED", "DOMAIN", true),
-            ("PRODUCT_LISTING_AVAILABILITY_CHANGED", "DOMAIN", false),
-            ("PRODUCT_LISTING_ADDRESS_CHANGED", "DOMAIN", false),
-            ("PRODUCT_LISTING_PRICE_CHANGED", "DOMAIN", false),
-            ("PRODUCT_LISTING_URL_CHANGED", "DOMAIN", false),
-            ("PRODUCT_LISTING_IMAGES_CHANGED", "DOMAIN", false),
-            ("PRODUCT_LISTING_AUCTION_CHANGED", "DOMAIN", false),
-            ("PRODUCT_LISTING_SALE_OBSERVED", "DOMAIN", false),
-            (
-                "PRODUCT_LISTING_SALE_OBSERVATION_RETRACTED",
-                "DOMAIN",
-                false,
-            ),
-            ("PRODUCT_LISTING_WITHDRAWN", "LIFECYCLE", false),
-            ("PRODUCT_LISTING_RESTORED", "LIFECYCLE", false),
+            ("PRODUCT_LISTING_DISCOVERED", "DOMAIN", true),
+            ("PRODUCT_LISTING_CHANGED", "DOMAIN", false),
             ("ENRICHMENT_EMBEDDED", "ENRICHMENT", false),
             ("ENRICHMENT_TRANSLATED_TITLES", "ENRICHMENT", false),
         ] {
@@ -1027,25 +1079,90 @@ mod tests {
                 expected,
                 jobs.iter()
                     .any(|job| job.target_queue == WorkerQueue::ProductListingContentAssessment),
-                "{event_type}"
+                "assessment {event_type}"
+            );
+            assert_eq!(
+                expected,
+                jobs.iter()
+                    .any(|job| job.target_queue == WorkerQueue::ProductListingEmbed),
+                "embedding {event_type}"
             );
         }
         Ok(())
     }
 
     #[test]
-    fn should_route_product_price_event_to_watchlist_notifications()
+    fn should_route_changed_event_to_one_watchlist_job_when_main_price_or_availability_changed()
     -> Result<(), Box<dyn std::error::Error>> {
-        let jobs = route_change(&product_event_change(
-            "PRODUCT_LISTING_PRICE_CHANGED",
+        for payload in [
+            serde_json::json!({"pricing": {"price": {}}}),
+            serde_json::json!({"availability": {}}),
+            serde_json::json!({"pricing": {"price": {}}, "availability": {}}),
+        ] {
+            let jobs = route_change(&product_event_change_with_payload(
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                payload,
+            ))?;
+
+            assert_eq!(
+                1,
+                jobs.iter()
+                    .filter(|job| job.target_queue == WorkerQueue::WatchlistNotification)
+                    .count()
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_not_route_estimate_only_changed_event_to_watchlist_notifications()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let jobs = route_change(&product_event_change_with_payload(
+            "PRODUCT_LISTING_CHANGED",
             "DOMAIN",
+            serde_json::json!({
+                "pricing": {
+                    "priceEstimateMin": {},
+                    "priceEstimateMax": {}
+                }
+            }),
         ))?;
 
         assert!(
             jobs.iter()
-                .any(|job| job.target_queue == WorkerQueue::WatchlistNotification)
+                .all(|job| job.target_queue != WorkerQueue::WatchlistNotification)
         );
         Ok(())
+    }
+
+    #[test]
+    fn should_reject_old_or_incompatible_product_listing_event_codes() {
+        for (event_type, event_group) in [
+            ("PRODUCT_LISTING_CREATED", "DOMAIN"),
+            ("PRODUCT_LISTING_CHANGED", "ENRICHMENT"),
+            ("ENRICHMENT_EMBEDDED", "DOMAIN"),
+        ] {
+            let result = route_change(&product_event_change(event_type, event_group));
+
+            assert!(matches!(
+                result,
+                Err(CdcRouteError::UnsupportedProductListingEvent { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn should_require_supported_product_listing_event_schema_version() {
+        let mut change = product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
+        if let Some(row) = change.record.as_mut() {
+            row["event_type_schema_version"] = serde_json::json!(2);
+        }
+
+        assert!(matches!(
+            route_change(&change),
+            Err(CdcRouteError::UnsupportedProductListingEventSchemaVersion { schema_version: 2 })
+        ));
     }
 
     #[test]
@@ -1352,7 +1469,7 @@ mod tests {
         let batch = CdcBatch {
             delivery_id: Some("delivery-1".to_owned()),
             source: Some("postgres".to_owned()),
-            changes: vec![product_event_change("PRODUCT_LISTING_CREATED", "DOMAIN")],
+            changes: vec![product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN")],
         };
 
         let enqueued = fanout.ingest_batch(&batch).await?;
@@ -1379,36 +1496,27 @@ mod tests {
                 .ingest_batch(&CdcBatch {
                     delivery_id: Some("delivery-domain".to_owned()),
                     source: Some("postgres".to_owned()),
-                    changes: vec![product_event_change(
-                        "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-                        "DOMAIN"
-                    )],
+                    changes: vec![product_event_change("PRODUCT_LISTING_CHANGED", "DOMAIN")],
                 })
                 .await?
         );
         assert_eq!(
-            0,
+            1,
             fanout
                 .ingest_batch(&CdcBatch {
-                    delivery_id: Some("delivery-lifecycle".to_owned()),
+                    delivery_id: Some("delivery-enrichment".to_owned()),
                     source: Some("postgres".to_owned()),
-                    changes: vec![product_event_change(
-                        "PRODUCT_LISTING_WITHDRAWN",
-                        "LIFECYCLE"
-                    )],
+                    changes: vec![product_event_change("ENRICHMENT_EMBEDDED", "ENRICHMENT")],
                 })
                 .await?
         );
 
-        assert_eq!(
-            Some(WorkerQueue::SearchFilterPercolator),
-            receiver.recv().await.map(|job| job.target_queue)
-        );
-        assert!(
-            tokio::time::timeout(std::time::Duration::from_millis(20), receiver.recv())
-                .await
-                .is_err()
-        );
+        for _ in 0..2 {
+            assert_eq!(
+                Some(WorkerQueue::SearchFilterPercolator),
+                receiver.recv().await.map(|job| job.target_queue)
+            );
+        }
         Ok(())
     }
 
@@ -1422,7 +1530,7 @@ mod tests {
         let batch = CdcBatch {
             delivery_id: Some("delivery-1".to_owned()),
             source: Some("postgres".to_owned()),
-            changes: vec![product_event_change("PRODUCT_LISTING_CREATED", "DOMAIN")],
+            changes: vec![product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN")],
         };
 
         let result = fanout.ingest_batch(&batch).await;
@@ -1440,7 +1548,7 @@ mod tests {
         let batch = CdcBatch {
             delivery_id: Some("delivery-1".to_owned()),
             source: Some("postgres".to_owned()),
-            changes: vec![product_event_change("PRODUCT_LISTING_CREATED", "DOMAIN")],
+            changes: vec![product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN")],
         };
 
         let result = fanout.ingest_batch(&batch).await;
@@ -1468,8 +1576,9 @@ mod tests {
                         "new": {
                             "event_id": "40000000-0000-0000-0000-000000000001",
                             "product_listing_id": "30000000-0000-0000-0000-000000000001",
-                            "event_type": "PRODUCT_LISTING_CREATED",
-                            "event_group": "DOMAIN"
+                            "event_type": "PRODUCT_LISTING_DISCOVERED",
+                            "event_group": "DOMAIN",
+                            "event_type_schema_version": 1
                         }
                     }
                 ]
@@ -1489,8 +1598,9 @@ mod tests {
                 "record": {
                     "event_id": "40000000-0000-0000-0000-000000000001",
                     "product_listing_id": "30000000-0000-0000-0000-000000000001",
-                    "event_type": "PRODUCT_LISTING_CREATED",
-                    "event_group": "DOMAIN"
+                    "event_type": "PRODUCT_LISTING_DISCOVERED",
+                    "event_group": "DOMAIN",
+                    "event_type_schema_version": 1
                 },
                 "changes": null,
                 "action": "insert",

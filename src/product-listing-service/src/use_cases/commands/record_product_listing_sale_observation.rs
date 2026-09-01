@@ -1,8 +1,8 @@
 use crate::ports::{
     PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
-    PartnerProductListingAuthorizerFactory, ProductListingEventStore,
-    ProductListingEventStoreError, ProductListingEventStoreFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
+    PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
+    ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_event,
 };
 use application::error::{BoxError, box_error};
 use application::operation_context::{
@@ -69,8 +69,11 @@ pub enum RecordProductListingSaleObservationError {
     ConflictingExistingObservation,
     #[error("product listing persistence failed")]
     PersistenceFailed,
-    #[error("product listing event storage failed")]
-    EventStoreFailed,
+    #[error("product listing event append failed")]
+    EventAppenderFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin sale observation transaction")]
     BeginTransactionFailed,
     #[error("failed to commit sale observation transaction")]
@@ -112,7 +115,7 @@ impl<U, R, E, A, F> RecordProductListingSaleObservationUseCase
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
-    E: ProductListingEventStoreFactory<U::Tx>,
+    E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
 {
@@ -161,22 +164,18 @@ where
         let expected_version = loaded.version;
         let mut listing = loaded.value;
         let outcome = listing.record_sale_observation(observation)?;
-        let events = stamp_product_listing_events(
-            listing.id(),
-            recorded_at,
-            listing.take_pending_event_payloads(),
-        );
-        let current_event_id = events.last().map(|event| event.event_id);
-        if let Some(current_event_id) = current_event_id {
+        let event = listing
+            .take_pending_event_payload()
+            .map(|payload| stamp_product_listing_event(listing.id(), recorded_at, payload));
+        let current_event_id = event.as_ref().map(|event| event.event_id);
+        if let Some(event) = event {
             listing = self
                 .products
                 .in_transaction(&mut tx)
-                .update(&listing, expected_version, current_event_id)
+                .update(&listing, expected_version, event.event_id)
                 .await?
                 .value;
-            for event in &events {
-                self.events.in_transaction(&mut tx).append(event).await?;
-            }
+            self.events.in_transaction(&mut tx).append(&event).await?;
         }
         tx.commit()
             .await
@@ -237,9 +236,11 @@ impl From<ProductListingRepositoryError> for RecordProductListingSaleObservation
     }
 }
 
-impl From<ProductListingEventStoreError> for RecordProductListingSaleObservationError {
-    fn from(_: ProductListingEventStoreError) -> Self {
-        Self::EventStoreFailed
+impl From<ProductListingEventAppendError> for RecordProductListingSaleObservationError {
+    fn from(error: ProductListingEventAppendError) -> Self {
+        Self::EventAppenderFailed {
+            source: box_error(error),
+        }
     }
 }
 
@@ -296,7 +297,8 @@ mod tests {
         commits: usize,
         updates: usize,
         appends: usize,
-        recorded_events: Vec<crate::ports::product_listing_event_store::ProductListingEvent>,
+        recorded_events: Vec<crate::ports::product_listing_event_appender::ProductListingEvent>,
+        persisted_event_ids: Vec<EventId>,
         fx_lookups: usize,
     }
 
@@ -310,7 +312,7 @@ mod tests {
     struct ProductRepositoryFake(SharedState);
     #[derive(Clone)]
     struct EventsFake(SharedState);
-    struct EventStoreFake(SharedState);
+    struct EventAppenderFake(SharedState);
     #[derive(Clone, Copy)]
     struct AuthorizerFake;
     struct AuthorizerRepositoryFake;
@@ -379,31 +381,32 @@ mod tests {
             &mut self,
             product: &ProductListing,
             expected_version: ProductListingStorageVersion,
-            _current_event_id: EventId,
+            current_event_id: EventId,
         ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             let persisted = Versioned::new(product.clone(), expected_version.next());
             let mut state = lock(&self.0);
             state.updates += 1;
+            state.persisted_event_ids.push(current_event_id);
             state.listing = Some(persisted.clone());
             Ok(persisted)
         }
     }
 
-    impl ProductListingEventStoreFactory<TxFake> for EventsFake {
+    impl ProductListingEventAppenderFactory<TxFake> for EventsFake {
         fn in_transaction<'tx>(
             &'tx self,
             _tx: &'tx mut TxFake,
-        ) -> impl ProductListingEventStore + 'tx {
-            EventStoreFake(Arc::clone(&self.0))
+        ) -> impl ProductListingEventAppender + 'tx {
+            EventAppenderFake(Arc::clone(&self.0))
         }
     }
 
     #[async_trait::async_trait]
-    impl ProductListingEventStore for EventStoreFake {
+    impl ProductListingEventAppender for EventAppenderFake {
         async fn append(
             &mut self,
-            event: &crate::ports::product_listing_event_store::ProductListingEvent,
-        ) -> Result<(), ProductListingEventStoreError> {
+            event: &crate::ports::product_listing_event_appender::ProductListingEvent,
+        ) -> Result<(), ProductListingEventAppendError> {
             let mut state = lock(&self.0);
             state.appends += 1;
             state.recorded_events.push(event.clone());
@@ -677,13 +680,18 @@ mod tests {
 
         let state = lock(&state);
         assert_eq!(1, state.recorded_events.len());
+        assert_eq!(1, state.persisted_event_ids.len());
         let event = &state.recorded_events[0];
+        assert_eq!(event.event_id, state.persisted_event_ids[0]);
         assert!(event.timestamp > observed_at);
         assert!(matches!(
-            event.payload,
-            product_listing_core::product_listing::ProductListingEventPayload::SaleObserved(
-                product_listing_core::product_listing::ListingSaleObserved { observation }
-            ) if observation.observed_at() == observed_at
+            &event.payload,
+            product_listing_core::product_listing_event::ProductListingEventPayload::Changed(change)
+                if matches!(
+                    change.sale_observation(),
+                    Some(product_listing_core::product_listing_event::ListingSaleObservationChange::Observed(observation))
+                        if observation.observed_at() == observed_at
+                )
         ));
         Ok(())
     }

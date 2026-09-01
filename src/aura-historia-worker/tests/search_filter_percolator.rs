@@ -129,12 +129,12 @@ async fn should_suppress_notification_after_free_tier_monthly_quota() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
-async fn should_ignore_policy_and_lifecycle_product_listing_events_without_side_effects() {
-    let result = ignored_product_listing_events_flow().await;
+async fn should_percolate_current_lifecycle_changed_product_listing_event() {
+    let result = lifecycle_changed_product_listing_event_flow().await;
 
     assert!(
         result.is_ok(),
-        "search-filter ignored-event flow acceptance test failed: {result:?}"
+        "search-filter lifecycle changed-event flow acceptance test failed: {result:?}"
     );
 }
 
@@ -195,7 +195,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
         let (created_product_listing_id, created_event_id) =
             create_product_with_domain_event(&worker.pool, &product_listing_query).await?;
         assert_eq!(
-            "PRODUCT_LISTING_CREATED",
+            "PRODUCT_LISTING_DISCOVERED",
             product_event_type(&worker.pool, created_event_id).await?
         );
         wait_for_match(&worker.pool, created_event_id, 1).await?;
@@ -232,7 +232,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
         )
         .await?;
         assert_eq!(
-            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+            "PRODUCT_LISTING_CHANGED",
             product_event_type(&worker.pool, updated_event_id).await?
         );
         wait_for_match(&worker.pool, updated_event_id, 1).await?;
@@ -411,14 +411,14 @@ async fn quota_flow() -> Result<(), Box<dyn std::error::Error>> {
     worker.finish(result).await
 }
 
-async fn ignored_product_listing_events_flow() -> Result<(), Box<dyn std::error::Error>> {
+async fn lifecycle_changed_product_listing_event_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = FullFlowWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
         let product_listing_query = format!("Worker percolator product {user_id}");
         let filter = search_filter(
             user_id,
-            UserSearchFilterName::from("Ignored event filter"),
+            UserSearchFilterName::from("Lifecycle changed-event filter"),
             SearchFilterState::Active,
             &product_listing_query,
         )?;
@@ -428,13 +428,14 @@ async fn ignored_product_listing_events_flow() -> Result<(), Box<dyn std::error:
         let (_, lifecycle_event) = create_product_with_event(
             &worker.pool,
             &product_listing_query,
-            "PRODUCT_LISTING_WITHDRAWN",
-            "LIFECYCLE",
+            "PRODUCT_LISTING_CHANGED",
+            "DOMAIN",
+            json!({"lifecycle": {"transition": "RESTORED"}}),
         )
         .await?;
 
-        assert_no_matches_for(&worker.pool, lifecycle_event, NO_SIDE_EFFECT_OBSERVATION).await?;
-        assert_no_more_than_notifications(&worker.pool, user_id, 0, NO_SIDE_EFFECT_OBSERVATION)
+        wait_for_match(&worker.pool, lifecycle_event, 1).await?;
+        assert_no_more_than_notifications(&worker.pool, user_id, 1, NO_SIDE_EFFECT_OBSERVATION)
             .await
     }
     .await;
@@ -489,7 +490,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
             &worker.pool,
             product_listing_id,
             &product_listing_query,
-            "PRODUCT_ENRICHED",
+            "ENRICHMENT_EMBEDDED",
             "ENRICHMENT",
         )
         .await?;
@@ -498,7 +499,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
             &worker.server,
             product_listing_id,
             event_a,
-            "PRODUCT_LISTING_CREATED",
+            "PRODUCT_LISTING_DISCOVERED",
             "DOMAIN",
         )
         .await?;
@@ -506,7 +507,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
             &worker.server,
             product_listing_id,
             event_b,
-            "PRODUCT_ENRICHED",
+            "ENRICHMENT_EMBEDDED",
             "ENRICHMENT",
         )
         .await?;
@@ -517,7 +518,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
             &worker.server,
             product_listing_id,
             event_b,
-            "PRODUCT_ENRICHED",
+            "ENRICHMENT_EMBEDDED",
             "ENRICHMENT",
         )
         .await?;
@@ -525,7 +526,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
             &worker.server,
             product_listing_id,
             event_a,
-            "PRODUCT_LISTING_CREATED",
+            "PRODUCT_LISTING_DISCOVERED",
             "DOMAIN",
         )
         .await?;
@@ -651,7 +652,7 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
             &worker.server,
             event_one.product_listing_id,
             event_one.event_id,
-            "PRODUCT_LISTING_CREATED",
+            "PRODUCT_LISTING_DISCOVERED",
             "DOMAIN",
         )
         .await?;
@@ -837,7 +838,7 @@ async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std
             &worker.server,
             product_listing_id,
             event_id,
-            "PRODUCT_LISTING_CREATED",
+            "PRODUCT_LISTING_DISCOVERED",
             "DOMAIN",
         )
         .await?;
@@ -1147,7 +1148,14 @@ async fn create_product_with_domain_event(
     pool: &sqlx::PgPool,
     title: &str,
 ) -> Result<(ProductListingId, EventId), sqlx::Error> {
-    create_product_with_event(pool, title, "PRODUCT_LISTING_CREATED", "DOMAIN").await
+    create_product_with_event(
+        pool,
+        title,
+        "PRODUCT_LISTING_DISCOVERED",
+        "DOMAIN",
+        json!({}),
+    )
+    .await
 }
 
 async fn create_product_with_event(
@@ -1155,6 +1163,7 @@ async fn create_product_with_event(
     title: &str,
     event_type: &str,
     event_group: &str,
+    payload: Value,
 ) -> Result<(ProductListingId, EventId), sqlx::Error> {
     let product_listing_id = ProductListingId::new();
     let product_uuid = uuid::Uuid::from(product_listing_id);
@@ -1178,11 +1187,12 @@ async fn create_product_with_event(
 
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, $5, now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(product_uuid)
         .bind(event_type)
         .bind(event_group)
+        .bind(payload)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
@@ -1249,7 +1259,7 @@ async fn insert_cross_currency_product_with_event(
 
         .execute(&mut *tx)
     .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', $3)")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, '{}', $3)")
         .bind(uuid::Uuid::from(event_id))
         .bind(product_uuid)
         .bind(event_time)
@@ -1365,7 +1375,7 @@ async fn update_product_and_insert_event(
         pool,
         product_listing_id,
         title,
-        "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+        "PRODUCT_LISTING_CHANGED",
         "DOMAIN",
     )
     .await
@@ -1380,7 +1390,7 @@ async fn update_product_and_insert_event_with_group(
 ) -> Result<EventId, sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, '{}', now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(event_type)
@@ -1428,7 +1438,7 @@ async fn create_product_with_event_then_rollback(
 
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, '{}', now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(product_uuid)
         .execute(&mut *tx)
@@ -1836,7 +1846,9 @@ async fn redeliver_product_event(
                 "event_id": event_id.to_string(),
                 "product_listing_id": product_listing_id.to_string(),
                 "event_type": event_type,
-                "event_group": event_group
+                "event_group": event_group,
+                "event_type_schema_version": 1,
+                "payload": {}
             },
             "action": "insert",
             "metadata": {"table_schema": "public", "table_name": "product_listing_events"}

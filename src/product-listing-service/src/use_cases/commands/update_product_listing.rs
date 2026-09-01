@@ -1,10 +1,10 @@
 use crate::ports::{
     PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
-    PartnerProductListingAuthorizerFactory, ProductListingEventStore,
-    ProductListingEventStoreError, ProductListingEventStoreFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
+    PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
+    ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_event,
 };
-use application::error::BoxError;
+use application::error::{BoxError, box_error};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
@@ -69,7 +69,10 @@ pub enum UpdateProductListingError {
     #[error("product listing persistence failed")]
     PersistenceFailed,
     #[error("product listing event storage failed")]
-    EventStoreFailed,
+    EventAppenderFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin update product listing transaction")]
     BeginTransactionFailed,
     #[error("failed to commit update product listing transaction")]
@@ -117,7 +120,7 @@ impl<U, R, E, A> UpdateProductListingHandler<U, R, E, A>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
-    E: ProductListingEventStoreFactory<U::Tx>,
+    E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
 {
     async fn update(
@@ -175,27 +178,23 @@ where
         let expected_version = loaded.version;
         let mut product = loaded.value;
         apply_command(&mut product, command)?;
-        let events = stamp_product_listing_events(
-            product.id(),
-            time::OffsetDateTime::now_utc(),
-            product.take_pending_event_payloads(),
-        );
-        let outcome = if events.is_empty() {
-            ChangeOutcome::Unchanged
-        } else {
+        let event = product.take_pending_event_payload().map(|payload| {
+            stamp_product_listing_event(product.id(), time::OffsetDateTime::now_utc(), payload)
+        });
+        let outcome = if event.is_some() {
             ChangeOutcome::Changed
+        } else {
+            ChangeOutcome::Unchanged
         };
-        let current_event_id = events.last().map(|event| event.event_id);
-        if let Some(current_event_id) = current_event_id {
+        let current_event_id = event.as_ref().map(|event| event.event_id);
+        if let Some(event) = event {
             product = self
                 .products
                 .in_transaction(&mut tx)
-                .update(&product, expected_version, current_event_id)
+                .update(&product, expected_version, event.event_id)
                 .await?
                 .value;
-            for event in &events {
-                self.events.in_transaction(&mut tx).append(event).await?;
-            }
+            self.events.in_transaction(&mut tx).append(&event).await?;
         }
         tx.commit()
             .await
@@ -213,7 +212,7 @@ impl<U, R, E, A> UpdateProductListingUseCase for UpdateProductListingHandler<U, 
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
-    E: ProductListingEventStoreFactory<U::Tx>,
+    E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
 {
     #[tracing::instrument(name = "update_product_listing", skip_all, fields(product_listing_id = %product_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
@@ -368,9 +367,11 @@ impl From<ProductListingRepositoryError> for UpdateProductListingError {
         Self::PersistenceFailed
     }
 }
-impl From<ProductListingEventStoreError> for UpdateProductListingError {
-    fn from(_: ProductListingEventStoreError) -> Self {
-        Self::EventStoreFailed
+impl From<ProductListingEventAppendError> for UpdateProductListingError {
+    fn from(error: ProductListingEventAppendError) -> Self {
+        Self::EventAppenderFailed {
+            source: box_error(error),
+        }
     }
 }
 
@@ -381,10 +382,8 @@ mod tests {
     use localization::{Language, Localized};
     use money::{Currency, MonetaryAmount};
     use product_listing_core::{
-        product_listing::{
-            NewProductListing, ProductListingAuction, ProductListingEventPayload,
-            ProductListingPricing,
-        },
+        product_listing::{NewProductListing, ProductListingAuction, ProductListingPricing},
+        product_listing_event::ProductListingEventPayload,
         product_listing_id::ProductListingId,
         product_listing_slug_id::ProductListingSlugId,
         source_listing_id::SourceListingId,
@@ -460,7 +459,7 @@ mod tests {
             auction: ProductListingAuction::default(),
         })
         .unwrap_or_else(|error| panic!("valid listing should be created: {error}"));
-        listing.take_pending_event_payloads();
+        listing.take_pending_event_payload();
 
         apply_command(
             &mut listing,
@@ -474,11 +473,35 @@ mod tests {
         .unwrap_or_else(|error| panic!("valid price update: {error}"));
 
         assert_eq!(listing.pricing(), new_pricing);
-        assert!(matches!(
-            listing.pending_event_payloads(),
-            [ProductListingEventPayload::PriceChanged(change)]
-                if change.old_pricing == old_pricing && change.new_pricing == new_pricing
-        ));
+        let Some(ProductListingEventPayload::Changed(change)) =
+            listing.take_pending_event_payload()
+        else {
+            panic!("expected changed payload");
+        };
+        assert_eq!(
+            Some(&old_pricing.price),
+            change.price().map(|value| value.previous())
+        );
+        assert_eq!(
+            Some(&new_pricing.price),
+            change.price().map(|value| value.current())
+        );
+        assert_eq!(
+            Some(&old_pricing.price_estimate_min),
+            change.price_estimate_min().map(|value| value.previous())
+        );
+        assert_eq!(
+            Some(&new_pricing.price_estimate_min),
+            change.price_estimate_min().map(|value| value.current())
+        );
+        assert_eq!(
+            Some(&old_pricing.price_estimate_max),
+            change.price_estimate_max().map(|value| value.previous())
+        );
+        assert_eq!(
+            Some(&new_pricing.price_estimate_max),
+            change.price_estimate_max().map(|value| value.current())
+        );
     }
 
     #[test]
@@ -508,7 +531,7 @@ mod tests {
             auction: old_auction,
         })
         .unwrap_or_else(|error| panic!("valid listing should be created: {error}"));
-        listing.take_pending_event_payloads();
+        listing.take_pending_event_payload();
 
         apply_command(
             &mut listing,
@@ -521,10 +544,19 @@ mod tests {
         .unwrap_or_else(|error| panic!("valid auction update: {error}"));
 
         assert_eq!(listing.auction(), new_auction);
-        assert!(matches!(
-            listing.pending_event_payloads(),
-            [ProductListingEventPayload::AuctionChanged(change)] if change.auction == new_auction
-        ));
+        let Some(ProductListingEventPayload::Changed(change)) =
+            listing.take_pending_event_payload()
+        else {
+            panic!("expected changed payload");
+        };
+        assert_eq!(
+            Some(&old_auction),
+            change.auction().map(|value| value.previous())
+        );
+        assert_eq!(
+            Some(&new_auction),
+            change.auction().map(|value| value.current())
+        );
     }
 
     #[test]
@@ -550,7 +582,7 @@ mod tests {
             auction,
         })
         .unwrap_or_else(|error| panic!("valid listing should be created: {error}"));
-        listing.take_pending_event_payloads();
+        listing.take_pending_event_payload();
         listing
             .change_url(
                 Url::parse("https://shop.example/updated-listing")
@@ -571,9 +603,11 @@ mod tests {
             Err(UpdateProductListingError::InvalidProductListing)
         ));
         assert_eq!(listing.auction(), auction);
-        assert!(matches!(
-            listing.pending_event_payloads(),
-            [ProductListingEventPayload::UrlChanged(_)]
-        ));
+        let Some(ProductListingEventPayload::Changed(change)) =
+            listing.take_pending_event_payload()
+        else {
+            panic!("expected changed payload");
+        };
+        assert!(change.url().is_some());
     }
 }

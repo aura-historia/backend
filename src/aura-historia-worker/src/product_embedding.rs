@@ -121,7 +121,7 @@ mod tests {
             payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
                 event_id: event_id.to_string(),
                 product_listing_id: product_listing_id.to_string(),
-                event_type: "PRODUCT_LISTING_CREATED".to_owned(),
+                event_type: "PRODUCT_LISTING_DISCOVERED".to_owned(),
                 event_group: "DOMAIN".to_owned(),
             }),
         });

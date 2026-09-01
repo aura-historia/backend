@@ -9,11 +9,12 @@ use application::operation_context::{OperationAuthorizationError, OperationConte
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
 use product_listing_core::{
-    content_policy::assess_listing_text, product_listing_id::ProductListingId,
+    content_policy::assess_listing_text, product_listing_event::ProductListingEventType,
+    product_listing_id::ProductListingId,
 };
 
 const DOMAIN_EVENT_GROUP: &str = "DOMAIN";
-const CONTENT_SOURCE_EVENT_TYPE: &str = "PRODUCT_LISTING_CREATED";
+const CONTENT_SOURCE_EVENT_TYPE: &str = ProductListingEventType::Discovered.as_str();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AssessProductListingContentCommand {
@@ -273,7 +274,7 @@ mod tests {
                 event_id: content_source_event_id,
                 current_content_source_event_id: content_source_event_id,
                 event_group: DOMAIN_EVENT_GROUP.to_owned(),
-                event_type: "PRODUCT_LISTING_CREATED".to_owned(),
+                event_type: ProductListingEventType::Discovered.as_str().to_owned(),
                 title: Some(Title::from("Ancient vase")),
                 description: Some(Description::from("Painted clay")),
             },
@@ -368,7 +369,7 @@ mod tests {
     async fn should_ignore_non_content_source_domain_event_without_writing() {
         let state = state();
         let command = command(&state);
-        lock(&state).source.event_type = "PRODUCT_LISTING_PRICE_CHANGED".to_owned();
+        lock(&state).source.event_type = ProductListingEventType::Changed.as_str().to_owned();
 
         let result = handler(&state).execute(&context(), command).await;
 

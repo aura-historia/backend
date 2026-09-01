@@ -447,7 +447,7 @@ async fn seed_watchlist_entries(
         let product_listing_id = uuid::Uuid::new_v4();
         let event_id = uuid::Uuid::new_v4();
         sqlx::query(
-            "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())",
+            "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', '{}', now())",
         )
         .bind(event_id)
         .bind(product_listing_id)

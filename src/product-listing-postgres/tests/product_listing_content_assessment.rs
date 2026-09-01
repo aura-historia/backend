@@ -29,7 +29,7 @@ async fn should_keep_assessment_current_after_price_and_enrichment_events() {
         );
 
         for (event_type, event_group) in [
-            ("PRODUCT_LISTING_PRICE_CHANGED", "DOMAIN"),
+            ("PRODUCT_LISTING_CHANGED", "DOMAIN"),
             ("ENRICHMENT_EMBEDDED", "ENRICHMENT"),
         ] {
             advance_current_event(&pool, product_listing_id, event_type, event_group).await?;
@@ -138,7 +138,7 @@ async fn insert_product_with_created_event(
         &mut tx,
         product_listing_id,
         content_source_event_id,
-        "PRODUCT_LISTING_CREATED",
+        "PRODUCT_LISTING_DISCOVERED",
         "DOMAIN",
     )
     .await?;
@@ -203,7 +203,7 @@ async fn insert_event(
     event_type: &str,
     event_group: &str,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, '{}', now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(event_type)

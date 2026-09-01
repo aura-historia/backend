@@ -8784,22 +8784,13 @@ components:
     ProductListingEventTypeData:
       type: string
       enum:
-        - PRODUCT_LISTING_CREATED
-        - PRODUCT_LISTING_AVAILABILITY_CHANGED
-        - PRODUCT_LISTING_ADDRESS_CHANGED
-        - PRODUCT_LISTING_PRICE_CHANGED
-        - PRODUCT_LISTING_URL_CHANGED
-        - PRODUCT_LISTING_IMAGES_CHANGED
-        - PRODUCT_LISTING_AUCTION_CHANGED
-        - PRODUCT_LISTING_WITHDRAWN
-        - PRODUCT_LISTING_RESTORED
-        - PRODUCT_LISTING_SALE_OBSERVED
-        - PRODUCT_LISTING_SALE_OBSERVATION_RETRACTED
-      description: Canonical ProductListing domain event type.
-      example: PRODUCT_LISTING_AVAILABILITY_CHANGED
+        - PRODUCT_LISTING_DISCOVERED
+        - PRODUCT_LISTING_CHANGED
+      description: Canonical ProductListing domain event type. A changed event contains a non-empty composite set of semantic changes.
+      example: PRODUCT_LISTING_CHANGED
     ProductListingEventPayloadData:
       type: object
-      description: Event-specific immutable payload. Optional availability fields serialize as `null`.
+      description: Event-specific immutable payload. Discovery exposes image count only; changed payloads contain typed previous/current dimensions.
     ApiError:
       type: object
       description: Standard error response format (RFC 9457)

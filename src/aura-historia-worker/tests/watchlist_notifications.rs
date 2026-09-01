@@ -124,8 +124,8 @@ async fn create_availability_notification_from_committed_product_event()
             &mut transaction,
             event_id,
             product_listing_id,
-            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-            json!({"previousAvailability": "AVAILABLE", "currentAvailability": null}),
+            "PRODUCT_LISTING_CHANGED",
+            json!({"availability": {"previous": "AVAILABLE", "current": null}}),
         )
         .await?;
         transaction.commit().await?;
@@ -184,10 +184,14 @@ async fn create_price_notifications_only_for_active_watchers()
             &mut transaction,
             event_id,
             product_listing_id,
-            "PRODUCT_LISTING_PRICE_CHANGED",
+            "PRODUCT_LISTING_CHANGED",
             json!({
-                "oldPricing": {"price": {"amount": 1200, "currency": "USD"}},
-                "newPricing": {"price": {"amount": 900, "currency": "USD"}}
+                "pricing": {
+                    "price": {
+                        "previous": {"amount": 1200, "currency": "USD"},
+                        "current": {"amount": 900, "currency": "USD"}
+                    }
+                }
             }),
         )
         .await?;
@@ -226,8 +230,8 @@ async fn no_notification_for_watcher_created_after_product_event()
             &mut transaction,
             event_id,
             product_listing_id,
-            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-            json!({"previousAvailability": "AVAILABLE", "currentAvailability": "SOLD_OUT"}),
+            "PRODUCT_LISTING_CHANGED",
+            json!({"availability": {"previous": "AVAILABLE", "current": "SOLD_OUT"}}),
             event_time,
         )
         .await?;
@@ -251,8 +255,10 @@ async fn no_notification_for_watcher_created_after_product_event()
                 "record": {
                     "event_id": event_id.to_string(),
                     "product_listing_id": product_listing_id.to_string(),
-                    "event_type": "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-                    "event_group": "DOMAIN"
+                    "event_type": "PRODUCT_LISTING_CHANGED",
+                    "event_group": "DOMAIN",
+                    "event_type_schema_version": 1,
+                    "payload": {"availability": {}}
                 },
                 "action": "insert",
                 "metadata": {"table_schema": "public", "table_name": "product_listing_events"}
@@ -279,8 +285,8 @@ async fn hold_product_current_event_lock_until_watchlist_notification_commit()
         &mut transaction,
         event_id,
         product_listing_id,
-        "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-        json!({"previousAvailability": "AVAILABLE", "currentAvailability": "SOLD_OUT"}),
+        "PRODUCT_LISTING_CHANGED",
+        json!({"availability": {"previous": "AVAILABLE", "current": "SOLD_OUT"}}),
         event_time,
     )
     .await?;
@@ -329,7 +335,7 @@ async fn hold_product_current_event_lock_until_watchlist_notification_commit()
     let mut update = tokio::spawn(async move {
         let _ = update_started_tx.send(());
         let mut transaction = update_pool.begin().await?;
-        sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_AVAILABILITY_CHANGED', 'DOMAIN', '{}', $3)")
+        sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, '{}', $3)")
             .bind(uuid::Uuid::from(next_event_id))
             .bind(uuid::Uuid::from(product_listing_id))
             .bind(event_time + time::Duration::seconds(1))
@@ -396,8 +402,8 @@ async fn preserve_one_notification_when_product_event_delivery_is_retried()
             &mut transaction,
             event_id,
             product_listing_id,
-            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-            json!({"previousAvailability": null, "currentAvailability": "AVAILABLE"}),
+            "PRODUCT_LISTING_CHANGED",
+            json!({"availability": {"previous": null, "current": "AVAILABLE"}}),
         )
         .await?;
         transaction.commit().await?;
@@ -412,8 +418,10 @@ async fn preserve_one_notification_when_product_event_delivery_is_retried()
                 "record": {
                     "event_id": event_id.to_string(),
                     "product_listing_id": product_listing_id.to_string(),
-                    "event_type": "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-                    "event_group": "DOMAIN"
+                    "event_type": "PRODUCT_LISTING_CHANGED",
+                    "event_group": "DOMAIN",
+                    "event_type_schema_version": 1,
+                    "payload": {"availability": {}}
                 },
                 "action": "insert",
                 "metadata": {"table_schema": "public", "table_name": "product_listing_events"}
@@ -450,8 +458,8 @@ async fn not_notify_for_rolled_back_or_unrouted_product_listing_events()
             &mut rolled_back_transaction,
             rolled_back_event_id,
             rolled_back_product_listing_id,
-            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-            json!({"previousAvailability": "AVAILABLE", "currentAvailability": "SOLD_OUT"}),
+            "PRODUCT_LISTING_CHANGED",
+            json!({"availability": {"previous": "AVAILABLE", "current": "SOLD_OUT"}}),
         )
         .await?;
         drop(rolled_back_transaction);
@@ -472,8 +480,8 @@ async fn not_notify_for_rolled_back_or_unrouted_product_listing_events()
             &mut unrouted_transaction,
             unrouted_event_id,
             unrouted_product_listing_id,
-            "PRODUCT_URL_CHANGED",
-            json!({"oldUrl": "https://example.test/old", "newUrl": "https://example.test/new"}),
+            "PRODUCT_LISTING_CHANGED",
+            json!({"url": {"previous": "https://example.test/old", "current": "https://example.test/new"}}),
         )
         .await?;
         unrouted_transaction.commit().await?;
@@ -680,7 +688,7 @@ async fn insert_product_event_at(
     payload: serde_json::Value,
     event_time: OffsetDateTime,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, 'DOMAIN', $4, $5)")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, 'DOMAIN', 1, $4, $5)")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(event_type)

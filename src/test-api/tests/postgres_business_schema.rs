@@ -231,7 +231,7 @@ async fn should_support_core_business_relations() {
         VALUES (
             '40000000-0000-0000-0000-000000000001',
             '30000000-0000-0000-0000-000000000001',
-            'PRODUCT_LISTING_CREATED',
+            'PRODUCT_LISTING_DISCOVERED',
             'DOMAIN',
             '{"kind": "created"}',
             now()

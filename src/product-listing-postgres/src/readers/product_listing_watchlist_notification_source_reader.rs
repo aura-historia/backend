@@ -165,11 +165,11 @@ impl ProductListingWatchlistNotificationSourceReader
         let Some(row) = row else {
             return Ok(None);
         };
-        let Some(change) = notification_change(&row.event_type, &row.payload)
-            .map_err(WatchlistNotificationSourceMappingError::with_source)?
-        else {
+        let changes = notification_changes(&row.event_type, &row.payload)
+            .map_err(WatchlistNotificationSourceMappingError::with_source)?;
+        if changes.is_empty() {
             return Ok(None);
-        };
+        }
         let translations = sqlx::query_as::<_, TitleRow>(
             "SELECT language, title FROM product_listing_translations WHERE product_listing_id = $1 AND title IS NOT NULL",
         )
@@ -233,7 +233,7 @@ impl ProductListingWatchlistNotificationSourceReader
             )?,
             view_url,
             url,
-            change,
+            changes,
         }))
     }
 }
@@ -255,48 +255,50 @@ fn content_policy(
     }
 }
 
-fn notification_change(
+fn notification_changes(
     event_type: &str,
     payload: &serde_json::Value,
-) -> Result<Option<ProductListingWatchlistNotificationChange>, NotificationPayloadError> {
-    match event_type {
-        "PRODUCT_LISTING_PRICE_CHANGED" => Ok(Some(
-            ProductListingWatchlistNotificationChange::PriceChanged {
-                old_price: pricing_price(payload.get("oldPricing"))?,
-                new_price: pricing_price(payload.get("newPricing"))?,
-            },
-        )),
-        "PRODUCT_LISTING_AVAILABILITY_CHANGED" => {
-            let old_availability = availability(payload.get("previousAvailability"))?;
-            let new_availability = availability(payload.get("currentAvailability"))?;
-            Ok(Some(
-                ProductListingWatchlistNotificationChange::AvailabilityChanged {
-                    old_availability,
-                    new_availability,
-                },
-            ))
-        }
-        _ => Ok(None),
+) -> Result<Vec<ProductListingWatchlistNotificationChange>, NotificationPayloadError> {
+    if event_type != "PRODUCT_LISTING_CHANGED" {
+        return Ok(Vec::new());
     }
+
+    let payload = payload
+        .as_object()
+        .ok_or(NotificationPayloadError::Invalid)?;
+    let mut changes = Vec::new();
+    if let Some(pricing) = payload.get("pricing") {
+        let pricing = pricing
+            .as_object()
+            .ok_or(NotificationPayloadError::Invalid)?;
+        if let Some(price_change) = pricing.get("price") {
+            let price_change = price_change
+                .as_object()
+                .ok_or(NotificationPayloadError::Invalid)?;
+            changes.push(ProductListingWatchlistNotificationChange::PriceChanged {
+                old_price: price(price_change.get("previous"))?,
+                new_price: price(price_change.get("current"))?,
+            });
+        }
+    }
+    if let Some(availability_change) = payload.get("availability") {
+        let availability_change = availability_change
+            .as_object()
+            .ok_or(NotificationPayloadError::Invalid)?;
+        changes.push(
+            ProductListingWatchlistNotificationChange::AvailabilityChanged {
+                old_availability: availability(availability_change.get("previous"))?,
+                new_availability: availability(availability_change.get("current"))?,
+            },
+        );
+    }
+    Ok(changes)
 }
 
 #[derive(Debug, thiserror::Error)]
 enum NotificationPayloadError {
     #[error("notification event payload is invalid")]
     Invalid,
-}
-
-fn pricing_price(
-    value: Option<&serde_json::Value>,
-) -> Result<Option<Price>, NotificationPayloadError> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    if value.is_null() {
-        return Ok(None);
-    }
-    let object = value.as_object().ok_or(NotificationPayloadError::Invalid)?;
-    price(object.get("price"))
 }
 
 fn price(value: Option<&serde_json::Value>) -> Result<Option<Price>, NotificationPayloadError> {
@@ -351,26 +353,56 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_read_primary_prices_from_canonical_price_change_payload()
+    fn should_read_price_and_availability_from_composite_changed_payload()
     -> Result<(), Box<dyn std::error::Error>> {
-        let change = notification_change(
-            "PRODUCT_LISTING_PRICE_CHANGED",
+        let changes = notification_changes(
+            "PRODUCT_LISTING_CHANGED",
             &serde_json::json!({
-                "oldPricing": { "price": { "amount": 1200, "currency": "USD" } },
-                "newPricing": { "price": { "amount": 900, "currency": "USD" } },
+                "pricing": {
+                    "price": {
+                        "previous": { "amount": 1200, "currency": "USD" },
+                        "current": { "amount": 900, "currency": "USD" }
+                    }
+                },
+                "availability": { "previous": "IN_STOCK", "current": "SOLD_OUT" }
             }),
         )?;
 
         assert!(matches!(
-            change,
-            Some(ProductListingWatchlistNotificationChange::PriceChanged {
-                old_price: Some(old_price),
-                new_price: Some(new_price),
-            }) if u64::from(old_price.monetary_amount) == 1200
+            changes.as_slice(),
+            [
+                ProductListingWatchlistNotificationChange::PriceChanged {
+                    old_price: Some(old_price),
+                    new_price: Some(new_price),
+                },
+                ProductListingWatchlistNotificationChange::AvailabilityChanged {
+                    old_availability: Some(ListingAvailability::InStock),
+                    new_availability: Some(ListingAvailability::SoldOut),
+                }
+            ] if u64::from(old_price.monetary_amount) == 1200
                 && old_price.currency == Currency::Usd
                 && u64::from(new_price.monetary_amount) == 900
                 && new_price.currency == Currency::Usd
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn should_ignore_estimate_only_composite_changed_payload()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let changes = notification_changes(
+            "PRODUCT_LISTING_CHANGED",
+            &serde_json::json!({
+                "pricing": {
+                    "priceEstimateMin": {
+                        "previous": { "amount": 1200, "currency": "USD" },
+                        "current": { "amount": 900, "currency": "USD" }
+                    }
+                }
+            }),
+        )?;
+
+        assert!(changes.is_empty());
         Ok(())
     }
 

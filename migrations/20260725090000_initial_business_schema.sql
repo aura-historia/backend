@@ -266,12 +266,12 @@ CREATE TABLE product_listing_events (
     product_listing_id uuid NOT NULL REFERENCES product_listings(product_listing_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
     event_type text NOT NULL,
     event_group text NOT NULL,
-    event_type_schema_version int NOT NULL DEFAULT 1,
+    event_type_schema_version smallint NOT NULL,
     payload jsonb NOT NULL,
     event_time timestamptz NOT NULL,
     created timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT product_listing_events_product_event_unique UNIQUE (product_listing_id, event_id),
-    CONSTRAINT product_listing_events_group_check CHECK (event_group IN ('DOMAIN', 'ENRICHMENT', 'LIFECYCLE')),
+    CONSTRAINT product_listing_events_group_check CHECK (event_group IN ('DOMAIN', 'ENRICHMENT')),
     CONSTRAINT product_listing_events_schema_version_positive CHECK (event_type_schema_version >= 1),
     CONSTRAINT product_listing_events_payload_object CHECK (jsonb_typeof(payload) = 'object')
 );

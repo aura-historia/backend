@@ -1,10 +1,10 @@
 use crate::ports::{
     PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
-    PartnerProductListingAuthorizerFactory, ProductListingEventStore,
-    ProductListingEventStoreError, ProductListingEventStoreFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
+    PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
+    ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_event,
 };
-use application::error::BoxError;
+use application::error::{BoxError, box_error};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
@@ -42,7 +42,10 @@ pub enum WithdrawProductListingError {
     #[error("product listing persistence failed")]
     PersistenceFailed,
     #[error("product listing event storage failed")]
-    EventStoreFailed,
+    EventAppenderFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin withdraw product listing transaction")]
     BeginTransactionFailed,
     #[error("failed to commit withdraw product listing transaction")]
@@ -89,7 +92,7 @@ impl<U, R, E, A> WithdrawProductListingHandler<U, R, E, A>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
-    E: ProductListingEventStoreFactory<U::Tx>,
+    E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
 {
     async fn withdraw(
@@ -143,22 +146,18 @@ where
         let expected_version = loaded.version;
         let mut product = loaded.value;
         let outcome = product.withdraw();
-        let events = stamp_product_listing_events(
-            product.id(),
-            time::OffsetDateTime::now_utc(),
-            product.take_pending_event_payloads(),
-        );
-        let current_event_id = events.last().map(|event| event.event_id);
-        if let Some(current_event_id) = current_event_id {
+        let event = product.take_pending_event_payload().map(|payload| {
+            stamp_product_listing_event(product.id(), time::OffsetDateTime::now_utc(), payload)
+        });
+        let current_event_id = event.as_ref().map(|event| event.event_id);
+        if let Some(event) = event {
             product = self
                 .products
                 .in_transaction(&mut tx)
-                .update(&product, expected_version, current_event_id)
+                .update(&product, expected_version, event.event_id)
                 .await?
                 .value;
-            for event in &events {
-                self.events.in_transaction(&mut tx).append(event).await?;
-            }
+            self.events.in_transaction(&mut tx).append(&event).await?;
         }
         tx.commit()
             .await
@@ -176,7 +175,7 @@ impl<U, R, E, A> WithdrawProductListingUseCase for WithdrawProductListingHandler
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
-    E: ProductListingEventStoreFactory<U::Tx>,
+    E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
 {
     #[tracing::instrument(name = "withdraw_product_listing", skip_all, fields(product_listing_id = %product_listing_id, principal_type = context.principal.kind(), actor_id = tracing::field::Empty, request_id = %context.request_id, correlation_id = %context.correlation_id))]
@@ -263,8 +262,10 @@ impl From<ProductListingRepositoryError> for WithdrawProductListingError {
         }
     }
 }
-impl From<ProductListingEventStoreError> for WithdrawProductListingError {
-    fn from(_: ProductListingEventStoreError) -> Self {
-        Self::EventStoreFailed
+impl From<ProductListingEventAppendError> for WithdrawProductListingError {
+    fn from(error: ProductListingEventAppendError) -> Self {
+        Self::EventAppenderFailed {
+            source: box_error(error),
+        }
     }
 }

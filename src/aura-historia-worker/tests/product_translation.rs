@@ -85,12 +85,8 @@ async fn should_translate_committed_embedded_product_event_and_persist_canonical
 async fn should_ignore_non_embedded_product_event_without_translation_side_effect() {
     let worker = TranslationWorker::start().await;
     let result: Result<(), Box<dyn std::error::Error>> = async {
-        let (product_listing_id, _) = insert_product_with_event(
-            &worker.pool,
-            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-            "DOMAIN",
-        )
-        .await?;
+        let (product_listing_id, _) =
+            insert_product_with_event(&worker.pool, "PRODUCT_LISTING_CHANGED", "DOMAIN").await?;
 
         assert_no_translations(&worker.pool, product_listing_id, NO_SIDE_EFFECT_OBSERVATION).await
     }
@@ -235,6 +231,8 @@ impl TranslationWorker {
                     "product_listing_id": product_listing_id.to_string(),
                     "event_type": event_type,
                     "event_group": event_group,
+                    "event_type_schema_version": 1,
+                    "payload": {},
                 },
                 "action": "insert",
                 "metadata": {
@@ -301,7 +299,7 @@ async fn insert_product_with_event(
 
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, '{}', now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(event_type)
@@ -318,7 +316,7 @@ async fn advance_product_revision(
 ) -> Result<EventId, sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_AVAILABILITY_CHANGED', 'DOMAIN', '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, '{}', now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .execute(&mut *tx)
@@ -358,7 +356,7 @@ async fn insert_product_with_event_then_rollback(
 
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'ENRICHMENT_EMBEDDED', 'ENRICHMENT', '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'ENRICHMENT_EMBEDDED', 'ENRICHMENT', 1, '{}', now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .execute(&mut *tx)

@@ -5,7 +5,7 @@ use api_support::{
     seed_access_token_for, seed_current_fx_snapshot, seed_product, seed_user,
 };
 use application::transaction::{Transaction, UnitOfWork};
-use fxrate_core::FxRateId;
+
 use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
 
@@ -16,8 +16,7 @@ use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
     product_listing::{
-        ListingSaleObservation, NewProductListing, ProductListing, ProductListingAuction,
-        ProductListingPricing,
+        NewProductListing, ProductListing, ProductListingAuction, ProductListingPricing,
     },
     product_listing_id::ProductListingId,
     product_listing_slug_id::ProductListingSlugId,
@@ -25,11 +24,11 @@ use product_listing_core::{
     title::Title,
 };
 use product_listing_postgres::{
-    SqlxProductListingEventStoreFactory, SqlxProductListingRepositoryFactory,
+    SqlxProductListingEventAppenderFactory, SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::ports::{
-    ProductListingEventStore, ProductListingEventStoreFactory, ProductListingRepository,
-    ProductListingRepositoryFactory, stamp_product_listing_events,
+    ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
+    ProductListingRepositoryFactory, stamp_product_listing_event,
 };
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -514,15 +513,14 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
         },
     })
     .unwrap_or_else(|error| panic!("create timestamped history product: {error}"));
-    let created_events = stamp_product_listing_events(
+    let created_event = stamp_product_listing_event(
         product_listing_id,
         OffsetDateTime::now_utc(),
-        product.take_pending_event_payloads(),
+        product
+            .take_pending_event_payload()
+            .unwrap_or_else(|| panic!("discovered product event is missing")),
     );
-    let created_event_id = created_events
-        .last()
-        .map(|event| event.event_id)
-        .unwrap_or_else(|| panic!("created product event is missing"));
+    let created_event_id = created_event.event_id;
 
     product
         .replace_auction(ProductListingAuction {
@@ -530,27 +528,18 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
             end: Some((auction_end + Duration::days(1)).to_offset(source_offset)),
         })
         .unwrap_or_else(|error| panic!("change auction: {error}"));
-    let observation = ListingSaleObservation::new(
-        (auction_end + Duration::nanoseconds(987_654_321)).to_offset(source_offset),
-        FxRateId::new(),
-    );
-    product
-        .record_sale_observation(observation)
-        .unwrap_or_else(|error| panic!("record sale observation: {error}"));
-    product.retract_sale_observation();
-    let changed_events = stamp_product_listing_events(
+    let changed_event = stamp_product_listing_event(
         product_listing_id,
         OffsetDateTime::now_utc(),
-        product.take_pending_event_payloads(),
+        product
+            .take_pending_event_payload()
+            .unwrap_or_else(|| panic!("changed product event is missing")),
     );
-    let current_event_id = changed_events
-        .last()
-        .map(|event| event.event_id)
-        .unwrap_or_else(|| panic!("changed product event is missing"));
+    let current_event_id = changed_event.event_id;
 
     let unit_of_work = SqlxUnitOfWork::new(get_postgres_client().await);
     let products = SqlxProductListingRepositoryFactory::new();
-    let events = SqlxProductListingEventStoreFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
     let mut transaction = unit_of_work
         .begin()
         .await
@@ -560,25 +549,21 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
         .insert(&product, created_event_id)
         .await
         .unwrap_or_else(|error| panic!("insert timestamped history product: {error:?}"));
-    for event in &created_events {
-        events
-            .in_transaction(&mut transaction)
-            .append(event)
-            .await
-            .unwrap_or_else(|error| panic!("append created product event: {error:?}"));
-    }
+    events
+        .in_transaction(&mut transaction)
+        .append(&created_event)
+        .await
+        .unwrap_or_else(|error| panic!("append discovered product event: {error:?}"));
     products
         .in_transaction(&mut transaction)
         .update(&product, created.version, current_event_id)
         .await
         .unwrap_or_else(|error| panic!("update timestamped history product: {error:?}"));
-    for event in &changed_events {
-        events
-            .in_transaction(&mut transaction)
-            .append(event)
-            .await
-            .unwrap_or_else(|error| panic!("append changed product event: {error:?}"));
-    }
+    events
+        .in_transaction(&mut transaction)
+        .append(&changed_event)
+        .await
+        .unwrap_or_else(|error| panic!("append changed product event: {error:?}"));
     transaction
         .commit()
         .await
@@ -600,17 +585,20 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
             .find(|event| event["eventType"] == event_type)
             .unwrap_or_else(|| panic!("missing {event_type} history event"))
     };
-    for event_type in ["PRODUCT_LISTING_CREATED", "PRODUCT_LISTING_AUCTION_CHANGED"] {
-        let auction = &event(event_type)["payload"]["auction"];
-        assert!(auction["start"].is_string());
-        assert!(auction["end"].is_string());
-    }
-    for event_type in [
-        "PRODUCT_LISTING_SALE_OBSERVED",
-        "PRODUCT_LISTING_SALE_OBSERVATION_RETRACTED",
-    ] {
-        assert!(event(event_type)["payload"]["observedAt"].is_string());
-    }
+    assert_eq!(2, history.len());
+
+    let discovered = event("PRODUCT_LISTING_DISCOVERED");
+    assert_eq!(json!(0), discovered["payload"]["imageCount"]);
+    assert!(discovered["payload"].get("images").is_none());
+    assert!(discovered["payload"]["auction"]["start"].is_string());
+    assert!(discovered["payload"]["auction"]["end"].is_string());
+
+    let changed = event("PRODUCT_LISTING_CHANGED");
+    let auction = &changed["payload"]["auction"];
+    assert!(auction["previous"]["start"].is_string());
+    assert!(auction["previous"]["end"].is_string());
+    assert!(auction["current"]["start"].is_string());
+    assert!(auction["current"]["end"].is_string());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

@@ -97,7 +97,6 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
             })
             .collect::<serde_json::Map<String, serde_json::Value>>();
         let payload = json!({
-            "kind": "translatedTitles",
             "sourceEventId": write.source_event_id.to_string(),
             "sourceLanguage": write.source_language.as_str(),
             "titles": titles,
@@ -105,8 +104,9 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
         sqlx::query(
             r#"
             INSERT INTO product_listing_events (
-                event_id, product_listing_id, event_type, event_group, payload, event_time
-            ) VALUES ($1, $2, 'ENRICHMENT_TRANSLATED_TITLES', 'ENRICHMENT', $3, now())
+                event_id, product_listing_id, event_type, event_group, event_type_schema_version,
+                payload, event_time
+            ) VALUES ($1, $2, 'ENRICHMENT_TRANSLATED_TITLES', 'ENRICHMENT', 1, $3, now())
             "#,
         )
         .bind(uuid::Uuid::from(write.enrichment_event_id))

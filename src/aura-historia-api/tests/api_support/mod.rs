@@ -85,7 +85,7 @@ use product_listing_postgres::{
     SqlxListingSourceSummaryReader, SqlxPartnerProductListingAuthorizerFactory,
     SqlxProductListingContentAssessmentReader, SqlxProductListingDetailsBatchReader,
     SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
-    SqlxProductListingEventReaderFactory, SqlxProductListingEventStoreFactory,
+    SqlxProductListingEventAppenderFactory, SqlxProductListingEventReaderFactory,
     SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
     SqlxProductListingWatchlistDetailsReaderFactory,
 };
@@ -499,22 +499,32 @@ pub async fn seed_product() -> ProductListingId {
     }
     if let Err(error) = sqlx::query(
         r#"
-        INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time)
-        VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', $3, now())
+        INSERT INTO product_listing_events (
+            event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time
+        )
+        VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', $3, $4, now())
         "#,
     )
     .bind(event_id)
     .bind(uuid::Uuid::from(product_listing_id))
+    .bind(1_i16)
     .bind(serde_json::json!({
         "title": null,
         "description": null,
         "listingSourceId": listing_source_id.to_string(),
         "sourceListingId": format!("listing-source-product-{product_listing_id}"),
-        "pricing": {},
+        "pricing": {
+            "price": null,
+            "priceEstimateMin": null,
+            "priceEstimateMax": null
+        },
         "availability": "AVAILABLE",
         "url": "https://api-acceptance.example/product",
-        "images": [],
-        "auction": {}
+        "imageCount": 0,
+        "auction": {
+            "start": null,
+            "end": null
+        }
     }))
     .execute(&mut *tx)
     .await
@@ -703,25 +713,25 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::new(CreateProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
         )),
         Arc::new(UpdateProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
         )),
         Arc::new(UpsertProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
         )),
         Arc::new(WithdrawProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
@@ -731,7 +741,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::new(IngestWoocommerceProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
             SqlxListingSourceReaders::new(pool.clone()),
             SqlxListingSourceReaders::new(pool.clone()),

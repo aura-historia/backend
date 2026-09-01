@@ -106,7 +106,7 @@ async fn should_keep_product_projection_unchanged_when_event_is_redelivered() {
             .redeliver(
                 fixture.product_listing_id,
                 fixture.event_id,
-                "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+                "PRODUCT_LISTING_CHANGED",
                 "DOMAIN",
             )
             .await?;
@@ -143,7 +143,7 @@ async fn should_skip_stale_product_event_trigger() {
             .redeliver(
                 fixture.product_listing_id,
                 fixture.event_id,
-                "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+                "PRODUCT_LISTING_CHANGED",
                 "DOMAIN",
             )
             .await?;
@@ -187,8 +187,8 @@ async fn should_delete_withdrawn_listing_then_reproject_restored_listing_without
             .redeliver(
                 fixture.product_listing_id,
                 withdrawn_event_id,
-                "PRODUCT_LISTING_WITHDRAWN",
-                "LIFECYCLE",
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
             )
             .await?;
         assert_product_response_unchanged_for(
@@ -202,8 +202,8 @@ async fn should_delete_withdrawn_listing_then_reproject_restored_listing_without
             .redeliver(
                 fixture.product_listing_id,
                 restored_event_id,
-                "PRODUCT_LISTING_RESTORED",
-                "LIFECYCLE",
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
             )
             .await?;
         assert_product_response_unchanged_for(
@@ -421,6 +421,8 @@ impl ProductListingOpenSearchWorker {
                     "product_listing_id": product_listing_id.to_string(),
                     "event_type": event_type,
                     "event_group": event_group,
+                    "event_type_schema_version": 1,
+                    "payload": {},
                 },
                 "action": "insert",
                 "metadata": {
@@ -536,8 +538,9 @@ async fn withdraw_product_listing(
         &mut tx,
         product_listing_id,
         event_id,
-        "PRODUCT_LISTING_WITHDRAWN",
-        "LIFECYCLE",
+        "PRODUCT_LISTING_CHANGED",
+        "DOMAIN",
+        json!({"lifecycle": {"transition": "WITHDRAWN", "previousAvailability": "AVAILABLE"}}),
     )
     .await?;
     sqlx::query(
@@ -561,8 +564,9 @@ async fn restore_product_listing(
         &mut tx,
         product_listing_id,
         event_id,
-        "PRODUCT_LISTING_RESTORED",
-        "LIFECYCLE",
+        "PRODUCT_LISTING_CHANGED",
+        "DOMAIN",
+        json!({"lifecycle": {"transition": "RESTORED"}}),
     )
     .await?;
     sqlx::query(
@@ -682,8 +686,9 @@ async fn insert_product_event(
         tx,
         product_listing_id,
         event_id,
-        "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+        "PRODUCT_LISTING_CHANGED",
         "DOMAIN",
+        json!({}),
     )
     .await
 }
@@ -694,14 +699,16 @@ async fn insert_product_event_with_type(
     event_id: EventId,
     event_type: &str,
     event_group: &str,
+    payload: Value,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())",
+        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, $5, now())",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(uuid::Uuid::from(product_listing_id))
     .bind(event_type)
     .bind(event_group)
+    .bind(payload)
     .execute(&mut **tx)
     .await?;
     Ok(())

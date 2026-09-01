@@ -65,7 +65,6 @@ impl ProductListingEmbeddingWriter for SqlxProductListingEmbeddingWriter<'_> {
         }
 
         let payload = json!({
-            "kind": "embedded",
             "sourceEventId": write.source_event_id.to_string(),
             "embedding": write.embedding,
             "title": {
@@ -76,8 +75,9 @@ impl ProductListingEmbeddingWriter for SqlxProductListingEmbeddingWriter<'_> {
         sqlx::query(
             r#"
             INSERT INTO product_listing_events (
-                event_id, product_listing_id, event_type, event_group, payload, event_time
-            ) VALUES ($1, $2, 'ENRICHMENT_EMBEDDED', 'ENRICHMENT', $3, now())
+                event_id, product_listing_id, event_type, event_group, event_type_schema_version,
+                payload, event_time
+            ) VALUES ($1, $2, 'ENRICHMENT_EMBEDDED', 'ENRICHMENT', 1, $3, now())
         "#,
         )
         .bind(uuid::Uuid::from(write.enrichment_event_id))

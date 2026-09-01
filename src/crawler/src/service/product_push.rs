@@ -536,6 +536,7 @@ fn availability_name(value: ListingAvailability) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain_primitives::change_outcome::ChangeOutcome;
     use listing_source_core::ListingSourceId;
     use product_listing_core::{
         product_listing_id::ProductListingId, source_listing_id::SourceListingId,
@@ -582,7 +583,7 @@ mod tests {
             Ok(UpsertProductListingResult::Updated(
                 UpdateProductListingResult {
                     product_listing_id: ProductListingId::new(),
-                    event_id: None,
+                    outcome: ChangeOutcome::Changed,
                 },
             ))
         }
@@ -641,7 +642,7 @@ mod tests {
             Ok(UpsertProductListingResult::Updated(
                 UpdateProductListingResult {
                     product_listing_id: ProductListingId::new(),
-                    event_id: None,
+                    outcome: ChangeOutcome::Changed,
                 },
             ))
         }
@@ -669,7 +670,7 @@ mod tests {
             Ok(UpsertProductListingResult::Updated(
                 UpdateProductListingResult {
                     product_listing_id: ProductListingId::new(),
-                    event_id: None,
+                    outcome: ChangeOutcome::Changed,
                 },
             ))
         }

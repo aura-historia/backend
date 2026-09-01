@@ -1,13 +1,20 @@
 use crate::use_cases::queries::get_product_listing_events::{
     ProductListingEvent, ProductListingEventLookup,
 };
+use application::error::BoxError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingEventReadError {
     #[error("product event query failed")]
-    ProductListingEventQueryFailed,
+    ProductListingEventQueryFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("product event read model is invalid")]
-    ProductListingEventReadModelInvalid,
+    ProductListingEventReadModelInvalid {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]

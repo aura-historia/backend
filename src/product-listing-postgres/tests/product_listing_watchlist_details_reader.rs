@@ -19,16 +19,16 @@ use listing_source_core::ListingSourceId;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
 use product_listing_postgres::{
-    SqlxProductListingEventStoreFactory, SqlxProductListingRepositoryFactory,
+    SqlxProductListingEventAppenderFactory, SqlxProductListingRepositoryFactory,
     SqlxProductListingWatchlistDetailsReaderFactory,
 };
 use product_listing_service::ports::PersonalizedProductListingDetailsReadModel;
 use product_listing_service::ports::{
-    ProductListingEventStore, ProductListingEventStoreFactory, ProductListingRepository,
+    ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
     ProductListingRepositoryFactory, ProductListingWatchlistDetailsCursor,
     ProductListingWatchlistDetailsReadError, ProductListingWatchlistDetailsReader,
     ProductListingWatchlistDetailsReaderFactory, ProductListingWatchlistDetailsRequest,
-    stamp_product_listing_events,
+    stamp_product_listing_event,
 };
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
@@ -280,18 +280,13 @@ async fn find_for_user_page_result(
 
 fn first_stamped_event(
     product: &ProductListing,
-) -> product_listing_service::ports::product_listing_event_store::ProductListingEvent {
-    match stamp_product_listing_events(
-        product.id(),
-        OffsetDateTime::now_utc(),
-        product.pending_event_payloads().to_vec(),
-    )
-    .into_iter()
-    .next()
-    {
-        Some(event) => event,
+) -> product_listing_service::ports::product_listing_event_appender::ProductListingEvent {
+    let mut product = product.clone();
+    let payload = match product.take_pending_event_payload() {
+        Some(payload) => payload,
         None => panic!("product is missing a pending event payload"),
-    }
+    };
+    stamp_product_listing_event(product.id(), OffsetDateTime::now_utc(), payload)
 }
 
 async fn persist_product(
@@ -303,7 +298,7 @@ async fn persist_product(
     let listing_source_id = seed_listing_source(pool, &format!("{slug}-source")).await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
-    let events = SqlxProductListingEventStoreFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
     let product = sample_product(slug, listing_source_id, title, description);
     let event = first_stamped_event(&product);
 

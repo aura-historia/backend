@@ -50,7 +50,7 @@ runtime, API, worker, crawler, provider adapters
 availability: Option<ListingAvailability>,
 lifecycle: ListingLifecycle,
 sale_observation: Option<ListingSaleObservation>,
-pending_event_payloads: Vec<ProductListingEventPayload>,
+pending_event: Option<ProductListingEventPayload>,
 ```
 
 New listings are explicitly `Active`; `NewProductListing` does not accept lifecycle. `RehydratedProductListingState` is a `#[doc(hidden)] pub` adapter boundary that validates state and emits no events.
@@ -68,7 +68,7 @@ Required invariants:
 9. Only explicitly named restore/upsert intent can restore a withdrawn listing.
 10. Idempotent no-ops emit no event.
 
-Aggregate mutations collect payloads without creating event IDs or reading the clock. Service stamps payloads with `EventId` and occurrence time before transactional persistence. Public slug generation is separate and uses a random UUID suffix.
+Aggregate mutations collect zero or one payload without creating event IDs or reading the clock. Creation emits one `PRODUCT_LISTING_DISCOVERED`; rehydrated mutation coalesces into one non-empty `PRODUCT_LISTING_CHANGED`. Service stamps that one payload with `EventId` and occurrence time before transactional persistence. Public slug generation is separate and uses a random UUID suffix.
 
 ## Availability and orderability
 
@@ -130,22 +130,14 @@ Use observation FX for presentation only while currently `SoldOut`, or for a del
 
 Canonical aggregate behaviors are `set_price`, `clear_price`, `set_availability`, `clear_availability`, `withdraw`, `restore`, `record_sale_observation`, and `retract_sale_observation`. Old `mark_*`, generic state transition, and state-machine methods are removed.
 
-Canonical event codes:
+Canonical domain event codes:
 
 ```text
-PRODUCT_LISTING_CREATED
-PRODUCT_LISTING_AVAILABILITY_CHANGED
-PRODUCT_LISTING_PRICE_CHANGED
-PRODUCT_LISTING_URL_CHANGED
-PRODUCT_LISTING_IMAGES_CHANGED
-PRODUCT_LISTING_AUCTION_CHANGED
-PRODUCT_LISTING_WITHDRAWN
-PRODUCT_LISTING_RESTORED
-PRODUCT_LISTING_SALE_OBSERVED
-PRODUCT_LISTING_SALE_OBSERVATION_RETRACTED
+PRODUCT_LISTING_DISCOVERED
+PRODUCT_LISTING_CHANGED
 ```
 
-Availability-change events contain optional previous/current availability. Withdrawal records previous availability. Event payload enum values persist canonical codes, not Rust debug output.
+Discovery contains immutable source identity, initial title/description, source pricing, availability, URL, image count, and auction. It has no title slug, image URLs, lifecycle, or sale observation. A changed event has a non-empty typed change set. Main price, minimum estimate, maximum estimate, availability, URL, image counts, auction, lifecycle, and sale observation are separate dimensions. Value changes retain first `previous` and final `current`; net-zero value changes disappear. Image changes remain when cardinality is unchanged. Withdrawal records a lifecycle transition with previous availability. Event payload enum values persist explicit canonical codes, not Rust debug output.
 
 ## Application, API, and search contracts
 
@@ -155,9 +147,9 @@ Withdrawal replaces normal deletion. The HTTP partner route may remain `DELETE`,
 
 `title` and `description` are creation-only upsert inputs. For an existing listing, they preserve current state and emit no current-state history event. Responses always emit `"availability": null` when absent. Requests parse availability tri-state. Aura route and identifier vocabulary uses `product-listings`, `productListingId`, `productListingTitleSlugId`, and `sourceListingId`.
 
-A ProductListing is authoritatively identified for partner writes by `(ListingSourceId, SourceListingId)`. `SourceListingId` is an opaque partner value: Aura trims outer Unicode whitespace, rejects blank values and embedded NUL characters, preserves case, punctuation, and internal whitespace, and accepts at most 512 UTF-8 bytes. The trimmed value is the canonical input and the only value persisted in PostgreSQL, used for the authoritative key and emitted in events; pre-trim input is not retained. It has no seller, auctioneer, Party attribution, address, or location state. The created event includes both immutable source identifiers. Actor attribution belongs to #1321; durable raw input to #1646; addresses to #1635.
+A ProductListing is authoritatively identified for partner writes by `(ListingSourceId, SourceListingId)`. `SourceListingId` is an opaque partner value: Aura trims outer Unicode whitespace, rejects blank values and embedded NUL characters, preserves case, punctuation, and internal whitespace, and accepts at most 512 UTF-8 bytes. The trimmed value is the canonical input and the only value persisted in PostgreSQL, used for the authoritative key and emitted in events; pre-trim input is not retained. It has no seller, auctioneer, Party attribution, address, or location state. The discovery event includes both immutable source identifiers. Actor attribution belongs to #1321; durable raw input to #1646; addresses to #1635.
 
-`ProductListingSlugId` is the immutable Aura-owned public locator, exposed as `productListingTitleSlugId`. Use `raw` for a persisted value or `from_title_and_suffix` for an explicit candidate; no implicit string conversion synthesizes a locator. Aggregate creation requires the selected slug explicitly, so only collision-aware service flows choose production candidates. Aura derives a capped ASCII slug body from the creation title and appends a six-character lowercase hexadecimal suffix from a random UUID; it falls back to `listing` when no body remains and is at most 120 bytes. PostgreSQL globally enforces uniqueness of `product_listing_title_slug_id`. Public detail lookup is `GET /api/v1/product-listings/by-slug/{productListingTitleSlugId}`. There is no source-composite public locator and no source-scoped listing detail route. On a unique-slug collision, creation generates a new locator and retries persistence up to five attempts; exhausting them fails the creation. `PRODUCT_LISTING_CREATED` events identify the aggregate in their envelope and intentionally omit the title slug; event consumers needing the current public locator read current aggregate state.
+`ProductListingSlugId` is the immutable Aura-owned public locator, exposed as `productListingTitleSlugId`. Use `raw` for a persisted value or `from_title_and_suffix` for an explicit candidate; no implicit string conversion synthesizes a locator. Aggregate creation requires the selected slug explicitly, so only collision-aware service flows choose production candidates. Aura derives a capped ASCII slug body from the creation title and appends a six-character lowercase hexadecimal suffix from a random UUID; it falls back to `listing` when no body remains and is at most 120 bytes. PostgreSQL globally enforces uniqueness of `product_listing_title_slug_id`. Public detail lookup is `GET /api/v1/product-listings/by-slug/{productListingTitleSlugId}`. There is no source-composite public locator and no source-scoped listing detail route. On a unique-slug collision, creation generates a new locator and retries persistence up to five attempts; exhausting them fails the creation. `PRODUCT_LISTING_DISCOVERED` events identify the aggregate in their envelope and intentionally omit the title slug; event consumers needing the current public locator read current aggregate state.
 
 Public listing discovery contains active listings only. Withdrawn listings are not found by public detail and are deleted from the OpenSearch projection; restore rebuilds the projection. Public discovery does not expose a lifecycle filter. OpenSearch retains only each raw source `url`. Search and KNN batch-hydrate current ListingSource referral configuration from PostgreSQL, then derive `view_url`: Partnerize when configured, otherwise Aura UTM parameters.
 
@@ -169,7 +161,7 @@ OpenSearch stores an active listing document with optional availability. Concret
 
 `ProductListingImage` is a URL-only source fact. It carries no classification, consent, or assessment lifecycle.
 
-Listing text is assessed asynchronously after each committed `PRODUCT_LISTING_CREATED` event, the sole current text source. PostgreSQL stores the optional listing-level result in `product_listing_content_assessments`, guarded by its `source_event_id`: a row is current only when it equals `product_listings.content_source_event_id`. Price, availability, URL, images, lifecycle, and enrichment revisions do not invalidate it. A future title/description event must advance `content_source_event_id` and route content assessment. Missing or stale rows mean unassessed.
+Listing text is assessed asynchronously after each committed `PRODUCT_LISTING_DISCOVERED` event, the sole current text source. PostgreSQL stores the optional listing-level result in `product_listing_content_assessments`, guarded by its `source_event_id`: a row is current only when it equals `product_listings.content_source_event_id`. Price, availability, URL, images, lifecycle, and enrichment revisions do not invalidate it. A future title/description event must advance `content_source_event_id` and route content assessment. Missing or stale rows mean unassessed.
 
 `ContentPolicyDecision` is either `ALLOWED` or `REQUIRES_CONSENT(NAZI_GERMANY)`. There is no `UNKNOWN` or `NONE` policy/category value. The pure visibility rule is centralized in `product-listing-core`: callers without the stored `show_unassessed_or_sensitive_content` preference see image URLs only for a current `ALLOWED` assessment. Opted-in users see URLs for allowed, sensitive, and unassessed listings. Presentation retains image order/cardinality and redacts a hidden URL as `null`.
 

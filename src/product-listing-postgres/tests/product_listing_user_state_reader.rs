@@ -421,13 +421,13 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     let event_result = sqlx::query(
         r#"
         INSERT INTO product_listing_events (
-            event_id, product_listing_id, event_type, event_group, payload, event_time
-        ) VALUES ($1, $2, $3, $4, $5, $6)
+            event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time
+        ) VALUES ($1, $2, $3, $4, 1, $5, $6)
         "#,
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(raw_product_listing_id)
-    .bind("PRODUCT_LISTING_CREATED")
+    .bind("PRODUCT_LISTING_DISCOVERED")
     .bind("DOMAIN")
     .bind(serde_json::json!({}))
     .bind(OffsetDateTime::UNIX_EPOCH)
