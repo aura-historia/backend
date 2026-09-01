@@ -63,7 +63,7 @@ impl ProductListingEmbeddingSourceReader for SqlxProductListingEmbeddingSourceRe
         let row = sqlx::query_as::<_, ProductListingEmbeddingSourceRow>(
             r#"
             SELECT event.event_id, event.product_listing_id, event.event_type,
-                   product.event_id AS current_event_id,
+                   product.current_event_id,
                    product.title_text, product.title_language,
                    product.description_text, product.description_language,
                    product.product_images

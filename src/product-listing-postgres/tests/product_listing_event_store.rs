@@ -220,7 +220,7 @@ async fn should_retry_same_key_upserts_after_a_real_postgres_insert_race() {
     assert_eq!(2, event_count);
 
     let current_event_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM product_listings p JOIN product_listing_events e ON e.event_id = p.event_id AND e.product_listing_id = p.product_listing_id WHERE p.product_listing_id = $1",
+        "SELECT count(*) FROM product_listings p JOIN product_listing_events e ON e.event_id = p.current_event_id AND e.product_listing_id = p.product_listing_id WHERE p.product_listing_id = $1",
     )
     .bind(uuid::Uuid::from(product_listing_id))
     .fetch_one(&pool)

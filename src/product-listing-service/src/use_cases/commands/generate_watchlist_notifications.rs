@@ -1,6 +1,6 @@
 use crate::ports::{
-    ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError,
-    ProductListingCurrentRevisionGuard, ProductListingCurrentRevisionGuardFactory,
+    ProductListingCurrentEventCheck, ProductListingCurrentEventCheckError,
+    ProductListingCurrentEventGuard, ProductListingCurrentEventGuardFactory,
     ProductListingWatchlistNotificationChange, ProductListingWatchlistNotificationSource,
     ProductListingWatchlistNotificationSourceReader,
     ProductListingWatchlistNotificationSourceReaderFactory, WatchlistNotificationRecipientReader,
@@ -51,8 +51,8 @@ pub enum GenerateWatchlistNotificationsError {
         #[source]
         source: BoxError,
     },
-    #[error("failed to lock and check the current ProductListing revision")]
-    ProductListingCurrentRevisionCheckFailed {
+    #[error("failed to lock and check the current ProductListing event")]
+    ProductListingCurrentEventCheckFailed {
         #[source]
         source: BoxError,
     },
@@ -85,7 +85,7 @@ pub struct GenerateWatchlistNotificationsHandler<U, S, R, G, N> {
     unit_of_work: U,
     sources: S,
     recipients: R,
-    product_revision_guard: G,
+    product_event_guard: G,
     notifications: N,
 }
 
@@ -94,14 +94,14 @@ impl<U, S, R, G, N> GenerateWatchlistNotificationsHandler<U, S, R, G, N> {
         unit_of_work: U,
         sources: S,
         recipients: R,
-        product_revision_guard: G,
+        product_event_guard: G,
         notifications: N,
     ) -> Self {
         Self {
             unit_of_work,
             sources,
             recipients,
-            product_revision_guard,
+            product_event_guard,
             notifications,
         }
     }
@@ -114,7 +114,7 @@ where
     U: UnitOfWork,
     S: ProductListingWatchlistNotificationSourceReaderFactory<U::Tx>,
     R: WatchlistNotificationRecipientReaderFactory<U::Tx>,
-    G: ProductListingCurrentRevisionGuardFactory<U::Tx>,
+    G: ProductListingCurrentEventGuardFactory<U::Tx>,
     N: NotificationCreatorFactory<U::Tx>,
 {
     #[tracing::instrument(name = "generate_watchlist_notifications", skip_all, fields(event_id = %command.event_id, product_listing_id = %command.product_listing_id))]
@@ -146,17 +146,17 @@ where
             return Ok(GenerateWatchlistNotificationsResult::SuppressedForMissingSource);
         };
 
-        let revision = self
-            .product_revision_guard
+        let event_check = self
+            .product_event_guard
             .in_transaction(&mut tx)
             .lock_and_check(command.product_listing_id, command.event_id)
             .await
-            .map_err(|source: ProductListingCurrentRevisionCheckError| {
-                GenerateWatchlistNotificationsError::ProductListingCurrentRevisionCheckFailed {
+            .map_err(|source: ProductListingCurrentEventCheckError| {
+                GenerateWatchlistNotificationsError::ProductListingCurrentEventCheckFailed {
                     source: box_error(source),
                 }
             })?;
-        if revision == ProductListingCurrentRevisionCheck::Stale {
+        if event_check == ProductListingCurrentEventCheck::Stale {
             tx.commit().await.map_err(|source| {
                 GenerateWatchlistNotificationsError::CommitTransactionFailed {
                     source: box_error(source),
@@ -264,7 +264,7 @@ mod tests {
     use super::*;
     use crate::ports::ListingSourceSummary;
     use crate::ports::{
-        ProductListingCurrentRevisionRef, ProductListingWatchlistNotificationSourceReadError,
+        ProductListingCurrentEventRef, ProductListingWatchlistNotificationSourceReadError,
         WatchlistNotificationRecipient, WatchlistNotificationRecipientReadError,
     };
     use application::{
@@ -434,30 +434,29 @@ mod tests {
         }
     }
 
-    impl ProductListingCurrentRevisionGuardFactory<TransactionFake> for RevisionGuards {
+    impl ProductListingCurrentEventGuardFactory<TransactionFake> for RevisionGuards {
         fn in_transaction<'tx>(
             &'tx self,
             _tx: &'tx mut TransactionFake,
-        ) -> impl ProductListingCurrentRevisionGuard + 'tx {
+        ) -> impl ProductListingCurrentEventGuard + 'tx {
             RevisionGuard(Arc::clone(&self.0))
         }
     }
 
     #[async_trait::async_trait]
-    impl ProductListingCurrentRevisionGuard for RevisionGuard {
+    impl ProductListingCurrentEventGuard for RevisionGuard {
         async fn lock_and_check(
             &mut self,
             _product_listing_id: ProductListingId,
             _expected_event_id: EventId,
-        ) -> Result<ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError>
-        {
+        ) -> Result<ProductListingCurrentEventCheck, ProductListingCurrentEventCheckError> {
             match lock(&self.0).revision_checks.pop_front() {
                 Some(RevisionOutcome::Current) | None => {
-                    Ok(ProductListingCurrentRevisionCheck::Current)
+                    Ok(ProductListingCurrentEventCheck::Current)
                 }
-                Some(RevisionOutcome::Stale) => Ok(ProductListingCurrentRevisionCheck::Stale),
+                Some(RevisionOutcome::Stale) => Ok(ProductListingCurrentEventCheck::Stale),
                 Some(RevisionOutcome::Failure) => {
-                    Err(ProductListingCurrentRevisionCheckError::CheckFailed {
+                    Err(ProductListingCurrentEventCheckError::CheckFailed {
                         source: static_error("guard read failed"),
                     })
                 }
@@ -466,10 +465,10 @@ mod tests {
 
         async fn lock_and_check_all(
             &mut self,
-            refs: &[ProductListingCurrentRevisionRef],
+            refs: &[ProductListingCurrentEventRef],
         ) -> Result<
-            HashMap<ProductListingCurrentRevisionRef, ProductListingCurrentRevisionCheck>,
-            ProductListingCurrentRevisionCheckError,
+            HashMap<ProductListingCurrentEventRef, ProductListingCurrentEventCheck>,
+            ProductListingCurrentEventCheckError,
         > {
             let mut checks = HashMap::new();
             for reference in refs {
@@ -592,7 +591,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_typed_revision_check_failure_without_suppression() {
+    async fn should_return_typed_event_check_failure_without_suppression() {
         let state = state();
         let event_id = EventId::new();
         let product_listing_id = ProductListingId::new();
@@ -612,9 +611,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(
-                GenerateWatchlistNotificationsError::ProductListingCurrentRevisionCheckFailed { .. }
-            )
+            Err(GenerateWatchlistNotificationsError::ProductListingCurrentEventCheckFailed { .. })
         ));
         let state = lock(&state);
         assert_eq!(0, state.commits);

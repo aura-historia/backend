@@ -26,6 +26,7 @@ use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
 use product_listing_service::ports::product_listing_repository::{
     ProductListingRepository, ProductListingRepositoryError, ProductListingRepositoryFactory,
+    ProductListingStorageVersion, VersionedProductListing,
 };
 use serde::{Deserialize, Serialize};
 
@@ -45,7 +46,8 @@ struct SqlxProductListingRepository<'tx> {
 struct ProductListingRow {
     product_listing_id: uuid::Uuid,
     product_listing_title_slug_id: String,
-    event_id: uuid::Uuid,
+    version: i64,
+    current_event_id: uuid::Uuid,
     listing_source_id: uuid::Uuid,
     source_listing_id: String,
     title_text: Option<String>,
@@ -101,11 +103,11 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
     async fn find_by_id(
         &mut self,
         id: ProductListingId,
-    ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError> {
+    ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
         let row = sqlx::query_as::<_, ProductListingRow>(
             r#"
             SELECT
-                product_listing_id, product_listing_title_slug_id, event_id, listing_source_id, source_listing_id,
+                product_listing_id, product_listing_title_slug_id, version, current_event_id, listing_source_id, source_listing_id,
                 title_text, title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
@@ -126,11 +128,11 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
     async fn find_by_key(
         &mut self,
         key: &ProductListingKey,
-    ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError> {
+    ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
         let row = sqlx::query_as::<_, ProductListingRow>(
             r#"
             SELECT
-                product_listing_id, product_listing_title_slug_id, event_id, listing_source_id, source_listing_id,
+                product_listing_id, product_listing_title_slug_id, version, current_event_id, listing_source_id, source_listing_id,
                 title_text, title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
@@ -154,7 +156,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         &mut self,
         product: &ProductListing,
         current_event_id: EventId,
-    ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+    ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
         let pricing = product.pricing();
         let auction = product.auction();
         let title = product.title();
@@ -176,10 +178,10 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
             .map_err(|_| ProductListingRepositoryError::ProductListingInsertFailed)?;
         let product_images = images_to_json(product.images())
             .map_err(|_| ProductListingRepositoryError::ProductListingInsertFailed)?;
-        sqlx::query(
+        let version = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO product_listings (
-                product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id,
+                product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id,
                 listing_source_id, source_listing_id, title_text, title_language,
                 description_text, description_language, price_amount, price_currency,
                 price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount,
@@ -189,6 +191,7 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 $1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                 $15, $16, $17, $18, $19, $20, $21, $22, $23
             )
+            RETURNING version
             "#,
         )
         .bind(uuid::Uuid::from(product.id()))
@@ -230,19 +233,21 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         .bind(product_images)
         .bind(auction.start)
         .bind(auction.end)
-        .execute(&mut *self.connection)
+        .fetch_one(&mut *self.connection)
         .await
         .map_err(ProductListingInsertSqlxError)?;
 
-        Ok(Versioned::new(product.clone(), current_event_id))
+        let version = ProductListingStorageVersion::try_from(version)
+            .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;
+        Ok(Versioned::new(product.clone(), version))
     }
 
     async fn update(
         &mut self,
         product: &ProductListing,
-        expected_event_id: EventId,
-        new_event_id: EventId,
-    ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+        expected_version: ProductListingStorageVersion,
+        current_event_id: EventId,
+    ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
         let pricing = product.pricing();
         let auction = product.auction();
         let title = product.title();
@@ -264,11 +269,13 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
             .map_err(|_| ProductListingRepositoryError::ProductListingUpdateFailed)?;
         let product_images = images_to_json(product.images())
             .map_err(|_| ProductListingRepositoryError::ProductListingUpdateFailed)?;
-        let result = sqlx::query(
+        let expected_version = i64::try_from(expected_version.into_inner())
+            .map_err(|_| ProductListingRepositoryError::ProductListingUpdateFailed)?;
+        let version = sqlx::query_scalar::<_, i64>(
             r#"
             UPDATE product_listings
             SET
-                event_id = $1,
+                current_event_id = $1,
                 title_text = $2,
                 title_language = $3,
                 description_text = $4,
@@ -287,12 +294,14 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
                 product_images = $17,
                 auction_start = $18,
                 auction_end = $19,
+                version = version + 1,
                 projection_version = projection_version + 1,
                 updated = now()
-            WHERE product_listing_id = $20 AND event_id = $21
+            WHERE product_listing_id = $20 AND version = $21
+            RETURNING version
             "#,
         )
-        .bind(uuid::Uuid::from(new_event_id))
+        .bind(uuid::Uuid::from(current_event_id))
         .bind(title.map(|value| value.payload.as_ref().to_owned()))
         .bind(title.map(|value| value.localization.as_str().to_owned()))
         .bind(description.map(|value| value.payload.as_ref().to_owned()))
@@ -328,20 +337,19 @@ impl ProductListingRepository for SqlxProductListingRepository<'_> {
         .bind(auction.start)
         .bind(auction.end)
         .bind(uuid::Uuid::from(product.id()))
-        .bind(uuid::Uuid::from(expected_event_id))
-        .execute(&mut *self.connection)
+        .bind(expected_version)
+        .fetch_optional(&mut *self.connection)
         .await
-        .map_err(ProductListingUpdateSqlxError)?;
+        .map_err(ProductListingUpdateSqlxError)?
+        .ok_or(ProductListingRepositoryError::ConcurrencyConflict)?;
 
-        if result.rows_affected() == 0 {
-            return Err(ProductListingRepositoryError::ProductListingCurrentEventIdConflict);
-        }
-
-        Ok(Versioned::new(product.clone(), new_event_id))
+        let version = ProductListingStorageVersion::try_from(version)
+            .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;
+        Ok(Versioned::new(product.clone(), version))
     }
 }
 
-impl TryFrom<ProductListingRow> for Versioned<ProductListing, EventId> {
+impl TryFrom<ProductListingRow> for VersionedProductListing {
     type Error = ProductListingRepositoryError;
 
     fn try_from(row: ProductListingRow) -> Result<Self, Self::Error> {
@@ -386,9 +394,11 @@ impl TryFrom<ProductListingRow> for Versioned<ProductListing, EventId> {
         })
         .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?;
 
+        let _current_event_id = EventId::from(row.current_event_id);
         Ok(Versioned {
             value: product,
-            version: EventId::from(row.event_id),
+            version: ProductListingStorageVersion::try_from(row.version)
+                .map_err(|_| ProductListingRepositoryError::InvalidAggregateStatePersisted)?,
         })
     }
 }
@@ -580,7 +590,7 @@ impl From<ProductListingUpdateSqlxError> for ProductListingRepositoryError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain_primitives::event_id::EventId;
+
     use serde_json::json;
     use strum::IntoEnumIterator;
 
@@ -736,7 +746,7 @@ mod tests {
         let mut row = product_row();
         row.url = "http://[::1".to_owned();
         assert!(matches!(
-            Versioned::<ProductListing, EventId>::try_from(row),
+            VersionedProductListing::try_from(row),
             Err(ProductListingRepositoryError::InvalidProductListingUrlPersisted)
         ));
     }
@@ -766,7 +776,8 @@ mod tests {
         ProductListingRow {
             product_listing_id: uuid::Uuid::new_v4(),
             product_listing_title_slug_id: title_slug,
-            event_id: uuid::Uuid::new_v4(),
+            version: 1,
+            current_event_id: uuid::Uuid::new_v4(),
             listing_source_id: uuid::Uuid::new_v4(),
             source_listing_id: source_listing_id.to_string(),
             title_text: Some("title".to_owned()),

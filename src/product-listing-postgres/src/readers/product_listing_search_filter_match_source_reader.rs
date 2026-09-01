@@ -180,7 +180,7 @@ impl ProductListingSearchFilterMatchSourceReader
                 event.event_id,
                 event.event_group,
                 event.event_time AS origin_event_time,
-                product.event_id AS current_event_id,
+                product.current_event_id,
                 product.projection_version,
                 product.product_listing_id,
                 product.product_listing_title_slug_id,

@@ -2,10 +2,10 @@ use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing_id::ProductListingId;
-use product_listing_postgres::SqlxProductListingCurrentRevisionGuardFactory;
+use product_listing_postgres::SqlxProductListingCurrentEventGuardFactory;
 use product_listing_service::ports::{
-    ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionGuard,
-    ProductListingCurrentRevisionGuardFactory, ProductListingCurrentRevisionRef,
+    ProductListingCurrentEventCheck, ProductListingCurrentEventGuard,
+    ProductListingCurrentEventGuardFactory, ProductListingCurrentEventRef,
 };
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use tokio::sync::oneshot;
@@ -13,39 +13,39 @@ use tokio::sync::oneshot;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_block_product_revision_update_until_current_revision_guard_transaction_commits() {
-    let result = current_revision_guard_lock_flow().await;
+async fn should_block_product_current_event_update_until_current_event_guard_transaction_commits() {
+    let result = current_event_guard_lock_flow().await;
     assert!(
         result.is_ok(),
-        "current revision guard lock integration test failed: {result:?}"
+        "current event guard lock integration test failed: {result:?}"
     );
 }
 
-async fn current_revision_guard_lock_flow() -> Result<(), Box<dyn std::error::Error>> {
+async fn current_event_guard_lock_flow() -> Result<(), Box<dyn std::error::Error>> {
     let pool = get_postgres_client().await;
     let (product_listing_id, current_event_id) = seed_product(&pool).await?;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let mut guard_transaction = unit_of_work.begin().await?;
 
-    let current_ref = ProductListingCurrentRevisionRef {
+    let current_ref = ProductListingCurrentEventRef {
         product_listing_id,
         expected_event_id: current_event_id,
     };
-    let stale_ref = ProductListingCurrentRevisionRef {
+    let stale_ref = ProductListingCurrentEventRef {
         product_listing_id,
         expected_event_id: EventId::new(),
     };
-    let revisions = SqlxProductListingCurrentRevisionGuardFactory::new()
+    let current_events = SqlxProductListingCurrentEventGuardFactory::new()
         .in_transaction(&mut guard_transaction)
         .lock_and_check_all(&[current_ref, stale_ref])
         .await?;
     assert_eq!(
-        Some(&ProductListingCurrentRevisionCheck::Current),
-        revisions.get(&current_ref)
+        Some(&ProductListingCurrentEventCheck::Current),
+        current_events.get(&current_ref)
     );
     assert_eq!(
-        Some(&ProductListingCurrentRevisionCheck::Stale),
-        revisions.get(&stale_ref)
+        Some(&ProductListingCurrentEventCheck::Stale),
+        current_events.get(&stale_ref)
     );
 
     let next_event_id = EventId::new();
@@ -60,11 +60,13 @@ async fn current_revision_guard_lock_flow() -> Result<(), Box<dyn std::error::Er
     let update_pool = pool.clone();
     let mut update = tokio::spawn(async move {
         let _ = update_started_tx.send(());
-        sqlx::query("UPDATE product_listings SET event_id = $1 WHERE product_listing_id = $2")
-            .bind(uuid::Uuid::from(next_event_id))
-            .bind(uuid::Uuid::from(product_listing_id))
-            .execute(&update_pool)
-            .await
+        sqlx::query(
+            "UPDATE product_listings SET current_event_id = $1, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2",
+        )
+        .bind(uuid::Uuid::from(next_event_id))
+        .bind(uuid::Uuid::from(product_listing_id))
+        .execute(&update_pool)
+        .await
     });
     update_started_rx.await?;
 
@@ -72,7 +74,7 @@ async fn current_revision_guard_lock_flow() -> Result<(), Box<dyn std::error::Er
         tokio::time::timeout(std::time::Duration::from_millis(100), &mut update)
             .await
             .is_err(),
-        "a ProductListing update committed while the revision guard share lock was held"
+        "a ProductListing update committed while the current event guard share lock was held"
     );
 
     guard_transaction.commit().await?;
@@ -90,29 +92,29 @@ async fn seed_product(pool: &sqlx::PgPool) -> Result<(ProductListingId, EventId)
     let slug_suffix = product_uuid.simple().to_string()[..6].to_owned();
     let mut transaction = pool.begin().await?;
     sqlx::query(
-        "INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, 'Revision guard party')",
+        "INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, 'Current event guard party')",
     )
     .bind(party_id)
-    .bind(format!("revision-guard-party-{party_id}"))
+    .bind(format!("current-event-guard-party-{party_id}"))
     .execute(&mut *transaction)
     .await?;
     sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, 'Revision guard source', $3)",
+        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, 'Current event guard source', $3)",
     )
     .bind(listing_source_id)
-    .bind(format!("revision-guard-source-{listing_source_id}"))
+    .bind(format!("current-event-guard-source-{listing_source_id}"))
     .bind(party_id)
     .execute(&mut *transaction)
     .await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, $6, 'en', 'Revision guard description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, $6, 'en', 'Current event guard description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')",
     )
     .bind(product_uuid)
-    .bind(format!("revision-guard-{slug_suffix}"))
+    .bind(format!("current-event-guard-{slug_suffix}"))
     .bind(uuid::Uuid::from(event_id))
     .bind(listing_source_id)
     .bind(product_uuid.to_string())
-    .bind("Revision guard product")
+    .bind("Current event guard product")
         .execute(&mut *transaction)
     .await?;
     sqlx::query(

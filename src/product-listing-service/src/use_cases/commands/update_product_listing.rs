@@ -10,7 +10,7 @@ use application::operation_context::{
 };
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
-use domain_primitives::event_id::EventId;
+use domain_primitives::change_outcome::ChangeOutcome;
 use indexmap::IndexSet;
 use money::Price;
 use product_listing_core::listing_availability::ListingAvailability;
@@ -40,7 +40,7 @@ pub struct UpdateProductListingCommand {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateProductListingResult {
     pub product_listing_id: ProductListingId,
-    pub event_id: Option<EventId>,
+    pub outcome: ChangeOutcome,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -175,7 +175,7 @@ where
                     .ok_or(UpdateProductListingError::NotFound)?
             }
         };
-        let expected_event_id = loaded.version;
+        let expected_version = loaded.version;
         let mut product = loaded.value;
         apply_command(&mut product, command)?;
         let events = stamp_product_listing_events(
@@ -183,12 +183,17 @@ where
             time::OffsetDateTime::now_utc(),
             product.take_pending_event_payloads(),
         );
-        let event_id = events.last().map(|event| event.event_id);
-        if let Some(new_event_id) = event_id {
+        let outcome = if events.is_empty() {
+            ChangeOutcome::Unchanged
+        } else {
+            ChangeOutcome::Changed
+        };
+        let current_event_id = events.last().map(|event| event.event_id);
+        if let Some(current_event_id) = current_event_id {
             product = self
                 .products
                 .in_transaction(&mut tx)
-                .update(&product, expected_event_id, new_event_id)
+                .update(&product, expected_version, current_event_id)
                 .await?
                 .value;
             for event in &events {
@@ -198,10 +203,10 @@ where
         tx.commit()
             .await
             .map_err(|_| UpdateProductListingError::CommitTransactionFailed)?;
-        tracing::info!(event = "product_listing.updated", actor_type = context.principal.kind(), actor_id = %context.principal.label(), product_listing_id = %product.id(), event_id = ?event_id, outcome = "success");
+        tracing::info!(event = "product_listing.updated", actor_type = context.principal.kind(), actor_id = %context.principal.label(), product_listing_id = %product.id(), event_id = ?current_event_id, outcome = "success");
         Ok(UpdateProductListingResult {
             product_listing_id: product.id(),
-            event_id,
+            outcome,
         })
     }
 }

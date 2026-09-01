@@ -252,7 +252,7 @@ async fn insert_product_with_event(
     let mut tx = pool.begin().await?;
     sqlx::query("WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), 'Fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $1, $2, 'Embedding worker source', party_id FROM operator")
         .bind(listing_source_id).bind(format!("embedding-worker-source-{listing_source_id}")).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Eichenstuhl', 'de', 'Bemalter Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[{\"url\": \"https://example.test/image.jpg\"}]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Eichenstuhl', 'de', 'Bemalter Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[{\"url\": \"https://example.test/image.jpg\"}]')")
         .bind(uuid::Uuid::from(product_listing_id)).bind(title_slug_id.as_ref()).bind(uuid::Uuid::from(event_id)).bind(listing_source_id).bind(product_listing_id.to_string())
         .execute(&mut *tx).await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
@@ -275,7 +275,7 @@ async fn insert_product_with_event_then_rollback(
     let mut tx = pool.begin().await?;
     sqlx::query("WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), 'Fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $1, $2, 'Rollback embedding source', party_id FROM operator")
         .bind(listing_source_id).bind(format!("rollback-embedding-source-{listing_source_id}")).execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Eichenstuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Eichenstuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_listing_id)).bind(title_slug_id.as_ref()).bind(uuid::Uuid::from(event_id)).bind(listing_source_id).bind(product_listing_id.to_string())
         .execute(&mut *tx).await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())")
@@ -292,7 +292,7 @@ async fn advance_product_revision(
     let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_AVAILABILITY_CHANGED', 'DOMAIN', '{}', now())")
         .bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_listing_id)).execute(&mut *tx).await?;
-    sqlx::query("UPDATE product_listings SET event_id = $1 WHERE product_listing_id = $2")
+    sqlx::query("UPDATE product_listings SET current_event_id = $1, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .execute(&mut *tx)
@@ -306,7 +306,7 @@ async fn wait_for_embedding(
 ) -> Result<(Vec<f32>, uuid::Uuid), Box<dyn std::error::Error>> {
     for _ in 0..POLL_ATTEMPTS {
         let row: (Option<Vec<f32>>, uuid::Uuid) = sqlx::query_as(
-            "SELECT embedding, event_id FROM product_listings WHERE product_listing_id = $1",
+            "SELECT embedding, current_event_id FROM product_listings WHERE product_listing_id = $1",
         )
         .bind(uuid::Uuid::from(product_listing_id))
         .fetch_one(pool)

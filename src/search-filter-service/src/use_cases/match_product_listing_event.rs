@@ -26,8 +26,8 @@ use product_listing_core::{
     product_listing::ProductListingPriceValuationBasis, product_listing_id::ProductListingId,
 };
 use product_listing_service::ports::{
-    ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError,
-    ProductListingCurrentRevisionGuard, ProductListingCurrentRevisionGuardFactory,
+    ProductListingCurrentEventCheck, ProductListingCurrentEventCheckError,
+    ProductListingCurrentEventGuard, ProductListingCurrentEventGuardFactory,
     ProductListingPercolationInput, ProductListingPercolationValuation,
     ProductListingPricesByCurrency, ProductListingSearchFilterMatchSource,
     ProductListingSearchFilterMatchSourceReadError, ProductListingSearchFilterMatchSourceReader,
@@ -139,8 +139,8 @@ pub enum MatchProductListingEventError {
         #[source]
         source: BoxError,
     },
-    #[error("product current revision check failed")]
-    ProductListingRevisionCheckFailed {
+    #[error("product current event check failed")]
+    ProductListingCurrentEventCheckFailed {
         #[source]
         source: BoxError,
     },
@@ -184,7 +184,7 @@ pub trait MatchProductListingEventUseCase: Send + Sync {
 pub struct MatchProductListingEventHandler<U, S, G, F, I, E, R, W> {
     unit_of_work: U,
     sources: S,
-    revisions: G,
+    current_event_guard: G,
     fx_rates: F,
     index: I,
     evaluator: E,
@@ -197,7 +197,7 @@ impl<U, S, G, F, I, E, R, W> MatchProductListingEventHandler<U, S, G, F, I, E, R
     pub fn new(
         unit_of_work: U,
         sources: S,
-        revisions: G,
+        current_event_guard: G,
         fx_rates: F,
         index: I,
         evaluator: E,
@@ -207,7 +207,7 @@ impl<U, S, G, F, I, E, R, W> MatchProductListingEventHandler<U, S, G, F, I, E, R
         Self {
             unit_of_work,
             sources,
-            revisions,
+            current_event_guard,
             fx_rates,
             index,
             evaluator,
@@ -223,7 +223,7 @@ impl<U, S, G, F, I, E, R, W> MatchProductListingEventUseCase
 where
     U: UnitOfWork,
     S: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
-    G: ProductListingCurrentRevisionGuardFactory<U::Tx>,
+    G: ProductListingCurrentEventGuardFactory<U::Tx>,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
     I: SearchFilterIndex,
     E: LargeLanguageModel,
@@ -300,13 +300,13 @@ where
                 source: box_error(source),
             }
         })?;
-        let revision = self
-            .revisions
+        let current_event = self
+            .current_event_guard
             .in_transaction(&mut tx)
             .lock_and_check(command.product_listing_id, command.origin_event_id)
             .await
-            .map_err(product_revision_check_error)?;
-        if revision == ProductListingCurrentRevisionCheck::Stale {
+            .map_err(product_current_event_check_error)?;
+        if current_event == ProductListingCurrentEventCheck::Stale {
             return Ok(MatchProductListingEventResult {
                 outcome: MatchProductListingEventOutcome::StaleSourceSkipped,
                 percolated_count,
@@ -641,10 +641,10 @@ fn product_match_evaluation_error(error: LargeLanguageModelError) -> MatchProduc
     }
 }
 
-fn product_revision_check_error(
-    error: ProductListingCurrentRevisionCheckError,
+fn product_current_event_check_error(
+    error: ProductListingCurrentEventCheckError,
 ) -> MatchProductListingEventError {
-    MatchProductListingEventError::ProductListingRevisionCheckFailed {
+    MatchProductListingEventError::ProductListingCurrentEventCheckFailed {
         source: box_error(error),
     }
 }
@@ -701,9 +701,9 @@ mod tests {
         source_listing_id::SourceListingId,
     };
     use product_listing_service::ports::{
-        ListingSourceSummary, ProductListingCurrentRevisionCheck,
-        ProductListingCurrentRevisionCheckError, ProductListingCurrentRevisionGuard,
-        ProductListingCurrentRevisionGuardFactory, ProductListingSearchFilterMatchSource,
+        ListingSourceSummary, ProductListingCurrentEventCheck,
+        ProductListingCurrentEventCheckError, ProductListingCurrentEventGuard,
+        ProductListingCurrentEventGuardFactory, ProductListingSearchFilterMatchSource,
         ProductListingSearchFilterMatchSourceEventKind,
     };
     use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -785,38 +785,38 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct Revisions(Arc<Mutex<State>>);
+    struct CurrentEventGuards(Arc<Mutex<State>>);
 
-    struct CheckingRevision<'a>(&'a Arc<Mutex<State>>);
+    struct CheckingCurrentEvent<'a>(&'a Arc<Mutex<State>>);
 
     #[async_trait::async_trait]
-    impl ProductListingCurrentRevisionGuard for CheckingRevision<'_> {
+    impl ProductListingCurrentEventGuard for CheckingCurrentEvent<'_> {
         async fn lock_and_check(
             &mut self,
             _product_listing_id: ProductListingId,
             expected_event_id: EventId,
-        ) -> Result<ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError>
-        {
-            let state = self.0.lock().map_err(|_| {
-                ProductListingCurrentRevisionCheckError::CheckFailed {
-                    source: box_error(std::io::Error::other("test mutex poisoned")),
-                }
-            })?;
+        ) -> Result<ProductListingCurrentEventCheck, ProductListingCurrentEventCheckError> {
+            let state =
+                self.0
+                    .lock()
+                    .map_err(|_| ProductListingCurrentEventCheckError::CheckFailed {
+                        source: box_error(std::io::Error::other("test mutex poisoned")),
+                    })?;
             Ok(match state.current_event_id {
                 Some(current_event_id) if current_event_id != expected_event_id => {
-                    ProductListingCurrentRevisionCheck::Stale
+                    ProductListingCurrentEventCheck::Stale
                 }
-                Some(_) | None => ProductListingCurrentRevisionCheck::Current,
+                Some(_) | None => ProductListingCurrentEventCheck::Current,
             })
         }
     }
 
-    impl ProductListingCurrentRevisionGuardFactory<FakeTransaction> for Revisions {
+    impl ProductListingCurrentEventGuardFactory<FakeTransaction> for CurrentEventGuards {
         fn in_transaction<'tx>(
             &'tx self,
             _tx: &'tx mut FakeTransaction,
-        ) -> impl ProductListingCurrentRevisionGuard + 'tx {
-            CheckingRevision(&self.0)
+        ) -> impl ProductListingCurrentEventGuard + 'tx {
+            CheckingCurrentEvent(&self.0)
         }
     }
 
@@ -1173,7 +1173,7 @@ mod tests {
     ) -> MatchProductListingEventHandler<
         FakeUnitOfWork,
         Sources,
-        Revisions,
+        CurrentEventGuards,
         FxRates,
         Index,
         Evaluator,
@@ -1183,7 +1183,7 @@ mod tests {
         MatchProductListingEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(sources),
-            Revisions(Arc::clone(&state)),
+            CurrentEventGuards(Arc::clone(&state)),
             FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![search_filter],
@@ -1203,7 +1203,7 @@ mod tests {
         let handler = MatchProductListingEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(vec![product.clone()]),
-            Revisions(Arc::clone(&state)),
+            CurrentEventGuards(Arc::clone(&state)),
             FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![
@@ -1398,7 +1398,7 @@ mod tests {
         let handler = MatchProductListingEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(vec![product.clone()]),
-            Revisions(Arc::clone(&state)),
+            CurrentEventGuards(Arc::clone(&state)),
             FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![plain.clone(), enhanced],
@@ -1443,7 +1443,7 @@ mod tests {
         let handler = MatchProductListingEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(vec![product.clone()]),
-            Revisions(Arc::clone(&state)),
+            CurrentEventGuards(Arc::clone(&state)),
             FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![enhanced],
@@ -1628,7 +1628,7 @@ mod tests {
         let handler = MatchProductListingEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(vec![product.clone()]),
-            Revisions(Arc::clone(&state)),
+            CurrentEventGuards(Arc::clone(&state)),
             FxRates(Arc::clone(&state)),
             BlockingIndex {
                 filters: vec![filter(UserId::new(), UserSearchFilterId::new())],
@@ -1680,7 +1680,7 @@ mod tests {
         let handler = MatchProductListingEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(vec![product.clone()]),
-            Revisions(Arc::clone(&state)),
+            CurrentEventGuards(Arc::clone(&state)),
             FxRates(Arc::clone(&state)),
             Index {
                 filters: Vec::new(),

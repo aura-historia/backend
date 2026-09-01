@@ -62,7 +62,7 @@ impl ProductListingTranslationSourceReader for SqlxProductListingTranslationSour
                 event.event_id,
                 event.product_listing_id,
                 event.event_type,
-                product.event_id AS current_event_id,
+                product.current_event_id,
                 product.title_text,
                 product.title_language
             FROM product_listing_events event

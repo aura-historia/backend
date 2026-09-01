@@ -396,7 +396,7 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     let product_result = sqlx::query(
         r#"
         INSERT INTO product_listings (
-            product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id,
+            product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, listing_source_id, source_listing_id,
             availability, lifecycle, url
         ) VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8)
         "#,
@@ -619,7 +619,7 @@ async fn event_id_for_product(
     product_listing_id: ProductListingId,
 ) -> uuid::Uuid {
     let result = sqlx::query_scalar::<_, uuid::Uuid>(
-        "SELECT event_id FROM product_listings WHERE product_listing_id = $1",
+        "SELECT current_event_id FROM product_listings WHERE product_listing_id = $1",
     )
     .bind(uuid::Uuid::from(product_listing_id))
     .fetch_one(pool)

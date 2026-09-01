@@ -515,7 +515,7 @@ async fn listing_event_count(product_listing_id: uuid::Uuid) -> i64 {
 
 async fn current_event_type(product_listing_id: uuid::Uuid) -> String {
     match sqlx::query_scalar(
-        "SELECT event_type FROM product_listing_events WHERE product_listing_id = $1 AND event_id = (SELECT event_id FROM product_listings WHERE product_listing_id = $1)",
+        "SELECT event_type FROM product_listing_events WHERE product_listing_id = $1 AND event_id = (SELECT current_event_id FROM product_listings WHERE product_listing_id = $1)",
     )
     .bind(product_listing_id)
     .fetch_one(&get_postgres_client().await)

@@ -6,10 +6,14 @@ use domain_primitives::versioned::Versioned;
 use product_listing_core::product_listing::ProductListing;
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 
+domain_primitives::version_newtype!(ProductListingStorageVersion);
+
+pub type VersionedProductListing = Versioned<ProductListing, ProductListingStorageVersion>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingRepositoryError {
-    #[error("product current event id did not match expected event id")]
-    ProductListingCurrentEventIdConflict,
+    #[error("product storage version did not match expected version")]
+    ConcurrencyConflict,
     #[error("product already exists for source listing identity")]
     SourceListingAlreadyExists,
     #[error("product slug already exists")]
@@ -63,25 +67,25 @@ pub trait ProductListingRepository: Send {
     async fn find_by_id(
         &mut self,
         id: ProductListingId,
-    ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>;
+    ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError>;
 
     async fn find_by_key(
         &mut self,
         key: &ProductListingKey,
-    ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>;
+    ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError>;
 
     async fn insert(
         &mut self,
         product: &ProductListing,
         current_event_id: EventId,
-    ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError>;
+    ) -> Result<VersionedProductListing, ProductListingRepositoryError>;
 
     async fn update(
         &mut self,
         product: &ProductListing,
-        expected_event_id: EventId,
-        new_event_id: EventId,
-    ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError>;
+        expected_version: ProductListingStorageVersion,
+        current_event_id: EventId,
+    ) -> Result<VersionedProductListing, ProductListingRepositoryError>;
 }
 
 pub trait ProductListingRepositoryFactory<Tx>: Send + Sync {

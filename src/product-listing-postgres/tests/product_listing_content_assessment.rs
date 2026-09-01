@@ -17,7 +17,7 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_keep_assessment_current_after_price_and_enrichment_revisions() {
+async fn should_keep_assessment_current_after_price_and_enrichment_events() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
         let (product_listing_id, content_source_event_id) =
@@ -32,7 +32,7 @@ async fn should_keep_assessment_current_after_price_and_enrichment_revisions() {
             ("PRODUCT_LISTING_PRICE_CHANGED", "DOMAIN"),
             ("ENRICHMENT_EMBEDDED", "ENRICHMENT"),
         ] {
-            advance_generic_revision(&pool, product_listing_id, event_type, event_group).await?;
+            advance_current_event(&pool, product_listing_id, event_type, event_group).await?;
             let assessments = SqlxProductListingContentAssessmentReader::new(pool.clone())
                 .find_current_assessments(&[product_listing_id])
                 .await?;
@@ -55,7 +55,7 @@ async fn should_keep_assessment_current_after_price_and_enrichment_revisions() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_hide_assessment_when_content_source_revision_changes() {
+async fn should_hide_assessment_when_content_source_event_changes() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
         let (product_listing_id, initial_content_source_event_id) =
@@ -66,7 +66,7 @@ async fn should_hide_assessment_when_content_source_revision_changes() {
             apply_assessment(&pool, product_listing_id, initial_content_source_event_id).await?
         );
 
-        advance_content_source_revision(&pool, product_listing_id).await?;
+        advance_content_source_event(&pool, product_listing_id).await?;
 
         let assessments = SqlxProductListingContentAssessmentReader::new(pool.clone())
             .find_current_assessments(&[product_listing_id])
@@ -123,7 +123,7 @@ async fn insert_product_with_created_event(
         .bind(party_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Assessment chair', 'en', 'Assessment description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Assessment chair', 'en', 'Assessment description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(format!(
                     "content-assessment-{}",
@@ -146,7 +146,7 @@ async fn insert_product_with_created_event(
     Ok((product_listing_id, content_source_event_id))
 }
 
-async fn advance_content_source_revision(
+async fn advance_content_source_event(
     pool: &sqlx::PgPool,
     product_listing_id: ProductListingId,
 ) -> Result<(), sqlx::Error> {
@@ -161,7 +161,7 @@ async fn advance_content_source_revision(
     )
     .await?;
     sqlx::query(
-        "UPDATE product_listings SET event_id = $1, content_source_event_id = $1, updated = now() WHERE product_listing_id = $2",
+        "UPDATE product_listings SET current_event_id = $1, content_source_event_id = $1, version = version + 1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(uuid::Uuid::from(product_listing_id))
@@ -170,7 +170,7 @@ async fn advance_content_source_revision(
     tx.commit().await
 }
 
-async fn advance_generic_revision(
+async fn advance_current_event(
     pool: &sqlx::PgPool,
     product_listing_id: ProductListingId,
     event_type: &str,
@@ -187,7 +187,7 @@ async fn advance_generic_revision(
     )
     .await?;
     sqlx::query(
-        "UPDATE product_listings SET event_id = $1, updated = now() WHERE product_listing_id = $2",
+        "UPDATE product_listings SET current_event_id = $1, version = version + 1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(uuid::Uuid::from(product_listing_id))

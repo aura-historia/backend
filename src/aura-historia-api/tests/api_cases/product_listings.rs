@@ -369,7 +369,7 @@ async fn should_omit_title_slug_for_hidden_product_when_looked_up_by_slug_or_id(
     for position in 0_i64..11 {
         let product_listing_id = seed_product().await;
         let event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT event_id FROM product_listings WHERE product_listing_id = $1",
+            "SELECT current_event_id FROM product_listings WHERE product_listing_id = $1",
         )
         .bind(uuid::Uuid::from(product_listing_id))
         .fetch_one(&pool)
@@ -555,7 +555,7 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
         .begin()
         .await
         .unwrap_or_else(|error| panic!("begin product history transaction: {error}"));
-    products
+    let created = products
         .in_transaction(&mut transaction)
         .insert(&product, created_event_id)
         .await
@@ -569,7 +569,7 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
     }
     products
         .in_transaction(&mut transaction)
-        .update(&product, created_event_id, current_event_id)
+        .update(&product, created.version, current_event_id)
         .await
         .unwrap_or_else(|error| panic!("update timestamped history product: {error:?}"));
     for event in &changed_events {

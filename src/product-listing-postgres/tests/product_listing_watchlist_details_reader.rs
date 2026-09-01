@@ -335,7 +335,7 @@ async fn insert_translation(
     let result = sqlx::query(
         r#"
         INSERT INTO product_listing_translations (product_listing_id, source_event_id, language, title, description)
-        SELECT product_listing_id, event_id, $2, $3, $4
+        SELECT product_listing_id, current_event_id, $2, $3, $4
         FROM product_listings
         WHERE product_listing_id = $1
         "#,

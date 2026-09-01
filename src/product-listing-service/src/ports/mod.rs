@@ -5,7 +5,7 @@ pub mod product_listing_content_assessment_reader;
 pub mod product_listing_content_assessment_snapshot_reader;
 pub mod product_listing_content_assessment_source_reader;
 pub mod product_listing_content_assessment_writer;
-pub mod product_listing_current_revision_guard;
+pub mod product_listing_current_event_guard;
 pub mod product_listing_details_batch_reader;
 pub mod product_listing_details_reader;
 pub mod product_listing_embedding_reader;
@@ -53,10 +53,10 @@ pub use product_listing_content_assessment_writer::{
     ProductListingContentAssessmentWriteOutcome, ProductListingContentAssessmentWriter,
     ProductListingContentAssessmentWriterFactory,
 };
-pub use product_listing_current_revision_guard::{
-    ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError,
-    ProductListingCurrentRevisionGuard, ProductListingCurrentRevisionGuardFactory,
-    ProductListingCurrentRevisionRef,
+pub use product_listing_current_event_guard::{
+    ProductListingCurrentEventCheck, ProductListingCurrentEventCheckError,
+    ProductListingCurrentEventGuard, ProductListingCurrentEventGuardFactory,
+    ProductListingCurrentEventRef,
 };
 pub use product_listing_details_batch_reader::{
     ProductListingDetailsBatchReadError, ProductListingDetailsBatchReadRequest,
@@ -94,6 +94,7 @@ pub use product_listing_percolation::{
 pub use product_listing_price_filter_plan::{NativePriceRange, ProductListingPriceFilterPlan};
 pub use product_listing_repository::{
     ProductListingRepository, ProductListingRepositoryError, ProductListingRepositoryFactory,
+    ProductListingStorageVersion, VersionedProductListing,
 };
 pub use product_listing_search_filter_match_source_reader::{
     ProductListingSearchFilterMatchSource, ProductListingSearchFilterMatchSourceEventKind,

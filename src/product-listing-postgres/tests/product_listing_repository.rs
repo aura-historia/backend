@@ -26,7 +26,8 @@ use product_listing_postgres::{
 };
 use product_listing_service::ports::{
     ProductListingEventStore, ProductListingEventStoreFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingStorageVersion,
+    stamp_product_listing_events,
 };
 use strum::IntoEnumIterator;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
@@ -90,7 +91,7 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     commit(tx).await;
 
     assert_eq!(product.id(), loaded_by_id.id());
-    assert_eq!(created_event.event_id, version);
+    assert_eq!(ProductListingStorageVersion::INITIAL, version);
 
     assert_eq!(ListingLifecycle::Active, loaded_by_id.lifecycle());
 
@@ -129,10 +130,10 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     commit(tx).await;
 
     assert_eq!(None, loaded.value.pricing().price);
-    assert_eq!(update_event.event_id, loaded.version);
+    assert_eq!(2, loaded.version.into_inner());
 
-    let persisted_identity: (String, uuid::Uuid, String) = sqlx::query_as(
-        "SELECT product_listing_title_slug_id, listing_source_id, source_listing_id FROM product_listings WHERE product_listing_id = $1",
+    let persisted_identity: (String, uuid::Uuid, String, uuid::Uuid, i64) = sqlx::query_as(
+        "SELECT product_listing_title_slug_id, listing_source_id, source_listing_id, current_event_id, projection_version FROM product_listings WHERE product_listing_id = $1",
     )
     .bind(uuid::Uuid::from(product.id()))
     .fetch_one(&pool)
@@ -144,6 +145,11 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
         persisted_identity.1
     );
     assert_eq!(product.source_listing_id().as_ref(), persisted_identity.2);
+    assert_eq!(
+        uuid::Uuid::from(update_event.event_id),
+        persisted_identity.3
+    );
+    assert_eq!(2, persisted_identity.4);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -427,18 +433,22 @@ async fn should_report_product_update_conflict_when_product_row_is_missing() {
         let mut tx = begin(&unit_of_work).await;
         product_listings
             .in_transaction(&mut tx)
-            .update(&product, EventId::new(), EventId::new())
+            .update(
+                &product,
+                ProductListingStorageVersion::INITIAL,
+                EventId::new(),
+            )
             .await
     };
 
     assert!(matches!(
         result,
-        Err(ProductListingRepositoryError::ProductListingCurrentEventIdConflict)
+        Err(ProductListingRepositoryError::ConcurrencyConflict)
     ));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_report_product_update_conflict_when_event_id_is_stale() {
+async fn should_report_product_update_conflict_when_storage_version_is_stale() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
@@ -455,13 +465,18 @@ async fn should_report_product_update_conflict_when_event_id_is_stale() {
         let mut tx = begin(&unit_of_work).await;
         product_listings
             .in_transaction(&mut tx)
-            .update(&product, EventId::new(), EventId::new())
+            .update(
+                &product,
+                ProductListingStorageVersion::try_from(2_i64)
+                    .unwrap_or_else(|error| panic!("valid stale storage version: {error}")),
+                EventId::new(),
+            )
             .await
     };
 
     assert!(matches!(
         result,
-        Err(ProductListingRepositoryError::ProductListingCurrentEventIdConflict)
+        Err(ProductListingRepositoryError::ConcurrencyConflict)
     ));
 }
 
@@ -532,7 +547,7 @@ async fn insert_product_row(
     let source_listing_id = SourceListingId::try_from(format!("{slug}-source-listing"))
         .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, lifecycle, url, sale_observation_fx_rate_id, sale_observed_at) VALUES ($1, $2, $3, $3, $4, $5, 'ACTIVE', 'https://example.test/product', $6, $7)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, listing_source_id, source_listing_id, lifecycle, url, sale_observation_fx_rate_id, sale_observed_at) VALUES ($1, $2, $3, $3, $4, $5, 'ACTIVE', 'https://example.test/product', $6, $7)",
     )
     .bind(product_listing_id)
     .bind(title_slug(slug, product_listing_id))

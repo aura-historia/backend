@@ -28,11 +28,10 @@ use product_listing_core::{
 
 use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_service::ports::{
-    CompiledProductListingSearch, ProductListingCurrentRevisionCheck,
-    ProductListingCurrentRevisionGuard, ProductListingCurrentRevisionGuardFactory,
-    ProductListingCurrentRevisionRef, ProductListingPriceFilterPlan,
-    ProductListingSearchFilterMatchSource, ProductListingSearchFilterMatchSourceReadError,
-    ProductListingSearchFilterMatchSourceReader,
+    CompiledProductListingSearch, ProductListingCurrentEventCheck, ProductListingCurrentEventGuard,
+    ProductListingCurrentEventGuardFactory, ProductListingCurrentEventRef,
+    ProductListingPriceFilterPlan, ProductListingSearchFilterMatchSource,
+    ProductListingSearchFilterMatchSourceReadError, ProductListingSearchFilterMatchSourceReader,
     ProductListingSearchFilterMatchSourceReaderFactory, ProductListingSearchFilterMatchSourceRef,
     ProductListingSearchReadError, ProductListingSearchReadRequest, ProductListingSearchReader,
 };
@@ -205,8 +204,8 @@ pub enum RunPeriodicSearchFilterMatchingError {
         #[source]
         source: BoxError,
     },
-    #[error("ProductListing revision check failed")]
-    ProductListingRevisionCheckFailed {
+    #[error("ProductListing current event check failed")]
+    ProductListingCurrentEventCheckFailed {
         #[source]
         source: BoxError,
     },
@@ -244,7 +243,7 @@ pub struct RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, 
     existing_matches: X,
     sources: S,
     evaluator: E,
-    revisions: G,
+    current_event_guard: G,
     matches: W,
     progress: Q,
     policy: PeriodicSearchFilterMatchingPolicy,
@@ -263,7 +262,7 @@ impl<U, L, C, F, P, X, S, E, G, W, Q>
         existing_matches: X,
         sources: S,
         evaluator: E,
-        revisions: G,
+        current_event_guard: G,
         matches: W,
         progress: Q,
         policy: PeriodicSearchFilterMatchingPolicy,
@@ -283,7 +282,7 @@ impl<U, L, C, F, P, X, S, E, G, W, Q>
             existing_matches,
             sources,
             evaluator,
-            revisions,
+            current_event_guard,
             matches,
             progress,
             policy,
@@ -303,7 +302,7 @@ where
     X: ExistingSearchFilterMatchReader,
     S: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
     E: LargeLanguageModel,
-    G: ProductListingCurrentRevisionGuardFactory<U::Tx>,
+    G: ProductListingCurrentEventGuardFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
     Q: PeriodicSearchFilterProgressFactory<U::Tx>,
 {
@@ -342,7 +341,7 @@ where
     X: ExistingSearchFilterMatchReader,
     S: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
     E: LargeLanguageModel,
-    G: ProductListingCurrentRevisionGuardFactory<U::Tx>,
+    G: ProductListingCurrentEventGuardFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
     Q: PeriodicSearchFilterProgressFactory<U::Tx>,
 {
@@ -735,28 +734,28 @@ where
         }
         let refs = matches
             .iter()
-            .map(|item| ProductListingCurrentRevisionRef {
+            .map(|item| ProductListingCurrentEventRef {
                 product_listing_id: item.product_listing_id,
                 expected_event_id: item.origin_event_id,
             })
             .collect::<Vec<_>>();
         let checks = self
-            .revisions
+            .current_event_guard
             .in_transaction(&mut tx)
             .lock_and_check_all(&refs)
             .await
             .map_err(|source| {
-                RunPeriodicSearchFilterMatchingError::ProductListingRevisionCheckFailed {
+                RunPeriodicSearchFilterMatchingError::ProductListingCurrentEventCheckFailed {
                     source: box_error(source),
                 }
             })?;
         let matches = matches
             .into_iter()
             .filter(|item| {
-                checks.get(&ProductListingCurrentRevisionRef {
+                checks.get(&ProductListingCurrentEventRef {
                     product_listing_id: item.product_listing_id,
                     expected_event_id: item.origin_event_id,
-                }) == Some(&ProductListingCurrentRevisionCheck::Current)
+                }) == Some(&ProductListingCurrentEventCheck::Current)
             })
             .collect::<Vec<_>>();
         let persisted = self
@@ -819,7 +818,7 @@ impl RunPeriodicSearchFilterMatchingError {
             | Self::CommitProductListingSourceTransactionFailed { .. }
             | Self::BeginFinalTransactionFailed { .. }
             | Self::ProgressFailed { .. }
-            | Self::ProductListingRevisionCheckFailed { .. }
+            | Self::ProductListingCurrentEventCheckFailed { .. }
             | Self::MatchPersistenceFailed { .. }
             | Self::CommitFinalTransactionFailed { .. } => FilterRetryClass::Retryable,
             Self::InvalidPolicy
@@ -1066,7 +1065,7 @@ mod tests {
     struct State {
         lock_outcome: PeriodicSearchFilterProgressLockOutcome,
         commits: usize,
-        revision_checks: usize,
+        event_checks: usize,
         persisted: Vec<SearchFilterProductListingMatch>,
         checkpoints: usize,
     }
@@ -1262,36 +1261,36 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct FakeRevisions(Arc<Mutex<State>>);
+    struct FakeCurrentEvents(Arc<Mutex<State>>);
 
-    struct CheckingRevisions<'a>(&'a Arc<Mutex<State>>);
+    struct CheckingCurrentEvents<'a>(&'a Arc<Mutex<State>>);
 
     #[async_trait::async_trait]
-    impl ProductListingCurrentRevisionGuard for CheckingRevisions<'_> {
+    impl ProductListingCurrentEventGuard for CheckingCurrentEvents<'_> {
         async fn lock_and_check(
             &mut self,
             _product_listing_id: ProductListingId,
             _expected_event_id: EventId,
         ) -> Result<
-            ProductListingCurrentRevisionCheck,
-            product_listing_service::ports::ProductListingCurrentRevisionCheckError,
+            ProductListingCurrentEventCheck,
+            product_listing_service::ports::ProductListingCurrentEventCheckError,
         > {
             let mut state = self.0.lock().map_err(|_| {
-                product_listing_service::ports::ProductListingCurrentRevisionCheckError::CheckFailed {
+                product_listing_service::ports::ProductListingCurrentEventCheckError::CheckFailed {
                     source: box_error(std::io::Error::other("test mutex poisoned")),
                 }
             })?;
-            state.revision_checks += 1;
-            Ok(ProductListingCurrentRevisionCheck::Current)
+            state.event_checks += 1;
+            Ok(ProductListingCurrentEventCheck::Current)
         }
     }
 
-    impl ProductListingCurrentRevisionGuardFactory<FakeTransaction> for FakeRevisions {
+    impl ProductListingCurrentEventGuardFactory<FakeTransaction> for FakeCurrentEvents {
         fn in_transaction<'tx>(
             &'tx self,
             _tx: &'tx mut FakeTransaction,
-        ) -> impl ProductListingCurrentRevisionGuard + 'tx {
-            CheckingRevisions(&self.0)
+        ) -> impl ProductListingCurrentEventGuard + 'tx {
+            CheckingCurrentEvents(&self.0)
         }
     }
 
@@ -1383,7 +1382,7 @@ mod tests {
         NoopExistingMatches,
         NoopSources,
         NoopEvaluator,
-        FakeRevisions,
+        FakeCurrentEvents,
         FakeMatches,
         FakeProgress,
     >;
@@ -1392,7 +1391,7 @@ mod tests {
         Arc::new(Mutex::new(State {
             lock_outcome,
             commits: 0,
-            revision_checks: 0,
+            event_checks: 0,
             persisted: Vec::new(),
             checkpoints: 0,
         }))
@@ -1408,7 +1407,7 @@ mod tests {
             NoopExistingMatches,
             NoopSources,
             NoopEvaluator,
-            FakeRevisions(Arc::clone(&state)),
+            FakeCurrentEvents(Arc::clone(&state)),
             FakeMatches(Arc::clone(&state)),
             FakeProgress(state),
             PeriodicSearchFilterMatchingPolicy {
@@ -1597,7 +1596,7 @@ mod tests {
         assert_eq!(FilterOutcome::AlreadyCovered, equal);
         assert_eq!(FilterOutcome::AlreadyCovered, older);
         assert_eq!(0, state.commits);
-        assert_eq!(0, state.revision_checks);
+        assert_eq!(0, state.event_checks);
         assert_eq!(0, state.checkpoints);
         assert_eq!(0, attempt_report.candidates_scanned);
         Ok(())
@@ -1627,7 +1626,7 @@ mod tests {
             .lock()
             .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
         assert_eq!(FilterOutcome::ProgressSuperseded, outcome);
-        assert_eq!(0, state.revision_checks);
+        assert_eq!(0, state.event_checks);
         assert!(state.persisted.is_empty());
         assert_eq!(0, state.checkpoints);
         assert_eq!(0, state.commits);
@@ -1656,7 +1655,7 @@ mod tests {
             .lock()
             .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
         assert_eq!(outcome, FilterOutcome::ChangedOrInactive);
-        assert_eq!(state.revision_checks, 0);
+        assert_eq!(state.event_checks, 0);
         assert!(state.persisted.is_empty());
         assert_eq!(state.checkpoints, 0);
         assert_eq!(state.commits, 0);
@@ -1689,7 +1688,7 @@ mod tests {
             .lock()
             .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
         assert_eq!(outcome, FilterOutcome::Completed);
-        assert_eq!(state.revision_checks, 1);
+        assert_eq!(state.event_checks, 1);
         assert_eq!(state.persisted, vec![accepted]);
         assert_eq!(state.checkpoints, 0);
         assert_eq!(state.commits, 1);
@@ -1722,7 +1721,7 @@ mod tests {
             .lock()
             .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
         assert_eq!(outcome, FilterOutcome::Completed);
-        assert_eq!(state.revision_checks, 1);
+        assert_eq!(state.event_checks, 1);
         assert_eq!(state.persisted, vec![accepted]);
         assert_eq!(state.checkpoints, 1);
         assert_eq!(state.commits, 1);

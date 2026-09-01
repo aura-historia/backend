@@ -14,7 +14,8 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_store_all_translations_append_enrichment_event_and_advance_product_revision() {
+async fn should_store_all_translations_append_enrichment_event_and_advance_current_event_without_aggregate_version()
+ {
     let result: Result<(), Box<dyn std::error::Error>> = async {
     let pool = get_postgres_client().await;
     let (product_listing_id, source_event_id) = insert_product_with_embedded_event(&pool).await?;
@@ -65,12 +66,14 @@ async fn should_store_all_translations_append_enrichment_event_and_advance_produ
             .pointer("/titles/en")
             .and_then(serde_json::Value::as_str)
     );
-    let current_event =
-        sqlx::query_scalar::<_, uuid::Uuid>("SELECT event_id FROM product_listings WHERE product_listing_id = $1")
+    let (current_event, version, projection_version): (uuid::Uuid, i64, i64) =
+        sqlx::query_as("SELECT current_event_id, version, projection_version FROM product_listings WHERE product_listing_id = $1")
             .bind(uuid::Uuid::from(product_listing_id))
             .fetch_one(&pool)
             .await?;
     assert_eq!(uuid::Uuid::from(enrichment_event_id), current_event);
+    assert_eq!(1, version);
+    assert_eq!(2, projection_version);
     Ok(())
     }.await;
     assert!(
@@ -114,7 +117,7 @@ async fn should_report_duplicate_without_second_event_when_same_source_is_redeli
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_report_stale_without_writing_when_product_revision_advanced() {
+async fn should_report_stale_without_writing_when_product_current_event_advanced() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
         let (product_listing_id, source_event_id) =
@@ -142,7 +145,7 @@ async fn should_report_stale_without_writing_when_product_revision_advanced() {
         .await?;
         assert_eq!(0, translation_count);
         let current_event = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT event_id FROM product_listings WHERE product_listing_id = $1",
+            "SELECT current_event_id FROM product_listings WHERE product_listing_id = $1",
         )
         .bind(uuid::Uuid::from(product_listing_id))
         .fetch_one(&pool)
@@ -208,7 +211,7 @@ async fn insert_product_with_embedded_event(
         .bind(party_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(title_slug("translation-product", product_listing_id))
         .bind(uuid::Uuid::from(event_id))
@@ -240,7 +243,7 @@ async fn insert_event_and_advance_product(
         .bind(event_group)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("UPDATE product_listings SET event_id = $1 WHERE product_listing_id = $2")
+    sqlx::query("UPDATE product_listings SET current_event_id = $1, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .execute(&mut *tx)

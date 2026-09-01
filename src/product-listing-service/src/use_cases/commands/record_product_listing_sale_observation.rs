@@ -10,7 +10,7 @@ use application::operation_context::{
 };
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::change_outcome::ChangeOutcome;
-use domain_primitives::event_id::EventId;
+
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
@@ -30,7 +30,7 @@ pub struct RecordProductListingSaleObservationCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordProductListingSaleObservationResult {
     pub product_listing_id: ProductListingId,
-    pub event_id: EventId,
+    pub outcome: ChangeOutcome,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -158,7 +158,7 @@ where
             .await?
             .ok_or(RecordProductListingSaleObservationError::FxSnapshotMissing)?;
         let observation = ListingSaleObservation::new(observed_at, snapshot.id());
-        let expected_event_id = loaded.version;
+        let expected_version = loaded.version;
         let mut listing = loaded.value;
         let outcome = listing.record_sale_observation(observation)?;
         let events = stamp_product_listing_events(
@@ -166,15 +166,12 @@ where
             recorded_at,
             listing.take_pending_event_payloads(),
         );
-        let event_id = events
-            .last()
-            .map(|event| event.event_id)
-            .unwrap_or(expected_event_id);
-        if outcome == ChangeOutcome::Changed {
+        let current_event_id = events.last().map(|event| event.event_id);
+        if let Some(current_event_id) = current_event_id {
             listing = self
                 .products
                 .in_transaction(&mut tx)
-                .update(&listing, expected_event_id, event_id)
+                .update(&listing, expected_version, current_event_id)
                 .await?
                 .value;
             for event in &events {
@@ -184,10 +181,10 @@ where
         tx.commit()
             .await
             .map_err(|_| RecordProductListingSaleObservationError::CommitTransactionFailed)?;
-        tracing::info!(event = "product_listing.sale_observed", actor_type = context.principal.kind(), actor_id = %context.principal.label(), product_listing_id = %listing.id(), event_id = %event_id, outcome = "success");
+        tracing::info!(event = "product_listing.sale_observed", actor_type = context.principal.kind(), actor_id = %context.principal.label(), product_listing_id = %listing.id(), event_id = ?current_event_id, outcome = "success");
         Ok(RecordProductListingSaleObservationResult {
             product_listing_id: listing.id(),
-            event_id,
+            outcome,
         })
     }
 }
@@ -266,11 +263,12 @@ impl From<FxRateSnapshotRepositoryError> for RecordProductListingSaleObservation
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::{ProductListingStorageVersion, VersionedProductListing};
     use application::{
         operation_context::{CorrelationId, RequestId},
         transaction::TransactionError,
     };
-    use domain_primitives::versioned::Versioned;
+    use domain_primitives::{event_id::EventId, versioned::Versioned};
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote, FxRateSnapshot, FxRateSource,
         NewFxRateSnapshot,
@@ -293,7 +291,7 @@ mod tests {
 
     #[derive(Default)]
     struct State {
-        listing: Option<Versioned<ProductListing, EventId>>,
+        listing: Option<VersionedProductListing>,
         snapshot: Option<FxRateSnapshot>,
         commits: usize,
         updates: usize,
@@ -358,16 +356,14 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _id: ProductListingId,
-        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
-        {
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
             Ok(lock(&self.0).listing.clone())
         }
 
         async fn find_by_key(
             &mut self,
             _key: &product_listing_core::product_listing_id::ProductListingKey,
-        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
-        {
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
             Ok(None)
         }
 
@@ -375,17 +371,17 @@ mod tests {
             &mut self,
             _product: &ProductListing,
             _current_event_id: EventId,
-        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             Err(ProductListingRepositoryError::ProductListingInsertFailed)
         }
 
         async fn update(
             &mut self,
             product: &ProductListing,
-            _expected_event_id: EventId,
-            new_event_id: EventId,
-        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
-            let persisted = Versioned::new(product.clone(), new_event_id);
+            expected_version: ProductListingStorageVersion,
+            _current_event_id: EventId,
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
+            let persisted = Versioned::new(product.clone(), expected_version.next());
             let mut state = lock(&self.0);
             state.updates += 1;
             state.listing = Some(persisted.clone());
@@ -570,7 +566,10 @@ mod tests {
         let state = Arc::new(Mutex::new(State::default()));
         let listing = listing(None)?;
         let product_listing_id = listing.id();
-        lock(&state).listing = Some(Versioned::new(listing, EventId::new()));
+        lock(&state).listing = Some(Versioned::new(
+            listing,
+            ProductListingStorageVersion::INITIAL,
+        ));
         lock(&state).snapshot = Some(snapshot()?);
         let context = context(Principal::DelegatedUser {
             user_id: UserId::new(),
@@ -627,7 +626,10 @@ mod tests {
         let observation = ListingSaleObservation::new(OffsetDateTime::UNIX_EPOCH, snapshot.id());
         let listing = listing(Some(observation))?;
         let product_listing_id = listing.id();
-        lock(&state).listing = Some(Versioned::new(listing, EventId::new()));
+        lock(&state).listing = Some(Versioned::new(
+            listing,
+            ProductListingStorageVersion::INITIAL,
+        ));
         lock(&state).snapshot = Some(snapshot);
 
         let result = handler(&state)
@@ -641,6 +643,7 @@ mod tests {
             .await?;
 
         assert_eq!(product_listing_id, result.product_listing_id);
+        assert_eq!(ChangeOutcome::Unchanged, result.outcome);
         let state = lock(&state);
         assert_eq!(1, state.fx_lookups);
         assert_eq!(1, state.commits);
@@ -655,7 +658,10 @@ mod tests {
         let state = Arc::new(Mutex::new(State::default()));
         let listing = listing(None)?;
         let product_listing_id = listing.id();
-        lock(&state).listing = Some(Versioned::new(listing, EventId::new()));
+        lock(&state).listing = Some(Versioned::new(
+            listing,
+            ProductListingStorageVersion::INITIAL,
+        ));
         lock(&state).snapshot = Some(snapshot()?);
         let observed_at = OffsetDateTime::UNIX_EPOCH;
 
@@ -693,7 +699,10 @@ mod tests {
             existing_snapshot.id(),
         )))?;
         let product_listing_id = listing.id();
-        lock(&state).listing = Some(Versioned::new(listing, EventId::new()));
+        lock(&state).listing = Some(Versioned::new(
+            listing,
+            ProductListingStorageVersion::INITIAL,
+        ));
         lock(&state).snapshot = Some(requested_snapshot);
 
         let result = handler(&state)
@@ -723,7 +732,10 @@ mod tests {
         let state = Arc::new(Mutex::new(State::default()));
         let listing = listing(None)?;
         let product_listing_id = listing.id();
-        lock(&state).listing = Some(Versioned::new(listing, EventId::new()));
+        lock(&state).listing = Some(Versioned::new(
+            listing,
+            ProductListingStorageVersion::INITIAL,
+        ));
 
         let result = handler(&state)
             .execute(

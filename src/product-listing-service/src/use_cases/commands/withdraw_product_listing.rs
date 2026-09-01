@@ -9,14 +9,14 @@ use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use application::transaction::{Transaction, UnitOfWork};
-use domain_primitives::event_id::EventId;
+use domain_primitives::change_outcome::ChangeOutcome;
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WithdrawProductListingResult {
     pub product_listing_id: ProductListingId,
-    pub event_id: EventId,
+    pub outcome: ChangeOutcome,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -140,23 +140,20 @@ where
                     .ok_or(WithdrawProductListingError::NotFound)?
             }
         };
-        let expected_event_id = loaded.version;
+        let expected_version = loaded.version;
         let mut product = loaded.value;
-        product.withdraw();
+        let outcome = product.withdraw();
         let events = stamp_product_listing_events(
             product.id(),
             time::OffsetDateTime::now_utc(),
             product.take_pending_event_payloads(),
         );
-        let event_id = events
-            .last()
-            .map(|event| event.event_id)
-            .unwrap_or(expected_event_id);
-        if !events.is_empty() {
+        let current_event_id = events.last().map(|event| event.event_id);
+        if let Some(current_event_id) = current_event_id {
             product = self
                 .products
                 .in_transaction(&mut tx)
-                .update(&product, expected_event_id, event_id)
+                .update(&product, expected_version, current_event_id)
                 .await?
                 .value;
             for event in &events {
@@ -166,10 +163,10 @@ where
         tx.commit()
             .await
             .map_err(|_| WithdrawProductListingError::CommitTransactionFailed)?;
-        tracing::info!(event = "product_listing.withdrawn", actor_type = context.principal.kind(), actor_id = %context.principal.label(), product_listing_id = %product.id(), event_id = %event_id, outcome = "success");
+        tracing::info!(event = "product_listing.withdrawn", actor_type = context.principal.kind(), actor_id = %context.principal.label(), product_listing_id = %product.id(), event_id = ?current_event_id, outcome = "success");
         Ok(WithdrawProductListingResult {
             product_listing_id: product.id(),
-            event_id,
+            outcome,
         })
     }
 }
@@ -243,7 +240,7 @@ impl From<ProductListingRepositoryError> for WithdrawProductListingError {
             | ProductListingRepositoryError::ProductListingLookupByKeyFailed { .. }
             | ProductListingRepositoryError::ProductListingInsertFailed
             | ProductListingRepositoryError::ProductListingUpdateFailed
-            | ProductListingRepositoryError::ProductListingCurrentEventIdConflict
+            | ProductListingRepositoryError::ConcurrencyConflict
             | ProductListingRepositoryError::SourceListingAlreadyExists
             | ProductListingRepositoryError::ProductListingTitleSlugAlreadyExists
             | ProductListingRepositoryError::InvalidProductListingSlugPersisted

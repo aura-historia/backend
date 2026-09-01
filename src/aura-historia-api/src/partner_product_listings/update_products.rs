@@ -95,7 +95,7 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, header};
-    use domain_primitives::event_id::EventId;
+    use domain_primitives::change_outcome::ChangeOutcome;
     use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 
     use product_listing_service::use_cases::{
@@ -284,7 +284,7 @@ mod tests {
     fn updated() -> UpdateProductListingResult {
         UpdateProductListingResult {
             product_listing_id: ProductListingId::new(),
-            event_id: Some(EventId::new()),
+            outcome: ChangeOutcome::Changed,
         }
     }
 

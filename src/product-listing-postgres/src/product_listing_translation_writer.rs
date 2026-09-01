@@ -45,7 +45,7 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
         write: &ProductListingTranslationWrite,
     ) -> Result<ProductListingTranslationWriteOutcome, ProductListingTranslationWriteError> {
         let current_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT event_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE",
+            "SELECT current_event_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE",
         )
         .bind(uuid::Uuid::from(write.product_listing_id))
         .fetch_optional(&mut *self.connection)
@@ -117,7 +117,7 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
         .map_err(ProductListingTranslationWriteSqlxError)?;
 
         let update = sqlx::query(
-            "UPDATE product_listings SET event_id = $1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2 AND event_id = $3",
+            "UPDATE product_listings SET current_event_id = $1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2 AND current_event_id = $3",
         )
         .bind(uuid::Uuid::from(write.enrichment_event_id))
         .bind(uuid::Uuid::from(write.product_listing_id))
@@ -128,7 +128,7 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
         if update.rows_affected() != 1 {
             return Err(ProductListingTranslationWriteError::WriteFailed {
                 source: application::error::static_error(
-                    "locked product translation source revision changed unexpectedly",
+                    "locked product translation source event changed unexpectedly",
                 ),
             });
         }

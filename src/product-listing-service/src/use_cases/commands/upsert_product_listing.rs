@@ -15,6 +15,7 @@ use application::operation_context::{
 };
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::change_outcome::ChangeOutcome;
 
 use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
@@ -208,7 +209,7 @@ where
         let existing = self.products.in_transaction(tx).find_by_key(&key).await?;
         match existing {
             Some(loaded) => {
-                let expected_event_id = loaded.version;
+                let expected_version = loaded.version;
                 let mut product = loaded.value;
                 product.restore();
                 apply_update(&mut product, &command)?;
@@ -217,12 +218,17 @@ where
                     time::OffsetDateTime::now_utc(),
                     product.take_pending_event_payloads(),
                 );
-                let event_id = events.last().map(|event| event.event_id);
-                if let Some(new_event_id) = event_id {
+                let outcome = if events.is_empty() {
+                    ChangeOutcome::Unchanged
+                } else {
+                    ChangeOutcome::Changed
+                };
+                let current_event_id = events.last().map(|event| event.event_id);
+                if let Some(current_event_id) = current_event_id {
                     product = self
                         .products
                         .in_transaction(tx)
-                        .update(&product, expected_event_id, new_event_id)
+                        .update(&product, expected_version, current_event_id)
                         .await?
                         .value;
                     for event in &events {
@@ -232,7 +238,7 @@ where
                 Ok(UpsertProductListingResult::Updated(
                     UpdateProductListingResult {
                         product_listing_id: product.id(),
-                        event_id,
+                        outcome,
                     },
                 ))
             }
@@ -282,7 +288,6 @@ where
                     CreateProductListingResult {
                         product_listing_id: persisted.value.id(),
                         product_listing_title_slug_id: persisted.value.title_slug_id().clone(),
-                        event_id,
                     },
                 ))
             }
@@ -871,6 +876,7 @@ mod tests {
 
     // Whole-handler tests deliberately keep their fakes here: they assert transaction,
     // persistence, event, authorization, and candidate behavior together.
+    use crate::ports::{ProductListingStorageVersion, VersionedProductListing};
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::TransactionError;
     use domain_primitives::{event_id::EventId, versioned::Versioned};
@@ -883,7 +889,7 @@ mod tests {
         begins: usize,
         commits: usize,
         rollbacks: usize,
-        finds: VecDeque<Option<Versioned<ProductListing, EventId>>>,
+        finds: VecDeque<Option<VersionedProductListing>>,
         inserts: VecDeque<Result<(), ProductListingRepositoryError>>,
         insert_calls: usize,
         update_calls: usize,
@@ -947,37 +953,38 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _: ProductListingId,
-        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
-        {
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
             Ok(None)
         }
         async fn find_by_key(
             &mut self,
             _: &ProductListingKey,
-        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
-        {
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
             Ok(test_lock(&self.0).finds.pop_front().flatten())
         }
         async fn insert(
             &mut self,
             listing: &ProductListing,
-            event: EventId,
-        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            _: EventId,
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             let mut state = test_lock(&self.0);
             state.insert_calls += 1;
             match state.inserts.pop_front().unwrap_or(Ok(())) {
-                Ok(()) => Ok(Versioned::new(listing.clone(), event)),
+                Ok(()) => Ok(Versioned::new(
+                    listing.clone(),
+                    ProductListingStorageVersion::INITIAL,
+                )),
                 Err(error) => Err(error),
             }
         }
         async fn update(
             &mut self,
             listing: &ProductListing,
+            expected_version: ProductListingStorageVersion,
             _: EventId,
-            event: EventId,
-        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             test_lock(&self.0).update_calls += 1;
-            Ok(Versioned::new(listing.clone(), event))
+            Ok(Versioned::new(listing.clone(), expected_version.next()))
         }
     }
     impl ProductListingEventStoreFactory<TestTx> for TestEvents {
@@ -1055,10 +1062,10 @@ mod tests {
             TestGenerator(Arc::clone(state)),
         )
     }
-    fn existing_listing() -> Versioned<ProductListing, EventId> {
+    fn existing_listing() -> VersionedProductListing {
         let mut listing = listing_with_price(Some(price(10)));
         listing.take_pending_event_payloads();
-        Versioned::new(listing, EventId::new())
+        Versioned::new(listing, ProductListingStorageVersion::INITIAL)
     }
 
     #[tokio::test]

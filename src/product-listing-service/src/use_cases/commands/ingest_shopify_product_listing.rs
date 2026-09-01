@@ -343,7 +343,6 @@ mod tests {
                         "shopify-product-a1b2c3",
                     )
                     .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
-                    event_id: domain_primitives::event_id::EventId::new(),
                 },
             ))
         }

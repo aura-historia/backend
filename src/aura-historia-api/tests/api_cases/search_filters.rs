@@ -484,7 +484,7 @@ async fn seed_search_filter_match(
     let pool = get_postgres_client().await;
     let (listing_source_id, source_listing_id, origin_event_id) =
         sqlx::query_as::<_, (uuid::Uuid, String, uuid::Uuid)>(
-            "SELECT listing_source_id, source_listing_id, event_id FROM product_listings WHERE product_listing_id = $1",
+            "SELECT listing_source_id, source_listing_id, current_event_id FROM product_listings WHERE product_listing_id = $1",
         )
         .bind(uuid::Uuid::from(product_listing_id))
         .fetch_one(&pool)

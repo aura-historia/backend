@@ -686,7 +686,7 @@ async fn insert_translation(
     let result = sqlx::query(
         r#"
         INSERT INTO product_listing_translations (product_listing_id, source_event_id, language, title, description)
-        SELECT product_listing_id, event_id, $2, $3, $4
+        SELECT product_listing_id, current_event_id, $2, $3, $4
         FROM product_listings
         WHERE product_listing_id = $1
         "#,
@@ -832,7 +832,7 @@ async fn event_id_for_product(
     product_listing_id: ProductListingId,
 ) -> EventId {
     let result = sqlx::query_scalar::<_, uuid::Uuid>(
-        "SELECT event_id FROM product_listings WHERE product_listing_id = $1",
+        "SELECT current_event_id FROM product_listings WHERE product_listing_id = $1",
     )
     .bind(uuid::Uuid::from(product_listing_id))
     .fetch_one(pool)

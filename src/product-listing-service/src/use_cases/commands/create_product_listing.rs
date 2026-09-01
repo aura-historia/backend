@@ -13,7 +13,7 @@ use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use application::transaction::{Transaction, UnitOfWork};
-use domain_primitives::event_id::EventId;
+
 use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
@@ -48,7 +48,6 @@ pub struct CreateProductListingCommand {
 pub struct CreateProductListingResult {
     pub product_listing_id: ProductListingId,
     pub product_listing_title_slug_id: ProductListingSlugId,
-    pub event_id: EventId,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -193,7 +192,6 @@ where
         Ok(CreateProductListingResult {
             product_listing_id: persisted.value.id(),
             product_listing_title_slug_id: persisted.value.title_slug_id().clone(),
-            event_id,
         })
     }
 }
@@ -354,9 +352,10 @@ impl From<ProductListingEventStoreError> for CreateProductListingError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::{ProductListingStorageVersion, VersionedProductListing};
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::TransactionError;
-    use domain_primitives::versioned::Versioned;
+    use domain_primitives::{event_id::EventId, versioned::Versioned};
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -433,35 +432,36 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _: ProductListingId,
-        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
-        {
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
             Ok(None)
         }
         async fn find_by_key(
             &mut self,
             _: &product_listing_core::product_listing_id::ProductListingKey,
-        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
-        {
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
             Ok(None)
         }
         async fn insert(
             &mut self,
             product: &ProductListing,
-            event_id: EventId,
-        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            _: EventId,
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             let mut state = lock(&self.0);
             state.inserts += 1;
             match state.insert_results.pop_front().unwrap_or(Ok(())) {
-                Ok(()) => Ok(Versioned::new(product.clone(), event_id)),
+                Ok(()) => Ok(Versioned::new(
+                    product.clone(),
+                    ProductListingStorageVersion::INITIAL,
+                )),
                 Err(error) => Err(error),
             }
         }
         async fn update(
             &mut self,
             _: &ProductListing,
+            _: ProductListingStorageVersion,
             _: EventId,
-            _: EventId,
-        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             lock(&self.0).updates += 1;
             Err(ProductListingRepositoryError::ProductListingUpdateFailed)
         }

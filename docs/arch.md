@@ -1865,7 +1865,7 @@ An older or equal version MUST NOT overwrite a newer projection state.
 
 Idempotency SHOULD be enforced in the target write through conditional updates, unique constraints, or version checks rather than through in-memory checks.
 
-Current-state invalidation consumers that rebuild output from an authoritative row MUST compare the trigger's source revision with the row's current revision before processing. When they differ, the trigger is stale and MUST be skipped; the consumer MUST NOT evaluate current state while retaining the stale trigger ID. If a current trigger later persists an idempotent row, it MUST recheck and lock that authoritative revision in its final PostgreSQL write transaction through commit, so a stale trigger cannot claim the unique row across external work. For ProductListing events, `product_listings.event_id` is the current revision and must equal `product_listing_events.event_id`; the PostgreSQL `FOR SHARE` lock remains held through notification and delivery-intent commit. Processed, duplicate, stale, missing-source, and ignored-event outcomes are operationally distinct. Watchlist generation names successful outcomes `Applied`, `SuppressedForMissingSource`, and `SuppressedForStaleProductListingEvent`; suppression is not a retryable error.
+Current-state invalidation consumers that rebuild output from an authoritative row MUST compare the trigger's source revision with the row's current revision before processing. When they differ, the trigger is stale and MUST be skipped; the consumer MUST NOT evaluate current state while retaining the stale trigger ID. If a current trigger later persists an idempotent row, it MUST recheck and lock that authoritative revision in its final PostgreSQL write transaction through commit, so a stale trigger cannot claim the unique row across external work. For ProductListing events, `product_listings.current_event_id` is the current event revision and must equal `product_listing_events.event_id`. It is separate from the numeric aggregate storage version used for optimistic concurrency. The PostgreSQL `FOR SHARE` lock remains held through notification and delivery-intent commit. Processed, duplicate, stale, missing-source, and ignored-event outcomes are operationally distinct. Watchlist generation names successful outcomes `Applied`, `SuppressedForMissingSource`, and `SuppressedForStaleProductListingEvent`; suppression is not a retryable error.
 
 ### 12.6 Building projections
 
@@ -2023,7 +2023,7 @@ Use-case errors describe outcomes relevant to callers. Variants MUST name the co
 NotFound
 AuthenticatedActorRequired
 PlanDoesNotAllowAction
-ProductListingCurrentEventIdConflict
+ConcurrencyConflict
 ProductListingKeyAlreadyExists
 ProductListingDetailsQueryFailed
 PersistedProductListingAvailabilityInvalid
@@ -2040,7 +2040,7 @@ Adapter errors describe semantic persistence or integration failures without lea
 ```text
 ProductListingLookupByIdFailed
 ProductListingInsertFailed
-ProductListingCurrentEventIdConflict
+ConcurrencyConflict
 ProductListingSlugAlreadyExists
 InvalidProductListingUrlPersisted
 ExternalResponseMissingPrice

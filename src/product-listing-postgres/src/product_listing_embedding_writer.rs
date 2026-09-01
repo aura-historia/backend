@@ -45,7 +45,7 @@ impl ProductListingEmbeddingWriter for SqlxProductListingEmbeddingWriter<'_> {
         write: &ProductListingEmbeddingWrite,
     ) -> Result<ProductListingEmbeddingWriteOutcome, ProductListingEmbeddingWriteError> {
         let current_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT event_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE",
+            "SELECT current_event_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE",
         )
         .bind(uuid::Uuid::from(write.product_listing_id))
         .fetch_optional(&mut *self.connection)
@@ -87,7 +87,7 @@ impl ProductListingEmbeddingWriter for SqlxProductListingEmbeddingWriter<'_> {
         .await
         .map_err(ProductListingEmbeddingWriteSqlxError)?;
         let update = sqlx::query(
-            "UPDATE product_listings SET embedding = $1, event_id = $2, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $3 AND event_id = $4",
+            "UPDATE product_listings SET embedding = $1, current_event_id = $2, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $3 AND current_event_id = $4",
         )
         .bind(&write.embedding)
         .bind(uuid::Uuid::from(write.enrichment_event_id))
@@ -97,7 +97,7 @@ impl ProductListingEmbeddingWriter for SqlxProductListingEmbeddingWriter<'_> {
         if update.rows_affected() != 1 {
             return Err(ProductListingEmbeddingWriteError::WriteFailed {
                 source: application::error::static_error(
-                    "locked product embedding source revision changed unexpectedly",
+                    "locked product embedding source event changed unexpectedly",
                 ),
             });
         }

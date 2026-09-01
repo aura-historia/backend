@@ -18,6 +18,7 @@ use application::operation_context::{
 };
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::change_outcome::ChangeOutcome;
 use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
 use listing_source_service::ports::{
@@ -314,7 +315,7 @@ where
         let existing = self.products.in_transaction(tx).find_by_key(&key).await?;
         match existing {
             Some(loaded) => {
-                let expected_event_id = loaded.version;
+                let expected_version = loaded.version;
                 let mut listing = loaded.value;
                 listing.restore();
                 match data.price {
@@ -342,12 +343,17 @@ where
                     time::OffsetDateTime::now_utc(),
                     listing.take_pending_event_payloads(),
                 );
-                let event_id = events.last().map(|event| event.event_id);
-                if let Some(new_event_id) = event_id {
+                let outcome = if events.is_empty() {
+                    ChangeOutcome::Unchanged
+                } else {
+                    ChangeOutcome::Changed
+                };
+                let current_event_id = events.last().map(|event| event.event_id);
+                if let Some(current_event_id) = current_event_id {
                     listing = self
                         .products
                         .in_transaction(tx)
-                        .update(&listing, expected_event_id, new_event_id)
+                        .update(&listing, expected_version, current_event_id)
                         .await?
                         .value;
                     for event in &events {
@@ -357,7 +363,7 @@ where
                 Ok(UpsertProductListingResult::Updated(
                     UpdateProductListingResult {
                         product_listing_id: listing.id(),
-                        event_id,
+                        outcome,
                     },
                 ))
             }
@@ -426,7 +432,6 @@ where
                     CreateProductListingResult {
                         product_listing_id: persisted.value.id(),
                         product_listing_title_slug_id: persisted.value.title_slug_id().clone(),
-                        event_id,
                     },
                 ))
             }
@@ -441,23 +446,20 @@ where
         let Some(loaded) = self.products.in_transaction(tx).find_by_key(&key).await? else {
             return Ok(None);
         };
-        let expected_event_id = loaded.version;
+        let expected_version = loaded.version;
         let mut listing = loaded.value;
-        listing.withdraw();
+        let outcome = listing.withdraw();
         let events = stamp_product_listing_events(
             listing.id(),
             time::OffsetDateTime::now_utc(),
             listing.take_pending_event_payloads(),
         );
-        let event_id = events
-            .last()
-            .map(|event| event.event_id)
-            .unwrap_or(expected_event_id);
-        if !events.is_empty() {
+        let current_event_id = events.last().map(|event| event.event_id);
+        if let Some(current_event_id) = current_event_id {
             listing = self
                 .products
                 .in_transaction(tx)
-                .update(&listing, expected_event_id, event_id)
+                .update(&listing, expected_version, current_event_id)
                 .await?
                 .value;
             for event in &events {
@@ -466,7 +468,7 @@ where
         }
         Ok(Some(WithdrawProductListingResult {
             product_listing_id: listing.id(),
-            event_id,
+            outcome,
         }))
     }
 
@@ -773,6 +775,7 @@ impl From<ProductListingEventStoreError> for IngestWoocommerceProductListingErro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::{ProductListingStorageVersion, VersionedProductListing};
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::TransactionError;
     use domain_primitives::{event_id::EventId, versioned::Versioned};
@@ -814,7 +817,7 @@ mod tests {
         begins: usize,
         commits: usize,
         rollbacks: usize,
-        finds: VecDeque<Option<Versioned<ProductListing, EventId>>>,
+        finds: VecDeque<Option<VersionedProductListing>>,
         inserts: VecDeque<Result<(), ProductListingRepositoryError>>,
         updates: usize,
         events: usize,
@@ -921,26 +924,27 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _: ProductListingId,
-        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
-        {
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
             Ok(None)
         }
 
         async fn find_by_key(
             &mut self,
             _: &ProductListingKey,
-        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
-        {
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
             Ok(lock(&self.0).finds.pop_front().flatten())
         }
 
         async fn insert(
             &mut self,
             listing: &ProductListing,
-            event_id: EventId,
-        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            _: EventId,
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             match lock(&self.0).inserts.pop_front().unwrap_or(Ok(())) {
-                Ok(()) => Ok(Versioned::new(listing.clone(), event_id)),
+                Ok(()) => Ok(Versioned::new(
+                    listing.clone(),
+                    ProductListingStorageVersion::INITIAL,
+                )),
                 Err(error) => Err(error),
             }
         }
@@ -948,11 +952,11 @@ mod tests {
         async fn update(
             &mut self,
             listing: &ProductListing,
+            expected_version: ProductListingStorageVersion,
             _: EventId,
-            event_id: EventId,
-        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             lock(&self.0).updates += 1;
-            Ok(Versioned::new(listing.clone(), event_id))
+            Ok(Versioned::new(listing.clone(), expected_version.next()))
         }
     }
 
@@ -1114,7 +1118,7 @@ mod tests {
         )
     }
 
-    fn existing_listing(listing_source_id: ListingSourceId) -> Versioned<ProductListing, EventId> {
+    fn existing_listing(listing_source_id: ListingSourceId) -> VersionedProductListing {
         let mut listing = ProductListing::create(NewProductListing {
             id: ProductListingId::new(),
             title_slug_id: ProductListingSlugId::from_title_and_suffix("listing", "000001")
@@ -1142,7 +1146,7 @@ mod tests {
         })
         .unwrap_or_else(|error| panic!("valid existing listing: {error}"));
         listing.take_pending_event_payloads();
-        Versioned::new(listing, EventId::new())
+        Versioned::new(listing, ProductListingStorageVersion::INITIAL)
     }
 
     #[tokio::test]

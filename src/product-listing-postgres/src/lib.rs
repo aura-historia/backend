@@ -23,7 +23,7 @@ pub use product_listing_translation_writer::SqlxProductListingTranslationWriterF
 pub use readers::{
     SqlxListingSourceSummaryReader, SqlxProductListingContentAssessmentReader,
     SqlxProductListingContentAssessmentSnapshotReaderFactory,
-    SqlxProductListingCurrentRevisionGuardFactory, SqlxProductListingDetailsBatchReader,
+    SqlxProductListingCurrentEventGuardFactory, SqlxProductListingDetailsBatchReader,
     SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
     SqlxProductListingEventReaderFactory, SqlxProductListingSearchFilterMatchSourceReaderFactory,
     SqlxProductListingUserStateReader, SqlxProductListingWatchlistDetailsReaderFactory,
