@@ -90,7 +90,16 @@ async fn execute_job(
         tracing::field::display(command.origin_event_id),
     );
     let result = use_case.execute(command).await.map_err(box_error)?;
-    let notification_outcome = match result {
+    let notification_outcome = notification_outcome(result);
+    info!(
+        job_type = "search_filter_match_notification",
+        notification_outcome, "search filter match notification write completed"
+    );
+    Ok(())
+}
+
+fn notification_outcome(result: GenerateSearchFilterMatchNotificationResult) -> &'static str {
+    match result {
         GenerateSearchFilterMatchNotificationResult::Created => "inserted",
         GenerateSearchFilterMatchNotificationResult::AlreadyExists => "deduplicated",
         GenerateSearchFilterMatchNotificationResult::SuppressedByQuota => "suppressed_by_quota",
@@ -106,15 +115,10 @@ async fn execute_job(
         GenerateSearchFilterMatchNotificationResult::SuppressedForMissingProductListing => {
             "suppressed_for_missing_product"
         }
-        GenerateSearchFilterMatchNotificationResult::SuppressedForStaleProductListingEvent => {
-            "suppressed_for_stale_product_event"
+        GenerateSearchFilterMatchNotificationResult::SuppressedForWithdrawnProductListing => {
+            "suppressed_for_withdrawn_product"
         }
-    };
-    info!(
-        job_type = "search_filter_match_notification",
-        notification_outcome, "search filter match notification write completed"
-    );
-    Ok(())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -200,4 +204,19 @@ enum SearchFilterMatchNotificationWorkerError {
         #[source]
         source: BoxError,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_report_withdrawn_product_suppression() {
+        assert_eq!(
+            "suppressed_for_withdrawn_product",
+            notification_outcome(
+                GenerateSearchFilterMatchNotificationResult::SuppressedForWithdrawnProductListing,
+            )
+        );
+    }
 }

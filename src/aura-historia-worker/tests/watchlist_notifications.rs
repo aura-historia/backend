@@ -2,9 +2,8 @@ use aura_historia_worker::cdc::WorkerQueue;
 use aura_historia_worker::watchlist_notifications::consume_watchlist_notification_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
 
-use application::error::box_error;
 use domain_primitives::event_id::EventId;
-use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
+use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing_id::ProductListingId;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -16,14 +15,8 @@ use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
     notification_creation::NotificationCreationCoordinatorFactory,
 };
-use product_listing_postgres::{
-    SqlxProductListingCurrentEventGuardFactory,
-    SqlxProductListingWatchlistNotificationSourceReaderFactory,
-};
-use product_listing_service::ports::{
-    ProductListingCurrentEventCheck, ProductListingCurrentEventCheckError,
-    ProductListingCurrentEventGuard, ProductListingCurrentEventGuardFactory,
-};
+use product_listing_postgres::SqlxProductListingWatchlistNotificationSourceReaderFactory;
+
 use product_listing_service::use_cases::{
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
 };
@@ -33,7 +26,7 @@ use test_api::{
     get_sequin_worker_webhook_bind_addr,
 };
 use time::OffsetDateTime;
-use tokio::sync::{Barrier, oneshot};
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use user_core::user_id::UserId;
 use watchlist_postgres::SqlxWatchlistNotificationRecipientReaderFactory;
@@ -71,16 +64,6 @@ async fn should_not_notify_watcher_created_after_product_event() {
     assert!(
         result.is_ok(),
         "late watcher acceptance test failed: {result:?}"
-    );
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_hold_product_current_event_lock_until_watchlist_notification_commit() {
-    let result = hold_product_current_event_lock_until_watchlist_notification_commit().await;
-
-    assert!(
-        result.is_ok(),
-        "watchlist current-event-lock acceptance test failed: {result:?}"
     );
 }
 
@@ -273,115 +256,6 @@ async fn no_notification_for_watcher_created_after_product_event()
     worker.finish(result).await
 }
 
-async fn hold_product_current_event_lock_until_watchlist_notification_commit()
--> Result<(), Box<dyn std::error::Error>> {
-    let pool = get_postgres_client().await;
-    let user_id = seed_user(&pool, "current-event-lock-recipient").await?;
-    let event_id = EventId::new();
-    let event_time = OffsetDateTime::now_utc();
-    let mut transaction = pool.begin().await?;
-    let product_listing_id = seed_product(&mut transaction, event_id).await?;
-    insert_product_event_at(
-        &mut transaction,
-        event_id,
-        product_listing_id,
-        "PRODUCT_LISTING_CHANGED",
-        json!({"availability": {"previous": "AVAILABLE", "current": "SOLD_OUT"}}),
-        event_time,
-    )
-    .await?;
-    transaction.commit().await?;
-    seed_watchlist_at(
-        &pool,
-        user_id,
-        product_listing_id,
-        true,
-        "ACTIVE",
-        event_time,
-    )
-    .await?;
-
-    let guard_reached = Arc::new(Barrier::new(2));
-    let release_guard = Arc::new(Barrier::new(2));
-    let handler = Arc::new(GenerateWatchlistNotificationsHandler::new(
-        SqlxUnitOfWork::new(pool.clone()),
-        SqlxProductListingWatchlistNotificationSourceReaderFactory::new(),
-        SqlxWatchlistNotificationRecipientReaderFactory,
-        BlockingCurrentEventGuardFactory {
-            guard_reached: Arc::clone(&guard_reached),
-            release_guard: Arc::clone(&release_guard),
-        },
-        NotificationCreationCoordinatorFactory::new(
-            SqlxNotificationRepositoryFactory::new(),
-            InitialExternalDeliveryPlanReaderFactory,
-            SqlxNotificationDeliveryIntentRepositoryFactory::new(),
-        ),
-    ));
-    let generation = tokio::spawn(async move {
-        handler
-            .execute(
-                product_listing_service::use_cases::GenerateWatchlistNotificationsCommand {
-                    event_id,
-                    product_listing_id,
-                },
-            )
-            .await
-    });
-    guard_reached.wait().await;
-
-    let next_event_id = EventId::new();
-    let (update_started_tx, update_started_rx) = oneshot::channel();
-    let update_pool = pool.clone();
-    let mut update = tokio::spawn(async move {
-        let _ = update_started_tx.send(());
-        let mut transaction = update_pool.begin().await?;
-        sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, '{}', $3)")
-            .bind(uuid::Uuid::from(next_event_id))
-            .bind(uuid::Uuid::from(product_listing_id))
-            .bind(event_time + time::Duration::seconds(1))
-            .execute(&mut *transaction)
-            .await?;
-        sqlx::query(
-            "UPDATE product_listings SET current_event_id = $1, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2",
-        )
-        .bind(uuid::Uuid::from(next_event_id))
-        .bind(uuid::Uuid::from(product_listing_id))
-        .execute(&mut *transaction)
-        .await?;
-        transaction.commit().await
-    });
-    update_started_rx.await?;
-    assert!(
-        tokio::time::timeout(Duration::from_millis(100), &mut update)
-            .await
-            .is_err(),
-        "ProductListing current-event update completed before notification commit"
-    );
-
-    release_guard.wait().await;
-    let notification_result = generation.await??;
-    assert!(matches!(
-        notification_result,
-        product_listing_service::use_cases::GenerateWatchlistNotificationsResult::Applied {
-            inserted_count: 1,
-            ..
-        }
-    ));
-    update.await??;
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications WHERE user_id = $1")
-        .bind(uuid::Uuid::from(user_id))
-        .fetch_one(&pool)
-        .await?;
-    let origin_event_id: uuid::Uuid =
-        sqlx::query_scalar("SELECT origin_event_id FROM notifications WHERE user_id = $1 LIMIT 1")
-            .bind(uuid::Uuid::from(user_id))
-            .fetch_one(&pool)
-            .await?;
-    assert_eq!(1, count);
-    assert_eq!(uuid::Uuid::from(event_id), origin_event_id);
-    Ok(())
-}
-
 async fn preserve_one_notification_when_product_event_delivery_is_retried()
 -> Result<(), Box<dyn std::error::Error>> {
     let worker = WatchlistWorker::start().await?;
@@ -493,59 +367,6 @@ async fn not_notify_for_rolled_back_or_unrouted_product_listing_events()
     worker.finish(result).await
 }
 
-#[derive(Clone)]
-struct BlockingCurrentEventGuardFactory {
-    guard_reached: Arc<Barrier>,
-    release_guard: Arc<Barrier>,
-}
-
-struct BlockingCurrentEventGuard<'tx> {
-    connection: &'tx mut sqlx::PgConnection,
-    guard_reached: Arc<Barrier>,
-    release_guard: Arc<Barrier>,
-}
-
-impl ProductListingCurrentEventGuardFactory<SqlxTransaction> for BlockingCurrentEventGuardFactory {
-    fn in_transaction<'tx>(
-        &'tx self,
-        tx: &'tx mut SqlxTransaction,
-    ) -> impl ProductListingCurrentEventGuard + 'tx {
-        BlockingCurrentEventGuard {
-            connection: tx.connection(),
-            guard_reached: Arc::clone(&self.guard_reached),
-            release_guard: Arc::clone(&self.release_guard),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl ProductListingCurrentEventGuard for BlockingCurrentEventGuard<'_> {
-    async fn lock_and_check(
-        &mut self,
-        product_listing_id: ProductListingId,
-        expected_event_id: EventId,
-    ) -> Result<ProductListingCurrentEventCheck, ProductListingCurrentEventCheckError> {
-        let current_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT current_event_id FROM product_listings WHERE product_listing_id = $1 FOR SHARE",
-        )
-        .bind(uuid::Uuid::from(product_listing_id))
-        .fetch_optional(&mut *self.connection)
-        .await
-        .map_err(|source| ProductListingCurrentEventCheckError::CheckFailed {
-            source: box_error(source),
-        })?;
-        let result = match current_event_id {
-            Some(current_event_id) if EventId::from(current_event_id) == expected_event_id => {
-                ProductListingCurrentEventCheck::Current
-            }
-            Some(_) | None => ProductListingCurrentEventCheck::Stale,
-        };
-        self.guard_reached.wait().await;
-        self.release_guard.wait().await;
-        Ok(result)
-    }
-}
-
 struct WatchlistWorker {
     pool: sqlx::PgPool,
     consumer: JoinHandle<()>,
@@ -561,7 +382,6 @@ impl WatchlistWorker {
                 SqlxUnitOfWork::new(pool.clone()),
                 SqlxProductListingWatchlistNotificationSourceReaderFactory::new(),
                 SqlxWatchlistNotificationRecipientReaderFactory,
-                SqlxProductListingCurrentEventGuardFactory::new(),
                 NotificationCreationCoordinatorFactory::new(
                     SqlxNotificationRepositoryFactory::new(),
                     InitialExternalDeliveryPlanReaderFactory,

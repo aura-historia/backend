@@ -348,7 +348,6 @@ async fn run_watchlist_notifications(
             SqlxUnitOfWork::new(pool.clone()),
             SqlxProductListingWatchlistNotificationSourceReaderFactory::new(),
             SqlxWatchlistNotificationRecipientReaderFactory,
-            SqlxProductListingCurrentEventGuardFactory::new(),
             NotificationCreationCoordinatorFactory::new(
                 SqlxNotificationRepositoryFactory::new(),
                 InitialExternalDeliveryPlanReaderFactory,

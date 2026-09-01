@@ -136,6 +136,7 @@ pub use product_listing_watchlist_details_reader::{
 pub use product_listing_watchlist_notification_source_reader::{
     ProductListingWatchlistNotificationChange, ProductListingWatchlistNotificationSource,
     ProductListingWatchlistNotificationSourceReadError,
+    ProductListingWatchlistNotificationSourceReadOutcome,
     ProductListingWatchlistNotificationSourceReader,
     ProductListingWatchlistNotificationSourceReaderFactory,
 };

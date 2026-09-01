@@ -10,6 +10,7 @@ use platform_postgres::SqlxTransaction;
 use product_listing_core::{
     content_policy::{ContentPolicyDecision, SensitiveContentCategory},
     listing_availability::ListingAvailability,
+    listing_lifecycle::ListingLifecycle,
     product_listing_id::ProductListingId,
     product_listing_slug_id::ProductListingSlugId,
     source_listing_id::SourceListingId,
@@ -18,6 +19,7 @@ use product_listing_core::{
 use product_listing_service::ports::{
     ListingSourceSummary, ProductListingWatchlistNotificationChange,
     ProductListingWatchlistNotificationSource, ProductListingWatchlistNotificationSourceReadError,
+    ProductListingWatchlistNotificationSourceReadOutcome,
     ProductListingWatchlistNotificationSourceReader,
     ProductListingWatchlistNotificationSourceReaderFactory,
 };
@@ -38,6 +40,7 @@ struct SourceRow {
     event_id: uuid::Uuid,
     event_time: time::OffsetDateTime,
     product_listing_id: uuid::Uuid,
+    lifecycle: String,
     event_type: String,
     payload: serde_json::Value,
     product_listing_title_slug_id: String,
@@ -133,14 +136,14 @@ impl ProductListingWatchlistNotificationSourceReader
         event_id: EventId,
         product_listing_id: ProductListingId,
     ) -> Result<
-        Option<ProductListingWatchlistNotificationSource>,
+        ProductListingWatchlistNotificationSourceReadOutcome,
         ProductListingWatchlistNotificationSourceReadError,
     > {
         let row = sqlx::query_as::<_, SourceRow>(
             r#"
             SELECT
                 event.event_id, event.event_time, event.product_listing_id, event.event_type, event.payload,
-                product.product_listing_title_slug_id, product.listing_source_id, product.source_listing_id,
+                product.lifecycle, product.product_listing_title_slug_id, product.listing_source_id, product.source_listing_id,
                 listing_source.listing_source_slug_id, listing_source.name AS listing_source_name,
                 listing_source.referral_configuration AS listing_source_referral_configuration,
                 product.title_text, product.title_language, product.product_images,
@@ -163,12 +166,12 @@ impl ProductListingWatchlistNotificationSourceReader
         .await
         .map_err(WatchlistNotificationSourceQueryError)?;
         let Some(row) = row else {
-            return Ok(None);
+            return Ok(ProductListingWatchlistNotificationSourceReadOutcome::MissingSource);
         };
         let changes = notification_changes(&row.event_type, &row.payload)
             .map_err(WatchlistNotificationSourceMappingError::with_source)?;
         if changes.is_empty() {
-            return Ok(None);
+            return Ok(ProductListingWatchlistNotificationSourceReadOutcome::IgnoredEvent);
         }
         let translations = sqlx::query_as::<_, TitleRow>(
             "SELECT language, title FROM product_listing_translations WHERE product_listing_id = $1 AND title IS NOT NULL",
@@ -208,34 +211,48 @@ impl ProductListingWatchlistNotificationSourceReader
             &url,
         )
         .map_err(WatchlistNotificationSourceMappingError::with_source)?;
-        Ok(Some(ProductListingWatchlistNotificationSource {
-            event_id: EventId::from(row.event_id),
-            event_time: row.event_time,
-            product_listing_id: ProductListingId::from(row.product_listing_id),
-            product_listing_title_slug_id: ProductListingSlugId::raw(
-                &row.product_listing_title_slug_id,
-            )
-            .map_err(WatchlistNotificationSourceMappingError::with_source)?,
-            source: ListingSourceSummary {
-                listing_source_id: ListingSourceId::from(row.listing_source_id),
-                name: ListingSourceName::try_from(row.listing_source_name)
-                    .map_err(WatchlistNotificationSourceMappingError::with_source)?,
-                slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id)
-                    .map_err(WatchlistNotificationSourceMappingError::with_source)?,
-            },
-            source_listing_id: SourceListingId::try_from(row.source_listing_id)
+        Ok(ProductListingWatchlistNotificationSourceReadOutcome::Found(
+            ProductListingWatchlistNotificationSource {
+                event_id: EventId::from(row.event_id),
+                event_time: row.event_time,
+                product_listing_id: ProductListingId::from(row.product_listing_id),
+                lifecycle: lifecycle(&row.lifecycle)?,
+                product_listing_title_slug_id: ProductListingSlugId::raw(
+                    &row.product_listing_title_slug_id,
+                )
                 .map_err(WatchlistNotificationSourceMappingError::with_source)?,
-            title: (!title.is_empty()).then_some(title),
-            image,
-            content_policy: content_policy(
-                row.content_policy_decision.as_deref(),
-                row.content_policy_category.as_deref(),
-            )?,
-            view_url,
-            url,
-            changes,
-        }))
+                source: ListingSourceSummary {
+                    listing_source_id: ListingSourceId::from(row.listing_source_id),
+                    name: ListingSourceName::try_from(row.listing_source_name)
+                        .map_err(WatchlistNotificationSourceMappingError::with_source)?,
+                    slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id)
+                        .map_err(WatchlistNotificationSourceMappingError::with_source)?,
+                },
+                source_listing_id: SourceListingId::try_from(row.source_listing_id)
+                    .map_err(WatchlistNotificationSourceMappingError::with_source)?,
+                title: (!title.is_empty()).then_some(title),
+                image,
+                content_policy: content_policy(
+                    row.content_policy_decision.as_deref(),
+                    row.content_policy_category.as_deref(),
+                )?,
+                view_url,
+                url,
+                changes,
+            },
+        ))
     }
+}
+
+fn lifecycle(
+    value: &str,
+) -> Result<ListingLifecycle, ProductListingWatchlistNotificationSourceReadError> {
+    ListingLifecycle::from_code(value).ok_or_else(|| {
+        WatchlistNotificationSourceMappingError::invalid(
+            "persisted watchlist notification source lifecycle is invalid",
+        )
+        .into()
+    })
 }
 
 fn content_policy(

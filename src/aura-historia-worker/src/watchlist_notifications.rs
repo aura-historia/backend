@@ -71,11 +71,18 @@ async fn consume_watchlist_notification_queue_with_dead_letters(
                     outcome = "suppressed_for_missing_source",
                     "watchlist notification job completed"
                 ),
-                WatchlistNotificationWorkerOutcome::SuppressedForStaleProductListingEvent => info!(
+                WatchlistNotificationWorkerOutcome::IgnoredEvent => info!(
                     job_type = "watchlist_notification",
                     %idempotency_key,
                     %ordering_key,
-                    outcome = "suppressed_for_stale_product_event",
+                    outcome = "ignored_event",
+                    "watchlist notification job completed"
+                ),
+                WatchlistNotificationWorkerOutcome::SuppressedForWithdrawnProductListing => info!(
+                    job_type = "watchlist_notification",
+                    %idempotency_key,
+                    %ordering_key,
+                    outcome = "suppressed_for_withdrawn_product",
                     "watchlist notification job completed"
                 ),
             },
@@ -133,8 +140,11 @@ async fn generate_watchlist_notifications(
             product_listing_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForMissingSource => {
                 WatchlistNotificationWorkerOutcome::SuppressedForMissingSource
             }
-            product_listing_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForStaleProductListingEvent => {
-                WatchlistNotificationWorkerOutcome::SuppressedForStaleProductListingEvent
+            product_listing_service::use_cases::GenerateWatchlistNotificationsResult::IgnoredEvent => {
+                WatchlistNotificationWorkerOutcome::IgnoredEvent
+            }
+            product_listing_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForWithdrawnProductListing => {
+                WatchlistNotificationWorkerOutcome::SuppressedForWithdrawnProductListing
             }
         })
         .map_err(|source| WatchlistNotificationWorkerError::Generate {
@@ -154,7 +164,8 @@ enum WatchlistNotificationWorkerOutcome {
         already_exists_count: usize,
     },
     SuppressedForMissingSource,
-    SuppressedForStaleProductListingEvent,
+    IgnoredEvent,
+    SuppressedForWithdrawnProductListing,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -280,7 +291,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_complete_stale_product_event_without_retry_or_dead_letter()
+    async fn should_complete_ignored_event_without_retry_or_dead_letter()
     -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = in_memory_queue(QueueConfig::new(1))?;
         let event_id = EventId::new();
@@ -300,7 +311,7 @@ mod tests {
             .await?;
         drop(sender);
         let handler = Arc::new(Handler::with_result(
-            GenerateWatchlistNotificationsResult::SuppressedForStaleProductListingEvent,
+            GenerateWatchlistNotificationsResult::IgnoredEvent,
         ));
         let dead_letters = InMemoryDeadLetterQueue::new();
 
