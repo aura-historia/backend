@@ -2,8 +2,6 @@ use crate::{role::UserRole, tier::UserTier};
 use domain_primitives::query::{
     any_of_query::AnyOfQuery, range_query::RangeQuery, text_query::TextQuery,
 };
-use geo::core::continent::Continent;
-use isocountry::CountryCode;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -14,8 +12,6 @@ pub struct UserSearch {
     pub last_name_query: Option<TextQuery<0>>,
     pub tier_query: AnyOfQuery<UserTier>,
     pub role_query: AnyOfQuery<UserRole>,
-    pub country_query: AnyOfQuery<CountryCode>,
-    pub continent_query: AnyOfQuery<Continent>,
 
     pub created: Option<RangeQuery<OffsetDateTime>>,
     pub updated: Option<RangeQuery<OffsetDateTime>>,
@@ -35,8 +31,6 @@ mod tests {
         assert_eq!(None, search.last_name_query);
         assert!(search.tier_query.is_empty());
         assert!(search.role_query.is_empty());
-        assert!(search.country_query.is_empty());
-        assert!(search.continent_query.is_empty());
 
         assert_eq!(None, search.created);
         assert_eq!(None, search.updated);

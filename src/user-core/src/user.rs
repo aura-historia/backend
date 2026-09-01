@@ -4,7 +4,6 @@ use crate::{
 };
 use crate::{stripe_customer_id::StripeCustomerId, user_id::UserId};
 use domain_primitives::change_outcome::ChangeOutcome;
-use geo::core::address::{GeoAddress, StructuredAddress};
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
@@ -41,8 +40,6 @@ pub struct RehydratedUserState {
 pub struct UserProfile {
     pub first_name: Option<FirstName>,
     pub last_name: Option<LastName>,
-    pub structured_address: Option<StructuredAddress>,
-    pub geo_address: Option<GeoAddress>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -71,12 +68,7 @@ impl Default for UserAccount {
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
-pub enum RehydrateUserError {
-    #[error("user geo latitude out of range")]
-    GeoLatitudeOutOfRange,
-    #[error("user geo longitude out of range")]
-    GeoLongitudeOutOfRange,
-}
+pub enum RehydrateUserError {}
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum AssociateStripeCustomerIdError {
@@ -98,8 +90,6 @@ impl User {
     #[doc(hidden)]
     #[allow(dead_code)]
     pub fn rehydrate(state: RehydratedUserState) -> Result<Self, RehydrateUserError> {
-        validate_geo_address(state.profile.geo_address)?;
-
         Ok(Self {
             id: state.id,
             email: state.email,
@@ -117,7 +107,6 @@ impl User {
         &mut self,
         profile: UserProfile,
     ) -> Result<ChangeOutcome, RehydrateUserError> {
-        validate_geo_address(profile.geo_address)?;
         Ok(replace_if_changed(&mut self.profile, profile))
     }
 
@@ -187,19 +176,6 @@ impl User {
     }
 }
 
-fn validate_geo_address(geo_address: Option<GeoAddress>) -> Result<(), RehydrateUserError> {
-    if let Some(address) = geo_address {
-        if !(-90.0..=90.0).contains(&address.lat) {
-            return Err(RehydrateUserError::GeoLatitudeOutOfRange);
-        }
-        if !(-180.0..=180.0).contains(&address.lon) {
-            return Err(RehydrateUserError::GeoLongitudeOutOfRange);
-        }
-    }
-
-    Ok(())
-}
-
 fn replace_if_changed<T: PartialEq>(target: &mut T, value: T) -> ChangeOutcome {
     if *target == value {
         ChangeOutcome::Unchanged
@@ -227,25 +203,9 @@ mod tests {
             profile: UserProfile {
                 first_name: Some("Ada".into()),
                 last_name: Some("Lovelace".into()),
-                structured_address: None,
-                geo_address: None,
             },
             preferences: UserPreferences::default(),
             account: UserAccount::default(),
-        }
-    }
-
-    fn user_state_with_geo(lat: f64, lon: f64) -> RehydratedUserState {
-        let input = new_user();
-        RehydratedUserState {
-            id: input.id,
-            email: input.email,
-            profile: UserProfile {
-                geo_address: Some(GeoAddress { lat, lon }),
-                ..input.profile
-            },
-            preferences: input.preferences,
-            account: input.account,
         }
     }
 
@@ -267,8 +227,6 @@ mod tests {
 
         assert_eq!(None, profile.first_name);
         assert_eq!(None, profile.last_name);
-        assert_eq!(None, profile.structured_address);
-        assert_eq!(None, profile.geo_address);
     }
 
     #[test]
@@ -295,8 +253,8 @@ mod tests {
         let result = User::create(new_user());
 
         assert!(matches!(
-            result.and_then(|user| user.name().ok_or(RehydrateUserError::GeoLatitudeOutOfRange)),
-            Ok(ref name) if name.as_ref() == "Ada Lovelace"
+            result,
+            Ok(ref user) if user.name().is_some_and(|name| name.as_ref() == "Ada Lovelace")
         ));
     }
 
@@ -323,26 +281,6 @@ mod tests {
         let outcome = user.change_tier(UserTier::Free);
 
         assert_eq!(ChangeOutcome::Unchanged, outcome);
-    }
-
-    #[test]
-    fn should_reject_rehydrate_when_latitude_invalid() {
-        let result = User::rehydrate(user_state_with_geo(91.0, 8.0));
-
-        assert!(matches!(
-            result,
-            Err(RehydrateUserError::GeoLatitudeOutOfRange)
-        ));
-    }
-
-    #[test]
-    fn should_reject_rehydrate_when_longitude_invalid() {
-        let result = User::rehydrate(user_state_with_geo(52.0, 181.0));
-
-        assert!(matches!(
-            result,
-            Err(RehydrateUserError::GeoLongitudeOutOfRange)
-        ));
     }
 
     #[test]
@@ -374,11 +312,6 @@ mod tests {
         let profile = UserProfile {
             first_name: Some("Grace".into()),
             last_name: None,
-            structured_address: None,
-            geo_address: Some(GeoAddress {
-                lat: 90.0,
-                lon: -180.0,
-            }),
         };
 
         let outcome = user.replace_profile(profile.clone());
@@ -396,40 +329,6 @@ mod tests {
         let outcome = user.replace_profile(profile);
 
         assert_eq!(Ok(ChangeOutcome::Unchanged), outcome);
-    }
-
-    #[test]
-    fn should_reject_invalid_profile_geo() {
-        let mut user =
-            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
-        let profile = UserProfile {
-            geo_address: Some(GeoAddress {
-                lat: 0.0,
-                lon: 181.0,
-            }),
-            ..user.profile().clone()
-        };
-
-        let outcome = user.replace_profile(profile);
-
-        assert_eq!(Err(RehydrateUserError::GeoLongitudeOutOfRange), outcome);
-    }
-
-    #[test]
-    fn should_reject_invalid_profile_geo_latitude() {
-        let mut user =
-            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
-        let profile = UserProfile {
-            geo_address: Some(GeoAddress {
-                lat: 91.0,
-                lon: 0.0,
-            }),
-            ..user.profile().clone()
-        };
-
-        let outcome = user.replace_profile(profile);
-
-        assert_eq!(Err(RehydrateUserError::GeoLatitudeOutOfRange), outcome);
     }
 
     #[test]
@@ -570,31 +469,5 @@ mod tests {
             User::create(input).unwrap_or_else(|error| panic!("user create failed: {error}"));
 
         assert_eq!(None, user.name());
-    }
-
-    #[test]
-    fn should_create_user_with_valid_geo_boundaries() {
-        let mut input = new_user();
-        input.profile.geo_address = Some(GeoAddress {
-            lat: -90.0,
-            lon: 180.0,
-        });
-
-        let result = User::create(input);
-
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn should_reject_create_when_geo_invalid() {
-        let mut input = new_user();
-        input.profile.geo_address = Some(GeoAddress {
-            lat: -91.0,
-            lon: 0.0,
-        });
-
-        let result = User::create(input);
-
-        assert_eq!(Err(RehydrateUserError::GeoLatitudeOutOfRange), result);
     }
 }

@@ -1,6 +1,4 @@
-use crate::mapping::{
-    UserRow, bind_role, bind_tier, countries_for_continents, sort_user_field_columns, user_columns,
-};
+use crate::mapping::{UserRow, bind_role, bind_tier, sort_user_field_columns, user_columns};
 use application::error::box_error;
 use application::pagination::Cursor;
 use domain_primitives::sort::{Sort, SortOrder};
@@ -147,24 +145,7 @@ fn push_filters(builder: &mut QueryBuilder<Postgres>, request: &SearchUsersReque
             .collect::<Vec<_>>();
         builder.push(" AND role = ANY(").push_bind(roles).push(")");
     }
-    if !search.country_query.is_empty() {
-        let countries = search
-            .country_query
-            .iter()
-            .map(|country| country.alpha3().to_owned())
-            .collect::<Vec<_>>();
-        builder
-            .push(" AND structured_address_country = ANY(")
-            .push_bind(countries)
-            .push(")");
-    }
-    if !search.continent_query.is_empty() {
-        let countries = countries_for_continents(search.continent_query.as_ref());
-        builder
-            .push(" AND structured_address_country = ANY(")
-            .push_bind(countries)
-            .push(")");
-    }
+
     if let Some(created) = search.created {
         if let Some(min) = created.min {
             builder.push(" AND created >= ").push_bind(min);

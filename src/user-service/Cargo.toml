@@ -9,7 +9,7 @@ fake = { workspace = true, optional = true }
 async-trait = { workspace = true }
 application = { workspace = true }
 domain-primitives = { workspace = true }
-geo = { workspace = true }
+
 localization = { workspace = true }
 money = { workspace = true }
 serde-email = { workspace = true }
@@ -23,4 +23,4 @@ tokio = { workspace = true, features = ["macros", "rt"] }
 
 [features]
 default = []
-test-data = ["fake", "user-core/test-data", "geo/test-data"]
+test-data = ["fake", "user-core/test-data"]

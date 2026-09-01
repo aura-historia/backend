@@ -6,14 +6,6 @@ pub struct Distance {
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct GeoDistanceQuery {
-    pub lat: f64,
-    pub lon: f64,
-    pub distance: Distance,
-}
-
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum_macros::EnumIter)]
 pub enum DistanceUnit {
     Miles,
@@ -60,22 +52,5 @@ mod tests {
             assert_eq!(Some(unit), DistanceUnit::from_code(unit.as_str()));
         }
         assert_eq!(None, DistanceUnit::from_code("kilometers"));
-    }
-
-    #[test]
-    fn should_preserve_geo_distance_query_value() {
-        let query = GeoDistanceQuery {
-            lat: 52.52,
-            lon: 13.405,
-            distance: Distance {
-                amount: 50.0,
-                unit: DistanceUnit::Kilometers,
-            },
-        };
-
-        assert_eq!(52.52, query.lat);
-        assert_eq!(13.405, query.lon);
-        assert_eq!(50.0, query.distance.amount);
-        assert_eq!(DistanceUnit::Kilometers, query.distance.unit);
     }
 }

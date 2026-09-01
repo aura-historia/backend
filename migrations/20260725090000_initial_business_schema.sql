@@ -10,14 +10,6 @@ CREATE TABLE users (
     tier text NOT NULL,
     role text NOT NULL,
     stripe_customer_id text UNIQUE,
-    structured_address_addressline text,
-    structured_address_addressline_extra text,
-    structured_address_locality text,
-    structured_address_region text,
-    structured_address_postal_code text,
-    structured_address_country text,
-    geo_address_lat double precision,
-    geo_address_lon double precision,
     version bigint NOT NULL DEFAULT 1,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
@@ -26,9 +18,6 @@ CREATE TABLE users (
     CONSTRAINT users_measurement_unit_check CHECK (measurement_unit IS NULL OR measurement_unit IN ('METRIC', 'IMPERIAL')),
     CONSTRAINT users_tier_check CHECK (tier IN ('FREE', 'PRO', 'ULTIMATE')),
     CONSTRAINT users_role_check CHECK (role IN ('USER', 'ADMIN')),
-    CONSTRAINT users_geo_pair_check CHECK ((geo_address_lat IS NULL) = (geo_address_lon IS NULL)),
-    CONSTRAINT users_geo_lat_range CHECK (geo_address_lat IS NULL OR geo_address_lat BETWEEN -90 AND 90),
-    CONSTRAINT users_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180),
     CONSTRAINT users_version_positive CHECK (version >= 1)
 );
 

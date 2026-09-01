@@ -6,8 +6,6 @@ use ::domain_primitives::sort::{Sort, SortOrder};
 use ::platform_postgres::SqlxUnitOfWork;
 use ::user_core::stripe_customer_id::StripeCustomerId;
 use ::user_core::user_id::UserId;
-use geo::core::{address::StructuredAddress, continent::Continent};
-use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
@@ -60,7 +58,6 @@ async fn should_search_users_with_filters_and_sorting_in_postgres() {
                 last_name_query: Some(text_query("Lovelace")),
                 tier_query: std::collections::HashSet::from([UserTier::Pro]).into(),
                 role_query: std::collections::HashSet::from([UserRole::Admin]).into(),
-                country_query: std::collections::HashSet::from([CountryCode::GBR]).into(),
                 ..Default::default()
             },
             sort: Some(Sort {
@@ -127,7 +124,6 @@ async fn should_search_users_by_remaining_filters_dates_sorts_and_cursor_size() 
         &mut tx,
         SearchUsersRequest {
             search: UserSearch {
-                continent_query: std::collections::HashSet::from([Continent::Europe]).into(),
                 created: Some(RangeQuery {
                     min: Some(datetime("2024-01-01T00:00:00Z")),
                     max: Some(datetime("2024-01-02T23:59:59Z")),
@@ -370,19 +366,6 @@ fn sample_user_with_profile(
         profile: UserProfile {
             first_name: first_name.map(FirstName::from),
             last_name: last_name.map(LastName::from),
-            structured_address: Some(StructuredAddress {
-                addressline: Some("1 Test Street".to_owned()),
-                addressline_extra: None,
-                locality: Some("London".to_owned()),
-                region: None,
-                postal_code: Some("SW1A".to_owned()),
-                country: Some(CountryCode::GBR),
-                continent: Some(Continent::Europe),
-            }),
-            geo_address: Some(geo::core::address::GeoAddress {
-                lat: 51.5,
-                lon: -0.1,
-            }),
         },
         preferences: UserPreferences {
             language: Some(Language::En),

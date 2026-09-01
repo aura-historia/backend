@@ -51,13 +51,6 @@ impl StructuredAddress {
     }
 }
 
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct GeoAddress {
-    pub lat: f64,
-    pub lon: f64,
-}
-
 #[cfg(feature = "test-data")]
 mod faker {
     use super::{Continent, CountryCode, StructuredAddress};

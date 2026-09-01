@@ -111,8 +111,7 @@ async fn admin_patch_user(
         || data.language.is_present()
         || data.currency.is_present()
         || data.measurement_unit.is_present()
-        || data.show_unassessed_or_sensitive_content.is_present()
-        || data.structured_address.is_present();
+        || data.show_unassessed_or_sensitive_content.is_present();
     let role_changed = data.role.is_present();
     let tier_changed = data.tier.is_present();
     let change_count = u8::from(profile_changed) + u8::from(role_changed) + u8::from(tier_changed);
@@ -132,7 +131,6 @@ async fn admin_patch_user(
         show_unassessed_or_sensitive_content,
         tier,
         role,
-        structured_address,
     } = data;
     let role = match non_nullable_option(role, "role") {
         Ok(role) => role,
@@ -174,7 +172,6 @@ async fn admin_patch_user(
             currency,
             measurement_unit,
             show_unassessed_or_sensitive_content,
-            structured_address,
         },
         user_id,
     ) {
@@ -203,7 +200,6 @@ fn profile_command(
             data.show_unassessed_or_sensitive_content,
             "showUnassessedOrSensitiveContent",
         )?,
-        structured_address: clearable(data.structured_address.map(Into::into)),
     })
 }
 

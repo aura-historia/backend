@@ -361,8 +361,6 @@ mod tests {
             tier: UserTier::Free,
             role,
             stripe_customer_id: None,
-            structured_address: None,
-            geo_address: None,
         }
     }
 

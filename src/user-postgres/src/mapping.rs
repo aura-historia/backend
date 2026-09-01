@@ -1,6 +1,3 @@
-use geo::core::address::{GeoAddress, StructuredAddress};
-use geo::core::continent::Continent;
-use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
@@ -33,21 +30,13 @@ pub(crate) struct UserRow {
     pub tier: String,
     pub role: String,
     pub stripe_customer_id: Option<String>,
-    pub structured_address_addressline: Option<String>,
-    pub structured_address_addressline_extra: Option<String>,
-    pub structured_address_locality: Option<String>,
-    pub structured_address_region: Option<String>,
-    pub structured_address_postal_code: Option<String>,
-    pub structured_address_country: Option<String>,
-    pub geo_address_lat: Option<f64>,
-    pub geo_address_lon: Option<f64>,
     pub version: i64,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
 
 pub(crate) fn user_columns() -> &'static str {
-    "user_id, email, first_name, last_name, language, currency, measurement_unit, show_unassessed_or_sensitive_content, tier, role, stripe_customer_id, structured_address_addressline, structured_address_addressline_extra, structured_address_locality, structured_address_region, structured_address_postal_code, structured_address_country, geo_address_lat, geo_address_lon, version, created, updated"
+    "user_id, email, first_name, last_name, language, currency, measurement_unit, show_unassessed_or_sensitive_content, tier, role, stripe_customer_id, version, created, updated"
 }
 
 impl TryFrom<UserRow> for VersionedUser {
@@ -83,8 +72,6 @@ impl TryFrom<UserRow> for UserDetailsView {
             tier: parse_tier(&row.tier)?,
             role: parse_role(&row.role)?,
             stripe_customer_id: row.stripe_customer_id.clone().map(StripeCustomerId::from),
-            structured_address: structured_address_from_row(&row)?,
-            geo_address: geo_address_from_row(&row)?,
         })
     }
 }
@@ -138,10 +125,7 @@ pub(crate) enum UserRowMappingError {
     InvalidRole,
     #[error("missing user stripe customer id")]
     MissingStripeCustomerId,
-    #[error("invalid user country")]
-    InvalidCountry,
-    #[error("incomplete user geo address")]
-    IncompleteGeoAddress,
+
     #[error("invalid user version")]
     InvalidVersion(#[from] domain_primitives::version::InvalidVersionError),
     #[error("invalid rehydrated user")]
@@ -168,26 +152,8 @@ pub(crate) fn bind_role(value: UserRole) -> &'static str {
     value.as_str()
 }
 
-pub(crate) fn bind_country(address: Option<&StructuredAddress>) -> Option<String> {
-    address
-        .and_then(|value| value.country)
-        .map(|country| country.alpha3().to_owned())
-}
-
 pub(crate) fn version_to_i64(version: UserStorageVersion) -> i64 {
     i64::try_from(version.into_inner()).unwrap_or(i64::MAX)
-}
-
-pub(crate) fn countries_for_continents(
-    continents: &std::collections::HashSet<Continent>,
-) -> Vec<String> {
-    let mut countries = CountryCode::iter()
-        .copied()
-        .filter(|country| continents.contains(&Continent::from(*country)))
-        .map(|country| country.alpha3().to_owned())
-        .collect::<Vec<_>>();
-    countries.sort();
-    countries
 }
 
 pub(crate) fn sort_user_field_columns(field: SortUserField) -> &'static [&'static str] {
@@ -207,8 +173,6 @@ fn profile_from_row(row: &UserRow) -> Result<UserProfile, UserRowMappingError> {
     Ok(UserProfile {
         first_name: row.first_name.clone().map(FirstName::from),
         last_name: row.last_name.clone().map(LastName::from),
-        structured_address: structured_address_from_row(row)?,
-        geo_address: geo_address_from_row(row)?,
     })
 }
 
@@ -229,41 +193,8 @@ fn account_from_row(row: &UserRow) -> Result<UserAccount, UserRowMappingError> {
     })
 }
 
-fn structured_address_from_row(
-    row: &UserRow,
-) -> Result<Option<StructuredAddress>, UserRowMappingError> {
-    let country = parse_country(row.structured_address_country.as_deref())?;
-    let address = StructuredAddress {
-        addressline: row.structured_address_addressline.clone(),
-        addressline_extra: row.structured_address_addressline_extra.clone(),
-        locality: row.structured_address_locality.clone(),
-        region: row.structured_address_region.clone(),
-        postal_code: row.structured_address_postal_code.clone(),
-        country,
-        continent: country.map(Continent::from),
-    };
-
-    Ok((!address.is_empty()).then_some(address))
-}
-
-fn geo_address_from_row(row: &UserRow) -> Result<Option<GeoAddress>, UserRowMappingError> {
-    match (row.geo_address_lat, row.geo_address_lon) {
-        (Some(lat), Some(lon)) => Ok(Some(GeoAddress { lat, lon })),
-        (None, None) => Ok(None),
-        _ => Err(UserRowMappingError::IncompleteGeoAddress),
-    }
-}
-
 fn parse_email(value: &str) -> Result<Email, UserRowMappingError> {
     Email::try_from(value).map_err(|_| UserRowMappingError::InvalidEmail)
-}
-
-fn parse_country(value: Option<&str>) -> Result<Option<CountryCode>, UserRowMappingError> {
-    value
-        .map(|value| {
-            CountryCode::for_alpha3(value).map_err(|_| UserRowMappingError::InvalidCountry)
-        })
-        .transpose()
 }
 
 pub(crate) fn parse_optional_language(
@@ -313,11 +244,6 @@ mod tests {
 
     #[test]
     fn should_bind_domain_values_for_sql() {
-        let address = StructuredAddress {
-            country: Some(CountryCode::GBR),
-            ..Default::default()
-        };
-
         assert_eq!(Some("en"), bind_language(Some(Language::En)));
         assert_eq!(Some("GBP"), bind_currency(Some(Currency::Gbp)));
         assert_eq!(
@@ -333,8 +259,6 @@ mod tests {
         assert_eq!("ULTIMATE", bind_tier(UserTier::Ultimate));
         assert_eq!("USER", bind_role(UserRole::User));
         assert_eq!("ADMIN", bind_role(UserRole::Admin));
-        assert_eq!(Some("GBR".to_owned()), bind_country(Some(&address)));
-        assert_eq!(None, bind_country(None));
     }
 
     #[test]
@@ -396,16 +320,6 @@ mod tests {
     }
 
     #[test]
-    fn should_map_countries_for_continents_in_stable_order() {
-        let countries =
-            countries_for_continents(&std::collections::HashSet::from([Continent::Europe]));
-
-        assert!(countries.windows(2).all(|pair| pair[0] <= pair[1]));
-        assert!(countries.contains(&"GBR".to_owned()));
-        assert!(!countries.contains(&"USA".to_owned()));
-    }
-
-    #[test]
     fn should_map_user_sort_fields_to_postgres_columns() {
         assert_eq!(
             &["first_name", "last_name"],
@@ -446,8 +360,6 @@ mod tests {
         assert_eq!(Some(MeasurementUnit::Imperial), details.measurement_unit);
         assert_eq!(UserTier::Pro, details.tier);
         assert_eq!(UserRole::Admin, details.role);
-        assert!(details.structured_address.is_some());
-        assert!(details.geo_address.is_some());
     }
 
     #[test]
@@ -458,14 +370,6 @@ mod tests {
             language: None,
             currency: None,
             measurement_unit: None,
-            structured_address_addressline: None,
-            structured_address_addressline_extra: None,
-            structured_address_locality: None,
-            structured_address_region: None,
-            structured_address_postal_code: None,
-            structured_address_country: None,
-            geo_address_lat: None,
-            geo_address_lon: None,
             ..user_row()
         };
 
@@ -524,21 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn should_report_mapping_errors_for_address_stripe_and_version_branches() {
-        assert!(matches!(
-            UserDetailsView::try_from(UserRow {
-                structured_address_country: Some("BAD".to_owned()),
-                ..user_row()
-            }),
-            Err(UserRowMappingError::InvalidCountry)
-        ));
-        assert!(matches!(
-            UserDetailsView::try_from(UserRow {
-                geo_address_lon: None,
-                ..user_row()
-            }),
-            Err(UserRowMappingError::IncompleteGeoAddress)
-        ));
+    fn should_report_mapping_errors_for_stripe_and_version_branches() {
         assert!(matches!(
             UserStripeLookupView::try_from(UserRow {
                 stripe_customer_id: None,
@@ -555,13 +445,6 @@ mod tests {
                 InvalidVersionError::Zero
             ))
         ));
-        assert!(matches!(
-            VersionedUser::try_from(UserRow {
-                geo_address_lat: Some(91.0),
-                ..user_row()
-            }),
-            Err(UserRowMappingError::InvalidUser(_))
-        ));
     }
 
     fn user_row() -> UserRow {
@@ -577,14 +460,6 @@ mod tests {
             tier: "PRO".to_owned(),
             role: "ADMIN".to_owned(),
             stripe_customer_id: Some("cus_test".to_owned()),
-            structured_address_addressline: Some("1 Test Street".to_owned()),
-            structured_address_addressline_extra: None,
-            structured_address_locality: Some("London".to_owned()),
-            structured_address_region: None,
-            structured_address_postal_code: Some("SW1A".to_owned()),
-            structured_address_country: Some("GBR".to_owned()),
-            geo_address_lat: Some(51.5),
-            geo_address_lon: Some(-0.1),
             version: 1,
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,

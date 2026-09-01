@@ -34,6 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Removed
 
+- **Breaking:** User account responses no longer expose address or coordinate values, and user account PATCH requests no longer accept address fields. Structured-address-backed user country, continent, and distance filters are removed.
 - **Breaking:** The prior notification REST shape is replaced in `aura-historia-api`. Item paths now use canonical `{notificationId}` rather than `{eventId}`; list responses omit origin-event, actor, external-delivery, and total fields. The former root `PATCH /api/v1/me/notifications` all-notifications behavior is removed.
 
 - Removed the obsolete key-value table, stream bridge, runtime grants, and LocalStack test support. PostgreSQL and OpenSearch are now the only application data stores in the canonical stack.

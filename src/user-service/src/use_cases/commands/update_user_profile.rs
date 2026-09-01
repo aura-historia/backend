@@ -10,7 +10,6 @@ use application::operation_context::{
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::change_outcome::ChangeOutcome;
-use geo::core::address::StructuredAddress;
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
@@ -29,7 +28,6 @@ pub struct UpdateUserProfileCommand {
     pub currency: PatchField<Currency>,
     pub measurement_unit: PatchField<MeasurementUnit>,
     pub show_unassessed_or_sensitive_content: PatchField<bool>,
-    pub structured_address: PatchField<StructuredAddress>,
 }
 
 impl UpdateUserProfileCommand {
@@ -41,7 +39,6 @@ impl UpdateUserProfileCommand {
             && !self.currency.is_changed()
             && !self.measurement_unit.is_changed()
             && !self.show_unassessed_or_sensitive_content.is_changed()
-            && !self.structured_address.is_changed()
     }
 }
 
@@ -206,17 +203,7 @@ fn apply_update(
     let profile_before = profile.clone();
     apply_optional_patch(&mut profile.first_name, command.first_name);
     apply_optional_patch(&mut profile.last_name, command.last_name);
-    match command.structured_address {
-        PatchField::Unchanged => {}
-        PatchField::Set(value) => {
-            profile.structured_address = Some(value);
-            profile.geo_address = None;
-        }
-        PatchField::Clear => {
-            profile.structured_address = None;
-            profile.geo_address = None;
-        }
-    }
+
     if profile != profile_before {
         outcome = outcome.combine(user.replace_profile(profile)?);
     }
@@ -288,8 +275,6 @@ impl From<&User> for UserDetailsView {
             tier: user.account().tier,
             role: user.account().role,
             stripe_customer_id: user.account().stripe_customer_id.clone(),
-            structured_address: profile.structured_address.clone(),
-            geo_address: profile.geo_address,
         }
     }
 }
