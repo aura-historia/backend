@@ -16,7 +16,6 @@ use money::Price;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::product_listing::{
     ChangeListingAvailabilityError, ChangeProductListingError, ProductListing,
-    ProductListingAuction, ProductListingPricing,
 };
 use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -25,14 +24,12 @@ use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateProductListingCommand {
-    pub pricing: PatchField<ProductListingPricing>,
     pub price: PatchField<Price>,
     pub price_estimate_min: PatchField<Price>,
     pub price_estimate_max: PatchField<Price>,
     pub availability: PatchField<ListingAvailability>,
     pub url: PatchField<Url>,
     pub images: PatchField<IndexSet<ProductListingImage>>,
-    pub auction: PatchField<ProductListingAuction>,
     pub auction_start: PatchField<Option<time::OffsetDateTime>>,
     pub auction_end: PatchField<Option<time::OffsetDateTime>>,
 }
@@ -245,24 +242,15 @@ fn apply_command(
     product: &mut ProductListing,
     command: UpdateProductListingCommand,
 ) -> Result<(), UpdateProductListingError> {
-    match command.pricing {
-        PatchField::Unchanged => {}
-        PatchField::Set(value) => {
-            product.replace_pricing(value)?;
-        }
-        PatchField::Clear => {
-            product.replace_pricing(Default::default())?;
-        }
+    let mut pricing = product.pricing();
+    let price_changed = apply_price_patch(&mut pricing.price, command.price);
+    let price_estimate_min_changed =
+        apply_price_patch(&mut pricing.price_estimate_min, command.price_estimate_min);
+    let price_estimate_max_changed =
+        apply_price_patch(&mut pricing.price_estimate_max, command.price_estimate_max);
+    if price_changed || price_estimate_min_changed || price_estimate_max_changed {
+        product.replace_pricing(pricing)?;
     }
-    apply_price_patch(product, command.price, |pricing, value| {
-        pricing.price = value
-    })?;
-    apply_price_patch(product, command.price_estimate_min, |pricing, value| {
-        pricing.price_estimate_min = value
-    })?;
-    apply_price_patch(product, command.price_estimate_max, |pricing, value| {
-        pricing.price_estimate_max = value
-    })?;
     match command.availability {
         PatchField::Unchanged => {}
         PatchField::Set(value) => {
@@ -290,62 +278,44 @@ fn apply_command(
             product.replace_images(Default::default())?;
         }
     }
-    match command.auction {
-        PatchField::Unchanged => {}
+    let mut auction = product.auction();
+    let auction_start_changed = apply_auction_patch(&mut auction.start, command.auction_start);
+    let auction_end_changed = apply_auction_patch(&mut auction.end, command.auction_end);
+    if auction_start_changed || auction_end_changed {
+        product.replace_auction(auction)?;
+    }
+    Ok(())
+}
+
+fn apply_price_patch(field: &mut Option<Price>, patch: PatchField<Price>) -> bool {
+    match patch {
+        PatchField::Unchanged => false,
         PatchField::Set(value) => {
-            product.replace_auction(value)?;
+            *field = Some(value);
+            true
         }
         PatchField::Clear => {
-            product.replace_auction(Default::default())?;
+            *field = None;
+            true
         }
     }
-    apply_auction_patch(product, command.auction_start, |auction, value| {
-        auction.start = value
-    })?;
-    apply_auction_patch(product, command.auction_end, |auction, value| {
-        auction.end = value
-    })?;
-    Ok(())
 }
-fn apply_price_patch(
-    product: &mut ProductListing,
-    patch: PatchField<Price>,
-    apply: impl FnOnce(&mut ProductListingPricing, Option<Price>),
-) -> Result<(), UpdateProductListingError> {
-    match patch {
-        PatchField::Unchanged => {}
-        PatchField::Set(value) => {
-            let mut pricing = product.pricing();
-            apply(&mut pricing, Some(value));
-            product.replace_pricing(pricing)?;
-        }
-        PatchField::Clear => {
-            let mut pricing = product.pricing();
-            apply(&mut pricing, None);
-            product.replace_pricing(pricing)?;
-        }
-    };
-    Ok(())
-}
+
 fn apply_auction_patch(
-    product: &mut ProductListing,
+    field: &mut Option<time::OffsetDateTime>,
     patch: PatchField<Option<time::OffsetDateTime>>,
-    apply: impl FnOnce(&mut ProductListingAuction, Option<time::OffsetDateTime>),
-) -> Result<(), UpdateProductListingError> {
+) -> bool {
     match patch {
-        PatchField::Unchanged => {}
+        PatchField::Unchanged => false,
         PatchField::Set(value) => {
-            let mut auction = product.auction();
-            apply(&mut auction, value);
-            product.replace_auction(auction)?;
+            *field = value;
+            true
         }
         PatchField::Clear => {
-            let mut auction = product.auction();
-            apply(&mut auction, None);
-            product.replace_auction(auction)?;
+            *field = None;
+            true
         }
-    };
-    Ok(())
+    }
 }
 fn partner_actor(principal: &Principal) -> Option<UserId> {
     match principal {
@@ -409,13 +379,21 @@ mod tests {
     use super::*;
     use listing_source_core::ListingSourceId;
     use localization::{Language, Localized};
+    use money::{Currency, MonetaryAmount};
     use product_listing_core::{
-        product_listing::{NewProductListing, ProductListingAuction},
+        product_listing::{
+            NewProductListing, ProductListingAuction, ProductListingEventPayload,
+            ProductListingPricing,
+        },
         product_listing_id::ProductListingId,
         product_listing_slug_id::ProductListingSlugId,
         source_listing_id::SourceListingId,
         title::Title,
     };
+
+    fn price(amount: u64) -> Price {
+        Price::new(MonetaryAmount::from(amount), Currency::Eur)
+    }
 
     #[test]
     fn should_reject_clearing_required_url_without_mutating_listing() {
@@ -451,5 +429,151 @@ mod tests {
             Err(UpdateProductListingError::UrlRequired)
         ));
         assert_eq!(&url, listing.url());
+    }
+
+    #[test]
+    fn should_emit_one_price_event_with_final_pricing_for_combined_leaf_patches() {
+        let old_pricing = ProductListingPricing {
+            price: Some(price(100)),
+            price_estimate_min: Some(price(110)),
+            price_estimate_max: Some(price(120)),
+        };
+        let new_pricing = ProductListingPricing {
+            price: Some(price(200)),
+            price_estimate_min: Some(price(210)),
+            price_estimate_max: Some(price(220)),
+        };
+        let mut listing = ProductListing::create(NewProductListing {
+            id: ProductListingId::new(),
+            title_slug_id: ProductListingSlugId::raw("listing-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            title: None,
+            description: None,
+            pricing: old_pricing,
+            availability: None,
+            url: Url::parse("https://shop.example/listing")
+                .unwrap_or_else(|error| panic!("invalid URL: {error}")),
+            images: IndexSet::new(),
+            auction: ProductListingAuction::default(),
+        })
+        .unwrap_or_else(|error| panic!("valid listing should be created: {error}"));
+        listing.take_pending_event_payloads();
+
+        apply_command(
+            &mut listing,
+            UpdateProductListingCommand {
+                price: PatchField::Set(price(200)),
+                price_estimate_min: PatchField::Set(price(210)),
+                price_estimate_max: PatchField::Set(price(220)),
+                ..Default::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("valid price update: {error}"));
+
+        assert_eq!(listing.pricing(), new_pricing);
+        assert!(matches!(
+            listing.pending_event_payloads(),
+            [ProductListingEventPayload::PriceChanged(change)]
+                if change.old_pricing == old_pricing && change.new_pricing == new_pricing
+        ));
+    }
+
+    #[test]
+    fn should_emit_one_auction_event_with_final_auction_for_combined_leaf_patches() {
+        let old_auction = ProductListingAuction {
+            start: Some(time::macros::datetime!(2026-01-01 0:00 UTC)),
+            end: Some(time::macros::datetime!(2026-01-02 0:00 UTC)),
+        };
+        let new_auction = ProductListingAuction {
+            start: Some(time::macros::datetime!(2026-02-01 0:00 UTC)),
+            end: Some(time::macros::datetime!(2026-02-02 0:00 UTC)),
+        };
+        let mut listing = ProductListing::create(NewProductListing {
+            id: ProductListingId::new(),
+            title_slug_id: ProductListingSlugId::raw("listing-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            title: None,
+            description: None,
+            pricing: ProductListingPricing::default(),
+            availability: None,
+            url: Url::parse("https://shop.example/listing")
+                .unwrap_or_else(|error| panic!("invalid URL: {error}")),
+            images: IndexSet::new(),
+            auction: old_auction,
+        })
+        .unwrap_or_else(|error| panic!("valid listing should be created: {error}"));
+        listing.take_pending_event_payloads();
+
+        apply_command(
+            &mut listing,
+            UpdateProductListingCommand {
+                auction_start: PatchField::Set(new_auction.start),
+                auction_end: PatchField::Set(new_auction.end),
+                ..Default::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("valid auction update: {error}"));
+
+        assert_eq!(listing.auction(), new_auction);
+        assert!(matches!(
+            listing.pending_event_payloads(),
+            [ProductListingEventPayload::AuctionChanged(change)] if change.auction == new_auction
+        ));
+    }
+
+    #[test]
+    fn should_retain_state_and_pending_events_when_final_auction_is_invalid() {
+        let auction = ProductListingAuction {
+            start: Some(time::macros::datetime!(2026-01-01 0:00 UTC)),
+            end: Some(time::macros::datetime!(2026-01-02 0:00 UTC)),
+        };
+        let mut listing = ProductListing::create(NewProductListing {
+            id: ProductListingId::new(),
+            title_slug_id: ProductListingSlugId::raw("listing-a1b2c3")
+                .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("listing")
+                .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
+            title: None,
+            description: None,
+            pricing: ProductListingPricing::default(),
+            availability: None,
+            url: Url::parse("https://shop.example/listing")
+                .unwrap_or_else(|error| panic!("invalid URL: {error}")),
+            images: IndexSet::new(),
+            auction,
+        })
+        .unwrap_or_else(|error| panic!("valid listing should be created: {error}"));
+        listing.take_pending_event_payloads();
+        listing
+            .change_url(
+                Url::parse("https://shop.example/updated-listing")
+                    .unwrap_or_else(|error| panic!("invalid URL: {error}")),
+            )
+            .unwrap_or_else(|error| panic!("valid URL update: {error}"));
+
+        let result = apply_command(
+            &mut listing,
+            UpdateProductListingCommand {
+                auction_start: PatchField::Set(Some(time::macros::datetime!(2026-01-03 0:00 UTC))),
+                ..Default::default()
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(UpdateProductListingError::InvalidProductListing)
+        ));
+        assert_eq!(listing.auction(), auction);
+        assert!(matches!(
+            listing.pending_event_payloads(),
+            [ProductListingEventPayload::UrlChanged(_)]
+        ));
     }
 }

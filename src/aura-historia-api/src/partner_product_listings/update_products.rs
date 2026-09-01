@@ -204,6 +204,135 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_map_set_leaf_updates_to_leaf_only_command()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut update = MockUpdateUseCase::new();
+        update
+            .expect_execute_by_key()
+            .times(1)
+            .withf(|_, _, command| {
+                matches!(
+                    (
+                        &command.price,
+                        &command.price_estimate_min,
+                        &command.price_estimate_max,
+                        &command.availability,
+                        &command.url,
+                        &command.images,
+                        &command.auction_start,
+                        &command.auction_end,
+                    ),
+                    (
+                        application::patch_field::PatchField::Set(_),
+                        application::patch_field::PatchField::Set(_),
+                        application::patch_field::PatchField::Set(_),
+                        application::patch_field::PatchField::Set(_),
+                        application::patch_field::PatchField::Set(_),
+                        application::patch_field::PatchField::Set(images),
+                        application::patch_field::PatchField::Set(Some(_)),
+                        application::patch_field::PatchField::Set(Some(_)),
+                    ) if images.len() == 1
+                )
+            })
+            .returning(|_, _, _| Ok(updated()));
+        let app = app(update);
+        let listing_source_id = ListingSourceId::new();
+
+        let response = request(
+            &app,
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            r#"[{
+                "sourceListingId":"leaf-fields",
+                "price":{"amount":12000,"currency":"EUR"},
+                "priceEstimateMin":{"amount":10000,"currency":"EUR"},
+                "priceEstimateMax":{"amount":14000,"currency":"EUR"},
+                "availability":"AVAILABLE",
+                "url":"https://example.com/listings/leaf-fields",
+                "images":["https://example.com/images/leaf-fields.jpg"],
+                "auctionStart":"2026-08-23T12:00:00Z",
+                "auctionEnd":"2026-08-24T12:00:00Z"
+            }]"#,
+            true,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(json!([]), body_json(response).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_preserve_omitted_and_clear_clearable_update_leaves()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut update = MockUpdateUseCase::new();
+        update
+            .expect_execute_by_key()
+            .times(2)
+            .withf(|_, key, command| {
+                matches!(
+                    (
+                        key.source_listing_id.as_ref(),
+                        &command.price,
+                        &command.price_estimate_min,
+                        &command.price_estimate_max,
+                        &command.availability,
+                        &command.url,
+                        &command.images,
+                        &command.auction_start,
+                        &command.auction_end,
+                    ),
+                    (
+                        "omitted",
+                        application::patch_field::PatchField::Unchanged,
+                        application::patch_field::PatchField::Unchanged,
+                        application::patch_field::PatchField::Unchanged,
+                        application::patch_field::PatchField::Unchanged,
+                        application::patch_field::PatchField::Unchanged,
+                        application::patch_field::PatchField::Unchanged,
+                        application::patch_field::PatchField::Unchanged,
+                        application::patch_field::PatchField::Unchanged,
+                    ) | (
+                        "clear",
+                        application::patch_field::PatchField::Clear,
+                        application::patch_field::PatchField::Clear,
+                        application::patch_field::PatchField::Clear,
+                        application::patch_field::PatchField::Clear,
+                        application::patch_field::PatchField::Unchanged,
+                        application::patch_field::PatchField::Unchanged,
+                        application::patch_field::PatchField::Clear,
+                        application::patch_field::PatchField::Clear,
+                    )
+                )
+            })
+            .returning(|_, _, _| Ok(updated()));
+        let app = app(update);
+        let listing_source_id = ListingSourceId::new();
+
+        let response = request(
+            &app,
+            &format!("/api/v1/listing-sources/{listing_source_id}/product-listings"),
+            r#"[
+                {"sourceListingId":"omitted"},
+                {
+                    "sourceListingId":"clear",
+                    "price":null,
+                    "priceEstimateMin":null,
+                    "priceEstimateMax":null,
+                    "availability":null,
+                    "auctionStart":null,
+                    "auctionEnd":null
+                }
+            ]"#,
+            true,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(json!([]), body_json(response).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_clear_availability_when_batch_member_is_null()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut update = MockUpdateUseCase::new();
