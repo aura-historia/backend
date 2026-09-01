@@ -1442,7 +1442,7 @@ async fn insert_historical_search_filter_match(
     origin_event_id: EventId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     sqlx::query(
-        "INSERT INTO search_filter_matches (user_id, user_search_filter_id, product_listing_id, origin_event_id, user_search_filter_name, created, updated) VALUES ($1, $2, $3, $4, $5, now() - INTERVAL '1 day', now() - INTERVAL '1 day')",
+        "INSERT INTO search_filter_matches (user_id, user_search_filter_id, product_listing_id, origin_event_id, user_search_filter_name, created, updated) VALUES ($1, $2, $3, $4, $5, GREATEST(date_trunc('month', now()), now() - INTERVAL '1 minute'), GREATEST(date_trunc('month', now()), now() - INTERVAL '1 minute'))",
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(uuid::Uuid::parse_str(&search_filter_id.to_string())?)
