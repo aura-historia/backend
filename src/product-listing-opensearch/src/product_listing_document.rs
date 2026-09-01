@@ -474,13 +474,6 @@ mod tests {
             "shopName",
             "sellerName",
             "shopType",
-            "structuredAddressAddressline",
-            "structuredAddressAddresslineExtra",
-            "structuredAddressLocality",
-            "structuredAddressRegion",
-            "structuredAddressPostalCode",
-            "structuredAddressCountry",
-            "structuredAddressContinent",
             "geoAddress",
             "viewUrl",
         ] {

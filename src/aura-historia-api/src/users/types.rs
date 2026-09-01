@@ -1,5 +1,5 @@
 use crate::patch_value::PatchValue;
-use geo::data::address_data::{GeoAddressData, StructuredAddressData};
+use geo::data::address_data::GeoAddressData;
 use localization::Language;
 use money::Currency;
 use serde::{Deserialize, Serialize};
@@ -42,8 +42,6 @@ pub(crate) struct OwnUserData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) stripe_customer_id: Option<user_core::stripe_customer_id::StripeCustomerId>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) structured_address: Option<StructuredAddressData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) geo_address: Option<GeoAddressData>,
 }
 
@@ -61,7 +59,6 @@ impl From<UserDetailsView> for OwnUserData {
             tier: view.tier,
             role: view.role,
             stripe_customer_id: view.stripe_customer_id,
-            structured_address: view.structured_address.map(Into::into),
             geo_address: view.geo_address.map(Into::into),
         }
     }
@@ -99,8 +96,6 @@ pub(crate) struct AdminUserData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) stripe_customer_id: Option<user_core::stripe_customer_id::StripeCustomerId>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) structured_address: Option<StructuredAddressData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) geo_address: Option<GeoAddressData>,
 }
 
@@ -118,7 +113,6 @@ impl From<UserDetailsView> for AdminUserData {
             tier: view.tier,
             role: view.role,
             stripe_customer_id: view.stripe_customer_id,
-            structured_address: view.structured_address.map(Into::into),
             geo_address: view.geo_address.map(Into::into),
         }
     }
@@ -189,8 +183,6 @@ pub(crate) struct PatchOwnUserData {
     pub(crate) measurement_unit: PatchValue<MeasurementUnit>,
     #[serde(default)]
     pub(crate) show_unassessed_or_sensitive_content: PatchValue<bool>,
-    #[serde(default)]
-    pub(crate) structured_address: PatchValue<StructuredAddressData>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -229,6 +221,4 @@ pub(crate) struct PatchAdminUserData {
         deserialize_with = "crate::wire::user_role::patch::deserialize"
     )]
     pub(crate) role: PatchValue<UserRole>,
-    #[serde(default)]
-    pub(crate) structured_address: PatchValue<StructuredAddressData>,
 }

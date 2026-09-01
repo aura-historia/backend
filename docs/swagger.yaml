@@ -3400,7 +3400,7 @@ paths:
 
         `lastName`, and `stripeCustomerId`.
 
-        Structured-address filters are also available via `country`, `continent`, and `geoAddress`.
+        Geospatial filtering is available via `geoAddress`.
 
         "
       operationId: adminSearchUsers
@@ -3464,32 +3464,7 @@ paths:
             uniqueItems: true
           example:
             - ADMIN
-        - name: country
-          in: query
-          required: false
-          description: Optional filter by one or more structured-address country codes (ISO 3166-1 alpha-2).
-          style: form
-          explode: true
-          schema:
-            type: array
-            items:
-              $ref: "#/components/schemas/CountryCodeData"
-            uniqueItems: true
-          example:
-            - DE
-        - name: continent
-          in: query
-          required: false
-          description: Optional filter by one or more structured-address continents.
-          style: form
-          explode: true
-          schema:
-            type: array
-            items:
-              $ref: "#/components/schemas/ContinentData"
-            uniqueItems: true
-          example:
-            - EUROPE
+
         - name: geoAddress
           in: query
           required: false
@@ -3613,12 +3588,6 @@ paths:
                     tier: ULTIMATE
                     role: ADMIN
                     stripeCustomerId: cus_admin_550e8400e29b41d4a716446655440000
-                    structuredAddress:
-                      addressline: Pariser Platz 1
-                      locality: Berlin
-                      postalCode: "10117"
-                      country: DE
-                      continent: EUROPE
                     geoAddress:
                       lat: 52.516275
                       lon: 13.377704
@@ -3793,12 +3762,6 @@ paths:
                 tier: ULTIMATE
                 role: ADMIN
                 stripeCustomerId: cus_admin_550e8400e29b41d4a716446655440000
-                structuredAddress:
-                  addressline: Pariser Platz 1
-                  locality: Berlin
-                  postalCode: "10117"
-                  country: DE
-                  continent: EUROPE
                 geoAddress:
                   lat: 52.516275
                   lon: 13.377704
@@ -3926,12 +3889,6 @@ paths:
                 tier: ULTIMATE
                 role: ADMIN
                 stripeCustomerId: cus_admin_550e8400e29b41d4a716446655440000
-                structuredAddress:
-                  addressline: Pariser Platz 1
-                  locality: Berlin
-                  postalCode: "10117"
-                  country: DE
-                  continent: EUROPE
                 geoAddress:
                   lat: 52.516275
                   lon: 13.377704
@@ -9387,317 +9344,10 @@ components:
           description: Total number of product-listings matching the query
           nullable: true
           example: 127
-    CountryCodeData:
-      type: string
-      description: ISO 3166-1 alpha-2 country code serialized by the backend.
-      enum:
-        - AD
-        - AE
-        - AF
-        - AG
-        - AI
-        - AL
-        - AM
-        - AO
-        - AQ
-        - AR
-        - AS
-        - AT
-        - AU
-        - AW
-        - AX
-        - AZ
-        - BA
-        - BB
-        - BD
-        - BE
-        - BF
-        - BG
-        - BH
-        - BI
-        - BJ
-        - BL
-        - BM
-        - BN
-        - BO
-        - BQ
-        - BR
-        - BS
-        - BT
-        - BV
-        - BW
-        - BY
-        - BZ
-        - CA
-        - CC
-        - CD
-        - CF
-        - CG
-        - CH
-        - CI
-        - CK
-        - CL
-        - CM
-        - CN
-        - CO
-        - CR
-        - CU
-        - CV
-        - CW
-        - CX
-        - CY
-        - CZ
-        - DE
-        - DJ
-        - DK
-        - DM
-        - DO
-        - DZ
-        - EC
-        - EE
-        - EG
-        - EH
-        - ER
-        - ES
-        - ET
-        - FI
-        - FJ
-        - FK
-        - FM
-        - FO
-        - FR
-        - GA
-        - GB
-        - GD
-        - GE
-        - GF
-        - GG
-        - GH
-        - GI
-        - GL
-        - GM
-        - GN
-        - GP
-        - GQ
-        - GR
-        - GS
-        - GT
-        - GU
-        - GW
-        - GY
-        - HK
-        - HM
-        - HN
-        - HR
-        - HT
-        - HU
-        - ID
-        - IE
-        - IL
-        - IM
-        - IN
-        - IO
-        - IQ
-        - IR
-        - IS
-        - IT
-        - JE
-        - JM
-        - JO
-        - JP
-        - KE
-        - KG
-        - KH
-        - KI
-        - KM
-        - KN
-        - KP
-        - KR
-        - KW
-        - KY
-        - KZ
-        - LA
-        - LB
-        - LC
-        - LI
-        - LK
-        - LR
-        - LS
-        - LT
-        - LU
-        - LV
-        - LY
-        - MA
-        - MC
-        - MD
-        - ME
-        - MF
-        - MG
-        - MH
-        - MK
-        - ML
-        - MM
-        - MN
-        - MO
-        - MP
-        - MQ
-        - MR
-        - MS
-        - MT
-        - MU
-        - MV
-        - MW
-        - MX
-        - MY
-        - MZ
-        - NA
-        - NC
-        - NE
-        - NF
-        - NG
-        - NI
-        - NL
-        - false
-        - NP
-        - NR
-        - NU
-        - NZ
-        - OM
-        - PA
-        - PE
-        - PF
-        - PG
-        - PH
-        - PK
-        - PL
-        - PM
-        - PN
-        - PR
-        - PS
-        - PT
-        - PW
-        - PY
-        - QA
-        - RE
-        - RO
-        - RS
-        - RU
-        - RW
-        - SA
-        - SB
-        - SC
-        - SD
-        - SE
-        - SG
-        - SH
-        - SI
-        - SJ
-        - SK
-        - SL
-        - SM
-        - SN
-        - SO
-        - SR
-        - SS
-        - ST
-        - SV
-        - SX
-        - SY
-        - SZ
-        - TC
-        - TD
-        - TF
-        - TG
-        - TH
-        - TJ
-        - TK
-        - TL
-        - TM
-        - TN
-        - TO
-        - TR
-        - TT
-        - TV
-        - TW
-        - TZ
-        - UA
-        - UG
-        - UM
-        - US
-        - UY
-        - UZ
-        - VA
-        - VC
-        - VE
-        - VG
-        - VI
-        - VN
-        - VU
-        - WF
-        - WS
-        - YE
-        - YT
-        - ZA
-        - ZM
-        - ZW
-      example: DE
-    ContinentData:
-      type: string
-      description: Continent derived from a structured-address country code.
-      enum:
-        - AFRICA
-        - ANTARCTICA
-        - ASIA
-        - EUROPE
-        - NORTH_AMERICA
-        - OCEANIA
-        - SOUTH_AMERICA
-      example: EUROPE
-    StructuredAddressData:
-      type: object
-      description: Structured postal address used by user-profile fields and geocoding.
-      properties:
-        addressline:
-          type: string
-          description: Primary free-form address line such as street and house number.
-          example: Pariser Platz 1
-        addresslineExtra:
-          type: string
-          description: Optional secondary address line such as floor, suite, building, or c/o information.
-          example: 2. Etage
-        locality:
-          type: string
-          description: City, town, or locality.
-          example: Berlin
-        region:
-          type: string
-          description: Region, state, province, or administrative area.
-          example: Berlin
-        postalCode:
-          type: string
-          description: Postal or ZIP code.
-          example: "10117"
-        country:
-          allOf:
-            - $ref: "#/components/schemas/CountryCodeData"
-          description:
-            "ISO 3166-1 alpha-2 country code serialized by the backend.
 
-            When `continent` is omitted but `country` is present, the backend derives the continent from this code.
-
-            "
-        continent:
-          allOf:
-            - $ref: "#/components/schemas/ContinentData"
-          description:
-            "Optional continent value exposed alongside `country` in structured-address data.
-
-            If omitted while `country` is present, the backend derives it automatically.
-
-            "
     GeoAddressData:
       type: object
-      description: Latitude/longitude coordinates derived by the backend from `structuredAddress`.
+      description: Optional latitude/longitude coordinates associated with the user.
       required:
         - lat
         - lon
@@ -10386,10 +10036,6 @@ components:
           type: string
           nullable: true
           description: Persisted Stripe customer identifier, omitted when absent.
-        structuredAddress:
-          allOf:
-            - $ref: "#/components/schemas/StructuredAddressData"
-          nullable: true
         geoAddress:
           allOf:
             - $ref: "#/components/schemas/GeoAddressData"
@@ -10450,13 +10096,6 @@ components:
           allOf:
             - $ref: "#/components/schemas/UserRoleData"
           description: Omit to leave unchanged. Null is invalid.
-        structuredAddress:
-          allOf:
-            - $ref: "#/components/schemas/StructuredAddressData"
-          nullable: true
-          description:
-            Optional structured postal address to persist for the user. When provided, the backend geocodes it
-            and refreshes `geoAddress`.
     PatchUserAccountData:
       type: object
       description: "Partial user account update data.
@@ -10498,13 +10137,6 @@ components:
             Omit to leave unchanged. Send `true` to show unassessed or sensitive content; send `false` to hide
             it. `null` is invalid.
           example: true
-        structuredAddress:
-          allOf:
-            - $ref: "#/components/schemas/StructuredAddressData"
-          nullable: true
-          description:
-            Optional structured postal address to persist for the user. When provided, the backend geocodes it
-            and refreshes `geoAddress`.
     PostBillingCheckoutData:
       type: object
       description: Request body for creating a Stripe checkout session for a subscription purchase

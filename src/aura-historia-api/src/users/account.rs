@@ -86,6 +86,5 @@ fn into_command(
             data.show_unassessed_or_sensitive_content,
             "showUnassessedOrSensitiveContent",
         )?,
-        structured_address: clearable(data.structured_address.map(Into::into)),
     })
 }

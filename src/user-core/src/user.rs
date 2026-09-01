@@ -4,7 +4,7 @@ use crate::{
 };
 use crate::{stripe_customer_id::StripeCustomerId, user_id::UserId};
 use domain_primitives::change_outcome::ChangeOutcome;
-use geo::core::address::{GeoAddress, StructuredAddress};
+use geo::core::address::GeoAddress;
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
@@ -41,7 +41,6 @@ pub struct RehydratedUserState {
 pub struct UserProfile {
     pub first_name: Option<FirstName>,
     pub last_name: Option<LastName>,
-    pub structured_address: Option<StructuredAddress>,
     pub geo_address: Option<GeoAddress>,
 }
 
@@ -227,7 +226,6 @@ mod tests {
             profile: UserProfile {
                 first_name: Some("Ada".into()),
                 last_name: Some("Lovelace".into()),
-                structured_address: None,
                 geo_address: None,
             },
             preferences: UserPreferences::default(),
@@ -267,7 +265,6 @@ mod tests {
 
         assert_eq!(None, profile.first_name);
         assert_eq!(None, profile.last_name);
-        assert_eq!(None, profile.structured_address);
         assert_eq!(None, profile.geo_address);
     }
 
@@ -374,7 +371,6 @@ mod tests {
         let profile = UserProfile {
             first_name: Some("Grace".into()),
             last_name: None,
-            structured_address: None,
             geo_address: Some(GeoAddress {
                 lat: 90.0,
                 lon: -180.0,

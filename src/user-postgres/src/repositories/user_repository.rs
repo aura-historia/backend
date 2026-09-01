@@ -1,6 +1,6 @@
 use crate::mapping::{
-    UserRow, bind_country, bind_currency, bind_language, bind_measurement_unit, bind_role,
-    bind_tier, user_columns, version_to_i64,
+    UserRow, bind_currency, bind_language, bind_measurement_unit, bind_role, bind_tier,
+    user_columns, version_to_i64,
 };
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
@@ -104,7 +104,6 @@ impl UserRepository for SqlxUserRepository<'_> {
         let profile = user.profile();
         let preferences = user.preferences();
         let account = user.account();
-        let structured_address = profile.structured_address.as_ref();
         let geo_address = profile.geo_address;
 
         let sql = format!(
@@ -112,15 +111,11 @@ impl UserRepository for SqlxUserRepository<'_> {
             INSERT INTO users (
                 user_id, email, first_name, last_name, language, currency, measurement_unit,
                 show_unassessed_or_sensitive_content, tier, role, stripe_customer_id,
-                structured_address_addressline, structured_address_addressline_extra,
-                structured_address_locality, structured_address_region,
-                structured_address_postal_code, structured_address_country,
                 geo_address_lat, geo_address_lon
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
                 $8, $9, $10, $11,
-                $12, $13, $14, $15, $16, $17,
-                $18, $19
+                $12, $13
             )
             RETURNING {}
             "#,
@@ -139,12 +134,6 @@ impl UserRepository for SqlxUserRepository<'_> {
             .bind(bind_tier(account.tier))
             .bind(bind_role(account.role))
             .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
-            .bind(structured_address.and_then(|value| value.addressline.as_deref()))
-            .bind(structured_address.and_then(|value| value.addressline_extra.as_deref()))
-            .bind(structured_address.and_then(|value| value.locality.as_deref()))
-            .bind(structured_address.and_then(|value| value.region.as_deref()))
-            .bind(structured_address.and_then(|value| value.postal_code.as_deref()))
-            .bind(bind_country(structured_address))
             .bind(geo_address.map(|value| value.lat))
             .bind(geo_address.map(|value| value.lon))
             .fetch_one(&mut *self.connection)
@@ -163,7 +152,6 @@ impl UserRepository for SqlxUserRepository<'_> {
         let profile = user.profile();
         let preferences = user.preferences();
         let account = user.account();
-        let structured_address = profile.structured_address.as_ref();
         let geo_address = profile.geo_address;
 
         let sql = format!(
@@ -171,15 +159,11 @@ impl UserRepository for SqlxUserRepository<'_> {
             INSERT INTO users (
                 user_id, email, first_name, last_name, language, currency, measurement_unit,
                 show_unassessed_or_sensitive_content, tier, role, stripe_customer_id,
-                structured_address_addressline, structured_address_addressline_extra,
-                structured_address_locality, structured_address_region,
-                structured_address_postal_code, structured_address_country,
                 geo_address_lat, geo_address_lon
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
                 $8, $9, $10, $11,
-                $12, $13, $14, $15, $16, $17,
-                $18, $19
+                $12, $13
             )
             ON CONFLICT (user_id) DO NOTHING
             RETURNING {}
@@ -199,12 +183,6 @@ impl UserRepository for SqlxUserRepository<'_> {
             .bind(bind_tier(account.tier))
             .bind(bind_role(account.role))
             .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
-            .bind(structured_address.and_then(|value| value.addressline.as_deref()))
-            .bind(structured_address.and_then(|value| value.addressline_extra.as_deref()))
-            .bind(structured_address.and_then(|value| value.locality.as_deref()))
-            .bind(structured_address.and_then(|value| value.region.as_deref()))
-            .bind(structured_address.and_then(|value| value.postal_code.as_deref()))
-            .bind(bind_country(structured_address))
             .bind(geo_address.map(|value| value.lat))
             .bind(geo_address.map(|value| value.lon))
             .fetch_optional(&mut *self.connection)
@@ -237,7 +215,6 @@ impl UserRepository for SqlxUserRepository<'_> {
         let profile = user.profile();
         let preferences = user.preferences();
         let account = user.account();
-        let structured_address = profile.structured_address.as_ref();
         let geo_address = profile.geo_address;
 
         let sql = format!(
@@ -253,17 +230,11 @@ impl UserRepository for SqlxUserRepository<'_> {
                 tier = $9,
                 role = $10,
                 stripe_customer_id = $11,
-                structured_address_addressline = $12,
-                structured_address_addressline_extra = $13,
-                structured_address_locality = $14,
-                structured_address_region = $15,
-                structured_address_postal_code = $16,
-                structured_address_country = $17,
-                geo_address_lat = $18,
-                geo_address_lon = $19,
+                geo_address_lat = $12,
+                geo_address_lon = $13,
                 version = version + 1,
                 updated = now()
-            WHERE user_id = $1 AND version = $20
+            WHERE user_id = $1 AND version = $14
             RETURNING {}
             "#,
             user_columns()
@@ -281,12 +252,6 @@ impl UserRepository for SqlxUserRepository<'_> {
             .bind(bind_tier(account.tier))
             .bind(bind_role(account.role))
             .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
-            .bind(structured_address.and_then(|value| value.addressline.as_deref()))
-            .bind(structured_address.and_then(|value| value.addressline_extra.as_deref()))
-            .bind(structured_address.and_then(|value| value.locality.as_deref()))
-            .bind(structured_address.and_then(|value| value.region.as_deref()))
-            .bind(structured_address.and_then(|value| value.postal_code.as_deref()))
-            .bind(bind_country(structured_address))
             .bind(geo_address.map(|value| value.lat))
             .bind(geo_address.map(|value| value.lon))
             .bind(version_to_i64(expected_version))

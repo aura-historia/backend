@@ -7,7 +7,6 @@ edition = "2024"
 credential-core = { workspace = true }
 domain-primitives = { workspace = true }
 geo = { workspace = true }
-isocountry = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 prefixed-api-key = { workspace = true, features = ["sha2"] }

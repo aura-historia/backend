@@ -1,8 +1,6 @@
 use ::application::transaction::{Transaction, UnitOfWork};
 use ::platform_postgres::SqlxUnitOfWork;
 use ::user_core::user_id::UserId;
-use geo::core::{address::StructuredAddress, continent::Continent};
-use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
@@ -55,15 +53,6 @@ fn sample_user(slug: &str, role: UserRole) -> User {
         profile: UserProfile {
             first_name: Some(FirstName::from("Ada")),
             last_name: Some(LastName::from("Lovelace")),
-            structured_address: Some(StructuredAddress {
-                addressline: Some("1 Test Street".to_owned()),
-                addressline_extra: None,
-                locality: Some("London".to_owned()),
-                region: None,
-                postal_code: Some("SW1A".to_owned()),
-                country: Some(CountryCode::GBR),
-                continent: Some(Continent::Europe),
-            }),
             geo_address: Some(geo::core::address::GeoAddress {
                 lat: 51.5,
                 lon: -0.1,
