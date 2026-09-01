@@ -168,7 +168,6 @@ impl UpdateProductListingData {
             images: non_nullable_patch(self.images.map(product_images), "images")?,
             auction_start: clearable(self.auction_start.map(Some)),
             auction_end: clearable(self.auction_end.map(Some)),
-            ..Default::default()
         };
         Ok((product_key, command))
     }
