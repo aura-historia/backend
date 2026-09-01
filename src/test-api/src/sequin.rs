@@ -7,6 +7,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use reqwest::StatusCode;
 use sqlx::{AssertSqlSafe, Executor};
+use std::future::Future;
 use std::net::{SocketAddr, TcpListener};
 use std::process::{Command, Stdio};
 use std::sync::{Once, OnceLock};
@@ -23,6 +24,8 @@ const SEQUIN_CONTAINER_PORT: u16 = 7376;
 const SEQUIN_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-sequin-test";
 const SEQUIN_READINESS_TIMEOUT: Duration = Duration::from_secs(90);
 const SEQUIN_READINESS_POLL_INTERVAL: Duration = Duration::from_millis(200);
+const SEQUIN_START_ATTEMPTS: usize = 3;
+const SEQUIN_START_RETRY_DELAY: Duration = Duration::from_secs(1);
 const SEQUIN_IMAGE_TAG: &str = "v0.14.6";
 const SEQUIN_STATE_DB_PREFIX: &str = "sequin";
 const SECRET_KEY_BASE: &str = "wDPLYus0pvD6qJhKJICO4vYl782Zjtpew5qRBDp7CZvbWtQmY0eB13If01234567";
@@ -108,17 +111,45 @@ async fn get_or_start_worker_webhook_sequin() -> &'static RunningSequin {
                 "http://host.docker.internal:{}/cdc/sequin",
                 worker_webhook_port()
             );
-            start_worker_webhook_sequin(&webhook_url).await
+
+            retry_sequin_start(SEQUIN_START_RETRY_DELAY, || {
+                start_worker_webhook_sequin(&webhook_url)
+            })
+            .await
+            .unwrap_or_else(|error| panic!("Sequin test fixture did not start: {error}"))
         })
         .await
 }
 
-async fn start_worker_webhook_sequin(webhook_url: &str) -> RunningSequin {
+async fn retry_sequin_start<T, F, Fut>(retry_delay: Duration, mut start: F) -> Result<T, String>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, String>>,
+{
+    for attempt in 1..=SEQUIN_START_ATTEMPTS {
+        match start().await {
+            Ok(result) => return Ok(result),
+            Err(error) if attempt < SEQUIN_START_ATTEMPTS => {
+                debug!(attempt, %error, "Sequin test fixture startup failed; retrying.");
+                tokio::time::sleep(retry_delay).await;
+            }
+            Err(error) => {
+                return Err(format!(
+                    "Sequin test fixture did not start after {SEQUIN_START_ATTEMPTS} attempts: {error}"
+                ));
+            }
+        }
+    }
+
+    unreachable!("Sequin startup loop always returns or fails")
+}
+
+async fn start_worker_webhook_sequin(webhook_url: &str) -> Result<RunningSequin, String> {
     install_cleanup();
 
     let suffix = std::process::id().to_string();
     let state_database = format!("{SEQUIN_STATE_DB_PREFIX}_{suffix}");
-    ensure_sequin_state_database(&state_database).await;
+    ensure_sequin_state_database(&state_database).await?;
 
     let redis_name = redis_container_name();
     let sequin_name = sequin_container_name();
@@ -134,7 +165,7 @@ async fn start_worker_webhook_sequin(webhook_url: &str) -> RunningSequin {
         .with_mapped_port(redis_port, REDIS_CONTAINER_PORT.tcp())
         .start()
         .await
-        .expect("shouldn't fail starting Redis test container for Sequin");
+        .map_err(|error| format!("failed starting Redis test container for Sequin: {error}"))?;
 
     debug!(
         elapsed_ms = redis_started.elapsed().as_millis(),
@@ -163,25 +194,25 @@ async fn start_worker_webhook_sequin(webhook_url: &str) -> RunningSequin {
         .with_mapped_port(sequin_port, SEQUIN_CONTAINER_PORT.tcp())
         .start()
         .await
-        .expect("shouldn't fail starting Sequin test container");
+        .map_err(|error| format!("failed starting Sequin test container: {error}"))?;
     let endpoint_url = format!("http://localhost:{sequin_port}");
 
     debug!(
         elapsed_ms = sequin_started.elapsed().as_millis(),
         "Sequin container process started."
     );
-    wait_for_sequin_health(&endpoint_url, &sequin).await;
+    wait_for_sequin_health(&endpoint_url, &sequin).await?;
     wait_for_worker_webhook_replication(&format!("aura_historia_test_slot_{suffix}"), &sequin)
-        .await;
+        .await?;
     debug!(%endpoint_url, "Successfully started process-lived Sequin test container.");
 
-    RunningSequin {
+    Ok(RunningSequin {
         _redis: redis,
         _sequin: sequin,
-    }
+    })
 }
 
-async fn ensure_sequin_state_database(database: &str) {
+async fn ensure_sequin_state_database(database: &str) -> Result<(), String> {
     let pool = get_postgres_client().await;
     let exists: bool = sqlx::query_scalar(AssertSqlSafe(
         "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
@@ -189,13 +220,16 @@ async fn ensure_sequin_state_database(database: &str) {
     .bind(database)
     .fetch_one(&pool)
     .await
-    .expect("shouldn't fail checking Sequin state database");
+    .map_err(|error| format!("failed checking Sequin state database {database}: {error}"))?;
 
     if !exists {
         pool.execute(AssertSqlSafe(format!("CREATE DATABASE {database}")))
             .await
-            .expect("shouldn't fail creating Sequin state database");
+            .map_err(|error| {
+                format!("failed creating Sequin state database {database}: {error}")
+            })?;
     }
+    Ok(())
 }
 
 fn find_free_port() -> u16 {
@@ -245,7 +279,10 @@ fn sequin_config_yaml(webhook_url: &str, suffix: &str) -> String {
     config
 }
 
-async fn wait_for_sequin_health(endpoint_url: &str, container: &ContainerAsync<GenericImage>) {
+async fn wait_for_sequin_health(
+    endpoint_url: &str,
+    container: &ContainerAsync<GenericImage>,
+) -> Result<(), String> {
     let client = reqwest::Client::new();
     let health_url = format!("{endpoint_url}/health");
 
@@ -258,22 +295,22 @@ async fn wait_for_sequin_health(endpoint_url: &str, container: &ContainerAsync<G
                 elapsed_ms = started.elapsed().as_millis(),
                 "Sequin health endpoint ready."
             );
-            return;
+            return Ok(());
         }
         tokio::time::sleep(SEQUIN_READINESS_POLL_INTERVAL).await;
     }
 
-    panic_with_sequin_logs(
+    Err(sequin_failure_message(
         container,
         format!("Sequin health endpoint did not become ready at {health_url}"),
     )
-    .await;
+    .await)
 }
 
 async fn wait_for_worker_webhook_replication(
     slot_name: &str,
     container: &ContainerAsync<GenericImage>,
-) {
+) -> Result<(), String> {
     let pool = get_postgres_client().await;
 
     let started = std::time::Instant::now();
@@ -291,7 +328,7 @@ async fn wait_for_worker_webhook_replication(
                     elapsed_ms = started.elapsed().as_millis(),
                     "Sequin replication slot active."
                 );
-                return;
+                return Ok(());
             }
             Ok(false) => {}
             Err(error) => debug!(%slot_name, %error, "Sequin replication slot is not ready yet."),
@@ -299,19 +336,81 @@ async fn wait_for_worker_webhook_replication(
         tokio::time::sleep(SEQUIN_READINESS_POLL_INTERVAL).await;
     }
 
-    panic_with_sequin_logs(
+    Err(sequin_failure_message(
         container,
         format!("Sequin replication slot did not become active: {slot_name}"),
     )
-    .await;
+    .await)
 }
 
-async fn panic_with_sequin_logs(container: &ContainerAsync<GenericImage>, message: String) -> ! {
+async fn sequin_failure_message(
+    container: &ContainerAsync<GenericImage>,
+    message: String,
+) -> String {
     let stdout = container.stdout_to_vec().await.unwrap_or_default();
     let stderr = container.stderr_to_vec().await.unwrap_or_default();
-    panic!(
+    format_sequin_failure_message(message, &stdout, &stderr)
+}
+
+fn format_sequin_failure_message(message: String, stdout: &[u8], stderr: &[u8]) -> String {
+    format!(
         "{message}\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&stdout),
-        String::from_utf8_lossy(&stderr)
-    );
+        String::from_utf8_lossy(stdout),
+        String::from_utf8_lossy(stderr)
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SEQUIN_START_ATTEMPTS, format_sequin_failure_message, retry_sequin_start};
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn should_retry_sequin_start_after_transient_failure() {
+        let mut attempts = 0;
+
+        let result = retry_sequin_start(Duration::ZERO, || {
+            attempts += 1;
+            std::future::ready(if attempts == 1 {
+                Err("transient failure".to_owned())
+            } else {
+                Ok("started")
+            })
+        })
+        .await;
+
+        assert_eq!(result, Ok("started"));
+        assert_eq!(attempts, 2);
+    }
+
+    #[tokio::test]
+    async fn should_return_last_sequin_start_failure_after_all_attempts() {
+        let mut attempts = 0;
+
+        let result = retry_sequin_start(Duration::ZERO, || {
+            attempts += 1;
+            std::future::ready(Err::<(), _>("transient failure".to_owned()))
+        })
+        .await;
+
+        assert_eq!(
+            result,
+            Err(format!(
+                "Sequin test fixture did not start after {SEQUIN_START_ATTEMPTS} attempts: transient failure"
+            ))
+        );
+        assert_eq!(attempts, SEQUIN_START_ATTEMPTS);
+    }
+
+    #[test]
+    fn should_include_sequin_logs_in_startup_failure_message() {
+        assert_eq!(
+            format_sequin_failure_message(
+                "startup failed".to_owned(),
+                b"container stdout",
+                b"container stderr"
+            ),
+            "startup failed\nstdout:\ncontainer stdout\nstderr:\ncontainer stderr"
+        );
+    }
 }
