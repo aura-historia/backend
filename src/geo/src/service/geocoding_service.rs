@@ -26,6 +26,7 @@ pub trait GeocodingService {
 pub struct GoogleGeocodingService {
     client: reqwest::Client,
     api_key: String,
+    endpoint: String,
 }
 
 impl GoogleGeocodingService {
@@ -34,6 +35,7 @@ impl GoogleGeocodingService {
             client: reqwest::Client::new(),
             api_key: std::env::var("GOOGLE_GEOCODING_API_KEY")
                 .map_err(|_| GeocodingError::MissingApiKey)?,
+            endpoint: GOOGLE_GEOCODING_V4_URL.to_owned(),
         })
     }
 }
@@ -46,7 +48,7 @@ impl GeocodingService for GoogleGeocodingService {
             .ok_or(GeocodingError::EmptyAddress)?;
         let response = self
             .client
-            .get(format!("{GOOGLE_GEOCODING_V4_URL}/{address}"))
+            .get(format!("{}/{address}", self.endpoint))
             .header("X-Goog-Api-Key", &self.api_key)
             .send()
             .await?
@@ -56,6 +58,64 @@ impl GeocodingService for GoogleGeocodingService {
         response
             .into_formatted_address()
             .ok_or(GeocodingError::NoResult)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{header, method};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn address() -> StructuredAddress {
+        StructuredAddress {
+            addressline: Some("10 Downing Street".to_owned()),
+            locality: Some("London".to_owned()),
+            ..Default::default()
+        }
+    }
+
+    fn service(endpoint: String) -> GoogleGeocodingService {
+        GoogleGeocodingService {
+            client: reqwest::Client::new(),
+            api_key: "test-key".to_owned(),
+            endpoint,
+        }
+    }
+
+    #[tokio::test]
+    async fn should_return_formatted_address_from_google() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(header("X-Goog-Api-Key", "test-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{"results":[{"formattedAddress":"10 Downing Street, London"}]}"#,
+            ))
+            .mount(&server)
+            .await;
+
+        let result = service(server.uri()).geocode(&address()).await;
+
+        assert!(matches!(
+            result,
+            Ok(formatted_address) if formatted_address == "10 Downing Street, London"
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_return_no_result_for_blank_google_address() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"{"results":[{"formattedAddress":"  "}]}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let result = service(server.uri()).geocode(&address()).await;
+
+        assert!(matches!(result, Err(GeocodingError::NoResult)));
     }
 }
 

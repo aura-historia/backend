@@ -16,6 +16,8 @@ fake = { workspace = true, optional = true }
 
 [dev-dependencies]
 geo = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+wiremock = "0.6"
 
 [features]
 default = []

@@ -189,6 +189,29 @@ impl GoogleGeocodingResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
+    struct StubGeocoder;
+
+    #[async_trait::async_trait]
+    impl Geocoder for StubGeocoder {
+        async fn geocode(&self, _address: &StructuredAddress) -> Result<String, GeocodingError> {
+            Ok("formatted address".to_owned())
+        }
+    }
+
+    #[tokio::test]
+    async fn should_delegate_arc_geocoder() {
+        let geocoder = Arc::new(StubGeocoder);
+        let result =
+            <Arc<StubGeocoder> as Geocoder>::geocode(&geocoder, &StructuredAddress::default())
+                .await;
+
+        assert!(matches!(
+            result,
+            Ok(formatted_address) if formatted_address == "formatted address"
+        ));
+    }
 
     #[test]
     fn should_map_first_complete_google_result() {
