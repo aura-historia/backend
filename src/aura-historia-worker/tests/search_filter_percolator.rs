@@ -149,6 +149,16 @@ async fn should_not_process_rolled_back_product_event() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
+async fn should_not_create_matches_for_committed_current_withdrawn_product_listing_event() {
+    let result = withdrawn_product_listing_event_flow().await;
+
+    assert!(
+        result.is_ok(),
+        "search-filter withdrawn product-listing event acceptance test failed: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
 async fn should_keep_one_notification_per_matching_filter_on_product_and_match_redelivery() {
     let result = redelivery_and_deterministic_selection_flow().await;
 
@@ -464,6 +474,33 @@ async fn rolled_back_product_event_flow() -> Result<(), Box<dyn std::error::Erro
         assert_no_matches_for(&worker.pool, event_id, NO_SIDE_EFFECT_OBSERVATION).await?;
         assert_no_more_than_notifications(&worker.pool, user_id, 0, NO_SIDE_EFFECT_OBSERVATION)
             .await
+    }
+    .await;
+
+    worker.finish(result).await
+}
+
+async fn withdrawn_product_listing_event_flow() -> Result<(), Box<dyn std::error::Error>> {
+    let worker = PercolatorWorker::start().await?;
+    let result = async {
+        let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
+        let product_listing_query = format!("Worker withdrawn product {user_id}");
+        let filter = search_filter(
+            user_id,
+            UserSearchFilterName::from("Withdrawn product filter"),
+            SearchFilterState::Active,
+            &product_listing_query,
+        )?;
+        worker.project_filter(&filter).await?;
+        refresh_index("user_search_filters").await;
+
+        let (product_listing_id, event_id) =
+            create_withdrawn_product_with_domain_event(&worker.pool, &product_listing_query)
+                .await?;
+
+        assert_product_listing_is_current_and_withdrawn(&worker.pool, product_listing_id, event_id)
+            .await?;
+        assert_no_matches_for(&worker.pool, event_id, NO_SIDE_EFFECT_OBSERVATION).await
     }
     .await;
 
@@ -1165,6 +1202,33 @@ async fn create_product_with_event(
     event_group: &str,
     payload: Value,
 ) -> Result<(ProductListingId, EventId), sqlx::Error> {
+    create_product_with_event_and_lifecycle(pool, title, event_type, event_group, payload, "ACTIVE")
+        .await
+}
+
+async fn create_withdrawn_product_with_domain_event(
+    pool: &sqlx::PgPool,
+    title: &str,
+) -> Result<(ProductListingId, EventId), sqlx::Error> {
+    create_product_with_event_and_lifecycle(
+        pool,
+        title,
+        "PRODUCT_LISTING_CHANGED",
+        "DOMAIN",
+        json!({"lifecycle": {"transition": "WITHDRAWN", "previousAvailability": "AVAILABLE"}}),
+        "WITHDRAWN",
+    )
+    .await
+}
+
+async fn create_product_with_event_and_lifecycle(
+    pool: &sqlx::PgPool,
+    title: &str,
+    event_type: &str,
+    event_group: &str,
+    payload: Value,
+    lifecycle: &str,
+) -> Result<(ProductListingId, EventId), sqlx::Error> {
     let product_listing_id = ProductListingId::new();
     let product_uuid = uuid::Uuid::from(product_listing_id);
     let event_id = EventId::new();
@@ -1177,14 +1241,14 @@ async fn create_product_with_event(
         .bind("Worker percolator source")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, $6, 'en', 'Worker percolator description', 'en', CASE WHEN $7 = 'WITHDRAWN' THEN NULL ELSE 'AVAILABLE' END, $7, 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-percolator-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))
         .bind(listing_source_id)
         .bind(product_uuid.to_string())
         .bind(title)
-
+        .bind(lifecycle)
         .execute(&mut *tx)
         .await?;
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, $5, now())")
@@ -1472,6 +1536,25 @@ async fn product_event_type(pool: &sqlx::PgPool, event_id: EventId) -> Result<St
         .bind(uuid::Uuid::from(event_id))
         .fetch_one(pool)
         .await
+}
+
+async fn assert_product_listing_is_current_and_withdrawn(
+    pool: &sqlx::PgPool,
+    product_listing_id: ProductListingId,
+    event_id: EventId,
+) -> Result<(), sqlx::Error> {
+    let (current_event_id, lifecycle, availability): (uuid::Uuid, String, Option<String>) =
+        sqlx::query_as(
+            "SELECT current_event_id, lifecycle, availability FROM product_listings WHERE product_listing_id = $1",
+        )
+        .bind(uuid::Uuid::from(product_listing_id))
+        .fetch_one(pool)
+        .await?;
+
+    assert_eq!(uuid::Uuid::from(event_id), current_event_id);
+    assert_eq!("WITHDRAWN", lifecycle);
+    assert_eq!(None, availability);
+    Ok(())
 }
 
 async fn assert_product_source_price(

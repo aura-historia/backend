@@ -7,8 +7,6 @@ use application::{
     error::{BoxError, box_error},
     operation_context::{CorrelationId, OperationContext, Principal, RequestId},
 };
-use domain_primitives::event_id::EventId;
-use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::use_cases::{
     EmbedProductListingCommand, EmbedProductListingEventOutcome, EmbedProductListingEventUseCase,
 };
@@ -72,20 +70,9 @@ fn command_from_job(
     let DomainJobPayload::ProductListingEvent(event) = job.payload else {
         return Err(ProductListingEmbeddingWorkerError::UnexpectedJobPayload);
     };
-    let event_id = EventId::try_from(event.event_id.as_str()).map_err(|source| {
-        ProductListingEmbeddingWorkerError::InvalidEventId {
-            source: box_error(source),
-        }
-    })?;
-    let product_listing_id = ProductListingId::try_from(event.product_listing_id.as_str())
-        .map_err(
-            |source| ProductListingEmbeddingWorkerError::InvalidProductListingId {
-                source: box_error(source),
-            },
-        )?;
     Ok(EmbedProductListingCommand {
-        event_id,
-        product_listing_id,
+        event_id: event.event_id,
+        product_listing_id: event.product_listing_id,
     })
 }
 
@@ -93,22 +80,14 @@ fn command_from_job(
 enum ProductListingEmbeddingWorkerError {
     #[error("product embedding queue received an unexpected job payload")]
     UnexpectedJobPayload,
-    #[error("product embedding job has an invalid event id")]
-    InvalidEventId {
-        #[source]
-        source: BoxError,
-    },
-    #[error("product embedding job has an invalid product id")]
-    InvalidProductListingId {
-        #[source]
-        source: BoxError,
-    },
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::cdc::{IdempotencyKey, OrderingKey, ProductListingEventJob, WorkerQueue};
+    use domain_primitives::event_id::EventId;
+    use product_listing_core::product_listing_id::ProductListingId;
 
     #[test]
     fn should_map_product_event_job_to_embedding_command() {
@@ -119,8 +98,8 @@ mod tests {
             idempotency_key: IdempotencyKey::new("product-event:test"),
             ordering_key: OrderingKey::new("product:test"),
             payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
-                event_id: event_id.to_string(),
-                product_listing_id: product_listing_id.to_string(),
+                event_id,
+                product_listing_id,
                 event_type: "PRODUCT_LISTING_DISCOVERED".to_owned(),
                 event_group: "DOMAIN".to_owned(),
             }),

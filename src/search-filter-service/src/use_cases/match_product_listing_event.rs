@@ -55,6 +55,7 @@ pub enum MatchProductListingEventOutcome {
     Processed,
     DuplicateAlreadyPersisted,
     StaleSourceSkipped,
+    InactiveSourceSkipped,
     SourceNotFound,
     IgnoredEventType,
 }
@@ -270,6 +271,14 @@ where
                     enhanced_evaluation_failure_count: 0,
                 });
             }
+            ProductListingSourceReadOutcome::Inactive => {
+                return Ok(MatchProductListingEventResult {
+                    outcome: MatchProductListingEventOutcome::InactiveSourceSkipped,
+                    percolated_count: 0,
+                    persisted_match_count: 0,
+                    enhanced_evaluation_failure_count: 0,
+                });
+            }
             ProductListingSourceReadOutcome::Current(product) => *product,
         };
 
@@ -378,6 +387,7 @@ enum ProductListingSourceReadOutcome {
     Missing,
     IgnoredEventType,
     Stale,
+    Inactive,
     Current(Box<ProductListingPercolationSource>),
 }
 
@@ -417,6 +427,9 @@ where
         }
         Some(product) if product.current_event_id != command.origin_event_id => {
             ProductListingSourceReadOutcome::Stale
+        }
+        Some(product) if product.lifecycle == ListingLifecycle::Withdrawn => {
+            ProductListingSourceReadOutcome::Inactive
         }
         Some(product) => {
             let valuation = match product.pricing.price {
@@ -726,6 +739,7 @@ mod tests {
         sale_snapshot: Option<FxRateSnapshot>,
         event_snapshot: Option<FxRateSnapshot>,
         current_event_id: Option<EventId>,
+        percolations: usize,
     }
 
     #[derive(Clone, Default)]
@@ -822,6 +836,7 @@ mod tests {
 
     struct Index {
         filters: Vec<SearchFilterView>,
+        state: Arc<Mutex<State>>,
     }
 
     #[async_trait::async_trait]
@@ -845,6 +860,12 @@ mod tests {
             &self,
             _input: &ProductListingPercolationInput,
         ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
+            self.state
+                .lock()
+                .map_err(|_| SearchFilterIndexError::PercolateFailed {
+                    source: box_error(std::io::Error::other("test mutex poisoned")),
+                })?
+                .percolations += 1;
             Ok(self.filters.clone())
         }
 
@@ -1187,6 +1208,7 @@ mod tests {
             FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![search_filter],
+                state: Arc::clone(&state),
             },
             Evaluator,
             Candidates(Arc::clone(&state)),
@@ -1210,6 +1232,7 @@ mod tests {
                     filter(user_id, UserSearchFilterId::new()),
                     filter(user_id, UserSearchFilterId::new()),
                 ],
+                state: Arc::clone(&state),
             },
             Evaluator,
             Candidates(Arc::clone(&state)),
@@ -1402,6 +1425,7 @@ mod tests {
             FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![plain.clone(), enhanced],
+                state: Arc::clone(&state),
             },
             PermanentlyFailingEvaluator,
             Candidates(Arc::clone(&state)),
@@ -1447,6 +1471,7 @@ mod tests {
             FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![enhanced],
+                state: Arc::clone(&state),
             },
             Evaluator,
             Candidates(Arc::clone(&state)),
@@ -1581,6 +1606,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_skip_current_withdrawn_source_before_percolation_and_match_work()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let mut product = product()?;
+        product.lifecycle = ListingLifecycle::Withdrawn;
+        let result = matching_handler(
+            Arc::clone(&state),
+            vec![product.clone()],
+            filter(UserId::new(), UserSearchFilterId::new()),
+        )
+        .execute(MatchProductListingEventCommand {
+            origin_event_id: product.event_id,
+            product_listing_id: product.product_listing_id,
+        })
+        .await?;
+
+        let state = state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
+        assert_eq!(
+            MatchProductListingEventOutcome::InactiveSourceSkipped,
+            result.outcome
+        );
+        assert_eq!(0, state.percolations);
+        assert_eq!(0, state.active_reads);
+        assert_eq!(0, state.sale_snapshot_reads);
+        assert_eq!(0, state.event_snapshot_reads);
+        assert!(state.persisted.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_distinguish_ignored_and_missing_product_sources()
     -> Result<(), Box<dyn std::error::Error>> {
         let ignored_state = Arc::new(Mutex::new(State::default()));
@@ -1684,6 +1741,7 @@ mod tests {
             FxRates(Arc::clone(&state)),
             Index {
                 filters: Vec::new(),
+                state: Arc::clone(&state),
             },
             Evaluator,
             Candidates(Arc::clone(&state)),

@@ -4,8 +4,6 @@ use crate::{
     retry::{InMemoryDeadLetterQueue, RetryConfig, run_with_retry},
 };
 use application::error::{BoxError, box_error};
-use domain_primitives::event_id::EventId;
-use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_service::use_cases::{
     MatchProductListingEventCommand, MatchProductListingEventOutcome,
     MatchProductListingEventUseCase,
@@ -77,21 +75,9 @@ fn command_from_job(
     let DomainJobPayload::ProductListingEvent(event) = job.payload else {
         return Err(SearchFilterPercolatorWorkerError::UnexpectedJobPayload);
     };
-    let origin_event_id = EventId::try_from(event.event_id.as_str()).map_err(|source| {
-        SearchFilterPercolatorWorkerError::InvalidEventId {
-            source: box_error(source),
-        }
-    })?;
-    let product_listing_id = ProductListingId::try_from(event.product_listing_id.as_str())
-        .map_err(
-            |source| SearchFilterPercolatorWorkerError::InvalidProductListingId {
-                source: box_error(source),
-            },
-        )?;
-
     Ok(MatchProductListingEventCommand {
-        origin_event_id,
-        product_listing_id,
+        origin_event_id: event.event_id,
+        product_listing_id: event.product_listing_id,
     })
 }
 
@@ -99,14 +85,4 @@ fn command_from_job(
 enum SearchFilterPercolatorWorkerError {
     #[error("search filter percolator queue received an unexpected job payload")]
     UnexpectedJobPayload,
-    #[error("search filter percolator job has an invalid event id")]
-    InvalidEventId {
-        #[source]
-        source: BoxError,
-    },
-    #[error("search filter percolator job has an invalid product id")]
-    InvalidProductListingId {
-        #[source]
-        source: BoxError,
-    },
 }

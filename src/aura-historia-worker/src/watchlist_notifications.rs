@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
 use application::error::{BoxError, box_error};
-use domain_primitives::event_id::EventId;
-use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::use_cases::{
     GenerateWatchlistNotificationsCommand, GenerateWatchlistNotificationsUseCase,
 };
@@ -100,21 +98,10 @@ async fn generate_watchlist_notifications(
     let DomainJobPayload::ProductListingEvent(event) = job.payload else {
         return Err(WatchlistNotificationWorkerError::UnexpectedJobPayload);
     };
-    let event_id = EventId::try_from(event.event_id.as_str()).map_err(|source| {
-        WatchlistNotificationWorkerError::InvalidEventId {
-            source: box_error(source),
-        }
-    })?;
-    let product_listing_id = ProductListingId::try_from(event.product_listing_id.as_str())
-        .map_err(
-            |source| WatchlistNotificationWorkerError::InvalidProductListingId {
-                source: box_error(source),
-            },
-        )?;
     handler
         .execute(GenerateWatchlistNotificationsCommand {
-            event_id,
-            product_listing_id,
+            event_id: event.event_id,
+            product_listing_id: event.product_listing_id,
         })
         .await
         .map(|result| match result {
@@ -172,16 +159,7 @@ enum WatchlistNotificationWorkerOutcome {
 enum WatchlistNotificationWorkerError {
     #[error("watchlist notification queue received an unexpected job payload")]
     UnexpectedJobPayload,
-    #[error("watchlist notification job has an invalid event id")]
-    InvalidEventId {
-        #[source]
-        source: BoxError,
-    },
-    #[error("watchlist notification job has an invalid product id")]
-    InvalidProductListingId {
-        #[source]
-        source: BoxError,
-    },
+
     #[error("watchlist notification generation failed")]
     Generate {
         #[source]
@@ -199,6 +177,8 @@ mod tests {
         cdc::{IdempotencyKey, OrderingKey, ProductListingEventJob, WorkerQueue},
         in_memory_queue,
     };
+    use domain_primitives::event_id::EventId;
+    use product_listing_core::product_listing_id::ProductListingId;
     use product_listing_service::use_cases::GenerateWatchlistNotificationsResult;
 
     struct Handler {
@@ -258,8 +238,8 @@ mod tests {
                 idempotency_key: IdempotencyKey::new(format!("product-event:{event_id}")),
                 ordering_key: OrderingKey::new(format!("product:{product_listing_id}")),
                 payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
-                    event_id: event_id.to_string(),
-                    product_listing_id: product_listing_id.to_string(),
+                    event_id,
+                    product_listing_id,
                     event_type: "PRODUCT_LISTING_CHANGED".to_owned(),
                     event_group: "DOMAIN".to_owned(),
                 }),
@@ -302,8 +282,8 @@ mod tests {
                 idempotency_key: IdempotencyKey::new(format!("product-event:{event_id}")),
                 ordering_key: OrderingKey::new(format!("product:{product_listing_id}")),
                 payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
-                    event_id: event_id.to_string(),
-                    product_listing_id: product_listing_id.to_string(),
+                    event_id,
+                    product_listing_id,
                     event_type: "PRODUCT_LISTING_CHANGED".to_owned(),
                     event_group: "DOMAIN".to_owned(),
                 }),
@@ -346,8 +326,8 @@ mod tests {
                 idempotency_key: IdempotencyKey::new(format!("product-event:{event_id}")),
                 ordering_key: OrderingKey::new(format!("product:{product_listing_id}")),
                 payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
-                    event_id: event_id.to_string(),
-                    product_listing_id: product_listing_id.to_string(),
+                    event_id,
+                    product_listing_id,
                     event_type: "PRODUCT_LISTING_CHANGED".to_owned(),
                     event_group: "DOMAIN".to_owned(),
                 }),

@@ -4,8 +4,6 @@ use crate::{
     retry::{InMemoryDeadLetterQueue, RetryConfig, run_with_retry},
 };
 use application::error::{BoxError, box_error};
-use domain_primitives::event_id::EventId;
-use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::use_cases::{
     ProjectProductListingCommand, ProjectProductListingOutcome, ProjectProductListingUseCase,
 };
@@ -62,16 +60,8 @@ fn command_from_job(
         return Err(ProductListingOpenSearchWorkerError::UnexpectedJobPayload);
     };
     Ok(ProjectProductListingCommand {
-        event_id: EventId::try_from(event.event_id.as_str()).map_err(|source| {
-            ProductListingOpenSearchWorkerError::InvalidEventId {
-                source: box_error(source),
-            }
-        })?,
-        product_listing_id: ProductListingId::try_from(event.product_listing_id.as_str()).map_err(
-            |source| ProductListingOpenSearchWorkerError::InvalidProductListingId {
-                source: box_error(source),
-            },
-        )?,
+        event_id: event.event_id,
+        product_listing_id: event.product_listing_id,
     })
 }
 
@@ -79,14 +69,4 @@ fn command_from_job(
 enum ProductListingOpenSearchWorkerError {
     #[error("ProductListing OpenSearch queue received an unexpected job payload")]
     UnexpectedJobPayload,
-    #[error("ProductListing OpenSearch job has an invalid event ID")]
-    InvalidEventId {
-        #[source]
-        source: BoxError,
-    },
-    #[error("ProductListing OpenSearch job has an invalid ProductListing ID")]
-    InvalidProductListingId {
-        #[source]
-        source: BoxError,
-    },
 }

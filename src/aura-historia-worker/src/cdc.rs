@@ -2,6 +2,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use domain_primitives::event_id::EventId;
+use product_listing_core::product_listing_id::ProductListingId;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value};
 use tokio::sync::mpsc;
@@ -167,8 +169,8 @@ pub enum DomainJobPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductListingEventJob {
-    pub event_id: String,
-    pub product_listing_id: String,
+    pub event_id: EventId,
+    pub product_listing_id: ProductListingId,
     pub event_type: String,
     pub event_group: String,
 }
@@ -690,16 +692,19 @@ const PRODUCT_LISTING_EVENT_SCHEMA_VERSION: i64 = 1;
 
 fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
     let row = required_row(change)?;
-    let event_id = required_string(row, "event_id")?;
-    let product_listing_id = required_string(row, "product_listing_id")?;
+    let event_id = EventId::try_from(required_string(row, "event_id")?.as_str())
+        .map_err(|_| CdcRouteError::InvalidEventId)?;
+    let product_listing_id =
+        ProductListingId::try_from(required_string(row, "product_listing_id")?.as_str())
+            .map_err(|_| CdcRouteError::InvalidProductListingId)?;
     let event_type = required_string(row, "event_type")?;
     let event_group = required_string(row, "event_group")?;
     let schema_version = required_integer(row, "event_type_schema_version")?;
     validate_product_listing_event_contract(&event_type, &event_group, schema_version)?;
 
     let base_job = ProductListingEventJob {
-        event_id: event_id.clone(),
-        product_listing_id: product_listing_id.clone(),
+        event_id,
+        product_listing_id,
         event_type: event_type.clone(),
         event_group,
     };
@@ -963,6 +968,10 @@ pub enum CdcRouteError {
     },
     #[error("CDC change has unsupported product listing event schema version {schema_version}")]
     UnsupportedProductListingEventSchemaVersion { schema_version: i64 },
+    #[error("CDC change has an invalid product listing event ID")]
+    InvalidEventId,
+    #[error("CDC change has an invalid product listing ID")]
+    InvalidProductListingId,
     #[error("CDC change has a product listing event payload that is not an object")]
     InvalidProductListingEventPayload,
     #[error("CDC change missing row data")]
@@ -1055,6 +1064,19 @@ mod tests {
                 .all(|job| job.ordering_key.as_str()
                     == "product:30000000-0000-0000-0000-000000000001")
         );
+        let expected_event_id = EventId::try_from("40000000-0000-0000-0000-000000000001")?;
+        let expected_product_listing_id =
+            ProductListingId::try_from("30000000-0000-0000-0000-000000000001")?;
+        assert!(jobs.iter().all(|job| {
+            matches!(
+                &job.payload,
+                DomainJobPayload::ProductListingEvent(ProductListingEventJob {
+                    event_id,
+                    product_listing_id,
+                    ..
+                }) if *event_id == expected_event_id && *product_listing_id == expected_product_listing_id
+            )
+        }));
         Ok(())
     }
 
@@ -1225,6 +1247,42 @@ mod tests {
                 .all(|job| job.target_queue != WorkerQueue::WatchlistNotification)
         );
         Ok(())
+    }
+
+    #[test]
+    fn should_reject_product_listing_event_with_malformed_ids() {
+        for (field, value, expected) in [
+            ("event_id", "not-a-uuid", CdcRouteError::InvalidEventId),
+            (
+                "product_listing_id",
+                "not-a-uuid",
+                CdcRouteError::InvalidProductListingId,
+            ),
+        ] {
+            let mut change = product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
+            if let Some(row) = change.record.as_mut() {
+                row[field] = serde_json::json!(value);
+            }
+
+            assert!(matches!(route_change(&change), Err(error) if error == expected));
+        }
+    }
+
+    #[test]
+    fn should_reject_product_listing_event_with_missing_ids() {
+        for field in ["event_id", "product_listing_id"] {
+            let mut change = product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
+            if let Some(row) = change.record.as_mut()
+                && let Some(row) = row.as_object_mut()
+            {
+                let _ = row.remove(field);
+            }
+
+            assert!(matches!(
+                route_change(&change),
+                Err(CdcRouteError::MissingColumn(missing)) if missing == field
+            ));
+        }
     }
 
     #[test]
@@ -1573,6 +1631,117 @@ mod tests {
         assert!(embed_receiver.recv().await.is_some());
         assert!(assessment_receiver.recv().await.is_some());
         assert!(translation_receiver.recv().await.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_ack_partial_product_event_fanout_after_some_jobs_enqueue()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (product_sender, mut product_receiver) = in_memory_queue(QueueConfig::new(1))?;
+        let (percolator_sender, mut percolator_receiver) = in_memory_queue(QueueConfig::new(1))?;
+        let fanout = CdcFanout::new(
+            WorkerQueueRegistry::new()
+                .with_queue(WorkerQueue::ProductListingOpenSearch, product_sender)
+                .with_queue(WorkerQueue::SearchFilterPercolator, percolator_sender),
+        );
+        let batch = CdcBatch {
+            delivery_id: Some("delivery-partial-fanout".to_owned()),
+            source: Some("postgres".to_owned()),
+            changes: vec![product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN")],
+        };
+
+        let result = fanout.ingest_batch(&batch).await;
+
+        assert!(matches!(
+            result,
+            Err(CdcIngestError::Fanout(CdcFanoutError::MissingQueue(
+                WorkerQueue::ProductListingContentAssessment
+            )))
+        ));
+        assert!(product_receiver.recv().await.is_some());
+        assert!(percolator_receiver.recv().await.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_enqueue_all_discovery_jobs_after_redelivery_of_partial_fanout()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (product_sender, mut product_receiver) = in_memory_queue(QueueConfig::new(2))?;
+        let (percolator_sender, mut percolator_receiver) = in_memory_queue(QueueConfig::new(2))?;
+        let (assessment_sender, mut assessment_receiver) = in_memory_queue(QueueConfig::new(1))?;
+        let (embed_sender, mut embed_receiver) = in_memory_queue(QueueConfig::new(1))?;
+        let (translation_sender, mut translation_receiver) = in_memory_queue(QueueConfig::new(1))?;
+        let partial_fanout = CdcFanout::new(
+            WorkerQueueRegistry::new()
+                .with_queue(
+                    WorkerQueue::ProductListingOpenSearch,
+                    product_sender.clone(),
+                )
+                .with_queue(
+                    WorkerQueue::SearchFilterPercolator,
+                    percolator_sender.clone(),
+                ),
+        );
+        let retry_fanout = CdcFanout::new(
+            WorkerQueueRegistry::new()
+                .with_queue(WorkerQueue::ProductListingOpenSearch, product_sender)
+                .with_queue(WorkerQueue::SearchFilterPercolator, percolator_sender)
+                .with_queue(
+                    WorkerQueue::ProductListingContentAssessment,
+                    assessment_sender,
+                )
+                .with_queue(WorkerQueue::ProductListingEmbed, embed_sender)
+                .with_queue(WorkerQueue::ProductListingTranslate, translation_sender),
+        );
+        let batch = CdcBatch {
+            delivery_id: Some("delivery-redelivery".to_owned()),
+            source: Some("postgres".to_owned()),
+            changes: vec![product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN")],
+        };
+
+        let partial_result = partial_fanout.ingest_batch(&batch).await;
+
+        assert!(matches!(
+            partial_result,
+            Err(CdcIngestError::Fanout(CdcFanoutError::MissingQueue(
+                WorkerQueue::ProductListingContentAssessment
+            )))
+        ));
+        assert_eq!(5, retry_fanout.ingest_batch(&batch).await?);
+
+        let first_product_job = product_receiver
+            .recv()
+            .await
+            .ok_or("product queue stopped")?;
+        let retried_product_job = product_receiver
+            .recv()
+            .await
+            .ok_or("product queue stopped")?;
+        let first_percolator_job = percolator_receiver
+            .recv()
+            .await
+            .ok_or("percolator queue stopped")?;
+        let retried_percolator_job = percolator_receiver
+            .recv()
+            .await
+            .ok_or("percolator queue stopped")?;
+        assert_eq!(first_product_job, retried_product_job);
+        assert_eq!(first_percolator_job, retried_percolator_job);
+        assert_eq!(
+            Some(WorkerQueue::ProductListingContentAssessment),
+            assessment_receiver.recv().await.map(|job| job.target_queue)
+        );
+        assert_eq!(
+            Some(WorkerQueue::ProductListingEmbed),
+            embed_receiver.recv().await.map(|job| job.target_queue)
+        );
+        assert_eq!(
+            Some(WorkerQueue::ProductListingTranslate),
+            translation_receiver
+                .recv()
+                .await
+                .map(|job| job.target_queue)
+        );
         Ok(())
     }
 

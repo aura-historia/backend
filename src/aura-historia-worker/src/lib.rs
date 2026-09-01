@@ -1388,6 +1388,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_fail_sequin_cdc_before_ack_when_product_event_ids_are_invalid_or_missing()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (sender, mut receiver) = in_memory_queue::<DomainJob>(QueueConfig::new(1))?;
+        let runtime = WorkerRuntime::new(CdcFanout::search_filter_percolator(
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::SearchFilterPercolator, sender),
+        ));
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = tokio::spawn(serve_with_runtime(listener, runtime, async move {
+            let _ = shutdown_rx.await;
+        }));
+        for body in [
+            r#"{
+                "changes": [
+                    {
+                        "table": "product_listing_events",
+                        "operation": "insert",
+                        "record": {
+                            "event_id": "not-a-uuid",
+                            "product_listing_id": "30000000-0000-0000-0000-000000000001",
+                            "event_type": "PRODUCT_LISTING_DISCOVERED",
+                            "event_group": "DOMAIN",
+                            "event_type_schema_version": 1
+                        }
+                    }
+                ]
+            }"#,
+            r#"{
+                "changes": [
+                    {
+                        "table": "product_listing_events",
+                        "operation": "insert",
+                        "record": {
+                            "event_id": "40000000-0000-0000-0000-000000000001",
+                            "event_type": "PRODUCT_LISTING_DISCOVERED",
+                            "event_group": "DOMAIN",
+                            "event_type_schema_version": 1
+                        }
+                    }
+                ]
+            }"#,
+        ] {
+            let request_text = format!(
+                "POST {SEQUIN_CDC_PATH} HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let response = request(addr, &request_text).await?;
+            assert!(response.starts_with("HTTP/1.1 503 Service Unavailable"));
+        }
+        let _send_result = shutdown_tx.send(());
+        server.await??;
+
+        assert!(receiver.recv().await.is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_reject_invalid_sequin_cdc_json() -> Result<(), Box<dyn std::error::Error>> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
