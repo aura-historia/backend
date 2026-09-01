@@ -1,5 +1,5 @@
 use crate::use_cases::{
-    CreateProductListingUseCase, GetProductListingEventsUseCase, GetProductListingUseCase,
+    CreateProductListingUseCase, GetProductListingHistoryUseCase, GetProductListingUseCase,
     GetSimilarProductListingsUseCase, SearchProductListingsUseCase, UpdateProductListingUseCase,
     UpsertProductListingUseCase, WithdrawProductListingUseCase,
 };
@@ -11,7 +11,7 @@ pub struct ProductListingUseCases {
     pub upsert: Arc<dyn UpsertProductListingUseCase>,
     pub withdraw: Arc<dyn WithdrawProductListingUseCase>,
     pub get: Arc<dyn GetProductListingUseCase>,
-    pub get_history: Arc<dyn GetProductListingEventsUseCase>,
+    pub get_history: Arc<dyn GetProductListingHistoryUseCase>,
     pub get_similar: Arc<dyn GetSimilarProductListingsUseCase>,
     pub search: Arc<dyn SearchProductListingsUseCase>,
 }
@@ -22,7 +22,7 @@ pub struct ProductListingUseCasesInput {
     pub upsert: Arc<dyn UpsertProductListingUseCase>,
     pub withdraw: Arc<dyn WithdrawProductListingUseCase>,
     pub get: Arc<dyn GetProductListingUseCase>,
-    pub get_history: Arc<dyn GetProductListingEventsUseCase>,
+    pub get_history: Arc<dyn GetProductListingHistoryUseCase>,
     pub get_similar: Arc<dyn GetSimilarProductListingsUseCase>,
     pub search: Arc<dyn SearchProductListingsUseCase>,
 }

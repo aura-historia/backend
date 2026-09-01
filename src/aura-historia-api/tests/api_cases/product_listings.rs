@@ -445,7 +445,7 @@ async fn should_not_expose_retired_source_composite_product_route() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_get_product_history_by_id() {
+async fn should_get_product_listing_history_by_id() {
     let product_listing_id = seed_product().await;
 
     let (response, _) = get_json(format!(
@@ -472,7 +472,7 @@ async fn should_get_product_history_by_id() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
-async fn should_get_product_history_with_timestamped_event_payloads() {
+async fn should_get_product_listing_history_with_timestamped_event_payloads() {
     let listing_source_id = api_support::seed_listing_source().await;
     let product_listing_id = ProductListingId::new();
     let source_offset =
@@ -599,7 +599,12 @@ async fn should_get_product_history_with_timestamped_event_payloads() {
     assert!(discovered["payload"]["auction"]["end"].is_string());
 
     let changed = event("PRODUCT_LISTING_CHANGED");
-    let auction = &changed["payload"]["auction"];
+    let changes = changed["payload"]["changes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("changed history payload has no changes array: {changed}"));
+    assert_eq!(1, changes.len());
+    assert_eq!(json!("AUCTION_CHANGED"), changes[0]["type"]);
+    let auction = &changes[0];
     assert!(auction["previous"]["start"].is_string());
     assert!(auction["previous"]["end"].is_string());
     assert!(auction["current"]["start"].is_string());

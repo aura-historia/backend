@@ -85,7 +85,7 @@ use product_listing_postgres::{
     SqlxListingSourceSummaryReader, SqlxPartnerProductListingAuthorizerFactory,
     SqlxProductListingContentAssessmentReader, SqlxProductListingDetailsBatchReader,
     SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
-    SqlxProductListingEventAppenderFactory, SqlxProductListingEventReaderFactory,
+    SqlxProductListingEventAppenderFactory, SqlxProductListingHistoryReaderFactory,
     SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
     SqlxProductListingWatchlistDetailsReaderFactory,
 };
@@ -93,7 +93,7 @@ use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user_id::UserId;
 
 use product_listing_service::use_cases::{
-    CreateProductListingHandler, GetProductListingEventsHandler, GetProductListingHandler,
+    CreateProductListingHandler, GetProductListingHandler, GetProductListingHistoryHandler,
     GetSimilarProductListingsHandler, IngestWoocommerceProductListingHandler,
     SearchProductListingsHandler, UpdateProductListingHandler, UpsertProductListingHandler,
     WithdrawProductListingHandler,
@@ -704,9 +704,9 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )
-    .with_product_listing_events(Arc::new(GetProductListingEventsHandler::new(
+    .with_product_listing_history(Arc::new(GetProductListingHistoryHandler::new(
         unit_of_work.clone(),
-        SqlxProductListingEventReaderFactory::new(),
+        SqlxProductListingHistoryReaderFactory::new(),
     )));
 
     let partner_product_listings_state = PartnerProductListingsState::new(

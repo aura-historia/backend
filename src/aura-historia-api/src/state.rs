@@ -35,7 +35,7 @@ use partnership_service::use_cases::{
     },
 };
 use product_listing_service::use_cases::{
-    CreateProductListingUseCase, GetProductListingEventsUseCase, GetProductListingUseCase,
+    CreateProductListingUseCase, GetProductListingHistoryUseCase, GetProductListingUseCase,
     GetSimilarProductListingsUseCase, IngestWoocommerceProductListingUseCase,
     SearchProductListingsUseCase, UpdateProductListingUseCase, UpsertProductListingUseCase,
     WithdrawProductListingUseCase,
@@ -374,7 +374,7 @@ impl OAuthState {
 #[derive(Clone)]
 pub struct ProductListingsState {
     pub(crate) get_product: Arc<dyn GetProductListingUseCase>,
-    pub(crate) get_product_listing_events: Option<Arc<dyn GetProductListingEventsUseCase>>,
+    pub(crate) get_product_listing_history: Option<Arc<dyn GetProductListingHistoryUseCase>>,
     pub(crate) get_similar_products: Arc<dyn GetSimilarProductListingsUseCase>,
     pub(crate) search_products: Arc<dyn SearchProductListingsUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
@@ -389,18 +389,18 @@ impl ProductListingsState {
     ) -> Self {
         Self {
             get_product,
-            get_product_listing_events: None,
+            get_product_listing_history: None,
             get_similar_products,
             search_products,
             authenticator,
         }
     }
 
-    pub fn with_product_listing_events(
+    pub fn with_product_listing_history(
         mut self,
-        get_product_listing_events: Arc<dyn GetProductListingEventsUseCase>,
+        get_product_listing_history: Arc<dyn GetProductListingHistoryUseCase>,
     ) -> Self {
-        self.get_product_listing_events = Some(get_product_listing_events);
+        self.get_product_listing_history = Some(get_product_listing_history);
         self
     }
 }
