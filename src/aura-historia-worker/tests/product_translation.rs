@@ -50,11 +50,11 @@ impl LargeLanguageModel for FixedTranslationLlm {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, WORKER_SEQUIN])]
-async fn should_translate_committed_embedded_product_event_and_persist_canonical_target_shape() {
+async fn should_translate_committed_discovered_product_event_and_persist_canonical_target_shape() {
     let worker = TranslationWorker::start().await;
     let result: Result<(), Box<dyn std::error::Error>> = async {
-        let (product_listing_id, _) =
-            insert_product_with_event(&worker.pool, "ENRICHMENT_EMBEDDED", "ENRICHMENT").await?;
+        let (product_listing_id, source_event_id) =
+            insert_product_with_event(&worker.pool, "PRODUCT_LISTING_DISCOVERED", "DOMAIN").await?;
 
         let rows = wait_for_translations(&worker.pool, product_listing_id, 4).await?;
 
@@ -69,8 +69,24 @@ async fn should_translate_committed_embedded_product_event_and_persist_canonical
         );
         let count = enrichment_event_count(&worker.pool, product_listing_id).await?;
         assert_eq!(
-            2, count,
-            "source embedded event plus one batch translated event"
+            1, count,
+            "one translated-titles enrichment event"
+        );
+        let (content_source_event_id, payload): (uuid::Uuid, serde_json::Value) =
+            sqlx::query_as(
+                "SELECT product.content_source_event_id, event.payload FROM product_listings product JOIN product_listing_events event ON event.product_listing_id = product.product_listing_id WHERE product.product_listing_id = $1 AND event.event_type = 'ENRICHMENT_TRANSLATED_TITLES'",
+            )
+            .bind(uuid::Uuid::from(product_listing_id))
+            .fetch_one(&worker.pool)
+            .await?;
+        assert_eq!(uuid::Uuid::from(source_event_id), content_source_event_id);
+        assert_eq!(
+            serde_json::json!({
+                "sourceEventId": source_event_id.to_string(),
+                "sourceLanguage": "de",
+                "targetLanguages": ["en", "fr", "es", "it"],
+            }),
+            payload
         );
         Ok(())
     }
@@ -82,15 +98,11 @@ async fn should_translate_committed_embedded_product_event_and_persist_canonical
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, WORKER_SEQUIN])]
-async fn should_ignore_non_embedded_product_event_without_translation_side_effect() {
+async fn should_ignore_non_discovered_product_event_without_translation_side_effect() {
     let worker = TranslationWorker::start().await;
     let result: Result<(), Box<dyn std::error::Error>> = async {
-        let (product_listing_id, _) = insert_product_with_event(
-            &worker.pool,
-            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-            "DOMAIN",
-        )
-        .await?;
+        let (product_listing_id, _) =
+            insert_product_with_event(&worker.pool, "PRODUCT_LISTING_CHANGED", "DOMAIN").await?;
 
         assert_no_translations(&worker.pool, product_listing_id, NO_SIDE_EFFECT_OBSERVATION).await
     }
@@ -102,7 +114,7 @@ async fn should_ignore_non_embedded_product_event_without_translation_side_effec
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, WORKER_SEQUIN])]
-async fn should_not_translate_rolled_back_embedded_product_event() {
+async fn should_not_translate_rolled_back_discovered_product_event() {
     let worker = TranslationWorker::start().await;
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let product_listing_id = insert_product_with_event_then_rollback(&worker.pool).await?;
@@ -117,19 +129,19 @@ async fn should_not_translate_rolled_back_embedded_product_event() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, WORKER_SEQUIN])]
-async fn should_skip_stale_embedded_event_after_product_revision_advances() {
+async fn should_skip_stale_discovered_event_after_content_source_revision_advances() {
     let worker = TranslationWorker::start().await;
     let result: Result<(), Box<dyn std::error::Error>> = async {
-        let (product_listing_id, embedded_event_id) =
-            insert_product_with_event(&worker.pool, "ENRICHMENT_EMBEDDED", "ENRICHMENT").await?;
+        let (product_listing_id, source_event_id) =
+            insert_product_with_event(&worker.pool, "PRODUCT_LISTING_DISCOVERED", "DOMAIN").await?;
         let _newer_event_id = advance_product_revision(&worker.pool, product_listing_id).await?;
 
         worker
             .redeliver(
                 product_listing_id,
-                embedded_event_id,
-                "ENRICHMENT_EMBEDDED",
-                "ENRICHMENT",
+                source_event_id,
+                "PRODUCT_LISTING_DISCOVERED",
+                "DOMAIN",
             )
             .await?;
         assert_no_translations(&worker.pool, product_listing_id, NO_SIDE_EFFECT_OBSERVATION).await
@@ -142,19 +154,19 @@ async fn should_skip_stale_embedded_event_after_product_revision_advances() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, WORKER_SEQUIN])]
-async fn should_keep_one_translation_batch_when_embedded_event_is_redelivered() {
+async fn should_not_append_another_translation_event_when_source_is_redelivered() {
     let worker = TranslationWorker::start().await;
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let (product_listing_id, event_id) =
-            insert_product_with_event(&worker.pool, "ENRICHMENT_EMBEDDED", "ENRICHMENT").await?;
+            insert_product_with_event(&worker.pool, "PRODUCT_LISTING_DISCOVERED", "DOMAIN").await?;
         let _rows = wait_for_translations(&worker.pool, product_listing_id, 4).await?;
 
         worker
             .redeliver(
                 product_listing_id,
                 event_id,
-                "ENRICHMENT_EMBEDDED",
-                "ENRICHMENT",
+                "PRODUCT_LISTING_DISCOVERED",
+                "DOMAIN",
             )
             .await?;
         assert_translation_count_for_duration(
@@ -165,7 +177,7 @@ async fn should_keep_one_translation_batch_when_embedded_event_is_redelivered() 
         )
         .await?;
         assert_eq!(
-            2,
+            1,
             enrichment_event_count(&worker.pool, product_listing_id).await?
         );
         Ok(())
@@ -224,6 +236,13 @@ impl TranslationWorker {
         event_type: &str,
         event_group: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let payload: serde_json::Value = sqlx::query_scalar(
+            "SELECT payload FROM product_listing_events WHERE event_id = $1 AND product_listing_id = $2",
+        )
+        .bind(uuid::Uuid::from(event_id))
+        .bind(uuid::Uuid::from(product_listing_id))
+        .fetch_one(&self.pool)
+        .await?;
         let response = reqwest::Client::new()
             .post(format!(
                 "http://127.0.0.1:{}/cdc/sequin",
@@ -235,6 +254,8 @@ impl TranslationWorker {
                     "product_listing_id": product_listing_id.to_string(),
                     "event_type": event_type,
                     "event_group": event_group,
+                    "event_type_schema_version": 1,
+                    "payload": payload,
                 },
                 "action": "insert",
                 "metadata": {
@@ -292,7 +313,7 @@ async fn insert_product_with_event(
         .bind(format!("translation-worker-source-{listing_source_id}"))
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Eichenstuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Antiker Eichenstuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(title_slug_id.as_ref())
         .bind(uuid::Uuid::from(event_id))
@@ -301,11 +322,29 @@ async fn insert_product_with_event(
 
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
+    let payload = match event_type {
+        "PRODUCT_LISTING_DISCOVERED" => serde_json::json!({
+            "listingSourceId": listing_source_id.to_string(),
+            "sourceListingId": product_listing_id.to_string(),
+            "title": {"language": "de", "text": "Antiker Eichenstuhl"},
+            "description": null,
+            "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+            "availability": "AVAILABLE",
+            "url": "https://example.test/product",
+            "imageCount": 0,
+            "auction": {"start": null, "end": null}
+        }),
+        "PRODUCT_LISTING_CHANGED" => serde_json::json!({
+            "images": {"previousCount": 0, "currentCount": 0}
+        }),
+        _ => serde_json::json!({"sourceEventId": event_id.to_string()}),
+    };
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, $5, now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(event_type)
         .bind(event_group)
+        .bind(payload)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
@@ -318,12 +357,15 @@ async fn advance_product_revision(
 ) -> Result<EventId, sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_AVAILABILITY_CHANGED', 'DOMAIN', '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, $3, now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
+        .bind(serde_json::json!({
+            "images": {"previousCount": 0, "currentCount": 0}
+        }))
         .execute(&mut *tx)
         .await?;
-    sqlx::query("UPDATE product_listings SET event_id = $1 WHERE product_listing_id = $2")
+    sqlx::query("UPDATE product_listings SET current_event_id = $1, content_source_event_id = $1, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .execute(&mut *tx)
@@ -349,7 +391,7 @@ async fn insert_product_with_event_then_rollback(
         .bind(format!("rollback-translation-source-{listing_source_id}"))
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Antiker Eichenstuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Antiker Eichenstuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(title_slug_id.as_ref())
         .bind(uuid::Uuid::from(event_id))
@@ -358,9 +400,20 @@ async fn insert_product_with_event_then_rollback(
 
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'ENRICHMENT_EMBEDDED', 'ENRICHMENT', '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, $3, now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
+        .bind(serde_json::json!({
+            "listingSourceId": listing_source_id.to_string(),
+            "sourceListingId": product_listing_id.to_string(),
+            "title": {"language": "de", "text": "Antiker Eichenstuhl"},
+            "description": null,
+            "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+            "availability": "AVAILABLE",
+            "url": "https://example.test/product",
+            "imageCount": 0,
+            "auction": {"start": null, "end": null}
+        }))
         .execute(&mut *tx)
         .await?;
     tx.rollback().await?;

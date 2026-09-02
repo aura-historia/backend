@@ -3,15 +3,18 @@ use domain_primitives::event_id::EventId;
 use localization::Language;
 use localization::Localized;
 use product_listing_core::{
-    description::Description, product_listing_id::ProductListingId, title::Title,
+    description::Description, product_listing_event::ProductListingEventPayload,
+    product_listing_id::ProductListingId, title::Title,
 };
 use product_listing_service::ports::{
-    ProductListingEmbeddingSource, ProductListingEmbeddingSourceReadError,
-    ProductListingEmbeddingSourceReader,
+    ProductListingEmbeddingSource, ProductListingEmbeddingSourceEvent,
+    ProductListingEmbeddingSourceReadError, ProductListingEmbeddingSourceReader,
 };
 use serde::Deserialize;
 use sqlx::PgPool;
 use url::Url;
+
+use crate::product_listing_event_codec;
 
 #[derive(Clone)]
 pub struct SqlxProductListingEmbeddingSourceReader {
@@ -22,8 +25,11 @@ pub struct SqlxProductListingEmbeddingSourceReader {
 struct ProductListingEmbeddingSourceRow {
     product_listing_id: uuid::Uuid,
     event_id: uuid::Uuid,
-    current_event_id: uuid::Uuid,
+    embedding_source_event_id: uuid::Uuid,
     event_type: String,
+    event_group: String,
+    event_type_schema_version: i16,
+    payload: serde_json::Value,
     title_text: Option<String>,
     title_language: Option<String>,
     description_text: Option<String>,
@@ -63,7 +69,8 @@ impl ProductListingEmbeddingSourceReader for SqlxProductListingEmbeddingSourceRe
         let row = sqlx::query_as::<_, ProductListingEmbeddingSourceRow>(
             r#"
             SELECT event.event_id, event.product_listing_id, event.event_type,
-                   product.event_id AS current_event_id,
+                   event.event_group, event.event_type_schema_version, event.payload,
+                   product.embedding_source_event_id,
                    product.title_text, product.title_language,
                    product.description_text, product.description_language,
                    product.product_images
@@ -92,13 +99,46 @@ impl TryFrom<ProductListingEmbeddingSourceRow> for ProductListingEmbeddingSource
         Ok(Self {
             product_listing_id: ProductListingId::from(row.product_listing_id),
             event_id: EventId::from(row.event_id),
-            current_event_id: EventId::from(row.current_event_id),
-            event_type: row.event_type,
+            embedding_source_event_id: EventId::from(row.embedding_source_event_id),
+            event: embedding_event(&row)?,
             title: localized_title(row.title_text, row.title_language)?,
             description: localized_description(row.description_text, row.description_language)?,
             image_url: first_image_url(row.product_images)?,
         })
     }
+}
+
+fn embedding_event(
+    row: &ProductListingEmbeddingSourceRow,
+) -> Result<ProductListingEmbeddingSourceEvent, ProductListingEmbeddingSourceReadError> {
+    let event = product_listing_event_codec::decode_persisted(
+        &row.event_type,
+        &row.event_group,
+        row.event_type_schema_version,
+        &row.payload,
+    )
+    .map_err(
+        |source| ProductListingEmbeddingSourceReadError::InvalidPersistedState {
+            source: box_error(source),
+        },
+    )?;
+    Ok(match event {
+        product_listing_event_codec::ProductListingPersistedEvent::Domain(_, payload) => {
+            match *payload {
+                ProductListingEventPayload::Discovered(_) => {
+                    ProductListingEmbeddingSourceEvent::Discovered
+                }
+                ProductListingEventPayload::Changed(changed) if changed.image_count().is_some() => {
+                    ProductListingEmbeddingSourceEvent::ChangedImages
+                }
+                ProductListingEventPayload::Changed(_) => ProductListingEmbeddingSourceEvent::Other,
+            }
+        }
+        product_listing_event_codec::ProductListingPersistedEvent::Embedded
+        | product_listing_event_codec::ProductListingPersistedEvent::TranslatedTitles => {
+            ProductListingEmbeddingSourceEvent::Other
+        }
+    })
 }
 
 fn localized_title(

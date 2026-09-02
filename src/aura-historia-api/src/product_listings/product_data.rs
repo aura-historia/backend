@@ -444,10 +444,6 @@ impl ProductListingImageData {
     pub(crate) fn from_presented(image: NotificationImagePresentation) -> Self {
         Self { url: image.url }
     }
-
-    pub(crate) fn redacted() -> Self {
-        Self { url: None }
-    }
 }
 
 impl From<product_listing_service::use_cases::ProductListingImageView> for ProductListingImageData {

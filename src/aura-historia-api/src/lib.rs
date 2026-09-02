@@ -103,12 +103,12 @@ use product_listing_postgres::{
     SqlxListingSourceSummaryReader, SqlxPartnerProductListingAuthorizerFactory,
     SqlxProductListingContentAssessmentReader, SqlxProductListingDetailsBatchReader,
     SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
-    SqlxProductListingEventReaderFactory, SqlxProductListingEventStoreFactory,
+    SqlxProductListingEventAppenderFactory, SqlxProductListingHistoryReaderFactory,
     SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
     SqlxProductListingWatchlistDetailsReaderFactory,
 };
 use product_listing_service::use_cases::{
-    CreateProductListingHandler, GetProductListingEventsHandler, GetProductListingHandler,
+    CreateProductListingHandler, GetProductListingHandler, GetProductListingHistoryHandler,
     GetSimilarProductListingsHandler, IngestWoocommerceProductListingHandler,
     SearchProductListingsHandler, UpdateProductListingHandler, UpsertProductListingHandler,
     WithdrawProductListingHandler,
@@ -366,7 +366,7 @@ pub fn app(state: AppState) -> Router {
                 )
                 .route(
                     "/api/v1/product-listings/{product_listing_id}/history",
-                    get(product_listings::get_product_history::get_product_listing_events_by_id),
+                    get(product_listings::get_product_listing_history::get_product_listing_history_by_id),
                 )
                 .route(
                     "/api/v1/product-listings/{product_listing_id}/similar",
@@ -571,9 +571,9 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
 async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateError> {
     let pool = postgres_pool_from_env().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let get_product_listing_events = GetProductListingEventsHandler::new(
+    let get_product_listing_history = GetProductListingHistoryHandler::new(
         unit_of_work.clone(),
-        SqlxProductListingEventReaderFactory::new(),
+        SqlxProductListingHistoryReaderFactory::new(),
     );
     let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
     let opensearch_client = opensearch_client_from_env()?;
@@ -748,31 +748,31 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     let create_product = CreateProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventStoreFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
         SqlxPartnerProductListingAuthorizerFactory::new(),
     );
     let update_product = UpdateProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventStoreFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
         SqlxPartnerProductListingAuthorizerFactory::new(),
     );
     let upsert_product = UpsertProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventStoreFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
         SqlxPartnerProductListingAuthorizerFactory::new(),
     );
     let withdraw_product = WithdrawProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventStoreFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
         SqlxPartnerProductListingAuthorizerFactory::new(),
     );
     let ingest_woocommerce_product = IngestWoocommerceProductListingHandler::new(
         unit_of_work.clone(),
         SqlxProductListingRepositoryFactory::new(),
-        SqlxProductListingEventStoreFactory::new(),
+        SqlxProductListingEventAppenderFactory::new(),
         SqlxPartnerProductListingAuthorizerFactory::new(),
         SqlxListingSourceReaders::new(pool.clone()),
         SqlxListingSourceReaders::new(pool.clone()),
@@ -1009,7 +1009,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
                 Arc::new(search_products),
                 Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
             )
-            .with_product_listing_events(Arc::new(get_product_listing_events)),
+            .with_product_listing_history(Arc::new(get_product_listing_history)),
         )
         .with_partner_product_listings(partner_product_listings_state)
         .with_listing_sources(listing_sources_state)

@@ -396,9 +396,9 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     let product_result = sqlx::query(
         r#"
         INSERT INTO product_listings (
-            product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id,
+            product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id,
             availability, lifecycle, url
-        ) VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8)
+        ) VALUES ($1, $2, $3, $3, $3, $4, $5, $6, $7, $8)
         "#,
     )
     .bind(raw_product_listing_id)
@@ -421,15 +421,25 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     let event_result = sqlx::query(
         r#"
         INSERT INTO product_listing_events (
-            event_id, product_listing_id, event_type, event_group, payload, event_time
-        ) VALUES ($1, $2, $3, $4, $5, $6)
+            event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time
+        ) VALUES ($1, $2, $3, $4, 1, $5, $6)
         "#,
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(raw_product_listing_id)
-    .bind("PRODUCT_LISTING_CREATED")
+    .bind("PRODUCT_LISTING_DISCOVERED")
     .bind("DOMAIN")
-    .bind(serde_json::json!({}))
+    .bind(serde_json::json!({
+        "listingSourceId": listing_source_id.to_string(),
+        "sourceListingId": raw_product_listing_id.to_string(),
+        "title": null,
+        "description": null,
+        "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+        "availability": "AVAILABLE",
+        "url": "https://example.test/product",
+        "imageCount": 0,
+        "auction": {"start": null, "end": null}
+    }))
     .bind(OffsetDateTime::UNIX_EPOCH)
     .execute(&mut *transaction)
     .await;
@@ -619,7 +629,7 @@ async fn event_id_for_product(
     product_listing_id: ProductListingId,
 ) -> uuid::Uuid {
     let result = sqlx::query_scalar::<_, uuid::Uuid>(
-        "SELECT event_id FROM product_listings WHERE product_listing_id = $1",
+        "SELECT current_event_id FROM product_listings WHERE product_listing_id = $1",
     )
     .bind(uuid::Uuid::from(product_listing_id))
     .fetch_one(pool)

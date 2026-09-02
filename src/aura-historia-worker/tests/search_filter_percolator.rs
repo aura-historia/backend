@@ -28,7 +28,7 @@ use product_listing_core::{
 };
 use product_listing_postgres::{
     SqlxProductListingContentAssessmentSnapshotReaderFactory,
-    SqlxProductListingCurrentRevisionGuardFactory,
+    SqlxProductListingCurrentEventGuardFactory,
     SqlxProductListingSearchFilterMatchSourceReaderFactory,
 };
 use search_filter_core::{
@@ -37,6 +37,9 @@ use search_filter_core::{
 };
 use user_core::user_id::UserId;
 
+use product_listing_service::ports::{
+    ProductListingSearchFilterMatchSourceReader, ProductListingSearchFilterMatchSourceReaderFactory,
+};
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{
     SqlxActiveSearchFilterMatchCandidateReaderFactory, SqlxSearchFilterIndexReader,
@@ -45,7 +48,8 @@ use search_filter_postgres::{
 };
 use search_filter_service::ports::{SearchFilterRepository, SearchFilterRepositoryFactory};
 use search_filter_service::use_cases::{
-    GenerateSearchFilterMatchNotificationHandler, GenerateSearchFilterMatchNotificationUseCase,
+    GenerateSearchFilterMatchNotificationCommand, GenerateSearchFilterMatchNotificationHandler,
+    GenerateSearchFilterMatchNotificationResult, GenerateSearchFilterMatchNotificationUseCase,
     MatchProductListingEventHandler, MatchProductListingEventUseCase,
     ProjectSearchFilterChangeCommand, ProjectSearchFilterChangeHandler,
     ProjectSearchFilterChangeUseCase, SearchFilterProjectionOperation,
@@ -68,6 +72,144 @@ const WORKER_SEQUIN: Sequin = Sequin::worker_webhook();
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 const POLL_ATTEMPTS: usize = 80;
 const NO_SIDE_EFFECT_OBSERVATION: Duration = Duration::from_secs(2);
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_suppress_search_filter_match_notification_when_withdrawal_commits_first() {
+    let pool = get_postgres_client().await;
+    let user_id = seed_user(&pool, "ULTIMATE")
+        .await
+        .unwrap_or_else(|error| panic!("seed user: {error}"));
+    let filter = search_filter(
+        user_id,
+        UserSearchFilterName::from("Withdrawn match notification filter"),
+        SearchFilterState::Active,
+        "Withdrawn match notification product",
+    )
+    .unwrap_or_else(|error| panic!("create filter: {error}"));
+    insert_filter(&pool, &filter)
+        .await
+        .unwrap_or_else(|error| panic!("seed filter: {error}"));
+    let (product_listing_id, event_id) =
+        create_product_with_domain_event(&pool, "Withdrawn match notification product")
+            .await
+            .unwrap_or_else(|error| panic!("seed product event: {error}"));
+    insert_historical_search_filter_match(
+        &pool,
+        user_id,
+        filter.id(),
+        product_listing_id,
+        event_id,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("seed historical match: {error}"));
+    sqlx::query(
+        "UPDATE product_listings SET lifecycle = 'WITHDRAWN', availability = NULL WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("withdraw product listing: {error}"));
+
+    let handler = GenerateSearchFilterMatchNotificationHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxSearchFilterMatchNotificationSourceReaderFactory,
+        SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
+        SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
+        SqlxUserTierEntitlementsFactory::new(),
+        SqlxProductListingContentAssessmentSnapshotReaderFactory::new(),
+        NotificationCreationCoordinatorFactory::new(
+            SqlxNotificationRepositoryFactory::new(),
+            InitialExternalDeliveryPlanReaderFactory,
+            SqlxNotificationDeliveryIntentRepositoryFactory::new(),
+        ),
+    );
+    let outcome = handler
+        .execute(GenerateSearchFilterMatchNotificationCommand {
+            user_id,
+            search_filter_id: filter.id(),
+            product_listing_id,
+            origin_event_id: event_id,
+        })
+        .await
+        .unwrap_or_else(|error| panic!("generate match notification: {error}"));
+    assert_eq!(
+        GenerateSearchFilterMatchNotificationResult::SuppressedForWithdrawnProductListing,
+        outcome
+    );
+    let notification_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM notifications WHERE user_id = $1 AND product_listing_id = $2",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(uuid::Uuid::from(product_listing_id))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("count notifications: {error}"));
+    assert_eq!(0, notification_count);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_lock_product_listing_through_search_filter_notification_source_read() {
+    let pool = get_postgres_client().await;
+    let (product_listing_id, event_id) =
+        create_product_with_domain_event(&pool, "Search-filter notification lock product")
+            .await
+            .unwrap_or_else(|error| panic!("seed product event: {error}"));
+
+    let mut notification_transaction = SqlxUnitOfWork::new(pool.clone())
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin notification transaction: {error}"));
+    let source = SqlxProductListingSearchFilterMatchSourceReaderFactory::new()
+        .in_transaction(&mut notification_transaction)
+        .find_source(event_id, product_listing_id)
+        .await
+        .unwrap_or_else(|error| panic!("read notification source: {error}"));
+    assert!(source.is_some());
+
+    let mut withdrawal_transaction = SqlxUnitOfWork::new(pool.clone())
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin withdrawal transaction: {error}"));
+    let blocked = sqlx::query(
+        "SELECT product_listing_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE NOWAIT",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .fetch_one(withdrawal_transaction.connection())
+    .await;
+    assert!(matches!(
+        blocked,
+        Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("55P03")
+    ));
+
+    notification_transaction
+        .commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit notification transaction: {error}"));
+    drop(withdrawal_transaction);
+
+    let mut withdrawal_transaction = SqlxUnitOfWork::new(pool.clone())
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin withdrawal transaction after notification: {error}"));
+    sqlx::query(
+        "UPDATE product_listings SET lifecycle = 'WITHDRAWN', availability = NULL WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .execute(withdrawal_transaction.connection())
+    .await
+    .unwrap_or_else(|error| panic!("withdraw product listing after notification: {error}"));
+    withdrawal_transaction
+        .commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit withdrawal transaction: {error}"));
+    let lifecycle: String =
+        sqlx::query_scalar("SELECT lifecycle FROM product_listings WHERE product_listing_id = $1")
+            .bind(uuid::Uuid::from(product_listing_id))
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("read withdrawn lifecycle: {error}"));
+    assert_eq!("WITHDRAWN", lifecycle);
+}
 
 struct NonMatchingLargeLanguageModel;
 
@@ -129,12 +271,12 @@ async fn should_suppress_notification_after_free_tier_monthly_quota() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
-async fn should_ignore_policy_and_lifecycle_product_listing_events_without_side_effects() {
-    let result = ignored_product_listing_events_flow().await;
+async fn should_percolate_current_lifecycle_changed_product_listing_event() {
+    let result = lifecycle_changed_product_listing_event_flow().await;
 
     assert!(
         result.is_ok(),
-        "search-filter ignored-event flow acceptance test failed: {result:?}"
+        "search-filter lifecycle changed-event flow acceptance test failed: {result:?}"
     );
 }
 
@@ -145,6 +287,16 @@ async fn should_not_process_rolled_back_product_event() {
     assert!(
         result.is_ok(),
         "search-filter rollback flow acceptance test failed: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
+async fn should_not_create_matches_for_committed_current_withdrawn_product_listing_event() {
+    let result = withdrawn_product_listing_event_flow().await;
+
+    assert!(
+        result.is_ok(),
+        "search-filter withdrawn product-listing event acceptance test failed: {result:?}"
     );
 }
 
@@ -195,7 +347,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
         let (created_product_listing_id, created_event_id) =
             create_product_with_domain_event(&worker.pool, &product_listing_query).await?;
         assert_eq!(
-            "PRODUCT_LISTING_CREATED",
+            "PRODUCT_LISTING_DISCOVERED",
             product_event_type(&worker.pool, created_event_id).await?
         );
         wait_for_match(&worker.pool, created_event_id, 1).await?;
@@ -232,7 +384,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
         )
         .await?;
         assert_eq!(
-            "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+            "PRODUCT_LISTING_CHANGED",
             product_event_type(&worker.pool, updated_event_id).await?
         );
         wait_for_match(&worker.pool, updated_event_id, 1).await?;
@@ -411,14 +563,14 @@ async fn quota_flow() -> Result<(), Box<dyn std::error::Error>> {
     worker.finish(result).await
 }
 
-async fn ignored_product_listing_events_flow() -> Result<(), Box<dyn std::error::Error>> {
+async fn lifecycle_changed_product_listing_event_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = FullFlowWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
         let product_listing_query = format!("Worker percolator product {user_id}");
         let filter = search_filter(
             user_id,
-            UserSearchFilterName::from("Ignored event filter"),
+            UserSearchFilterName::from("Lifecycle changed-event filter"),
             SearchFilterState::Active,
             &product_listing_query,
         )?;
@@ -428,13 +580,14 @@ async fn ignored_product_listing_events_flow() -> Result<(), Box<dyn std::error:
         let (_, lifecycle_event) = create_product_with_event(
             &worker.pool,
             &product_listing_query,
-            "PRODUCT_LISTING_WITHDRAWN",
-            "LIFECYCLE",
+            "PRODUCT_LISTING_CHANGED",
+            "DOMAIN",
+            json!({"lifecycle": {"transition": "RESTORED"}}),
         )
         .await?;
 
-        assert_no_matches_for(&worker.pool, lifecycle_event, NO_SIDE_EFFECT_OBSERVATION).await?;
-        assert_no_more_than_notifications(&worker.pool, user_id, 0, NO_SIDE_EFFECT_OBSERVATION)
+        wait_for_match(&worker.pool, lifecycle_event, 1).await?;
+        assert_no_more_than_notifications(&worker.pool, user_id, 1, NO_SIDE_EFFECT_OBSERVATION)
             .await
     }
     .await;
@@ -469,6 +622,33 @@ async fn rolled_back_product_event_flow() -> Result<(), Box<dyn std::error::Erro
     worker.finish(result).await
 }
 
+async fn withdrawn_product_listing_event_flow() -> Result<(), Box<dyn std::error::Error>> {
+    let worker = PercolatorWorker::start().await?;
+    let result = async {
+        let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
+        let product_listing_query = format!("Worker withdrawn product {user_id}");
+        let filter = search_filter(
+            user_id,
+            UserSearchFilterName::from("Withdrawn product filter"),
+            SearchFilterState::Active,
+            &product_listing_query,
+        )?;
+        worker.project_filter(&filter).await?;
+        refresh_index("user_search_filters").await;
+
+        let (product_listing_id, event_id) =
+            create_withdrawn_product_with_domain_event(&worker.pool, &product_listing_query)
+                .await?;
+
+        assert_product_listing_is_current_and_withdrawn(&worker.pool, product_listing_id, event_id)
+            .await?;
+        assert_no_matches_for(&worker.pool, event_id, NO_SIDE_EFFECT_OBSERVATION).await
+    }
+    .await;
+
+    worker.finish(result).await
+}
+
 async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = PercolatorWorker::start().await?;
     let result = async {
@@ -489,7 +669,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
             &worker.pool,
             product_listing_id,
             &product_listing_query,
-            "PRODUCT_ENRICHED",
+            "ENRICHMENT_EMBEDDED",
             "ENRICHMENT",
         )
         .await?;
@@ -498,7 +678,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
             &worker.server,
             product_listing_id,
             event_a,
-            "PRODUCT_LISTING_CREATED",
+            "PRODUCT_LISTING_DISCOVERED",
             "DOMAIN",
         )
         .await?;
@@ -506,7 +686,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
             &worker.server,
             product_listing_id,
             event_b,
-            "PRODUCT_ENRICHED",
+            "ENRICHMENT_EMBEDDED",
             "ENRICHMENT",
         )
         .await?;
@@ -517,7 +697,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
             &worker.server,
             product_listing_id,
             event_b,
-            "PRODUCT_ENRICHED",
+            "ENRICHMENT_EMBEDDED",
             "ENRICHMENT",
         )
         .await?;
@@ -525,7 +705,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
             &worker.server,
             product_listing_id,
             event_a,
-            "PRODUCT_LISTING_CREATED",
+            "PRODUCT_LISTING_DISCOVERED",
             "DOMAIN",
         )
         .await?;
@@ -651,7 +831,7 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
             &worker.server,
             event_one.product_listing_id,
             event_one.event_id,
-            "PRODUCT_LISTING_CREATED",
+            "PRODUCT_LISTING_DISCOVERED",
             "DOMAIN",
         )
         .await?;
@@ -837,7 +1017,7 @@ async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std
             &worker.server,
             product_listing_id,
             event_id,
-            "PRODUCT_LISTING_CREATED",
+            "PRODUCT_LISTING_DISCOVERED",
             "DOMAIN",
         )
         .await?;
@@ -877,7 +1057,7 @@ impl FullFlowWorker {
             Arc::new(MatchProductListingEventHandler::new(
                 SqlxUnitOfWork::new(pool.clone()),
                 SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
-                SqlxProductListingCurrentRevisionGuardFactory::new(),
+                SqlxProductListingCurrentEventGuardFactory::new(),
                 SqlxFxRateSnapshotRepositoryFactory,
                 index.clone(),
                 NonMatchingLargeLanguageModel,
@@ -891,7 +1071,6 @@ impl FullFlowWorker {
                 SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
                 SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
                 SqlxUserTierEntitlementsFactory::new(),
-                SqlxProductListingCurrentRevisionGuardFactory::new(),
                 SqlxProductListingContentAssessmentSnapshotReaderFactory::new(),
                 NotificationCreationCoordinatorFactory::new(
                     SqlxNotificationRepositoryFactory::new(),
@@ -1000,7 +1179,7 @@ impl PercolatorWorker {
             Arc::new(MatchProductListingEventHandler::new(
                 SqlxUnitOfWork::new(pool.clone()),
                 SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
-                SqlxProductListingCurrentRevisionGuardFactory::new(),
+                SqlxProductListingCurrentEventGuardFactory::new(),
                 SqlxFxRateSnapshotRepositoryFactory,
                 index.clone(),
                 NonMatchingLargeLanguageModel,
@@ -1147,7 +1326,24 @@ async fn create_product_with_domain_event(
     pool: &sqlx::PgPool,
     title: &str,
 ) -> Result<(ProductListingId, EventId), sqlx::Error> {
-    create_product_with_event(pool, title, "PRODUCT_LISTING_CREATED", "DOMAIN").await
+    create_product_with_event(
+        pool,
+        title,
+        "PRODUCT_LISTING_DISCOVERED",
+        "DOMAIN",
+        json!({
+            "listingSourceId": "10000000-0000-0000-0000-000000000001",
+            "sourceListingId": "fixture-source-id",
+            "title": {"language": "en", "text": title},
+            "description": null,
+            "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+            "availability": "AVAILABLE",
+            "url": "https://example.test/product",
+            "imageCount": 0,
+            "auction": {"start": null, "end": null}
+        }),
+    )
+    .await
 }
 
 async fn create_product_with_event(
@@ -1155,6 +1351,34 @@ async fn create_product_with_event(
     title: &str,
     event_type: &str,
     event_group: &str,
+    payload: Value,
+) -> Result<(ProductListingId, EventId), sqlx::Error> {
+    create_product_with_event_and_lifecycle(pool, title, event_type, event_group, payload, "ACTIVE")
+        .await
+}
+
+async fn create_withdrawn_product_with_domain_event(
+    pool: &sqlx::PgPool,
+    title: &str,
+) -> Result<(ProductListingId, EventId), sqlx::Error> {
+    create_product_with_event_and_lifecycle(
+        pool,
+        title,
+        "PRODUCT_LISTING_CHANGED",
+        "DOMAIN",
+        json!({"lifecycle": {"transition": "WITHDRAWN", "previousAvailability": "AVAILABLE"}}),
+        "WITHDRAWN",
+    )
+    .await
+}
+
+async fn create_product_with_event_and_lifecycle(
+    pool: &sqlx::PgPool,
+    title: &str,
+    event_type: &str,
+    event_group: &str,
+    payload: Value,
+    lifecycle: &str,
 ) -> Result<(ProductListingId, EventId), sqlx::Error> {
     let product_listing_id = ProductListingId::new();
     let product_uuid = uuid::Uuid::from(product_listing_id);
@@ -1168,21 +1392,22 @@ async fn create_product_with_event(
         .bind("Worker percolator source")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, $6, 'en', 'Worker percolator description', 'en', CASE WHEN $7 = 'WITHDRAWN' THEN NULL ELSE 'AVAILABLE' END, $7, 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-percolator-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))
         .bind(listing_source_id)
         .bind(product_uuid.to_string())
         .bind(title)
-
+        .bind(lifecycle)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, $5, now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(product_uuid)
         .bind(event_type)
         .bind(event_group)
+        .bind(payload)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
@@ -1220,6 +1445,11 @@ async fn insert_cross_currency_product_with_event(
     let product_listing_id = ProductListingId::new();
     let product_uuid = uuid::Uuid::from(product_listing_id);
     let event_id = EventId::new();
+    let discovery_event_id = if sale_observation_fx_rate_id.is_some() {
+        EventId::new()
+    } else {
+        event_id
+    };
     let listing_source_id = uuid::Uuid::new_v4();
     let product_slug_suffix = product_uuid.simple().to_string()[..6].to_owned();
     let mut tx = pool.begin().await?;
@@ -1229,7 +1459,7 @@ async fn insert_cross_currency_product_with_event(
         .execute(&mut *tx)
         .await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, $6, 'en', 'Cross currency worker description', 'en', $7, $8, $9, $10, $11, $12, $13, CASE WHEN $13 IS NULL THEN NULL ELSE $14 END, $15, 'ACTIVE', 'https://example.test/cross-currency-product', '[]')",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, $6, 'en', 'Cross currency worker description', 'en', $7, $8, $9, $10, $11, $12, $13, CASE WHEN $13 IS NULL THEN NULL ELSE $14 END, $15, 'ACTIVE', 'https://example.test/cross-currency-product', '[]')",
     )
     .bind(product_uuid)
     .bind(format!("cross-currency-worker-product-{product_slug_suffix}"))
@@ -1249,12 +1479,55 @@ async fn insert_cross_currency_product_with_event(
 
         .execute(&mut *tx)
     .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', $3)")
-        .bind(uuid::Uuid::from(event_id))
+    let payload = serde_json::json!({
+        "listingSourceId": listing_source_id.to_string(),
+        "sourceListingId": product_uuid.to_string(),
+        "title": {"language": "en", "text": title},
+        "description": {"language": "en", "text": "Cross currency worker description"},
+        "pricing": {
+            "price": price.map(|(amount, currency)| serde_json::json!({"amount": amount, "currency": currency})),
+            "priceEstimateMin": price_estimate_min.map(|(amount, currency)| serde_json::json!({"amount": amount, "currency": currency})),
+            "priceEstimateMax": price_estimate_max.map(|(amount, currency)| serde_json::json!({"amount": amount, "currency": currency}))
+        },
+        "availability": availability,
+        "url": "https://example.test/cross-currency-product",
+        "imageCount": 0,
+        "auction": {"start": null, "end": null}
+    });
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, $3, $4)")
+        .bind(uuid::Uuid::from(discovery_event_id))
         .bind(product_uuid)
+        .bind(payload)
         .bind(event_time)
         .execute(&mut *tx)
         .await?;
+    if let Some(fx_rate_id) = sale_observation_fx_rate_id {
+        let observed_at = event_time
+            .format(&time::format_description::well_known::Rfc3339)
+            .map_err(|_| {
+                sqlx::Error::Protocol("invalid fixture observation timestamp".to_owned())
+            })?;
+        sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, $3, $4)")
+            .bind(uuid::Uuid::from(event_id))
+            .bind(product_uuid)
+            .bind(serde_json::json!({
+                "saleObservation": {
+                    "transition": "OBSERVED",
+                    "observation": {
+                        "observedAt": observed_at,
+                        "fxRateId": fx_rate_id.to_string()
+                    }
+                }
+            }))
+            .bind(event_time)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE product_listings SET content_source_event_id = $1, embedding_source_event_id = $1, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
+            .bind(uuid::Uuid::from(discovery_event_id))
+            .bind(product_uuid)
+            .execute(&mut *tx)
+            .await?;
+    }
     tx.commit().await?;
     Ok(CrossCurrencyProductListingEvent {
         product_listing_id,
@@ -1365,7 +1638,7 @@ async fn update_product_and_insert_event(
         pool,
         product_listing_id,
         title,
-        "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+        "PRODUCT_LISTING_CHANGED",
         "DOMAIN",
     )
     .await
@@ -1380,21 +1653,34 @@ async fn update_product_and_insert_event_with_group(
 ) -> Result<EventId, sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
+    let payload = match (event_type, event_group) {
+        ("PRODUCT_LISTING_CHANGED", "DOMAIN") => serde_json::json!({
+            "images": {"previousCount": 0, "currentCount": 0}
+        }),
+        ("ENRICHMENT_EMBEDDED", "ENRICHMENT") => serde_json::json!({
+            "sourceEventId": event_id.to_string()
+        }),
+        _ => serde_json::json!({}),
+    };
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, $5, now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(event_type)
         .bind(event_group)
+        .bind(payload)
         .execute(&mut *tx)
         .await?;
-    sqlx::query(
-        "UPDATE product_listings SET event_id = $1, title_text = $2, updated = now() WHERE product_listing_id = $3",
-    )
-    .bind(uuid::Uuid::from(event_id))
-    .bind(title)
-    .bind(uuid::Uuid::from(product_listing_id))
-    .execute(&mut *tx)
-    .await?;
+    let update_query = if event_group == "DOMAIN" {
+        "UPDATE product_listings SET current_event_id = $1, title_text = $2, version = version + 1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $3"
+    } else {
+        "UPDATE product_listings SET current_event_id = $1, title_text = $2, updated = now() WHERE product_listing_id = $3"
+    };
+    sqlx::query(update_query)
+        .bind(uuid::Uuid::from(event_id))
+        .bind(title)
+        .bind(uuid::Uuid::from(product_listing_id))
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok(event_id)
 }
@@ -1415,7 +1701,7 @@ async fn create_product_with_event_then_rollback(
         .bind("Worker percolator source")
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-percolator-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))
@@ -1425,9 +1711,20 @@ async fn create_product_with_event_then_rollback(
 
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, $3, now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(product_uuid)
+        .bind(serde_json::json!({
+            "listingSourceId": listing_source_id.to_string(),
+            "sourceListingId": product_uuid.to_string(),
+            "title": {"language": "en", "text": title},
+            "description": null,
+            "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+            "availability": "AVAILABLE",
+            "url": "https://example.test/product",
+            "imageCount": 0,
+            "auction": {"start": null, "end": null}
+        }))
         .execute(&mut *tx)
         .await?;
     drop(tx);
@@ -1459,6 +1756,25 @@ async fn product_event_type(pool: &sqlx::PgPool, event_id: EventId) -> Result<St
         .bind(uuid::Uuid::from(event_id))
         .fetch_one(pool)
         .await
+}
+
+async fn assert_product_listing_is_current_and_withdrawn(
+    pool: &sqlx::PgPool,
+    product_listing_id: ProductListingId,
+    event_id: EventId,
+) -> Result<(), sqlx::Error> {
+    let (current_event_id, lifecycle, availability): (uuid::Uuid, String, Option<String>) =
+        sqlx::query_as(
+            "SELECT current_event_id, lifecycle, availability FROM product_listings WHERE product_listing_id = $1",
+        )
+        .bind(uuid::Uuid::from(product_listing_id))
+        .fetch_one(pool)
+        .await?;
+
+    assert_eq!(uuid::Uuid::from(event_id), current_event_id);
+    assert_eq!("WITHDRAWN", lifecycle);
+    assert_eq!(None, availability);
+    Ok(())
 }
 
 async fn assert_product_source_price(
@@ -1826,6 +2142,26 @@ async fn redeliver_product_event(
     event_type: &str,
     event_group: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let payload = match (event_type, event_group) {
+        ("PRODUCT_LISTING_DISCOVERED", "DOMAIN") => json!({
+            "listingSourceId": "10000000-0000-0000-0000-000000000001",
+            "sourceListingId": "fixture-source-id",
+            "title": null,
+            "description": null,
+            "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+            "availability": "AVAILABLE",
+            "url": "https://example.test/product",
+            "imageCount": 0,
+            "auction": {"start": null, "end": null}
+        }),
+        ("PRODUCT_LISTING_CHANGED", "DOMAIN") => json!({
+            "availability": {"previous": null, "current": "AVAILABLE"}
+        }),
+        ("ENRICHMENT_EMBEDDED", "ENRICHMENT") => json!({
+            "sourceEventId": event_id.to_string()
+        }),
+        _ => json!({}),
+    };
     post_sequin_change(
         server.local_webhook_url(),
         json!({
@@ -1833,7 +2169,9 @@ async fn redeliver_product_event(
                 "event_id": event_id.to_string(),
                 "product_listing_id": product_listing_id.to_string(),
                 "event_type": event_type,
-                "event_group": event_group
+                "event_group": event_group,
+                "event_type_schema_version": 1,
+                "payload": payload
             },
             "action": "insert",
             "metadata": {"table_schema": "public", "table_name": "product_listing_events"}

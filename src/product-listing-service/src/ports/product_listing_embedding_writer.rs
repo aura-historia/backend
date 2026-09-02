@@ -1,8 +1,6 @@
 use application::error::BoxError;
 use domain_primitives::event_id::EventId;
-use localization::Language;
-use localization::Localized;
-use product_listing_core::{product_listing_id::ProductListingId, title::Title};
+use product_listing_core::product_listing_id::ProductListingId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingEmbeddingWrite {
@@ -10,7 +8,6 @@ pub struct ProductListingEmbeddingWrite {
     pub source_event_id: EventId,
     pub enrichment_event_id: EventId,
     pub embedding: Vec<f32>,
-    pub title: Localized<Language, Title>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

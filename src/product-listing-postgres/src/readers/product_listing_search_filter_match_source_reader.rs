@@ -1,3 +1,4 @@
+use crate::product_listing_event_codec;
 use crate::url::referral_configuration;
 use application::error::{BoxError, box_error, static_error};
 use domain_primitives::event_id::EventId;
@@ -41,7 +42,10 @@ struct SqlxProductListingSearchFilterMatchSourceReader<'tx> {
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct SourceRow {
     event_id: uuid::Uuid,
+    event_type: String,
     event_group: String,
+    event_type_schema_version: i16,
+    payload: serde_json::Value,
     origin_event_time: OffsetDateTime,
     current_event_id: uuid::Uuid,
     projection_version: i64,
@@ -178,9 +182,12 @@ impl ProductListingSearchFilterMatchSourceReader
             )
             SELECT
                 event.event_id,
+                event.event_type,
                 event.event_group,
+                event.event_type_schema_version,
+                event.payload,
                 event.event_time AS origin_event_time,
-                product.event_id AS current_event_id,
+                product.current_event_id,
                 product.projection_version,
                 product.product_listing_id,
                 product.product_listing_title_slug_id,
@@ -222,6 +229,7 @@ impl ProductListingSearchFilterMatchSourceReader
               ON listing_source.listing_source_id = product.listing_source_id
             LEFT JOIN product_listing_translations translation ON translation.product_listing_id = product.product_listing_id
             ORDER BY event.product_listing_id ASC, event.event_id ASC, translation.language ASC
+            FOR SHARE OF product
             "#,
         )
         .bind(product_listing_ids)
@@ -230,13 +238,7 @@ impl ProductListingSearchFilterMatchSourceReader
         .await
         .map_err(SourceQuerySqlxError)?;
 
-        sources_from_rows(rows)
-            .map_err(|_| {
-                SourceRowMappingError::invalid(
-                    "persisted product search-filter match source row is invalid",
-                )
-            })
-            .map_err(Into::into)
+        sources_from_rows(rows).map_err(Into::into)
     }
 }
 
@@ -244,7 +246,7 @@ fn sources_from_rows(
     rows: Vec<SourceRow>,
 ) -> Result<
     HashMap<ProductListingSearchFilterMatchSourceRef, ProductListingSearchFilterMatchSource>,
-    (),
+    SourceRowMappingError,
 > {
     let mut grouped_rows =
         HashMap::<ProductListingSearchFilterMatchSourceRef, Vec<SourceRow>>::new();
@@ -259,7 +261,11 @@ fn sources_from_rows(
     grouped_rows
         .into_iter()
         .map(|(reference, rows)| {
-            let source = source_from_rows(rows)?.ok_or(())?;
+            let source = source_from_rows(rows)?.ok_or_else(|| {
+                SourceRowMappingError::invalid(
+                    "persisted product search-filter match source row is missing",
+                )
+            })?;
             Ok((reference, source))
         })
         .collect()
@@ -267,7 +273,7 @@ fn sources_from_rows(
 
 fn source_from_rows(
     rows: Vec<SourceRow>,
-) -> Result<Option<ProductListingSearchFilterMatchSource>, ()> {
+) -> Result<Option<ProductListingSearchFilterMatchSource>, SourceRowMappingError> {
     let Some(row) = rows.first() else {
         return Ok(None);
     };
@@ -281,7 +287,11 @@ fn source_from_rows(
         row.product_description_language.as_deref(),
     )?;
     let source_listing_id =
-        SourceListingId::try_from(row.source_listing_id.clone()).map_err(|_| ())?;
+        SourceListingId::try_from(row.source_listing_id.clone()).map_err(|_| {
+            SourceRowMappingError::invalid(
+                "persisted product search-filter match source listing ID is invalid",
+            )
+        })?;
     let (titles, descriptions) =
         translations(&rows, product_title.as_ref(), product_description.as_ref())?;
     let pricing = ProductListingPricing {
@@ -297,16 +307,29 @@ fn source_from_rows(
     };
     let sale_observation = sale_observation(row.sale_observation_fx_rate_id, row.sale_observed_at)?;
     let images = images(&row.product_images)?;
-    let url = Url::parse(&row.url).map_err(|_| ())?;
-    let view_url = outbound_url(
-        referral_configuration(row.listing_source_referral_configuration.as_ref())?.as_ref(),
-        &url,
+    let url = Url::parse(&row.url).map_err(|_| {
+        SourceRowMappingError::invalid(
+            "persisted product search-filter match source URL is invalid",
+        )
+    })?;
+    let referral_configuration = referral_configuration(
+        row.listing_source_referral_configuration.as_ref(),
     )
-    .map_err(|_| ())?;
+    .map_err(|_| {
+        SourceRowMappingError::invalid(
+            "persisted product search-filter match referral configuration is invalid",
+        )
+    })?;
+    let view_url = outbound_url(referral_configuration.as_ref(), &url).map_err(|_| {
+        SourceRowMappingError::invalid(
+            "persisted product search-filter match source view URL is invalid",
+        )
+    })?;
 
+    let event_kind = event_kind_from_row(row)?;
     Ok(Some(ProductListingSearchFilterMatchSource {
         event_id: EventId::from(row.event_id),
-        event_kind: event_kind(&row.event_group),
+        event_kind,
         origin_event_time: row.origin_event_time,
         current_event_id: EventId::from(row.current_event_id),
         projection_version: row.projection_version,
@@ -314,11 +337,23 @@ fn source_from_rows(
         product_listing_title_slug_id: ProductListingSlugId::raw(
             &row.product_listing_title_slug_id,
         )
-        .map_err(|_| ())?,
+        .map_err(|_| {
+            SourceRowMappingError::invalid(
+                "persisted product search-filter match source title slug is invalid",
+            )
+        })?,
         source: ListingSourceSummary {
             listing_source_id: ListingSourceId::from(row.listing_source_id),
-            name: ListingSourceName::try_from(row.listing_source_name.clone()).map_err(|_| ())?,
-            slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id).map_err(|_| ())?,
+            name: ListingSourceName::try_from(row.listing_source_name.clone()).map_err(|_| {
+                SourceRowMappingError::invalid(
+                    "persisted product search-filter match source listing source name is invalid",
+                )
+            })?,
+            slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id).map_err(|_| {
+                SourceRowMappingError::invalid(
+                    "persisted product search-filter match source listing source slug is invalid",
+                )
+            })?,
         },
         source_listing_id,
         product_title,
@@ -349,7 +384,7 @@ fn translations(
     rows: &[SourceRow],
     product_title: Option<&Localized<Language, Title>>,
     product_description: Option<&Localized<Language, Description>>,
-) -> Result<LocalizedTexts, ()> {
+) -> Result<LocalizedTexts, SourceRowMappingError> {
     let mut titles = HashMap::new();
     let mut descriptions = HashMap::new();
 
@@ -370,7 +405,11 @@ fn translations(
             (Some(language_value), None, Some(description_value)) => {
                 descriptions.insert(language(language_value)?, description(description_value)?);
             }
-            _ => return Err(()),
+            _ => {
+                return Err(SourceRowMappingError::invalid(
+                    "persisted product search-filter match translation is incomplete",
+                ));
+            }
         }
     }
 
@@ -391,105 +430,172 @@ fn translations(
 fn localized_title(
     text: Option<&str>,
     language_value: Option<&str>,
-) -> Result<Option<Localized<Language, Title>>, ()> {
+) -> Result<Option<Localized<Language, Title>>, SourceRowMappingError> {
     match (text, language_value) {
         (Some(text), Some(language_value)) => Ok(Some(Localized::new(
             language(language_value)?,
             title(text)?,
         ))),
         (None, None) => Ok(None),
-        _ => Err(()),
+        _ => Err(SourceRowMappingError::invalid(
+            "persisted product search-filter match title is incomplete",
+        )),
     }
 }
 
 fn localized_description(
     text: Option<&str>,
     language_value: Option<&str>,
-) -> Result<Option<Localized<Language, Description>>, ()> {
+) -> Result<Option<Localized<Language, Description>>, SourceRowMappingError> {
     match (text, language_value) {
         (Some(text), Some(language_value)) => Ok(Some(Localized::new(
             language(language_value)?,
             description(text)?,
         ))),
         (None, None) => Ok(None),
-        _ => Err(()),
+        _ => Err(SourceRowMappingError::invalid(
+            "persisted product search-filter match description is incomplete",
+        )),
     }
 }
 
-fn title(value: &str) -> Result<Title, ()> {
+fn title(value: &str) -> Result<Title, SourceRowMappingError> {
     let title = Title::from(value);
     (!title.as_ref().is_empty() && title.as_ref() == value)
         .then_some(title)
-        .ok_or(())
+        .ok_or_else(|| {
+            SourceRowMappingError::invalid("persisted product search-filter match title is invalid")
+        })
 }
 
-fn description(value: &str) -> Result<Description, ()> {
+fn description(value: &str) -> Result<Description, SourceRowMappingError> {
     let description = Description::from(value);
     (!description.as_ref().is_empty() && description.as_ref() == value)
         .then_some(description)
-        .ok_or(())
+        .ok_or_else(|| {
+            SourceRowMappingError::invalid(
+                "persisted product search-filter match description is invalid",
+            )
+        })
 }
 
-fn price(amount: Option<i64>, currency_value: Option<&str>) -> Result<Option<Price>, ()> {
+fn price(
+    amount: Option<i64>,
+    currency_value: Option<&str>,
+) -> Result<Option<Price>, SourceRowMappingError> {
     match (amount, currency_value) {
         (Some(amount), Some(currency_value)) => Ok(Some(Price::new(
-            MonetaryAmount::from(u64::try_from(amount).map_err(|_| ())?),
+            MonetaryAmount::from(u64::try_from(amount).map_err(|_| {
+                SourceRowMappingError::invalid(
+                    "persisted product search-filter match price amount is invalid",
+                )
+            })?),
             currency(currency_value)?,
         ))),
         (None, None) => Ok(None),
-        _ => Err(()),
+        _ => Err(SourceRowMappingError::invalid(
+            "persisted product search-filter match price is incomplete",
+        )),
     }
 }
 
 fn sale_observation(
     fx_rate_id: Option<uuid::Uuid>,
     observed_at: Option<OffsetDateTime>,
-) -> Result<Option<ListingSaleObservation>, ()> {
+) -> Result<Option<ListingSaleObservation>, SourceRowMappingError> {
     match (fx_rate_id, observed_at) {
         (Some(fx_rate_id), Some(observed_at)) => Ok(Some(ListingSaleObservation::new(
             observed_at,
             FxRateId::from(fx_rate_id),
         ))),
         (None, None) => Ok(None),
-        _ => Err(()),
+        _ => Err(SourceRowMappingError::invalid(
+            "persisted product search-filter match sale observation is incomplete",
+        )),
     }
 }
 
-fn images(value: &serde_json::Value) -> Result<IndexSet<ProductListingImage>, ()> {
+fn images(
+    value: &serde_json::Value,
+) -> Result<IndexSet<ProductListingImage>, SourceRowMappingError> {
     #[derive(serde::Deserialize)]
     struct ImageJson {
         url: String,
     }
 
     serde_json::from_value::<Vec<ImageJson>>(value.clone())
-        .map_err(|_| ())?
+        .map_err(|_| {
+            SourceRowMappingError::invalid(
+                "persisted product search-filter match images are invalid",
+            )
+        })?
         .into_iter()
         .map(|image| {
-            Ok(ProductListingImage::new(
-                Url::parse(&image.url).map_err(|_| ())?,
-            ))
+            Ok(ProductListingImage::new(Url::parse(&image.url).map_err(
+                |_| {
+                    SourceRowMappingError::invalid(
+                        "persisted product search-filter match image URL is invalid",
+                    )
+                },
+            )?))
         })
         .collect()
 }
 
-fn language(value: &str) -> Result<Language, ()> {
-    Language::from_code(value).ok_or(())
+fn language(value: &str) -> Result<Language, SourceRowMappingError> {
+    Language::from_code(value).ok_or_else(|| {
+        SourceRowMappingError::invalid("persisted product search-filter match language is invalid")
+    })
 }
 
-fn currency(value: &str) -> Result<Currency, ()> {
-    Currency::from_code(value).ok_or(())
+fn currency(value: &str) -> Result<Currency, SourceRowMappingError> {
+    Currency::from_code(value).ok_or_else(|| {
+        SourceRowMappingError::invalid("persisted product search-filter match currency is invalid")
+    })
 }
 
-fn availability(value: Option<&str>) -> Result<Option<ListingAvailability>, ()> {
+fn availability(value: Option<&str>) -> Result<Option<ListingAvailability>, SourceRowMappingError> {
     value
-        .map(|value| ListingAvailability::from_code(value).ok_or(()))
+        .map(|value| {
+            ListingAvailability::from_code(value).ok_or_else(|| {
+                SourceRowMappingError::invalid(
+                    "persisted product search-filter match availability is invalid",
+                )
+            })
+        })
         .transpose()
 }
 
-fn lifecycle(value: &str) -> Result<ListingLifecycle, ()> {
-    ListingLifecycle::from_code(value).ok_or(())
+fn lifecycle(value: &str) -> Result<ListingLifecycle, SourceRowMappingError> {
+    ListingLifecycle::from_code(value).ok_or_else(|| {
+        SourceRowMappingError::invalid("persisted product search-filter match lifecycle is invalid")
+    })
 }
 
+fn event_kind_from_row(
+    row: &SourceRow,
+) -> Result<ProductListingSearchFilterMatchSourceEventKind, SourceRowMappingError> {
+    let event = product_listing_event_codec::decode_persisted(
+        &row.event_type,
+        &row.event_group,
+        row.event_type_schema_version,
+        &row.payload,
+    )
+    .map_err(|source| SourceRowMappingError {
+        source: box_error(source),
+    })?;
+    Ok(match event {
+        product_listing_event_codec::ProductListingPersistedEvent::Domain(_, _) => {
+            ProductListingSearchFilterMatchSourceEventKind::Domain
+        }
+        product_listing_event_codec::ProductListingPersistedEvent::Embedded
+        | product_listing_event_codec::ProductListingPersistedEvent::TranslatedTitles => {
+            ProductListingSearchFilterMatchSourceEventKind::Enrichment
+        }
+    })
+}
+
+#[cfg(test)]
 fn event_kind(value: &str) -> ProductListingSearchFilterMatchSourceEventKind {
     match value {
         "DOMAIN" => ProductListingSearchFilterMatchSourceEventKind::Domain,
@@ -542,23 +648,21 @@ mod tests {
         );
         assert_eq!(
             ProductListingSearchFilterMatchSourceEventKind::Ignored,
-            event_kind("LIFECYCLE")
+            event_kind("UNKNOWN")
         );
     }
 
     #[test]
     fn should_map_sale_observation_only_when_both_persisted_columns_are_present() {
-        assert_eq!(Ok(None), sale_observation(None, None));
+        assert!(matches!(sale_observation(None, None), Ok(None)));
 
         let fx_rate_id = uuid::Uuid::new_v4();
         let observed_at = OffsetDateTime::UNIX_EPOCH;
-        assert_eq!(
-            Ok(Some(ListingSaleObservation::new(
-                observed_at,
-                FxRateId::from(fx_rate_id),
-            ))),
-            sale_observation(Some(fx_rate_id), Some(observed_at))
-        );
+        assert!(matches!(
+            sale_observation(Some(fx_rate_id), Some(observed_at)),
+            Ok(Some(value))
+                if value == ListingSaleObservation::new(observed_at, FxRateId::from(fx_rate_id))
+        ));
 
         assert!(sale_observation(Some(uuid::Uuid::new_v4()), None).is_err());
         assert!(sale_observation(None, Some(observed_at)).is_err());

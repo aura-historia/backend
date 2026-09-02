@@ -8638,6 +8638,7 @@ dependencies = [
  "platform-postgres",
  "product-listing-core",
  "product-listing-service",
+ "serde_json",
  "serial_test",
  "sqlx",
  "strum 0.28.0",

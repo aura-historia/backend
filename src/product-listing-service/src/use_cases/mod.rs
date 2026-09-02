@@ -64,9 +64,11 @@ pub use queries::get_product_listing::{
     ProductListingPricingValuation, present_product_details, present_product_pricing,
     redact_hidden_product,
 };
-pub use queries::get_product_listing_events::{
-    GetProductListingEventsError, GetProductListingEventsHandler, GetProductListingEventsRequest,
-    GetProductListingEventsUseCase, ProductListingEvent, ProductListingEventLookup,
+pub use queries::get_product_listing_history::{
+    GetProductListingHistoryError, GetProductListingHistoryHandler,
+    GetProductListingHistoryRequest, GetProductListingHistoryUseCase,
+    ProductListingDiscoveryHistory, ProductListingHistoryChange, ProductListingHistoryChanges,
+    ProductListingHistoryEntry, ProductListingHistoryEntryKind, ProductListingHistoryLookup,
 };
 pub use queries::get_similar_product_listings::{
     GetSimilarProductListingsError, GetSimilarProductListingsHandler,

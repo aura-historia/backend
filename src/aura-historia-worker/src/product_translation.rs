@@ -7,8 +7,6 @@ use application::{
     error::{BoxError, box_error},
     operation_context::{CorrelationId, OperationContext, Principal, RequestId},
 };
-use domain_primitives::event_id::EventId;
-use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::use_cases::{
     TranslateProductListingCommand, TranslateProductListingEventOutcome,
     TranslateProductListingEventUseCase,
@@ -86,20 +84,9 @@ fn command_from_job(
     let DomainJobPayload::ProductListingEvent(event) = job.payload else {
         return Err(ProductListingTranslationWorkerError::UnexpectedJobPayload);
     };
-    let event_id = EventId::try_from(event.event_id.as_str()).map_err(|source| {
-        ProductListingTranslationWorkerError::InvalidEventId {
-            source: box_error(source),
-        }
-    })?;
-    let product_listing_id = ProductListingId::try_from(event.product_listing_id.as_str())
-        .map_err(
-            |source| ProductListingTranslationWorkerError::InvalidProductListingId {
-                source: box_error(source),
-            },
-        )?;
     Ok(TranslateProductListingCommand {
-        event_id,
-        product_listing_id,
+        event_id: event.event_id,
+        product_listing_id: event.product_listing_id,
     })
 }
 
@@ -107,33 +94,23 @@ fn command_from_job(
 enum ProductListingTranslationWorkerError {
     #[error("product translation queue received an unexpected job payload")]
     UnexpectedJobPayload,
-    #[error("product translation job has an invalid event id")]
-    InvalidEventId {
-        #[source]
-        source: BoxError,
-    },
-    #[error("product translation job has an invalid product id")]
-    InvalidProductListingId {
-        #[source]
-        source: BoxError,
-    },
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::cdc::{IdempotencyKey, OrderingKey, ProductListingEventJob, WorkerQueue};
+    use domain_primitives::event_id::EventId;
+    use product_listing_core::product_listing_id::ProductListingId;
 
-    fn job(event_id: &str, product_listing_id: &str) -> DomainJob {
+    fn job(event_id: EventId, product_listing_id: ProductListingId) -> DomainJob {
         DomainJob {
             target_queue: WorkerQueue::ProductListingTranslate,
             idempotency_key: IdempotencyKey::new("product-event:test"),
             ordering_key: OrderingKey::new("product:test"),
             payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
-                event_id: event_id.to_owned(),
-                product_listing_id: product_listing_id.to_owned(),
-                event_type: "ENRICHMENT_EMBEDDED".to_owned(),
-                event_group: "ENRICHMENT".to_owned(),
+                event_id,
+                product_listing_id,
             }),
         }
     }
@@ -143,7 +120,7 @@ mod tests {
         let product_listing_id = ProductListingId::new();
         let event_id = EventId::new();
 
-        let command = command_from_job(job(&event_id.to_string(), &product_listing_id.to_string()));
+        let command = command_from_job(job(event_id, product_listing_id));
 
         assert!(matches!(
             command,

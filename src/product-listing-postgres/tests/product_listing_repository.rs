@@ -22,11 +22,12 @@ use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
 use product_listing_postgres::{
-    SqlxProductListingEventStoreFactory, SqlxProductListingRepositoryFactory,
+    SqlxProductListingEventAppenderFactory, SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::ports::{
-    ProductListingEventStore, ProductListingEventStoreFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
+    ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingStorageVersion,
+    ProductListingWriteEffects, stamp_product_listing_event,
 };
 use strum::IntoEnumIterator;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
@@ -40,7 +41,7 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
-    let events = SqlxProductListingEventStoreFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
     let listing_source_id =
         seed_listing_source(&pool, "product-listing-postgres-main-source").await;
     let product = sample_product("postgres-product-main", listing_source_id);
@@ -90,7 +91,7 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     commit(tx).await;
 
     assert_eq!(product.id(), loaded_by_id.id());
-    assert_eq!(created_event.event_id, version);
+    assert_eq!(ProductListingStorageVersion::INITIAL, version);
 
     assert_eq!(ListingLifecycle::Active, loaded_by_id.lifecycle());
 
@@ -104,7 +105,12 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     let mut tx = begin(&unit_of_work).await;
     match product_listings
         .in_transaction(&mut tx)
-        .update(&updated, version, update_event.event_id)
+        .update(
+            &updated,
+            version,
+            update_event.event_id,
+            ProductListingWriteEffects::default(),
+        )
         .await
     {
         Ok(_) => {}
@@ -129,10 +135,10 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     commit(tx).await;
 
     assert_eq!(None, loaded.value.pricing().price);
-    assert_eq!(update_event.event_id, loaded.version);
+    assert_eq!(2, loaded.version.into_inner());
 
-    let persisted_identity: (String, uuid::Uuid, String) = sqlx::query_as(
-        "SELECT product_listing_title_slug_id, listing_source_id, source_listing_id FROM product_listings WHERE product_listing_id = $1",
+    let persisted_identity: (String, uuid::Uuid, String, uuid::Uuid, i64) = sqlx::query_as(
+        "SELECT product_listing_title_slug_id, listing_source_id, source_listing_id, current_event_id, projection_version FROM product_listings WHERE product_listing_id = $1",
     )
     .bind(uuid::Uuid::from(product.id()))
     .fetch_one(&pool)
@@ -144,6 +150,161 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
         persisted_identity.1
     );
     assert_eq!(product.source_listing_id().as_ref(), persisted_identity.2);
+    assert_eq!(
+        uuid::Uuid::from(update_event.event_id),
+        persisted_identity.3
+    );
+    assert_eq!(2, persisted_identity.4);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_preserve_embedding_for_price_and_clear_it_when_images_change() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let product_listings = SqlxProductListingRepositoryFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
+    let listing_source_id =
+        seed_listing_source(&pool, "product-listing-postgres-embedding-source").await;
+    let product = sample_product("postgres-product-embedding-source", listing_source_id);
+
+    insert_product_with_event(&unit_of_work, &product_listings, &events, &product).await;
+    sqlx::query(
+        "UPDATE product_listings SET embedding = array_fill(1::real, ARRAY[768]) WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product.id()))
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed product embedding: {error}"));
+    let initial_embedding_source_event_id: uuid::Uuid = sqlx::query_scalar(
+        "SELECT embedding_source_event_id FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product.id()))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to load initial embedding source: {error}"));
+
+    let mut tx = begin(&unit_of_work).await;
+    let Versioned {
+        value: mut price_changed,
+        version,
+    } = match product_listings
+        .in_transaction(&mut tx)
+        .find_by_id(product.id())
+        .await
+    {
+        Ok(Some(product)) => product,
+        Ok(None) => panic!("missing persisted product"),
+        Err(error) => panic!("failed to load product: {error:?}"),
+    };
+    assert!(
+        price_changed
+            .set_price(Price::new(MonetaryAmount::from(1_100_u64), Currency::Eur))
+            .is_ok()
+    );
+    let price_payload = match price_changed.take_pending_event_payload() {
+        Some(payload) => payload,
+        None => panic!("price change is missing a pending event"),
+    };
+    let price_event = stamp_product_listing_event(
+        price_changed.id(),
+        OffsetDateTime::now_utc(),
+        price_payload.clone(),
+    );
+    let persisted = match product_listings
+        .in_transaction(&mut tx)
+        .update(
+            &price_changed,
+            version,
+            price_event.event_id,
+            ProductListingWriteEffects::from(&price_payload),
+        )
+        .await
+    {
+        Ok(product) => product,
+        Err(error) => panic!("failed to update product price: {error:?}"),
+    };
+    assert_eq!(2, persisted.version.into_inner());
+    match events.in_transaction(&mut tx).append(&price_event).await {
+        Ok(()) => {}
+        Err(error) => panic!("failed to append price event: {error:?}"),
+    }
+    commit(tx).await;
+
+    let (embedding_source_event_id, has_embedding, version, projection_version):
+        (uuid::Uuid, bool, i64, i64) = sqlx::query_as(
+        "SELECT embedding_source_event_id, embedding IS NOT NULL, version, projection_version FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product.id()))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to load price-updated revisions: {error}"));
+    assert_eq!(initial_embedding_source_event_id, embedding_source_event_id);
+    assert!(has_embedding);
+    assert_eq!(2, version);
+    assert_eq!(2, projection_version);
+
+    let mut tx = begin(&unit_of_work).await;
+    let Versioned {
+        value: mut image_changed,
+        version,
+    } = match product_listings
+        .in_transaction(&mut tx)
+        .find_by_id(product.id())
+        .await
+    {
+        Ok(Some(product)) => product,
+        Ok(None) => panic!("missing price-updated product"),
+        Err(error) => panic!("failed to load price-updated product: {error:?}"),
+    };
+    let mut replacement_images = IndexSet::new();
+    replacement_images.insert(ProductListingImage::new(url(
+        "https://example.com/postgres-product-embedding-source-replacement.jpg",
+    )));
+    assert!(image_changed.replace_images(replacement_images).is_ok());
+    let image_payload = match image_changed.take_pending_event_payload() {
+        Some(payload) => payload,
+        None => panic!("image change is missing a pending event"),
+    };
+    let image_event = stamp_product_listing_event(
+        image_changed.id(),
+        OffsetDateTime::now_utc(),
+        image_payload.clone(),
+    );
+    let persisted = match product_listings
+        .in_transaction(&mut tx)
+        .update(
+            &image_changed,
+            version,
+            image_event.event_id,
+            ProductListingWriteEffects::from(&image_payload),
+        )
+        .await
+    {
+        Ok(product) => product,
+        Err(error) => panic!("failed to update product images: {error:?}"),
+    };
+    assert_eq!(3, persisted.version.into_inner());
+    match events.in_transaction(&mut tx).append(&image_event).await {
+        Ok(()) => {}
+        Err(error) => panic!("failed to append image event: {error:?}"),
+    }
+    commit(tx).await;
+
+    let (embedding_source_event_id, has_embedding, version, projection_version):
+        (uuid::Uuid, bool, i64, i64) = sqlx::query_as(
+        "SELECT embedding_source_event_id, embedding IS NOT NULL, version, projection_version FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product.id()))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to load image-updated revisions: {error}"));
+    assert_eq!(
+        uuid::Uuid::from(image_event.event_id),
+        embedding_source_event_id
+    );
+    assert!(!has_embedding);
+    assert_eq!(3, version);
+    assert_eq!(3, projection_version);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -151,27 +312,26 @@ async fn should_round_trip_immutable_sale_observation_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
-    let events = SqlxProductListingEventStoreFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
     let listing_source_id =
         seed_listing_source(&pool, "product-listing-postgres-sale-source").await;
     let fx_rate_id = FxRateId::new();
     seed_complete_fx_snapshot(&pool, fx_rate_id).await;
     let observation = ListingSaleObservation::new(OffsetDateTime::UNIX_EPOCH, fx_rate_id);
     let mut product = sample_product("postgres-product-sale", listing_source_id);
+    let _discovery = product.take_pending_event_payload();
     let transition = product.record_sale_observation(observation);
     assert!(matches!(
         transition,
         Ok(domain_primitives::change_outcome::ChangeOutcome::Changed)
     ));
-    let observation_events = stamp_product_listing_events(
-        product.id(),
-        OffsetDateTime::now_utc(),
-        product.pending_event_payloads().to_vec(),
-    );
-    let current_event_id = match observation_events.last() {
-        Some(event) => event.event_id,
-        None => panic!("listing with a sale observation is missing events"),
+    let payload = match product.take_pending_event_payload() {
+        Some(payload) => payload,
+        None => panic!("listing with a sale observation is missing an event"),
     };
+    let observation_event =
+        stamp_product_listing_event(product.id(), OffsetDateTime::now_utc(), payload);
+    let current_event_id = observation_event.event_id;
 
     let mut tx = begin(&unit_of_work).await;
     match product_listings
@@ -182,11 +342,13 @@ async fn should_round_trip_immutable_sale_observation_in_postgres() {
         Ok(_) => {}
         Err(error) => panic!("failed to insert listing with sale observation: {error:?}"),
     }
-    for event in &observation_events {
-        match events.in_transaction(&mut tx).append(event).await {
-            Ok(()) => {}
-            Err(error) => panic!("failed to append sold product event: {error:?}"),
-        }
+    match events
+        .in_transaction(&mut tx)
+        .append(&observation_event)
+        .await
+    {
+        Ok(()) => {}
+        Err(error) => panic!("failed to append sold product event: {error:?}"),
     }
     commit(tx).await;
 
@@ -277,7 +439,7 @@ async fn should_persist_canonical_source_listing_id_after_unicode_whitespace_inp
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
-    let events = SqlxProductListingEventStoreFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
     let listing_source_id =
         seed_listing_source(&pool, "product-listing-postgres-unicode-source-id").await;
     let source_listing_id = SourceListingId::try_from("\u{2003} SKU  #42/Blue \u{2002}")
@@ -323,7 +485,7 @@ async fn should_map_source_listing_key_conflict_to_source_listing_already_exists
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
-    let events = SqlxProductListingEventStoreFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
     let listing_source_id =
         seed_listing_source(&pool, "product-listing-postgres-source-key-conflict").await;
     let first = sample_product("postgres-product-source-key-first", listing_source_id);
@@ -352,7 +514,7 @@ async fn should_map_title_slug_conflict_to_product_listing_title_slug_already_ex
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
-    let events = SqlxProductListingEventStoreFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
     let first_listing_source_id =
         seed_listing_source(&pool, "product-listing-postgres-title-slug-first").await;
     let second_listing_source_id =
@@ -386,7 +548,7 @@ async fn should_map_unclassified_insert_conflict_to_generic_fallback() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
-    let events = SqlxProductListingEventStoreFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
     let first_listing_source_id =
         seed_listing_source(&pool, "product-listing-postgres-fallback-first").await;
     let second_listing_source_id =
@@ -427,22 +589,27 @@ async fn should_report_product_update_conflict_when_product_row_is_missing() {
         let mut tx = begin(&unit_of_work).await;
         product_listings
             .in_transaction(&mut tx)
-            .update(&product, EventId::new(), EventId::new())
+            .update(
+                &product,
+                ProductListingStorageVersion::INITIAL,
+                EventId::new(),
+                ProductListingWriteEffects::default(),
+            )
             .await
     };
 
     assert!(matches!(
         result,
-        Err(ProductListingRepositoryError::ProductListingCurrentEventIdConflict)
+        Err(ProductListingRepositoryError::ConcurrencyConflict)
     ));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_report_product_update_conflict_when_event_id_is_stale() {
+async fn should_report_product_update_conflict_when_storage_version_is_stale() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
-    let events = SqlxProductListingEventStoreFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
     let listing_source_id =
         seed_listing_source(&pool, "product-listing-postgres-stale-source").await;
     let mut product = sample_product("postgres-product-stale", listing_source_id);
@@ -455,13 +622,19 @@ async fn should_report_product_update_conflict_when_event_id_is_stale() {
         let mut tx = begin(&unit_of_work).await;
         product_listings
             .in_transaction(&mut tx)
-            .update(&product, EventId::new(), EventId::new())
+            .update(
+                &product,
+                ProductListingStorageVersion::try_from(2_i64)
+                    .unwrap_or_else(|error| panic!("valid stale storage version: {error}")),
+                EventId::new(),
+                ProductListingWriteEffects::default(),
+            )
             .await
     };
 
     assert!(matches!(
         result,
-        Err(ProductListingRepositoryError::ProductListingCurrentEventIdConflict)
+        Err(ProductListingRepositoryError::ConcurrencyConflict)
     ));
 }
 
@@ -470,7 +643,7 @@ async fn should_roll_back_product_and_event_when_transaction_is_not_committed() 
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
-    let events = SqlxProductListingEventStoreFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
     let listing_source_id =
         seed_listing_source(&pool, "product-listing-postgres-rollback-source").await;
     let product = sample_product("postgres-product-rollback", listing_source_id);
@@ -532,7 +705,7 @@ async fn insert_product_row(
     let source_listing_id = SourceListingId::try_from(format!("{slug}-source-listing"))
         .unwrap_or_else(|error| panic!("valid source listing ID: {error}"));
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, lifecycle, url, sale_observation_fx_rate_id, sale_observed_at) VALUES ($1, $2, $3, $3, $4, $5, 'ACTIVE', 'https://example.test/product', $6, $7)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, lifecycle, url, sale_observation_fx_rate_id, sale_observed_at) VALUES ($1, $2, $3, $3, $3, $4, $5, 'ACTIVE', 'https://example.test/product', $6, $7)",
     )
     .bind(product_listing_id)
     .bind(title_slug(slug, product_listing_id))
@@ -544,10 +717,21 @@ async fn insert_product_row(
     .execute(&mut *tx)
     .await?;
     sqlx::query(
-        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())",
+        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, $3, now())",
     )
     .bind(event_id)
     .bind(product_listing_id)
+    .bind(serde_json::json!({
+        "listingSourceId": listing_source_id.to_string(),
+        "sourceListingId": source_listing_id.as_ref(),
+        "title": null,
+        "description": null,
+        "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+        "availability": null,
+        "url": "https://example.test/product",
+        "imageCount": 0,
+        "auction": {"start": null, "end": null}
+    }))
     .execute(&mut *tx)
     .await?;
     tx.commit().await
@@ -563,7 +747,7 @@ fn assert_check_violation(result: Result<(), sqlx::Error>) {
 async fn insert_product_with_event(
     unit_of_work: &SqlxUnitOfWork,
     product_listings: &SqlxProductListingRepositoryFactory,
-    events: &SqlxProductListingEventStoreFactory,
+    events: &SqlxProductListingEventAppenderFactory,
     product: &ProductListing,
 ) {
     let event = first_stamped_event(product);
@@ -585,18 +769,13 @@ async fn insert_product_with_event(
 
 fn first_stamped_event(
     product: &ProductListing,
-) -> product_listing_service::ports::product_listing_event_store::ProductListingEvent {
-    match stamp_product_listing_events(
-        product.id(),
-        OffsetDateTime::now_utc(),
-        product.pending_event_payloads().to_vec(),
-    )
-    .into_iter()
-    .next()
-    {
-        Some(event) => event,
+) -> product_listing_service::ports::product_listing_event_appender::ProductListingEvent {
+    let mut product = product.clone();
+    let payload = match product.take_pending_event_payload() {
+        Some(payload) => payload,
         None => panic!("product is missing a pending event payload"),
-    }
+    };
+    stamp_product_listing_event(product.id(), OffsetDateTime::now_utc(), payload)
 }
 
 fn title_slug(prefix: &str, product_listing_id: uuid::Uuid) -> String {

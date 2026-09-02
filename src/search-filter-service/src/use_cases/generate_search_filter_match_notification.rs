@@ -18,9 +18,7 @@ use notification_service::ports::notification_creator::{
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::ports::{
     ProductListingContentAssessmentReadError, ProductListingContentAssessmentSnapshotReader,
-    ProductListingContentAssessmentSnapshotReaderFactory, ProductListingCurrentRevisionCheck,
-    ProductListingCurrentRevisionCheckError, ProductListingCurrentRevisionGuard,
-    ProductListingCurrentRevisionGuardFactory, ProductListingSearchFilterMatchSource,
+    ProductListingContentAssessmentSnapshotReaderFactory, ProductListingSearchFilterMatchSource,
     ProductListingSearchFilterMatchSourceReadError, ProductListingSearchFilterMatchSourceReader,
     ProductListingSearchFilterMatchSourceReaderFactory,
 };
@@ -48,7 +46,7 @@ pub enum GenerateSearchFilterMatchNotificationResult {
     SuppressedForStaleMatch,
 
     SuppressedForMissingProductListing,
-    SuppressedForStaleProductListingEvent,
+    SuppressedForWithdrawnProductListing,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -81,11 +79,6 @@ pub enum GenerateSearchFilterMatchNotificationError {
     },
     #[error("product notification source does not match the requested event or product")]
     ProductListingSourceMismatch,
-    #[error("product current revision check failed")]
-    ProductListingCurrentRevisionCheckFailed {
-        #[source]
-        source: BoxError,
-    },
     #[error("product content assessment snapshot read failed")]
     ContentAssessmentReadFailed {
         #[source]
@@ -129,18 +122,17 @@ pub trait GenerateSearchFilterMatchNotificationUseCase: Send + Sync {
     >;
 }
 
-pub struct GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, C, N> {
+pub struct GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, C, N> {
     unit_of_work: U,
     matches: M,
     product_listings: P,
     quotas: Q,
     tier_entitlements: A,
-    product_revision_guard: G,
     content_assessments: C,
     notifications: N,
 }
 
-impl<U, M, P, Q, A, G, C, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, C, N> {
+impl<U, M, P, Q, A, C, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, C, N> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         unit_of_work: U,
@@ -148,7 +140,6 @@ impl<U, M, P, Q, A, G, C, N> GenerateSearchFilterMatchNotificationHandler<U, M, 
         product_listings: P,
         quotas: Q,
         tier_entitlements: A,
-        product_revision_guard: G,
         content_assessments: C,
         notifications: N,
     ) -> Self {
@@ -158,7 +149,6 @@ impl<U, M, P, Q, A, G, C, N> GenerateSearchFilterMatchNotificationHandler<U, M, 
             product_listings,
             quotas,
             tier_entitlements,
-            product_revision_guard,
             content_assessments,
             notifications,
         }
@@ -166,15 +156,14 @@ impl<U, M, P, Q, A, G, C, N> GenerateSearchFilterMatchNotificationHandler<U, M, 
 }
 
 #[async_trait::async_trait]
-impl<U, M, P, Q, A, G, C, N> GenerateSearchFilterMatchNotificationUseCase
-    for GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, C, N>
+impl<U, M, P, Q, A, C, N> GenerateSearchFilterMatchNotificationUseCase
+    for GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, C, N>
 where
     U: UnitOfWork,
     M: SearchFilterMatchNotificationSourceReaderFactory<U::Tx>,
     P: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
     Q: SearchFilterMonthlyMatchQuotaReaderFactory<U::Tx>,
     A: UserTierEntitlementsFactory<U::Tx>,
-    G: ProductListingCurrentRevisionGuardFactory<U::Tx>,
     C: ProductListingContentAssessmentSnapshotReaderFactory<U::Tx>,
     N: NotificationCreatorFactory<U::Tx>,
 {
@@ -238,20 +227,10 @@ where
         {
             return Err(GenerateSearchFilterMatchNotificationError::ProductListingSourceMismatch);
         }
-        let revision = self
-            .product_revision_guard
-            .in_transaction(&mut tx)
-            .lock_and_check(command.product_listing_id, command.origin_event_id)
-            .await
-            .map_err(|source: ProductListingCurrentRevisionCheckError| {
-                GenerateSearchFilterMatchNotificationError::ProductListingCurrentRevisionCheckFailed {
-                    source: box_error(source),
-                }
-            })?;
-        if revision == ProductListingCurrentRevisionCheck::Stale {
+        if product.lifecycle != product_listing_core::listing_lifecycle::ListingLifecycle::Active {
             tx.commit().await.map_err(commit_error)?;
             return Ok(
-                GenerateSearchFilterMatchNotificationResult::SuppressedForStaleProductListingEvent,
+                GenerateSearchFilterMatchNotificationResult::SuppressedForWithdrawnProductListing,
             );
         }
 
@@ -468,6 +447,7 @@ mod tests {
         quota_reads: usize,
         notification_commit_counts: Vec<usize>,
         notification_content_policies: Vec<Option<ContentPolicyDecision>>,
+        content_assessment_reads: usize,
     }
 
     #[derive(Clone)]
@@ -558,56 +538,21 @@ mod tests {
     }
 
     #[derive(Clone, Copy)]
-    enum ProductListingRevisionCheckOutcome {
-        Current,
-        Stale,
-        Error,
-    }
-
-    struct ProductListingRevisionGuards(ProductListingRevisionCheckOutcome);
-    struct ProductListingRevisionGuard(ProductListingRevisionCheckOutcome);
-
-    #[async_trait::async_trait]
-    impl ProductListingCurrentRevisionGuard for ProductListingRevisionGuard {
-        async fn lock_and_check(
-            &mut self,
-            _product_listing_id: ProductListingId,
-            _expected_event_id: EventId,
-        ) -> Result<ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError>
-        {
-            match self.0 {
-                ProductListingRevisionCheckOutcome::Current => {
-                    Ok(ProductListingCurrentRevisionCheck::Current)
-                }
-                ProductListingRevisionCheckOutcome::Stale => {
-                    Ok(ProductListingCurrentRevisionCheck::Stale)
-                }
-                ProductListingRevisionCheckOutcome::Error => {
-                    Err(ProductListingCurrentRevisionCheckError::CheckFailed {
-                        source: box_error(std::io::Error::other("guard read failed")),
-                    })
-                }
-            }
-        }
-    }
-
-    impl ProductListingCurrentRevisionGuardFactory<TestTransaction> for ProductListingRevisionGuards {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _tx: &'tx mut TestTransaction,
-        ) -> impl ProductListingCurrentRevisionGuard + 'tx {
-            ProductListingRevisionGuard(self.0)
-        }
-    }
-
-    #[derive(Clone, Copy)]
-    enum ContentAssessments {
+    enum ContentAssessmentOutcome {
         Found(Option<ContentPolicyDecision>),
         QueryFailure,
         InvalidPersistedState,
     }
 
-    struct ContentAssessmentReader(ContentAssessments);
+    struct ContentAssessments {
+        state: Arc<Mutex<State>>,
+        outcome: ContentAssessmentOutcome,
+    }
+
+    struct ContentAssessmentReader {
+        state: Arc<Mutex<State>>,
+        outcome: ContentAssessmentOutcome,
+    }
 
     #[async_trait::async_trait]
     impl ProductListingContentAssessmentSnapshotReader for ContentAssessmentReader {
@@ -616,14 +561,17 @@ mod tests {
             _product_listing_id: ProductListingId,
         ) -> Result<Option<ContentPolicyDecision>, ProductListingContentAssessmentReadError>
         {
-            match self.0 {
-                ContentAssessments::Found(decision) => Ok(decision),
-                ContentAssessments::QueryFailure => {
+            if let Ok(mut state) = self.state.lock() {
+                state.content_assessment_reads += 1;
+            }
+            match self.outcome {
+                ContentAssessmentOutcome::Found(decision) => Ok(decision),
+                ContentAssessmentOutcome::QueryFailure => {
                     Err(ProductListingContentAssessmentReadError::QueryFailed {
                         source: box_error(std::io::Error::other("assessment query failed")),
                     })
                 }
-                ContentAssessments::InvalidPersistedState => Err(
+                ContentAssessmentOutcome::InvalidPersistedState => Err(
                     ProductListingContentAssessmentReadError::InvalidPersistedState {
                         source: box_error(std::io::Error::other("assessment state invalid")),
                     },
@@ -637,11 +585,20 @@ mod tests {
             &'tx self,
             _tx: &'tx mut TestTransaction,
         ) -> impl ProductListingContentAssessmentSnapshotReader + 'tx {
-            match self {
-                Self::Found(decision) => ContentAssessmentReader(Self::Found(*decision)),
-                Self::QueryFailure => ContentAssessmentReader(Self::QueryFailure),
-                Self::InvalidPersistedState => ContentAssessmentReader(Self::InvalidPersistedState),
+            ContentAssessmentReader {
+                state: Arc::clone(&self.state),
+                outcome: self.outcome,
             }
+        }
+    }
+
+    fn content_assessments(
+        state: &Arc<Mutex<State>>,
+        outcome: ContentAssessmentOutcome,
+    ) -> ContentAssessments {
+        ContentAssessments {
+            state: Arc::clone(state),
+            outcome,
         }
     }
 
@@ -845,8 +802,10 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
-            ContentAssessments::Found(Some(ContentPolicyDecision::Allowed)),
+            content_assessments(
+                &state,
+                ContentAssessmentOutcome::Found(Some(ContentPolicyDecision::Allowed)),
+            ),
             Notifications(Arc::clone(&state)),
         );
 
@@ -876,10 +835,12 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
-            ContentAssessments::Found(Some(ContentPolicyDecision::RequiresConsent(
-                SensitiveContentCategory::NaziGermany,
-            ))),
+            content_assessments(
+                &state,
+                ContentAssessmentOutcome::Found(Some(ContentPolicyDecision::RequiresConsent(
+                    SensitiveContentCategory::NaziGermany,
+                ))),
+            ),
             Notifications(Arc::clone(&state)),
         );
 
@@ -909,8 +870,7 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
-            ContentAssessments::Found(None),
+            content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             DuplicateNotifications,
         );
 
@@ -937,8 +897,7 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
-            ContentAssessments::Found(None),
+            content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             Notifications(Arc::clone(&state)),
         );
 
@@ -955,71 +914,61 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_suppress_stale_product_event_without_reading_quota_or_creating_notification()
+    async fn should_suppress_withdrawn_current_product_before_assessment_snapshot()
     -> Result<(), Box<dyn Error>> {
         let state = Arc::new(Mutex::new(State::default()));
-        let (command, match_source, product) = sources()?;
+        let (command, match_source, mut product) = sources()?;
+        product.lifecycle = ListingLifecycle::Withdrawn;
         let handler = GenerateSearchFilterMatchNotificationHandler::new(
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::Found(Some(match_source)),
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Stale),
-            ContentAssessments::Found(None),
+            content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             Notifications(Arc::clone(&state)),
         );
 
         assert_eq!(
-            GenerateSearchFilterMatchNotificationResult::SuppressedForStaleProductListingEvent,
+            GenerateSearchFilterMatchNotificationResult::SuppressedForWithdrawnProductListing,
             handler.execute(command).await?
         );
         let state = state
             .lock()
             .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
         assert_eq!(1, state.commits);
+        assert_eq!(0, state.content_assessment_reads);
         assert_eq!(0, state.quota_reads);
         assert!(state.notification_commit_counts.is_empty());
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_return_typed_revision_check_failure_without_reading_quota_or_creating_notification()
+    async fn should_create_notification_when_current_product_has_unrelated_newer_event()
     -> Result<(), Box<dyn Error>> {
         let state = Arc::new(Mutex::new(State::default()));
-        let (command, match_source, product) = sources()?;
+        let (command, match_source, mut product) = sources()?;
+        product.current_event_id = EventId::new();
         let handler = GenerateSearchFilterMatchNotificationHandler::new(
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::Found(Some(match_source)),
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Error),
-            ContentAssessments::Found(None),
+            content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             Notifications(Arc::clone(&state)),
         );
 
-        let error = handler
-            .execute(command)
-            .await
-            .err()
-            .ok_or_else(|| std::io::Error::other("expected error"))?;
-        assert!(matches!(
-            &error,
-            GenerateSearchFilterMatchNotificationError::ProductListingCurrentRevisionCheckFailed { .. }
-        ));
-        assert!(matches!(
-            Error::source(&error).and_then(|source| {
-                source.downcast_ref::<ProductListingCurrentRevisionCheckError>()
-            }),
-            Some(ProductListingCurrentRevisionCheckError::CheckFailed { .. })
-        ));
+        assert_eq!(
+            GenerateSearchFilterMatchNotificationResult::Created,
+            handler.execute(command).await?
+        );
         let state = state
             .lock()
             .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
-        assert_eq!(0, state.commits);
-        assert_eq!(0, state.quota_reads);
-        assert!(state.notification_commit_counts.is_empty());
+        assert_eq!(1, state.content_assessment_reads);
+        assert_eq!(1, state.quota_reads);
+        assert_eq!(vec![0], state.notification_commit_counts);
         Ok(())
     }
 
@@ -1033,8 +982,7 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
-            ContentAssessments::QueryFailure,
+            content_assessments(&state, ContentAssessmentOutcome::QueryFailure),
             Notifications(Arc::clone(&state)),
         );
 
@@ -1061,8 +1009,7 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
-            ContentAssessments::InvalidPersistedState,
+            content_assessments(&state, ContentAssessmentOutcome::InvalidPersistedState),
             Notifications(state),
         );
 
@@ -1090,8 +1037,7 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            ProductListingRevisionGuards(ProductListingRevisionCheckOutcome::Current),
-            ContentAssessments::Found(None),
+            content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             Notifications(state),
         );
 

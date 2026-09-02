@@ -28,11 +28,10 @@ use product_listing_core::{
 
 use product_listing_core::product_listing_search::ProductListingSearch;
 use product_listing_service::ports::{
-    CompiledProductListingSearch, ProductListingCurrentRevisionCheck,
-    ProductListingCurrentRevisionGuard, ProductListingCurrentRevisionGuardFactory,
-    ProductListingCurrentRevisionRef, ProductListingPriceFilterPlan,
-    ProductListingSearchFilterMatchSource, ProductListingSearchFilterMatchSourceReadError,
-    ProductListingSearchFilterMatchSourceReader,
+    CompiledProductListingSearch, ProductListingCurrentEventCheck, ProductListingCurrentEventGuard,
+    ProductListingCurrentEventGuardFactory, ProductListingCurrentEventRef,
+    ProductListingPriceFilterPlan, ProductListingSearchFilterMatchSource,
+    ProductListingSearchFilterMatchSourceReadError, ProductListingSearchFilterMatchSourceReader,
     ProductListingSearchFilterMatchSourceReaderFactory, ProductListingSearchFilterMatchSourceRef,
     ProductListingSearchReadError, ProductListingSearchReadRequest, ProductListingSearchReader,
 };
@@ -80,6 +79,7 @@ pub struct PeriodicSearchFilterMatchingReport {
     pub candidates_existing: usize,
     pub candidates_missing_source: usize,
     pub candidates_stale: usize,
+    pub candidates_withdrawn: usize,
     pub candidates_rejected: usize,
     pub permanent_evaluation_failures: usize,
     pub retryable_evaluation_failures: usize,
@@ -93,6 +93,7 @@ struct FilterAttemptReport {
     candidates_existing: usize,
     candidates_missing_source: usize,
     candidates_stale: usize,
+    candidates_withdrawn: usize,
     candidates_rejected: usize,
     permanent_evaluation_failures: usize,
     retryable_evaluation_failures: usize,
@@ -106,6 +107,7 @@ impl PeriodicSearchFilterMatchingReport {
         self.candidates_existing += attempt.candidates_existing;
         self.candidates_missing_source += attempt.candidates_missing_source;
         self.candidates_stale += attempt.candidates_stale;
+        self.candidates_withdrawn += attempt.candidates_withdrawn;
         self.candidates_rejected += attempt.candidates_rejected;
         self.permanent_evaluation_failures += attempt.permanent_evaluation_failures;
         self.retryable_evaluation_failures += attempt.retryable_evaluation_failures;
@@ -205,8 +207,8 @@ pub enum RunPeriodicSearchFilterMatchingError {
         #[source]
         source: BoxError,
     },
-    #[error("ProductListing revision check failed")]
-    ProductListingRevisionCheckFailed {
+    #[error("ProductListing current event check failed")]
+    ProductListingCurrentEventCheckFailed {
         #[source]
         source: BoxError,
     },
@@ -244,7 +246,7 @@ pub struct RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, 
     existing_matches: X,
     sources: S,
     evaluator: E,
-    revisions: G,
+    current_event_guard: G,
     matches: W,
     progress: Q,
     policy: PeriodicSearchFilterMatchingPolicy,
@@ -263,7 +265,7 @@ impl<U, L, C, F, P, X, S, E, G, W, Q>
         existing_matches: X,
         sources: S,
         evaluator: E,
-        revisions: G,
+        current_event_guard: G,
         matches: W,
         progress: Q,
         policy: PeriodicSearchFilterMatchingPolicy,
@@ -283,7 +285,7 @@ impl<U, L, C, F, P, X, S, E, G, W, Q>
             existing_matches,
             sources,
             evaluator,
-            revisions,
+            current_event_guard,
             matches,
             progress,
             policy,
@@ -303,7 +305,7 @@ where
     X: ExistingSearchFilterMatchReader,
     S: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
     E: LargeLanguageModel,
-    G: ProductListingCurrentRevisionGuardFactory<U::Tx>,
+    G: ProductListingCurrentEventGuardFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
     Q: PeriodicSearchFilterProgressFactory<U::Tx>,
 {
@@ -342,7 +344,7 @@ where
     X: ExistingSearchFilterMatchReader,
     S: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
     E: LargeLanguageModel,
-    G: ProductListingCurrentRevisionGuardFactory<U::Tx>,
+    G: ProductListingCurrentEventGuardFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
     Q: PeriodicSearchFilterProgressFactory<U::Tx>,
 {
@@ -369,6 +371,7 @@ where
             candidates_existing: 0,
             candidates_missing_source: 0,
             candidates_stale: 0,
+            candidates_withdrawn: 0,
             candidates_rejected: 0,
             permanent_evaluation_failures: 0,
             retryable_evaluation_failures: 0,
@@ -498,6 +501,7 @@ where
             filters_completed = report.filters_completed,
             filters_failed = report.filters_failed,
             candidates_scanned = report.candidates_scanned,
+            candidates_withdrawn = report.candidates_withdrawn,
             matches_inserted = report.matches_inserted,
             matches_duplicate = report.matches_duplicate,
             "search_filter.periodic_match.completed"
@@ -555,8 +559,19 @@ where
             .await
             .map_err(product_search_error)?;
         report.candidates_scanned += result.items.len();
-        let ids = result
+        let candidates = result
             .items
+            .into_iter()
+            .filter(|item| {
+                if is_withdrawn_candidate(item.lifecycle) {
+                    report.candidates_withdrawn += 1;
+                    false
+                } else {
+                    true
+                }
+            })
+            .collect::<Vec<_>>();
+        let ids = candidates
             .iter()
             .map(|item| item.product_listing_id)
             .collect::<Vec<_>>();
@@ -570,8 +585,7 @@ where
                 },
             )?;
         report.candidates_existing += existing.len();
-        let refs = result
-            .items
+        let refs = candidates
             .into_iter()
             .filter(|item| !existing.contains(&item.product_listing_id))
             .take(self.policy.evaluation_limit.get())
@@ -593,6 +607,9 @@ where
                 }
                 Some(source) if source.current_event_id != reference.event_id => {
                     report.candidates_stale += 1
+                }
+                Some(source) if is_withdrawn_candidate(source.lifecycle) => {
+                    report.candidates_withdrawn += 1
                 }
                 Some(source) => evaluations.push(ProductListingMatchEvaluationRequest {
                     key: reference,
@@ -735,36 +752,39 @@ where
         }
         let refs = matches
             .iter()
-            .map(|item| ProductListingCurrentRevisionRef {
+            .map(|item| ProductListingCurrentEventRef {
                 product_listing_id: item.product_listing_id,
                 expected_event_id: item.origin_event_id,
             })
             .collect::<Vec<_>>();
         let checks = self
-            .revisions
+            .current_event_guard
             .in_transaction(&mut tx)
             .lock_and_check_all(&refs)
             .await
             .map_err(|source| {
-                RunPeriodicSearchFilterMatchingError::ProductListingRevisionCheckFailed {
+                RunPeriodicSearchFilterMatchingError::ProductListingCurrentEventCheckFailed {
                     source: box_error(source),
                 }
             })?;
         let matches = matches
             .into_iter()
             .filter(|item| {
-                checks.get(&ProductListingCurrentRevisionRef {
+                checks.get(&ProductListingCurrentEventRef {
                     product_listing_id: item.product_listing_id,
                     expected_event_id: item.origin_event_id,
-                }) == Some(&ProductListingCurrentRevisionCheck::Current)
+                }) == Some(&ProductListingCurrentEventCheck::Current)
             })
             .collect::<Vec<_>>();
-        let persisted = self
-            .matches
-            .in_transaction(&mut tx)
-            .insert_all_if_absent(&matches)
-            .await
-            .map_err(match_write_error)?;
+        let persisted = if matches.is_empty() {
+            Default::default()
+        } else {
+            self.matches
+                .in_transaction(&mut tx)
+                .insert_all_if_absent(&matches)
+                .await
+                .map_err(match_write_error)?
+        };
         if advance_progress {
             let progress = self
                 .progress
@@ -819,7 +839,7 @@ impl RunPeriodicSearchFilterMatchingError {
             | Self::CommitProductListingSourceTransactionFailed { .. }
             | Self::BeginFinalTransactionFailed { .. }
             | Self::ProgressFailed { .. }
-            | Self::ProductListingRevisionCheckFailed { .. }
+            | Self::ProductListingCurrentEventCheckFailed { .. }
             | Self::MatchPersistenceFailed { .. }
             | Self::CommitFinalTransactionFailed { .. } => FilterRetryClass::Retryable,
             Self::InvalidPolicy
@@ -991,6 +1011,10 @@ fn product_search_error(
         }
     }
 }
+fn is_withdrawn_candidate(lifecycle: ListingLifecycle) -> bool {
+    lifecycle == ListingLifecycle::Withdrawn
+}
+
 fn applicable_sale_observation(
     source: &ProductListingSearchFilterMatchSource,
 ) -> Option<product_listing_core::product_listing::ListingSaleObservation> {
@@ -1050,23 +1074,37 @@ mod tests {
         FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use fxrate_service::ports::FxRateSnapshotInsertOutcome;
+    use indexmap::IndexSet;
     use large_language_model::{LargeLanguageModelError, StructuredGenerationRequest};
+    use listing_source_core::ListingSourceId;
     use localization::Language;
     use money::Currency;
-    use product_listing_core::product_listing_id::ProductListingId;
+    use product_listing_core::{
+        listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId,
+        product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
+    };
+    use product_listing_service::use_cases::queries::search_product_listings::{
+        ProductListingSearchItem, ProductListingSearchReadResult,
+        ProductListingSummaryPriceValuation,
+    };
     use search_filter_core::{
         search_filter_state::SearchFilterState, user_search_filter_name::UserSearchFilterName,
     };
     use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
     use strum::IntoEnumIterator;
+    use url::Url;
     use user_core::user_id::UserId;
 
     #[derive(Debug)]
     struct State {
         lock_outcome: PeriodicSearchFilterProgressLockOutcome,
+        current_event_check: ProductListingCurrentEventCheck,
+        product_listing_search_result: Option<ProductListingSearchReadResult>,
+        evaluator_calls: usize,
+        match_writer_calls: usize,
         commits: usize,
-        revision_checks: usize,
+        event_checks: usize,
         persisted: Vec<SearchFilterProductListingMatch>,
         checkpoints: usize,
     }
@@ -1179,7 +1217,7 @@ mod tests {
         }
     }
 
-    struct NoopProductListings;
+    struct NoopProductListings(Arc<Mutex<State>>);
 
     #[async_trait::async_trait]
     impl ProductListingSearchReader for NoopProductListings {
@@ -1201,7 +1239,13 @@ mod tests {
             product_listing_service::use_cases::queries::search_product_listings::ProductListingSearchReadResult,
             ProductListingSearchReadError,
         >{
-            Err(ProductListingSearchReadError::ProductListingSearchQueryFailed)
+            self.0
+                .lock()
+                .map(|state| match &state.product_listing_search_result {
+                    Some(result) => result.clone(),
+                    None => Default::default(),
+                })
+                .map_err(|_| ProductListingSearchReadError::ProductListingSearchQueryFailed)
         }
     }
 
@@ -1244,7 +1288,7 @@ mod tests {
         }
     }
 
-    struct NoopEvaluator;
+    struct NoopEvaluator(Arc<Mutex<State>>);
 
     #[async_trait::async_trait]
     impl LargeLanguageModel for NoopEvaluator {
@@ -1255,6 +1299,12 @@ mod tests {
         where
             Output: serde::de::DeserializeOwned + Send,
         {
+            self.0
+                .lock()
+                .map_err(|_| LargeLanguageModelError::Permanent {
+                    source: box_error(std::io::Error::other("test mutex poisoned")),
+                })?
+                .evaluator_calls += 1;
             Err(LargeLanguageModelError::Permanent {
                 source: box_error(std::io::Error::other("unused test evaluator")),
             })
@@ -1262,36 +1312,36 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct FakeRevisions(Arc<Mutex<State>>);
+    struct FakeCurrentEvents(Arc<Mutex<State>>);
 
-    struct CheckingRevisions<'a>(&'a Arc<Mutex<State>>);
+    struct CheckingCurrentEvents<'a>(&'a Arc<Mutex<State>>);
 
     #[async_trait::async_trait]
-    impl ProductListingCurrentRevisionGuard for CheckingRevisions<'_> {
+    impl ProductListingCurrentEventGuard for CheckingCurrentEvents<'_> {
         async fn lock_and_check(
             &mut self,
             _product_listing_id: ProductListingId,
             _expected_event_id: EventId,
         ) -> Result<
-            ProductListingCurrentRevisionCheck,
-            product_listing_service::ports::ProductListingCurrentRevisionCheckError,
+            ProductListingCurrentEventCheck,
+            product_listing_service::ports::ProductListingCurrentEventCheckError,
         > {
             let mut state = self.0.lock().map_err(|_| {
-                product_listing_service::ports::ProductListingCurrentRevisionCheckError::CheckFailed {
+                product_listing_service::ports::ProductListingCurrentEventCheckError::CheckFailed {
                     source: box_error(std::io::Error::other("test mutex poisoned")),
                 }
             })?;
-            state.revision_checks += 1;
-            Ok(ProductListingCurrentRevisionCheck::Current)
+            state.event_checks += 1;
+            Ok(state.current_event_check)
         }
     }
 
-    impl ProductListingCurrentRevisionGuardFactory<FakeTransaction> for FakeRevisions {
+    impl ProductListingCurrentEventGuardFactory<FakeTransaction> for FakeCurrentEvents {
         fn in_transaction<'tx>(
             &'tx self,
             _tx: &'tx mut FakeTransaction,
-        ) -> impl ProductListingCurrentRevisionGuard + 'tx {
-            CheckingRevisions(&self.0)
+        ) -> impl ProductListingCurrentEventGuard + 'tx {
+            CheckingCurrentEvents(&self.0)
         }
     }
 
@@ -1312,6 +1362,7 @@ mod tests {
                     .map_err(|_| SearchFilterMatchWriteError::WriteFailed {
                         source: box_error(std::io::Error::other("test mutex poisoned")),
                     })?;
+            state.match_writer_calls += 1;
             state.persisted.push(product_match.clone());
             Ok(SearchFilterMatchPersistOutcome::Inserted)
         }
@@ -1383,7 +1434,7 @@ mod tests {
         NoopExistingMatches,
         NoopSources,
         NoopEvaluator,
-        FakeRevisions,
+        FakeCurrentEvents,
         FakeMatches,
         FakeProgress,
     >;
@@ -1391,8 +1442,12 @@ mod tests {
     fn state(lock_outcome: PeriodicSearchFilterProgressLockOutcome) -> Arc<Mutex<State>> {
         Arc::new(Mutex::new(State {
             lock_outcome,
+            current_event_check: ProductListingCurrentEventCheck::Current,
+            product_listing_search_result: None,
+            evaluator_calls: 0,
+            match_writer_calls: 0,
             commits: 0,
-            revision_checks: 0,
+            event_checks: 0,
             persisted: Vec::new(),
             checkpoints: 0,
         }))
@@ -1404,11 +1459,11 @@ mod tests {
             NoopRunLock,
             NoopCandidates,
             NoopFxRates,
-            NoopProductListings,
+            NoopProductListings(Arc::clone(&state)),
             NoopExistingMatches,
             NoopSources,
-            NoopEvaluator,
-            FakeRevisions(Arc::clone(&state)),
+            NoopEvaluator(Arc::clone(&state)),
+            FakeCurrentEvents(Arc::clone(&state)),
             FakeMatches(Arc::clone(&state)),
             FakeProgress(state),
             PeriodicSearchFilterMatchingPolicy {
@@ -1435,6 +1490,73 @@ mod tests {
             created: OffsetDateTime::UNIX_EPOCH,
             matched_through: OffsetDateTime::UNIX_EPOCH,
         }
+    }
+
+    fn withdrawn_search_result()
+    -> Result<ProductListingSearchReadResult, Box<dyn std::error::Error>> {
+        let mut result = ProductListingSearchReadResult::default();
+        result.items.push(ProductListingSearchItem {
+            product_listing_id: ProductListingId::new(),
+            product_listing_title_slug_id: ProductListingSlugId::raw("withdrawn-a1b2c3")?,
+            event_id: EventId::new(),
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("withdrawn-1")?,
+            title: None,
+            display_price: None,
+            price_valuation: ProductListingSummaryPriceValuation::Current {
+                fx_rate_id: FxRateId::new(),
+                captured_at: OffsetDateTime::UNIX_EPOCH,
+            },
+            availability: None,
+            lifecycle: ListingLifecycle::Withdrawn,
+            url: Url::parse("https://example.test/withdrawn")?,
+            images: IndexSet::new(),
+            updated: OffsetDateTime::UNIX_EPOCH,
+        });
+        Ok(result)
+    }
+
+    #[tokio::test]
+    async fn should_skip_current_withdrawn_candidate_evaluation_and_match_write()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?
+            .product_listing_search_result = Some(withdrawn_search_result()?);
+        let handler = handler(Arc::clone(&state))?;
+        let mut filter = filter();
+        filter.embedding = Some(vec![0.1]);
+        filter.search.enhanced_search_description = Some(
+            product_listing_core::product_listing_search::EnhancedSearchDescription::try_from(
+                "withdrawn listing",
+            )?,
+        );
+        let mut attempt_report = FilterAttemptReport::default();
+
+        let outcome = handler
+            .process_filter(
+                &filter,
+                &test_snapshot(),
+                OffsetDateTime::UNIX_EPOCH + Duration::seconds(1),
+                &mut attempt_report,
+            )
+            .await?;
+
+        let state = state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
+        assert_eq!(FilterOutcome::Completed, outcome);
+        assert_eq!(1, attempt_report.candidates_scanned);
+        assert_eq!(1, attempt_report.candidates_withdrawn);
+        assert_eq!(0, state.evaluator_calls);
+        assert_eq!(0, state.match_writer_calls);
+        assert!(state.persisted.is_empty());
+        assert_eq!(1, state.checkpoints);
+        assert_eq!(1, state.commits);
+        Ok(())
     }
 
     #[test]
@@ -1530,6 +1652,7 @@ mod tests {
             candidates_existing: 0,
             candidates_missing_source: 0,
             candidates_stale: 0,
+            candidates_withdrawn: 0,
             candidates_rejected: 0,
             permanent_evaluation_failures: 0,
             retryable_evaluation_failures: 0,
@@ -1597,7 +1720,7 @@ mod tests {
         assert_eq!(FilterOutcome::AlreadyCovered, equal);
         assert_eq!(FilterOutcome::AlreadyCovered, older);
         assert_eq!(0, state.commits);
-        assert_eq!(0, state.revision_checks);
+        assert_eq!(0, state.event_checks);
         assert_eq!(0, state.checkpoints);
         assert_eq!(0, attempt_report.candidates_scanned);
         Ok(())
@@ -1627,7 +1750,7 @@ mod tests {
             .lock()
             .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
         assert_eq!(FilterOutcome::ProgressSuperseded, outcome);
-        assert_eq!(0, state.revision_checks);
+        assert_eq!(0, state.event_checks);
         assert!(state.persisted.is_empty());
         assert_eq!(0, state.checkpoints);
         assert_eq!(0, state.commits);
@@ -1656,7 +1779,7 @@ mod tests {
             .lock()
             .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
         assert_eq!(outcome, FilterOutcome::ChangedOrInactive);
-        assert_eq!(state.revision_checks, 0);
+        assert_eq!(state.event_checks, 0);
         assert!(state.persisted.is_empty());
         assert_eq!(state.checkpoints, 0);
         assert_eq!(state.commits, 0);
@@ -1689,11 +1812,49 @@ mod tests {
             .lock()
             .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
         assert_eq!(outcome, FilterOutcome::Completed);
-        assert_eq!(state.revision_checks, 1);
+        assert_eq!(state.event_checks, 1);
         assert_eq!(state.persisted, vec![accepted]);
         assert_eq!(state.checkpoints, 0);
         assert_eq!(state.commits, 1);
         assert_eq!(attempt_report.matches_inserted, 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_skip_stale_current_product_listing_match_and_advance_progress()
+    -> Result<(), RunPeriodicSearchFilterMatchingError> {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        state
+            .lock()
+            .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?
+            .current_event_check = ProductListingCurrentEventCheck::Stale;
+        let handler = handler(Arc::clone(&state))?;
+        let filter = filter();
+        let mut attempt_report = FilterAttemptReport::default();
+
+        let outcome = handler
+            .commit_filter(
+                &filter,
+                OffsetDateTime::UNIX_EPOCH + Duration::seconds(1),
+                vec![accepted_match(&filter)],
+                true,
+                &mut attempt_report,
+            )
+            .await?;
+
+        let state = state
+            .lock()
+            .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
+        assert_eq!(FilterOutcome::Completed, outcome);
+        assert_eq!(1, state.event_checks);
+        assert!(state.persisted.is_empty());
+        assert_eq!(1, state.checkpoints);
+        assert_eq!(1, state.commits);
+        assert_eq!(0, attempt_report.candidates_stale);
+        assert_eq!(0, attempt_report.matches_inserted);
+        assert_eq!(0, attempt_report.matches_duplicate);
         Ok(())
     }
 
@@ -1722,7 +1883,7 @@ mod tests {
             .lock()
             .map_err(|_| RunPeriodicSearchFilterMatchingError::InvalidPolicy)?;
         assert_eq!(outcome, FilterOutcome::Completed);
-        assert_eq!(state.revision_checks, 1);
+        assert_eq!(state.event_checks, 1);
         assert_eq!(state.persisted, vec![accepted]);
         assert_eq!(state.checkpoints, 1);
         assert_eq!(state.commits, 1);

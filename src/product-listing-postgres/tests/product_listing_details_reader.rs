@@ -17,7 +17,7 @@ use product_listing_core::{
     product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
 };
 use product_listing_postgres::{
-    SqlxProductListingDetailsReaderFactory, SqlxProductListingEventStoreFactory,
+    SqlxProductListingDetailsReaderFactory, SqlxProductListingEventAppenderFactory,
     SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::ports::{
@@ -25,9 +25,9 @@ use product_listing_service::ports::{
     ProductListingDetailsReadRequest,
 };
 use product_listing_service::ports::{
-    ProductListingDetailsReader, ProductListingDetailsReaderFactory, ProductListingEventStore,
-    ProductListingEventStoreFactory, ProductListingRepository, ProductListingRepositoryFactory,
-    stamp_product_listing_events,
+    ProductListingDetailsReader, ProductListingDetailsReaderFactory, ProductListingEventAppender,
+    ProductListingEventAppenderFactory, ProductListingRepository, ProductListingRepositoryFactory,
+    stamp_product_listing_event,
 };
 use product_listing_service::use_cases::queries::get_product_listing::ProductListingLookup;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -631,18 +631,13 @@ async fn persist_product_with_listing_source_slug(
 
 fn first_stamped_event(
     product: &ProductListing,
-) -> product_listing_service::ports::product_listing_event_store::ProductListingEvent {
-    match stamp_product_listing_events(
-        product.id(),
-        OffsetDateTime::now_utc(),
-        product.pending_event_payloads().to_vec(),
-    )
-    .into_iter()
-    .next()
-    {
-        Some(event) => event,
+) -> product_listing_service::ports::product_listing_event_appender::ProductListingEvent {
+    let mut product = product.clone();
+    let payload = match product.take_pending_event_payload() {
+        Some(payload) => payload,
         None => panic!("product is missing a pending event payload"),
-    }
+    };
+    stamp_product_listing_event(product.id(), OffsetDateTime::now_utc(), payload)
 }
 
 async fn persist_product_for_listing_source(
@@ -654,7 +649,7 @@ async fn persist_product_for_listing_source(
 ) -> ProductListing {
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let product_listings = SqlxProductListingRepositoryFactory::new();
-    let events = SqlxProductListingEventStoreFactory::new();
+    let events = SqlxProductListingEventAppenderFactory::new();
     let product = sample_product(slug, listing_source_id, title, description);
     let event = first_stamped_event(&product);
 
@@ -686,7 +681,7 @@ async fn insert_translation(
     let result = sqlx::query(
         r#"
         INSERT INTO product_listing_translations (product_listing_id, source_event_id, language, title, description)
-        SELECT product_listing_id, event_id, $2, $3, $4
+        SELECT product_listing_id, current_event_id, $2, $3, $4
         FROM product_listings
         WHERE product_listing_id = $1
         "#,
@@ -832,7 +827,7 @@ async fn event_id_for_product(
     product_listing_id: ProductListingId,
 ) -> EventId {
     let result = sqlx::query_scalar::<_, uuid::Uuid>(
-        "SELECT event_id FROM product_listings WHERE product_listing_id = $1",
+        "SELECT current_event_id FROM product_listings WHERE product_listing_id = $1",
     )
     .bind(uuid::Uuid::from(product_listing_id))
     .fetch_one(pool)

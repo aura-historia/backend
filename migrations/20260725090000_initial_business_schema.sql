@@ -177,8 +177,10 @@ CREATE TABLE fx_rate_quotes (
 CREATE TABLE product_listings (
     product_listing_id uuid PRIMARY KEY,
     product_listing_title_slug_id text NOT NULL,
-    event_id uuid NOT NULL,
+    version bigint NOT NULL DEFAULT 1,
+    current_event_id uuid NOT NULL,
     content_source_event_id uuid NOT NULL,
+    embedding_source_event_id uuid NOT NULL,
     listing_source_id uuid NOT NULL
         REFERENCES listing_sources(listing_source_id)
         ON DELETE CASCADE,
@@ -236,6 +238,7 @@ CREATE TABLE product_listings (
     CONSTRAINT product_listings_sale_observation_pair_check CHECK ((sale_observation_fx_rate_id IS NULL) = (sale_observed_at IS NULL)),
     CONSTRAINT product_listings_images_array CHECK (jsonb_typeof(product_images) = 'array'),
     CONSTRAINT product_listings_embedding_dimension_check CHECK (embedding IS NULL OR (array_ndims(embedding) = 1 AND cardinality(embedding) = 768)),
+    CONSTRAINT product_listings_version_positive CHECK (version >= 1),
     CONSTRAINT product_listings_projection_version_positive CHECK (projection_version >= 1),
     CONSTRAINT product_listings_auction_order_check CHECK (auction_start IS NULL OR auction_end IS NULL OR auction_start <= auction_end)
 );
@@ -264,25 +267,48 @@ CREATE TABLE product_listing_events (
     product_listing_id uuid NOT NULL REFERENCES product_listings(product_listing_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
     event_type text NOT NULL,
     event_group text NOT NULL,
-    event_type_schema_version int NOT NULL DEFAULT 1,
+    event_type_schema_version smallint NOT NULL,
     payload jsonb NOT NULL,
     event_time timestamptz NOT NULL,
     created timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT product_listing_events_product_event_unique UNIQUE (product_listing_id, event_id),
-    CONSTRAINT product_listing_events_group_check CHECK (event_group IN ('DOMAIN', 'ENRICHMENT', 'LIFECYCLE')),
+    CONSTRAINT product_listing_events_group_check CHECK (event_group IN ('DOMAIN', 'ENRICHMENT')),
+    CONSTRAINT product_listing_events_type_group_check CHECK (
+        (
+            event_group = 'DOMAIN'
+            AND event_type IN (
+                'PRODUCT_LISTING_DISCOVERED',
+                'PRODUCT_LISTING_CHANGED'
+            )
+        )
+        OR
+        (
+            event_group = 'ENRICHMENT'
+            AND event_type IN (
+                'ENRICHMENT_EMBEDDED',
+                'ENRICHMENT_TRANSLATED_TITLES'
+            )
+        )
+    ),
     CONSTRAINT product_listing_events_schema_version_positive CHECK (event_type_schema_version >= 1),
     CONSTRAINT product_listing_events_payload_object CHECK (jsonb_typeof(payload) = 'object')
 );
 
 ALTER TABLE product_listings
-    ADD CONSTRAINT product_listings_current_event_same_product_fkey
-    FOREIGN KEY (product_listing_id, event_id)
+    ADD CONSTRAINT product_listings_current_event_id_same_product_fkey
+    FOREIGN KEY (product_listing_id, current_event_id)
     REFERENCES product_listing_events(product_listing_id, event_id)
     DEFERRABLE INITIALLY DEFERRED;
 
 ALTER TABLE product_listings
     ADD CONSTRAINT product_listings_content_source_event_same_product_fkey
     FOREIGN KEY (product_listing_id, content_source_event_id)
+    REFERENCES product_listing_events(product_listing_id, event_id)
+    DEFERRABLE INITIALLY DEFERRED;
+
+ALTER TABLE product_listings
+    ADD CONSTRAINT product_listings_embedding_source_event_same_product_fkey
+    FOREIGN KEY (product_listing_id, embedding_source_event_id)
     REFERENCES product_listing_events(product_listing_id, event_id)
     DEFERRABLE INITIALLY DEFERRED;
 

@@ -14,7 +14,7 @@ use platform_postgres::{
 };
 use product_listing_opensearch::OpenSearchProductListingSearchReader;
 use product_listing_postgres::{
-    SqlxProductListingCurrentRevisionGuardFactory,
+    SqlxProductListingCurrentEventGuardFactory,
     SqlxProductListingSearchFilterMatchSourceReaderFactory,
 };
 use search_filter_postgres::{
@@ -70,7 +70,7 @@ pub async fn build_from_env() -> Result<(Arc<dyn CronJob>, String, Duration), Wi
             SqlxExistingSearchFilterMatchReader::new(pool),
             SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
             evaluator,
-            SqlxProductListingCurrentRevisionGuardFactory::new(),
+            SqlxProductListingCurrentEventGuardFactory::new(),
             SqlxSearchFilterMatchWriterFactory,
             SqlxPeriodicSearchFilterProgressFactory,
             config.policy,

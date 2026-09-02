@@ -33,6 +33,22 @@ PostgreSQL is authoritative for User access tokens and canonical OAuth credentia
 
 The initial business schema requires a provisioned and preloaded `pg_ttl_index` extension before it runs.
 
+## ProductListing events and revisions
+
+`product_listings` remains the authoritative ProductListing write model. Its revision fields have separate purposes:
+
+- `version` is numeric aggregate optimistic-concurrency metadata. It starts at 1, advances once for each changed domain write, and never advances for enrichment or assessment writes.
+- `current_event_id` identifies the latest projection-visible ProductListing event.
+- `projection_version` is the positive monotonic external source version for complete OpenSearch projection writes.
+- `content_source_event_id` identifies the title/description source used by content assessment and translation.
+- `embedding_source_event_id` identifies the title/description/first-image source used by embedding. Discovery initializes it; an image change advances it and clears the stored embedding atomically.
+
+These are separate concepts. Enrichment advances `current_event_id` and `projection_version` when it changes projection-visible state, but not aggregate `version`.
+
+`product_listing_events` is the immutable ProductListing event journal and direct Sequin CDC source, not an outbox. Every row has immutable event ID/time, a positive persisted schema version, and an object JSON payload. Allowed groups are `DOMAIN` and `ENRICHMENT`, with the initial schema constraining domain events to `PRODUCT_LISTING_DISCOVERED`/`PRODUCT_LISTING_CHANGED` and enrichment events to `ENRICHMENT_EMBEDDED`/`ENRICHMENT_TRANSLATED_TITLES`. Application and router code fail closed on the concrete v1 type/group/version/payload contracts. Deferred same-listing foreign keys tie current and source marker IDs to journal rows.
+
+Public history reads only `DOMAIN` `PRODUCT_LISTING_DISCOVERED` and `PRODUCT_LISTING_CHANGED` rows. It strictly decodes v1 payloads through direct DTO mapping without aggregate reconstruction, orders by `event_time ASC, event_id ASC`, and reports invalid persisted event data as an operation error instead of silently omitting it.
+
 ## Indexed read paths
 
 - User watchlist lists use `created DESC, product_listing_id ASC`; reverse product watcher reads use `product_listing_id, user_id ASC`.

@@ -32,7 +32,7 @@ async fn should_assess_committed_created_product_event_as_allowed() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let (product_listing_id, content_source_event_id) = insert_product_with_event(
             &worker.pool,
-            "PRODUCT_LISTING_CREATED",
+            "PRODUCT_LISTING_DISCOVERED",
             "DOMAIN",
             "Antiker Eichenstuhl",
             "Bemalter Stuhl",
@@ -59,7 +59,7 @@ async fn should_assess_committed_created_product_event_as_requires_consent() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let (product_listing_id, content_source_event_id) = insert_product_with_event(
             &worker.pool,
-            "PRODUCT_LISTING_CREATED",
+            "PRODUCT_LISTING_DISCOVERED",
             "DOMAIN",
             "Hakenkreuz-Abzeichen",
             "Historisches Abzeichen.",
@@ -86,7 +86,7 @@ async fn should_not_assess_committed_price_event() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let (product_listing_id, _) = insert_product_with_event(
             &worker.pool,
-            "PRODUCT_LISTING_PRICE_CHANGED",
+            "PRODUCT_LISTING_CHANGED",
             "DOMAIN",
             "Hakenkreuz-Abzeichen",
             "This event must not route to content assessment.",
@@ -179,7 +179,7 @@ async fn insert_product_with_event(
         .bind(format!("content-assessment-worker-source-{listing_source_id}"))
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, $6, 'de', $7, 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, $6, 'de', $7, 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(title_slug_id.as_ref())
         .bind(uuid::Uuid::from(event_id))
@@ -190,11 +190,23 @@ async fn insert_product_with_event(
 
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
+    let payload = serde_json::json!({
+        "listingSourceId": listing_source_id.to_string(),
+        "sourceListingId": product_listing_id.to_string(),
+        "title": {"language": "de", "text": title},
+        "description": {"language": "de", "text": description},
+        "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+        "availability": "AVAILABLE",
+        "url": "https://example.test/product",
+        "imageCount": 0,
+        "auction": {"start": null, "end": null}
+    });
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, $5, now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(event_type)
         .bind(event_group)
+        .bind(payload)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;

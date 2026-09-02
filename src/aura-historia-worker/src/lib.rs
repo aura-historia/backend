@@ -1190,7 +1190,7 @@ mod tests {
     #[case(
         WorkerScope::SearchFilterPercolator,
         WorkerQueue::SearchFilterPercolator,
-        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_CREATED","event_group":"DOMAIN"}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_DISCOVERED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"listingSourceId":"10000000-0000-0000-0000-000000000001","sourceListingId":"fixture-source-id","title":null,"description":null,"pricing":{"price":null,"priceEstimateMin":null,"priceEstimateMax":null},"availability":null,"url":"https://example.test/product","imageCount":0,"auction":{"start":null,"end":null}}}}]}"#
     )]
     #[case(
         WorkerScope::SearchFilterMatchNotification,
@@ -1200,22 +1200,27 @@ mod tests {
     #[case(
         WorkerScope::WatchlistNotification,
         WorkerQueue::WatchlistNotification,
-        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_PRICE_CHANGED","event_group":"DOMAIN"}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"availability":{"previous":null,"current":"AVAILABLE"}}}}]}"#
     )]
     #[case(
         WorkerScope::ProductListingContentAssessment,
         WorkerQueue::ProductListingContentAssessment,
-        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_CREATED","event_group":"DOMAIN"}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_DISCOVERED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"listingSourceId":"10000000-0000-0000-0000-000000000001","sourceListingId":"fixture-source-id","title":null,"description":null,"pricing":{"price":null,"priceEstimateMin":null,"priceEstimateMax":null},"availability":null,"url":"https://example.test/product","imageCount":0,"auction":{"start":null,"end":null}}}}]}"#
     )]
     #[case(
         WorkerScope::ProductListingTranslation,
         WorkerQueue::ProductListingTranslate,
-        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"ENRICHMENT_EMBEDDED","event_group":"ENRICHMENT"}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_DISCOVERED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"listingSourceId":"10000000-0000-0000-0000-000000000001","sourceListingId":"fixture-source-id","title":null,"description":null,"pricing":{"price":null,"priceEstimateMin":null,"priceEstimateMax":null},"availability":null,"url":"https://example.test/product","imageCount":0,"auction":{"start":null,"end":null}}}}]}"#
     )]
     #[case(
         WorkerScope::ProductListingEmbedding,
         WorkerQueue::ProductListingEmbed,
-        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_CREATED","event_group":"DOMAIN"}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_DISCOVERED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"listingSourceId":"10000000-0000-0000-0000-000000000001","sourceListingId":"fixture-source-id","title":null,"description":null,"pricing":{"price":null,"priceEstimateMin":null,"priceEstimateMax":null},"availability":null,"url":"https://example.test/product","imageCount":0,"auction":{"start":null,"end":null}}}}]}"#
+    )]
+    #[case(
+        WorkerScope::ProductListingEmbedding,
+        WorkerQueue::ProductListingEmbed,
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"images":{"previousCount":1,"currentCount":2}}}}]}"#
     )]
     #[case(
         WorkerScope::NotificationDelivery,
@@ -1235,6 +1240,20 @@ mod tests {
         let job = receiver.recv().await.ok_or("scoped consumer stopped")?;
         assert_eq!(consumer_queue, job.target_queue);
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_enqueue_embedded_event_for_product_translation_scope()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let composition = WorkerRuntimeComposition::build(
+            WorkerScope::ProductListingTranslation,
+            QueueConfig::new(1),
+        )?;
+        let (runtime, _receiver) = composition.into_parts();
+        let cdc_json = r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"ENRICHMENT_EMBEDDED","event_group":"ENRICHMENT","event_type_schema_version":1,"payload":{"sourceEventId":"40000000-0000-0000-0000-000000000002"}}}]}"#;
+
+        assert_eq!(0, runtime.ingest_cdc_json(cdc_json).await?);
         Ok(())
     }
 
@@ -1315,6 +1334,8 @@ mod tests {
         let (embed_sender, mut embed_receiver) = in_memory_queue::<DomainJob>(QueueConfig::new(8))?;
         let (assessment_sender, mut assessment_receiver) =
             in_memory_queue::<DomainJob>(QueueConfig::new(8))?;
+        let (translation_sender, mut translation_receiver) =
+            in_memory_queue::<DomainJob>(QueueConfig::new(8))?;
         let runtime = WorkerRuntime::new(CdcFanout::new(
             WorkerQueueRegistry::new()
                 .with_queue(WorkerQueue::ProductListingOpenSearch, product_sender)
@@ -1323,7 +1344,8 @@ mod tests {
                 .with_queue(
                     WorkerQueue::ProductListingContentAssessment,
                     assessment_sender,
-                ),
+                )
+                .with_queue(WorkerQueue::ProductListingTranslate, translation_sender),
         ));
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
@@ -1339,8 +1361,24 @@ mod tests {
                     "record": {
                         "event_id": "40000000-0000-0000-0000-000000000001",
                         "product_listing_id": "30000000-0000-0000-0000-000000000001",
-                        "event_type": "PRODUCT_LISTING_CREATED",
-                        "event_group": "DOMAIN"
+                        "event_type": "PRODUCT_LISTING_DISCOVERED",
+                        "event_group": "DOMAIN",
+                        "event_type_schema_version": 1,
+                        "payload": {
+                            "listingSourceId": "10000000-0000-0000-0000-000000000001",
+                            "sourceListingId": "fixture-source-id",
+                            "title": null,
+                            "description": null,
+                            "pricing": {
+                                "price": null,
+                                "priceEstimateMin": null,
+                                "priceEstimateMax": null
+                            },
+                            "availability": null,
+                            "url": "https://example.test/product",
+                            "imageCount": 0,
+                            "auction": {"start": null, "end": null}
+                        }
                     }
                 }
             ]
@@ -1360,6 +1398,97 @@ mod tests {
         assert!(percolator_receiver.recv().await.is_some());
         assert!(embed_receiver.recv().await.is_some());
         assert!(assessment_receiver.recv().await.is_some());
+        assert!(translation_receiver.recv().await.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_fail_sequin_cdc_before_ack_when_product_event_ids_are_invalid_or_missing()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (sender, mut receiver) = in_memory_queue::<DomainJob>(QueueConfig::new(1))?;
+        let runtime = WorkerRuntime::new(CdcFanout::search_filter_percolator(
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::SearchFilterPercolator, sender),
+        ));
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = tokio::spawn(serve_with_runtime(listener, runtime, async move {
+            let _ = shutdown_rx.await;
+        }));
+        for body in [
+            r#"{
+                "changes": [
+                    {
+                        "table": "product_listing_events",
+                        "operation": "insert",
+                        "record": {
+                            "event_id": "not-a-uuid",
+                            "product_listing_id": "30000000-0000-0000-0000-000000000001",
+                            "event_type": "PRODUCT_LISTING_DISCOVERED",
+                            "event_group": "DOMAIN",
+                            "event_type_schema_version": 1
+                        }
+                    }
+                ]
+            }"#,
+            r#"{
+                "changes": [
+                    {
+                        "table": "product_listing_events",
+                        "operation": "insert",
+                        "record": {
+                            "event_id": "40000000-0000-0000-0000-000000000001",
+                            "event_type": "PRODUCT_LISTING_DISCOVERED",
+                            "event_group": "DOMAIN",
+                            "event_type_schema_version": 1
+                        }
+                    }
+                ]
+            }"#,
+            r#"{
+                "changes": [
+                    {
+                        "table": "product_listing_events",
+                        "operation": "insert",
+                        "record": {
+                            "event_id": "40000000-0000-0000-0000-000000000001",
+                            "product_listing_id": "30000000-0000-0000-0000-000000000001",
+                            "event_type": "PRODUCT_LISTING_DISCOVERED",
+                            "event_group": "DOMAIN",
+                            "event_type_schema_version": 1,
+                            "payload": {
+                                "listingSourceId": "10000000-0000-0000-0000-000000000001",
+                                "sourceListingId": "fixture-source-id",
+                                "title": null,
+                                "description": null,
+                                "pricing": {
+                                    "price": null,
+                                    "priceEstimateMin": null,
+                                    "priceEstimateMax": null
+                                },
+                                "availability": null,
+                                "url": "https://example.test/product",
+                                "imageCount": 0,
+                                "auction": {"start": null, "end": null},
+                                "unexpected": true
+                            }
+                        }
+                    }
+                ]
+            }"#,
+        ] {
+            let request_text = format!(
+                "POST {SEQUIN_CDC_PATH} HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let response = request(addr, &request_text).await?;
+            assert!(response.starts_with("HTTP/1.1 503 Service Unavailable"));
+        }
+        let _send_result = shutdown_tx.send(());
+        server.await??;
+
+        assert!(receiver.recv().await.is_none());
         Ok(())
     }
 

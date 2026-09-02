@@ -6,7 +6,7 @@ use listing_source_service::use_cases::queries::get_shopify_source::GetSystemSho
 use platform_observability::{LogLevel, LoggingConfig, init};
 use platform_postgres::{PostgresPoolConfig, SqlxUnitOfWork};
 use product_listing_postgres::{
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventStoreFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventAppenderFactory,
     SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::use_cases::{
@@ -29,14 +29,14 @@ async fn main() -> Result<(), Error> {
             UpsertProductListingHandler::new(
                 unit_of_work.clone(),
                 SqlxProductListingRepositoryFactory::new(),
-                SqlxProductListingEventStoreFactory::new(),
+                SqlxProductListingEventAppenderFactory::new(),
                 SqlxPartnerProductListingAuthorizerFactory::new(),
             ),
         ),
         WithdrawProductListingHandler::new(
             unit_of_work,
             SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
         ),
     );

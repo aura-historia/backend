@@ -208,7 +208,7 @@ async fn should_preserve_availability_for_woocommerce_updates_without_supported_
 
         let pool = get_postgres_client().await;
         let availability_event_count_before_updates: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = (SELECT product_listing_id FROM product_listings WHERE listing_source_id = $1 AND source_listing_id = $2) AND event_type = 'PRODUCT_LISTING_AVAILABILITY_CHANGED'",
+            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = (SELECT product_listing_id FROM product_listings WHERE listing_source_id = $1 AND source_listing_id = $2) AND event_type = 'PRODUCT_LISTING_CHANGED' AND payload ? 'availability'",
         )
         .bind(uuid::Uuid::parse_str(&listing_source_id)?)
         .bind("25")
@@ -246,7 +246,7 @@ async fn should_preserve_availability_for_woocommerce_updates_without_supported_
         assert_eq!("IN_STOCK", existing_listing.0);
         assert_eq!("ACTIVE", existing_listing.1);
         let availability_event_count_after_updates: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = (SELECT product_listing_id FROM product_listings WHERE listing_source_id = $1 AND source_listing_id = $2) AND event_type = 'PRODUCT_LISTING_AVAILABILITY_CHANGED'",
+            "SELECT COUNT(*) FROM product_listing_events WHERE product_listing_id = (SELECT product_listing_id FROM product_listings WHERE listing_source_id = $1 AND source_listing_id = $2) AND event_type = 'PRODUCT_LISTING_CHANGED' AND payload ? 'availability'",
         )
         .bind(uuid::Uuid::parse_str(&listing_source_id)?)
         .bind("25")

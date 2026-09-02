@@ -5,9 +5,9 @@ use localization::Language;
 use money::Price;
 use product_listing_core::{
     content_policy::ContentPolicyDecision, listing_availability::ListingAvailability,
-    product_listing_id::ProductListingId, product_listing_image::ProductListingImage,
-    product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
-    title::Title,
+    listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId,
+    product_listing_image::ProductListingImage, product_listing_slug_id::ProductListingSlugId,
+    source_listing_id::SourceListingId, title::Title,
 };
 use std::collections::HashMap;
 use time::OffsetDateTime;
@@ -18,6 +18,7 @@ pub struct ProductListingWatchlistNotificationSource {
     pub event_id: EventId,
     pub event_time: OffsetDateTime,
     pub product_listing_id: ProductListingId,
+    pub lifecycle: ListingLifecycle,
     pub product_listing_title_slug_id: ProductListingSlugId,
     pub source: ListingSourceSummary,
     pub source_listing_id: SourceListingId,
@@ -26,7 +27,7 @@ pub struct ProductListingWatchlistNotificationSource {
     pub content_policy: Option<ContentPolicyDecision>,
     pub url: Url,
     pub view_url: Url,
-    pub change: ProductListingWatchlistNotificationChange,
+    pub changes: Vec<ProductListingWatchlistNotificationChange>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,6 +40,14 @@ pub enum ProductListingWatchlistNotificationChange {
         old_availability: Option<ListingAvailability>,
         new_availability: Option<ListingAvailability>,
     },
+}
+
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProductListingWatchlistNotificationSourceReadOutcome {
+    Found(ProductListingWatchlistNotificationSource),
+    MissingSource,
+    IgnoredEvent,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -62,7 +71,7 @@ pub trait ProductListingWatchlistNotificationSourceReader: Send {
         event_id: EventId,
         product_listing_id: ProductListingId,
     ) -> Result<
-        Option<ProductListingWatchlistNotificationSource>,
+        ProductListingWatchlistNotificationSourceReadOutcome,
         ProductListingWatchlistNotificationSourceReadError,
     >;
 }

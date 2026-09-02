@@ -85,7 +85,7 @@ use product_listing_postgres::{
     SqlxListingSourceSummaryReader, SqlxPartnerProductListingAuthorizerFactory,
     SqlxProductListingContentAssessmentReader, SqlxProductListingDetailsBatchReader,
     SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
-    SqlxProductListingEventReaderFactory, SqlxProductListingEventStoreFactory,
+    SqlxProductListingEventAppenderFactory, SqlxProductListingHistoryReaderFactory,
     SqlxProductListingRepositoryFactory, SqlxProductListingUserStateReader,
     SqlxProductListingWatchlistDetailsReaderFactory,
 };
@@ -93,7 +93,7 @@ use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user_id::UserId;
 
 use product_listing_service::use_cases::{
-    CreateProductListingHandler, GetProductListingEventsHandler, GetProductListingHandler,
+    CreateProductListingHandler, GetProductListingHandler, GetProductListingHistoryHandler,
     GetSimilarProductListingsHandler, IngestWoocommerceProductListingHandler,
     SearchProductListingsHandler, UpdateProductListingHandler, UpsertProductListingHandler,
     WithdrawProductListingHandler,
@@ -481,9 +481,9 @@ pub async fn seed_product() -> ProductListingId {
     if let Err(error) = sqlx::query(
         r#"
         INSERT INTO product_listings (
-            product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id,
-            listing_source_id, source_listing_id, availability, lifecycle, url
-        ) VALUES ($1, $2, $3, $3, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
+            product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id,
+            embedding_source_event_id, listing_source_id, source_listing_id, availability, lifecycle, url
+        ) VALUES ($1, $2, $3, $3, $3, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
         "#,
     )
     .bind(uuid::Uuid::from(product_listing_id))
@@ -499,22 +499,32 @@ pub async fn seed_product() -> ProductListingId {
     }
     if let Err(error) = sqlx::query(
         r#"
-        INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time)
-        VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', $3, now())
+        INSERT INTO product_listing_events (
+            event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time
+        )
+        VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', $3, $4, now())
         "#,
     )
     .bind(event_id)
     .bind(uuid::Uuid::from(product_listing_id))
+    .bind(1_i16)
     .bind(serde_json::json!({
         "title": null,
         "description": null,
         "listingSourceId": listing_source_id.to_string(),
         "sourceListingId": format!("listing-source-product-{product_listing_id}"),
-        "pricing": {},
+        "pricing": {
+            "price": null,
+            "priceEstimateMin": null,
+            "priceEstimateMax": null
+        },
         "availability": "AVAILABLE",
         "url": "https://api-acceptance.example/product",
-        "images": [],
-        "auction": {}
+        "imageCount": 0,
+        "auction": {
+            "start": null,
+            "end": null
+        }
     }))
     .execute(&mut *tx)
     .await
@@ -694,34 +704,34 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )
-    .with_product_listing_events(Arc::new(GetProductListingEventsHandler::new(
+    .with_product_listing_history(Arc::new(GetProductListingHistoryHandler::new(
         unit_of_work.clone(),
-        SqlxProductListingEventReaderFactory::new(),
+        SqlxProductListingHistoryReaderFactory::new(),
     )));
 
     let partner_product_listings_state = PartnerProductListingsState::new(
         Arc::new(CreateProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
         )),
         Arc::new(UpdateProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
         )),
         Arc::new(UpsertProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
         )),
         Arc::new(WithdrawProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
@@ -731,7 +741,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::new(IngestWoocommerceProductListingHandler::new(
             unit_of_work.clone(),
             SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
             SqlxListingSourceReaders::new(pool.clone()),
             SqlxListingSourceReaders::new(pool.clone()),

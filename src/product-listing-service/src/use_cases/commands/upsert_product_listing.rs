@@ -1,8 +1,9 @@
 use crate::ports::{
     PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
-    PartnerProductListingAuthorizerFactory, ProductListingEventStore,
-    ProductListingEventStoreError, ProductListingEventStoreFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
+    PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
+    ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, ProductListingWriteEffects,
+    stamp_product_listing_event,
 };
 use crate::product_listing_title_slug_creation::{
     ProductListingTitleSlugGenerator, RandomProductListingTitleSlugGenerator,
@@ -15,6 +16,7 @@ use application::operation_context::{
 };
 use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::change_outcome::ChangeOutcome;
 
 use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
@@ -84,8 +86,11 @@ pub enum UpsertProductListingError {
     ProductListingTitleSlugGenerationExhausted,
     #[error("product listing persistence failed")]
     PersistenceFailed,
-    #[error("product listing event storage failed")]
-    EventStoreFailed,
+    #[error("product listing event append failed")]
+    EventAppenderFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin upsert product listing transaction")]
     BeginTransactionFailed,
     #[error("failed to commit upsert product listing transaction")]
@@ -125,8 +130,8 @@ impl From<ProductListingRepositoryError> for UpsertAttemptError {
     }
 }
 
-impl From<ProductListingEventStoreError> for UpsertAttemptError {
-    fn from(error: ProductListingEventStoreError) -> Self {
+impl From<ProductListingEventAppendError> for UpsertAttemptError {
+    fn from(error: ProductListingEventAppendError) -> Self {
         Self::Failed(error.into())
     }
 }
@@ -186,7 +191,7 @@ impl<U, R, E, A, G> UpsertProductListingHandler<U, R, E, A, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
-    E: ProductListingEventStoreFactory<U::Tx>,
+    E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
     G: ProductListingTitleSlugGenerator,
 {
@@ -208,31 +213,36 @@ where
         let existing = self.products.in_transaction(tx).find_by_key(&key).await?;
         match existing {
             Some(loaded) => {
-                let expected_event_id = loaded.version;
+                let expected_version = loaded.version;
                 let mut product = loaded.value;
-                product.restore();
+                product.restore()?;
                 apply_update(&mut product, &command)?;
-                let events = stamp_product_listing_events(
-                    product.id(),
-                    time::OffsetDateTime::now_utc(),
-                    product.take_pending_event_payloads(),
-                );
-                let event_id = events.last().map(|event| event.event_id);
-                if let Some(new_event_id) = event_id {
+                let event = product.take_pending_event_payload().map(|payload| {
+                    stamp_product_listing_event(
+                        product.id(),
+                        time::OffsetDateTime::now_utc(),
+                        payload,
+                    )
+                });
+                let outcome = if event.is_some() {
+                    ChangeOutcome::Changed
+                } else {
+                    ChangeOutcome::Unchanged
+                };
+                if let Some(event) = event {
+                    let effects = ProductListingWriteEffects::from(&event.payload);
                     product = self
                         .products
                         .in_transaction(tx)
-                        .update(&product, expected_event_id, new_event_id)
+                        .update(&product, expected_version, event.event_id, effects)
                         .await?
                         .value;
-                    for event in &events {
-                        self.events.in_transaction(tx).append(event).await?;
-                    }
+                    self.events.in_transaction(tx).append(&event).await?;
                 }
                 Ok(UpsertProductListingResult::Updated(
                     UpdateProductListingResult {
                         product_listing_id: product.id(),
-                        event_id,
+                        outcome,
                     },
                 ))
             }
@@ -251,16 +261,18 @@ where
                 let mut product = ProductListing::create(
                     command.into_new_product(new_product_listing_id, title_slug_id)?,
                 )?;
-                let events = stamp_product_listing_events(
+                let event = stamp_product_listing_event(
                     product.id(),
                     time::OffsetDateTime::now_utc(),
-                    product.take_pending_event_payloads(),
+                    product.take_pending_event_payload().ok_or_else(|| {
+                        UpsertProductListingError::InvalidProductListing {
+                            source: box_error(std::io::Error::other(
+                                "created listing has no event",
+                            )),
+                        }
+                    })?,
                 );
-                let event_id = events.last().map(|event| event.event_id).ok_or_else(|| {
-                    UpsertProductListingError::InvalidProductListing {
-                        source: box_error(std::io::Error::other("created listing has no event")),
-                    }
-                })?;
+                let event_id = event.event_id;
                 let persisted = self
                     .products
                     .in_transaction(tx)
@@ -275,14 +287,11 @@ where
                         }
                         error => UpsertAttemptError::Failed(error.into()),
                     })?;
-                for event in &events {
-                    self.events.in_transaction(tx).append(event).await?;
-                }
+                self.events.in_transaction(tx).append(&event).await?;
                 Ok(UpsertProductListingResult::Created(
                     CreateProductListingResult {
                         product_listing_id: persisted.value.id(),
                         product_listing_title_slug_id: persisted.value.title_slug_id().clone(),
-                        event_id,
                     },
                 ))
             }
@@ -318,7 +327,7 @@ impl<U, R, E, A, G> UpsertProductListingUseCase for UpsertProductListingHandler<
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
-    E: ProductListingEventStoreFactory<U::Tx>,
+    E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
     G: ProductListingTitleSlugGenerator,
 {
@@ -526,7 +535,7 @@ impl From<ChangeProductListingError> for UpsertProductListingError {
     fn from(error: ChangeProductListingError) -> Self {
         match error {
             ChangeProductListingError::ListingWithdrawn => Self::ListingWithdrawn,
-            ChangeProductListingError::AuctionStartAfterEnd => Self::InvalidProductListing {
+            error => Self::InvalidProductListing {
                 source: box_error(error),
             },
         }
@@ -544,9 +553,11 @@ impl From<ProductListingRepositoryError> for UpsertProductListingError {
         Self::PersistenceFailed
     }
 }
-impl From<ProductListingEventStoreError> for UpsertProductListingError {
-    fn from(_: ProductListingEventStoreError) -> Self {
-        Self::EventStoreFailed
+impl From<ProductListingEventAppendError> for UpsertProductListingError {
+    fn from(error: ProductListingEventAppendError) -> Self {
+        Self::EventAppenderFailed {
+            source: box_error(error),
+        }
     }
 }
 
@@ -555,7 +566,7 @@ mod tests {
     use super::*;
     use listing_source_core::ListingSourceId;
     use money::{Currency, MonetaryAmount};
-    use product_listing_core::product_listing::ProductListingEventPayload;
+    use product_listing_core::product_listing_event::ProductListingEventPayload;
     use product_listing_core::source_listing_id::SourceListingId;
 
     fn price(amount: u64) -> Price {
@@ -627,14 +638,14 @@ mod tests {
             (PatchField::Clear, None),
         ] {
             let mut listing = listing_with_price(Some(price(100)));
-            listing.take_pending_event_payloads();
+            listing.take_pending_event_payload();
             let changed = patch.is_changed();
             let update = command(patch);
 
             apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
 
             assert_eq!(expected, listing.pricing().price);
-            assert_eq!(changed, !listing.pending_event_payloads().is_empty());
+            assert_eq!(changed, listing.take_pending_event_payload().is_some());
         }
     }
 
@@ -657,7 +668,7 @@ mod tests {
                 IndexSet::new(),
                 ProductListingAuction::default(),
             );
-            listing.take_pending_event_payloads();
+            listing.take_pending_event_payload();
             let mut update = command(PatchField::Unchanged);
             if field == "min" {
                 update.price_estimate_min = patch;
@@ -683,13 +694,13 @@ mod tests {
             IndexSet::new(),
             ProductListingAuction::default(),
         );
-        listing.take_pending_event_payloads();
+        listing.take_pending_event_payload();
         let mut update = command(PatchField::Unchanged);
         update.price_estimate_min = PatchField::Clear;
 
         apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
 
-        assert!(listing.pending_event_payloads().is_empty());
+        assert!(listing.take_pending_event_payload().is_none());
     }
 
     #[test]
@@ -709,7 +720,7 @@ mod tests {
             IndexSet::new(),
             ProductListingAuction::default(),
         );
-        listing.take_pending_event_payloads();
+        listing.take_pending_event_payload();
         let mut update = command(PatchField::Set(price(200)));
         update.price_estimate_min = PatchField::Set(price(210));
         update.price_estimate_max = PatchField::Set(price(220));
@@ -717,11 +728,35 @@ mod tests {
         apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
 
         assert_eq!(listing.pricing(), new_pricing);
-        assert!(matches!(
-            listing.pending_event_payloads(),
-            [ProductListingEventPayload::PriceChanged(change)]
-                if change.old_pricing == old_pricing && change.new_pricing == new_pricing
-        ));
+        let Some(ProductListingEventPayload::Changed(change)) =
+            listing.take_pending_event_payload()
+        else {
+            panic!("expected changed payload");
+        };
+        assert_eq!(
+            Some(&old_pricing.price),
+            change.price().map(|value| value.previous())
+        );
+        assert_eq!(
+            Some(&new_pricing.price),
+            change.price().map(|value| value.current())
+        );
+        assert_eq!(
+            Some(&old_pricing.price_estimate_min),
+            change.price_estimate_min().map(|value| value.previous())
+        );
+        assert_eq!(
+            Some(&new_pricing.price_estimate_min),
+            change.price_estimate_min().map(|value| value.current())
+        );
+        assert_eq!(
+            Some(&old_pricing.price_estimate_max),
+            change.price_estimate_max().map(|value| value.previous())
+        );
+        assert_eq!(
+            Some(&new_pricing.price_estimate_max),
+            change.price_estimate_max().map(|value| value.current())
+        );
     }
 
     #[test]
@@ -740,7 +775,7 @@ mod tests {
                 IndexSet::from([image.clone()]),
                 ProductListingAuction::default(),
             );
-            listing.take_pending_event_payloads();
+            listing.take_pending_event_payload();
             let mut update = command(PatchField::Unchanged);
             update.images = patch.clone();
 
@@ -767,7 +802,7 @@ mod tests {
         };
         let mut listing =
             listing_with_state(ProductListingPricing::default(), IndexSet::new(), old);
-        listing.take_pending_event_payloads();
+        listing.take_pending_event_payload();
         let mut update = command(PatchField::Unchanged);
         update.auction_start = PatchField::Set(new.start.unwrap_or_else(|| panic!("start")));
         update.auction_end = PatchField::Set(new.end.unwrap_or_else(|| panic!("end")));
@@ -775,10 +810,13 @@ mod tests {
         apply_update(&mut listing, &update).unwrap_or_else(|error| panic!("update: {error}"));
 
         assert_eq!(listing.auction(), new);
-        assert!(matches!(
-            listing.pending_event_payloads(),
-            [ProductListingEventPayload::AuctionChanged(change)] if change.auction == new
-        ));
+        let Some(ProductListingEventPayload::Changed(change)) =
+            listing.take_pending_event_payload()
+        else {
+            panic!("expected changed payload");
+        };
+        assert_eq!(Some(&old), change.auction().map(|value| value.previous()));
+        assert_eq!(Some(&new), change.auction().map(|value| value.current()));
     }
 
     #[test]
@@ -871,6 +909,7 @@ mod tests {
 
     // Whole-handler tests deliberately keep their fakes here: they assert transaction,
     // persistence, event, authorization, and candidate behavior together.
+    use crate::ports::{ProductListingStorageVersion, VersionedProductListing};
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::TransactionError;
     use domain_primitives::{event_id::EventId, versioned::Versioned};
@@ -883,7 +922,7 @@ mod tests {
         begins: usize,
         commits: usize,
         rollbacks: usize,
-        finds: VecDeque<Option<Versioned<ProductListing, EventId>>>,
+        finds: VecDeque<Option<VersionedProductListing>>,
         inserts: VecDeque<Result<(), ProductListingRepositoryError>>,
         insert_calls: usize,
         update_calls: usize,
@@ -906,7 +945,7 @@ mod tests {
     struct TestRepository(SharedHandlerState);
     #[derive(Clone)]
     struct TestEvents(SharedHandlerState);
-    struct TestEventStore(SharedHandlerState);
+    struct TestEventAppender(SharedHandlerState);
     #[derive(Clone)]
     struct TestAuthorizer(SharedHandlerState);
     struct TestAuthorization(SharedHandlerState);
@@ -947,53 +986,55 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _: ProductListingId,
-        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
-        {
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
             Ok(None)
         }
         async fn find_by_key(
             &mut self,
             _: &ProductListingKey,
-        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
-        {
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
             Ok(test_lock(&self.0).finds.pop_front().flatten())
         }
         async fn insert(
             &mut self,
             listing: &ProductListing,
-            event: EventId,
-        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            _: EventId,
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             let mut state = test_lock(&self.0);
             state.insert_calls += 1;
             match state.inserts.pop_front().unwrap_or(Ok(())) {
-                Ok(()) => Ok(Versioned::new(listing.clone(), event)),
+                Ok(()) => Ok(Versioned::new(
+                    listing.clone(),
+                    ProductListingStorageVersion::INITIAL,
+                )),
                 Err(error) => Err(error),
             }
         }
         async fn update(
             &mut self,
             listing: &ProductListing,
+            expected_version: ProductListingStorageVersion,
             _: EventId,
-            event: EventId,
-        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            _: ProductListingWriteEffects,
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             test_lock(&self.0).update_calls += 1;
-            Ok(Versioned::new(listing.clone(), event))
+            Ok(Versioned::new(listing.clone(), expected_version.next()))
         }
     }
-    impl ProductListingEventStoreFactory<TestTx> for TestEvents {
+    impl ProductListingEventAppenderFactory<TestTx> for TestEvents {
         fn in_transaction<'tx>(
             &'tx self,
             _: &'tx mut TestTx,
-        ) -> impl ProductListingEventStore + 'tx {
-            TestEventStore(Arc::clone(&self.0))
+        ) -> impl ProductListingEventAppender + 'tx {
+            TestEventAppender(Arc::clone(&self.0))
         }
     }
     #[async_trait::async_trait]
-    impl ProductListingEventStore for TestEventStore {
+    impl ProductListingEventAppender for TestEventAppender {
         async fn append(
             &mut self,
-            _: &crate::ports::product_listing_event_store::ProductListingEvent,
-        ) -> Result<(), ProductListingEventStoreError> {
+            _: &crate::ports::product_listing_event_appender::ProductListingEvent,
+        ) -> Result<(), ProductListingEventAppendError> {
             test_lock(&self.0).event_calls += 1;
             Ok(())
         }
@@ -1055,10 +1096,10 @@ mod tests {
             TestGenerator(Arc::clone(state)),
         )
     }
-    fn existing_listing() -> Versioned<ProductListing, EventId> {
+    fn existing_listing() -> VersionedProductListing {
         let mut listing = listing_with_price(Some(price(10)));
-        listing.take_pending_event_payloads();
-        Versioned::new(listing, EventId::new())
+        listing.take_pending_event_payload();
+        Versioned::new(listing, ProductListingStorageVersion::INITIAL)
     }
 
     #[tokio::test]

@@ -86,7 +86,7 @@ use listing_source_postgres::SqlxListingSourceReaders;
 use listing_source_service::ports::WebCrawlSourceReader;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventStoreFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventAppenderFactory,
     SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::use_cases::UpsertProductListingHandler;
@@ -510,7 +510,7 @@ async fn main() {
         let upsert_product = UpsertProductListingHandler::new(
             business_unit_of_work,
             SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
         );
         let product_push = Box::new(ProductListingPushServiceImpl::new(

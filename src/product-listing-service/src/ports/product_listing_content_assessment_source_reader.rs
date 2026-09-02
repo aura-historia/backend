@@ -4,13 +4,18 @@ use product_listing_core::{
     description::Description, product_listing_id::ProductListingId, title::Title,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductListingContentAssessmentSourceEvent {
+    Discovered,
+    Other,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingContentAssessmentSource {
     pub product_listing_id: ProductListingId,
     pub event_id: EventId,
     pub current_content_source_event_id: EventId,
-    pub event_group: String,
-    pub event_type: String,
+    pub event: ProductListingContentAssessmentSourceEvent,
     pub title: Option<Title>,
     pub description: Option<Description>,
 }

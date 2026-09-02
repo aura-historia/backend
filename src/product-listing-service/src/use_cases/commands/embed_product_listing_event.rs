@@ -1,8 +1,8 @@
 use crate::ports::{
-    ProductListingEmbeddingSourceReadError, ProductListingEmbeddingSourceReader,
-    ProductListingEmbeddingWrite, ProductListingEmbeddingWriteError,
-    ProductListingEmbeddingWriteOutcome, ProductListingEmbeddingWriter,
-    ProductListingEmbeddingWriterFactory,
+    ProductListingEmbeddingSourceEvent, ProductListingEmbeddingSourceReadError,
+    ProductListingEmbeddingSourceReader, ProductListingEmbeddingWrite,
+    ProductListingEmbeddingWriteError, ProductListingEmbeddingWriteOutcome,
+    ProductListingEmbeddingWriter, ProductListingEmbeddingWriterFactory,
 };
 use application::error::{BoxError, box_error};
 use application::operation_context::{OperationAuthorizationError, OperationContext};
@@ -10,8 +10,6 @@ use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
 use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText};
 use product_listing_core::product_listing_id::ProductListingId;
-
-const CREATED_EVENT_TYPE: &str = "PRODUCT_LISTING_CREATED";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmbedProductListingCommand {
@@ -142,10 +140,14 @@ where
                 EmbedProductListingEventOutcome::ProductListingNotFound,
             ));
         };
-        if source.current_event_id != command.event_id {
+        if source.embedding_source_event_id != command.event_id {
             return Ok(result(EmbedProductListingEventOutcome::Stale));
         }
-        if source.event_type != CREATED_EVENT_TYPE {
+        if !matches!(
+            source.event,
+            ProductListingEmbeddingSourceEvent::Discovered
+                | ProductListingEmbeddingSourceEvent::ChangedImages
+        ) {
             return Ok(result(EmbedProductListingEventOutcome::IgnoredEvent));
         }
         let Some(title) = source.title else {
@@ -193,7 +195,6 @@ where
                 source_event_id: command.event_id,
                 enrichment_event_id: EventId::new(),
                 embedding,
-                title,
             })
             .await
             .map_err(
@@ -296,8 +297,8 @@ mod tests {
             source: Some(crate::ports::ProductListingEmbeddingSource {
                 product_listing_id,
                 event_id,
-                current_event_id: event_id,
-                event_type: "PRODUCT_LISTING_CREATED".to_owned(),
+                embedding_source_event_id: event_id,
+                event: ProductListingEmbeddingSourceEvent::Discovered,
                 title: Some(Localized::new(Language::De, Title::from("Ancient vase"))),
                 description: Some(Localized::new(
                     Language::De,
@@ -422,7 +423,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_generate_product_listing_created_content_with_first_image_then_commit() {
+    async fn should_generate_product_listing_discovered_content_with_first_image_then_commit() {
         let state = state();
         let result = handler(&state)
             .execute(&context(Principal::System), command(&state))
@@ -442,13 +443,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_ignore_retired_created_event_type_before_generation_or_transaction() {
+    async fn should_ignore_non_discovered_event_type_before_generation_or_transaction() {
         let state = state();
         lock(&state)
             .source
             .as_mut()
             .unwrap_or_else(|| panic!("test source missing"))
-            .event_type = "DOMAIN_CREATED".to_owned();
+            .event = ProductListingEmbeddingSourceEvent::Other;
 
         let result = handler(&state)
             .execute(&context(Principal::System), command(&state))
@@ -475,14 +476,14 @@ mod tests {
                         .source
                         .as_mut()
                         .unwrap_or_else(|| panic!("test source missing"))
-                        .current_event_id = EventId::new()
+                        .embedding_source_event_id = EventId::new()
                 }
                 "ignored" => {
                     lock(&state)
                         .source
                         .as_mut()
                         .unwrap_or_else(|| panic!("test source missing"))
-                        .event_type = "UNSUPPORTED_EVENT".to_owned()
+                        .event = ProductListingEmbeddingSourceEvent::Other
                 }
                 _ => {
                     lock(&state)

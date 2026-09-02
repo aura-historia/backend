@@ -3,76 +3,74 @@ use domain_primitives::event_id::EventId;
 use platform_postgres::SqlxTransaction;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::ports::{
-    ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError,
-    ProductListingCurrentRevisionGuard, ProductListingCurrentRevisionGuardFactory,
-    ProductListingCurrentRevisionRef,
+    ProductListingCurrentEventCheck, ProductListingCurrentEventCheckError,
+    ProductListingCurrentEventGuard, ProductListingCurrentEventGuardFactory,
+    ProductListingCurrentEventRef,
 };
 use sqlx::PgConnection;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct SqlxProductListingCurrentRevisionGuardFactory;
+pub struct SqlxProductListingCurrentEventGuardFactory;
 
-struct SqlxProductListingCurrentRevisionGuard<'tx> {
+struct SqlxProductListingCurrentEventGuard<'tx> {
     connection: &'tx mut PgConnection,
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("product current revision guard SQL query failed")]
-struct ProductListingCurrentRevisionGuardSqlxError(#[source] sqlx::Error);
+#[error("product current event guard SQL query failed")]
+struct ProductListingCurrentEventGuardSqlxError(#[source] sqlx::Error);
 
-impl SqlxProductListingCurrentRevisionGuardFactory {
+impl SqlxProductListingCurrentEventGuardFactory {
     pub fn new() -> Self {
         Self
     }
 }
 
-impl ProductListingCurrentRevisionGuardFactory<SqlxTransaction>
-    for SqlxProductListingCurrentRevisionGuardFactory
+impl ProductListingCurrentEventGuardFactory<SqlxTransaction>
+    for SqlxProductListingCurrentEventGuardFactory
 {
     fn in_transaction<'tx>(
         &'tx self,
         tx: &'tx mut SqlxTransaction,
-    ) -> impl ProductListingCurrentRevisionGuard + 'tx {
-        SqlxProductListingCurrentRevisionGuard {
+    ) -> impl ProductListingCurrentEventGuard + 'tx {
+        SqlxProductListingCurrentEventGuard {
             connection: tx.connection(),
         }
     }
 }
 
 #[async_trait::async_trait]
-impl ProductListingCurrentRevisionGuard for SqlxProductListingCurrentRevisionGuard<'_> {
+impl ProductListingCurrentEventGuard for SqlxProductListingCurrentEventGuard<'_> {
     async fn lock_and_check(
         &mut self,
         product_listing_id: ProductListingId,
         expected_event_id: EventId,
-    ) -> Result<ProductListingCurrentRevisionCheck, ProductListingCurrentRevisionCheckError> {
-        let event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT event_id FROM product_listings WHERE product_listing_id = $1 FOR SHARE",
+    ) -> Result<ProductListingCurrentEventCheck, ProductListingCurrentEventCheckError> {
+        let current_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT current_event_id FROM product_listings WHERE product_listing_id = $1 FOR SHARE",
         )
         .bind(uuid::Uuid::from(product_listing_id))
         .fetch_optional(&mut *self.connection)
         .await
-        .map_err(
-            |source| ProductListingCurrentRevisionCheckError::CheckFailed {
-                source: box_error(ProductListingCurrentRevisionGuardSqlxError(source)),
-            },
-        )?;
+        .map_err(|source| ProductListingCurrentEventCheckError::CheckFailed {
+            source: box_error(ProductListingCurrentEventGuardSqlxError(source)),
+        })?;
 
-        Ok(match event_id {
+        Ok(match current_event_id {
             Some(event_id) if EventId::from(event_id) == expected_event_id => {
-                ProductListingCurrentRevisionCheck::Current
+                ProductListingCurrentEventCheck::Current
             }
-            Some(_) | None => ProductListingCurrentRevisionCheck::Stale,
+            Some(_) | None => ProductListingCurrentEventCheck::Stale,
         })
     }
 
     async fn lock_and_check_all(
         &mut self,
-        refs: &[ProductListingCurrentRevisionRef],
+        refs: &[ProductListingCurrentEventRef],
     ) -> Result<
-        HashMap<ProductListingCurrentRevisionRef, ProductListingCurrentRevisionCheck>,
-        ProductListingCurrentRevisionCheckError,
+        HashMap<ProductListingCurrentEventRef, ProductListingCurrentEventCheck>,
+        ProductListingCurrentEventCheckError,
     > {
         if refs.is_empty() {
             return Ok(HashMap::new());
@@ -84,7 +82,7 @@ impl ProductListingCurrentRevisionGuard for SqlxProductListingCurrentRevisionGua
             .collect::<Vec<_>>();
         let current_event_ids = sqlx::query_as::<_, (uuid::Uuid, uuid::Uuid)>(
             r#"
-            SELECT product_listing_id, event_id
+            SELECT product_listing_id, current_event_id
             FROM product_listings
             WHERE product_listing_id = ANY($1::uuid[])
             FOR SHARE
@@ -93,11 +91,9 @@ impl ProductListingCurrentRevisionGuard for SqlxProductListingCurrentRevisionGua
         .bind(product_listing_ids)
         .fetch_all(&mut *self.connection)
         .await
-        .map_err(
-            |source| ProductListingCurrentRevisionCheckError::CheckFailed {
-                source: box_error(ProductListingCurrentRevisionGuardSqlxError(source)),
-            },
-        )?
+        .map_err(|source| ProductListingCurrentEventCheckError::CheckFailed {
+            source: box_error(ProductListingCurrentEventGuardSqlxError(source)),
+        })?
         .into_iter()
         .collect::<HashMap<_, _>>();
 
@@ -109,9 +105,9 @@ impl ProductListingCurrentRevisionGuard for SqlxProductListingCurrentRevisionGua
                     .get(&uuid::Uuid::from(reference.product_listing_id))
                 {
                     Some(event_id) if EventId::from(*event_id) == reference.expected_event_id => {
-                        ProductListingCurrentRevisionCheck::Current
+                        ProductListingCurrentEventCheck::Current
                     }
-                    Some(_) | None => ProductListingCurrentRevisionCheck::Stale,
+                    Some(_) | None => ProductListingCurrentEventCheck::Stale,
                 };
                 (reference, check)
             })
@@ -125,16 +121,16 @@ mod tests {
 
     #[test]
     fn should_preserve_sqlx_query_source() {
-        let error = ProductListingCurrentRevisionCheckError::CheckFailed {
-            source: box_error(ProductListingCurrentRevisionGuardSqlxError(
+        let error = ProductListingCurrentEventCheckError::CheckFailed {
+            source: box_error(ProductListingCurrentEventGuardSqlxError(
                 sqlx::Error::RowNotFound,
             )),
         };
 
-        let ProductListingCurrentRevisionCheckError::CheckFailed { source } = error;
+        let ProductListingCurrentEventCheckError::CheckFailed { source } = error;
         assert!(
             source
-                .downcast_ref::<ProductListingCurrentRevisionGuardSqlxError>()
+                .downcast_ref::<ProductListingCurrentEventGuardSqlxError>()
                 .is_some()
         );
     }

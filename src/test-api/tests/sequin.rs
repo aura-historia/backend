@@ -51,7 +51,7 @@ async fn insert_product_event_under_test(pool: &sqlx::PgPool) {
         .execute(&mut *transaction)
         .await
         .unwrap_or_else(|error| panic!("failed to insert Sequin test source: {error}"));
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Sequin test product', 'en', NULL, 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Sequin test product', 'en', NULL, 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_listing_id)
         .bind(product_listing_title_slug_id("Sequin test product"))
         .bind(event_id)
@@ -60,9 +60,25 @@ async fn insert_product_event_under_test(pool: &sqlx::PgPool) {
         .execute(&mut *transaction)
         .await
         .unwrap_or_else(|error| panic!("failed to insert Sequin test product: {error}"));
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CREATED', 'DOMAIN', '{}', now())")
+    let discovery_payload = serde_json::json!({
+        "listingSourceId": listing_source_id,
+        "sourceListingId": product_listing_id.to_string(),
+        "title": { "language": "en", "text": "Sequin test product" },
+        "description": null,
+        "pricing": {
+            "price": null,
+            "priceEstimateMin": null,
+            "priceEstimateMax": null
+        },
+        "availability": null,
+        "url": "https://example.test/product",
+        "imageCount": 0,
+        "auction": { "start": null, "end": null }
+    });
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, $3, now())")
         .bind(event_id)
         .bind(product_listing_id)
+        .bind(discovery_payload)
         .execute(&mut *transaction)
         .await
         .unwrap_or_else(|error| panic!("failed to insert Sequin test product event: {error}"));

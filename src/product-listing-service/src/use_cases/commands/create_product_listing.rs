@@ -1,19 +1,19 @@
 use crate::ports::{
     PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
-    PartnerProductListingAuthorizerFactory, ProductListingEventStore,
-    ProductListingEventStoreError, ProductListingEventStoreFactory, ProductListingRepository,
-    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_events,
+    PartnerProductListingAuthorizerFactory, ProductListingEventAppendError,
+    ProductListingEventAppender, ProductListingEventAppenderFactory, ProductListingRepository,
+    ProductListingRepositoryError, ProductListingRepositoryFactory, stamp_product_listing_event,
 };
 use crate::product_listing_title_slug_creation::{
     MAX_PRODUCT_LISTING_TITLE_SLUG_INSERT_ATTEMPTS, ProductListingTitleSlugGenerator,
     RandomProductListingTitleSlugGenerator, TitleSlugCollisionRetry, title_slug_collision_retry,
 };
-use application::error::BoxError;
+use application::error::{BoxError, box_error};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use application::transaction::{Transaction, UnitOfWork};
-use domain_primitives::event_id::EventId;
+
 use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
@@ -48,7 +48,6 @@ pub struct CreateProductListingCommand {
 pub struct CreateProductListingResult {
     pub product_listing_id: ProductListingId,
     pub product_listing_title_slug_id: ProductListingSlugId,
-    pub event_id: EventId,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -81,8 +80,11 @@ pub enum CreateProductListingError {
     CreatedEventMissing,
     #[error("product listing persistence failed")]
     PersistenceFailed,
-    #[error("product listing event storage failed")]
-    EventStoreFailed,
+    #[error("product listing event append failed")]
+    EventAppenderFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin create product listing transaction")]
     BeginTransactionFailed,
     #[error("failed to commit create product listing transaction")]
@@ -140,7 +142,7 @@ impl<U, R, E, A, G> CreateProductListingHandler<U, R, E, A, G>
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
-    E: ProductListingEventStoreFactory<U::Tx>,
+    E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
     G: ProductListingTitleSlugGenerator,
 {
@@ -168,23 +170,20 @@ where
                 .clone()
                 .into_new_product(product_listing_id, title_slug_id),
         )?;
-        let events = stamp_product_listing_events(
+        let event = stamp_product_listing_event(
             product.id(),
             time::OffsetDateTime::now_utc(),
-            product.take_pending_event_payloads(),
+            product
+                .take_pending_event_payload()
+                .ok_or(CreateProductListingError::CreatedEventMissing)?,
         );
-        let event_id = events
-            .last()
-            .map(|event| event.event_id)
-            .ok_or(CreateProductListingError::CreatedEventMissing)?;
+        let event_id = event.event_id;
         let persisted = self
             .products
             .in_transaction(&mut tx)
             .insert(&product, event_id)
             .await?;
-        for event in &events {
-            self.events.in_transaction(&mut tx).append(event).await?;
-        }
+        self.events.in_transaction(&mut tx).append(&event).await?;
         tx.commit()
             .await
             .map_err(|_| CreateProductListingError::CommitTransactionFailed)?;
@@ -193,7 +192,6 @@ where
         Ok(CreateProductListingResult {
             product_listing_id: persisted.value.id(),
             product_listing_title_slug_id: persisted.value.title_slug_id().clone(),
-            event_id,
         })
     }
 }
@@ -203,7 +201,7 @@ impl<U, R, E, A, G> CreateProductListingUseCase for CreateProductListingHandler<
 where
     U: UnitOfWork,
     R: ProductListingRepositoryFactory<U::Tx>,
-    E: ProductListingEventStoreFactory<U::Tx>,
+    E: ProductListingEventAppenderFactory<U::Tx>,
     A: PartnerProductListingAuthorizerFactory<U::Tx>,
     G: ProductListingTitleSlugGenerator,
 {
@@ -345,18 +343,23 @@ impl From<ProductListingRepositoryError> for CreateProductListingError {
     }
 }
 
-impl From<ProductListingEventStoreError> for CreateProductListingError {
-    fn from(_: ProductListingEventStoreError) -> Self {
-        Self::EventStoreFailed
+impl From<ProductListingEventAppendError> for CreateProductListingError {
+    fn from(error: ProductListingEventAppendError) -> Self {
+        Self::EventAppenderFailed {
+            source: box_error(error),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::{
+        ProductListingStorageVersion, ProductListingWriteEffects, VersionedProductListing,
+    };
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::TransactionError;
-    use domain_primitives::versioned::Versioned;
+    use domain_primitives::{event_id::EventId, versioned::Versioned};
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -390,7 +393,7 @@ mod tests {
     struct ProductRepositoryFake(SharedState);
     #[derive(Clone)]
     struct EventsFake(SharedState);
-    struct EventStoreFake(SharedState);
+    struct EventAppenderFake(SharedState);
     #[derive(Clone)]
     struct AuthorizerFake(SharedState);
     struct AuthorizerRepositoryFake(SharedState);
@@ -433,53 +436,55 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _: ProductListingId,
-        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
-        {
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
             Ok(None)
         }
         async fn find_by_key(
             &mut self,
             _: &product_listing_core::product_listing_id::ProductListingKey,
-        ) -> Result<Option<Versioned<ProductListing, EventId>>, ProductListingRepositoryError>
-        {
+        ) -> Result<Option<VersionedProductListing>, ProductListingRepositoryError> {
             Ok(None)
         }
         async fn insert(
             &mut self,
             product: &ProductListing,
-            event_id: EventId,
-        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            _: EventId,
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             let mut state = lock(&self.0);
             state.inserts += 1;
             match state.insert_results.pop_front().unwrap_or(Ok(())) {
-                Ok(()) => Ok(Versioned::new(product.clone(), event_id)),
+                Ok(()) => Ok(Versioned::new(
+                    product.clone(),
+                    ProductListingStorageVersion::INITIAL,
+                )),
                 Err(error) => Err(error),
             }
         }
         async fn update(
             &mut self,
             _: &ProductListing,
+            _: ProductListingStorageVersion,
             _: EventId,
-            _: EventId,
-        ) -> Result<Versioned<ProductListing, EventId>, ProductListingRepositoryError> {
+            _: ProductListingWriteEffects,
+        ) -> Result<VersionedProductListing, ProductListingRepositoryError> {
             lock(&self.0).updates += 1;
             Err(ProductListingRepositoryError::ProductListingUpdateFailed)
         }
     }
-    impl ProductListingEventStoreFactory<TxFake> for EventsFake {
+    impl ProductListingEventAppenderFactory<TxFake> for EventsFake {
         fn in_transaction<'tx>(
             &'tx self,
             _: &'tx mut TxFake,
-        ) -> impl ProductListingEventStore + 'tx {
-            EventStoreFake(Arc::clone(&self.0))
+        ) -> impl ProductListingEventAppender + 'tx {
+            EventAppenderFake(Arc::clone(&self.0))
         }
     }
     #[async_trait::async_trait]
-    impl ProductListingEventStore for EventStoreFake {
+    impl ProductListingEventAppender for EventAppenderFake {
         async fn append(
             &mut self,
-            _: &crate::ports::product_listing_event_store::ProductListingEvent,
-        ) -> Result<(), ProductListingEventStoreError> {
+            _: &crate::ports::product_listing_event_appender::ProductListingEvent,
+        ) -> Result<(), ProductListingEventAppendError> {
             lock(&self.0).events += 1;
             Ok(())
         }

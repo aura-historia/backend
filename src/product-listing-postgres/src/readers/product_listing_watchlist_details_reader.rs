@@ -55,7 +55,7 @@ struct SqlxProductListingWatchlistDetailsReader<'tx> {
 struct ProductListingDetailsRow {
     product_listing_id: uuid::Uuid,
     product_listing_title_slug_id: String,
-    event_id: uuid::Uuid,
+    current_event_id: uuid::Uuid,
     listing_source_id: uuid::Uuid,
     source_listing_id: String,
     listing_source_name: String,
@@ -228,7 +228,7 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
         WHERE matched.user_id = $2
     )
     SELECT
-        p.product_listing_id, p.product_listing_title_slug_id, p.event_id,
+        p.product_listing_id, p.product_listing_title_slug_id, p.current_event_id,
         p.listing_source_id, p.source_listing_id,
         listing_source.name AS listing_source_name,
         listing_source.listing_source_slug_id,
@@ -420,7 +420,7 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                     &row.product_listing_title_slug_id,
                 )
                 .map_err(|_| ())?,
-                event_id: EventId::from(row.event_id),
+                event_id: EventId::from(row.current_event_id),
                 source: product_listing_service::ports::ListingSourceSummary {
                     listing_source_id: ListingSourceId::from(row.listing_source_id),
                     name: ListingSourceName::try_from(row.listing_source_name).map_err(|_| ())?,

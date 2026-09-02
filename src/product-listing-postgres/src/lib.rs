@@ -1,4 +1,5 @@
-pub mod product_listing_event_store;
+pub mod product_listing_event_appender;
+mod product_listing_event_codec;
 
 pub mod partner_product_listing_authorizer;
 pub mod product_listing_content_assessment_source_reader;
@@ -16,16 +17,16 @@ pub use product_listing_content_assessment_source_reader::SqlxProductListingCont
 pub use product_listing_content_assessment_writer::SqlxProductListingContentAssessmentWriterFactory;
 pub use product_listing_embedding_source_reader::SqlxProductListingEmbeddingSourceReader;
 pub use product_listing_embedding_writer::SqlxProductListingEmbeddingWriterFactory;
-pub use product_listing_event_store::SqlxProductListingEventStoreFactory;
+pub use product_listing_event_appender::SqlxProductListingEventAppenderFactory;
 pub use product_listing_repository::SqlxProductListingRepositoryFactory;
 pub use product_listing_translation_source_reader::SqlxProductListingTranslationSourceReader;
 pub use product_listing_translation_writer::SqlxProductListingTranslationWriterFactory;
 pub use readers::{
     SqlxListingSourceSummaryReader, SqlxProductListingContentAssessmentReader,
     SqlxProductListingContentAssessmentSnapshotReaderFactory,
-    SqlxProductListingCurrentRevisionGuardFactory, SqlxProductListingDetailsBatchReader,
+    SqlxProductListingCurrentEventGuardFactory, SqlxProductListingDetailsBatchReader,
     SqlxProductListingDetailsReaderFactory, SqlxProductListingEmbeddingReaderFactory,
-    SqlxProductListingEventReaderFactory, SqlxProductListingSearchFilterMatchSourceReaderFactory,
+    SqlxProductListingHistoryReaderFactory, SqlxProductListingSearchFilterMatchSourceReaderFactory,
     SqlxProductListingUserStateReader, SqlxProductListingWatchlistDetailsReaderFactory,
     SqlxProductListingWatchlistNotificationSourceReaderFactory,
 };

@@ -2,10 +2,19 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use domain_primitives::event_id::EventId;
+use localization::Language;
+use product_listing_core::{
+    description::Description, listing_availability::ListingAvailability,
+    product_listing_id::ProductListingId, source_listing_id::SourceListingId, title::Title,
+};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
+use url::Url;
+use uuid::Uuid;
 
 use crate::{
     InMemoryQueueReceiver, InMemoryQueueSender, QueueConfig, QueueConfigError, in_memory_queue,
@@ -167,10 +176,8 @@ pub enum DomainJobPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductListingEventJob {
-    pub event_id: String,
-    pub product_listing_id: String,
-    pub event_type: String,
-    pub event_group: String,
+    pub event_id: EventId,
+    pub product_listing_id: ProductListingId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -686,20 +693,111 @@ impl From<&str> for CdcTable {
     }
 }
 
-fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
+const PRODUCT_LISTING_EVENT_SCHEMA_VERSION: i64 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProductListingRoutingEventKind {
+    Discovered,
+    Changed,
+    Embedded,
+    TranslatedTitles,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProductListingEventRoutingFacts {
+    event_id: EventId,
+    product_listing_id: ProductListingId,
+    event_kind: ProductListingRoutingEventKind,
+    has_main_price_change: bool,
+    has_availability_change: bool,
+    has_image_change: bool,
+}
+
+fn product_event_routing_facts(
+    change: &CdcChange,
+) -> Result<ProductListingEventRoutingFacts, CdcRouteError> {
     let row = required_row(change)?;
-    let event_id = required_string(row, "event_id")?;
-    let product_listing_id = required_string(row, "product_listing_id")?;
-    let event_type = required_string(row, "event_type")?;
-    let event_group = required_string(row, "event_group")?;
-    let base_job = ProductListingEventJob {
-        event_id: event_id.clone(),
-        product_listing_id: product_listing_id.clone(),
-        event_type: event_type.clone(),
-        event_group: event_group.clone(),
+    let event_id_value = required_product_event_string(row, "event_id")?;
+    let event_id =
+        EventId::try_from(event_id_value.as_str()).map_err(|_| CdcRouteError::InvalidEventId)?;
+    if event_id.to_string() != event_id_value {
+        return Err(CdcRouteError::InvalidEventId);
+    }
+    let product_listing_id_value = required_product_event_string(row, "product_listing_id")?;
+    let product_listing_id = ProductListingId::try_from(product_listing_id_value.as_str())
+        .map_err(|_| CdcRouteError::InvalidProductListingId)?;
+    if product_listing_id.to_string() != product_listing_id_value {
+        return Err(CdcRouteError::InvalidProductListingId);
+    }
+    let event_type = required_product_event_string(row, "event_type")?;
+    let event_group = required_product_event_string(row, "event_group")?;
+    let schema_version = required_integer(row, "event_type_schema_version")?;
+    let payload = row
+        .get("payload")
+        .ok_or(CdcRouteError::MissingColumn("payload"))?;
+
+    if schema_version != PRODUCT_LISTING_EVENT_SCHEMA_VERSION {
+        return Err(CdcRouteError::UnsupportedProductListingEventSchemaVersion { schema_version });
+    }
+
+    let event_kind = match (event_type.as_str(), event_group.as_str()) {
+        ("PRODUCT_LISTING_DISCOVERED", "DOMAIN") => {
+            validate_discovered_payload(payload)?;
+            ProductListingRoutingEventKind::Discovered
+        }
+        ("PRODUCT_LISTING_CHANGED", "DOMAIN") => {
+            let (has_main_price_change, has_availability_change, has_image_change) =
+                validate_changed_payload(payload)?;
+            return Ok(ProductListingEventRoutingFacts {
+                event_id,
+                product_listing_id,
+                event_kind: ProductListingRoutingEventKind::Changed,
+                has_main_price_change,
+                has_availability_change,
+                has_image_change,
+            });
+        }
+        ("ENRICHMENT_EMBEDDED", "ENRICHMENT") => {
+            validate_embedded_payload(payload)?;
+            ProductListingRoutingEventKind::Embedded
+        }
+        ("ENRICHMENT_TRANSLATED_TITLES", "ENRICHMENT") => {
+            validate_translated_payload(payload)?;
+            ProductListingRoutingEventKind::TranslatedTitles
+        }
+        ("PRODUCT_LISTING_DISCOVERED" | "PRODUCT_LISTING_CHANGED", _)
+        | ("ENRICHMENT_EMBEDDED" | "ENRICHMENT_TRANSLATED_TITLES", _) => {
+            return Err(CdcRouteError::UnsupportedProductListingEvent {
+                event_type,
+                event_group,
+            });
+        }
+        _ => {
+            return Err(CdcRouteError::UnsupportedProductListingEvent {
+                event_type,
+                event_group,
+            });
+        }
     };
-    let idempotency_key = IdempotencyKey::new(format!("product-event:{event_id}"));
-    let ordering_key = OrderingKey::new(format!("product:{product_listing_id}"));
+
+    Ok(ProductListingEventRoutingFacts {
+        event_id,
+        product_listing_id,
+        event_kind,
+        has_main_price_change: false,
+        has_availability_change: false,
+        has_image_change: false,
+    })
+}
+
+fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
+    let facts = product_event_routing_facts(change)?;
+    let base_job = ProductListingEventJob {
+        event_id: facts.event_id,
+        product_listing_id: facts.product_listing_id,
+    };
+    let idempotency_key = IdempotencyKey::new(format!("product-event:{}", facts.event_id));
+    let ordering_key = OrderingKey::new(format!("product:{}", facts.product_listing_id));
 
     let mut jobs = vec![domain_job(
         WorkerQueue::ProductListingOpenSearch,
@@ -707,56 +805,568 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
         ordering_key.clone(),
         DomainJobPayload::ProductListingEvent(base_job.clone()),
     )];
+    jobs.push(domain_job(
+        WorkerQueue::SearchFilterPercolator,
+        idempotency_key.clone(),
+        ordering_key.clone(),
+        DomainJobPayload::ProductListingEvent(base_job.clone()),
+    ));
 
-    if matches!(event_group.as_str(), "DOMAIN" | "ENRICHMENT") {
-        jobs.push(domain_job(
-            WorkerQueue::SearchFilterPercolator,
-            idempotency_key.clone(),
-            ordering_key.clone(),
-            DomainJobPayload::ProductListingEvent(base_job.clone()),
-        ));
-    }
-
-    if matches!(
-        event_type.as_str(),
-        "PRODUCT_LISTING_PRICE_CHANGED" | "PRODUCT_LISTING_AVAILABILITY_CHANGED"
-    ) {
-        jobs.push(domain_job(
-            WorkerQueue::WatchlistNotification,
-            idempotency_key.clone(),
-            ordering_key.clone(),
-            DomainJobPayload::ProductListingEvent(base_job.clone()),
-        ));
-    }
-
-    if event_type == "PRODUCT_LISTING_CREATED" {
-        jobs.push(domain_job(
-            WorkerQueue::ProductListingContentAssessment,
-            idempotency_key.clone(),
-            ordering_key.clone(),
-            DomainJobPayload::ProductListingEvent(base_job.clone()),
-        ));
-    }
-
-    if event_type == "PRODUCT_LISTING_CREATED" {
-        jobs.push(domain_job(
-            WorkerQueue::ProductListingEmbed,
-            idempotency_key.clone(),
-            ordering_key.clone(),
-            DomainJobPayload::ProductListingEvent(base_job.clone()),
-        ));
-    }
-
-    if event_type == "ENRICHMENT_EMBEDDED" {
-        jobs.push(domain_job(
-            WorkerQueue::ProductListingTranslate,
-            idempotency_key.clone(),
-            ordering_key.clone(),
-            DomainJobPayload::ProductListingEvent(base_job.clone()),
-        ));
+    match facts.event_kind {
+        ProductListingRoutingEventKind::Discovered => {
+            for target_queue in [
+                WorkerQueue::ProductListingContentAssessment,
+                WorkerQueue::ProductListingEmbed,
+                WorkerQueue::ProductListingTranslate,
+            ] {
+                jobs.push(domain_job(
+                    target_queue,
+                    idempotency_key.clone(),
+                    ordering_key.clone(),
+                    DomainJobPayload::ProductListingEvent(base_job.clone()),
+                ));
+            }
+        }
+        ProductListingRoutingEventKind::Changed => {
+            if facts.has_main_price_change || facts.has_availability_change {
+                jobs.push(domain_job(
+                    WorkerQueue::WatchlistNotification,
+                    idempotency_key.clone(),
+                    ordering_key.clone(),
+                    DomainJobPayload::ProductListingEvent(base_job.clone()),
+                ));
+            }
+            if facts.has_image_change {
+                jobs.push(domain_job(
+                    WorkerQueue::ProductListingEmbed,
+                    idempotency_key,
+                    ordering_key,
+                    DomainJobPayload::ProductListingEvent(base_job),
+                ));
+            }
+        }
+        ProductListingRoutingEventKind::Embedded
+        | ProductListingRoutingEventKind::TranslatedTitles => {}
     }
 
     Ok(jobs)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProductListingLifecycleRoutingChange {
+    Withdrawn,
+    Restored,
+}
+
+fn validate_discovered_payload(value: &Value) -> Result<(), CdcRouteError> {
+    let object = required_payload_object(value)?;
+    require_exact_keys(
+        object,
+        &[
+            "listingSourceId",
+            "sourceListingId",
+            "title",
+            "description",
+            "pricing",
+            "availability",
+            "url",
+            "imageCount",
+            "auction",
+        ],
+        "payload",
+    )?;
+    validate_listing_source_id(&require_string(object, "listingSourceId")?)?;
+    validate_source_listing_id(&require_string(object, "sourceListingId")?)?;
+    require_nullable_localized(object, "title", canonical_title)?;
+    require_nullable_localized(object, "description", canonical_description)?;
+
+    let pricing = require_object_field(object, "pricing")?;
+    require_exact_keys(
+        pricing,
+        &["price", "priceEstimateMin", "priceEstimateMax"],
+        "pricing",
+    )?;
+    for field in ["price", "priceEstimateMin", "priceEstimateMax"] {
+        validate_price(
+            pricing
+                .get(field)
+                .ok_or(CdcRouteError::MissingColumn(field))?,
+        )?;
+    }
+    validate_nullable_availability(require_value(object, "availability")?, "availability")?;
+    validate_canonical_url(&require_string(object, "url")?, "url")?;
+    require_u64(object, "imageCount")?;
+    validate_auction(require_value(object, "auction")?, "auction")?;
+    Ok(())
+}
+
+fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool), CdcRouteError> {
+    let object = required_payload_object(value)?;
+    if object.is_empty() {
+        return Err(CdcRouteError::InvalidProductListingEventPayload);
+    }
+    require_known_keys(
+        object,
+        &[
+            "pricing",
+            "availability",
+            "url",
+            "images",
+            "auction",
+            "lifecycle",
+            "saleObservation",
+        ],
+        "payload",
+    )?;
+
+    let mut has_main_price_change = false;
+    let mut has_availability_change = false;
+    let mut has_image_change = false;
+    let mut availability_change = None;
+    let mut lifecycle_change = None;
+    for (field, value) in object {
+        match field.as_str() {
+            "pricing" => {
+                let pricing = required_object(value)?;
+                if pricing.is_empty() {
+                    return Err(CdcRouteError::InvalidProductListingEventPayload);
+                }
+                require_known_keys(
+                    pricing,
+                    &["price", "priceEstimateMin", "priceEstimateMax"],
+                    "pricing",
+                )?;
+                for (pricing_field, value) in pricing {
+                    match pricing_field.as_str() {
+                        "price" => {
+                            validate_price_change(value)?;
+                            has_main_price_change = true;
+                        }
+                        "priceEstimateMin" | "priceEstimateMax" => {
+                            validate_price_change(value)?;
+                        }
+                        _ => return Err(CdcRouteError::InvalidProductListingEventPayload),
+                    }
+                }
+            }
+            "availability" => {
+                availability_change = Some(validate_code_change(value)?);
+                has_availability_change = true;
+            }
+            "url" => validate_string_change(value)?,
+            "images" => {
+                let images = required_object(value)?;
+                require_exact_keys(images, &["previousCount", "currentCount"], "images")?;
+                require_u64(images, "previousCount")?;
+                require_u64(images, "currentCount")?;
+                has_image_change = true;
+            }
+            "auction" => validate_auction_change(value)?,
+            "lifecycle" => lifecycle_change = Some(validate_lifecycle(value)?),
+            "saleObservation" => validate_sale_observation(value)?,
+            _ => return Err(CdcRouteError::InvalidProductListingEventPayload),
+        }
+    }
+
+    match (lifecycle_change, availability_change) {
+        (Some(ProductListingLifecycleRoutingChange::Withdrawn), Some((_, Some(_)))) => {
+            return Err(CdcRouteError::InconsistentProductListingEvent {
+                rule: "withdrawal with current availability".to_owned(),
+            });
+        }
+        (Some(ProductListingLifecycleRoutingChange::Restored), Some((Some(_), _))) => {
+            return Err(CdcRouteError::InconsistentProductListingEvent {
+                rule: "restoration with previous availability".to_owned(),
+            });
+        }
+        _ => {}
+    }
+
+    Ok((
+        has_main_price_change,
+        has_availability_change,
+        has_image_change,
+    ))
+}
+
+fn validate_price_change(value: &Value) -> Result<(), CdcRouteError> {
+    let change = required_object(value)?;
+    require_exact_keys(change, &["previous", "current"], "price change")?;
+    let previous = require_value(change, "previous")?;
+    let current = require_value(change, "current")?;
+    validate_price(previous)?;
+    validate_price(current)?;
+    if previous == current {
+        return Err(CdcRouteError::InvalidProductListingEventPayload);
+    }
+    Ok(())
+}
+
+fn validate_price(value: &Value) -> Result<(), CdcRouteError> {
+    if value.is_null() {
+        return Ok(());
+    }
+    let object = required_object(value)?;
+    require_exact_keys(object, &["amount", "currency"], "price")?;
+    require_u64(object, "amount")?;
+    let currency = require_string(object, "currency")?;
+    let parsed = money::Currency::from_code(currency.as_str())
+        .ok_or_else(|| invalid_product_listing_field("price.currency"))?;
+    if parsed.as_str() != currency {
+        return Err(noncanonical_product_listing_field("price.currency"));
+    }
+    Ok(())
+}
+
+fn validate_code_change(
+    value: &Value,
+) -> Result<(Option<ListingAvailability>, Option<ListingAvailability>), CdcRouteError> {
+    let change = required_object(value)?;
+    require_exact_keys(change, &["previous", "current"], "availability change")?;
+    let previous = validate_nullable_availability(
+        require_value(change, "previous")?,
+        "availability.previous",
+    )?;
+    let current =
+        validate_nullable_availability(require_value(change, "current")?, "availability.current")?;
+    if previous == current {
+        return Err(CdcRouteError::InvalidProductListingEventPayload);
+    }
+    Ok((previous, current))
+}
+
+fn validate_string_change(value: &Value) -> Result<(), CdcRouteError> {
+    let change = required_object(value)?;
+    require_exact_keys(change, &["previous", "current"], "url change")?;
+    let previous = validate_canonical_url(&require_string(change, "previous")?, "url.previous")?;
+    let current = validate_canonical_url(&require_string(change, "current")?, "url.current")?;
+    if previous == current {
+        return Err(CdcRouteError::InvalidProductListingEventPayload);
+    }
+    Ok(())
+}
+
+fn validate_auction_change(value: &Value) -> Result<(), CdcRouteError> {
+    let change = required_object(value)?;
+    require_exact_keys(change, &["previous", "current"], "auction change")?;
+    let previous = validate_auction(require_value(change, "previous")?, "auction.previous")?;
+    let current = validate_auction(require_value(change, "current")?, "auction.current")?;
+    if previous == current {
+        return Err(CdcRouteError::InvalidProductListingEventPayload);
+    }
+    Ok(())
+}
+
+fn validate_auction(
+    value: &Value,
+    field: &str,
+) -> Result<(Option<OffsetDateTime>, Option<OffsetDateTime>), CdcRouteError> {
+    let object = required_object(value)?;
+    require_exact_keys(object, &["start", "end"], field)?;
+    let start =
+        parse_nullable_timestamp(require_value(object, "start")?, &format!("{field}.start"))?;
+    let end = parse_nullable_timestamp(require_value(object, "end")?, &format!("{field}.end"))?;
+    if start.zip(end).is_some_and(|(start, end)| start > end) {
+        return Err(CdcRouteError::InconsistentProductListingEvent {
+            rule: format!("{field} start after end"),
+        });
+    }
+    Ok((start, end))
+}
+
+fn validate_lifecycle(
+    value: &Value,
+) -> Result<ProductListingLifecycleRoutingChange, CdcRouteError> {
+    let object = required_object(value)?;
+    let transition = require_string(object, "transition")?;
+    match transition.as_str() {
+        "WITHDRAWN" => {
+            require_exact_keys(object, &["transition", "previousAvailability"], "lifecycle")?;
+            validate_nullable_availability(
+                require_value(object, "previousAvailability")?,
+                "lifecycle.previousAvailability",
+            )?;
+            Ok(ProductListingLifecycleRoutingChange::Withdrawn)
+        }
+        "RESTORED" => {
+            require_exact_keys(object, &["transition"], "lifecycle")?;
+            Ok(ProductListingLifecycleRoutingChange::Restored)
+        }
+        _ => Err(invalid_product_listing_field("lifecycle.transition")),
+    }
+}
+
+fn validate_sale_observation(value: &Value) -> Result<(), CdcRouteError> {
+    let object = required_object(value)?;
+    require_exact_keys(object, &["transition", "observation"], "saleObservation")?;
+    let transition = require_string(object, "transition")?;
+    if !matches!(transition.as_str(), "OBSERVED" | "RETRACTED") {
+        return Err(invalid_product_listing_field("saleObservation.transition"));
+    }
+    let observation = require_object_field(object, "observation")?;
+    require_exact_keys(
+        observation,
+        &["observedAt", "fxRateId"],
+        "saleObservation.observation",
+    )?;
+    parse_canonical_timestamp(
+        &require_string(observation, "observedAt")?,
+        "saleObservation.observedAt",
+    )?;
+    let fx_rate_id =
+        fxrate_core::FxRateId::try_from(require_string(observation, "fxRateId")?.as_str())
+            .map_err(|_| invalid_product_listing_field("saleObservation.fxRateId"))?;
+    if fx_rate_id.to_string() != require_string(observation, "fxRateId")? {
+        return Err(noncanonical_product_listing_field(
+            "saleObservation.fxRateId",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_embedded_payload(value: &Value) -> Result<(), CdcRouteError> {
+    let object = required_payload_object(value)?;
+    require_exact_keys(object, &["sourceEventId"], "payload")?;
+    validate_canonical_event_id(&require_string(object, "sourceEventId")?)
+}
+
+fn validate_translated_payload(value: &Value) -> Result<(), CdcRouteError> {
+    let object = required_payload_object(value)?;
+    require_exact_keys(
+        object,
+        &["sourceEventId", "sourceLanguage", "targetLanguages"],
+        "payload",
+    )?;
+    validate_canonical_event_id(&require_string(object, "sourceEventId")?)?;
+    let source_language = require_string(object, "sourceLanguage")?;
+    validate_language(&source_language, "sourceLanguage")?;
+    let target_languages = object
+        .get("targetLanguages")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid_product_listing_field("targetLanguages"))?;
+    if target_languages.is_empty() {
+        return Err(invalid_product_listing_field("targetLanguages"));
+    }
+    for language in target_languages {
+        let language = language
+            .as_str()
+            .ok_or_else(|| invalid_product_listing_field("targetLanguages"))?;
+        validate_language(language, "targetLanguages")?;
+    }
+    Ok(())
+}
+
+fn required_payload_object(value: &Value) -> Result<&Map<String, Value>, CdcRouteError> {
+    required_object(value)
+}
+
+fn required_object(value: &Value) -> Result<&Map<String, Value>, CdcRouteError> {
+    value
+        .as_object()
+        .ok_or(CdcRouteError::InvalidProductListingEventPayload)
+}
+
+fn require_exact_keys(
+    object: &Map<String, Value>,
+    expected: &[&str],
+    context: &str,
+) -> Result<(), CdcRouteError> {
+    for field in expected {
+        if !object.contains_key(*field) {
+            return Err(CdcRouteError::MissingProductListingEventField {
+                field: format!("{context}.{field}"),
+            });
+        }
+    }
+    for field in object.keys() {
+        if !expected.contains(&field.as_str()) {
+            return Err(CdcRouteError::UnknownProductListingEventField {
+                field: format!("{context}.{field}"),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn require_known_keys(
+    object: &Map<String, Value>,
+    expected: &[&str],
+    context: &str,
+) -> Result<(), CdcRouteError> {
+    for field in object.keys() {
+        if !expected.contains(&field.as_str()) {
+            return Err(CdcRouteError::UnknownProductListingEventField {
+                field: format!("{context}.{field}"),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn require_value<'a>(
+    object: &'a Map<String, Value>,
+    field: &'static str,
+) -> Result<&'a Value, CdcRouteError> {
+    object.get(field).ok_or(CdcRouteError::MissingColumn(field))
+}
+
+fn require_object_field<'a>(
+    object: &'a Map<String, Value>,
+    field: &'static str,
+) -> Result<&'a Map<String, Value>, CdcRouteError> {
+    required_object(require_value(object, field)?)
+}
+
+fn require_string(
+    object: &Map<String, Value>,
+    field: &'static str,
+) -> Result<String, CdcRouteError> {
+    require_value(object, field)?
+        .as_str()
+        .map(ToOwned::to_owned)
+        .ok_or(CdcRouteError::InvalidProductListingEventPayload)
+}
+
+fn require_u64(object: &Map<String, Value>, field: &'static str) -> Result<u64, CdcRouteError> {
+    require_value(object, field)?
+        .as_u64()
+        .ok_or(CdcRouteError::InvalidProductListingEventPayload)
+}
+
+fn require_nullable_localized(
+    object: &Map<String, Value>,
+    field: &'static str,
+    canonicalize: fn(&str) -> String,
+) -> Result<(), CdcRouteError> {
+    let value = require_value(object, field)?;
+    if value.is_null() {
+        return Ok(());
+    }
+    let localized = required_object(value)?;
+    require_exact_keys(localized, &["language", "text"], field)?;
+    let language = require_string(localized, "language")?;
+    validate_language(&language, &format!("{field}.language"))?;
+    let text = require_string(localized, "text")?;
+    if canonicalize(text.as_str()) != text {
+        return Err(noncanonical_product_listing_field(format!("{field}.text")));
+    }
+    Ok(())
+}
+
+fn canonical_title(value: &str) -> String {
+    Title::from(value).to_string()
+}
+
+fn canonical_description(value: &str) -> String {
+    Description::from(value).to_string()
+}
+
+fn validate_listing_source_id(value: &str) -> Result<(), CdcRouteError> {
+    let id =
+        Uuid::parse_str(value).map_err(|_| invalid_product_listing_field("listingSourceId"))?;
+    if id.to_string() != value {
+        return Err(noncanonical_product_listing_field("listingSourceId"));
+    }
+    Ok(())
+}
+
+fn validate_source_listing_id(value: &str) -> Result<(), CdcRouteError> {
+    let id = SourceListingId::try_from(value)
+        .map_err(|_| invalid_product_listing_field("sourceListingId"))?;
+    if id.as_ref() != value {
+        return Err(noncanonical_product_listing_field("sourceListingId"));
+    }
+    Ok(())
+}
+
+fn validate_canonical_event_id(value: &str) -> Result<(), CdcRouteError> {
+    let id =
+        EventId::try_from(value).map_err(|_| invalid_product_listing_field("sourceEventId"))?;
+    if id.to_string() != value {
+        return Err(noncanonical_product_listing_field("sourceEventId"));
+    }
+    Ok(())
+}
+
+fn validate_language(value: &str, field: &str) -> Result<(), CdcRouteError> {
+    Language::from_code(value)
+        .map(|_| ())
+        .ok_or_else(|| invalid_product_listing_field(field))
+}
+
+fn validate_nullable_availability(
+    value: &Value,
+    field: &str,
+) -> Result<Option<ListingAvailability>, CdcRouteError> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let value = value
+        .as_str()
+        .ok_or_else(|| invalid_product_listing_field(field))?;
+    let availability = ListingAvailability::from_code(value)
+        .ok_or_else(|| invalid_product_listing_field(field))?;
+    if availability.as_str() != value {
+        return Err(noncanonical_product_listing_field(field));
+    }
+    Ok(Some(availability))
+}
+
+fn validate_canonical_url(value: &str, field: &str) -> Result<Url, CdcRouteError> {
+    let url = Url::parse(value).map_err(|_| invalid_product_listing_field(field))?;
+    if url.as_str() != value {
+        return Err(noncanonical_product_listing_field(field));
+    }
+    Ok(url)
+}
+
+fn parse_nullable_timestamp(
+    value: &Value,
+    field: &str,
+) -> Result<Option<OffsetDateTime>, CdcRouteError> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let value = value
+        .as_str()
+        .ok_or_else(|| invalid_product_listing_field(field))?;
+    parse_canonical_timestamp(value, field).map(Some)
+}
+
+fn parse_canonical_timestamp(value: &str, field: &str) -> Result<OffsetDateTime, CdcRouteError> {
+    let timestamp =
+        OffsetDateTime::parse(value, &Rfc3339).map_err(|_| invalid_product_listing_field(field))?;
+    let canonical = timestamp
+        .format(&Rfc3339)
+        .map_err(|_| invalid_product_listing_field(field))?;
+    if canonical != value {
+        return Err(noncanonical_product_listing_field(field));
+    }
+    Ok(timestamp)
+}
+
+fn invalid_product_listing_field(field: impl Into<String>) -> CdcRouteError {
+    CdcRouteError::InvalidProductListingEventField {
+        field: field.into(),
+    }
+}
+
+fn noncanonical_product_listing_field(field: impl Into<String>) -> CdcRouteError {
+    CdcRouteError::NonCanonicalProductListingEventField {
+        field: field.into(),
+    }
+}
+
+fn required_product_event_string(
+    row: &Value,
+    field: &'static str,
+) -> Result<String, CdcRouteError> {
+    row.as_object()
+        .ok_or(CdcRouteError::MissingRow)?
+        .get(field)
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .ok_or(CdcRouteError::MissingColumn(field))
 }
 
 fn search_filter_changed_job(
@@ -911,6 +1521,29 @@ pub enum CdcIngestError {
 pub enum CdcRouteError {
     #[error("CDC table is not configured for this worker: {0}")]
     UnsupportedTableForWorker(String),
+    #[error("CDC change has unsupported product listing event {event_type} in group {event_group}")]
+    UnsupportedProductListingEvent {
+        event_type: String,
+        event_group: String,
+    },
+    #[error("CDC change has unsupported product listing event schema version {schema_version}")]
+    UnsupportedProductListingEventSchemaVersion { schema_version: i64 },
+    #[error("CDC change has an invalid product listing event ID")]
+    InvalidEventId,
+    #[error("CDC change has an invalid product listing ID")]
+    InvalidProductListingId,
+    #[error("CDC change has a missing ProductListing event field {field}")]
+    MissingProductListingEventField { field: String },
+    #[error("CDC change has an invalid ProductListing event field {field}")]
+    InvalidProductListingEventField { field: String },
+    #[error("CDC change has a noncanonical ProductListing event field {field}")]
+    NonCanonicalProductListingEventField { field: String },
+    #[error("CDC change has an unknown ProductListing event field {field}")]
+    UnknownProductListingEventField { field: String },
+    #[error("CDC change has an inconsistent ProductListing event: {rule}")]
+    InconsistentProductListingEvent { rule: String },
+    #[error("CDC change has a product listing event payload that is not an object")]
+    InvalidProductListingEventPayload,
     #[error("CDC change missing row data")]
     MissingRow,
     #[error("CDC row missing required column {0}")]
@@ -937,6 +1570,43 @@ mod tests {
     use crate::{QueueConfig, in_memory_queue};
 
     fn product_event_change(event_type: &str, event_group: &str) -> CdcChange {
+        let payload = match (event_type, event_group) {
+            ("PRODUCT_LISTING_DISCOVERED", "DOMAIN") => serde_json::json!({
+                "listingSourceId": "10000000-0000-0000-0000-000000000001",
+                "sourceListingId": "fixture-source-id",
+                "title": null,
+                "description": null,
+                "pricing": {
+                    "price": null,
+                    "priceEstimateMin": null,
+                    "priceEstimateMax": null
+                },
+                "availability": null,
+                "url": "https://example.test/product",
+                "imageCount": 0,
+                "auction": {"start": null, "end": null}
+            }),
+            ("PRODUCT_LISTING_CHANGED", "DOMAIN") => serde_json::json!({
+                "availability": {"previous": null, "current": "AVAILABLE"}
+            }),
+            ("ENRICHMENT_EMBEDDED", "ENRICHMENT") => serde_json::json!({
+                "sourceEventId": "40000000-0000-0000-0000-000000000002"
+            }),
+            ("ENRICHMENT_TRANSLATED_TITLES", "ENRICHMENT") => serde_json::json!({
+                "sourceEventId": "40000000-0000-0000-0000-000000000002",
+                "sourceLanguage": "de",
+                "targetLanguages": ["en", "fr", "es", "it"]
+            }),
+            _ => serde_json::json!({}),
+        };
+        product_event_change_with_payload(event_type, event_group, payload)
+    }
+
+    fn product_event_change_with_payload(
+        event_type: &str,
+        event_group: &str,
+        payload: Value,
+    ) -> CdcChange {
         CdcChange {
             schema: Some("public".to_owned()),
             table: "product_listing_events".to_owned(),
@@ -947,6 +1617,8 @@ mod tests {
                 "product_listing_id": "30000000-0000-0000-0000-000000000001",
                 "event_type": event_type,
                 "event_group": event_group,
+                "event_type_schema_version": 1,
+                "payload": payload,
             })),
             old_record: None,
             changed_columns: Vec::new(),
@@ -956,11 +1628,14 @@ mod tests {
     }
 
     #[test]
-    fn should_route_product_created_event_to_projection_percolator_and_embed()
+    fn should_route_discovered_event_to_projection_percolator_assessment_embedding_and_translation()
     -> Result<(), Box<dyn std::error::Error>> {
-        let jobs = route_change(&product_event_change("PRODUCT_LISTING_CREATED", "DOMAIN"))?;
+        let jobs = route_change(&product_event_change(
+            "PRODUCT_LISTING_DISCOVERED",
+            "DOMAIN",
+        ))?;
 
-        assert_eq!(4, jobs.len());
+        assert_eq!(5, jobs.len());
         assert!(
             jobs.iter()
                 .any(|job| job.target_queue == WorkerQueue::ProductListingOpenSearch)
@@ -977,6 +1652,10 @@ mod tests {
             jobs.iter()
                 .any(|job| job.target_queue == WorkerQueue::ProductListingEmbed)
         );
+        assert!(
+            jobs.iter()
+                .any(|job| job.target_queue == WorkerQueue::ProductListingTranslate)
+        );
         assert!(jobs.iter().all(|job| job.idempotency_key.as_str()
             == "product-event:40000000-0000-0000-0000-000000000001"));
         assert!(
@@ -984,40 +1663,53 @@ mod tests {
                 .all(|job| job.ordering_key.as_str()
                     == "product:30000000-0000-0000-0000-000000000001")
         );
+        let expected_event_id = EventId::try_from("40000000-0000-0000-0000-000000000001")?;
+        let expected_product_listing_id =
+            ProductListingId::try_from("30000000-0000-0000-0000-000000000001")?;
+        assert!(jobs.iter().all(|job| {
+            matches!(
+                &job.payload,
+                DomainJobPayload::ProductListingEvent(ProductListingEventJob {
+                    event_id,
+                    product_listing_id,
+                    ..
+                }) if *event_id == expected_event_id && *product_listing_id == expected_product_listing_id
+            )
+        }));
         Ok(())
     }
 
     #[test]
-    fn should_route_lifecycle_events_only_to_product_listing_projection()
+    fn should_route_all_supported_events_to_projection_and_percolator()
     -> Result<(), Box<dyn std::error::Error>> {
-        for event_type in ["PRODUCT_LISTING_WITHDRAWN", "PRODUCT_LISTING_RESTORED"] {
-            let jobs = route_change(&product_event_change(event_type, "LIFECYCLE"))?;
+        for (event_type, event_group) in [
+            ("PRODUCT_LISTING_DISCOVERED", "DOMAIN"),
+            ("PRODUCT_LISTING_CHANGED", "DOMAIN"),
+            ("ENRICHMENT_EMBEDDED", "ENRICHMENT"),
+            ("ENRICHMENT_TRANSLATED_TITLES", "ENRICHMENT"),
+        ] {
+            let jobs = route_change(&product_event_change(event_type, event_group))?;
 
-            assert_eq!(1, jobs.len(), "{event_type}");
-            assert_eq!(WorkerQueue::ProductListingOpenSearch, jobs[0].target_queue);
+            assert!(
+                jobs.iter()
+                    .any(|job| job.target_queue == WorkerQueue::ProductListingOpenSearch),
+                "{event_type}"
+            );
+            assert!(
+                jobs.iter()
+                    .any(|job| job.target_queue == WorkerQueue::SearchFilterPercolator),
+                "{event_type}"
+            );
         }
         Ok(())
     }
 
     #[test]
-    fn should_route_only_product_created_event_to_content_assessment()
+    fn should_route_content_assessment_and_translation_only_for_discovered_event()
     -> Result<(), Box<dyn std::error::Error>> {
         for (event_type, event_group, expected) in [
-            ("PRODUCT_LISTING_CREATED", "DOMAIN", true),
-            ("PRODUCT_LISTING_AVAILABILITY_CHANGED", "DOMAIN", false),
-            ("PRODUCT_LISTING_ADDRESS_CHANGED", "DOMAIN", false),
-            ("PRODUCT_LISTING_PRICE_CHANGED", "DOMAIN", false),
-            ("PRODUCT_LISTING_URL_CHANGED", "DOMAIN", false),
-            ("PRODUCT_LISTING_IMAGES_CHANGED", "DOMAIN", false),
-            ("PRODUCT_LISTING_AUCTION_CHANGED", "DOMAIN", false),
-            ("PRODUCT_LISTING_SALE_OBSERVED", "DOMAIN", false),
-            (
-                "PRODUCT_LISTING_SALE_OBSERVATION_RETRACTED",
-                "DOMAIN",
-                false,
-            ),
-            ("PRODUCT_LISTING_WITHDRAWN", "LIFECYCLE", false),
-            ("PRODUCT_LISTING_RESTORED", "LIFECYCLE", false),
+            ("PRODUCT_LISTING_DISCOVERED", "DOMAIN", true),
+            ("PRODUCT_LISTING_CHANGED", "DOMAIN", false),
             ("ENRICHMENT_EMBEDDED", "ENRICHMENT", false),
             ("ENRICHMENT_TRANSLATED_TITLES", "ENRICHMENT", false),
         ] {
@@ -1027,25 +1719,557 @@ mod tests {
                 expected,
                 jobs.iter()
                     .any(|job| job.target_queue == WorkerQueue::ProductListingContentAssessment),
-                "{event_type}"
+                "assessment {event_type}"
+            );
+            assert_eq!(
+                expected,
+                jobs.iter()
+                    .any(|job| job.target_queue == WorkerQueue::ProductListingTranslate),
+                "translation {event_type}"
             );
         }
         Ok(())
     }
 
     #[test]
-    fn should_route_product_price_event_to_watchlist_notifications()
+    fn should_route_embedding_for_discovered_and_image_changed_events()
     -> Result<(), Box<dyn std::error::Error>> {
-        let jobs = route_change(&product_event_change(
-            "PRODUCT_LISTING_PRICE_CHANGED",
+        for (event_type, event_group, payload, expected) in [
+            (
+                "PRODUCT_LISTING_DISCOVERED",
+                "DOMAIN",
+                serde_json::json!({
+                    "listingSourceId": "10000000-0000-0000-0000-000000000001",
+                    "sourceListingId": "fixture-source-id",
+                    "title": null,
+                    "description": null,
+                    "pricing": {
+                        "price": null,
+                        "priceEstimateMin": null,
+                        "priceEstimateMax": null
+                    },
+                    "availability": null,
+                    "url": "https://example.test/product",
+                    "imageCount": 0,
+                    "auction": {"start": null, "end": null}
+                }),
+                true,
+            ),
+            (
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({"images": {"previousCount": 1, "currentCount": 2}}),
+                true,
+            ),
+            (
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({"availability": {"previous": null, "current": "AVAILABLE"}}),
+                false,
+            ),
+            (
+                "ENRICHMENT_EMBEDDED",
+                "ENRICHMENT",
+                serde_json::json!({"sourceEventId": "40000000-0000-0000-0000-000000000002"}),
+                false,
+            ),
+        ] {
+            let jobs = route_change(&product_event_change_with_payload(
+                event_type,
+                event_group,
+                payload,
+            ))?;
+
+            assert_eq!(
+                expected,
+                jobs.iter()
+                    .any(|job| job.target_queue == WorkerQueue::ProductListingEmbed),
+                "embedding {event_type}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_route_changed_event_to_one_watchlist_job_when_main_price_or_availability_changed()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for payload in [
+            serde_json::json!({
+                "pricing": {
+                    "price": {
+                        "previous": null,
+                        "current": {"amount": 900, "currency": "USD"}
+                    }
+                }
+            }),
+            serde_json::json!({"availability": {"previous": null, "current": "AVAILABLE"}}),
+            serde_json::json!({
+                "pricing": {
+                    "price": {
+                        "previous": {"amount": 1200, "currency": "USD"},
+                        "current": {"amount": 900, "currency": "USD"}
+                    }
+                },
+                "availability": {"previous": "IN_STOCK", "current": "SOLD_OUT"}
+            }),
+        ] {
+            let jobs = route_change(&product_event_change_with_payload(
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                payload,
+            ))?;
+
+            assert_eq!(
+                1,
+                jobs.iter()
+                    .filter(|job| job.target_queue == WorkerQueue::WatchlistNotification)
+                    .count()
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn should_fan_out_embedding_and_watchlist_for_combined_image_and_price_changes()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let jobs = route_change(&product_event_change_with_payload(
+            "PRODUCT_LISTING_CHANGED",
             "DOMAIN",
+            serde_json::json!({
+                "images": {"previousCount": 1, "currentCount": 2},
+                "pricing": {
+                    "price": {
+                        "previous": {"amount": 1200, "currency": "USD"},
+                        "current": {"amount": 900, "currency": "USD"}
+                    }
+                }
+            }),
+        ))?;
+
+        assert_eq!(
+            1,
+            jobs.iter()
+                .filter(|job| job.target_queue == WorkerQueue::ProductListingEmbed)
+                .count()
+        );
+        assert_eq!(
+            1,
+            jobs.iter()
+                .filter(|job| job.target_queue == WorkerQueue::WatchlistNotification)
+                .count()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_not_route_estimate_only_changed_event_to_watchlist_notifications()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let jobs = route_change(&product_event_change_with_payload(
+            "PRODUCT_LISTING_CHANGED",
+            "DOMAIN",
+            serde_json::json!({
+                "pricing": {
+                    "priceEstimateMin": {
+                        "previous": {"amount": 1200, "currency": "USD"},
+                        "current": {"amount": 900, "currency": "USD"}
+                    },
+                    "priceEstimateMax": {
+                        "previous": null,
+                        "current": {"amount": 1500, "currency": "USD"}
+                    }
+                }
+            }),
         ))?;
 
         assert!(
             jobs.iter()
-                .any(|job| job.target_queue == WorkerQueue::WatchlistNotification)
+                .all(|job| job.target_queue != WorkerQueue::WatchlistNotification)
         );
         Ok(())
+    }
+
+    #[test]
+    fn should_reject_product_listing_event_with_malformed_ids() {
+        for (field, value, expected) in [
+            ("event_id", "not-a-uuid", CdcRouteError::InvalidEventId),
+            (
+                "product_listing_id",
+                "not-a-uuid",
+                CdcRouteError::InvalidProductListingId,
+            ),
+        ] {
+            let mut change = product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
+            if let Some(row) = change.record.as_mut() {
+                row[field] = serde_json::json!(value);
+            }
+
+            assert!(matches!(route_change(&change), Err(error) if error == expected));
+        }
+    }
+
+    #[test]
+    fn should_reject_product_listing_event_with_missing_ids() {
+        for field in ["event_id", "product_listing_id"] {
+            let mut change = product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
+            if let Some(row) = change.record.as_mut()
+                && let Some(row) = row.as_object_mut()
+            {
+                let _ = row.remove(field);
+            }
+
+            assert!(matches!(
+                route_change(&change),
+                Err(CdcRouteError::MissingColumn(missing)) if missing == field
+            ));
+        }
+    }
+
+    #[test]
+    fn should_reject_unknown_or_incompatible_product_listing_event_codes() {
+        for (event_type, event_group) in [
+            ("PRODUCT_LISTING_UNKNOWN", "DOMAIN"),
+            ("PRODUCT_LISTING_CHANGED", "ENRICHMENT"),
+            ("ENRICHMENT_EMBEDDED", "DOMAIN"),
+        ] {
+            let result = route_change(&product_event_change(event_type, event_group));
+
+            assert!(matches!(
+                result,
+                Err(CdcRouteError::UnsupportedProductListingEvent { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn should_require_supported_product_listing_event_schema_version() {
+        let mut change = product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
+        if let Some(row) = change.record.as_mut() {
+            row["event_type_schema_version"] = serde_json::json!(2);
+        }
+
+        assert!(matches!(
+            route_change(&change),
+            Err(CdcRouteError::UnsupportedProductListingEventSchemaVersion { schema_version: 2 })
+        ));
+    }
+
+    #[test]
+    fn should_reject_malformed_changed_event_shapes_before_fanout() {
+        for payload in [
+            serde_json::json!({"pricing": {"price": {}}}),
+            serde_json::json!({"availability": {}}),
+            serde_json::json!({"images": {}}),
+            serde_json::json!({}),
+            serde_json::json!({
+                "pricing": {
+                    "price": {
+                        "previous": null,
+                        "current": null
+                    }
+                }
+            }),
+        ] {
+            assert!(
+                route_change(&product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    payload,
+                ))
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn should_reject_product_listing_v1_negative_contract_matrix() {
+        let mut unknown_discovery = product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
+        if let Some(payload) = unknown_discovery
+            .record
+            .as_mut()
+            .and_then(|record| record.get_mut("payload"))
+        {
+            payload["unexpected"] = serde_json::json!(true);
+        }
+
+        let mut omitted_title = product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
+        if let Some(payload) = omitted_title
+            .record
+            .as_mut()
+            .and_then(|record| record.get_mut("payload"))
+            && let Some(payload) = payload.as_object_mut()
+        {
+            payload.remove("title");
+        }
+
+        let mut omitted_price = product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
+        if let Some(payload) = omitted_price
+            .record
+            .as_mut()
+            .and_then(|record| record.get_mut("payload"))
+            .and_then(|payload| payload.get_mut("pricing"))
+            && let Some(pricing) = payload.as_object_mut()
+        {
+            pricing.remove("price");
+        }
+
+        let mut omitted_auction_start =
+            product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
+        if let Some(payload) = omitted_auction_start
+            .record
+            .as_mut()
+            .and_then(|record| record.get_mut("payload"))
+            .and_then(|payload| payload.get_mut("auction"))
+            && let Some(auction) = payload.as_object_mut()
+        {
+            auction.remove("start");
+        }
+
+        let cases = vec![
+            ("unknown discovery field", unknown_discovery),
+            ("omitted nullable discovery field", omitted_title),
+            ("omitted pricing field", omitted_price),
+            ("omitted auction field", omitted_auction_start),
+            (
+                "unknown localized field",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_DISCOVERED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "listingSourceId": "10000000-0000-0000-0000-000000000001",
+                        "sourceListingId": "fixture-source-id",
+                        "title": {"language": "en", "text": "Title", "unexpected": true},
+                        "description": null,
+                        "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+                        "availability": null,
+                        "url": "https://example.test/product",
+                        "imageCount": 0,
+                        "auction": {"start": null, "end": null}
+                    }),
+                ),
+            ),
+            (
+                "noncanonical discovery URL",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_DISCOVERED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "listingSourceId": "10000000-0000-0000-0000-000000000001",
+                        "sourceListingId": "fixture-source-id",
+                        "title": null,
+                        "description": null,
+                        "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+                        "availability": null,
+                        "url": "https://example.com:443/product",
+                        "imageCount": 0,
+                        "auction": {"start": null, "end": null}
+                    }),
+                ),
+            ),
+            (
+                "unparsable changed URL",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "url": {"previous": "not a URL", "current": "https://example.com/new"}
+                    }),
+                ),
+            ),
+            (
+                "noncanonical changed URL",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "url": {"previous": "https://example.com/old", "current": "https://example.com:443/new"}
+                    }),
+                ),
+            ),
+            (
+                "unknown image field",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({"images": {"previousCount": 1, "currentCount": 2, "unexpected": true}}),
+                ),
+            ),
+            (
+                "unknown value change field",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "availability": {"previous": null, "current": "AVAILABLE", "unexpected": true}
+                    }),
+                ),
+            ),
+            (
+                "unknown price field",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "pricing": {
+                            "price": {
+                                "previous": {"amount": 1, "currency": "EUR", "unexpected": true},
+                                "current": null
+                            }
+                        }
+                    }),
+                ),
+            ),
+            (
+                "invalid auction timestamp",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "auction": {
+                            "previous": {"start": "not a timestamp", "end": null},
+                            "current": {"start": null, "end": null}
+                        }
+                    }),
+                ),
+            ),
+            (
+                "auction start after end",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "auction": {
+                            "previous": {
+                                "start": "2025-01-02T00:00:00Z",
+                                "end": "2025-01-01T00:00:00Z"
+                            },
+                            "current": {"start": null, "end": null}
+                        }
+                    }),
+                ),
+            ),
+            (
+                "invalid sale observation timestamp",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "saleObservation": {
+                            "transition": "OBSERVED",
+                            "observation": {
+                                "observedAt": "yesterday",
+                                "fxRateId": "10000000-0000-0000-0000-000000000001"
+                            }
+                        }
+                    }),
+                ),
+            ),
+            (
+                "invalid sale observation FX ID",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "saleObservation": {
+                            "transition": "OBSERVED",
+                            "observation": {
+                                "observedAt": "1970-01-01T00:00:00Z",
+                                "fxRateId": "not-a-uuid"
+                            }
+                        }
+                    }),
+                ),
+            ),
+            (
+                "withdrawal with current availability",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "availability": {"previous": null, "current": "AVAILABLE"},
+                        "lifecycle": {"transition": "WITHDRAWN", "previousAvailability": null}
+                    }),
+                ),
+            ),
+            (
+                "restoration with previous availability",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "availability": {"previous": "AVAILABLE", "current": null},
+                        "lifecycle": {"transition": "RESTORED"}
+                    }),
+                ),
+            ),
+        ];
+
+        for (name, change) in cases {
+            assert!(route_change(&change).is_err(), "{name}");
+        }
+    }
+
+    #[test]
+    fn should_accept_product_listing_v1_positive_contract_matrix() {
+        let cases = [
+            product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN"),
+            product_event_change_with_payload(
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({"availability": {"previous": null, "current": "AVAILABLE"}}),
+            ),
+            product_event_change_with_payload(
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({"images": {"previousCount": 2, "currentCount": 2}}),
+            ),
+            product_event_change_with_payload(
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({
+                    "pricing": {"price": {"previous": null, "current": {"amount": 10, "currency": "EUR"}}},
+                    "availability": {"previous": null, "current": "AVAILABLE"},
+                    "images": {"previousCount": 1, "currentCount": 1}
+                }),
+            ),
+            product_event_change_with_payload(
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({
+                    "availability": {"previous": "AVAILABLE", "current": null},
+                    "lifecycle": {"transition": "WITHDRAWN", "previousAvailability": "AVAILABLE"}
+                }),
+            ),
+            product_event_change_with_payload(
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({
+                    "availability": {"previous": null, "current": "AVAILABLE"},
+                    "lifecycle": {"transition": "RESTORED"}
+                }),
+            ),
+            product_event_change("ENRICHMENT_EMBEDDED", "ENRICHMENT"),
+            product_event_change("ENRICHMENT_TRANSLATED_TITLES", "ENRICHMENT"),
+        ];
+
+        for change in cases {
+            assert!(route_change(&change).is_ok());
+        }
+    }
+
+    #[test]
+    fn should_accept_same_count_image_replacement_for_embedding_routing() {
+        let result = route_change(&product_event_change_with_payload(
+            "PRODUCT_LISTING_CHANGED",
+            "DOMAIN",
+            serde_json::json!({"images": {"previousCount": 2, "currentCount": 2}}),
+        ));
+        assert!(result.is_ok());
+        assert!(
+            result
+                .unwrap_or_default()
+                .iter()
+                .any(|job| { job.target_queue == WorkerQueue::ProductListingEmbed })
+        );
     }
 
     #[test]
@@ -1340,6 +2564,7 @@ mod tests {
         let (percolator_sender, mut percolator_receiver) = in_memory_queue(QueueConfig::new(8))?;
         let (embed_sender, mut embed_receiver) = in_memory_queue(QueueConfig::new(8))?;
         let (assessment_sender, mut assessment_receiver) = in_memory_queue(QueueConfig::new(8))?;
+        let (translation_sender, mut translation_receiver) = in_memory_queue(QueueConfig::new(8))?;
         let registry = WorkerQueueRegistry::new()
             .with_queue(WorkerQueue::ProductListingOpenSearch, product_sender)
             .with_queue(WorkerQueue::SearchFilterPercolator, percolator_sender)
@@ -1347,21 +2572,134 @@ mod tests {
             .with_queue(
                 WorkerQueue::ProductListingContentAssessment,
                 assessment_sender,
-            );
+            )
+            .with_queue(WorkerQueue::ProductListingTranslate, translation_sender);
         let fanout = CdcFanout::new(registry);
         let batch = CdcBatch {
             delivery_id: Some("delivery-1".to_owned()),
             source: Some("postgres".to_owned()),
-            changes: vec![product_event_change("PRODUCT_LISTING_CREATED", "DOMAIN")],
+            changes: vec![product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN")],
         };
 
         let enqueued = fanout.ingest_batch(&batch).await?;
 
-        assert_eq!(4, enqueued);
+        assert_eq!(5, enqueued);
         assert!(product_receiver.recv().await.is_some());
         assert!(percolator_receiver.recv().await.is_some());
         assert!(embed_receiver.recv().await.is_some());
         assert!(assessment_receiver.recv().await.is_some());
+        assert!(translation_receiver.recv().await.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_ack_partial_product_event_fanout_after_some_jobs_enqueue()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (product_sender, mut product_receiver) = in_memory_queue(QueueConfig::new(1))?;
+        let (percolator_sender, mut percolator_receiver) = in_memory_queue(QueueConfig::new(1))?;
+        let fanout = CdcFanout::new(
+            WorkerQueueRegistry::new()
+                .with_queue(WorkerQueue::ProductListingOpenSearch, product_sender)
+                .with_queue(WorkerQueue::SearchFilterPercolator, percolator_sender),
+        );
+        let batch = CdcBatch {
+            delivery_id: Some("delivery-partial-fanout".to_owned()),
+            source: Some("postgres".to_owned()),
+            changes: vec![product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN")],
+        };
+
+        let result = fanout.ingest_batch(&batch).await;
+
+        assert!(matches!(
+            result,
+            Err(CdcIngestError::Fanout(CdcFanoutError::MissingQueue(
+                WorkerQueue::ProductListingContentAssessment
+            )))
+        ));
+        assert!(product_receiver.recv().await.is_some());
+        assert!(percolator_receiver.recv().await.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_enqueue_all_discovery_jobs_after_redelivery_of_partial_fanout()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (product_sender, mut product_receiver) = in_memory_queue(QueueConfig::new(2))?;
+        let (percolator_sender, mut percolator_receiver) = in_memory_queue(QueueConfig::new(2))?;
+        let (assessment_sender, mut assessment_receiver) = in_memory_queue(QueueConfig::new(1))?;
+        let (embed_sender, mut embed_receiver) = in_memory_queue(QueueConfig::new(1))?;
+        let (translation_sender, mut translation_receiver) = in_memory_queue(QueueConfig::new(1))?;
+        let partial_fanout = CdcFanout::new(
+            WorkerQueueRegistry::new()
+                .with_queue(
+                    WorkerQueue::ProductListingOpenSearch,
+                    product_sender.clone(),
+                )
+                .with_queue(
+                    WorkerQueue::SearchFilterPercolator,
+                    percolator_sender.clone(),
+                ),
+        );
+        let retry_fanout = CdcFanout::new(
+            WorkerQueueRegistry::new()
+                .with_queue(WorkerQueue::ProductListingOpenSearch, product_sender)
+                .with_queue(WorkerQueue::SearchFilterPercolator, percolator_sender)
+                .with_queue(
+                    WorkerQueue::ProductListingContentAssessment,
+                    assessment_sender,
+                )
+                .with_queue(WorkerQueue::ProductListingEmbed, embed_sender)
+                .with_queue(WorkerQueue::ProductListingTranslate, translation_sender),
+        );
+        let batch = CdcBatch {
+            delivery_id: Some("delivery-redelivery".to_owned()),
+            source: Some("postgres".to_owned()),
+            changes: vec![product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN")],
+        };
+
+        let partial_result = partial_fanout.ingest_batch(&batch).await;
+
+        assert!(matches!(
+            partial_result,
+            Err(CdcIngestError::Fanout(CdcFanoutError::MissingQueue(
+                WorkerQueue::ProductListingContentAssessment
+            )))
+        ));
+        assert_eq!(5, retry_fanout.ingest_batch(&batch).await?);
+
+        let first_product_job = product_receiver
+            .recv()
+            .await
+            .ok_or("product queue stopped")?;
+        let retried_product_job = product_receiver
+            .recv()
+            .await
+            .ok_or("product queue stopped")?;
+        let first_percolator_job = percolator_receiver
+            .recv()
+            .await
+            .ok_or("percolator queue stopped")?;
+        let retried_percolator_job = percolator_receiver
+            .recv()
+            .await
+            .ok_or("percolator queue stopped")?;
+        assert_eq!(first_product_job, retried_product_job);
+        assert_eq!(first_percolator_job, retried_percolator_job);
+        assert_eq!(
+            Some(WorkerQueue::ProductListingContentAssessment),
+            assessment_receiver.recv().await.map(|job| job.target_queue)
+        );
+        assert_eq!(
+            Some(WorkerQueue::ProductListingEmbed),
+            embed_receiver.recv().await.map(|job| job.target_queue)
+        );
+        assert_eq!(
+            Some(WorkerQueue::ProductListingTranslate),
+            translation_receiver
+                .recv()
+                .await
+                .map(|job| job.target_queue)
+        );
         Ok(())
     }
 
@@ -1379,36 +2717,27 @@ mod tests {
                 .ingest_batch(&CdcBatch {
                     delivery_id: Some("delivery-domain".to_owned()),
                     source: Some("postgres".to_owned()),
-                    changes: vec![product_event_change(
-                        "PRODUCT_LISTING_AVAILABILITY_CHANGED",
-                        "DOMAIN"
-                    )],
+                    changes: vec![product_event_change("PRODUCT_LISTING_CHANGED", "DOMAIN")],
                 })
                 .await?
         );
         assert_eq!(
-            0,
+            1,
             fanout
                 .ingest_batch(&CdcBatch {
-                    delivery_id: Some("delivery-lifecycle".to_owned()),
+                    delivery_id: Some("delivery-enrichment".to_owned()),
                     source: Some("postgres".to_owned()),
-                    changes: vec![product_event_change(
-                        "PRODUCT_LISTING_WITHDRAWN",
-                        "LIFECYCLE"
-                    )],
+                    changes: vec![product_event_change("ENRICHMENT_EMBEDDED", "ENRICHMENT")],
                 })
                 .await?
         );
 
-        assert_eq!(
-            Some(WorkerQueue::SearchFilterPercolator),
-            receiver.recv().await.map(|job| job.target_queue)
-        );
-        assert!(
-            tokio::time::timeout(std::time::Duration::from_millis(20), receiver.recv())
-                .await
-                .is_err()
-        );
+        for _ in 0..2 {
+            assert_eq!(
+                Some(WorkerQueue::SearchFilterPercolator),
+                receiver.recv().await.map(|job| job.target_queue)
+            );
+        }
         Ok(())
     }
 
@@ -1422,7 +2751,7 @@ mod tests {
         let batch = CdcBatch {
             delivery_id: Some("delivery-1".to_owned()),
             source: Some("postgres".to_owned()),
-            changes: vec![product_event_change("PRODUCT_LISTING_CREATED", "DOMAIN")],
+            changes: vec![product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN")],
         };
 
         let result = fanout.ingest_batch(&batch).await;
@@ -1440,7 +2769,7 @@ mod tests {
         let batch = CdcBatch {
             delivery_id: Some("delivery-1".to_owned()),
             source: Some("postgres".to_owned()),
-            changes: vec![product_event_change("PRODUCT_LISTING_CREATED", "DOMAIN")],
+            changes: vec![product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN")],
         };
 
         let result = fanout.ingest_batch(&batch).await;
@@ -1468,8 +2797,9 @@ mod tests {
                         "new": {
                             "event_id": "40000000-0000-0000-0000-000000000001",
                             "product_listing_id": "30000000-0000-0000-0000-000000000001",
-                            "event_type": "PRODUCT_LISTING_CREATED",
-                            "event_group": "DOMAIN"
+                            "event_type": "PRODUCT_LISTING_DISCOVERED",
+                            "event_group": "DOMAIN",
+                            "event_type_schema_version": 1
                         }
                     }
                 ]
@@ -1489,8 +2819,9 @@ mod tests {
                 "record": {
                     "event_id": "40000000-0000-0000-0000-000000000001",
                     "product_listing_id": "30000000-0000-0000-0000-000000000001",
-                    "event_type": "PRODUCT_LISTING_CREATED",
-                    "event_group": "DOMAIN"
+                    "event_type": "PRODUCT_LISTING_DISCOVERED",
+                    "event_group": "DOMAIN",
+                    "event_type_schema_version": 1
                 },
                 "changes": null,
                 "action": "insert",

@@ -1,9 +1,9 @@
 use crate::ports::{
     ProductListingTitleTranslationError, ProductListingTitleTranslator,
-    ProductListingTranslationSourceReadError, ProductListingTranslationSourceReader,
-    ProductListingTranslationWrite, ProductListingTranslationWriteError,
-    ProductListingTranslationWriteOutcome, ProductListingTranslationWriter,
-    ProductListingTranslationWriterFactory,
+    ProductListingTranslationSourceEvent, ProductListingTranslationSourceReadError,
+    ProductListingTranslationSourceReader, ProductListingTranslationWrite,
+    ProductListingTranslationWriteError, ProductListingTranslationWriteOutcome,
+    ProductListingTranslationWriter, ProductListingTranslationWriterFactory,
 };
 use application::error::{BoxError, box_error};
 use application::operation_context::{OperationAuthorizationError, OperationContext};
@@ -11,7 +11,6 @@ use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
 use localization::Language;
 use product_listing_core::product_listing_id::ProductListingId;
-const EMBEDDED_EVENT_TYPE: &str = "ENRICHMENT_EMBEDDED";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TranslateProductListingCommand {
@@ -143,10 +142,10 @@ where
             ));
         };
 
-        if source.current_event_id != command.event_id {
+        if source.content_source_event_id != command.event_id {
             return Ok(result(TranslateProductListingEventOutcome::Stale));
         }
-        if source.event_type != EMBEDDED_EVENT_TYPE {
+        if source.event != ProductListingTranslationSourceEvent::Discovered {
             return Ok(result(TranslateProductListingEventOutcome::IgnoredEvent));
         }
         let Some(title) = source.title else {
@@ -439,8 +438,8 @@ mod tests {
             source: Some(crate::ports::ProductListingTranslationSource {
                 product_listing_id,
                 event_id,
-                current_event_id: event_id,
-                event_type: EMBEDDED_EVENT_TYPE.to_owned(),
+                content_source_event_id: event_id,
+                event: ProductListingTranslationSourceEvent::Discovered,
                 title: Some(Title::from("Ancient vase")),
                 title_language: Some(Language::De),
             }),
@@ -509,7 +508,7 @@ mod tests {
             .source
             .as_mut()
             .expect("source exists")
-            .current_event_id = EventId::new();
+            .content_source_event_id = EventId::new();
 
         let result = handler(&state)
             .execute(&context(Principal::System), command(&state))
@@ -529,11 +528,8 @@ mod tests {
     #[tokio::test]
     async fn should_skip_non_embedded_event_without_side_effect() {
         let state = state_with_source();
-        lock(&state)
-            .source
-            .as_mut()
-            .expect("source exists")
-            .event_type = "PRODUCT_LISTING_CREATED".to_owned();
+        lock(&state).source.as_mut().expect("source exists").event =
+            ProductListingTranslationSourceEvent::Other;
 
         let result = handler(&state)
             .execute(&context(Principal::System), command(&state))

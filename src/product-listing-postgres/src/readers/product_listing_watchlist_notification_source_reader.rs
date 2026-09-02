@@ -5,11 +5,12 @@ use crate::url::referral_configuration;
 use application::error::{BoxError, box_error, static_error};
 use domain_primitives::event_id::EventId;
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, outbound_url};
-use money::{Currency, MonetaryAmount, Price};
+
 use platform_postgres::SqlxTransaction;
 use product_listing_core::{
     content_policy::{ContentPolicyDecision, SensitiveContentCategory},
-    listing_availability::ListingAvailability,
+    listing_lifecycle::ListingLifecycle,
+    product_listing_event::ProductListingEventPayload,
     product_listing_id::ProductListingId,
     product_listing_slug_id::ProductListingSlugId,
     source_listing_id::SourceListingId,
@@ -18,6 +19,7 @@ use product_listing_core::{
 use product_listing_service::ports::{
     ListingSourceSummary, ProductListingWatchlistNotificationChange,
     ProductListingWatchlistNotificationSource, ProductListingWatchlistNotificationSourceReadError,
+    ProductListingWatchlistNotificationSourceReadOutcome,
     ProductListingWatchlistNotificationSourceReader,
     ProductListingWatchlistNotificationSourceReaderFactory,
 };
@@ -25,6 +27,7 @@ use product_listing_service::ports::{
 use sqlx::PgConnection;
 
 use super::product_listing_details_reader::images;
+use crate::product_listing_event_codec;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxProductListingWatchlistNotificationSourceReaderFactory;
@@ -38,7 +41,10 @@ struct SourceRow {
     event_id: uuid::Uuid,
     event_time: time::OffsetDateTime,
     product_listing_id: uuid::Uuid,
+    lifecycle: String,
     event_type: String,
+    event_group: String,
+    event_type_schema_version: i16,
     payload: serde_json::Value,
     product_listing_title_slug_id: String,
     listing_source_id: uuid::Uuid,
@@ -133,14 +139,15 @@ impl ProductListingWatchlistNotificationSourceReader
         event_id: EventId,
         product_listing_id: ProductListingId,
     ) -> Result<
-        Option<ProductListingWatchlistNotificationSource>,
+        ProductListingWatchlistNotificationSourceReadOutcome,
         ProductListingWatchlistNotificationSourceReadError,
     > {
         let row = sqlx::query_as::<_, SourceRow>(
             r#"
             SELECT
-                event.event_id, event.event_time, event.product_listing_id, event.event_type, event.payload,
-                product.product_listing_title_slug_id, product.listing_source_id, product.source_listing_id,
+                event.event_id, event.event_time, event.product_listing_id, event.event_type,
+                event.event_group, event.event_type_schema_version, event.payload,
+                product.lifecycle, product.product_listing_title_slug_id, product.listing_source_id, product.source_listing_id,
                 listing_source.listing_source_slug_id, listing_source.name AS listing_source_name,
                 listing_source.referral_configuration AS listing_source_referral_configuration,
                 product.title_text, product.title_language, product.product_images,
@@ -155,6 +162,7 @@ impl ProductListingWatchlistNotificationSourceReader
                 ON assessment.product_listing_id = product.product_listing_id
                 AND assessment.source_event_id = product.content_source_event_id
             WHERE event.event_id = $1 AND event.product_listing_id = $2
+            FOR SHARE OF product
             "#,
         )
         .bind(uuid::Uuid::from(event_id))
@@ -163,13 +171,19 @@ impl ProductListingWatchlistNotificationSourceReader
         .await
         .map_err(WatchlistNotificationSourceQueryError)?;
         let Some(row) = row else {
-            return Ok(None);
+            return Ok(ProductListingWatchlistNotificationSourceReadOutcome::MissingSource);
         };
-        let Some(change) = notification_change(&row.event_type, &row.payload)
-            .map_err(WatchlistNotificationSourceMappingError::with_source)?
-        else {
-            return Ok(None);
-        };
+        let event = product_listing_event_codec::decode_persisted(
+            &row.event_type,
+            &row.event_group,
+            row.event_type_schema_version,
+            &row.payload,
+        )
+        .map_err(WatchlistNotificationSourceMappingError::with_source)?;
+        let changes = notification_changes(event);
+        if changes.is_empty() {
+            return Ok(ProductListingWatchlistNotificationSourceReadOutcome::IgnoredEvent);
+        }
         let translations = sqlx::query_as::<_, TitleRow>(
             "SELECT language, title FROM product_listing_translations WHERE product_listing_id = $1 AND title IS NOT NULL",
         )
@@ -208,34 +222,48 @@ impl ProductListingWatchlistNotificationSourceReader
             &url,
         )
         .map_err(WatchlistNotificationSourceMappingError::with_source)?;
-        Ok(Some(ProductListingWatchlistNotificationSource {
-            event_id: EventId::from(row.event_id),
-            event_time: row.event_time,
-            product_listing_id: ProductListingId::from(row.product_listing_id),
-            product_listing_title_slug_id: ProductListingSlugId::raw(
-                &row.product_listing_title_slug_id,
-            )
-            .map_err(WatchlistNotificationSourceMappingError::with_source)?,
-            source: ListingSourceSummary {
-                listing_source_id: ListingSourceId::from(row.listing_source_id),
-                name: ListingSourceName::try_from(row.listing_source_name)
-                    .map_err(WatchlistNotificationSourceMappingError::with_source)?,
-                slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id)
-                    .map_err(WatchlistNotificationSourceMappingError::with_source)?,
-            },
-            source_listing_id: SourceListingId::try_from(row.source_listing_id)
+        Ok(ProductListingWatchlistNotificationSourceReadOutcome::Found(
+            ProductListingWatchlistNotificationSource {
+                event_id: EventId::from(row.event_id),
+                event_time: row.event_time,
+                product_listing_id: ProductListingId::from(row.product_listing_id),
+                lifecycle: lifecycle(&row.lifecycle)?,
+                product_listing_title_slug_id: ProductListingSlugId::raw(
+                    &row.product_listing_title_slug_id,
+                )
                 .map_err(WatchlistNotificationSourceMappingError::with_source)?,
-            title: (!title.is_empty()).then_some(title),
-            image,
-            content_policy: content_policy(
-                row.content_policy_decision.as_deref(),
-                row.content_policy_category.as_deref(),
-            )?,
-            view_url,
-            url,
-            change,
-        }))
+                source: ListingSourceSummary {
+                    listing_source_id: ListingSourceId::from(row.listing_source_id),
+                    name: ListingSourceName::try_from(row.listing_source_name)
+                        .map_err(WatchlistNotificationSourceMappingError::with_source)?,
+                    slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id)
+                        .map_err(WatchlistNotificationSourceMappingError::with_source)?,
+                },
+                source_listing_id: SourceListingId::try_from(row.source_listing_id)
+                    .map_err(WatchlistNotificationSourceMappingError::with_source)?,
+                title: (!title.is_empty()).then_some(title),
+                image,
+                content_policy: content_policy(
+                    row.content_policy_decision.as_deref(),
+                    row.content_policy_category.as_deref(),
+                )?,
+                view_url,
+                url,
+                changes,
+            },
+        ))
     }
+}
+
+fn lifecycle(
+    value: &str,
+) -> Result<ListingLifecycle, ProductListingWatchlistNotificationSourceReadError> {
+    ListingLifecycle::from_code(value).ok_or_else(|| {
+        WatchlistNotificationSourceMappingError::invalid(
+            "persisted watchlist notification source lifecycle is invalid",
+        )
+        .into()
+    })
 }
 
 fn content_policy(
@@ -255,84 +283,33 @@ fn content_policy(
     }
 }
 
-fn notification_change(
-    event_type: &str,
-    payload: &serde_json::Value,
-) -> Result<Option<ProductListingWatchlistNotificationChange>, NotificationPayloadError> {
-    match event_type {
-        "PRODUCT_LISTING_PRICE_CHANGED" => Ok(Some(
-            ProductListingWatchlistNotificationChange::PriceChanged {
-                old_price: pricing_price(payload.get("oldPricing"))?,
-                new_price: pricing_price(payload.get("newPricing"))?,
+fn notification_changes(
+    event: product_listing_event_codec::ProductListingPersistedEvent,
+) -> Vec<ProductListingWatchlistNotificationChange> {
+    let product_listing_event_codec::ProductListingPersistedEvent::Domain(_, payload) = event
+    else {
+        return Vec::new();
+    };
+    let ProductListingEventPayload::Changed(changed) = *payload else {
+        return Vec::new();
+    };
+
+    let mut changes = Vec::new();
+    if let Some(price) = changed.price() {
+        changes.push(ProductListingWatchlistNotificationChange::PriceChanged {
+            old_price: *price.previous(),
+            new_price: *price.current(),
+        });
+    }
+    if let Some(availability) = changed.availability() {
+        changes.push(
+            ProductListingWatchlistNotificationChange::AvailabilityChanged {
+                old_availability: *availability.previous(),
+                new_availability: *availability.current(),
             },
-        )),
-        "PRODUCT_LISTING_AVAILABILITY_CHANGED" => {
-            let old_availability = availability(payload.get("previousAvailability"))?;
-            let new_availability = availability(payload.get("currentAvailability"))?;
-            Ok(Some(
-                ProductListingWatchlistNotificationChange::AvailabilityChanged {
-                    old_availability,
-                    new_availability,
-                },
-            ))
-        }
-        _ => Ok(None),
+        );
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-enum NotificationPayloadError {
-    #[error("notification event payload is invalid")]
-    Invalid,
-}
-
-fn pricing_price(
-    value: Option<&serde_json::Value>,
-) -> Result<Option<Price>, NotificationPayloadError> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    if value.is_null() {
-        return Ok(None);
-    }
-    let object = value.as_object().ok_or(NotificationPayloadError::Invalid)?;
-    price(object.get("price"))
-}
-
-fn price(value: Option<&serde_json::Value>) -> Result<Option<Price>, NotificationPayloadError> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    if value.is_null() {
-        return Ok(None);
-    }
-    let object = value.as_object().ok_or(NotificationPayloadError::Invalid)?;
-    let amount = object
-        .get("amount")
-        .and_then(serde_json::Value::as_u64)
-        .ok_or(NotificationPayloadError::Invalid)?;
-    let currency = object
-        .get("currency")
-        .and_then(serde_json::Value::as_str)
-        .and_then(Currency::from_code)
-        .ok_or(NotificationPayloadError::Invalid)?;
-    Ok(Some(Price::new(MonetaryAmount::from(amount), currency)))
-}
-
-fn availability(
-    value: Option<&serde_json::Value>,
-) -> Result<Option<ListingAvailability>, NotificationPayloadError> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    if value.is_null() {
-        return Ok(None);
-    }
-    value
-        .as_str()
-        .and_then(ListingAvailability::from_code)
-        .map(Some)
-        .ok_or(NotificationPayloadError::Invalid)
+    changes
 }
 
 fn parse_language(
@@ -349,28 +326,66 @@ fn parse_language(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use money::Currency;
+    use product_listing_core::listing_availability::ListingAvailability;
 
     #[test]
-    fn should_read_primary_prices_from_canonical_price_change_payload()
+    fn should_read_price_and_availability_from_composite_changed_payload()
     -> Result<(), Box<dyn std::error::Error>> {
-        let change = notification_change(
-            "PRODUCT_LISTING_PRICE_CHANGED",
+        let event = product_listing_event_codec::decode_persisted(
+            "PRODUCT_LISTING_CHANGED",
+            "DOMAIN",
+            1,
             &serde_json::json!({
-                "oldPricing": { "price": { "amount": 1200, "currency": "USD" } },
-                "newPricing": { "price": { "amount": 900, "currency": "USD" } },
+                "pricing": {
+                    "price": {
+                        "previous": { "amount": 1200, "currency": "USD" },
+                        "current": { "amount": 900, "currency": "USD" }
+                    }
+                },
+                "availability": { "previous": "IN_STOCK", "current": "SOLD_OUT" }
             }),
         )?;
+        let changes = notification_changes(event);
 
         assert!(matches!(
-            change,
-            Some(ProductListingWatchlistNotificationChange::PriceChanged {
-                old_price: Some(old_price),
-                new_price: Some(new_price),
-            }) if u64::from(old_price.monetary_amount) == 1200
+            changes.as_slice(),
+            [
+                ProductListingWatchlistNotificationChange::PriceChanged {
+                    old_price: Some(old_price),
+                    new_price: Some(new_price),
+                },
+                ProductListingWatchlistNotificationChange::AvailabilityChanged {
+                    old_availability: Some(ListingAvailability::InStock),
+                    new_availability: Some(ListingAvailability::SoldOut),
+                }
+            ] if u64::from(old_price.monetary_amount) == 1200
                 && old_price.currency == Currency::Usd
                 && u64::from(new_price.monetary_amount) == 900
                 && new_price.currency == Currency::Usd
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn should_ignore_estimate_only_composite_changed_payload()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let event = product_listing_event_codec::decode_persisted(
+            "PRODUCT_LISTING_CHANGED",
+            "DOMAIN",
+            1,
+            &serde_json::json!({
+                "pricing": {
+                    "priceEstimateMin": {
+                        "previous": { "amount": 1200, "currency": "USD" },
+                        "current": { "amount": 900, "currency": "USD" }
+                    }
+                }
+            }),
+        )?;
+        let changes = notification_changes(event);
+
+        assert!(changes.is_empty());
         Ok(())
     }
 

@@ -7,7 +7,7 @@ use listing_source_postgres::SqlxListingSourceReaders;
 use listing_source_service::use_cases::queries::get_shopify_source::GetSystemShopifySourceHandler;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventStoreFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventAppenderFactory,
     SqlxProductListingRepositoryFactory,
 };
 use product_listing_service::use_cases::{
@@ -42,7 +42,7 @@ async fn should_create_product_listing_and_event_in_postgres_for_shopify_create(
     assert_eq!("USD", listing.price_currency);
     assert_eq!(1, listing_event_count(listing.product_listing_id).await);
     assert_eq!(
-        "PRODUCT_LISTING_CREATED",
+        "PRODUCT_LISTING_DISCOVERED",
         current_event_type(listing.product_listing_id).await
     );
 }
@@ -78,7 +78,7 @@ async fn should_append_availability_event_in_postgres_for_shopify_update() {
     assert_eq!("USD", listing.price_currency);
     assert_eq!(2, listing_event_count(listing.product_listing_id).await);
     assert_eq!(
-        "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+        "PRODUCT_LISTING_CHANGED",
         current_event_type(listing.product_listing_id).await
     );
 }
@@ -98,7 +98,7 @@ async fn should_withdraw_product_listing_and_append_event_for_shopify_delete() {
     assert_eq!("WITHDRAWN", listing.lifecycle);
     assert_eq!(2, listing_event_count(listing.product_listing_id).await);
     assert_eq!(
-        "PRODUCT_LISTING_WITHDRAWN",
+        "PRODUCT_LISTING_CHANGED",
         current_event_type(listing.product_listing_id).await
     );
 }
@@ -310,14 +310,14 @@ fn shopify_product_listing_processor(
             UpsertProductListingHandler::new(
                 unit_of_work.clone(),
                 SqlxProductListingRepositoryFactory::new(),
-                SqlxProductListingEventStoreFactory::new(),
+                SqlxProductListingEventAppenderFactory::new(),
                 SqlxPartnerProductListingAuthorizerFactory::new(),
             ),
         ),
         WithdrawProductListingHandler::new(
             unit_of_work,
             SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventStoreFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
         ),
     )
@@ -515,7 +515,7 @@ async fn listing_event_count(product_listing_id: uuid::Uuid) -> i64 {
 
 async fn current_event_type(product_listing_id: uuid::Uuid) -> String {
     match sqlx::query_scalar(
-        "SELECT event_type FROM product_listing_events WHERE product_listing_id = $1 AND event_id = (SELECT event_id FROM product_listings WHERE product_listing_id = $1)",
+        "SELECT event_type FROM product_listing_events WHERE product_listing_id = $1 AND event_id = (SELECT current_event_id FROM product_listings WHERE product_listing_id = $1)",
     )
     .bind(product_listing_id)
     .fetch_one(&get_postgres_client().await)

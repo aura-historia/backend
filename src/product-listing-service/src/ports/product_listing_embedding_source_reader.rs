@@ -7,12 +7,19 @@ use product_listing_core::{
 };
 use url::Url;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductListingEmbeddingSourceEvent {
+    Discovered,
+    ChangedImages,
+    Other,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductListingEmbeddingSource {
     pub product_listing_id: ProductListingId,
     pub event_id: EventId,
-    pub current_event_id: EventId,
-    pub event_type: String,
+    pub embedding_source_event_id: EventId,
+    pub event: ProductListingEmbeddingSourceEvent,
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
     pub image_url: Option<Url>,

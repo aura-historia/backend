@@ -17,7 +17,7 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_keep_assessment_current_after_price_and_enrichment_revisions() {
+async fn should_keep_assessment_current_after_price_and_enrichment_events() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
         let (product_listing_id, content_source_event_id) =
@@ -29,10 +29,10 @@ async fn should_keep_assessment_current_after_price_and_enrichment_revisions() {
         );
 
         for (event_type, event_group) in [
-            ("PRODUCT_LISTING_PRICE_CHANGED", "DOMAIN"),
+            ("PRODUCT_LISTING_CHANGED", "DOMAIN"),
             ("ENRICHMENT_EMBEDDED", "ENRICHMENT"),
         ] {
-            advance_generic_revision(&pool, product_listing_id, event_type, event_group).await?;
+            advance_current_event(&pool, product_listing_id, event_type, event_group).await?;
             let assessments = SqlxProductListingContentAssessmentReader::new(pool.clone())
                 .find_current_assessments(&[product_listing_id])
                 .await?;
@@ -50,12 +50,12 @@ async fn should_keep_assessment_current_after_price_and_enrichment_revisions() {
     .await;
     assert!(
         result.is_ok(),
-        "content assessment freshness acceptance failed: {result:?}"
+        "content assessment source-event acceptance failed: {result:?}"
     );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_hide_assessment_when_content_source_revision_changes() {
+async fn should_hide_assessment_when_content_source_event_changes() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
         let (product_listing_id, initial_content_source_event_id) =
@@ -66,7 +66,7 @@ async fn should_hide_assessment_when_content_source_revision_changes() {
             apply_assessment(&pool, product_listing_id, initial_content_source_event_id).await?
         );
 
-        advance_content_source_revision(&pool, product_listing_id).await?;
+        advance_content_source_event(&pool, product_listing_id).await?;
 
         let assessments = SqlxProductListingContentAssessmentReader::new(pool.clone())
             .find_current_assessments(&[product_listing_id])
@@ -123,7 +123,7 @@ async fn insert_product_with_created_event(
         .bind(party_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Assessment chair', 'en', 'Assessment description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Assessment chair', 'en', 'Assessment description', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(format!(
                     "content-assessment-{}",
@@ -138,15 +138,26 @@ async fn insert_product_with_created_event(
         &mut tx,
         product_listing_id,
         content_source_event_id,
-        "PRODUCT_LISTING_CREATED",
+        "PRODUCT_LISTING_DISCOVERED",
         "DOMAIN",
+        serde_json::json!({
+            "listingSourceId": listing_source_id.to_string(),
+            "sourceListingId": product_listing_id.to_string(),
+            "title": {"language": "en", "text": "Assessment chair"},
+            "description": {"language": "en", "text": "Assessment description"},
+            "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+            "availability": "AVAILABLE",
+            "url": "https://example.test/product",
+            "imageCount": 0,
+            "auction": {"start": null, "end": null}
+        }),
     )
     .await?;
     tx.commit().await?;
     Ok((product_listing_id, content_source_event_id))
 }
 
-async fn advance_content_source_revision(
+async fn advance_content_source_event(
     pool: &sqlx::PgPool,
     product_listing_id: ProductListingId,
 ) -> Result<(), sqlx::Error> {
@@ -156,12 +167,15 @@ async fn advance_content_source_revision(
         &mut tx,
         product_listing_id,
         event_id,
-        "PRODUCT_LISTING_TITLE_CHANGED",
+        "PRODUCT_LISTING_CHANGED",
         "DOMAIN",
+        serde_json::json!({
+            "availability": {"previous": "AVAILABLE", "current": "SOLD_OUT"}
+        }),
     )
     .await?;
     sqlx::query(
-        "UPDATE product_listings SET event_id = $1, content_source_event_id = $1, updated = now() WHERE product_listing_id = $2",
+        "UPDATE product_listings SET current_event_id = $1, content_source_event_id = $1, availability = 'SOLD_OUT', version = version + 1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(uuid::Uuid::from(product_listing_id))
@@ -170,7 +184,7 @@ async fn advance_content_source_revision(
     tx.commit().await
 }
 
-async fn advance_generic_revision(
+async fn advance_current_event(
     pool: &sqlx::PgPool,
     product_listing_id: ProductListingId,
     event_type: &str,
@@ -184,10 +198,19 @@ async fn advance_generic_revision(
         event_id,
         event_type,
         event_group,
+        match event_type {
+            "ENRICHMENT_EMBEDDED" => serde_json::json!({
+                "sourceEventId": event_id.to_string()
+            }),
+            "PRODUCT_LISTING_CHANGED" => serde_json::json!({
+                "images": {"previousCount": 0, "currentCount": 0}
+            }),
+            _ => serde_json::json!({}),
+        },
     )
     .await?;
     sqlx::query(
-        "UPDATE product_listings SET event_id = $1, updated = now() WHERE product_listing_id = $2",
+        "UPDATE product_listings SET current_event_id = $1, version = version + 1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(uuid::Uuid::from(product_listing_id))
@@ -202,12 +225,14 @@ async fn insert_event(
     event_id: EventId,
     event_type: &str,
     event_group: &str,
+    payload: serde_json::Value,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, $5, now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(event_type)
         .bind(event_group)
+        .bind(payload)
         .execute(&mut **transaction)
         .await?;
     Ok(())

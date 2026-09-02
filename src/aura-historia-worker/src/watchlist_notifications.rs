@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
 use application::error::{BoxError, box_error};
-use domain_primitives::event_id::EventId;
-use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_service::use_cases::{
     GenerateWatchlistNotificationsCommand, GenerateWatchlistNotificationsUseCase,
 };
@@ -71,11 +69,18 @@ async fn consume_watchlist_notification_queue_with_dead_letters(
                     outcome = "suppressed_for_missing_source",
                     "watchlist notification job completed"
                 ),
-                WatchlistNotificationWorkerOutcome::SuppressedForStaleProductListingEvent => info!(
+                WatchlistNotificationWorkerOutcome::IgnoredEvent => info!(
                     job_type = "watchlist_notification",
                     %idempotency_key,
                     %ordering_key,
-                    outcome = "suppressed_for_stale_product_event",
+                    outcome = "ignored_event",
+                    "watchlist notification job completed"
+                ),
+                WatchlistNotificationWorkerOutcome::SuppressedForWithdrawnProductListing => info!(
+                    job_type = "watchlist_notification",
+                    %idempotency_key,
+                    %ordering_key,
+                    outcome = "suppressed_for_withdrawn_product",
                     "watchlist notification job completed"
                 ),
             },
@@ -93,21 +98,10 @@ async fn generate_watchlist_notifications(
     let DomainJobPayload::ProductListingEvent(event) = job.payload else {
         return Err(WatchlistNotificationWorkerError::UnexpectedJobPayload);
     };
-    let event_id = EventId::try_from(event.event_id.as_str()).map_err(|source| {
-        WatchlistNotificationWorkerError::InvalidEventId {
-            source: box_error(source),
-        }
-    })?;
-    let product_listing_id = ProductListingId::try_from(event.product_listing_id.as_str())
-        .map_err(
-            |source| WatchlistNotificationWorkerError::InvalidProductListingId {
-                source: box_error(source),
-            },
-        )?;
     handler
         .execute(GenerateWatchlistNotificationsCommand {
-            event_id,
-            product_listing_id,
+            event_id: event.event_id,
+            product_listing_id: event.product_listing_id,
         })
         .await
         .map(|result| match result {
@@ -133,8 +127,11 @@ async fn generate_watchlist_notifications(
             product_listing_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForMissingSource => {
                 WatchlistNotificationWorkerOutcome::SuppressedForMissingSource
             }
-            product_listing_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForStaleProductListingEvent => {
-                WatchlistNotificationWorkerOutcome::SuppressedForStaleProductListingEvent
+            product_listing_service::use_cases::GenerateWatchlistNotificationsResult::IgnoredEvent => {
+                WatchlistNotificationWorkerOutcome::IgnoredEvent
+            }
+            product_listing_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForWithdrawnProductListing => {
+                WatchlistNotificationWorkerOutcome::SuppressedForWithdrawnProductListing
             }
         })
         .map_err(|source| WatchlistNotificationWorkerError::Generate {
@@ -154,23 +151,15 @@ enum WatchlistNotificationWorkerOutcome {
         already_exists_count: usize,
     },
     SuppressedForMissingSource,
-    SuppressedForStaleProductListingEvent,
+    IgnoredEvent,
+    SuppressedForWithdrawnProductListing,
 }
 
 #[derive(Debug, thiserror::Error)]
 enum WatchlistNotificationWorkerError {
     #[error("watchlist notification queue received an unexpected job payload")]
     UnexpectedJobPayload,
-    #[error("watchlist notification job has an invalid event id")]
-    InvalidEventId {
-        #[source]
-        source: BoxError,
-    },
-    #[error("watchlist notification job has an invalid product id")]
-    InvalidProductListingId {
-        #[source]
-        source: BoxError,
-    },
+
     #[error("watchlist notification generation failed")]
     Generate {
         #[source]
@@ -188,6 +177,8 @@ mod tests {
         cdc::{IdempotencyKey, OrderingKey, ProductListingEventJob, WorkerQueue},
         in_memory_queue,
     };
+    use domain_primitives::event_id::EventId;
+    use product_listing_core::product_listing_id::ProductListingId;
     use product_listing_service::use_cases::GenerateWatchlistNotificationsResult;
 
     struct Handler {
@@ -247,10 +238,8 @@ mod tests {
                 idempotency_key: IdempotencyKey::new(format!("product-event:{event_id}")),
                 ordering_key: OrderingKey::new(format!("product:{product_listing_id}")),
                 payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
-                    event_id: event_id.to_string(),
-                    product_listing_id: product_listing_id.to_string(),
-                    event_type: "PRODUCT_LISTING_PRICE_CHANGED".to_owned(),
-                    event_group: "DOMAIN".to_owned(),
+                    event_id,
+                    product_listing_id,
                 }),
             })
             .await?;
@@ -280,7 +269,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_complete_stale_product_event_without_retry_or_dead_letter()
+    async fn should_complete_ignored_event_without_retry_or_dead_letter()
     -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = in_memory_queue(QueueConfig::new(1))?;
         let event_id = EventId::new();
@@ -291,16 +280,14 @@ mod tests {
                 idempotency_key: IdempotencyKey::new(format!("product-event:{event_id}")),
                 ordering_key: OrderingKey::new(format!("product:{product_listing_id}")),
                 payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
-                    event_id: event_id.to_string(),
-                    product_listing_id: product_listing_id.to_string(),
-                    event_type: "PRODUCT_LISTING_PRICE_CHANGED".to_owned(),
-                    event_group: "DOMAIN".to_owned(),
+                    event_id,
+                    product_listing_id,
                 }),
             })
             .await?;
         drop(sender);
         let handler = Arc::new(Handler::with_result(
-            GenerateWatchlistNotificationsResult::SuppressedForStaleProductListingEvent,
+            GenerateWatchlistNotificationsResult::IgnoredEvent,
         ));
         let dead_letters = InMemoryDeadLetterQueue::new();
 
@@ -335,10 +322,8 @@ mod tests {
                 idempotency_key: IdempotencyKey::new(format!("product-event:{event_id}")),
                 ordering_key: OrderingKey::new(format!("product:{product_listing_id}")),
                 payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
-                    event_id: event_id.to_string(),
-                    product_listing_id: product_listing_id.to_string(),
-                    event_type: "PRODUCT_LISTING_PRICE_CHANGED".to_owned(),
-                    event_group: "DOMAIN".to_owned(),
+                    event_id,
+                    product_listing_id,
                 }),
             })
             .await?;

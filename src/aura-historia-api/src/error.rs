@@ -33,7 +33,7 @@ use partnership_service::use_cases::{
     },
 };
 use product_listing_service::use_cases::{
-    CreateProductListingError, GetProductListingError, GetProductListingEventsError,
+    CreateProductListingError, GetProductListingError, GetProductListingHistoryError,
     GetSimilarProductListingsError, IngestWoocommerceProductListingError,
     SearchProductListingsError, UpdateProductListingError, UpsertProductListingError,
     WithdrawProductListingError,
@@ -874,7 +874,7 @@ impl From<CreateProductListingError> for ApiError {
             }
             CreateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | CreateProductListingError::PersistenceFailed
-            | CreateProductListingError::EventStoreFailed
+            | CreateProductListingError::EventAppenderFailed { .. }
             | CreateProductListingError::BeginTransactionFailed
             | CreateProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
@@ -918,7 +918,7 @@ impl From<UpdateProductListingError> for ApiError {
             }
             UpdateProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | UpdateProductListingError::PersistenceFailed
-            | UpdateProductListingError::EventStoreFailed
+            | UpdateProductListingError::EventAppenderFailed { .. }
             | UpdateProductListingError::BeginTransactionFailed
             | UpdateProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
@@ -951,7 +951,7 @@ impl From<WithdrawProductListingError> for ApiError {
                 .with_detail("ProductListing was not found."),
             WithdrawProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | WithdrawProductListingError::PersistenceFailed
-            | WithdrawProductListingError::EventStoreFailed
+            | WithdrawProductListingError::EventAppenderFailed { .. }
             | WithdrawProductListingError::BeginTransactionFailed
             | WithdrawProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
@@ -1023,7 +1023,7 @@ impl From<IngestWoocommerceProductListingError> for ApiError {
             }
             IngestWoocommerceProductListingError::ProductListingTitleSlugGenerationExhausted
             | IngestWoocommerceProductListingError::ProductListingPersistenceFailed
-            | IngestWoocommerceProductListingError::ProductListingEventStoreFailed
+            | IngestWoocommerceProductListingError::ProductListingEventAppenderFailed { .. }
             | IngestWoocommerceProductListingError::BeginTransactionFailed
             | IngestWoocommerceProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
@@ -1058,7 +1058,7 @@ impl From<UpsertProductListingError> for ApiError {
             UpsertProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | UpsertProductListingError::ProductListingTitleSlugGenerationExhausted
             | UpsertProductListingError::PersistenceFailed
-            | UpsertProductListingError::EventStoreFailed
+            | UpsertProductListingError::EventAppenderFailed { .. }
             | UpsertProductListingError::BeginTransactionFailed
             | UpsertProductListingError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
@@ -1096,20 +1096,20 @@ impl From<GetProductListingError> for ApiError {
     }
 }
 
-impl From<GetProductListingEventsError> for ApiError {
-    fn from(error: GetProductListingEventsError) -> Self {
+impl From<GetProductListingHistoryError> for ApiError {
+    fn from(error: GetProductListingHistoryError) -> Self {
         match error {
-            GetProductListingEventsError::NotFound => {
+            GetProductListingHistoryError::NotFound => {
                 ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
                     .with_detail("ProductListing was not found.")
             }
-            GetProductListingEventsError::QueryFailed
-            | GetProductListingEventsError::BeginTransactionFailed
-            | GetProductListingEventsError::CommitTransactionFailed => {
+            GetProductListingHistoryError::QueryFailed { .. }
+            | GetProductListingHistoryError::BeginTransactionFailed
+            | GetProductListingHistoryError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing history is temporarily unavailable.")
             }
-            GetProductListingEventsError::InvalidReadModel => {
+            GetProductListingHistoryError::InvalidReadModel { .. } => {
                 ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
                     .with_detail("ProductListing history contains invalid event data.")
             }

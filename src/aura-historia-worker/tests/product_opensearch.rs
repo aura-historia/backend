@@ -106,7 +106,7 @@ async fn should_keep_product_projection_unchanged_when_event_is_redelivered() {
             .redeliver(
                 fixture.product_listing_id,
                 fixture.event_id,
-                "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+                "PRODUCT_LISTING_CHANGED",
                 "DOMAIN",
             )
             .await?;
@@ -143,7 +143,7 @@ async fn should_skip_stale_product_event_trigger() {
             .redeliver(
                 fixture.product_listing_id,
                 fixture.event_id,
-                "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+                "PRODUCT_LISTING_CHANGED",
                 "DOMAIN",
             )
             .await?;
@@ -187,8 +187,8 @@ async fn should_delete_withdrawn_listing_then_reproject_restored_listing_without
             .redeliver(
                 fixture.product_listing_id,
                 withdrawn_event_id,
-                "PRODUCT_LISTING_WITHDRAWN",
-                "LIFECYCLE",
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
             )
             .await?;
         assert_product_response_unchanged_for(
@@ -202,8 +202,8 @@ async fn should_delete_withdrawn_listing_then_reproject_restored_listing_without
             .redeliver(
                 fixture.product_listing_id,
                 restored_event_id,
-                "PRODUCT_LISTING_RESTORED",
-                "LIFECYCLE",
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
             )
             .await?;
         assert_product_response_unchanged_for(
@@ -213,14 +213,15 @@ async fn should_delete_withdrawn_listing_then_reproject_restored_listing_without
         )
         .await?;
 
-        let (current_event_id, projection_version, lifecycle, availability):
-            (uuid::Uuid, i64, String, Option<String>) = sqlx::query_as(
-            "SELECT event_id, projection_version, lifecycle, availability FROM product_listings WHERE product_listing_id = $1",
+        let (current_event_id, version, projection_version, lifecycle, availability):
+            (uuid::Uuid, i64, i64, String, Option<String>) = sqlx::query_as(
+            "SELECT current_event_id, version, projection_version, lifecycle, availability FROM product_listings WHERE product_listing_id = $1",
         )
         .bind(uuid::Uuid::from(fixture.product_listing_id))
         .fetch_one(&worker.pool)
         .await?;
         assert_eq!(uuid::Uuid::from(restored_event_id), current_event_id);
+        assert_eq!(3, version);
         assert_eq!(17, projection_version);
         assert_eq!("ACTIVE", lifecycle);
         assert_eq!(None, availability);
@@ -409,6 +410,13 @@ impl ProductListingOpenSearchWorker {
         event_type: &str,
         event_group: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let payload: serde_json::Value = sqlx::query_scalar(
+            "SELECT payload FROM product_listing_events WHERE event_id = $1 AND product_listing_id = $2",
+        )
+        .bind(uuid::Uuid::from(event_id))
+        .bind(uuid::Uuid::from(product_listing_id))
+        .fetch_one(&self.pool)
+        .await?;
         let response = reqwest::Client::new()
             .post(format!(
                 "http://127.0.0.1:{}/cdc/sequin",
@@ -420,6 +428,8 @@ impl ProductListingOpenSearchWorker {
                     "product_listing_id": product_listing_id.to_string(),
                     "event_type": event_type,
                     "event_group": event_group,
+                    "event_type_schema_version": 1,
+                    "payload": payload,
                 },
                 "action": "insert",
                 "metadata": {
@@ -464,7 +474,7 @@ async fn insert_active_product_with_event(
     let mut tx = pool.begin().await?;
     insert_listing_source(&mut tx, listing_source_id, "active-os").await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, availability, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $3, $4, $5, 'Active ProductListing OpenSearch chair', 'en', 'Native source price only', 'en', 12345, 'USD', 10000, 'USD', 15000, 'USD', 'AVAILABLE', 'ACTIVE', 'https://example.test/product_listings/active', '[{\"url\": \"https://example.test/images/active.jpg\"}]', $6)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, availability, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Active ProductListing OpenSearch chair', 'en', 'Native source price only', 'en', 12345, 'USD', 10000, 'USD', 15000, 'USD', 'AVAILABLE', 'ACTIVE', 'https://example.test/product_listings/active', '[{\"url\": \"https://example.test/images/active.jpg\"}]', $6)",
     )
     .bind(uuid::Uuid::from(product_listing_id))
     .bind(product_slug("active-os", product_listing_id))
@@ -492,7 +502,7 @@ async fn insert_product_with_event_then_rollback(
     let mut tx = pool.begin().await?;
     insert_listing_source(&mut tx, listing_source_id, "rollback-os").await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $4, $5, 'Rolled back ProductListing OpenSearch chair', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product_listings/rolled-back', '[]')",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Rolled back ProductListing OpenSearch chair', 'en', 'AVAILABLE', 'ACTIVE', 'https://example.test/product_listings/rolled-back', '[]')",
     )
     .bind(uuid::Uuid::from(product_listing_id))
     .bind(product_slug("rollback-os", product_listing_id))
@@ -515,7 +525,7 @@ async fn advance_product_revision(
     let mut tx = pool.begin().await?;
     insert_product_event(&mut tx, product_listing_id, event_id).await?;
     sqlx::query(
-        "UPDATE product_listings SET event_id = $1, title_text = 'Current ProductListing OpenSearch chair', projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
+        "UPDATE product_listings SET current_event_id = $1, title_text = 'Current ProductListing OpenSearch chair', version = version + 1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(uuid::Uuid::from(product_listing_id))
@@ -535,12 +545,13 @@ async fn withdraw_product_listing(
         &mut tx,
         product_listing_id,
         event_id,
-        "PRODUCT_LISTING_WITHDRAWN",
-        "LIFECYCLE",
+        "PRODUCT_LISTING_CHANGED",
+        "DOMAIN",
+        json!({"lifecycle": {"transition": "WITHDRAWN", "previousAvailability": "AVAILABLE"}}),
     )
     .await?;
     sqlx::query(
-        "UPDATE product_listings SET event_id = $1, lifecycle = 'WITHDRAWN', availability = NULL, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
+        "UPDATE product_listings SET current_event_id = $1, lifecycle = 'WITHDRAWN', availability = NULL, version = version + 1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(uuid::Uuid::from(product_listing_id))
@@ -560,12 +571,13 @@ async fn restore_product_listing(
         &mut tx,
         product_listing_id,
         event_id,
-        "PRODUCT_LISTING_RESTORED",
-        "LIFECYCLE",
+        "PRODUCT_LISTING_CHANGED",
+        "DOMAIN",
+        json!({"lifecycle": {"transition": "RESTORED"}}),
     )
     .await?;
     sqlx::query(
-        "UPDATE product_listings SET event_id = $1, lifecycle = 'ACTIVE', availability = NULL, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
+        "UPDATE product_listings SET current_event_id = $1, lifecycle = 'ACTIVE', availability = NULL, version = version + 1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(uuid::Uuid::from(product_listing_id))
@@ -585,7 +597,7 @@ async fn insert_sold_product_with_event(
     let mut tx = pool.begin().await?;
     insert_listing_source(&mut tx, listing_source_id, "sold-os").await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, price_amount, price_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $3, $4, $5, 'Sold ProductListing OpenSearch chair', 'en', 12345, 'EUR', $6, now(), 'SOLD_OUT', 'ACTIVE', 'https://example.test/product_listings/sold', '[]', 13)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, price_amount, price_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Sold ProductListing OpenSearch chair', 'en', 12345, 'EUR', $6, now(), 'SOLD_OUT', 'ACTIVE', 'https://example.test/product_listings/sold', '[]', 13)",
     )
     .bind(uuid::Uuid::from(product_listing_id))
     .bind(product_slug("sold-os", product_listing_id))
@@ -614,7 +626,7 @@ async fn insert_sold_product_without_main_price_with_event(
     let mut tx = pool.begin().await?;
     insert_listing_source(&mut tx, listing_source_id, "sold-no-price-os").await?;
     sqlx::query(
-        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, event_id, content_source_event_id, listing_source_id, source_listing_id, title_text, title_language, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $3, $4, $5, 'Sold ProductListing OpenSearch chair without main price', 'en', 10000, 'EUR', 15000, 'EUR', $6, now(), 'SOLD_OUT', 'ACTIVE', 'https://example.test/product_listings/sold-no-price', '[]', 17)",
+        "INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_observation_fx_rate_id, sale_observed_at, availability, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Sold ProductListing OpenSearch chair without main price', 'en', 10000, 'EUR', 15000, 'EUR', $6, now(), 'SOLD_OUT', 'ACTIVE', 'https://example.test/product_listings/sold-no-price', '[]', 17)",
     )
     .bind(uuid::Uuid::from(product_listing_id))
     .bind(product_slug("sold-no-price-os", product_listing_id))
@@ -641,7 +653,7 @@ async fn correct_sold_product_main_price(
     let mut tx = pool.begin().await?;
     insert_product_event(&mut tx, product_listing_id, event_id).await?;
     sqlx::query(
-        "UPDATE product_listings SET event_id = $1, price_amount = 12345, price_currency = 'EUR', projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
+        "UPDATE product_listings SET current_event_id = $1, price_amount = 12345, price_currency = 'EUR', version = version + 1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(uuid::Uuid::from(product_listing_id))
@@ -681,8 +693,9 @@ async fn insert_product_event(
         tx,
         product_listing_id,
         event_id,
-        "PRODUCT_LISTING_AVAILABILITY_CHANGED",
+        "PRODUCT_LISTING_CHANGED",
         "DOMAIN",
+        json!({"availability": {"previous": null, "current": "AVAILABLE"}}),
     )
     .await
 }
@@ -693,14 +706,16 @@ async fn insert_product_event_with_type(
     event_id: EventId,
     event_type: &str,
     event_group: &str,
+    payload: Value,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())",
+        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, $5, now())",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(uuid::Uuid::from(product_listing_id))
     .bind(event_type)
     .bind(event_group)
+    .bind(payload)
     .execute(&mut **tx)
     .await?;
     Ok(())

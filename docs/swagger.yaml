@@ -1196,28 +1196,27 @@ paths:
                 error: PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE
   /api/v1/product-listings/{productListingId}/history:
     get:
-      summary: Get product event history
+      summary: Get ProductListing history
       description:
-        "Retrieves the event history for a specific product by its `productListingId`.
+        "Retrieves immutable domain history for one ProductListing by `productListingId`.
 
-        Returns an array of immutable events representing state changes, price changes, and other
+        Each array item is one committed `PRODUCT_LISTING_DISCOVERED` or
+        `PRODUCT_LISTING_CHANGED` event, ordered by occurrence time and event ID. A changed
+        item contains a deterministic ordered `changes` array; it is never split into synthetic
+        entries. Discovery exposes image count, never source image URLs.
 
-        product lifecycle events, ordered chronologically.
-
-
-        Price snapshots preserve stored source amounts and currencies. A sale event records its
-
-        immutable `saleValuation` separately. This endpoint performs no currency conversion.
+        Price snapshots preserve stored source amounts and currencies. Sale observations retain
+        their immutable source provenance. This endpoint performs no currency conversion.
 
         "
-      operationId: getProductHistory
+      operationId: getProductListingHistory
       tags:
         - ProductListings
       parameters:
         - name: productListingId
           in: path
           required: true
-          description: Unique identifier of the product
+          description: Unique ProductListing identifier
           schema:
             type: string
             format: uuid
@@ -1235,37 +1234,44 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/ProductListingEventData"
+                  $ref: "#/components/schemas/ProductListingHistoryEntryData"
               examples:
                 product_history:
-                  summary: Example product history
+                  summary: Example ProductListing history
                   value:
-                    - eventType: CREATED
+                    - eventType: PRODUCT_LISTING_DISCOVERED
                       productListingId: 550e8400-e29b-41d4-a716-446655440000
                       eventId: 650e8400-e29b-41d4-a716-446655440001
                       payload:
+                        listingSourceId: 550e8400-e29b-41d4-a716-446655440010
+                        sourceListingId: source-6ba7b810
                         pricing:
                           price:
                             currency: EUR
                             amount: 3000
-                        availability: null
-                        url: https://listing source.example/product-listings/6ba7b810
-                        images: []
-                        auction: {}
-                      timestamp: "2024-01-01T10:00:00Z"
-                    - eventType: PRICE_CHANGED
+                        availability: IN_STOCK
+                        url: https://listing-source.example/product-listings/6ba7b810
+                        imageCount: 3
+                        auction:
+                          start: null
+                          end: null
+                      timestamp: "2026-09-01T10:00:00Z"
+                    - eventType: PRODUCT_LISTING_CHANGED
                       productListingId: 550e8400-e29b-41d4-a716-446655440000
                       eventId: 650e8400-e29b-41d4-a716-446655440003
                       payload:
-                        oldPricing:
-                          price:
-                            currency: EUR
-                            amount: 3000
-                        newPricing:
-                          price:
-                            currency: EUR
-                            amount: 2999
-                      timestamp: "2024-01-15T09:15:00Z"
+                        changes:
+                          - type: MAIN_PRICE_CHANGED
+                            previous:
+                              currency: EUR
+                              amount: 3000
+                            current:
+                              currency: EUR
+                              amount: 2999
+                          - type: AVAILABILITY_CHANGED
+                            previous: IN_STOCK
+                            current: SOLD_OUT
+                      timestamp: "2026-09-01T10:15:00Z"
         "400":
           description: Bad request - Invalid parameters
           content:
@@ -1282,8 +1288,18 @@ paths:
                 status: 404
                 title: Not Found
                 error: PRODUCT_LISTING_NOT_FOUND
+        "503":
+          description: ProductListing history is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE
         "500":
-          description: Internal server error
+          description: ProductListing history contains invalid stored event data
           content:
             application/problem+json:
               schema:
@@ -1291,7 +1307,7 @@ paths:
               example:
                 status: 500
                 title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
+                error: PRODUCT_LISTING_INTERNAL_ERROR
   /api/v1/product-listings/{productListingId}/similar:
     get:
       summary: Get similar product-listings
@@ -8447,9 +8463,9 @@ components:
           description: Price amount in minor currency units (e.g., cents for most supported currencies, whole yen for JPY)
           minimum: 0
           example: 2999
-    ProductListingEventData:
+    ProductListingHistoryEntryData:
       type: object
-      description: Historical event for a product
+      description: One immutable committed ProductListing domain-history entry.
       required:
         - eventType
         - productListingId
@@ -8458,17 +8474,17 @@ components:
         - timestamp
       properties:
         eventType:
-          $ref: "#/components/schemas/ProductListingEventTypeData"
+          $ref: "#/components/schemas/ProductListingHistoryEntryTypeData"
         productListingId:
           type: string
           format: uuid
-          description: Unique internal identifier for the product
+          description: Unique internal ProductListing identifier
         eventId:
           type: string
           format: uuid
-          description: Unique identifier for this event
+          description: Unique identifier for this committed event
         payload:
-          $ref: "#/components/schemas/ProductListingEventPayloadData"
+          $ref: "#/components/schemas/ProductListingHistoryPayloadData"
         timestamp:
           type: string
           format: date-time
@@ -8781,25 +8797,212 @@ components:
         "
       default: score
       example: updated
-    ProductListingEventTypeData:
+    ProductListingHistoryEntryTypeData:
       type: string
       enum:
-        - PRODUCT_LISTING_CREATED
-        - PRODUCT_LISTING_AVAILABILITY_CHANGED
-        - PRODUCT_LISTING_ADDRESS_CHANGED
-        - PRODUCT_LISTING_PRICE_CHANGED
-        - PRODUCT_LISTING_URL_CHANGED
-        - PRODUCT_LISTING_IMAGES_CHANGED
-        - PRODUCT_LISTING_AUCTION_CHANGED
-        - PRODUCT_LISTING_WITHDRAWN
-        - PRODUCT_LISTING_RESTORED
-        - PRODUCT_LISTING_SALE_OBSERVED
-        - PRODUCT_LISTING_SALE_OBSERVATION_RETRACTED
-      description: Canonical ProductListing domain event type.
-      example: PRODUCT_LISTING_AVAILABILITY_CHANGED
-    ProductListingEventPayloadData:
+        - PRODUCT_LISTING_DISCOVERED
+        - PRODUCT_LISTING_CHANGED
+      description: Canonical ProductListing domain-history entry type.
+      example: PRODUCT_LISTING_CHANGED
+    ProductListingHistoryPayloadData:
+      oneOf:
+        - $ref: "#/components/schemas/ProductListingDiscoveryHistoryPayloadData"
+        - $ref: "#/components/schemas/ProductListingChangedHistoryPayloadData"
+      description: Immutable semantic history payload. It never contains image URLs or enrichment data.
+    ProductListingDiscoveryHistoryPayloadData:
       type: object
-      description: Event-specific immutable payload. Optional availability fields serialize as `null`.
+      required:
+        - listingSourceId
+        - sourceListingId
+        - pricing
+        - availability
+        - url
+        - imageCount
+        - auction
+      properties:
+        listingSourceId:
+          type: string
+          format: uuid
+        sourceListingId:
+          type: string
+        title:
+          $ref: "#/components/schemas/LocalizedTextData"
+        description:
+          $ref: "#/components/schemas/LocalizedTextData"
+        pricing:
+          $ref: "#/components/schemas/ProductListingPricingData"
+        availability:
+          allOf:
+            - $ref: "#/components/schemas/ListingAvailabilityData"
+          nullable: true
+        url:
+          type: string
+          format: uri
+        imageCount:
+          type: integer
+          format: int64
+          minimum: 0
+        auction:
+          $ref: "#/components/schemas/AuctionData"
+    ProductListingChangedHistoryPayloadData:
+      type: object
+      required:
+        - changes
+      properties:
+        changes:
+          type: array
+          minItems: 1
+          description: "Deterministic semantic-change order: main price, minimum estimate, maximum estimate, availability, URL, images, auction, lifecycle, sale observation."
+          items:
+            $ref: "#/components/schemas/ProductListingHistoryChangeData"
+    ProductListingHistoryChangeData:
+      oneOf:
+        - $ref: "#/components/schemas/ProductListingPriceHistoryChangeData"
+        - $ref: "#/components/schemas/ProductListingAvailabilityHistoryChangeData"
+        - $ref: "#/components/schemas/ProductListingUrlHistoryChangeData"
+        - $ref: "#/components/schemas/ProductListingImagesHistoryChangeData"
+        - $ref: "#/components/schemas/ProductListingAuctionHistoryChangeData"
+        - $ref: "#/components/schemas/ProductListingWithdrawalHistoryChangeData"
+        - $ref: "#/components/schemas/ProductListingRestorationHistoryChangeData"
+        - $ref: "#/components/schemas/ProductListingSaleObservationHistoryChangeData"
+      description: Typed semantic change.
+    ProductListingPriceHistoryChangeData:
+      type: object
+      required:
+        - type
+        - previous
+        - current
+      properties:
+        type:
+          type: string
+          enum:
+            - MAIN_PRICE_CHANGED
+            - MINIMUM_ESTIMATE_CHANGED
+            - MAXIMUM_ESTIMATE_CHANGED
+        previous:
+          allOf:
+            - $ref: "#/components/schemas/PriceData"
+          nullable: true
+        current:
+          allOf:
+            - $ref: "#/components/schemas/PriceData"
+          nullable: true
+    ProductListingAvailabilityHistoryChangeData:
+      type: object
+      required:
+        - type
+        - previous
+        - current
+      properties:
+        type:
+          type: string
+          enum:
+            - AVAILABILITY_CHANGED
+        previous:
+          allOf:
+            - $ref: "#/components/schemas/ListingAvailabilityData"
+          nullable: true
+        current:
+          allOf:
+            - $ref: "#/components/schemas/ListingAvailabilityData"
+          nullable: true
+    ProductListingUrlHistoryChangeData:
+      type: object
+      required:
+        - type
+        - previous
+        - current
+      properties:
+        type:
+          type: string
+          enum:
+            - URL_CHANGED
+        previous:
+          type: string
+          format: uri
+        current:
+          type: string
+          format: uri
+    ProductListingImagesHistoryChangeData:
+      type: object
+      required:
+        - type
+        - previousCount
+        - currentCount
+      properties:
+        type:
+          type: string
+          enum:
+            - IMAGES_CHANGED
+        previousCount:
+          type: integer
+          format: int64
+          minimum: 0
+        currentCount:
+          type: integer
+          format: int64
+          minimum: 0
+    ProductListingAuctionHistoryChangeData:
+      type: object
+      required:
+        - type
+        - previous
+        - current
+      properties:
+        type:
+          type: string
+          enum:
+            - AUCTION_CHANGED
+        previous:
+          $ref: "#/components/schemas/AuctionData"
+        current:
+          $ref: "#/components/schemas/AuctionData"
+    ProductListingWithdrawalHistoryChangeData:
+      type: object
+      required:
+        - type
+        - previousAvailability
+      properties:
+        type:
+          type: string
+          enum:
+            - WITHDRAWN
+        previousAvailability:
+          allOf:
+            - $ref: "#/components/schemas/ListingAvailabilityData"
+          nullable: true
+    ProductListingRestorationHistoryChangeData:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum:
+            - RESTORED
+    ProductListingSaleObservationHistoryChangeData:
+      type: object
+      required:
+        - type
+        - observation
+      properties:
+        type:
+          type: string
+          enum:
+            - SALE_OBSERVED
+            - SALE_OBSERVATION_RETRACTED
+        observation:
+          type: object
+          required:
+            - observedAt
+            - fxRateId
+          properties:
+            observedAt:
+              type: string
+              format: date-time
+            fxRateId:
+              type: string
+              format: uuid
     ApiError:
       type: object
       description: Standard error response format (RFC 9457)

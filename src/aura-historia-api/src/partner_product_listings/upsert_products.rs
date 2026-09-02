@@ -92,7 +92,6 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, header};
-    use domain_primitives::event_id::EventId;
     use product_listing_core::product_listing_id::{ProductListingId, ProductListingKey};
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
     use product_listing_service::use_cases::{
@@ -421,7 +420,6 @@ mod tests {
             product_listing_id: ProductListingId::new(),
             product_listing_title_slug_id: ProductListingSlugId::raw("upserted-product-a1b2c3")
                 .unwrap_or_else(|error| panic!("valid product listing title slug: {error}")),
-            event_id: EventId::new(),
         })
     }
 

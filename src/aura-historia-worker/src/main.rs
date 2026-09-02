@@ -49,9 +49,8 @@ use product_listing_opensearch::OpenSearchProductListingSearchProjection;
 use product_listing_postgres::{
     SqlxProductListingContentAssessmentSnapshotReaderFactory,
     SqlxProductListingContentAssessmentSourceReader,
-    SqlxProductListingContentAssessmentWriterFactory,
-    SqlxProductListingCurrentRevisionGuardFactory, SqlxProductListingEmbeddingSourceReader,
-    SqlxProductListingEmbeddingWriterFactory,
+    SqlxProductListingContentAssessmentWriterFactory, SqlxProductListingCurrentEventGuardFactory,
+    SqlxProductListingEmbeddingSourceReader, SqlxProductListingEmbeddingWriterFactory,
     SqlxProductListingSearchFilterMatchSourceReaderFactory,
     SqlxProductListingTranslationSourceReader, SqlxProductListingTranslationWriterFactory,
     SqlxProductListingWatchlistNotificationSourceReaderFactory,
@@ -180,7 +179,7 @@ async fn run_search_filter_percolator(
         Arc::new(MatchProductListingEventHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
             SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
-            SqlxProductListingCurrentRevisionGuardFactory::new(),
+            SqlxProductListingCurrentEventGuardFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
             OpenSearchSearchFilterIndex::new(opensearch_client(opensearch)?),
             vertex_ai_large_language_model(vertex_ai)?,
@@ -204,7 +203,6 @@ async fn run_search_filter_match_notifications(
             SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
             SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
             SqlxUserTierEntitlementsFactory::new(),
-            SqlxProductListingCurrentRevisionGuardFactory::new(),
             SqlxProductListingContentAssessmentSnapshotReaderFactory::new(),
             NotificationCreationCoordinatorFactory::new(
                 SqlxNotificationRepositoryFactory::new(),
@@ -349,7 +347,6 @@ async fn run_watchlist_notifications(
             SqlxUnitOfWork::new(pool.clone()),
             SqlxProductListingWatchlistNotificationSourceReaderFactory::new(),
             SqlxWatchlistNotificationRecipientReaderFactory,
-            SqlxProductListingCurrentRevisionGuardFactory::new(),
             NotificationCreationCoordinatorFactory::new(
                 SqlxNotificationRepositoryFactory::new(),
                 InitialExternalDeliveryPlanReaderFactory,

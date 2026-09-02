@@ -272,6 +272,12 @@ macro_rules! uuid_v7_newtype {
 #[macro_export]
 macro_rules! version_newtype {
     ($name:ident) => {
+        $crate::version_newtype!(@define $name, serde);
+    };
+    ($name:ident, no_serde) => {
+        $crate::version_newtype!(@define $name, no_serde);
+    };
+    (@define $name:ident, serde) => {
         #[derive(
             Debug,
             Clone,
@@ -281,12 +287,19 @@ macro_rules! version_newtype {
             Eq,
             Ord,
             Hash,
-            ::serde::Serialize,
-            ::serde::Deserialize,
+            serde::Serialize,
+            serde::Deserialize,
         )]
         #[serde(try_from = "u64", into = "u64")]
         pub struct $name(u64);
-
+        $crate::version_newtype!(@impl $name);
+    };
+    (@define $name:ident, no_serde) => {
+        #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+        pub struct $name(u64);
+        $crate::version_newtype!(@impl $name);
+    };
+    (@impl $name:ident) => {
         impl Default for $name {
             fn default() -> Self {
                 Self::INITIAL
