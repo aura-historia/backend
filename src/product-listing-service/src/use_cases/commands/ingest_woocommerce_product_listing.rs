@@ -321,7 +321,7 @@ where
             Some(loaded) => {
                 let expected_version = loaded.version;
                 let mut listing = loaded.value;
-                listing.restore();
+                listing.restore()?;
                 match data.price {
                     PatchField::Unchanged => {}
                     PatchField::Set(price) => {
@@ -452,7 +452,7 @@ where
         };
         let expected_version = loaded.version;
         let mut listing = loaded.value;
-        let outcome = listing.withdraw();
+        let outcome = listing.withdraw()?;
         let event = listing.take_pending_event_payload().map(|payload| {
             stamp_product_listing_event(listing.id(), time::OffsetDateTime::now_utc(), payload)
         });
@@ -748,6 +748,9 @@ impl From<ChangeListingAvailabilityError> for IngestWoocommerceProductListingErr
     fn from(error: ChangeListingAvailabilityError) -> Self {
         match error {
             ChangeListingAvailabilityError::ListingWithdrawn => Self::ListingWithdrawn,
+            error => Self::InvalidProductListing {
+                source: box_error(error),
+            },
         }
     }
 }

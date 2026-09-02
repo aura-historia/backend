@@ -134,13 +134,12 @@ pub struct GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, C, N> {
 
 impl<U, M, P, Q, A, C, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, C, N> {
     #[allow(clippy::too_many_arguments)]
-    pub fn new<G>(
+    pub fn new(
         unit_of_work: U,
         matches: M,
         product_listings: P,
         quotas: Q,
         tier_entitlements: A,
-        _legacy_product_current_event_guard: G,
         content_assessments: C,
         notifications: N,
     ) -> Self {
@@ -803,7 +802,6 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            (),
             content_assessments(
                 &state,
                 ContentAssessmentOutcome::Found(Some(ContentPolicyDecision::Allowed)),
@@ -837,7 +835,6 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            (),
             content_assessments(
                 &state,
                 ContentAssessmentOutcome::Found(Some(ContentPolicyDecision::RequiresConsent(
@@ -873,7 +870,6 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            (),
             content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             DuplicateNotifications,
         );
@@ -901,7 +897,6 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            (),
             content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             Notifications(Arc::clone(&state)),
         );
@@ -930,7 +925,6 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            (),
             content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             Notifications(Arc::clone(&state)),
         );
@@ -961,7 +955,6 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            (),
             content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             Notifications(Arc::clone(&state)),
         );
@@ -989,7 +982,6 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            (),
             content_assessments(&state, ContentAssessmentOutcome::QueryFailure),
             Notifications(Arc::clone(&state)),
         );
@@ -1017,7 +1009,6 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            (),
             content_assessments(&state, ContentAssessmentOutcome::InvalidPersistedState),
             Notifications(state),
         );
@@ -1046,7 +1037,6 @@ mod tests {
             ProductListingSources(Some(product)),
             Quotas(Arc::clone(&state)),
             Tiers,
-            (),
             content_assessments(&state, ContentAssessmentOutcome::Found(None)),
             Notifications(state),
         );

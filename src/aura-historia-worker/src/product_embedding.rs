@@ -100,8 +100,6 @@ mod tests {
             payload: DomainJobPayload::ProductListingEvent(ProductListingEventJob {
                 event_id,
                 product_listing_id,
-                event_type: "PRODUCT_LISTING_DISCOVERED".to_owned(),
-                event_group: "DOMAIN".to_owned(),
             }),
         });
         assert!(

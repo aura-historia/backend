@@ -68,7 +68,7 @@ Required invariants:
 9. Only explicitly named restore/upsert intent can restore a withdrawn listing.
 10. Idempotent no-ops emit no event.
 
-Aggregate mutations collect zero or one payload without creating event IDs or reading the clock. Creation emits one `PRODUCT_LISTING_DISCOVERED`; rehydrated mutation coalesces into one non-empty `PRODUCT_LISTING_CHANGED`. Service stamps that one payload with `EventId` and occurrence time before transactional persistence. Public slug generation is separate and uses a random UUID suffix.
+Aggregate mutations collect zero or one payload without creating event IDs or reading the clock. Creation emits one `PRODUCT_LISTING_DISCOVERED`; rehydrated mutation coalesces into one non-empty `PRODUCT_LISTING_CHANGED`. Service stamps that one payload with `EventId` and occurrence time before transactional persistence. Public slug generation is separate and uses a random UUID suffix. Initial discovery cannot be paired with a lifecycle transition or sale observation; those transitions are rejected rather than silently omitted. Durable image counts use fixed-width `u64` semantics, and image replacement remains a dedicated change that can retain equal counts when image identity or order changed.
 
 ## Availability and orderability
 
@@ -137,7 +137,7 @@ PRODUCT_LISTING_DISCOVERED
 PRODUCT_LISTING_CHANGED
 ```
 
-Discovery contains immutable source identity, initial title/description, source pricing, availability, URL, image count, and auction. It has no title slug, image URLs, lifecycle, or sale observation. A changed event has a non-empty typed change set. Main price, minimum estimate, maximum estimate, availability, URL, image counts, auction, lifecycle, and sale observation are separate dimensions. Value changes retain first `previous` and final `current`; net-zero value changes disappear. Image changes remain when cardinality is unchanged. Withdrawal records a lifecycle transition with previous availability. Canonical domain journal rows use group `DOMAIN` and schema version `1`; enrichment journal events are separate from aggregate-core payloads. Event payload enum values persist explicit canonical codes, not Rust debug output.
+Discovery contains immutable source identity, initial title/description, source pricing, availability, URL, fixed-width image count, and auction. It has no title slug, image URLs, lifecycle, or sale observation. A changed event has a non-empty typed change set. Main price, minimum estimate, maximum estimate, availability, URL, image replacement, auction, lifecycle, and sale observation are separate dimensions. Ordinary value changes retain first `previous` and final `current`; net-zero value changes disappear. Image replacement has separate count fields and may retain equal cardinality. Withdrawal records a lifecycle transition with previous availability. PostgreSQL owns strict v1 DTO decoding and maps directly through an immutable event rehydration boundary; it never reconstructs a ProductListing aggregate. Canonical domain journal rows use group `DOMAIN` and schema version `1`; enrichment journal events are separate from aggregate-core payloads. Event payload enum values persist explicit canonical codes, not Rust debug output.
 
 ## Application, API, and search contracts
 
@@ -186,7 +186,7 @@ Reusable mappings persist `AVAILABILITY` with a non-null valid value or `NO_ASSE
 
 ## Persistence contract
 
-The initial schema uses `product_listings`, `product_listing_events`, `product_listing_translations`, and `product_listing_watchlist`; IDs use `product_listing_id`, `product_listing_title_slug_id`, `listing_source_id`, and `source_listing_id`. `product_listings` retains the unique canonical `(listing_source_id, source_listing_id)` key for partner writes, globally enforces unique `product_listing_title_slug_id` for public lookup, and has a cascading foreign key to `listing_sources`.
+The initial schema uses `product_listings`, `product_listing_events`, `product_listing_translations`, and `product_listing_watchlist`; IDs use `product_listing_id`, `product_listing_title_slug_id`, `listing_source_id`, and `source_listing_id`. `product_listings` retains the unique canonical `(listing_source_id, source_listing_id)` key for partner writes, globally enforces unique `product_listing_title_slug_id` for public lookup, and has a cascading foreign key to `listing_sources`. The initial schema rewrite is direct: no outbox, compatibility decoder, migration, backfill, or dual write exists.
 
 Authoritative listing columns are nullable `availability`, non-null `lifecycle`, and the paired nullable `sale_observation_fx_rate_id` / `sale_observed_at`. `version` is aggregate concurrency, `current_event_id` is projection-visible state, `projection_version` is the external projection source version, `content_source_event_id` guards text-derived work, and `embedding_source_event_id` guards title/description/first-image embeddings. Discovery initializes both source markers; only image changes advance the embedding marker and clear the stored vector. PostgreSQL validates exact codes, `Withdrawn => availability IS NULL`, and the sale-observation pair. Listing address/geo and seller columns do not exist. PostgreSQL is authoritative; OpenSearch is rebuildable.
 

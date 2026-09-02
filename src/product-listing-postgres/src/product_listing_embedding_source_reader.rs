@@ -3,7 +3,8 @@ use domain_primitives::event_id::EventId;
 use localization::Language;
 use localization::Localized;
 use product_listing_core::{
-    description::Description, product_listing_id::ProductListingId, title::Title,
+    description::Description, product_listing_event::ProductListingEventPayload,
+    product_listing_id::ProductListingId, title::Title,
 };
 use product_listing_service::ports::{
     ProductListingEmbeddingSource, ProductListingEmbeddingSourceEvent,
@@ -12,6 +13,8 @@ use product_listing_service::ports::{
 use serde::Deserialize;
 use sqlx::PgPool;
 use url::Url;
+
+use crate::product_listing_event_codec;
 
 #[derive(Clone)]
 pub struct SqlxProductListingEmbeddingSourceReader {
@@ -108,30 +111,34 @@ impl TryFrom<ProductListingEmbeddingSourceRow> for ProductListingEmbeddingSource
 fn embedding_event(
     row: &ProductListingEmbeddingSourceRow,
 ) -> Result<ProductListingEmbeddingSourceEvent, ProductListingEmbeddingSourceReadError> {
-    match (
-        row.event_type.as_str(),
-        row.event_group.as_str(),
+    let event = product_listing_event_codec::decode_persisted(
+        &row.event_type,
+        &row.event_group,
         row.event_type_schema_version,
-    ) {
-        ("PRODUCT_LISTING_DISCOVERED", "DOMAIN", 1) => {
-            Ok(ProductListingEmbeddingSourceEvent::Discovered)
-        }
-        ("PRODUCT_LISTING_CHANGED", "DOMAIN", 1) => {
-            let payload = row.payload.as_object().ok_or_else(|| {
-                mapping_error("persisted product embedding changed payload is invalid")
-            })?;
-            match payload.get("images") {
-                Some(serde_json::Value::Object(_)) => {
-                    Ok(ProductListingEmbeddingSourceEvent::ChangedImages)
+        &row.payload,
+    )
+    .map_err(
+        |source| ProductListingEmbeddingSourceReadError::InvalidPersistedState {
+            source: box_error(source),
+        },
+    )?;
+    Ok(match event {
+        product_listing_event_codec::ProductListingPersistedEvent::Domain(_, payload) => {
+            match *payload {
+                ProductListingEventPayload::Discovered(_) => {
+                    ProductListingEmbeddingSourceEvent::Discovered
                 }
-                Some(_) => Err(mapping_error(
-                    "persisted product embedding image change is invalid",
-                )),
-                None => Ok(ProductListingEmbeddingSourceEvent::Other),
+                ProductListingEventPayload::Changed(changed) if changed.image_count().is_some() => {
+                    ProductListingEmbeddingSourceEvent::ChangedImages
+                }
+                ProductListingEventPayload::Changed(_) => ProductListingEmbeddingSourceEvent::Other,
             }
         }
-        _ => Ok(ProductListingEmbeddingSourceEvent::Other),
-    }
+        product_listing_event_codec::ProductListingPersistedEvent::Embedded
+        | product_listing_event_codec::ProductListingPersistedEvent::TranslatedTitles => {
+            ProductListingEmbeddingSourceEvent::Other
+        }
+    })
 }
 
 fn localized_title(

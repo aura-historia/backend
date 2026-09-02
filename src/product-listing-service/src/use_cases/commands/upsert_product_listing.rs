@@ -215,7 +215,7 @@ where
             Some(loaded) => {
                 let expected_version = loaded.version;
                 let mut product = loaded.value;
-                product.restore();
+                product.restore()?;
                 apply_update(&mut product, &command)?;
                 let event = product.take_pending_event_payload().map(|payload| {
                     stamp_product_listing_event(
@@ -535,7 +535,7 @@ impl From<ChangeProductListingError> for UpsertProductListingError {
     fn from(error: ChangeProductListingError) -> Self {
         match error {
             ChangeProductListingError::ListingWithdrawn => Self::ListingWithdrawn,
-            ChangeProductListingError::AuctionStartAfterEnd => Self::InvalidProductListing {
+            error => Self::InvalidProductListing {
                 source: box_error(error),
             },
         }

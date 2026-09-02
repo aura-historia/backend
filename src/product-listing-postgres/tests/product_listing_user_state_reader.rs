@@ -429,7 +429,17 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
     .bind(raw_product_listing_id)
     .bind("PRODUCT_LISTING_DISCOVERED")
     .bind("DOMAIN")
-    .bind(serde_json::json!({}))
+    .bind(serde_json::json!({
+        "listingSourceId": listing_source_id.to_string(),
+        "sourceListingId": raw_product_listing_id.to_string(),
+        "title": null,
+        "description": null,
+        "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+        "availability": "AVAILABLE",
+        "url": "https://example.test/product",
+        "imageCount": 0,
+        "auction": {"start": null, "end": null}
+    }))
     .bind(OffsetDateTime::UNIX_EPOCH)
     .execute(&mut *transaction)
     .await;

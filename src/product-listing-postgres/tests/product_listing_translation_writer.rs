@@ -122,6 +122,119 @@ async fn should_report_duplicate_without_second_event_when_same_source_is_redeli
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_keep_first_translation_when_same_source_redelivery_has_different_text() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let (product_listing_id, source_event_id) = insert_product_with_discovered_event(&pool).await?;
+        let first = write(product_listing_id, source_event_id, EventId::new());
+        apply(&pool, &first).await?;
+        let before: (uuid::Uuid, i64) = sqlx::query_as(
+            "SELECT current_event_id, projection_version FROM product_listings WHERE product_listing_id = $1",
+        )
+        .bind(uuid::Uuid::from(product_listing_id))
+        .fetch_one(&pool)
+        .await?;
+
+        let second = ProductListingTranslationWrite {
+            enrichment_event_id: EventId::new(),
+            titles: IndexMap::from([
+                (Language::En, Title::from("Different English title")),
+                (Language::Fr, Title::from("Titre français différent")),
+            ]),
+            ..first
+        };
+        assert_eq!(
+            ProductListingTranslationWriteOutcome::Duplicate,
+            apply(&pool, &second).await?
+        );
+
+        let translations = sqlx::query_as::<_, (String, String)>(
+            "SELECT language, title FROM product_listing_translations WHERE product_listing_id = $1 ORDER BY language",
+        )
+        .bind(uuid::Uuid::from(product_listing_id))
+        .fetch_all(&pool)
+        .await?;
+        assert_eq!(
+            vec![
+                ("en".to_owned(), "Antique chair".to_owned()),
+                ("fr".to_owned(), "Chaise ancienne".to_owned()),
+            ],
+            translations
+        );
+        let after: (uuid::Uuid, i64) = sqlx::query_as(
+            "SELECT current_event_id, projection_version FROM product_listings WHERE product_listing_id = $1",
+        )
+        .bind(uuid::Uuid::from(product_listing_id))
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(before, after);
+        assert_eq!(
+            1,
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1 AND event_type = 'ENRICHMENT_TRANSLATED_TITLES' AND event_group = 'ENRICHMENT' AND event_type_schema_version = 1",
+            )
+            .bind(uuid::Uuid::from(product_listing_id))
+            .fetch_one(&pool)
+            .await?
+        );
+        Ok(())
+    }
+    .await;
+    assert!(
+        result.is_ok(),
+        "translation output-idempotency acceptance failed: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_serialize_concurrent_same_source_translation_attempts() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let (product_listing_id, source_event_id) =
+            insert_product_with_discovered_event(&pool).await?;
+        let first = write(product_listing_id, source_event_id, EventId::new());
+        let second = ProductListingTranslationWrite {
+            enrichment_event_id: EventId::new(),
+            titles: IndexMap::from([
+                (Language::En, Title::from("Concurrent English title")),
+                (Language::Fr, Title::from("Titre français concurrent")),
+            ]),
+            ..first.clone()
+        };
+
+        let (first_result, second_result) = tokio::join!(apply(&pool, &first), apply(&pool, &second));
+        let outcomes = [first_result?, second_result?];
+        assert!(outcomes.contains(&ProductListingTranslationWriteOutcome::Applied));
+        assert!(outcomes.contains(&ProductListingTranslationWriteOutcome::Duplicate));
+
+        assert_eq!(
+            1,
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1 AND event_type = 'ENRICHMENT_TRANSLATED_TITLES' AND event_group = 'ENRICHMENT' AND event_type_schema_version = 1",
+            )
+            .bind(uuid::Uuid::from(product_listing_id))
+            .fetch_one(&pool)
+            .await?
+        );
+        assert_eq!(
+            2,
+            sqlx::query_scalar::<_, i64>(
+                "SELECT projection_version FROM product_listings WHERE product_listing_id = $1",
+            )
+            .bind(uuid::Uuid::from(product_listing_id))
+            .fetch_one(&pool)
+            .await?
+        );
+        Ok(())
+    }
+    .await;
+    assert!(
+        result.is_ok(),
+        "concurrent translation write acceptance failed: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_report_stale_without_writing_when_content_source_event_advanced() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
@@ -224,9 +337,20 @@ async fn insert_product_with_discovered_event(
         .bind(product_listing_id.to_string())
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, $3, now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
+        .bind(serde_json::json!({
+            "listingSourceId": listing_source_id.to_string(),
+            "sourceListingId": product_listing_id.to_string(),
+            "title": {"language": "de", "text": "Antiker Stuhl"},
+            "description": null,
+            "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+            "availability": "AVAILABLE",
+            "url": "https://example.test/product",
+            "imageCount": 0,
+            "auction": {"start": null, "end": null}
+        }))
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
@@ -241,11 +365,14 @@ async fn insert_event_and_advance_product(
 ) -> Result<EventId, sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, $5, now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(event_type)
         .bind(event_group)
+        .bind(serde_json::json!({
+            "images": {"previousCount": 0, "currentCount": 0}
+        }))
         .execute(&mut *tx)
         .await?;
     sqlx::query("UPDATE product_listings SET current_event_id = $1, content_source_event_id = $1, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")

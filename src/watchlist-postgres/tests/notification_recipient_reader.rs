@@ -164,9 +164,20 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductListingId {
         .execute(&mut *tx)
         .await
         .unwrap_or_else(|error| panic!("seed product failed: {error:?}"));
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, $3, now())")
         .bind(event_id)
         .bind(product_uuid)
+        .bind(serde_json::json!({
+            "listingSourceId": listing_source_id.to_string(),
+            "sourceListingId": product_uuid.to_string(),
+            "title": null,
+            "description": null,
+            "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+            "availability": null,
+            "url": "https://example.test/product",
+            "imageCount": 0,
+            "auction": {"start": null, "end": null}
+        }))
         .execute(&mut *tx)
         .await
         .unwrap_or_else(|error| panic!("seed product event failed: {error:?}"));

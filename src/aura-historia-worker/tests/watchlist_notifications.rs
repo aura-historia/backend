@@ -2,6 +2,7 @@ use aura_historia_worker::cdc::WorkerQueue;
 use aura_historia_worker::watchlist_notifications::consume_watchlist_notification_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
 
+use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing_id::ProductListingId;
@@ -16,6 +17,10 @@ use notification_service::{
     notification_creation::NotificationCreationCoordinatorFactory,
 };
 use product_listing_postgres::SqlxProductListingWatchlistNotificationSourceReaderFactory;
+use product_listing_service::ports::{
+    ProductListingWatchlistNotificationSourceReader,
+    ProductListingWatchlistNotificationSourceReaderFactory,
+};
 
 use product_listing_service::use_cases::{
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
@@ -36,6 +41,262 @@ const WORKER_SEQUIN: Sequin = Sequin::worker_webhook();
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 const POLL_ATTEMPTS: usize = 80;
 const NO_NOTIFICATION_OBSERVATION: Duration = Duration::from_secs(2);
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_lock_product_listing_through_watchlist_source_read() {
+    let pool = get_postgres_client().await;
+    let event_id = EventId::new();
+    let mut setup = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin setup: {error}"));
+    let product_listing_id = seed_product(&mut setup, event_id)
+        .await
+        .unwrap_or_else(|error| panic!("seed product: {error}"));
+    insert_product_event(
+        &mut setup,
+        event_id,
+        product_listing_id,
+        "PRODUCT_LISTING_CHANGED",
+        json!({"availability": {"previous": "AVAILABLE", "current": "SOLD_OUT"}}),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("seed event: {error}"));
+    setup
+        .commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit setup: {error}"));
+
+    let mut notification_transaction = SqlxUnitOfWork::new(pool.clone())
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin notification transaction: {error}"));
+    let source = SqlxProductListingWatchlistNotificationSourceReaderFactory::new()
+        .in_transaction(&mut notification_transaction)
+        .find_source(event_id, product_listing_id)
+        .await
+        .unwrap_or_else(|error| panic!("read notification source: {error}"));
+    assert!(matches!(
+        source,
+        product_listing_service::ports::ProductListingWatchlistNotificationSourceReadOutcome::Found(
+            _
+        )
+    ));
+
+    let mut withdrawal_transaction = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin withdrawal transaction: {error}"));
+    let blocked = sqlx::query(
+        "SELECT product_listing_id FROM product_listings WHERE product_listing_id = $1 FOR UPDATE NOWAIT",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .fetch_one(&mut *withdrawal_transaction)
+    .await;
+    assert!(matches!(
+        blocked,
+        Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("55P03")
+    ));
+
+    notification_transaction
+        .commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit notification transaction: {error}"));
+    withdrawal_transaction
+        .rollback()
+        .await
+        .unwrap_or_else(|error| panic!("rollback failed withdrawal attempt: {error}"));
+
+    let mut withdrawal_transaction = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin withdrawal transaction after notification: {error}"));
+    sqlx::query(
+        "UPDATE product_listings SET lifecycle = 'WITHDRAWN', availability = NULL WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .execute(&mut *withdrawal_transaction)
+    .await
+    .unwrap_or_else(|error| panic!("withdraw product listing after notification: {error}"));
+    withdrawal_transaction
+        .commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit withdrawal transaction: {error}"));
+    let lifecycle: String =
+        sqlx::query_scalar("SELECT lifecycle FROM product_listings WHERE product_listing_id = $1")
+            .bind(uuid::Uuid::from(product_listing_id))
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("read withdrawn lifecycle: {error}"));
+    assert_eq!("WITHDRAWN", lifecycle);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_suppress_watchlist_notification_when_withdrawal_commits_first() {
+    let pool = get_postgres_client().await;
+    let historical_event_id = EventId::new();
+    let later_event_id = EventId::new();
+    let mut setup = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin setup: {error}"));
+    let product_listing_id = seed_product(&mut setup, historical_event_id)
+        .await
+        .unwrap_or_else(|error| panic!("seed product: {error}"));
+    sqlx::query(
+        "UPDATE product_listings SET lifecycle = 'WITHDRAWN', availability = NULL WHERE product_listing_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_listing_id))
+    .execute(&mut *setup)
+    .await
+    .unwrap_or_else(|error| panic!("withdraw product listing: {error}"));
+    insert_product_event(
+        &mut setup,
+        historical_event_id,
+        product_listing_id,
+        "PRODUCT_LISTING_CHANGED",
+        json!({"availability": {"previous": "AVAILABLE", "current": null}}),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("seed historical event: {error}"));
+    insert_product_event(
+        &mut setup,
+        later_event_id,
+        product_listing_id,
+        "PRODUCT_LISTING_CHANGED",
+        json!({"images": {"previousCount": 0, "currentCount": 0}}),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("seed later event: {error}"));
+    sqlx::query("UPDATE product_listings SET current_event_id = $1 WHERE product_listing_id = $2")
+        .bind(uuid::Uuid::from(later_event_id))
+        .bind(uuid::Uuid::from(product_listing_id))
+        .execute(&mut *setup)
+        .await
+        .unwrap_or_else(|error| panic!("advance current event: {error}"));
+    setup
+        .commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit setup: {error}"));
+
+    let handler = GenerateWatchlistNotificationsHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxProductListingWatchlistNotificationSourceReaderFactory::new(),
+        SqlxWatchlistNotificationRecipientReaderFactory,
+        NotificationCreationCoordinatorFactory::new(
+            SqlxNotificationRepositoryFactory::new(),
+            InitialExternalDeliveryPlanReaderFactory,
+            SqlxNotificationDeliveryIntentRepositoryFactory::new(),
+        ),
+    );
+    let outcome = handler
+        .execute(
+            product_listing_service::use_cases::GenerateWatchlistNotificationsCommand {
+                event_id: historical_event_id,
+                product_listing_id,
+            },
+        )
+        .await
+        .unwrap_or_else(|error| panic!("generate watchlist notification: {error}"));
+    assert_eq!(
+        product_listing_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForWithdrawnProductListing,
+        outcome
+    );
+    let notification_count: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("count notifications: {error}"));
+    assert_eq!(0, notification_count);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, WORKER_SEQUIN])]
+async fn should_notify_historical_change_after_later_active_product_event() {
+    let result = notify_historical_change_after_later_active_product_event().await;
+
+    assert!(
+        result.is_ok(),
+        "historical watchlist notification acceptance test failed: {result:?}"
+    );
+}
+
+async fn notify_historical_change_after_later_active_product_event()
+-> Result<(), Box<dyn std::error::Error>> {
+    let worker = WatchlistWorker::start().await?;
+    let result = async {
+        let user_id = seed_user(&worker.pool, "historical-change").await?;
+        let historical_event_id = EventId::new();
+        let later_event_id = EventId::new();
+        let event_time = OffsetDateTime::now_utc() + time::Duration::seconds(5);
+        let mut transaction = worker.pool.begin().await?;
+        let product_listing_id = seed_product(&mut transaction, historical_event_id).await?;
+        seed_watchlist(
+            &mut transaction,
+            user_id,
+            product_listing_id,
+            true,
+            "ACTIVE",
+        )
+        .await?;
+        insert_product_event_at(
+            &mut transaction,
+            historical_event_id,
+            product_listing_id,
+            "PRODUCT_LISTING_CHANGED",
+            json!({"availability": {"previous": "AVAILABLE", "current": "SOLD_OUT"}}),
+            event_time,
+        )
+        .await?;
+        insert_product_event_at(
+            &mut transaction,
+            later_event_id,
+            product_listing_id,
+            "PRODUCT_LISTING_CHANGED",
+            json!({"images": {"previousCount": 0, "currentCount": 0}}),
+            event_time + time::Duration::seconds(1),
+        )
+        .await?;
+        sqlx::query(
+            "UPDATE product_listings SET current_event_id = $1 WHERE product_listing_id = $2",
+        )
+        .bind(uuid::Uuid::from(later_event_id))
+        .bind(uuid::Uuid::from(product_listing_id))
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+
+        let response = reqwest::Client::new()
+            .post(format!(
+                "http://{}/cdc/sequin",
+                get_sequin_worker_webhook_bind_addr()
+            ))
+            .json(&json!({
+                "record": {
+                    "event_id": historical_event_id.to_string(),
+                    "product_listing_id": product_listing_id.to_string(),
+                    "event_type": "PRODUCT_LISTING_CHANGED",
+                    "event_group": "DOMAIN",
+                    "event_type_schema_version": 1,
+                    "payload": {"availability": {"previous": "AVAILABLE", "current": "SOLD_OUT"}}
+                },
+                "action": "insert",
+                "metadata": {"table_schema": "public", "table_name": "product_listing_events"}
+            }))
+            .send()
+            .await?;
+        assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
+
+        let notifications = wait_for_notifications(&worker.pool, user_id, 1).await?;
+        assert_eq!(
+            uuid::Uuid::from(historical_event_id),
+            notifications[0].origin_event_id
+        );
+        assert_availability_change(&notifications[0], Some("AVAILABLE"), Some("SOLD_OUT"))?;
+        Ok(())
+    }
+    .await;
+
+    worker.finish(result).await
+}
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, WORKER_SEQUIN])]
 async fn should_create_availability_notification_from_committed_product_event() {
@@ -241,7 +502,7 @@ async fn no_notification_for_watcher_created_after_product_event()
                     "event_type": "PRODUCT_LISTING_CHANGED",
                     "event_group": "DOMAIN",
                     "event_type_schema_version": 1,
-                    "payload": {"availability": {}}
+                    "payload": {"availability": {"previous": null, "current": "AVAILABLE"}}
                 },
                 "action": "insert",
                 "metadata": {"table_schema": "public", "table_name": "product_listing_events"}
@@ -295,7 +556,7 @@ async fn preserve_one_notification_when_product_event_delivery_is_retried()
                     "event_type": "PRODUCT_LISTING_CHANGED",
                     "event_group": "DOMAIN",
                     "event_type_schema_version": 1,
-                    "payload": {"availability": {}}
+                    "payload": {"availability": {"previous": null, "current": "AVAILABLE"}}
                 },
                 "action": "insert",
                 "metadata": {"table_schema": "public", "table_name": "product_listing_events"}

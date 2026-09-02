@@ -72,7 +72,7 @@ pub struct ProductListingDiscoveryHistory {
     pub pricing: ProductListingPricing,
     pub availability: Option<ListingAvailability>,
     pub url: Url,
-    pub image_count: usize,
+    pub image_count: u64,
     pub auction: ProductListingAuction,
 }
 
@@ -128,8 +128,8 @@ pub enum ProductListingHistoryChange {
         current: Url,
     },
     ImagesChanged {
-        previous_count: usize,
-        current_count: usize,
+        previous_count: u64,
+        current_count: u64,
     },
     AuctionChanged {
         previous: ProductListingAuction,

@@ -5,10 +5,12 @@ use product_listing_core::{
     description::Description, product_listing_id::ProductListingId, title::Title,
 };
 use product_listing_service::ports::{
-    ProductListingContentAssessmentSource, ProductListingContentAssessmentSourceReadError,
-    ProductListingContentAssessmentSourceReader,
+    ProductListingContentAssessmentSource, ProductListingContentAssessmentSourceEvent,
+    ProductListingContentAssessmentSourceReadError, ProductListingContentAssessmentSourceReader,
 };
 use sqlx::PgPool;
+
+use crate::product_listing_event_codec;
 
 #[derive(Clone)]
 pub struct SqlxProductListingContentAssessmentSourceReader {
@@ -22,6 +24,8 @@ struct ProductListingContentAssessmentSourceRow {
     current_content_source_event_id: uuid::Uuid,
     event_group: String,
     event_type: String,
+    event_type_schema_version: i16,
+    payload: serde_json::Value,
     title_text: Option<String>,
     title_language: Option<String>,
     description_text: Option<String>,
@@ -65,6 +69,8 @@ impl ProductListingContentAssessmentSourceReader
                 product.content_source_event_id AS current_content_source_event_id,
                 event.event_group,
                 event.event_type,
+                event.event_type_schema_version,
+                event.payload,
                 product.title_text,
                 product.title_language,
                 product.description_text,
@@ -93,16 +99,48 @@ impl TryFrom<ProductListingContentAssessmentSourceRow> for ProductListingContent
     type Error = ProductListingContentAssessmentSourceReadError;
 
     fn try_from(row: ProductListingContentAssessmentSourceRow) -> Result<Self, Self::Error> {
+        let event = content_assessment_event(&row)?;
         Ok(Self {
             product_listing_id: ProductListingId::from(row.product_listing_id),
             event_id: EventId::from(row.event_id),
             current_content_source_event_id: EventId::from(row.current_content_source_event_id),
-            event_group: row.event_group,
-            event_type: row.event_type,
+            event,
             title: content_title(row.title_text, row.title_language)?,
             description: content_description(row.description_text, row.description_language)?,
         })
     }
+}
+
+fn content_assessment_event(
+    row: &ProductListingContentAssessmentSourceRow,
+) -> Result<
+    ProductListingContentAssessmentSourceEvent,
+    ProductListingContentAssessmentSourceReadError,
+> {
+    let event = product_listing_event_codec::decode_persisted(
+        &row.event_type,
+        &row.event_group,
+        row.event_type_schema_version,
+        &row.payload,
+    )
+    .map_err(|source| {
+        ProductListingContentAssessmentSourceReadError::InvalidPersistedState {
+            source: box_error(source),
+        }
+    })?;
+    Ok(match event {
+        product_listing_event_codec::ProductListingPersistedEvent::Domain(_, payload) => {
+            match *payload {
+                product_listing_core::product_listing_event::ProductListingEventPayload::Discovered(_) => {
+                    ProductListingContentAssessmentSourceEvent::Discovered
+                }
+                product_listing_core::product_listing_event::ProductListingEventPayload::Changed(_) => {
+                    ProductListingContentAssessmentSourceEvent::Other
+                }
+            }
+        }
+        _ => ProductListingContentAssessmentSourceEvent::Other,
+    })
 }
 
 fn content_title(

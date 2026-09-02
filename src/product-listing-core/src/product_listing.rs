@@ -2,8 +2,9 @@ use crate::description::Description;
 use crate::listing_availability::ListingAvailability;
 use crate::listing_lifecycle::ListingLifecycle;
 use crate::product_listing_event::{
-    ListingSaleObservationChange, ProductListingChanged, ProductListingDiscovered,
-    ProductListingEventPayload, ProductListingLifecycleChange,
+    ProductListingChanged, ProductListingDiscovered, ProductListingEventPayload,
+    ProductListingImageCount, ProductListingImageCountConversionError,
+    ProductListingLifecycleChange,
 };
 use crate::product_listing_id::ProductListingId;
 use crate::product_listing_image::ProductListingImage;
@@ -35,6 +36,7 @@ pub struct ProductListing {
     images: IndexSet<ProductListingImage>,
     auction: ProductListingAuction,
     pending_event_payload: Option<ProductListingEventPayload>,
+    pending_image_baseline: Option<IndexSet<ProductListingImage>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -131,6 +133,8 @@ pub enum RehydrateProductListingError {
     WithdrawnListingHasAvailability,
     #[error("product listing auction start is after its end")]
     AuctionStartAfterEnd,
+    #[error("product listing image count exceeds u64")]
+    ImageCountOverflow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,6 +154,8 @@ impl From<ProductListingInvariantError> for RehydrateProductListingError {
 pub enum ChangeListingAvailabilityError {
     #[error("listing is withdrawn")]
     ListingWithdrawn,
+    #[error("product listing image count exceeds u64")]
+    ImageCountOverflow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -158,6 +164,18 @@ pub enum ChangeProductListingError {
     ListingWithdrawn,
     #[error("product listing auction start is after its end")]
     AuctionStartAfterEnd,
+    #[error("product listing image count exceeds u64")]
+    ImageCountOverflow,
+    #[error("initial discovery cannot contain a lifecycle change")]
+    InitialDiscoveryLifecycleChange,
+    #[error("a different pending sale observation transition already exists")]
+    ConflictingPendingObservation,
+}
+
+impl From<ProductListingImageCountConversionError> for ChangeProductListingError {
+    fn from(_: ProductListingImageCountConversionError) -> Self {
+        Self::ImageCountOverflow
+    }
 }
 
 impl From<ProductListingInvariantError> for ChangeProductListingError {
@@ -172,6 +190,12 @@ impl From<ProductListingInvariantError> for ChangeProductListingError {
 pub enum RecordListingSaleObservationError {
     #[error("a different sale observation already exists")]
     ConflictingExistingObservation,
+    #[error("initial discovery cannot contain a sale observation")]
+    InitialDiscoverySaleObservation,
+    #[error("a different pending sale observation transition already exists")]
+    ConflictingPendingObservation,
+    #[error("product listing image count exceeds u64")]
+    ImageCountOverflow,
 }
 
 impl ProductListing {
@@ -193,7 +217,9 @@ impl ProductListing {
             auction: input.auction,
         })?;
         listing.pending_event_payload = Some(ProductListingEventPayload::Discovered(
-            listing.discovered_event(),
+            listing
+                .discovered_event()
+                .map_err(|_| RehydrateProductListingError::ImageCountOverflow)?,
         ));
         Ok(listing)
     }
@@ -221,6 +247,7 @@ impl ProductListing {
             images: state.images,
             auction: state.auction,
             pending_event_payload: None,
+            pending_image_baseline: None,
         })
     }
 
@@ -232,7 +259,8 @@ impl ProductListing {
         if self.availability == Some(availability) {
             return Ok(ChangeOutcome::Unchanged);
         }
-        self.change_availability(Some(availability));
+        self.change_availability(Some(availability))
+            .map_err(|_| ChangeListingAvailabilityError::ImageCountOverflow)?;
         Ok(ChangeOutcome::Changed)
     }
 
@@ -241,13 +269,20 @@ impl ProductListing {
         if self.availability.is_none() {
             return Ok(ChangeOutcome::Unchanged);
         }
-        self.change_availability(None);
+        self.change_availability(None)
+            .map_err(|_| ChangeListingAvailabilityError::ImageCountOverflow)?;
         Ok(ChangeOutcome::Changed)
     }
 
-    pub fn withdraw(&mut self) -> ChangeOutcome {
+    pub fn withdraw(&mut self) -> Result<ChangeOutcome, ChangeProductListingError> {
         if self.lifecycle == ListingLifecycle::Withdrawn {
-            return ChangeOutcome::Unchanged;
+            return Ok(ChangeOutcome::Unchanged);
+        }
+        if matches!(
+            self.pending_event_payload,
+            Some(ProductListingEventPayload::Discovered(_))
+        ) {
+            return Err(ChangeProductListingError::InitialDiscoveryLifecycleChange);
         }
         let previous_availability = self.availability;
         self.lifecycle = ListingLifecycle::Withdrawn;
@@ -257,34 +292,48 @@ impl ProductListing {
             changed.change_lifecycle(ProductListingLifecycleChange::Withdrawn {
                 previous_availability,
             });
-        });
-        ChangeOutcome::Changed
+        })?;
+        Ok(ChangeOutcome::Changed)
     }
 
-    pub fn restore(&mut self) -> ChangeOutcome {
+    pub fn restore(&mut self) -> Result<ChangeOutcome, ChangeProductListingError> {
         if self.lifecycle == ListingLifecycle::Active {
-            return ChangeOutcome::Unchanged;
+            return Ok(ChangeOutcome::Unchanged);
         }
         self.lifecycle = ListingLifecycle::Active;
         self.availability = None;
         self.coalesce_pending_change(|changed| {
             changed.change_lifecycle(ProductListingLifecycleChange::Restored);
-        });
-        ChangeOutcome::Changed
+        })?;
+        Ok(ChangeOutcome::Changed)
     }
 
     pub fn record_sale_observation(
         &mut self,
         observation: ListingSaleObservation,
     ) -> Result<ChangeOutcome, RecordListingSaleObservationError> {
+        if matches!(
+            self.pending_event_payload,
+            Some(ProductListingEventPayload::Discovered(_))
+        ) {
+            return Err(RecordListingSaleObservationError::InitialDiscoverySaleObservation);
+        }
         match self.sale_observation {
             None => {
+                if let Some(ProductListingEventPayload::Changed(changed)) =
+                    &self.pending_event_payload
+                {
+                    changed
+                        .validate_sale_observation_change(None, Some(observation))
+                        .map_err(|_| {
+                            RecordListingSaleObservationError::ConflictingPendingObservation
+                        })?;
+                }
                 self.sale_observation = Some(observation);
                 self.coalesce_pending_change(|changed| {
-                    changed.change_sale_observation(ListingSaleObservationChange::Observed(
-                        observation,
-                    ));
-                });
+                    changed.change_sale_observation(None, Some(observation));
+                })
+                .map_err(|_| RecordListingSaleObservationError::ImageCountOverflow)?;
                 Ok(ChangeOutcome::Changed)
             }
             Some(existing) if existing == observation => Ok(ChangeOutcome::Unchanged),
@@ -292,14 +341,20 @@ impl ProductListing {
         }
     }
 
-    pub fn retract_sale_observation(&mut self) -> ChangeOutcome {
-        let Some(observation) = self.sale_observation.take() else {
-            return ChangeOutcome::Unchanged;
+    pub fn retract_sale_observation(&mut self) -> Result<ChangeOutcome, ChangeProductListingError> {
+        let Some(observation) = self.sale_observation else {
+            return Ok(ChangeOutcome::Unchanged);
         };
+        if let Some(ProductListingEventPayload::Changed(changed)) = &self.pending_event_payload {
+            changed
+                .validate_sale_observation_change(Some(observation), None)
+                .map_err(|_| ChangeProductListingError::ConflictingPendingObservation)?;
+        }
+        self.sale_observation = None;
         self.coalesce_pending_change(|changed| {
-            changed.change_sale_observation(ListingSaleObservationChange::Retracted(observation));
-        });
-        ChangeOutcome::Changed
+            changed.change_sale_observation(Some(observation), None);
+        })?;
+        Ok(ChangeOutcome::Changed)
     }
 
     pub fn replace_pricing(
@@ -328,7 +383,7 @@ impl ProductListing {
                     pricing.price_estimate_max,
                 );
             }
-        });
+        })?;
         Ok(ChangeOutcome::Changed)
     }
 
@@ -352,7 +407,7 @@ impl ProductListing {
         let previous = self.url.clone();
         self.url = url;
         let current = self.url.clone();
-        self.coalesce_pending_change(|changed| changed.change_url(previous, current));
+        self.coalesce_pending_change(|changed| changed.change_url(previous, current))?;
         Ok(ChangeOutcome::Changed)
     }
 
@@ -364,12 +419,37 @@ impl ProductListing {
         if self.images == images {
             return Ok(ChangeOutcome::Unchanged);
         }
-        let previous_count = self.images.len();
+        let previous_images = self.images.clone();
+        let previous_count = ProductListingImageCount::try_from(previous_images.len())
+            .map_err(|_| ChangeProductListingError::ImageCountOverflow)?;
+        let current_count = ProductListingImageCount::try_from(images.len())
+            .map_err(|_| ChangeProductListingError::ImageCountOverflow)?;
+        let initial_discovery = matches!(
+            self.pending_event_payload,
+            Some(ProductListingEventPayload::Discovered(_))
+        );
+        if !initial_discovery && self.pending_image_baseline.is_none() {
+            self.pending_image_baseline = Some(previous_images);
+        }
+        let image_previous_count = self
+            .pending_image_baseline
+            .as_ref()
+            .map(|baseline| ProductListingImageCount::try_from(baseline.len()))
+            .transpose()
+            .map_err(|_| ChangeProductListingError::ImageCountOverflow)?
+            .unwrap_or(previous_count);
         self.images = images;
-        let current_count = self.images.len();
+        let image_changed = self
+            .pending_image_baseline
+            .as_ref()
+            .is_some_and(|baseline| baseline != &self.images);
         self.coalesce_pending_change(|changed| {
-            changed.change_image_count(previous_count, current_count);
-        });
+            if image_changed {
+                changed.set_image_count_change(image_previous_count, current_count);
+            } else {
+                changed.clear_image_count();
+            }
+        })?;
         Ok(ChangeOutcome::Changed)
     }
 
@@ -384,11 +464,12 @@ impl ProductListing {
         }
         let previous = self.auction;
         self.auction = auction;
-        self.coalesce_pending_change(|changed| changed.change_auction(previous, auction));
+        self.coalesce_pending_change(|changed| changed.change_auction(previous, auction))?;
         Ok(ChangeOutcome::Changed)
     }
 
     pub fn take_pending_event_payload(&mut self) -> Option<ProductListingEventPayload> {
+        self.pending_image_baseline = None;
         self.pending_event_payload.take()
     }
 
@@ -448,17 +529,22 @@ impl ProductListing {
         }
     }
 
-    fn change_availability(&mut self, current: Option<ListingAvailability>) {
+    fn change_availability(
+        &mut self,
+        current: Option<ListingAvailability>,
+    ) -> Result<(), ProductListingImageCountConversionError> {
         let previous = self.availability;
         if previous == current {
-            return;
+            return Ok(());
         }
         self.availability = current;
-        self.coalesce_pending_change(|changed| changed.change_availability(previous, current));
+        self.coalesce_pending_change(|changed| changed.change_availability(previous, current))
     }
 
-    fn discovered_event(&self) -> ProductListingDiscovered {
-        ProductListingDiscovered::new(
+    fn discovered_event(
+        &self,
+    ) -> Result<ProductListingDiscovered, ProductListingImageCountConversionError> {
+        Ok(ProductListingDiscovered::new(
             self.listing_source_id,
             self.source_listing_id.clone(),
             self.title.clone(),
@@ -466,30 +552,34 @@ impl ProductListing {
             self.pricing,
             self.availability,
             self.url.clone(),
-            self.images.len(),
+            ProductListingImageCount::try_from(self.images.len())?,
             self.auction,
-        )
+        ))
     }
 
-    fn coalesce_pending_change(&mut self, change: impl FnOnce(&mut ProductListingChanged)) {
+    fn coalesce_pending_change(
+        &mut self,
+        change: impl FnOnce(&mut ProductListingChanged),
+    ) -> Result<(), ProductListingImageCountConversionError> {
         if matches!(
             self.pending_event_payload,
             Some(ProductListingEventPayload::Discovered(_))
         ) {
             self.pending_event_payload = Some(ProductListingEventPayload::Discovered(
-                self.discovered_event(),
+                self.discovered_event()?,
             ));
-            return;
+            return Ok(());
         }
 
         let mut changed = match self.pending_event_payload.take() {
             Some(ProductListingEventPayload::Changed(changed)) => changed,
             None => ProductListingChanged::empty(),
-            Some(ProductListingEventPayload::Discovered(_)) => return,
+            Some(ProductListingEventPayload::Discovered(_)) => return Ok(()),
         };
         change(&mut changed);
         self.pending_event_payload =
             (!changed.is_empty()).then_some(ProductListingEventPayload::Changed(changed));
+        Ok(())
     }
 }
 
@@ -582,7 +672,7 @@ mod tests {
             Some(ListingAvailability::InStock),
             discovered.availability()
         );
-        assert_eq!(1, discovered.image_count());
+        assert_eq!(1, discovered.image_count().value());
     }
 
     #[test]
@@ -735,6 +825,14 @@ mod tests {
         listing
             .replace_images(replacement)
             .unwrap_or_else(|error| panic!("replace images: {error}"));
+        let mut second_replacement = IndexSet::new();
+        second_replacement.insert(ProductListingImage::new(
+            Url::parse("https://shop.example/final.jpg")
+                .unwrap_or_else(|error| panic!("URL: {error}")),
+        ));
+        listing
+            .replace_images(second_replacement)
+            .unwrap_or_else(|error| panic!("replace images: {error}"));
 
         let Some(ProductListingEventPayload::Changed(changed)) =
             listing.take_pending_event_payload()
@@ -742,6 +840,18 @@ mod tests {
             panic!("expected changed payload");
         };
         assert_eq!(None, changed.availability());
+        assert_eq!(
+            Some(1),
+            changed
+                .image_count()
+                .map(|change| change.previous_count().value())
+        );
+        assert_eq!(
+            Some(1),
+            changed
+                .image_count()
+                .map(|change| change.current_count().value())
+        );
     }
 
     #[test]
@@ -750,7 +860,7 @@ mod tests {
         listing
             .set_availability(ListingAvailability::SoldOut)
             .unwrap_or_else(|error| panic!("set availability: {error}"));
-        assert_eq!(ChangeOutcome::Changed, listing.withdraw());
+        assert_eq!(Ok(ChangeOutcome::Changed), listing.withdraw());
 
         let Some(ProductListingEventPayload::Changed(changed)) =
             listing.take_pending_event_payload()
@@ -766,8 +876,8 @@ mod tests {
         assert_eq!(None, changed.availability());
 
         let mut listing = rehydrated();
-        assert_eq!(ChangeOutcome::Changed, listing.withdraw());
-        assert_eq!(ChangeOutcome::Changed, listing.restore());
+        assert_eq!(Ok(ChangeOutcome::Changed), listing.withdraw());
+        assert_eq!(Ok(ChangeOutcome::Changed), listing.restore());
         assert_eq!(None, listing.take_pending_event_payload());
 
         let withdrawn = input();
@@ -787,7 +897,7 @@ mod tests {
             auction: withdrawn.auction,
         })
         .unwrap_or_else(|error| panic!("rehydrate: {error}"));
-        assert_eq!(ChangeOutcome::Changed, restored.restore());
+        assert_eq!(Ok(ChangeOutcome::Changed), restored.restore());
         let Some(ProductListingEventPayload::Changed(changed)) =
             restored.take_pending_event_payload()
         else {
@@ -812,27 +922,109 @@ mod tests {
             panic!("expected observed payload");
         };
         assert_eq!(
-            Some(&ListingSaleObservationChange::Observed(observation)),
-            changed.sale_observation()
+            Some(&None),
+            changed.sale_observation().map(ValueChange::previous)
         );
 
-        assert_eq!(ChangeOutcome::Changed, listing.retract_sale_observation());
+        assert_eq!(
+            Ok(ChangeOutcome::Changed),
+            listing.retract_sale_observation()
+        );
         let Some(ProductListingEventPayload::Changed(changed)) =
             listing.take_pending_event_payload()
         else {
             panic!("expected retracted payload");
         };
         assert_eq!(
-            Some(&ListingSaleObservationChange::Retracted(observation)),
-            changed.sale_observation()
+            Some(&Some(observation)),
+            changed.sale_observation().map(ValueChange::previous)
+        );
+        assert_eq!(
+            Some(&None),
+            changed.sale_observation().map(ValueChange::current)
         );
 
         let mut listing = rehydrated();
         listing
             .record_sale_observation(observation)
             .unwrap_or_else(|error| panic!("record sale: {error}"));
-        assert_eq!(ChangeOutcome::Changed, listing.retract_sale_observation());
+        assert_eq!(
+            Ok(ChangeOutcome::Changed),
+            listing.retract_sale_observation()
+        );
         assert_eq!(None, listing.take_pending_event_payload());
+
+        let source = input();
+        let mut listing = ProductListing::rehydrate(RehydratedProductListingState {
+            id: source.id,
+            title_slug_id: source.title_slug_id,
+            listing_source_id: source.listing_source_id,
+            source_listing_id: source.source_listing_id,
+            title: source.title,
+            description: source.description,
+            pricing: source.pricing,
+            sale_observation: Some(observation),
+            availability: source.availability,
+            lifecycle: ListingLifecycle::Active,
+            url: source.url,
+            images: source.images,
+            auction: source.auction,
+        })
+        .unwrap_or_else(|error| panic!("rehydrate: {error}"));
+        listing
+            .retract_sale_observation()
+            .unwrap_or_else(|error| panic!("retract sale observation: {error}"));
+        assert_eq!(
+            Ok(ChangeOutcome::Changed),
+            listing.record_sale_observation(observation)
+        );
+        assert_eq!(None, listing.take_pending_event_payload());
+
+        listing
+            .retract_sale_observation()
+            .unwrap_or_else(|error| panic!("retract sale observation: {error}"));
+        let before_invalid_correction = listing.clone();
+        let different_observation = ListingSaleObservation::new(
+            OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1),
+            FxRateId::new(),
+        );
+        assert_eq!(
+            Err(RecordListingSaleObservationError::ConflictingPendingObservation),
+            listing.record_sale_observation(different_observation)
+        );
+        assert_eq!(before_invalid_correction, listing);
+    }
+
+    #[test]
+    fn should_reject_lifecycle_change_during_initial_discovery() {
+        let mut listing = ProductListing::create(input())
+            .unwrap_or_else(|error| panic!("create listing: {error}"));
+
+        assert_eq!(
+            Err(ChangeProductListingError::InitialDiscoveryLifecycleChange),
+            listing.withdraw()
+        );
+        assert_eq!(ListingLifecycle::Active, listing.lifecycle());
+        assert!(matches!(
+            listing.take_pending_event_payload(),
+            Some(ProductListingEventPayload::Discovered(_))
+        ));
+    }
+
+    #[test]
+    fn should_reject_sale_observation_during_initial_discovery() {
+        let mut listing = ProductListing::create(input())
+            .unwrap_or_else(|error| panic!("create listing: {error}"));
+
+        assert_eq!(
+            Err(RecordListingSaleObservationError::InitialDiscoverySaleObservation),
+            listing.record_sale_observation(observation())
+        );
+        assert_eq!(None, listing.sale_observation());
+        assert!(matches!(
+            listing.take_pending_event_payload(),
+            Some(ProductListingEventPayload::Discovered(_))
+        ));
     }
 
     #[test]
@@ -889,7 +1081,9 @@ mod tests {
     #[test]
     fn should_reject_mutation_of_withdrawn_listing_without_pending_event() {
         let mut listing = rehydrated();
-        listing.withdraw();
+        listing
+            .withdraw()
+            .unwrap_or_else(|error| panic!("withdraw: {error}"));
         listing.take_pending_event_payload();
 
         assert_eq!(

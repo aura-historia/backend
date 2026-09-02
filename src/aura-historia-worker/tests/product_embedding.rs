@@ -112,11 +112,16 @@ async fn should_not_embed_rolled_back_created_product_event() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, WORKER_SEQUIN])]
 async fn should_skip_stale_created_event_after_product_revision_advances() {
+    let pool = get_postgres_client().await;
+    let (product_listing_id, source_event_id) =
+        insert_product_with_event(&pool, "PRODUCT_LISTING_DISCOVERED", "DOMAIN")
+            .await
+            .unwrap_or_else(|error| panic!("seed ProductListing: {error}"));
+    advance_product_revision(&pool, product_listing_id)
+        .await
+        .unwrap_or_else(|error| panic!("advance ProductListing: {error}"));
     let worker = EmbeddingWorker::start().await;
     let result: Result<(), Box<dyn std::error::Error>> = async {
-        let (product_listing_id, source_event_id) =
-            insert_product_with_event(&worker.pool, "PRODUCT_LISTING_DISCOVERED", "DOMAIN").await?;
-        advance_product_revision(&worker.pool, product_listing_id).await?;
         worker
             .redeliver(
                 product_listing_id,
@@ -239,8 +244,15 @@ impl EmbeddingWorker {
         event_type: &str,
         event_group: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let payload: serde_json::Value = sqlx::query_scalar(
+            "SELECT payload FROM product_listing_events WHERE event_id = $1 AND product_listing_id = $2",
+        )
+        .bind(uuid::Uuid::from(event_id))
+        .bind(uuid::Uuid::from(product_listing_id))
+        .fetch_one(&self.pool)
+        .await?;
         let response = reqwest::Client::new().post(format!("http://127.0.0.1:{}/cdc/sequin", get_sequin_worker_webhook_bind_addr().port()))
-            .json(&serde_json::json!({"record":{"event_id":event_id.to_string(),"product_listing_id":product_listing_id.to_string(),"event_type":event_type,"event_group":event_group,"event_type_schema_version":1,"payload":{}},"action":"insert","metadata":{"table_schema":"public","table_name":"product_listing_events"}}))
+            .json(&serde_json::json!({"record":{"event_id":event_id.to_string(),"product_listing_id":product_listing_id.to_string(),"event_type":event_type,"event_group":event_group,"event_type_schema_version":1,"payload":payload},"action":"insert","metadata":{"table_schema":"public","table_name":"product_listing_events"}}))
             .send().await?;
         if response.status() != reqwest::StatusCode::ACCEPTED {
             return Err(std::io::Error::other("worker did not accept redelivery").into());
@@ -284,17 +296,25 @@ async fn insert_product_with_event(
     sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, description_text, description_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Antiker Eichenstuhl', 'de', 'Bemalter Stuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[{\"url\": \"https://example.test/image.jpg\"}]')")
         .bind(uuid::Uuid::from(product_listing_id)).bind(title_slug_id.as_ref()).bind(uuid::Uuid::from(event_id)).bind(listing_source_id).bind(product_listing_id.to_string())
         .execute(&mut *tx).await?;
-    let payload = serde_json::json!({
-        "listingSourceId": listing_source_id.to_string(),
-        "sourceListingId": product_listing_id.to_string(),
-        "title": {"language": "de", "text": "Antiker Eichenstuhl"},
-        "description": {"language": "de", "text": "Bemalter Stuhl"},
-        "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
-        "availability": "AVAILABLE",
-        "url": "https://example.test/product",
-        "imageCount": 1,
-        "auction": {"start": null, "end": null}
-    });
+    let payload = match event_type {
+        "PRODUCT_LISTING_DISCOVERED" => serde_json::json!({
+            "listingSourceId": listing_source_id.to_string(),
+            "sourceListingId": product_listing_id.to_string(),
+            "title": {"language": "de", "text": "Antiker Eichenstuhl"},
+            "description": {"language": "de", "text": "Bemalter Stuhl"},
+            "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+            "availability": "AVAILABLE",
+            "url": "https://example.test/product",
+            "imageCount": 1,
+            "auction": {"start": null, "end": null}
+        }),
+        "PRODUCT_LISTING_CHANGED" => serde_json::json!({
+            "availability": {"previous": null, "current": "AVAILABLE"}
+        }),
+        _ => serde_json::json!({
+            "sourceEventId": event_id.to_string()
+        }),
+    };
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, $5, now())")
         .bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_listing_id)).bind(event_type).bind(event_group).bind(payload).execute(&mut *tx).await?;
     tx.commit().await?;
@@ -318,8 +338,22 @@ async fn insert_product_with_event_then_rollback(
     sqlx::query("INSERT INTO product_listings (product_listing_id, product_listing_title_slug_id, current_event_id, content_source_event_id, embedding_source_event_id, listing_source_id, source_listing_id, title_text, title_language, availability, lifecycle, url, product_images) VALUES ($1, $2, $3, $3, $3, $4, $5, 'Antiker Eichenstuhl', 'de', 'AVAILABLE', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(uuid::Uuid::from(product_listing_id)).bind(title_slug_id.as_ref()).bind(uuid::Uuid::from(event_id)).bind(listing_source_id).bind(product_listing_id.to_string())
         .execute(&mut *tx).await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, '{}', now())")
-        .bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_listing_id)).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, $3, now())")
+        .bind(uuid::Uuid::from(event_id))
+        .bind(uuid::Uuid::from(product_listing_id))
+        .bind(serde_json::json!({
+            "listingSourceId": listing_source_id.to_string(),
+            "sourceListingId": product_listing_id.to_string(),
+            "title": {"language": "de", "text": "Antiker Eichenstuhl"},
+            "description": null,
+            "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+            "availability": "AVAILABLE",
+            "url": "https://example.test/product",
+            "imageCount": 0,
+            "auction": {"start": null, "end": null}
+        }))
+        .execute(&mut *tx)
+        .await?;
     tx.rollback().await?;
     Ok(product_listing_id)
 }
@@ -350,9 +384,15 @@ async fn advance_product_revision(
 ) -> Result<(), sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, '{}', now())")
-        .bind(uuid::Uuid::from(event_id)).bind(uuid::Uuid::from(product_listing_id)).execute(&mut *tx).await?;
-    sqlx::query("UPDATE product_listings SET current_event_id = $1, embedding_source_event_id = $1, embedding = NULL, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, $3, now())")
+        .bind(uuid::Uuid::from(event_id))
+        .bind(uuid::Uuid::from(product_listing_id))
+        .bind(serde_json::json!({
+            "availability": {"previous": "AVAILABLE", "current": "SOLD_OUT"}
+        }))
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE product_listings SET current_event_id = $1, availability = 'SOLD_OUT', embedding_source_event_id = $1, embedding = NULL, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .execute(&mut *tx)

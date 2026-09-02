@@ -50,10 +50,13 @@ async fn current_event_guard_lock_flow() -> Result<(), Box<dyn std::error::Error
 
     let next_event_id = EventId::new();
     sqlx::query(
-        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, '{}', now())",
+        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_CHANGED', 'DOMAIN', 1, $3, now())",
     )
     .bind(uuid::Uuid::from(next_event_id))
     .bind(uuid::Uuid::from(product_listing_id))
+    .bind(serde_json::json!({
+        "availability": {"previous": "AVAILABLE", "current": "SOLD_OUT"}
+    }))
     .execute(&pool)
     .await?;
     let (update_started_tx, update_started_rx) = oneshot::channel();
@@ -61,7 +64,7 @@ async fn current_event_guard_lock_flow() -> Result<(), Box<dyn std::error::Error
     let mut update = tokio::spawn(async move {
         let _ = update_started_tx.send(());
         sqlx::query(
-            "UPDATE product_listings SET current_event_id = $1, version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2",
+            "UPDATE product_listings SET current_event_id = $1, availability = 'SOLD_OUT', version = version + 1, projection_version = projection_version + 1 WHERE product_listing_id = $2",
         )
         .bind(uuid::Uuid::from(next_event_id))
         .bind(uuid::Uuid::from(product_listing_id))
@@ -118,10 +121,21 @@ async fn seed_product(pool: &sqlx::PgPool) -> Result<(ProductListingId, EventId)
         .execute(&mut *transaction)
     .await?;
     sqlx::query(
-        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, '{}', now())",
+        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, $3, now())",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(product_uuid)
+    .bind(serde_json::json!({
+        "listingSourceId": listing_source_id.to_string(),
+        "sourceListingId": product_uuid.to_string(),
+        "title": {"language": "en", "text": "Current event guard product"},
+        "description": {"language": "en", "text": "Current event guard description"},
+        "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+        "availability": "AVAILABLE",
+        "url": "https://example.test/product",
+        "imageCount": 0,
+        "auction": {"start": null, "end": null}
+    }))
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;

@@ -333,7 +333,12 @@ impl From<ChangeProductListingError> for UpdateProductListingError {
     fn from(error: ChangeProductListingError) -> Self {
         match error {
             ChangeProductListingError::ListingWithdrawn => Self::ListingWithdrawn,
-            ChangeProductListingError::AuctionStartAfterEnd => Self::InvalidProductListing,
+            ChangeProductListingError::AuctionStartAfterEnd
+            | ChangeProductListingError::ImageCountOverflow
+            | ChangeProductListingError::InitialDiscoveryLifecycleChange
+            | ChangeProductListingError::ConflictingPendingObservation => {
+                Self::InvalidProductListing
+            }
         }
     }
 }

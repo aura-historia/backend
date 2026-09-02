@@ -1,7 +1,7 @@
 use application::error::box_error;
 use domain_primitives::event_id::EventId;
 use product_listing_core::product_listing_event::{
-    ListingSaleObservationChange, ProductListingEventPayload, ProductListingLifecycleChange,
+    ProductListingEventPayload, ProductListingLifecycleChange,
 };
 use product_listing_service::{
     ports::{
@@ -31,6 +31,7 @@ struct ProductListingHistoryRow {
     product_listing_id: uuid::Uuid,
     event_id: uuid::Uuid,
     event_type: String,
+    event_group: String,
     event_type_schema_version: i16,
     payload: Value,
     event_time: OffsetDateTime,
@@ -93,6 +94,7 @@ impl ProductListingHistoryReader for SqlxProductListingHistoryReader<'_> {
                 event_id,
                 product_listing_id,
                 event_type,
+                event_group,
                 event_type_schema_version,
                 payload,
                 event_time
@@ -130,8 +132,9 @@ impl TryFrom<ProductListingHistoryRow> for ProductListingHistoryEntry {
     type Error = ProductListingHistoryReadError;
 
     fn try_from(row: ProductListingHistoryRow) -> Result<Self, Self::Error> {
-        let payload = product_listing_event_codec::decode(
+        let payload = match product_listing_event_codec::decode_persisted(
             &row.event_type,
+            &row.event_group,
             row.event_type_schema_version,
             &row.payload,
         )
@@ -139,7 +142,20 @@ impl TryFrom<ProductListingHistoryRow> for ProductListingHistoryEntry {
             ProductListingHistoryReadError::ProductListingHistoryReadModelInvalid {
                 source: box_error(error),
             }
-        })?;
+        })? {
+            product_listing_event_codec::ProductListingPersistedEvent::Domain(_, payload) => {
+                *payload
+            }
+            _ => {
+                return Err(
+                    ProductListingHistoryReadError::ProductListingHistoryReadModelInvalid {
+                        source: box_error(std::io::Error::other(
+                            "non-domain event in ProductListing history",
+                        )),
+                    },
+                );
+            }
+        };
 
         let kind = history_kind(payload)?;
 
@@ -165,7 +181,7 @@ fn history_kind(
                 pricing: discovered.pricing(),
                 availability: discovered.availability(),
                 url: discovered.url().clone(),
-                image_count: discovered.image_count(),
+                image_count: discovered.image_count().value(),
                 auction: discovered.auction(),
             })),
         ),
@@ -204,8 +220,8 @@ fn history_kind(
             }
             if let Some(change) = changed.image_count() {
                 changes.push(ProductListingHistoryChange::ImagesChanged {
-                    previous_count: *change.previous(),
-                    current_count: *change.current(),
+                    previous_count: change.previous_count().value(),
+                    current_count: change.current_count().value(),
                 });
             }
             if let Some(change) = changed.auction() {
@@ -227,18 +243,26 @@ fn history_kind(
                 });
             }
             if let Some(change) = changed.sale_observation() {
-                changes.push(match change {
-                    ListingSaleObservationChange::Observed(observation) => {
-                        ProductListingHistoryChange::SaleObserved {
-                            observation: *observation,
-                        }
-                    }
-                    ListingSaleObservationChange::Retracted(observation) => {
+                let history_change = match (change.previous(), change.current()) {
+                    (None, Some(observation)) => ProductListingHistoryChange::SaleObserved {
+                        observation: *observation,
+                    },
+                    (Some(observation), None) => {
                         ProductListingHistoryChange::SaleObservationRetracted {
                             observation: *observation,
                         }
                     }
-                });
+                    _ => {
+                        return Err(
+                            ProductListingHistoryReadError::ProductListingHistoryReadModelInvalid {
+                                source: box_error(std::io::Error::other(
+                                    "invalid sale observation transition in ProductListing history",
+                                )),
+                            },
+                        );
+                    }
+                };
+                changes.push(history_change);
             }
 
             ProductListingHistoryChanges::try_from(changes)

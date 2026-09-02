@@ -410,6 +410,13 @@ impl ProductListingOpenSearchWorker {
         event_type: &str,
         event_group: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let payload: serde_json::Value = sqlx::query_scalar(
+            "SELECT payload FROM product_listing_events WHERE event_id = $1 AND product_listing_id = $2",
+        )
+        .bind(uuid::Uuid::from(event_id))
+        .bind(uuid::Uuid::from(product_listing_id))
+        .fetch_one(&self.pool)
+        .await?;
         let response = reqwest::Client::new()
             .post(format!(
                 "http://127.0.0.1:{}/cdc/sequin",
@@ -422,7 +429,7 @@ impl ProductListingOpenSearchWorker {
                     "event_type": event_type,
                     "event_group": event_group,
                     "event_type_schema_version": 1,
-                    "payload": {},
+                    "payload": payload,
                 },
                 "action": "insert",
                 "metadata": {
@@ -688,7 +695,7 @@ async fn insert_product_event(
         event_id,
         "PRODUCT_LISTING_CHANGED",
         "DOMAIN",
-        json!({}),
+        json!({"availability": {"previous": null, "current": "AVAILABLE"}}),
     )
     .await
 }

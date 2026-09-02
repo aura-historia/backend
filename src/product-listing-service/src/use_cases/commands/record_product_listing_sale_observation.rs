@@ -198,8 +198,15 @@ fn partner_actor(principal: &Principal) -> Option<UserId> {
 }
 
 impl From<RecordListingSaleObservationError> for RecordProductListingSaleObservationError {
-    fn from(_: RecordListingSaleObservationError) -> Self {
-        Self::ConflictingExistingObservation
+    fn from(error: RecordListingSaleObservationError) -> Self {
+        match error {
+            RecordListingSaleObservationError::ConflictingExistingObservation => {
+                Self::ConflictingExistingObservation
+            }
+            RecordListingSaleObservationError::InitialDiscoverySaleObservation
+            | RecordListingSaleObservationError::ConflictingPendingObservation
+            | RecordListingSaleObservationError::ImageCountOverflow => Self::PersistenceFailed,
+        }
     }
 }
 
@@ -692,8 +699,11 @@ mod tests {
             product_listing_core::product_listing_event::ProductListingEventPayload::Changed(change)
                 if matches!(
                     change.sale_observation(),
-                    Some(product_listing_core::product_listing_event::ListingSaleObservationChange::Observed(observation))
-                        if observation.observed_at() == observed_at
+                    Some(change)
+                        if matches!(
+                            (change.previous(), change.current()),
+                            (None, Some(observation)) if observation.observed_at() == observed_at
+                        )
                 )
         ));
         Ok(())

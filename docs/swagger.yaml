@@ -8840,6 +8840,7 @@ components:
           format: uri
         imageCount:
           type: integer
+          format: int64
           minimum: 0
         auction:
           $ref: "#/components/schemas/AuctionData"
@@ -8935,9 +8936,11 @@ components:
             - IMAGES_CHANGED
         previousCount:
           type: integer
+          format: int64
           minimum: 0
         currentCount:
           type: integer
+          format: int64
           minimum: 0
     ProductListingAuctionHistoryChangeData:
       type: object

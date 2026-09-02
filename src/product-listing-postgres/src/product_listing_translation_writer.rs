@@ -58,6 +58,13 @@ impl ProductListingTranslationWriter for SqlxProductListingTranslationWriter<'_>
         if duplicate_translation_exists(self.connection, write).await? {
             return Ok(ProductListingTranslationWriteOutcome::Duplicate);
         }
+        if translation_rows_exist(self.connection, write).await? {
+            return Err(ProductListingTranslationWriteError::WriteFailed {
+                source: application::error::static_error(
+                    "translation rows exist without a translated-titles completion event",
+                ),
+            });
+        }
         if EventId::from(content_source_event_id) != write.source_event_id {
             return Ok(ProductListingTranslationWriteOutcome::Stale);
         }
@@ -133,41 +140,38 @@ async fn duplicate_translation_exists(
     connection: &mut PgConnection,
     write: &ProductListingTranslationWrite,
 ) -> Result<bool, ProductListingTranslationWriteError> {
-    if write.titles.is_empty() {
-        return Ok(false);
-    }
-    let expected_count = i64::try_from(write.titles.len()).map_err(|_| {
-        ProductListingTranslationWriteError::WriteFailed {
-            source: application::error::static_error(
-                "product translation count exceeds PostgreSQL range",
-            ),
-        }
-    })?;
-    let matched_count = sqlx::query_scalar::<_, i64>(
+    sqlx::query_scalar::<_, bool>(
         r#"
-        SELECT count(*)
-        FROM product_listing_translations
-        WHERE product_listing_id = $1
-          AND source_event_id = $2
-          AND (language, title) IN (
-              SELECT * FROM unnest($3::text[], $4::text[])
-          )
+        SELECT EXISTS (
+            SELECT 1
+            FROM product_listing_events
+            WHERE product_listing_id = $1
+              AND event_type = 'ENRICHMENT_TRANSLATED_TITLES'
+              AND event_group = 'ENRICHMENT'
+              AND event_type_schema_version = 1
+              AND payload ->> 'sourceEventId' = $2
+        )
         "#,
     )
     .bind(uuid::Uuid::from(write.product_listing_id))
-    .bind(uuid::Uuid::from(write.source_event_id))
-    .bind(
-        write
-            .titles
-            .keys()
-            .map(|language| language.as_str())
-            .collect::<Vec<_>>(),
-    )
-    .bind(write.titles.values().map(AsRef::as_ref).collect::<Vec<_>>())
+    .bind(write.source_event_id.to_string())
     .fetch_one(&mut *connection)
     .await
-    .map_err(ProductListingTranslationWriteSqlxError)?;
-    Ok(matched_count == expected_count)
+    .map_err(|source| ProductListingTranslationWriteSqlxError(source).into())
+}
+
+async fn translation_rows_exist(
+    connection: &mut PgConnection,
+    write: &ProductListingTranslationWrite,
+) -> Result<bool, ProductListingTranslationWriteError> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM product_listing_translations WHERE product_listing_id = $1 AND source_event_id = $2)",
+    )
+    .bind(uuid::Uuid::from(write.product_listing_id))
+    .bind(uuid::Uuid::from(write.source_event_id))
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(|source| ProductListingTranslationWriteSqlxError(source).into())
 }
 
 impl From<ProductListingTranslationWriteSqlxError> for ProductListingTranslationWriteError {

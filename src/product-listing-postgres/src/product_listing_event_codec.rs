@@ -1,29 +1,21 @@
-use indexmap::IndexSet;
+use application::error::{BoxError, box_error};
 use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use product_listing_core::{
     description::Description,
     listing_availability::ListingAvailability,
-    listing_lifecycle::ListingLifecycle,
-    product_listing::{
-        ListingSaleObservation, NewProductListing, ProductListing, ProductListingAuction,
-        ProductListingPricing, RehydratedProductListingState,
-    },
+    product_listing::{ListingSaleObservation, ProductListingAuction, ProductListingPricing},
     product_listing_event::{
-        ListingSaleObservationChange, ProductListingChanged, ProductListingDiscovered,
-        ProductListingEventPayload, ProductListingEventType, ProductListingLifecycleChange,
-        ValueChange,
+        ProductListingChanged, ProductListingDiscovered, ProductListingEventPayload,
+        ProductListingEventType, ProductListingImageCount, ProductListingLifecycleChange,
+        RehydratedProductListingChanged, RehydratedProductListingDiscovered,
     },
-    product_listing_id::ProductListingId,
-    product_listing_image::ProductListingImage,
-    product_listing_slug_id::ProductListingSlugId,
     source_listing_id::SourceListingId,
     title::Title,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use strum::IntoEnumIterator;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use url::Url;
 
@@ -31,48 +23,252 @@ pub(crate) const PRODUCT_LISTING_EVENT_SCHEMA_VERSION: i16 = 1;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ProductListingEventCodecError {
-    #[error("product listing event payload is invalid")]
-    Invalid,
+    #[error("unsupported ProductListing event type: {event_type}")]
+    UnsupportedEventType { event_type: String },
+    #[error("unsupported ProductListing event schema version {schema_version} for {event_type}")]
+    UnsupportedSchemaVersion {
+        event_type: String,
+        schema_version: i16,
+    },
+    #[error("incompatible ProductListing event group {event_group} for {event_type}")]
+    IncompatibleEventGroup {
+        event_type: String,
+        event_group: String,
+    },
+    #[error("ProductListing event payload is malformed")]
+    MalformedPayload {
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("ProductListing event field {field} is invalid")]
+    InvalidField {
+        field: &'static str,
+        #[source]
+        source: BoxError,
+    },
+    #[error("ProductListing event field {field} is not canonical")]
+    NonCanonicalField { field: &'static str },
+    #[error("ProductListing event value violates its domain contract")]
+    InvalidDomainEvent {
+        #[source]
+        source: product_listing_core::product_listing_event::RehydrateProductListingEventError,
+    },
 }
 
 pub(crate) fn encode(
     payload: &ProductListingEventPayload,
 ) -> Result<Value, ProductListingEventCodecError> {
-    let value = match payload {
+    match payload {
         ProductListingEventPayload::Discovered(discovered) => {
-            serde_json::to_value(DiscoveredDto::try_from(discovered)?)
+            serde_json::to_value(DiscoveredDto::try_from(discovered)?).map_err(|source| {
+                ProductListingEventCodecError::InvalidField {
+                    field: "payload",
+                    source: box_error(source),
+                }
+            })
         }
         ProductListingEventPayload::Changed(changed) => {
-            serde_json::to_value(ChangedDto::try_from(changed)?)
+            let dto = ChangedDto::try_from(changed)?;
+            serde_json::to_value(dto).map_err(|source| {
+                ProductListingEventCodecError::InvalidField {
+                    field: "payload",
+                    source: box_error(source),
+                }
+            })
         }
-    };
-
-    value.map_err(|_| ProductListingEventCodecError::Invalid)
+    }
 }
 
+#[cfg(test)]
 pub(crate) fn decode(
     event_type: &str,
     schema_version: i16,
     payload: &Value,
 ) -> Result<ProductListingEventPayload, ProductListingEventCodecError> {
+    decode_domain_payload_with_group(event_type, "DOMAIN", schema_version, payload)
+}
+
+fn decode_domain_payload_with_group(
+    event_type: &str,
+    event_group: &str,
+    schema_version: i16,
+    payload: &Value,
+) -> Result<ProductListingEventPayload, ProductListingEventCodecError> {
+    let event_kind = parse_event_type(event_type)?;
+    if event_group != "DOMAIN" {
+        return Err(ProductListingEventCodecError::IncompatibleEventGroup {
+            event_type: event_type.to_owned(),
+            event_group: event_group.to_owned(),
+        });
+    }
     if schema_version != PRODUCT_LISTING_EVENT_SCHEMA_VERSION {
-        return Err(ProductListingEventCodecError::Invalid);
+        return Err(ProductListingEventCodecError::UnsupportedSchemaVersion {
+            event_type: event_type.to_owned(),
+            schema_version,
+        });
     }
 
-    let event_type = ProductListingEventType::iter()
-        .find(|candidate| candidate.as_str() == event_type)
-        .ok_or(ProductListingEventCodecError::Invalid)?;
-
-    match event_type {
+    match event_kind {
         ProductListingEventType::Discovered => {
             serde_json::from_value::<DiscoveredDto>(payload.clone())
-                .map_err(|_| ProductListingEventCodecError::Invalid)
+                .map_err(|source| ProductListingEventCodecError::MalformedPayload { source })
                 .and_then(TryInto::try_into)
         }
-        ProductListingEventType::Changed => serde_json::from_value::<ChangedDto>(payload.clone())
-            .map_err(|_| ProductListingEventCodecError::Invalid)
-            .and_then(|changed| changed.try_into_payload(payload)),
+        ProductListingEventType::Changed => {
+            validate_changed_shape(payload)?;
+            serde_json::from_value::<ChangedDto>(payload.clone())
+                .map_err(|source| ProductListingEventCodecError::MalformedPayload { source })
+                .and_then(ChangedDto::try_into_payload)
+        }
     }
+}
+
+fn parse_event_type(
+    event_type: &str,
+) -> Result<ProductListingEventType, ProductListingEventCodecError> {
+    match event_type {
+        "PRODUCT_LISTING_DISCOVERED" => Ok(ProductListingEventType::Discovered),
+        "PRODUCT_LISTING_CHANGED" => Ok(ProductListingEventType::Changed),
+        _ => Err(ProductListingEventCodecError::UnsupportedEventType {
+            event_type: event_type.to_owned(),
+        }),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ProductListingPersistedEvent {
+    Domain(ProductListingEventType, Box<ProductListingEventPayload>),
+    Embedded,
+    TranslatedTitles,
+}
+
+pub(crate) fn decode_persisted(
+    event_type: &str,
+    event_group: &str,
+    schema_version: i16,
+    payload: &Value,
+) -> Result<ProductListingPersistedEvent, ProductListingEventCodecError> {
+    match event_group {
+        "DOMAIN" => {
+            let event_kind = match event_type {
+                "PRODUCT_LISTING_DISCOVERED" => ProductListingEventType::Discovered,
+                "PRODUCT_LISTING_CHANGED" => ProductListingEventType::Changed,
+                "ENRICHMENT_EMBEDDED" | "ENRICHMENT_TRANSLATED_TITLES" => {
+                    return Err(ProductListingEventCodecError::IncompatibleEventGroup {
+                        event_type: event_type.to_owned(),
+                        event_group: event_group.to_owned(),
+                    });
+                }
+                _ => {
+                    return Err(ProductListingEventCodecError::UnsupportedEventType {
+                        event_type: event_type.to_owned(),
+                    });
+                }
+            };
+            let payload =
+                decode_domain_payload_with_group(event_type, event_group, schema_version, payload)?;
+            Ok(ProductListingPersistedEvent::Domain(
+                event_kind,
+                Box::new(payload),
+            ))
+        }
+        "ENRICHMENT" => {
+            if schema_version != PRODUCT_LISTING_EVENT_SCHEMA_VERSION {
+                return Err(ProductListingEventCodecError::UnsupportedSchemaVersion {
+                    event_type: event_type.to_owned(),
+                    schema_version,
+                });
+            }
+            match event_type {
+                "ENRICHMENT_EMBEDDED" => {
+                    decode_embedded_enrichment(payload)?;
+                    Ok(ProductListingPersistedEvent::Embedded)
+                }
+                "ENRICHMENT_TRANSLATED_TITLES" => {
+                    decode_translated_enrichment(payload)?;
+                    Ok(ProductListingPersistedEvent::TranslatedTitles)
+                }
+                "PRODUCT_LISTING_DISCOVERED" | "PRODUCT_LISTING_CHANGED" => {
+                    Err(ProductListingEventCodecError::IncompatibleEventGroup {
+                        event_type: event_type.to_owned(),
+                        event_group: event_group.to_owned(),
+                    })
+                }
+                _ => Err(ProductListingEventCodecError::UnsupportedEventType {
+                    event_type: event_type.to_owned(),
+                }),
+            }
+        }
+        _ => {
+            if matches!(
+                event_type,
+                "PRODUCT_LISTING_DISCOVERED"
+                    | "PRODUCT_LISTING_CHANGED"
+                    | "ENRICHMENT_EMBEDDED"
+                    | "ENRICHMENT_TRANSLATED_TITLES"
+            ) {
+                Err(ProductListingEventCodecError::IncompatibleEventGroup {
+                    event_type: event_type.to_owned(),
+                    event_group: event_group.to_owned(),
+                })
+            } else {
+                Err(ProductListingEventCodecError::UnsupportedEventType {
+                    event_type: event_type.to_owned(),
+                })
+            }
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct EmbeddedEnrichmentDto {
+    source_event_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TranslatedEnrichmentDto {
+    source_event_id: String,
+    source_language: String,
+    target_languages: Vec<String>,
+}
+
+fn decode_embedded_enrichment(payload: &Value) -> Result<(), ProductListingEventCodecError> {
+    let value = serde_json::from_value::<EmbeddedEnrichmentDto>(payload.clone())
+        .map_err(|source| ProductListingEventCodecError::MalformedPayload { source })?;
+    parse_uuid(&value.source_event_id, "sourceEventId")?;
+    Ok(())
+}
+
+fn decode_translated_enrichment(payload: &Value) -> Result<(), ProductListingEventCodecError> {
+    let value = serde_json::from_value::<TranslatedEnrichmentDto>(payload.clone())
+        .map_err(|source| ProductListingEventCodecError::MalformedPayload { source })?;
+    parse_uuid(&value.source_event_id, "sourceEventId")?;
+    parse_language(&value.source_language, "sourceLanguage")?;
+    if value.target_languages.is_empty() {
+        return Err(invalid_field(
+            "targetLanguages",
+            "target languages must not be empty",
+        ));
+    }
+    for language in value.target_languages {
+        parse_language(&language, "targetLanguages")?;
+    }
+    Ok(())
+}
+
+fn parse_uuid(
+    value: &str,
+    field: &'static str,
+) -> Result<uuid::Uuid, ProductListingEventCodecError> {
+    let uuid = value
+        .parse::<uuid::Uuid>()
+        .map_err(|source| invalid_field_source(field, source))?;
+    if uuid.to_string() != value {
+        return Err(ProductListingEventCodecError::NonCanonicalField { field });
+    }
+    Ok(uuid)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -85,7 +281,7 @@ struct DiscoveredDto {
     pricing: PricingDto,
     availability: Option<String>,
     url: String,
-    image_count: usize,
+    image_count: u64,
     auction: AuctionDto,
 }
 
@@ -103,7 +299,7 @@ impl TryFrom<&ProductListingDiscovered> for DiscoveredDto {
                 .availability()
                 .map(|availability| availability.as_str().to_owned()),
             url: value.url().as_str().to_owned(),
-            image_count: value.image_count(),
+            image_count: value.image_count().value(),
             auction: value.auction().try_into()?,
         })
     }
@@ -113,28 +309,31 @@ impl TryFrom<DiscoveredDto> for ProductListingEventPayload {
     type Error = ProductListingEventCodecError;
 
     fn try_from(value: DiscoveredDto) -> Result<Self, Self::Error> {
-        let mut listing = ProductListing::create(NewProductListing {
-            id: ProductListingId::new(),
-            title_slug_id: codec_slug()?,
-            listing_source_id: parse_id(&value.listing_source_id)?,
-            source_listing_id: SourceListingId::try_from(value.source_listing_id)
-                .map_err(|_| ProductListingEventCodecError::Invalid)?,
-            title: value.title.map(TryInto::try_into).transpose()?,
-            description: value.description.map(TryInto::try_into).transpose()?,
-            pricing: value.pricing.try_into()?,
-            availability: parse_availability(value.availability)?,
-            url: parse_url(&value.url)?,
-            images: images(value.image_count, "discovered")?,
-            auction: value.auction.try_into()?,
-        })
-        .map_err(|_| ProductListingEventCodecError::Invalid)?;
+        let listing_source_id = parse_listing_source_id(&value.listing_source_id)?;
+        let source_listing_id = parse_source_listing_id(&value.source_listing_id)?;
+        let title = value.title.map(LocalizedTextDto::into_title).transpose()?;
+        let description = value
+            .description
+            .map(LocalizedTextDto::into_description)
+            .transpose()?;
+        let pricing = value.pricing.try_into()?;
+        let availability = parse_availability(value.availability, "availability")?;
+        let url = parse_url(&value.url, "url")?;
+        let image_count = ProductListingImageCount::new(value.image_count);
+        let auction = value.auction.try_into()?;
 
-        match listing.take_pending_event_payload() {
-            Some(ProductListingEventPayload::Discovered(discovered)) => {
-                Ok(ProductListingEventPayload::Discovered(discovered))
-            }
-            _ => Err(ProductListingEventCodecError::Invalid),
-        }
+        ProductListingEventPayload::rehydrate_discovered(RehydratedProductListingDiscovered {
+            listing_source_id,
+            source_listing_id,
+            title,
+            description,
+            pricing,
+            availability,
+            url,
+            image_count,
+            auction,
+        })
+        .map_err(|source| ProductListingEventCodecError::InvalidDomainEvent { source })
     }
 }
 
@@ -172,7 +371,7 @@ impl TryFrom<&ProductListingChanged> for ChangedDto {
                 .map(price_change_dto)
                 .transpose()?,
         };
-        Ok(Self {
+        let changed = Self {
             pricing: (!pricing.is_empty()).then_some(pricing),
             availability: value.availability().map(availability_change_dto),
             url: value.url().map(url_change_dto),
@@ -181,148 +380,70 @@ impl TryFrom<&ProductListingChanged> for ChangedDto {
             lifecycle: value.lifecycle().map(LifecycleChangeDto::from),
             sale_observation: value
                 .sale_observation()
-                .map(SaleObservationChangeDto::try_from)
+                .map(sale_observation_change_dto)
                 .transpose()?,
-        })
+        };
+        if changed.is_empty() {
+            return Err(ProductListingEventCodecError::InvalidDomainEvent {
+                source: product_listing_core::product_listing_event::RehydrateProductListingEventError::EmptyChanged,
+            });
+        }
+        Ok(changed)
     }
 }
 
 impl ChangedDto {
-    fn try_into_payload(
-        self,
-        raw_payload: &Value,
-    ) -> Result<ProductListingEventPayload, ProductListingEventCodecError> {
-        if self.is_empty() {
-            return Err(ProductListingEventCodecError::Invalid);
-        }
-        self.validate_conditional_fields(raw_payload)?;
-
+    fn try_into_payload(self) -> Result<ProductListingEventPayload, ProductListingEventCodecError> {
         let pricing = self
             .pricing
-            .as_ref()
-            .map(PricingChangesDto::previous)
+            .map(PricingChangesDto::into_changes)
             .transpose()?;
         let availability = self
             .availability
-            .as_ref()
-            .map(|change| parse_availability(change.previous.clone()))
-            .transpose()?
-            .flatten();
+            .map(|change| {
+                Ok((
+                    parse_availability(change.previous, "availability.previous")?,
+                    parse_availability(change.current, "availability.current")?,
+                ))
+            })
+            .transpose()?;
         let url = self
             .url
-            .as_ref()
-            .map(|change| parse_url(&change.previous))
-            .transpose()?
-            .unwrap_or(codec_url()?);
-        let image_count = self
-            .images
-            .as_ref()
-            .map_or(Ok(0), |change| Ok(change.previous_count))?;
+            .map(|change| {
+                Ok((
+                    parse_url(&change.previous, "url.previous")?,
+                    parse_url(&change.current, "url.current")?,
+                ))
+            })
+            .transpose()?;
+        let images = self.images.map(|change| {
+            (
+                ProductListingImageCount::new(change.previous_count),
+                ProductListingImageCount::new(change.current_count),
+            )
+        });
         let auction = self
             .auction
-            .as_ref()
-            .map(|change| change.previous.clone().try_into())
-            .transpose()?
-            .unwrap_or_default();
-        let lifecycle = self
-            .lifecycle
-            .as_ref()
-            .map(ProductListingLifecycleChange::try_from)
+            .map(|change| Ok((change.previous.try_into()?, change.current.try_into()?)))
             .transpose()?;
+        let lifecycle = self.lifecycle.map(TryInto::try_into).transpose()?;
         let sale_observation = self
             .sale_observation
-            .as_ref()
-            .and_then(SaleObservationChangeDto::retracted_observation);
+            .map(SaleObservationChangeDto::into_transition)
+            .transpose()?;
 
-        let mut listing = ProductListing::rehydrate(RehydratedProductListingState {
-            id: ProductListingId::new(),
-            title_slug_id: codec_slug()?,
-            listing_source_id: ListingSourceId::new(),
-            source_listing_id: SourceListingId::try_from("codec-source")
-                .map_err(|_| ProductListingEventCodecError::Invalid)?,
-            title: None,
-            description: None,
-            pricing: pricing.unwrap_or_default(),
-            sale_observation,
-            availability: if matches!(
-                lifecycle.as_ref(),
-                Some(ProductListingLifecycleChange::Restored)
-            ) {
-                None
-            } else {
-                availability
-            },
-            lifecycle: if matches!(
-                lifecycle.as_ref(),
-                Some(ProductListingLifecycleChange::Restored)
-            ) {
-                ListingLifecycle::Withdrawn
-            } else {
-                ListingLifecycle::Active
-            },
+        ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+            price: pricing.as_ref().and_then(|value| value.price),
+            price_estimate_min: pricing.as_ref().and_then(|value| value.price_estimate_min),
+            price_estimate_max: pricing.as_ref().and_then(|value| value.price_estimate_max),
+            availability,
             url,
-            images: images(image_count, "previous")?,
+            images,
             auction,
+            lifecycle,
+            sale_observation,
         })
-        .map_err(|_| ProductListingEventCodecError::Invalid)?;
-
-        if matches!(
-            lifecycle.as_ref(),
-            Some(ProductListingLifecycleChange::Restored)
-        ) {
-            listing.restore();
-        }
-        if let Some(pricing) = self.pricing.as_ref() {
-            listing
-                .replace_pricing(pricing.current()?)
-                .map_err(|_| ProductListingEventCodecError::Invalid)?;
-        }
-        let withdrawal_previous_availability = match lifecycle.as_ref() {
-            Some(ProductListingLifecycleChange::Withdrawn {
-                previous_availability,
-            }) => Some(*previous_availability),
-            _ => None,
-        };
-        if let Some(previous_availability) = withdrawal_previous_availability {
-            apply_availability_value(&mut listing, previous_availability)?;
-        } else if let Some(availability) = self.availability.as_ref() {
-            apply_availability(&mut listing, availability.current.clone())?;
-        }
-        if let Some(url) = self.url.as_ref() {
-            listing
-                .change_url(parse_url(&url.current)?)
-                .map_err(|_| ProductListingEventCodecError::Invalid)?;
-        }
-        if let Some(images_change) = self.images.as_ref() {
-            listing
-                .replace_images(images(images_change.current_count, "current")?)
-                .map_err(|_| ProductListingEventCodecError::Invalid)?;
-        }
-        if let Some(auction) = self.auction.as_ref() {
-            listing
-                .replace_auction(auction.current.clone().try_into()?)
-                .map_err(|_| ProductListingEventCodecError::Invalid)?;
-        }
-        if let Some(sale_observation) = self.sale_observation.as_ref() {
-            sale_observation.apply(&mut listing)?;
-        }
-        if matches!(
-            lifecycle.as_ref(),
-            Some(ProductListingLifecycleChange::Withdrawn { .. })
-        ) {
-            listing.withdraw();
-        }
-
-        let payload = match listing.take_pending_event_payload() {
-            Some(ProductListingEventPayload::Changed(changed)) => {
-                ProductListingEventPayload::Changed(changed)
-            }
-            _ => return Err(ProductListingEventCodecError::Invalid),
-        };
-        if encode(&payload)? != *raw_payload {
-            return Err(ProductListingEventCodecError::Invalid);
-        }
-        Ok(payload)
+        .map_err(|source| ProductListingEventCodecError::InvalidDomainEvent { source })
     }
 
     fn is_empty(&self) -> bool {
@@ -333,27 +454,6 @@ impl ChangedDto {
             && self.auction.is_none()
             && self.lifecycle.is_none()
             && self.sale_observation.is_none()
-    }
-
-    fn validate_conditional_fields(
-        &self,
-        raw_payload: &Value,
-    ) -> Result<(), ProductListingEventCodecError> {
-        let object = raw_payload
-            .as_object()
-            .ok_or(ProductListingEventCodecError::Invalid)?;
-        if let Some(lifecycle) = self.lifecycle.as_ref() {
-            let lifecycle_object = object
-                .get("lifecycle")
-                .and_then(Value::as_object)
-                .ok_or(ProductListingEventCodecError::Invalid)?;
-            match lifecycle.transition.as_str() {
-                "WITHDRAWN" if lifecycle_object.contains_key("previousAvailability") => {}
-                "RESTORED" if !lifecycle_object.contains_key("previousAvailability") => {}
-                _ => return Err(ProductListingEventCodecError::Invalid),
-            }
-        }
-        Ok(())
     }
 }
 
@@ -375,51 +475,28 @@ impl PricingChangesDto {
             && self.price_estimate_max.is_none()
     }
 
-    fn previous(&self) -> Result<ProductListingPricing, ProductListingEventCodecError> {
-        Ok(ProductListingPricing {
+    fn into_changes(self) -> Result<PricingChanges, ProductListingEventCodecError> {
+        Ok(PricingChanges {
             price: self
                 .price
-                .as_ref()
-                .map(|change| parse_price(change.previous.clone()))
-                .transpose()?
-                .flatten(),
+                .map(|change| parse_price_change(change, "pricing.price"))
+                .transpose()?,
             price_estimate_min: self
                 .price_estimate_min
-                .as_ref()
-                .map(|change| parse_price(change.previous.clone()))
-                .transpose()?
-                .flatten(),
+                .map(|change| parse_price_change(change, "pricing.priceEstimateMin"))
+                .transpose()?,
             price_estimate_max: self
                 .price_estimate_max
-                .as_ref()
-                .map(|change| parse_price(change.previous.clone()))
-                .transpose()?
-                .flatten(),
+                .map(|change| parse_price_change(change, "pricing.priceEstimateMax"))
+                .transpose()?,
         })
     }
+}
 
-    fn current(&self) -> Result<ProductListingPricing, ProductListingEventCodecError> {
-        Ok(ProductListingPricing {
-            price: self
-                .price
-                .as_ref()
-                .map(|change| parse_price(change.current.clone()))
-                .transpose()?
-                .flatten(),
-            price_estimate_min: self
-                .price_estimate_min
-                .as_ref()
-                .map(|change| parse_price(change.current.clone()))
-                .transpose()?
-                .flatten(),
-            price_estimate_max: self
-                .price_estimate_max
-                .as_ref()
-                .map(|change| parse_price(change.current.clone()))
-                .transpose()?
-                .flatten(),
-        })
-    }
+struct PricingChanges {
+    price: Option<(Option<Price>, Option<Price>)>,
+    price_estimate_min: Option<(Option<Price>, Option<Price>)>,
+    price_estimate_max: Option<(Option<Price>, Option<Price>)>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -432,15 +509,19 @@ struct ValueChangeDto<T> {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ImageCountChangeDto {
-    previous_count: usize,
-    current_count: usize,
+    previous_count: u64,
+    current_count: u64,
 }
 
-impl From<&ValueChange<usize>> for ImageCountChangeDto {
-    fn from(value: &ValueChange<usize>) -> Self {
+impl From<&product_listing_core::product_listing_event::ProductListingImagesChanged>
+    for ImageCountChangeDto
+{
+    fn from(
+        value: &product_listing_core::product_listing_event::ProductListingImagesChanged,
+    ) -> Self {
         Self {
-            previous_count: *value.previous(),
-            current_count: *value.current(),
+            previous_count: value.previous_count().value(),
+            current_count: value.current_count().value(),
         }
     }
 }
@@ -449,8 +530,7 @@ impl From<&ValueChange<usize>> for ImageCountChangeDto {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LifecycleChangeDto {
     transition: String,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     previous_availability: Option<Option<String>>,
 }
 
@@ -473,18 +553,22 @@ impl From<&ProductListingLifecycleChange> for LifecycleChangeDto {
     }
 }
 
-impl TryFrom<&LifecycleChangeDto> for ProductListingLifecycleChange {
+impl TryFrom<LifecycleChangeDto> for ProductListingLifecycleChange {
     type Error = ProductListingEventCodecError;
 
-    fn try_from(value: &LifecycleChangeDto) -> Result<Self, Self::Error> {
+    fn try_from(value: LifecycleChangeDto) -> Result<Self, Self::Error> {
         match value.transition.as_str() {
             "WITHDRAWN" => Ok(Self::Withdrawn {
                 previous_availability: parse_availability(
-                    value.previous_availability.clone().flatten(),
+                    value.previous_availability.flatten(),
+                    "lifecycle.previousAvailability",
                 )?,
             }),
             "RESTORED" => Ok(Self::Restored),
-            _ => Err(ProductListingEventCodecError::Invalid),
+            _ => Err(invalid_field(
+                "lifecycle.transition",
+                "unknown lifecycle transition",
+            )),
         }
     }
 }
@@ -496,45 +580,44 @@ struct SaleObservationChangeDto {
     observation: SaleObservationDto,
 }
 
-impl TryFrom<&ListingSaleObservationChange> for SaleObservationChangeDto {
-    type Error = ProductListingEventCodecError;
-
-    fn try_from(value: &ListingSaleObservationChange) -> Result<Self, Self::Error> {
-        match value {
-            ListingSaleObservationChange::Observed(observation) => Ok(Self {
-                transition: "OBSERVED".to_owned(),
-                observation: (*observation).try_into()?,
-            }),
-            ListingSaleObservationChange::Retracted(observation) => Ok(Self {
-                transition: "RETRACTED".to_owned(),
-                observation: (*observation).try_into()?,
-            }),
-        }
+fn sale_observation_change_dto(
+    value: &product_listing_core::product_listing_event::ValueChange<
+        Option<ListingSaleObservation>,
+    >,
+) -> Result<SaleObservationChangeDto, ProductListingEventCodecError> {
+    match (value.previous(), value.current()) {
+        (None, Some(observation)) => Ok(SaleObservationChangeDto {
+            transition: "OBSERVED".to_owned(),
+            observation: (*observation).try_into()?,
+        }),
+        (Some(observation), None) => Ok(SaleObservationChangeDto {
+            transition: "RETRACTED".to_owned(),
+            observation: (*observation).try_into()?,
+        }),
+        _ => Err(ProductListingEventCodecError::InvalidDomainEvent {
+            source: product_listing_core::product_listing_event::RehydrateProductListingEventError::SaleObservationCorrectionUnsupported,
+        }),
     }
 }
 
 impl SaleObservationChangeDto {
-    fn retracted_observation(&self) -> Option<ListingSaleObservation> {
-        (self.transition == "RETRACTED")
-            .then(|| self.observation.clone().try_into().ok())
-            .flatten()
-    }
-
-    fn apply(&self, listing: &mut ProductListing) -> Result<(), ProductListingEventCodecError> {
-        let observation: ListingSaleObservation = self.observation.clone().try_into()?;
+    fn into_transition(
+        self,
+    ) -> Result<
+        (
+            Option<ListingSaleObservation>,
+            Option<ListingSaleObservation>,
+        ),
+        ProductListingEventCodecError,
+    > {
+        let observation = self.observation.try_into()?;
         match self.transition.as_str() {
-            "OBSERVED" => listing
-                .record_sale_observation(observation)
-                .map(|_| ())
-                .map_err(|_| ProductListingEventCodecError::Invalid),
-            "RETRACTED" => {
-                if listing.retract_sale_observation().changed() {
-                    Ok(())
-                } else {
-                    Err(ProductListingEventCodecError::Invalid)
-                }
-            }
-            _ => Err(ProductListingEventCodecError::Invalid),
+            "OBSERVED" => Ok((None, Some(observation))),
+            "RETRACTED" => Ok((Some(observation), None)),
+            _ => Err(invalid_field(
+                "saleObservation.transition",
+                "unknown sale observation transition",
+            )),
         }
     }
 }
@@ -564,25 +647,29 @@ impl From<&Localized<Language, Description>> for LocalizedTextDto {
     }
 }
 
-impl TryFrom<LocalizedTextDto> for Localized<Language, Title> {
-    type Error = ProductListingEventCodecError;
-
-    fn try_from(value: LocalizedTextDto) -> Result<Self, Self::Error> {
-        Ok(Localized::new(
-            parse_language(&value.language)?,
-            Title::from(value.text),
-        ))
+impl LocalizedTextDto {
+    fn into_title(self) -> Result<Localized<Language, Title>, ProductListingEventCodecError> {
+        let language = parse_language(&self.language, "title.language")?;
+        let title = Title::from(self.text.clone());
+        if title.as_ref() != self.text {
+            return Err(ProductListingEventCodecError::NonCanonicalField {
+                field: "title.text",
+            });
+        }
+        Ok(Localized::new(language, title))
     }
-}
 
-impl TryFrom<LocalizedTextDto> for Localized<Language, Description> {
-    type Error = ProductListingEventCodecError;
-
-    fn try_from(value: LocalizedTextDto) -> Result<Self, Self::Error> {
-        Ok(Localized::new(
-            parse_language(&value.language)?,
-            Description::from(value.text),
-        ))
+    fn into_description(
+        self,
+    ) -> Result<Localized<Language, Description>, ProductListingEventCodecError> {
+        let language = parse_language(&self.language, "description.language")?;
+        let description = Description::from(self.text.clone());
+        if description.as_ref() != self.text {
+            return Err(ProductListingEventCodecError::NonCanonicalField {
+                field: "description.text",
+            });
+        }
+        Ok(Localized::new(language, description))
     }
 }
 
@@ -609,9 +696,9 @@ impl TryFrom<PricingDto> for ProductListingPricing {
 
     fn try_from(value: PricingDto) -> Result<Self, Self::Error> {
         Ok(Self {
-            price: parse_price(value.price)?,
-            price_estimate_min: parse_price(value.price_estimate_min)?,
-            price_estimate_max: parse_price(value.price_estimate_max)?,
+            price: parse_price(value.price, "pricing.price")?,
+            price_estimate_min: parse_price(value.price_estimate_min, "pricing.priceEstimateMin")?,
+            price_estimate_max: parse_price(value.price_estimate_max, "pricing.priceEstimateMax")?,
         })
     }
 }
@@ -644,8 +731,14 @@ impl TryFrom<ProductListingAuction> for AuctionDto {
 
     fn try_from(value: ProductListingAuction) -> Result<Self, Self::Error> {
         Ok(Self {
-            start: value.start.map(format_timestamp).transpose()?,
-            end: value.end.map(format_timestamp).transpose()?,
+            start: value
+                .start
+                .map(|value| format_timestamp(value, "auction.start"))
+                .transpose()?,
+            end: value
+                .end
+                .map(|value| format_timestamp(value, "auction.end"))
+                .transpose()?,
         })
     }
 }
@@ -654,18 +747,18 @@ impl TryFrom<AuctionDto> for ProductListingAuction {
     type Error = ProductListingEventCodecError;
 
     fn try_from(value: AuctionDto) -> Result<Self, Self::Error> {
-        let auction = Self {
-            start: value.start.as_deref().map(parse_timestamp).transpose()?,
-            end: value.end.as_deref().map(parse_timestamp).transpose()?,
-        };
-        if auction
-            .start
-            .zip(auction.end)
-            .is_some_and(|(start, end)| start > end)
-        {
-            return Err(ProductListingEventCodecError::Invalid);
-        }
-        Ok(auction)
+        Ok(Self {
+            start: value
+                .start
+                .as_deref()
+                .map(|value| parse_timestamp(value, "auction.start"))
+                .transpose()?,
+            end: value
+                .end
+                .as_deref()
+                .map(|value| parse_timestamp(value, "auction.end"))
+                .transpose()?,
+        })
     }
 }
 
@@ -681,7 +774,7 @@ impl TryFrom<ListingSaleObservation> for SaleObservationDto {
 
     fn try_from(value: ListingSaleObservation) -> Result<Self, Self::Error> {
         Ok(Self {
-            observed_at: format_timestamp(value.observed_at())?,
+            observed_at: format_timestamp(value.observed_at(), "saleObservation.observedAt")?,
             fx_rate_id: value.fx_rate_id().to_string(),
         })
     }
@@ -691,17 +784,25 @@ impl TryFrom<SaleObservationDto> for ListingSaleObservation {
     type Error = ProductListingEventCodecError;
 
     fn try_from(value: SaleObservationDto) -> Result<Self, Self::Error> {
-        let fx_rate_id = value
+        let fx_rate_uuid = value
             .fx_rate_id
             .parse::<uuid::Uuid>()
-            .map(fxrate_core::FxRateId::from)
-            .map_err(|_| ProductListingEventCodecError::Invalid)?;
-        Ok(Self::new(parse_timestamp(&value.observed_at)?, fx_rate_id))
+            .map_err(|source| invalid_field_source("saleObservation.fxRateId", source))?;
+        let fx_rate_id = fxrate_core::FxRateId::from(fx_rate_uuid);
+        if fx_rate_id.to_string() != value.fx_rate_id {
+            return Err(ProductListingEventCodecError::NonCanonicalField {
+                field: "saleObservation.fxRateId",
+            });
+        }
+        Ok(Self::new(
+            parse_timestamp(&value.observed_at, "saleObservation.observedAt")?,
+            fx_rate_id,
+        ))
     }
 }
 
 fn price_change_dto(
-    value: &ValueChange<Option<Price>>,
+    value: &product_listing_core::product_listing_event::ValueChange<Option<Price>>,
 ) -> Result<ValueChangeDto<Option<PriceDto>>, ProductListingEventCodecError> {
     Ok(ValueChangeDto {
         previous: value.previous().map(PriceDto::from),
@@ -710,7 +811,7 @@ fn price_change_dto(
 }
 
 fn availability_change_dto(
-    value: &ValueChange<Option<ListingAvailability>>,
+    value: &product_listing_core::product_listing_event::ValueChange<Option<ListingAvailability>>,
 ) -> ValueChangeDto<Option<String>> {
     ValueChangeDto {
         previous: value
@@ -722,7 +823,9 @@ fn availability_change_dto(
     }
 }
 
-fn url_change_dto(value: &ValueChange<Url>) -> ValueChangeDto<String> {
+fn url_change_dto(
+    value: &product_listing_core::product_listing_event::ValueChange<Url>,
+) -> ValueChangeDto<String> {
     ValueChangeDto {
         previous: value.previous().as_str().to_owned(),
         current: value.current().as_str().to_owned(),
@@ -730,7 +833,7 @@ fn url_change_dto(value: &ValueChange<Url>) -> ValueChangeDto<String> {
 }
 
 fn auction_change_dto(
-    value: &ValueChange<ProductListingAuction>,
+    value: &product_listing_core::product_listing_event::ValueChange<ProductListingAuction>,
 ) -> Result<ValueChangeDto<AuctionDto>, ProductListingEventCodecError> {
     Ok(ValueChangeDto {
         previous: (*value.previous()).try_into()?,
@@ -738,98 +841,223 @@ fn auction_change_dto(
     })
 }
 
-fn parse_id(value: &str) -> Result<ListingSourceId, ProductListingEventCodecError> {
-    value
-        .parse::<uuid::Uuid>()
-        .map(ListingSourceId::from)
-        .map_err(|_| ProductListingEventCodecError::Invalid)
+fn parse_listing_source_id(value: &str) -> Result<ListingSourceId, ProductListingEventCodecError> {
+    let id = ListingSourceId::try_from(value)
+        .map_err(|source| invalid_field_source("listingSourceId", source))?;
+    if id.to_string() != value {
+        return Err(ProductListingEventCodecError::NonCanonicalField {
+            field: "listingSourceId",
+        });
+    }
+    Ok(id)
 }
 
-fn parse_language(value: &str) -> Result<Language, ProductListingEventCodecError> {
-    Language::from_code(value).ok_or(ProductListingEventCodecError::Invalid)
+fn parse_source_listing_id(value: &str) -> Result<SourceListingId, ProductListingEventCodecError> {
+    let id = SourceListingId::try_from(value.to_owned())
+        .map_err(|source| invalid_field_source("sourceListingId", source))?;
+    if id.as_ref() != value {
+        return Err(ProductListingEventCodecError::NonCanonicalField {
+            field: "sourceListingId",
+        });
+    }
+    Ok(id)
+}
+
+fn parse_language(
+    value: &str,
+    field: &'static str,
+) -> Result<Language, ProductListingEventCodecError> {
+    Language::from_code(value).ok_or_else(|| invalid_field(field, "unknown language code"))
 }
 
 fn parse_availability(
     value: Option<String>,
+    field: &'static str,
 ) -> Result<Option<ListingAvailability>, ProductListingEventCodecError> {
     value
         .map(|value| {
-            ListingAvailability::from_code(&value).ok_or(ProductListingEventCodecError::Invalid)
+            ListingAvailability::from_code(&value)
+                .ok_or_else(|| invalid_field(field, "unknown availability code"))
         })
         .transpose()
 }
 
-fn parse_price(value: Option<PriceDto>) -> Result<Option<Price>, ProductListingEventCodecError> {
+fn parse_price(
+    value: Option<PriceDto>,
+    field: &'static str,
+) -> Result<Option<Price>, ProductListingEventCodecError> {
     value
         .map(|value| {
-            Currency::from_code(&value.currency)
-                .map(|currency| Price::new(MonetaryAmount::from(value.amount), currency))
-                .ok_or(ProductListingEventCodecError::Invalid)
+            let currency = Currency::from_code(&value.currency)
+                .ok_or_else(|| invalid_field(field, "unknown currency code"))?;
+            if currency.as_str() != value.currency {
+                return Err(ProductListingEventCodecError::NonCanonicalField { field });
+            }
+            Ok(Price::new(MonetaryAmount::from(value.amount), currency))
         })
         .transpose()
 }
 
-fn parse_url(value: &str) -> Result<Url, ProductListingEventCodecError> {
-    Url::parse(value).map_err(|_| ProductListingEventCodecError::Invalid)
+fn parse_price_change(
+    value: ValueChangeDto<Option<PriceDto>>,
+    field: &'static str,
+) -> Result<(Option<Price>, Option<Price>), ProductListingEventCodecError> {
+    Ok((
+        parse_price(value.previous, field)?,
+        parse_price(value.current, field)?,
+    ))
 }
 
-fn format_timestamp(value: OffsetDateTime) -> Result<String, ProductListingEventCodecError> {
+fn parse_url(value: &str, field: &'static str) -> Result<Url, ProductListingEventCodecError> {
+    Url::parse(value).map_err(|source| invalid_field_source(field, source))
+}
+
+fn format_timestamp(
+    value: OffsetDateTime,
+    field: &'static str,
+) -> Result<String, ProductListingEventCodecError> {
     value
         .format(&Rfc3339)
-        .map_err(|_| ProductListingEventCodecError::Invalid)
+        .map_err(|source| invalid_field_source(field, source))
 }
 
-fn parse_timestamp(value: &str) -> Result<OffsetDateTime, ProductListingEventCodecError> {
-    OffsetDateTime::parse(value, &Rfc3339).map_err(|_| ProductListingEventCodecError::Invalid)
+fn parse_timestamp(
+    value: &str,
+    field: &'static str,
+) -> Result<OffsetDateTime, ProductListingEventCodecError> {
+    let timestamp = OffsetDateTime::parse(value, &Rfc3339)
+        .map_err(|source| invalid_field_source(field, source))?;
+    let canonical = format_timestamp(timestamp, field)?;
+    if canonical != value {
+        return Err(ProductListingEventCodecError::NonCanonicalField { field });
+    }
+    Ok(timestamp)
 }
 
-fn codec_slug() -> Result<ProductListingSlugId, ProductListingEventCodecError> {
-    ProductListingSlugId::raw("codec-listing-a1b2c3")
-        .map_err(|_| ProductListingEventCodecError::Invalid)
+fn validate_changed_shape(value: &Value) -> Result<(), ProductListingEventCodecError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| invalid_field("payload", "changed payload must be an object"))?;
+    if object.is_empty() {
+        return Err(invalid_field(
+            "payload",
+            "changed payload must not be empty",
+        ));
+    }
+
+    for (field, raw) in object {
+        match field.as_str() {
+            "pricing" => {
+                let pricing = required_object(raw, "pricing")?;
+                if pricing.is_empty() {
+                    return Err(invalid_field(
+                        "pricing",
+                        "pricing changes must not be empty",
+                    ));
+                }
+                for (pricing_field, pricing_change) in pricing {
+                    match pricing_field.as_str() {
+                        "price" | "priceEstimateMin" | "priceEstimateMax" => {
+                            required_object(pricing_change, "pricing change")?;
+                        }
+                        _ => {
+                            return Err(invalid_field(
+                                "pricing",
+                                "unknown pricing change dimension",
+                            ));
+                        }
+                    }
+                }
+            }
+            "availability" | "url" | "images" | "auction" | "saleObservation" => {
+                required_object(raw, "changed dimension").map(|_| ())?;
+            }
+            "lifecycle" => validate_lifecycle_shape(raw)?,
+            _ => {
+                return Err(invalid_field("payload", "unknown changed event dimension"));
+            }
+        }
+    }
+    Ok(())
 }
 
-fn codec_url() -> Result<Url, ProductListingEventCodecError> {
-    parse_url("https://codec.invalid/")
+fn validate_lifecycle_shape(value: &Value) -> Result<(), ProductListingEventCodecError> {
+    let object = required_object(value, "lifecycle")?;
+    let transition = object
+        .get("transition")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_field("lifecycle.transition", "transition must be a string"))?;
+    match transition {
+        "WITHDRAWN" => {
+            let previous = object.get("previousAvailability").ok_or_else(|| {
+                invalid_field(
+                    "lifecycle.previousAvailability",
+                    "withdrawal must include previous availability",
+                )
+            })?;
+            if !previous.is_null() && !previous.is_string() {
+                return Err(invalid_field(
+                    "lifecycle.previousAvailability",
+                    "previous availability must be nullable text",
+                ));
+            }
+        }
+        "RESTORED" if !object.contains_key("previousAvailability") => {}
+        "RESTORED" => {
+            return Err(invalid_field(
+                "lifecycle.previousAvailability",
+                "restore must not include previous availability",
+            ));
+        }
+        _ => {
+            return Err(invalid_field(
+                "lifecycle.transition",
+                "unknown lifecycle transition",
+            ));
+        }
+    }
+    Ok(())
 }
 
-fn images(
-    count: usize,
-    prefix: &str,
-) -> Result<IndexSet<ProductListingImage>, ProductListingEventCodecError> {
-    (0..count)
-        .map(|index| {
-            parse_url(&format!("https://codec.invalid/{prefix}/{index}"))
-                .map(ProductListingImage::new)
-        })
-        .collect()
+fn required_object<'a>(
+    value: &'a Value,
+    field: &'static str,
+) -> Result<&'a serde_json::Map<String, Value>, ProductListingEventCodecError> {
+    value
+        .as_object()
+        .ok_or_else(|| invalid_field(field, "field must be an object"))
 }
 
-fn apply_availability(
-    listing: &mut ProductListing,
-    availability: Option<String>,
-) -> Result<(), ProductListingEventCodecError> {
-    apply_availability_value(listing, parse_availability(availability)?)
+fn invalid_field(field: &'static str, message: &'static str) -> ProductListingEventCodecError {
+    invalid_field_source(field, std::io::Error::other(message))
 }
 
-fn apply_availability_value(
-    listing: &mut ProductListing,
-    availability: Option<ListingAvailability>,
-) -> Result<(), ProductListingEventCodecError> {
-    match availability {
-        Some(availability) => listing
-            .set_availability(availability)
-            .map(|_| ())
-            .map_err(|_| ProductListingEventCodecError::Invalid),
-        None => listing
-            .clear_availability()
-            .map(|_| ())
-            .map_err(|_| ProductListingEventCodecError::Invalid),
+fn invalid_field_source<E>(field: &'static str, source: E) -> ProductListingEventCodecError
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    ProductListingEventCodecError::InvalidField {
+        field,
+        source: box_error(source),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use listing_source_core::ListingSourceId;
+    use localization::{Language, Localized};
+    use money::{Currency, MonetaryAmount};
+    use product_listing_core::{
+        description::Description,
+        listing_availability::ListingAvailability,
+        product_listing::{ListingSaleObservation, ProductListingAuction, ProductListingPricing},
+        product_listing_event::{
+            RehydratedProductListingChanged, RehydratedProductListingDiscovered,
+        },
+        source_listing_id::SourceListingId,
+        title::Title,
+    };
     use serde_json::json;
     use time::Duration;
 
@@ -854,40 +1082,7 @@ mod tests {
 
     #[test]
     fn should_round_trip_changed_payload_with_all_dimensions() {
-        let mut listing = sample_listing();
-        listing.take_pending_event_payload();
-        listing
-            .replace_pricing(ProductListingPricing {
-                price: Some(price(20)),
-                price_estimate_min: Some(price(15)),
-                price_estimate_max: Some(price(25)),
-            })
-            .unwrap_or_else(|error| panic!("pricing: {error}"));
-        listing
-            .clear_availability()
-            .unwrap_or_else(|error| panic!("availability: {error}"));
-        listing
-            .change_url(
-                parse_url("https://example.com/new").unwrap_or_else(|error| panic!("URL: {error}")),
-            )
-            .unwrap_or_else(|error| panic!("URL change: {error}"));
-        listing
-            .replace_images(images(2, "test").unwrap_or_else(|error| panic!("images: {error}")))
-            .unwrap_or_else(|error| panic!("image change: {error}"));
-        listing
-            .replace_auction(ProductListingAuction {
-                start: Some(OffsetDateTime::UNIX_EPOCH),
-                end: Some(OffsetDateTime::UNIX_EPOCH + Duration::hours(1)),
-            })
-            .unwrap_or_else(|error| panic!("auction: {error}"));
-        listing
-            .record_sale_observation(ListingSaleObservation::new(
-                OffsetDateTime::UNIX_EPOCH,
-                fxrate_core::FxRateId::new(),
-            ))
-            .unwrap_or_else(|error| panic!("sale observation: {error}"));
-        listing.withdraw();
-        let payload = changed_payload(&mut listing);
+        let payload = changed_payload_with_all_dimensions();
         let encoded = encode(&payload).unwrap_or_else(|error| panic!("encode: {error}"));
 
         assert_eq!(
@@ -903,10 +1098,7 @@ mod tests {
 
     #[test]
     fn should_round_trip_withdrawal_with_previous_availability() {
-        let mut listing = sample_listing();
-        listing.take_pending_event_payload();
-        listing.withdraw();
-        let payload = changed_payload(&mut listing);
+        let payload = withdrawal_payload();
         let encoded = encode(&payload).unwrap_or_else(|error| panic!("encode: {error}"));
 
         assert_eq!(
@@ -922,16 +1114,19 @@ mod tests {
 
     #[test]
     fn should_round_trip_retracted_sale_observation_change() {
-        let mut listing = sample_listing();
-        listing.take_pending_event_payload();
         let observation =
             ListingSaleObservation::new(OffsetDateTime::UNIX_EPOCH, fxrate_core::FxRateId::new());
-        listing
-            .record_sale_observation(observation)
-            .unwrap_or_else(|error| panic!("sale observation: {error}"));
-        listing.take_pending_event_payload();
-        listing.retract_sale_observation();
-        let payload = changed_payload(&mut listing);
+        let payload = changed_payload(RehydratedProductListingChanged {
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            availability: None,
+            url: None,
+            images: None,
+            auction: None,
+            lifecycle: None,
+            sale_observation: Some((Some(observation), None)),
+        });
         let encoded = encode(&payload).unwrap_or_else(|error| panic!("encode: {error}"));
 
         assert_eq!(
@@ -965,29 +1160,98 @@ mod tests {
         }
     }
 
+    #[test]
+    fn should_reject_malformed_nested_changes_without_aggregate_reconstruction() {
+        for payload in [
+            json!({"pricing": {"price": {}}}),
+            json!({"availability": {}}),
+            json!({"images": {}}),
+            json!({"unknown": {"previous": null, "current": null}}),
+        ] {
+            assert!(decode("PRODUCT_LISTING_CHANGED", 1, &payload).is_err());
+        }
+    }
+
+    #[test]
+    fn should_accept_same_count_image_replacement() {
+        let payload = json!({"images": {"previousCount": 2, "currentCount": 2}});
+        let decoded = decode("PRODUCT_LISTING_CHANGED", 1, &payload)
+            .unwrap_or_else(|error| panic!("decode: {error}"));
+        let ProductListingEventPayload::Changed(changed) = decoded else {
+            panic!("expected changed payload");
+        };
+        assert_eq!(
+            Some(2),
+            changed
+                .image_count()
+                .map(|value| value.previous_count().value())
+        );
+        assert_eq!(
+            Some(2),
+            changed
+                .image_count()
+                .map(|value| value.current_count().value())
+        );
+    }
+
+    #[test]
+    fn should_reject_incomplete_lifecycle_change_shape() {
+        for payload in [
+            json!({"lifecycle": {"transition": "WITHDRAWN"}}),
+            json!({"lifecycle": {"transition": "RESTORED", "previousAvailability": null}}),
+        ] {
+            assert!(decode("PRODUCT_LISTING_CHANGED", 1, &payload).is_err());
+        }
+    }
+
+    #[test]
+    fn should_decode_large_image_counts_without_image_allocation() {
+        let payload = json!({
+            "listingSourceId": "10000000-0000-0000-0000-000000000001",
+            "sourceListingId": "fixture-source-id",
+            "title": null,
+            "description": null,
+            "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+            "availability": null,
+            "url": "https://example.test/product",
+            "imageCount": u64::MAX,
+            "auction": {"start": null, "end": null}
+        });
+        let decoded = decode("PRODUCT_LISTING_DISCOVERED", 1, &payload)
+            .unwrap_or_else(|error| panic!("decode: {error}"));
+        let ProductListingEventPayload::Discovered(discovered) = decoded else {
+            panic!("expected discovered payload");
+        };
+        assert_eq!(u64::MAX, discovered.image_count().value());
+    }
+
+    #[test]
+    fn should_reject_noncanonical_discovery_strings() {
+        let mut payload =
+            encode(&discovered_payload()).unwrap_or_else(|error| panic!("encode: {error}"));
+        payload["sourceListingId"] = json!(" source-listing ");
+        assert!(matches!(
+            decode("PRODUCT_LISTING_DISCOVERED", 1, &payload),
+            Err(ProductListingEventCodecError::NonCanonicalField {
+                field: "sourceListingId"
+            })
+        ));
+
+        let mut payload =
+            encode(&discovered_payload()).unwrap_or_else(|error| panic!("encode: {error}"));
+        payload["title"]["text"] = json!(" codec title. ");
+        assert!(matches!(
+            decode("PRODUCT_LISTING_DISCOVERED", 1, &payload),
+            Err(ProductListingEventCodecError::NonCanonicalField {
+                field: "title.text"
+            })
+        ));
+    }
+
     fn discovered_payload() -> ProductListingEventPayload {
-        let mut listing = sample_listing();
-        match listing.take_pending_event_payload() {
-            Some(payload) => payload,
-            None => panic!("new listing must emit a discovered event"),
-        }
-    }
-
-    fn changed_payload(listing: &mut ProductListing) -> ProductListingEventPayload {
-        match listing.take_pending_event_payload() {
-            Some(ProductListingEventPayload::Changed(payload)) => {
-                ProductListingEventPayload::Changed(payload)
-            }
-            _ => panic!("listing must emit a changed event"),
-        }
-    }
-
-    fn sample_listing() -> ProductListing {
-        ProductListing::create(NewProductListing {
-            id: ProductListingId::new(),
-            title_slug_id: ProductListingSlugId::raw("codec-test-a1b2c3")
-                .unwrap_or_else(|error| panic!("slug: {error}")),
-            listing_source_id: ListingSourceId::new(),
+        ProductListingEventPayload::rehydrate_discovered(RehydratedProductListingDiscovered {
+            listing_source_id: ListingSourceId::try_from("10000000-0000-0000-0000-000000000001")
+                .unwrap_or_else(|error| panic!("listing source ID: {error}")),
             source_listing_id: SourceListingId::try_from("codec-source-listing")
                 .unwrap_or_else(|error| panic!("source ID: {error}")),
             title: Some(Localized::new(Language::En, Title::from("Codec title"))),
@@ -1001,12 +1265,66 @@ mod tests {
                 price_estimate_max: None,
             },
             availability: Some(ListingAvailability::Available),
-            url: parse_url("https://example.com/old")
-                .unwrap_or_else(|error| panic!("URL: {error}")),
-            images: images(1, "seed").unwrap_or_else(|error| panic!("images: {error}")),
+            url: url("https://example.com/old"),
+            image_count: ProductListingImageCount::new(1),
             auction: ProductListingAuction::default(),
         })
-        .unwrap_or_else(|error| panic!("listing: {error}"))
+        .unwrap_or_else(|error| panic!("discovery payload: {error}"))
+    }
+
+    fn changed_payload(state: RehydratedProductListingChanged) -> ProductListingEventPayload {
+        ProductListingEventPayload::rehydrate_changed(state)
+            .unwrap_or_else(|error| panic!("changed payload: {error}"))
+    }
+
+    fn changed_payload_with_all_dimensions() -> ProductListingEventPayload {
+        let observation =
+            ListingSaleObservation::new(OffsetDateTime::UNIX_EPOCH, fxrate_core::FxRateId::new());
+        changed_payload(RehydratedProductListingChanged {
+            price: Some((None, Some(price(20)))),
+            price_estimate_min: Some((None, Some(price(15)))),
+            price_estimate_max: Some((None, Some(price(25)))),
+            availability: Some((Some(ListingAvailability::Available), None)),
+            url: Some((
+                url("https://example.com/old"),
+                url("https://example.com/new"),
+            )),
+            images: Some((
+                ProductListingImageCount::new(1),
+                ProductListingImageCount::new(2),
+            )),
+            auction: Some((
+                ProductListingAuction::default(),
+                ProductListingAuction {
+                    start: Some(OffsetDateTime::UNIX_EPOCH),
+                    end: Some(OffsetDateTime::UNIX_EPOCH + Duration::hours(1)),
+                },
+            )),
+            lifecycle: Some(ProductListingLifecycleChange::Withdrawn {
+                previous_availability: Some(ListingAvailability::Available),
+            }),
+            sale_observation: Some((None, Some(observation))),
+        })
+    }
+
+    fn withdrawal_payload() -> ProductListingEventPayload {
+        changed_payload(RehydratedProductListingChanged {
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            availability: Some((Some(ListingAvailability::Available), None)),
+            url: None,
+            images: None,
+            auction: None,
+            lifecycle: Some(ProductListingLifecycleChange::Withdrawn {
+                previous_availability: Some(ListingAvailability::Available),
+            }),
+            sale_observation: None,
+        })
+    }
+
+    fn url(value: &str) -> Url {
+        Url::parse(value).unwrap_or_else(|error| panic!("URL: {error}"))
     }
 
     fn price(amount: u64) -> Price {

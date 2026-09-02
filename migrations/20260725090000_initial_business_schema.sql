@@ -273,6 +273,23 @@ CREATE TABLE product_listing_events (
     created timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT product_listing_events_product_event_unique UNIQUE (product_listing_id, event_id),
     CONSTRAINT product_listing_events_group_check CHECK (event_group IN ('DOMAIN', 'ENRICHMENT')),
+    CONSTRAINT product_listing_events_type_group_check CHECK (
+        (
+            event_group = 'DOMAIN'
+            AND event_type IN (
+                'PRODUCT_LISTING_DISCOVERED',
+                'PRODUCT_LISTING_CHANGED'
+            )
+        )
+        OR
+        (
+            event_group = 'ENRICHMENT'
+            AND event_type IN (
+                'ENRICHMENT_EMBEDDED',
+                'ENRICHMENT_TRANSLATED_TITLES'
+            )
+        )
+    ),
     CONSTRAINT product_listing_events_schema_version_positive CHECK (event_type_schema_version >= 1),
     CONSTRAINT product_listing_events_payload_object CHECK (jsonb_typeof(payload) = 'object')
 );

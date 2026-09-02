@@ -108,6 +108,7 @@ async fn duplicate_embedding_exists(
             WHERE product_listing_id = $1
               AND event_type = 'ENRICHMENT_EMBEDDED'
               AND event_group = 'ENRICHMENT'
+              AND event_type_schema_version = 1
               AND payload ->> 'sourceEventId' = $2
         )
     "#,

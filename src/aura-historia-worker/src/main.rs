@@ -203,7 +203,6 @@ async fn run_search_filter_match_notifications(
             SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
             SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
             SqlxUserTierEntitlementsFactory::new(),
-            SqlxProductListingCurrentEventGuardFactory::new(),
             SqlxProductListingContentAssessmentSnapshotReaderFactory::new(),
             NotificationCreationCoordinatorFactory::new(
                 SqlxNotificationRepositoryFactory::new(),

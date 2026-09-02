@@ -319,6 +319,7 @@ async fn should_round_trip_immutable_sale_observation_in_postgres() {
     seed_complete_fx_snapshot(&pool, fx_rate_id).await;
     let observation = ListingSaleObservation::new(OffsetDateTime::UNIX_EPOCH, fx_rate_id);
     let mut product = sample_product("postgres-product-sale", listing_source_id);
+    let _discovery = product.take_pending_event_payload();
     let transition = product.record_sale_observation(observation);
     assert!(matches!(
         transition,
@@ -716,10 +717,21 @@ async fn insert_product_row(
     .execute(&mut *tx)
     .await?;
     sqlx::query(
-        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, '{}', now())",
+        "INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, $3, now())",
     )
     .bind(event_id)
     .bind(product_listing_id)
+    .bind(serde_json::json!({
+        "listingSourceId": listing_source_id.to_string(),
+        "sourceListingId": source_listing_id.as_ref(),
+        "title": null,
+        "description": null,
+        "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+        "availability": null,
+        "url": "https://example.test/product",
+        "imageCount": 0,
+        "auction": {"start": null, "end": null}
+    }))
     .execute(&mut *tx)
     .await?;
     tx.commit().await

@@ -1,12 +1,17 @@
 use application::error::{box_error, static_error};
 use domain_primitives::event_id::EventId;
 use localization::Language;
-use product_listing_core::{product_listing_id::ProductListingId, title::Title};
+use product_listing_core::{
+    product_listing_event::ProductListingEventPayload, product_listing_id::ProductListingId,
+    title::Title,
+};
 use product_listing_service::ports::{
     ProductListingTranslationSource, ProductListingTranslationSourceEvent,
     ProductListingTranslationSourceReadError, ProductListingTranslationSourceReader,
 };
 use sqlx::PgPool;
+
+use crate::product_listing_event_codec;
 
 #[derive(Clone)]
 pub struct SqlxProductListingTranslationSourceReader {
@@ -21,6 +26,7 @@ struct ProductListingTranslationSourceRow {
     event_type: String,
     event_group: String,
     event_type_schema_version: i16,
+    payload: serde_json::Value,
     title_text: Option<String>,
     title_language: Option<String>,
 }
@@ -66,6 +72,7 @@ impl ProductListingTranslationSourceReader for SqlxProductListingTranslationSour
                 event.event_type,
                 event.event_group,
                 event.event_type_schema_version,
+                event.payload,
                 product.content_source_event_id,
                 product.title_text,
                 product.title_language
@@ -89,7 +96,7 @@ impl TryFrom<ProductListingTranslationSourceRow> for ProductListingTranslationSo
     type Error = ProductListingTranslationSourceReadError;
 
     fn try_from(row: ProductListingTranslationSourceRow) -> Result<Self, Self::Error> {
-        let event = translation_event(&row);
+        let event = translation_event(&row)?;
         let (title, title_language) = match (row.title_text, row.title_language) {
             (Some(raw_title), Some(raw_language)) => {
                 let title = Title::from(raw_title.as_str());
@@ -121,17 +128,31 @@ impl TryFrom<ProductListingTranslationSourceRow> for ProductListingTranslationSo
 
 fn translation_event(
     row: &ProductListingTranslationSourceRow,
-) -> ProductListingTranslationSourceEvent {
-    match (
-        row.event_type.as_str(),
-        row.event_group.as_str(),
+) -> Result<ProductListingTranslationSourceEvent, ProductListingTranslationSourceReadError> {
+    let event = product_listing_event_codec::decode_persisted(
+        &row.event_type,
+        &row.event_group,
         row.event_type_schema_version,
-    ) {
-        ("PRODUCT_LISTING_DISCOVERED", "DOMAIN", 1) => {
-            ProductListingTranslationSourceEvent::Discovered
+        &row.payload,
+    )
+    .map_err(
+        |source| ProductListingTranslationSourceReadError::InvalidPersistedState {
+            source: box_error(source),
+        },
+    )?;
+    Ok(match event {
+        product_listing_event_codec::ProductListingPersistedEvent::Domain(_, payload) => {
+            match *payload {
+                ProductListingEventPayload::Discovered(_) => {
+                    ProductListingTranslationSourceEvent::Discovered
+                }
+                ProductListingEventPayload::Changed(_) => {
+                    ProductListingTranslationSourceEvent::Other
+                }
+            }
         }
         _ => ProductListingTranslationSourceEvent::Other,
-    }
+    })
 }
 
 fn parse_language(value: &str) -> Result<Language, ProductListingTranslationSourceReadError> {

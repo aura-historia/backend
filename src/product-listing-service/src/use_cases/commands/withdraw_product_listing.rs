@@ -146,7 +146,9 @@ where
         };
         let expected_version = loaded.version;
         let mut product = loaded.value;
-        let outcome = product.withdraw();
+        let outcome = product
+            .withdraw()
+            .map_err(|_| WithdrawProductListingError::PersistenceFailed)?;
         let event = product.take_pending_event_payload().map(|payload| {
             stamp_product_listing_event(product.id(), time::OffsetDateTime::now_utc(), payload)
         });

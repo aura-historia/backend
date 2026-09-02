@@ -48,7 +48,7 @@ struct ProductListingDiscoveryHistoryData {
     #[serde(with = "crate::wire::listing_availability::option")]
     availability: Option<ListingAvailability>,
     url: Url,
-    image_count: usize,
+    image_count: u64,
     auction: ProductListingAuctionData,
 }
 
@@ -88,8 +88,8 @@ enum ProductListingHistoryChangeData {
         current: Url,
     },
     ImagesChanged {
-        previous_count: usize,
-        current_count: usize,
+        previous_count: u64,
+        current_count: u64,
     },
     AuctionChanged {
         previous: ProductListingAuctionData,

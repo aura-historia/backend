@@ -5,12 +5,12 @@ use crate::url::referral_configuration;
 use application::error::{BoxError, box_error, static_error};
 use domain_primitives::event_id::EventId;
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, outbound_url};
-use money::{Currency, MonetaryAmount, Price};
+
 use platform_postgres::SqlxTransaction;
 use product_listing_core::{
     content_policy::{ContentPolicyDecision, SensitiveContentCategory},
-    listing_availability::ListingAvailability,
     listing_lifecycle::ListingLifecycle,
+    product_listing_event::ProductListingEventPayload,
     product_listing_id::ProductListingId,
     product_listing_slug_id::ProductListingSlugId,
     source_listing_id::SourceListingId,
@@ -27,6 +27,7 @@ use product_listing_service::ports::{
 use sqlx::PgConnection;
 
 use super::product_listing_details_reader::images;
+use crate::product_listing_event_codec;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxProductListingWatchlistNotificationSourceReaderFactory;
@@ -42,6 +43,8 @@ struct SourceRow {
     product_listing_id: uuid::Uuid,
     lifecycle: String,
     event_type: String,
+    event_group: String,
+    event_type_schema_version: i16,
     payload: serde_json::Value,
     product_listing_title_slug_id: String,
     listing_source_id: uuid::Uuid,
@@ -142,7 +145,8 @@ impl ProductListingWatchlistNotificationSourceReader
         let row = sqlx::query_as::<_, SourceRow>(
             r#"
             SELECT
-                event.event_id, event.event_time, event.product_listing_id, event.event_type, event.payload,
+                event.event_id, event.event_time, event.product_listing_id, event.event_type,
+                event.event_group, event.event_type_schema_version, event.payload,
                 product.lifecycle, product.product_listing_title_slug_id, product.listing_source_id, product.source_listing_id,
                 listing_source.listing_source_slug_id, listing_source.name AS listing_source_name,
                 listing_source.referral_configuration AS listing_source_referral_configuration,
@@ -158,6 +162,7 @@ impl ProductListingWatchlistNotificationSourceReader
                 ON assessment.product_listing_id = product.product_listing_id
                 AND assessment.source_event_id = product.content_source_event_id
             WHERE event.event_id = $1 AND event.product_listing_id = $2
+            FOR SHARE OF product
             "#,
         )
         .bind(uuid::Uuid::from(event_id))
@@ -168,8 +173,14 @@ impl ProductListingWatchlistNotificationSourceReader
         let Some(row) = row else {
             return Ok(ProductListingWatchlistNotificationSourceReadOutcome::MissingSource);
         };
-        let changes = notification_changes(&row.event_type, &row.payload)
-            .map_err(WatchlistNotificationSourceMappingError::with_source)?;
+        let event = product_listing_event_codec::decode_persisted(
+            &row.event_type,
+            &row.event_group,
+            row.event_type_schema_version,
+            &row.payload,
+        )
+        .map_err(WatchlistNotificationSourceMappingError::with_source)?;
+        let changes = notification_changes(event);
         if changes.is_empty() {
             return Ok(ProductListingWatchlistNotificationSourceReadOutcome::IgnoredEvent);
         }
@@ -273,85 +284,32 @@ fn content_policy(
 }
 
 fn notification_changes(
-    event_type: &str,
-    payload: &serde_json::Value,
-) -> Result<Vec<ProductListingWatchlistNotificationChange>, NotificationPayloadError> {
-    if event_type != "PRODUCT_LISTING_CHANGED" {
-        return Ok(Vec::new());
-    }
+    event: product_listing_event_codec::ProductListingPersistedEvent,
+) -> Vec<ProductListingWatchlistNotificationChange> {
+    let product_listing_event_codec::ProductListingPersistedEvent::Domain(_, payload) = event
+    else {
+        return Vec::new();
+    };
+    let ProductListingEventPayload::Changed(changed) = *payload else {
+        return Vec::new();
+    };
 
-    let payload = payload
-        .as_object()
-        .ok_or(NotificationPayloadError::Invalid)?;
     let mut changes = Vec::new();
-    if let Some(pricing) = payload.get("pricing") {
-        let pricing = pricing
-            .as_object()
-            .ok_or(NotificationPayloadError::Invalid)?;
-        if let Some(price_change) = pricing.get("price") {
-            let price_change = price_change
-                .as_object()
-                .ok_or(NotificationPayloadError::Invalid)?;
-            changes.push(ProductListingWatchlistNotificationChange::PriceChanged {
-                old_price: price(price_change.get("previous"))?,
-                new_price: price(price_change.get("current"))?,
-            });
-        }
+    if let Some(price) = changed.price() {
+        changes.push(ProductListingWatchlistNotificationChange::PriceChanged {
+            old_price: *price.previous(),
+            new_price: *price.current(),
+        });
     }
-    if let Some(availability_change) = payload.get("availability") {
-        let availability_change = availability_change
-            .as_object()
-            .ok_or(NotificationPayloadError::Invalid)?;
+    if let Some(availability) = changed.availability() {
         changes.push(
             ProductListingWatchlistNotificationChange::AvailabilityChanged {
-                old_availability: availability(availability_change.get("previous"))?,
-                new_availability: availability(availability_change.get("current"))?,
+                old_availability: *availability.previous(),
+                new_availability: *availability.current(),
             },
         );
     }
-    Ok(changes)
-}
-
-#[derive(Debug, thiserror::Error)]
-enum NotificationPayloadError {
-    #[error("notification event payload is invalid")]
-    Invalid,
-}
-
-fn price(value: Option<&serde_json::Value>) -> Result<Option<Price>, NotificationPayloadError> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    if value.is_null() {
-        return Ok(None);
-    }
-    let object = value.as_object().ok_or(NotificationPayloadError::Invalid)?;
-    let amount = object
-        .get("amount")
-        .and_then(serde_json::Value::as_u64)
-        .ok_or(NotificationPayloadError::Invalid)?;
-    let currency = object
-        .get("currency")
-        .and_then(serde_json::Value::as_str)
-        .and_then(Currency::from_code)
-        .ok_or(NotificationPayloadError::Invalid)?;
-    Ok(Some(Price::new(MonetaryAmount::from(amount), currency)))
-}
-
-fn availability(
-    value: Option<&serde_json::Value>,
-) -> Result<Option<ListingAvailability>, NotificationPayloadError> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    if value.is_null() {
-        return Ok(None);
-    }
-    value
-        .as_str()
-        .and_then(ListingAvailability::from_code)
-        .map(Some)
-        .ok_or(NotificationPayloadError::Invalid)
+    changes
 }
 
 fn parse_language(
@@ -368,12 +326,16 @@ fn parse_language(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use money::Currency;
+    use product_listing_core::listing_availability::ListingAvailability;
 
     #[test]
     fn should_read_price_and_availability_from_composite_changed_payload()
     -> Result<(), Box<dyn std::error::Error>> {
-        let changes = notification_changes(
+        let event = product_listing_event_codec::decode_persisted(
             "PRODUCT_LISTING_CHANGED",
+            "DOMAIN",
+            1,
             &serde_json::json!({
                 "pricing": {
                     "price": {
@@ -384,6 +346,7 @@ mod tests {
                 "availability": { "previous": "IN_STOCK", "current": "SOLD_OUT" }
             }),
         )?;
+        let changes = notification_changes(event);
 
         assert!(matches!(
             changes.as_slice(),
@@ -407,8 +370,10 @@ mod tests {
     #[test]
     fn should_ignore_estimate_only_composite_changed_payload()
     -> Result<(), Box<dyn std::error::Error>> {
-        let changes = notification_changes(
+        let event = product_listing_event_codec::decode_persisted(
             "PRODUCT_LISTING_CHANGED",
+            "DOMAIN",
+            1,
             &serde_json::json!({
                 "pricing": {
                     "priceEstimateMin": {
@@ -418,6 +383,7 @@ mod tests {
                 }
             }),
         )?;
+        let changes = notification_changes(event);
 
         assert!(changes.is_empty());
         Ok(())

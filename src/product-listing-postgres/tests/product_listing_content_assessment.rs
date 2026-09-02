@@ -140,6 +140,17 @@ async fn insert_product_with_created_event(
         content_source_event_id,
         "PRODUCT_LISTING_DISCOVERED",
         "DOMAIN",
+        serde_json::json!({
+            "listingSourceId": listing_source_id.to_string(),
+            "sourceListingId": product_listing_id.to_string(),
+            "title": {"language": "en", "text": "Assessment chair"},
+            "description": {"language": "en", "text": "Assessment description"},
+            "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+            "availability": "AVAILABLE",
+            "url": "https://example.test/product",
+            "imageCount": 0,
+            "auction": {"start": null, "end": null}
+        }),
     )
     .await?;
     tx.commit().await?;
@@ -156,12 +167,15 @@ async fn advance_content_source_event(
         &mut tx,
         product_listing_id,
         event_id,
-        "PRODUCT_LISTING_TITLE_CHANGED",
+        "PRODUCT_LISTING_CHANGED",
         "DOMAIN",
+        serde_json::json!({
+            "availability": {"previous": "AVAILABLE", "current": "SOLD_OUT"}
+        }),
     )
     .await?;
     sqlx::query(
-        "UPDATE product_listings SET current_event_id = $1, content_source_event_id = $1, version = version + 1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
+        "UPDATE product_listings SET current_event_id = $1, content_source_event_id = $1, availability = 'SOLD_OUT', version = version + 1, projection_version = projection_version + 1, updated = now() WHERE product_listing_id = $2",
     )
     .bind(uuid::Uuid::from(event_id))
     .bind(uuid::Uuid::from(product_listing_id))
@@ -184,6 +198,15 @@ async fn advance_current_event(
         event_id,
         event_type,
         event_group,
+        match event_type {
+            "ENRICHMENT_EMBEDDED" => serde_json::json!({
+                "sourceEventId": event_id.to_string()
+            }),
+            "PRODUCT_LISTING_CHANGED" => serde_json::json!({
+                "images": {"previousCount": 0, "currentCount": 0}
+            }),
+            _ => serde_json::json!({}),
+        },
     )
     .await?;
     sqlx::query(
@@ -202,12 +225,14 @@ async fn insert_event(
     event_id: EventId,
     event_type: &str,
     event_group: &str,
+    payload: serde_json::Value,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, '{}', now())")
+    sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, $3, $4, 1, $5, now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_listing_id))
         .bind(event_type)
         .bind(event_group)
+        .bind(payload)
         .execute(&mut **transaction)
         .await?;
     Ok(())

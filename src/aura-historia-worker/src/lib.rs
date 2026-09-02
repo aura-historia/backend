@@ -1190,7 +1190,7 @@ mod tests {
     #[case(
         WorkerScope::SearchFilterPercolator,
         WorkerQueue::SearchFilterPercolator,
-        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_DISCOVERED","event_group":"DOMAIN","event_type_schema_version":1}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_DISCOVERED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"listingSourceId":"10000000-0000-0000-0000-000000000001","sourceListingId":"fixture-source-id","title":null,"description":null,"pricing":{"price":null,"priceEstimateMin":null,"priceEstimateMax":null},"availability":null,"url":"https://example.test/product","imageCount":0,"auction":{"start":null,"end":null}}}}]}"#
     )]
     #[case(
         WorkerScope::SearchFilterMatchNotification,
@@ -1200,22 +1200,22 @@ mod tests {
     #[case(
         WorkerScope::WatchlistNotification,
         WorkerQueue::WatchlistNotification,
-        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"pricing":{"price":{}}}}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_CHANGED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"availability":{"previous":null,"current":"AVAILABLE"}}}}]}"#
     )]
     #[case(
         WorkerScope::ProductListingContentAssessment,
         WorkerQueue::ProductListingContentAssessment,
-        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_DISCOVERED","event_group":"DOMAIN","event_type_schema_version":1}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_DISCOVERED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"listingSourceId":"10000000-0000-0000-0000-000000000001","sourceListingId":"fixture-source-id","title":null,"description":null,"pricing":{"price":null,"priceEstimateMin":null,"priceEstimateMax":null},"availability":null,"url":"https://example.test/product","imageCount":0,"auction":{"start":null,"end":null}}}}]}"#
     )]
     #[case(
         WorkerScope::ProductListingTranslation,
         WorkerQueue::ProductListingTranslate,
-        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_DISCOVERED","event_group":"DOMAIN","event_type_schema_version":1}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_DISCOVERED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"listingSourceId":"10000000-0000-0000-0000-000000000001","sourceListingId":"fixture-source-id","title":null,"description":null,"pricing":{"price":null,"priceEstimateMin":null,"priceEstimateMax":null},"availability":null,"url":"https://example.test/product","imageCount":0,"auction":{"start":null,"end":null}}}}]}"#
     )]
     #[case(
         WorkerScope::ProductListingEmbedding,
         WorkerQueue::ProductListingEmbed,
-        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_DISCOVERED","event_group":"DOMAIN","event_type_schema_version":1}}]}"#
+        r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_LISTING_DISCOVERED","event_group":"DOMAIN","event_type_schema_version":1,"payload":{"listingSourceId":"10000000-0000-0000-0000-000000000001","sourceListingId":"fixture-source-id","title":null,"description":null,"pricing":{"price":null,"priceEstimateMin":null,"priceEstimateMax":null},"availability":null,"url":"https://example.test/product","imageCount":0,"auction":{"start":null,"end":null}}}}]}"#
     )]
     #[case(
         WorkerScope::ProductListingEmbedding,
@@ -1251,7 +1251,7 @@ mod tests {
             QueueConfig::new(1),
         )?;
         let (runtime, _receiver) = composition.into_parts();
-        let cdc_json = r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"ENRICHMENT_EMBEDDED","event_group":"ENRICHMENT","event_type_schema_version":1}}]}"#;
+        let cdc_json = r#"{"changes":[{"table":"product_listing_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_listing_id":"40000000-0000-0000-0000-000000000001","event_type":"ENRICHMENT_EMBEDDED","event_group":"ENRICHMENT","event_type_schema_version":1,"payload":{"sourceEventId":"40000000-0000-0000-0000-000000000002"}}}]}"#;
 
         assert_eq!(0, runtime.ingest_cdc_json(cdc_json).await?);
         Ok(())
@@ -1363,7 +1363,22 @@ mod tests {
                         "product_listing_id": "30000000-0000-0000-0000-000000000001",
                         "event_type": "PRODUCT_LISTING_DISCOVERED",
                         "event_group": "DOMAIN",
-                        "event_type_schema_version": 1
+                        "event_type_schema_version": 1,
+                        "payload": {
+                            "listingSourceId": "10000000-0000-0000-0000-000000000001",
+                            "sourceListingId": "fixture-source-id",
+                            "title": null,
+                            "description": null,
+                            "pricing": {
+                                "price": null,
+                                "priceEstimateMin": null,
+                                "priceEstimateMax": null
+                            },
+                            "availability": null,
+                            "url": "https://example.test/product",
+                            "imageCount": 0,
+                            "auction": {"start": null, "end": null}
+                        }
                     }
                 }
             ]

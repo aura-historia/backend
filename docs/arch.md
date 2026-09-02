@@ -1748,6 +1748,8 @@ Credential tables are operational PostgreSQL storage, not Sequin sources. Expiry
 
 OpenSearch contains rebuildable search projections only.
 
+`product_listing_events` is a transactional ProductListing domain/enrichment journal and direct Sequin CDC source. It is not the ProductListing aggregate source of truth, an outbox, or an event-sourcing stream. One logical ProductListing domain write appends zero or one domain payload; enrichment completions append compact provenance rows in the same authoritative transaction.
+
 Additional stores MUST be classified as one of:
 
 * authoritative operational storage;
@@ -1777,7 +1779,8 @@ Required:
 
 ```text
 commit PostgreSQL
-    -> capture committed changes
+    -> Sequin observes committed product_listing_events INSERT
+    -> worker validates and routes CDC
     -> update projections asynchronously
 ```
 
@@ -1865,7 +1868,7 @@ An older or equal version MUST NOT overwrite a newer projection state.
 
 Idempotency SHOULD be enforced in the target write through conditional updates, unique constraints, or version checks rather than through in-memory checks.
 
-Current-state invalidation consumers that rebuild output from an authoritative row MUST compare the trigger's source revision with the row's current revision before processing. When they differ, the trigger is stale and MUST be skipped; the consumer MUST NOT evaluate current state while retaining the stale trigger ID. If a current trigger later persists an idempotent row, it MUST recheck and lock that authoritative revision in its final PostgreSQL write transaction through commit, so a stale trigger cannot claim the unique row across external work. For ProductListing events, `product_listings.current_event_id` is the current event revision and is separate from the numeric aggregate storage version used for optimistic concurrency. Historical notification consumers instead use their exact persisted event or match as the immutable fact and are not invalidated by unrelated later ProductListing events. They require current `ACTIVE` lifecycle before notification snapshots are created. Processed, duplicate, stale, missing-source, withdrawn, and ignored-event outcomes are operationally distinct.
+Current-state invalidation consumers that rebuild output from an authoritative row MUST compare the trigger's source revision with the row's current revision before processing. When they differ, the trigger is stale and MUST be skipped; the consumer MUST NOT evaluate current state while retaining the stale trigger ID. If a current trigger later persists an idempotent row, it MUST recheck and lock that authoritative revision in its final PostgreSQL write transaction through commit, so a stale trigger cannot claim the unique row across external work. Historical notification consumers instead use their exact persisted event or match as the immutable fact and are not invalidated by unrelated later ProductListing events. They require current `ACTIVE` lifecycle while holding a shared ProductListing row lock through notification and delivery-intent commit. ProductListing event decoders and CDC routers MUST reject malformed or unsupported type/group/version/payload contracts; invalid CDC input MUST remain unacknowledged for retry. For ProductListing events, `product_listings.current_event_id` is the current event revision and is separate from the numeric aggregate storage version used for optimistic concurrency. Processed, duplicate, stale, missing-source, withdrawn, and ignored-event outcomes are operationally distinct.
 
 ### 12.6 Building projections
 

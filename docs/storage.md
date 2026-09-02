@@ -45,9 +45,9 @@ The initial business schema requires a provisioned and preloaded `pg_ttl_index` 
 
 These are separate concepts. Enrichment advances `current_event_id` and `projection_version` when it changes projection-visible state, but not aggregate `version`.
 
-`product_listing_events` is the immutable ProductListing event journal and direct Sequin CDC source, not an outbox. Every row has immutable event ID/time, a positive persisted schema version, and an object JSON payload. Allowed groups are `DOMAIN` and `ENRICHMENT`. Application and router code fail closed on the concrete v1 type/group/version pairs; the database enforces only a positive schema version. Deferred same-listing foreign keys tie current and source marker IDs to journal rows.
+`product_listing_events` is the immutable ProductListing event journal and direct Sequin CDC source, not an outbox. Every row has immutable event ID/time, a positive persisted schema version, and an object JSON payload. Allowed groups are `DOMAIN` and `ENRICHMENT`, with the initial schema constraining domain events to `PRODUCT_LISTING_DISCOVERED`/`PRODUCT_LISTING_CHANGED` and enrichment events to `ENRICHMENT_EMBEDDED`/`ENRICHMENT_TRANSLATED_TITLES`. Application and router code fail closed on the concrete v1 type/group/version/payload contracts. Deferred same-listing foreign keys tie current and source marker IDs to journal rows.
 
-Public history reads only `DOMAIN` `PRODUCT_LISTING_DISCOVERED` and `PRODUCT_LISTING_CHANGED` rows. It strictly decodes v1 payloads, orders by `event_time ASC, event_id ASC`, and reports invalid persisted event data as an operation error instead of silently omitting it.
+Public history reads only `DOMAIN` `PRODUCT_LISTING_DISCOVERED` and `PRODUCT_LISTING_CHANGED` rows. It strictly decodes v1 payloads through direct DTO mapping without aggregate reconstruction, orders by `event_time ASC, event_id ASC`, and reports invalid persisted event data as an operation error instead of silently omitting it.
 
 ## Indexed read paths
 

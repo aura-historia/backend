@@ -45,8 +45,8 @@ pub use product_listing_content_assessment_snapshot_reader::{
     ProductListingContentAssessmentSnapshotReaderFactory,
 };
 pub use product_listing_content_assessment_source_reader::{
-    ProductListingContentAssessmentSource, ProductListingContentAssessmentSourceReadError,
-    ProductListingContentAssessmentSourceReader,
+    ProductListingContentAssessmentSource, ProductListingContentAssessmentSourceEvent,
+    ProductListingContentAssessmentSourceReadError, ProductListingContentAssessmentSourceReader,
 };
 pub use product_listing_content_assessment_writer::{
     ProductListingContentAssessmentWrite, ProductListingContentAssessmentWriteError,
