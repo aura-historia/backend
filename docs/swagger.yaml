@@ -3690,13 +3690,15 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: USER_INTERNAL_ERROR
-  /api/v1/users/{userId}:
+  /api/v1/admin/users/{userId}:
     get:
       summary: Get a user as admin
       description:
         "Retrieves a single user account by user ID for authenticated administrators.
 
-        The response includes `Last-Modified` and `Cache-Control: no-store` headers.
+        Cognito JWTs and Aura Historia access tokens are accepted; delegated access tokens require `users:read`.
+
+        The response always sends `Cache-Control: no-store`.
 
         "
       operationId: adminGetUser
@@ -3713,16 +3715,11 @@ paths:
           example: 550e8400-e29b-41d4-a716-446655440000
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "200":
           description: User returned successfully.
           headers:
-            Last-Modified:
-              description: When the user account was last updated.
-              schema:
-                type: string
-                format: http-date
-              example: Fri, 25 Apr 2026 08:00:00 GMT
             Cache-Control:
               description: Caching directive. Always set to `no-store`.
               schema:
@@ -3748,10 +3745,8 @@ paths:
                 tier: ULTIMATE
                 role: ADMIN
                 stripeCustomerId: cus_admin_550e8400e29b41d4a716446655440000
-                created: "2026-01-10T09:00:00Z"
-                updated: "2026-04-25T08:00:00Z"
         "401":
-          description: Unauthorized - invalid or missing JWT token.
+          description: Unauthorized - invalid or missing bearer credentials.
           content:
             application/problem+json:
               schema:
@@ -3759,9 +3754,9 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
         "403":
-          description: Forbidden - this endpoint requires the `ADMIN` role.
+          description: Forbidden - this endpoint requires the `ADMIN` role and `users:read` capability when delegated.
           content:
             application/problem+json:
               schema:
@@ -3770,7 +3765,7 @@ paths:
                 status: 403
                 title: Forbidden
                 error: FORBIDDEN
-                detail: This action requires the 'ADMIN' role.
+                detail: Operation is not permitted.
         "404":
           description: User not found.
           content:
@@ -3781,7 +3776,7 @@ paths:
                 status: 404
                 title: Not Found
                 error: USER_NOT_FOUND
-                detail: User with UserId '550e8400-e29b-41d4-a716-446655440000' not found.
+                detail: User was not found.
         "500":
           description: Internal server error.
           content:
@@ -3791,7 +3786,8 @@ paths:
               example:
                 status: 500
                 title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
+                error: USER_INTERNAL_ERROR
+  /api/v1/users/{userId}:
     patch:
       summary: Update a user as admin
       description:

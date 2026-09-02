@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - **Breaking:** Canonical admin user search is now `GET /api/v1/admin/users`; it accepts case-insensitive `query`, `email`, `firstName`, and `lastName` filters, exact repeated `tier` / `role` filters, inclusive RFC3339 `created` / `updated` ranges, paired `sort` / `order` values, and UUID `searchAfter` pagination. The default sort is `name` ascending, page sizes are clamped to 1–100 with a default of 21, results contain compact user summaries, and responses always send `Cache-Control: no-store`.
+- **Breaking:** Canonical admin user detail is now `GET /api/v1/admin/users/{userId}`. It preserves service-layer administrator authorization and the admin user representation, including `role`, `tier`, and an optional `stripeCustomerId`; responses always send `Cache-Control: no-store`.
 - **Breaking:** ProductListing event v1 now has strict `DOMAIN`/`PRODUCT_LISTING_DISCOVERED`, `DOMAIN`/`PRODUCT_LISTING_CHANGED`, `ENRICHMENT`/`ENRICHMENT_EMBEDDED`, and `ENRICHMENT`/`ENRICHMENT_TRANSLATED_TITLES` contracts. The initial schema, codec, CDC router, and direct fixtures reject unsupported headers and malformed payload shapes; there is no compatibility layer or outbox.
 - **Breaking:** ProductListing image counts use fixed-width `int64`/`u64` semantics. Image replacement is a dedicated change and remains meaningful when previous and current counts are equal.
 - **Breaking:** ProductListing event decoding now maps immutable payload values directly and never reconstructs an aggregate. Initial discovery cannot silently represent lifecycle or sale-observation transitions.
@@ -40,7 +41,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Removed
 
-- **Breaking:** The admin user collection route `GET /api/v1/users` is removed and is not an alias for `GET /api/v1/admin/users`. The existing `/api/v1/users/{userId}` admin item route is unchanged.
+- **Breaking:** The admin user collection route `GET /api/v1/users` is removed and is not an alias for `GET /api/v1/admin/users`.
+- **Breaking:** The legacy admin user detail route `GET /api/v1/users/{userId}` is removed; use `GET /api/v1/admin/users/{userId}`. Legacy admin PATCH and DELETE item routes remain at `/api/v1/users/{userId}` until their dedicated admin-route migrations.
 - **Breaking:** User account responses no longer expose address or coordinate values, and user account PATCH requests no longer accept address fields. Structured-address-backed user country, continent, and distance filters are removed.
 - **Breaking:** The prior notification REST shape is replaced in `aura-historia-api`. Item paths now use canonical `{notificationId}` rather than `{eventId}`; list responses omit origin-event, actor, external-delivery, and total fields. The former root `PATCH /api/v1/me/notifications` all-notifications behavior is removed.
 

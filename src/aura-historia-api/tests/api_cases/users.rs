@@ -2,13 +2,14 @@ use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
     assert_problem, json_response, seed_access_token_for, seed_user, seed_user_with_tier,
-    set_user_search_fields,
+    set_user_search_fields, set_user_stripe_customer_id,
 };
 
 use test_api::{IntegrationTestService, aura_integration_test};
 use time::macros::datetime;
 use user_core::access_token::Scope;
 use user_core::tier::UserTier;
+use user_core::user_id::UserId;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_current_user_account_when_authenticated() {
@@ -83,24 +84,105 @@ async fn should_delete_current_user_when_authenticated() {
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_user_when_admin_reads_user() {
-    let user_id = seed_user("USER").await;
+    let user_id = seed_user_with_tier("USER", UserTier::Pro).await;
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
         admin_id,
         std::collections::HashSet::from([Scope::UsersRead]),
     )
     .await;
+    let stripe_customer_id = format!("cus_admin_detail_{user_id}");
+    set_user_stripe_customer_id(user_id, &stripe_customer_id).await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/users/{}", AURA_API.base_url(), user_id))
+        .get(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            user_id
+        ))
         .bearer_auth(String::from(token))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to get admin user API: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
+    assert_eq!(serde_json::json!("USER"), body["role"]);
+    assert_eq!(serde_json::json!("PRO"), body["tier"]);
+    assert_eq!(
+        serde_json::json!(stripe_customer_id),
+        body["stripeCustomerId"]
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_not_found_when_admin_reads_missing_user() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersRead]),
+    )
+    .await;
+    let missing_user_id = UserId::new();
+
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            missing_user_id
+        ))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get missing admin user API: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "USER_NOT_FOUND",
+    );
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_require_authentication_for_admin_user_detail() {
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            UserId::new()
+        ))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get admin user without auth: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "INVALID_CREDENTIALS",
+    );
+    assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -336,6 +418,21 @@ async fn should_remove_legacy_admin_user_search_route() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_remove_legacy_admin_user_detail_route() {
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/users/{}",
+            AURA_API.base_url(),
+            UserId::new()
+        ))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call removed admin user detail route: {error}"));
+
+    assert_eq!(reqwest::StatusCode::METHOD_NOT_ALLOWED, response.status());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_update_user_tier_when_actor_is_admin() {
     let user_id = seed_user("USER").await;
     let admin_id = seed_user("ADMIN").await;
@@ -386,7 +483,11 @@ async fn should_reject_admin_user_read_when_actor_is_not_admin() {
         seed_access_token_for(user_id, std::collections::HashSet::from([Scope::UsersRead])).await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/users/{}", AURA_API.base_url(), user_id))
+        .get(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            user_id
+        ))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -406,7 +507,10 @@ async fn should_reject_admin_user_read_when_user_id_is_invalid() {
     .await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/users/not-a-uuid", AURA_API.base_url()))
+        .get(format!(
+            "{}/api/v1/admin/users/not-a-uuid",
+            AURA_API.base_url()
+        ))
         .bearer_auth(String::from(token))
         .send()
         .await

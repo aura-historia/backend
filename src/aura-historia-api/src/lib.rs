@@ -475,9 +475,12 @@ pub fn app(state: AppState) -> Router {
                 )
                 .route("/api/v1/admin/users", get(users::admin_users::search_users))
                 .route(
+                    "/api/v1/admin/users/{user_id}",
+                    get(users::admin_users::get_user),
+                )
+                .route(
                     "/api/v1/users/{user_id}",
-                    get(users::admin_users::get_user)
-                        .patch(users::admin_users::patch_admin_user)
+                    patch(users::admin_users::patch_admin_user)
                         .delete(users::admin_users::delete_admin_user),
                 )
                 .with_state(users),
