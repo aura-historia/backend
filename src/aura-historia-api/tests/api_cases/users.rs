@@ -1,9 +1,14 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
-use api_support::{assert_problem, json_response, seed_access_token_for, seed_user};
+use api_support::{
+    assert_problem, json_response, seed_access_token_for, seed_user, seed_user_with_tier,
+    set_user_search_fields,
+};
 
 use test_api::{IntegrationTestService, aura_integration_test};
+use time::macros::datetime;
 use user_core::access_token::Scope;
+use user_core::tier::UserTier;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_return_current_user_account_when_authenticated() {
@@ -109,19 +114,225 @@ async fn should_search_users_when_actor_is_admin() {
     .await;
 
     let response = reqwest::Client::new()
-        .get(format!("{}/api/v1/users", AURA_API.base_url()))
+        .get(format!("{}/api/v1/admin/users", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to search users API: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
     assert!(
         body["items"]
             .as_array()
             .is_some_and(|items| !items.is_empty())
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_search_users_with_filters_and_sorting_when_actor_is_admin() {
+    let user_id = seed_user_with_tier("USER", UserTier::Pro).await;
+    set_user_search_fields(
+        user_id,
+        "ada@example.test",
+        "Ada",
+        "Lovelace",
+        datetime!(2026-01-01 00:00 UTC),
+        datetime!(2026-02-01 00:00 UTC),
+    )
+    .await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersRead]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .get(format!("{}/api/v1/admin/users", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .query(&[
+            ("query", "ada"),
+            ("email", "example.test"),
+            ("firstName", "Ada"),
+            ("lastName", "Lovelace"),
+            ("tier", "PRO"),
+            ("role", "USER"),
+            ("created[min]", "2026-01-01T00:00:00Z"),
+            ("created[max]", "2026-01-31T23:59:59Z"),
+            ("updated[min]", "2026-02-01T00:00:00Z"),
+            ("updated[max]", "2026-02-28T23:59:59Z"),
+            ("sort", "email"),
+            ("order", "asc"),
+            ("size", "1"),
+        ])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to search filtered users API: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(serde_json::json!(1), body["size"]);
+    assert_eq!(
+        serde_json::json!(user_id.to_string()),
+        body["items"][0]["userId"]
+    );
+    assert_eq!(serde_json::json!("Ada"), body["items"][0]["firstName"]);
+    assert!(body.get("searchAfter").is_none());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_follow_admin_user_search_cursor() {
+    let first_user_id = seed_user_with_tier("USER", UserTier::Free).await;
+    let second_user_id = seed_user_with_tier("USER", UserTier::Free).await;
+    let third_user_id = seed_user_with_tier("USER", UserTier::Free).await;
+    set_user_search_fields(
+        first_user_id,
+        "a@example.test",
+        "A",
+        "User",
+        datetime!(2026-01-01 00:00 UTC),
+        datetime!(2026-01-01 00:00 UTC),
+    )
+    .await;
+    set_user_search_fields(
+        second_user_id,
+        "b@example.test",
+        "B",
+        "User",
+        datetime!(2026-01-02 00:00 UTC),
+        datetime!(2026-01-02 00:00 UTC),
+    )
+    .await;
+    set_user_search_fields(
+        third_user_id,
+        "c@example.test",
+        "C",
+        "User",
+        datetime!(2026-01-03 00:00 UTC),
+        datetime!(2026-01-03 00:00 UTC),
+    )
+    .await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersRead]),
+    )
+    .await;
+    let client = reqwest::Client::new();
+    let first = client
+        .get(format!("{}/api/v1/admin/users", AURA_API.base_url()))
+        .bearer_auth(String::from(token.clone()))
+        .query(&[
+            ("role", "USER"),
+            ("sort", "email"),
+            ("order", "asc"),
+            ("size", "2"),
+        ])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get first admin user page: {error}"));
+    let (first_status, first_body) = json_response(first).await;
+
+    assert_eq!(reqwest::StatusCode::OK, first_status);
+    assert_eq!(Some(2), first_body["items"].as_array().map(Vec::len));
+    let cursor = first_body["searchAfter"]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing admin user search cursor"))
+        .to_owned();
+
+    let second = client
+        .get(format!("{}/api/v1/admin/users", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .query(&[
+            ("role", "USER"),
+            ("sort", "email"),
+            ("order", "asc"),
+            ("size", "2"),
+            ("searchAfter", cursor.as_str()),
+        ])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get second admin user page: {error}"));
+    let (second_status, second_body) = json_response(second).await;
+
+    assert_eq!(reqwest::StatusCode::OK, second_status);
+    assert_eq!(Some(1), second_body["items"].as_array().map(Vec::len));
+    assert_eq!(
+        serde_json::json!(third_user_id.to_string()),
+        second_body["items"][0]["userId"]
+    );
+    assert!(second_body.get("searchAfter").is_none());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_admin_user_search_when_actor_is_not_admin() {
+    let user_id = seed_user("USER").await;
+    let token =
+        seed_access_token_for(user_id, std::collections::HashSet::from([Scope::UsersRead])).await;
+
+    let response = reqwest::Client::new()
+        .get(format!("{}/api/v1/admin/users", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to search users as non-admin: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_invalid_admin_user_search_query() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersRead]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/admin/users?sort=invalid&order=asc",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to validate admin user search query: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_SORT_VALUE",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_remove_legacy_admin_user_search_route() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersRead]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .get(format!("{}/api/v1/users", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call removed admin user search route: {error}"));
+
+    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

@@ -146,7 +146,9 @@ impl From<UserSummary> for AdminUserSummaryData {
 pub(crate) struct CursorData<T, C> {
     pub(crate) items: Vec<T>,
     pub(crate) size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) search_after: Option<C>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) total: Option<u64>,
 }
 

@@ -3397,24 +3397,23 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/users:
+  /api/v1/admin/users:
     get:
       summary: Search users as admin
       description:
         "Searches users across all accounts for authenticated administrators.
 
-        Omitting all filters lists users using the default `email` ascending order.
+        Text filters use case-insensitive substring matching. `query` searches email,
 
-        Supplying any of `query`, `email`, `firstName`, or `lastName`
+        first name, and last name; `email`, `firstName`, and `lastName` restrict the
 
-        switches the default ordering to relevance (`score`) descending unless
+        match to one field. `tier` and `role` filters use exact values.
 
-        both `sort` and `order` are explicitly provided.
+        Results use deterministic keyset pagination. The default sort is `name` ascending;
 
+        override it by providing both `sort` and `order`. Every sort uses `userId` as a
 
-        The generic `query` performs fuzzy matching across `email`, `firstName`,
-
-        `lastName`, and `stripeCustomerId`.
+        deterministic tie-breaker. This response always uses `Cache-Control: no-store`.
 
         "
       operationId: adminSearchUsers
@@ -3422,32 +3421,33 @@ paths:
         - User Account
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       parameters:
         - name: query
           in: query
           required: false
-          description: Optional fuzzy full-text query across email, first name, last name, and Stripe customer ID.
+          description: Optional case-insensitive substring query across email, first name, and last name.
           schema:
             type: string
           example: ada
         - name: email
           in: query
           required: false
-          description: Optional fuzzy email-only search term.
+          description: Optional case-insensitive substring filter for the email address.
           schema:
             type: string
           example: ada@example.com
         - name: firstName
           in: query
           required: false
-          description: Optional fuzzy first-name search term.
+          description: Optional case-insensitive substring filter for the first name.
           schema:
             type: string
           example: Ada
         - name: lastName
           in: query
           required: false
-          description: Optional fuzzy last-name search term.
+          description: Optional case-insensitive substring filter for the last name.
           schema:
             type: string
           example: Lovelace
@@ -3514,9 +3514,10 @@ paths:
         - name: sort
           in: query
           required: false
-          description: "Field used for ordering results.
+          description:
+            "Field used for ordering results. Valid fields are `name`, `email`, `firstName`, `lastName`, `tier`, `role`, `created`, and `updated`.
 
-            To override the backend default ordering, provide both `sort` and `order`.
+            The default is `name` ascending. To override it, provide both `sort` and `order`.
 
             "
           schema:
@@ -3525,9 +3526,8 @@ paths:
         - name: order
           in: query
           required: false
-          description: "Sort direction for `sort`.
-
-            Ignored unless `sort` is also provided.
+          description:
+            "Sort direction for `sort`. Ignored unless `sort` is also provided; when both are absent, results use `name` ascending.
 
             "
           schema:
@@ -3539,22 +3539,23 @@ paths:
         - name: searchAfter
           in: query
           required: false
-          description: "Cursor for keyset pagination.
+          description:
+            "Opaque UUID cursor for keyset pagination. Pass the `searchAfter` string returned by the previous response to fetch the next page.
 
-            Pass the `searchAfter` array returned by the previous response to fetch the next page.
+            Requests may also provide the legacy JSON array form when its final element is the user UUID. The cursor is valid only with the same filters and sort used for the previous page.
 
             "
           schema:
-            type: array
-            items: {}
-          example: '["ada.admin@example.com", "550e8400-e29b-41d4-a716-446655440000"]'
+            type: string
+            format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
         - name: size
           in: query
           required: false
-          description: Maximum number of users the backend should request from OpenSearch for the current page.
+          description: Number of users requested per page. The server clamps values to the inclusive range 1–100.
           schema:
             type: integer
-            minimum: 0
+            minimum: 1
             maximum: 100
             default: 21
           example: 21
@@ -3562,6 +3563,11 @@ paths:
         "200":
           description: Users returned successfully.
           headers:
+            Cache-Control:
+              description: Responses are never stored because this is an administrator-only user read.
+              schema:
+                type: string
+              example: no-store
             Access-Control-Allow-Origin:
               description: CORS header
               schema:
@@ -3577,30 +3583,17 @@ paths:
                     email: ada.admin@example.com
                     firstName: Ada
                     lastName: Lovelace
-                    language: en
-                    currency: EUR
-                    showUnassessedOrSensitiveContent: true
                     tier: ULTIMATE
                     role: ADMIN
                     stripeCustomerId: cus_admin_550e8400e29b41d4a716446655440000
-                    created: "2026-01-10T09:00:00Z"
-                    updated: "2026-04-25T08:00:00Z"
                   - userId: 7f1c2a88-4e18-4c3a-bf0d-6a0fd5e6d901
                     email: grace.user@example.com
                     firstName: Grace
                     lastName: Hopper
-                    language: en
-                    currency: USD
-                    showUnassessedOrSensitiveContent: false
                     tier: PRO
                     role: USER
-                    created: "2026-02-01T12:00:00Z"
-                    updated: "2026-04-20T07:30:00Z"
                 size: 2
-                total: 42
-                searchAfter:
-                  - grace.user@example.com
-                  - 7f1c2a88-4e18-4c3a-bf0d-6a0fd5e6d901
+                searchAfter: 7f1c2a88-4e18-4c3a-bf0d-6a0fd5e6d901
         "400":
           description: Bad request - invalid query parameters.
           content:
@@ -3609,11 +3602,11 @@ paths:
                 $ref: "#/components/schemas/ApiError"
               examples:
                 invalid_query:
-                  summary: Invalid filter payload
+                  summary: Invalid query parameter
                   value:
                     status: 400
                     title: Bad Request
-                    error: BAD_BODY_VALUE
+                    error: BAD_QUERY_PARAMETER_VALUE
                 invalid_sort_field:
                   summary: Invalid sort field
                   value:
@@ -3624,7 +3617,7 @@ paths:
                       field: sort
                       sourceType: query
                     detail:
-                      "Expected any of: 'score', 'email', 'firstName', 'lastName', 'tier', 'role', 'updated',
+                      "Expected any of: 'name', 'email', 'firstName', 'lastName', 'tier', 'role', 'updated',
                       'created'. Got: 'invalid'"
                 invalid_order:
                   summary: Invalid sort order
@@ -3641,22 +3634,23 @@ paths:
                   value:
                     status: 400
                     title: Bad Request
-                    error: INVALID_JSON
+                    error: BAD_QUERY_PARAMETER_VALUE
                     source:
                       field: searchAfter
                       sourceType: query
+                    detail: "searchAfter must contain a user UUID."
                 invalid_size:
                   summary: Invalid page size
                   value:
                     status: 400
                     title: Bad Request
-                    error: BAD_PAGE_SIZE_VALUE
+                    error: BAD_QUERY_PARAMETER_VALUE
                     source:
                       field: size
                       sourceType: query
                     detail: invalid digit found in string
         "401":
-          description: Unauthorized - invalid or missing JWT token.
+          description: Unauthorized - invalid or missing bearer credentials.
           content:
             application/problem+json:
               schema:
@@ -3664,9 +3658,9 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
         "403":
-          description: Forbidden - this endpoint requires the `ADMIN` role.
+          description: Forbidden - this endpoint requires the `ADMIN` role and `users:read` capability when delegated.
           content:
             application/problem+json:
               schema:
@@ -3675,19 +3669,19 @@ paths:
                 status: 403
                 title: Forbidden
                 error: FORBIDDEN
-                detail: This action requires the 'ADMIN' role.
-        "404":
-          description: User not found - the authenticated requester does not have a persisted user record.
+                detail: Operation is not permitted.
+        "503":
+          description: Authentication, authorization, or user search data is temporarily unavailable (`AUTH_TEMPORARILY_UNAVAILABLE` or `USER_TEMPORARILY_UNAVAILABLE`).
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
               example:
-                status: 404
-                title: Not Found
-                error: USER_NOT_FOUND
+                status: 503
+                title: Service Unavailable
+                error: USER_TEMPORARILY_UNAVAILABLE
         "500":
-          description: Internal server error.
+          description: Internal authentication or user search failure (`AUTH_INTERNAL_ERROR` or `USER_INTERNAL_ERROR`).
           content:
             application/problem+json:
               schema:
@@ -3695,7 +3689,7 @@ paths:
               example:
                 status: 500
                 title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
+                error: USER_INTERNAL_ERROR
   /api/v1/users/{userId}:
     get:
       summary: Get a user as admin
@@ -9988,7 +9982,7 @@ components:
     SortUserFieldData:
       type: string
       enum:
-        - score
+        - name
         - email
         - firstName
         - lastName
@@ -9998,7 +9992,7 @@ components:
         - created
       description: "Fields available for sorting admin user-search results:
 
-        - score: Relevance score returned by OpenSearch
+        - name: First name followed by last name
 
         - email: User email address
 
@@ -10013,6 +10007,8 @@ components:
         - updated: Last update timestamp
 
         - created: Creation timestamp
+
+        Every sort uses user ID as a deterministic tie-breaker.
 
         "
       example: email
@@ -10055,9 +10051,11 @@ components:
       description:
         "Cursor-paginated collection of users for the admin search endpoint.
 
-        `searchAfter` is the OpenSearch sort cursor for the next page and typically contains
+        Items are compact admin user summaries. `searchAfter` is a user UUID cursor for
 
-        the primary sort value followed by the `userId` tie-breaker.
+        the next page and is omitted when the current page is terminal. The cursor must
+
+        be sent with the same filters and sort as the page that returned it.
 
         "
       required:
@@ -10067,33 +10065,56 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/AdminUserAccountData"
-          description: Users returned in the current page.
+            $ref: "#/components/schemas/AdminUserSummaryData"
+          description: Admin user summaries returned in the current page.
         size:
           type: integer
-          minimum: 0
-          description: Number of users in the current page.
+          minimum: 1
+          maximum: 100
+          description: Requested page size after server-side clamping.
           example: 21
         searchAfter:
-          type: array
-          items: {}
-          nullable: true
-          description: "Cursor for the next page.
-
-            Present only when more results are available.
-
-            Pass this value back as the `searchAfter` query parameter.
-
-            "
-          example:
-            - grace.user@example.com
-            - 7f1c2a88-4e18-4c3a-bf0d-6a0fd5e6d901
+          type: string
+          format: uuid
+          description: User UUID cursor for the next page, omitted when more results are unavailable.
+          example: 7f1c2a88-4e18-4c3a-bf0d-6a0fd5e6d901
         total:
           type: integer
           minimum: 0
-          nullable: true
-          description: Total number of users matching the current search.
+          description: Total matching users when the reader provides it; omitted otherwise.
           example: 42
+    AdminUserSummaryData:
+      type: object
+      description: Compact user account data returned by the administrator user-search endpoint.
+      required:
+        - userId
+        - email
+        - tier
+        - role
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Unique identifier for the user.
+        email:
+          type: string
+          format: email
+          description: User's email address.
+        firstName:
+          type: string
+          maxLength: 64
+          description: User's first name, omitted when absent.
+        lastName:
+          type: string
+          maxLength: 64
+          description: User's last name, omitted when absent.
+        tier:
+          $ref: "#/components/schemas/UserTierData"
+        role:
+          $ref: "#/components/schemas/UserRoleData"
+        stripeCustomerId:
+          type: string
+          description: Persisted Stripe customer identifier, omitted when absent.
     OwnUserAccountData:
       type: object
       description:

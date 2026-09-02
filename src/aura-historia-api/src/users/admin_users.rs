@@ -8,10 +8,18 @@ use crate::patch_value::{clearable, non_nullable_option, non_nullable_patch};
 use crate::state::UsersState;
 use application::pagination::Cursor;
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use std::collections::HashMap;
+use domain_primitives::query::any_of_query::AnyOfQuery;
+use domain_primitives::query::range_query::RangeQuery;
+use domain_primitives::query::text_query::TextQuery;
+use domain_primitives::sort::{Sort, SortOrder};
+use serde::Deserialize;
+use time::OffsetDateTime;
+use user_core::role::UserRole;
+use user_core::sort_user_field::SortUserField;
+use user_core::tier::UserTier;
 use user_core::user_search::UserSearch;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleCommand;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierCommand;
@@ -20,24 +28,55 @@ use user_service::use_cases::commands::update_user_profile::UpdateUserProfileCom
 use user_service::use_cases::queries::admin_get_user::AdminGetUserRequest;
 use user_service::use_cases::queries::search_users::SearchUsersRequest;
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchUsersQuery {
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    email: Option<String>,
+    #[serde(default)]
+    first_name: Option<String>,
+    #[serde(default)]
+    last_name: Option<String>,
+    #[serde(default)]
+    tier: Vec<String>,
+    #[serde(default)]
+    role: Vec<String>,
+    #[serde(
+        default,
+        with = "domain_primitives::query::range_query::range_rfc3339::option"
+    )]
+    created: Option<RangeQuery<OffsetDateTime>>,
+    #[serde(
+        default,
+        with = "domain_primitives::query::range_query::range_rfc3339::option"
+    )]
+    updated: Option<RangeQuery<OffsetDateTime>>,
+    #[serde(default)]
+    sort: Option<String>,
+    #[serde(default)]
+    order: Option<String>,
+    #[serde(default)]
+    size: Option<String>,
+    #[serde(default)]
+    search_after: Option<String>,
+}
+
 pub async fn search_users(
     State(state): State<UsersState>,
     headers: HeaderMap,
-    Query(_query): Query<HashMap<String, String>>,
+    RawQuery(raw_query): RawQuery,
 ) -> Response {
     let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return *r,
+        Err(r) => return no_store(*r),
     };
-    let request = SearchUsersRequest {
-        search: UserSearch::default(),
-        sort: None,
-        cursor: Some(Cursor {
-            search_after: None,
-            size: 21,
-        }),
+    let query = match parse_search_users_query(raw_query.as_deref()) {
+        Ok(query) => query,
+        Err(error) => return no_store(error.into_response()),
     };
-    match state.search_users.execute(&ctx, request).await {
+    match state.search_users.execute(&ctx, query).await {
         Ok(result) => no_store(
             Json(CursorData {
                 items: result
@@ -51,8 +90,161 @@ pub async fn search_users(
             })
             .into_response(),
         ),
-        Err(error) => ApiError::from(error).into_response(),
+        Err(error) => no_store(ApiError::from(error).into_response()),
     }
+}
+
+fn parse_search_users_query(raw_query: Option<&str>) -> Result<SearchUsersRequest, ApiError> {
+    let query: SearchUsersQuery = serde_qs::Config::new()
+        .use_form_encoding(true)
+        .deserialize_str(raw_query.unwrap_or_default())
+        .map_err(|error| {
+            ApiError::bad_request(crate::error::BAD_QUERY_PARAMETER_VALUE)
+                .with_detail(error.to_string())
+        })?;
+
+    let search = UserSearch {
+        query: parse_text_query(query.query, "query")?,
+        email_query: parse_text_query(query.email, "email")?,
+        first_name_query: parse_text_query(query.first_name, "firstName")?,
+        last_name_query: parse_text_query(query.last_name, "lastName")?,
+        tier_query: parse_user_tiers(query.tier)?,
+        role_query: parse_user_roles(query.role)?,
+        created: query.created,
+        updated: query.updated,
+    };
+    let sort = parse_sort(query.sort.as_deref(), query.order.as_deref())?;
+    let cursor = parse_cursor(query.size.as_deref(), query.search_after.as_deref())?;
+
+    Ok(SearchUsersRequest {
+        search,
+        sort,
+        cursor,
+    })
+}
+
+fn parse_text_query(
+    value: Option<String>,
+    field: &'static str,
+) -> Result<Option<TextQuery<0>>, ApiError> {
+    value
+        .map(|value| TextQuery::<0>::try_from(value).map_err(|error| bad_query(field, error)))
+        .transpose()
+}
+
+fn parse_user_tiers(values: Vec<String>) -> Result<AnyOfQuery<UserTier>, ApiError> {
+    values
+        .into_iter()
+        .map(|value| {
+            UserTier::from_code(&value).ok_or_else(|| {
+                bad_query(
+                    "tier",
+                    format!("Expected any of: 'FREE', 'PRO', 'ULTIMATE'. Got: '{value}'"),
+                )
+            })
+        })
+        .collect()
+}
+
+fn parse_user_roles(values: Vec<String>) -> Result<AnyOfQuery<UserRole>, ApiError> {
+    values
+        .into_iter()
+        .map(|value| {
+            UserRole::from_code(&value).ok_or_else(|| {
+                bad_query(
+                    "role",
+                    format!("Expected any of: 'USER', 'ADMIN'. Got: '{value}'"),
+                )
+            })
+        })
+        .collect()
+}
+
+fn parse_sort(
+    sort: Option<&str>,
+    order: Option<&str>,
+) -> Result<Option<Sort<SortUserField>>, ApiError> {
+    match (sort, order) {
+        (Some(sort), Some(order)) => {
+            let sort = parse_sort_field(sort)?;
+            let order = SortOrder::try_from(order).map_err(|detail| {
+                ApiError::bad_request(crate::error::BAD_ORDER_VALUE)
+                    .with_query_field("order")
+                    .with_detail(detail)
+            })?;
+            Ok(Some(Sort { sort, order }))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn parse_sort_field(value: &str) -> Result<SortUserField, ApiError> {
+    match value {
+        "name" => Ok(SortUserField::Name),
+        "email" => Ok(SortUserField::Email),
+        "firstName" => Ok(SortUserField::FirstName),
+        "lastName" => Ok(SortUserField::LastName),
+        "tier" => Ok(SortUserField::Tier),
+        "role" => Ok(SortUserField::Role),
+        "created" => Ok(SortUserField::Created),
+        "updated" => Ok(SortUserField::Updated),
+        value => Err(ApiError::bad_request(crate::error::BAD_SORT_VALUE)
+            .with_query_field("sort")
+            .with_detail(format!(
+                "Expected any of: 'name', 'email', 'firstName', 'lastName', 'tier', 'role', 'updated', 'created'. Got: '{value}'"
+            ))),
+    }
+}
+
+fn parse_cursor(
+    size: Option<&str>,
+    search_after: Option<&str>,
+) -> Result<Option<Cursor<user_core::user_id::UserId>>, ApiError> {
+    let size = size
+        .map(|value| value.parse::<u64>().map(|size| size.clamp(1, 100)))
+        .transpose()
+        .map_err(|error| bad_query("size", error))?;
+    let search_after = search_after.map(parse_search_after).transpose()?;
+
+    if size.is_some() || search_after.is_some() {
+        Ok(Some(Cursor {
+            size: size.unwrap_or_else(|| Cursor::<user_core::user_id::UserId>::default().size),
+            search_after,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+fn parse_search_after(value: &str) -> Result<user_core::user_id::UserId, ApiError> {
+    let candidate = match serde_json::from_str::<serde_json::Value>(value) {
+        Ok(serde_json::Value::String(value)) => value,
+        Ok(serde_json::Value::Array(values)) => values
+            .last()
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| bad_query("searchAfter", "searchAfter must contain a user UUID."))?,
+        Ok(_) => {
+            return Err(bad_query(
+                "searchAfter",
+                "searchAfter must contain a user UUID.",
+            ));
+        }
+        Err(_) => value.to_owned(),
+    };
+
+    user_core::user_id::UserId::try_from(candidate.as_str()).map_err(|error| {
+        bad_query(
+            "searchAfter",
+            format!("searchAfter must contain a user UUID: {error}"),
+        )
+    })
+}
+
+fn bad_query(field: &'static str, detail: impl std::fmt::Display) -> ApiError {
+    ApiError::bad_request(crate::error::BAD_QUERY_PARAMETER_VALUE)
+        .with_query_field(field)
+        .with_detail(detail.to_string())
 }
 
 pub async fn get_user(
@@ -223,5 +415,99 @@ pub async fn delete_admin_user(
     {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => ApiError::from(error).into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use domain_primitives::sort::SortOrder;
+    use time::macros::datetime;
+
+    #[test]
+    fn should_map_user_search_query_to_service_request() -> Result<(), ApiError> {
+        let request = parse_search_users_query(Some(
+            "query=ada&email=example.com&firstName=Ada&lastName=Lovelace&tier=PRO&tier=ULTIMATE&role=ADMIN&created%5Bmin%5D=2026-01-01T00%3A00%3A00Z&created%5Bmax%5D=2026-12-31T23%3A59%3A59Z&updated%5Bmin%5D=2026-02-01T00%3A00%3A00Z&sort=email&order=desc&size=200&searchAfter=550e8400-e29b-41d4-a716-446655440000",
+        ))?;
+
+        assert_eq!(Some("ada"), request.search.query.as_deref());
+        assert_eq!(Some("example.com"), request.search.email_query.as_deref());
+        assert_eq!(Some("Ada"), request.search.first_name_query.as_deref());
+        assert_eq!(Some("Lovelace"), request.search.last_name_query.as_deref());
+        assert_eq!(
+            std::collections::HashSet::from([UserTier::Pro, UserTier::Ultimate]),
+            request.search.tier_query.into()
+        );
+        assert_eq!(
+            std::collections::HashSet::from([UserRole::Admin]),
+            request.search.role_query.into()
+        );
+        assert_eq!(
+            Some(RangeQuery {
+                min: Some(datetime!(2026-01-01 00:00 UTC)),
+                max: Some(datetime!(2026-12-31 23:59:59 UTC)),
+            }),
+            request.search.created
+        );
+        assert_eq!(
+            Some(RangeQuery {
+                min: Some(datetime!(2026-02-01 00:00 UTC)),
+                max: None,
+            }),
+            request.search.updated
+        );
+        assert_eq!(
+            Some(Sort {
+                sort: SortUserField::Email,
+                order: SortOrder::Desc,
+            }),
+            request.sort
+        );
+        let cursor_user_id = parse_search_after("550e8400-e29b-41d4-a716-446655440000")?;
+        assert_eq!(
+            Some(Cursor {
+                size: 100,
+                search_after: Some(cursor_user_id),
+            }),
+            request.cursor
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_accept_legacy_json_array_user_cursor() -> Result<(), ApiError> {
+        let request = parse_search_users_query(Some(
+            "searchAfter=%5B%22email%22%2C%22550e8400-e29b-41d4-a716-446655440000%22%5D",
+        ))?;
+
+        assert!(request.search.query.is_none());
+        assert_eq!(21, request.cursor.as_ref().map_or(0, |cursor| cursor.size));
+        assert!(
+            request
+                .cursor
+                .is_some_and(|cursor| cursor.search_after.is_some())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_clamp_user_search_page_size() -> Result<(), ApiError> {
+        let request = parse_search_users_query(Some("size=0"))?;
+        assert_eq!(1, request.cursor.as_ref().map_or(0, |cursor| cursor.size));
+
+        let request = parse_search_users_query(Some("size=1000"))?;
+        assert_eq!(100, request.cursor.as_ref().map_or(0, |cursor| cursor.size));
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_invalid_user_search_query_values() {
+        assert!(parse_search_users_query(Some("tier=pro")).is_err());
+        assert!(parse_search_users_query(Some("role=administrator")).is_err());
+        assert!(parse_search_users_query(Some("sort=invalid&order=asc")).is_err());
+        assert!(parse_search_users_query(Some("sort=email&order=sideways")).is_err());
+        assert!(parse_search_users_query(Some("size=not-a-number")).is_err());
+        assert!(parse_search_users_query(Some("searchAfter=not-a-uuid")).is_err());
+        assert!(parse_search_users_query(Some("created[min]=not-a-timestamp")).is_err());
     }
 }
