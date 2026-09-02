@@ -22,7 +22,6 @@ notification-service = { workspace = true }
 product-listing-core = { workspace = true }
 search-filter-core = { workspace = true }
 
-serde = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 user-core = { workspace = true }

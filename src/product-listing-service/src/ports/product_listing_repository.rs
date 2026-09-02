@@ -9,7 +9,7 @@ use product_listing_core::{
     product_listing_id::{ProductListingId, ProductListingKey},
 };
 
-domain_primitives::version_newtype!(ProductListingStorageVersion);
+domain_primitives::version_newtype!(ProductListingStorageVersion, no_serde);
 
 pub type VersionedProductListing = Versioned<ProductListing, ProductListingStorageVersion>;
 

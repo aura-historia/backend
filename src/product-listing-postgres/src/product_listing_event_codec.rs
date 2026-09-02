@@ -40,6 +40,10 @@ pub(crate) enum ProductListingEventCodecError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("ProductListing event payload is missing field {field}")]
+    MissingField { field: String },
+    #[error("ProductListing event payload has unknown field {field}")]
+    UnknownField { field: String },
     #[error("ProductListing event field {field} is invalid")]
     InvalidField {
         field: &'static str,
@@ -110,6 +114,7 @@ fn decode_domain_payload_with_group(
 
     match event_kind {
         ProductListingEventType::Discovered => {
+            validate_discovered_shape(payload)?;
             serde_json::from_value::<DiscoveredDto>(payload.clone())
                 .map_err(|source| ProductListingEventCodecError::MalformedPayload { source })
                 .and_then(TryInto::try_into)
@@ -909,7 +914,11 @@ fn parse_price_change(
 }
 
 fn parse_url(value: &str, field: &'static str) -> Result<Url, ProductListingEventCodecError> {
-    Url::parse(value).map_err(|source| invalid_field_source(field, source))
+    let url = Url::parse(value).map_err(|source| invalid_field_source(field, source))?;
+    if url.as_str() != value {
+        return Err(ProductListingEventCodecError::NonCanonicalField { field });
+    }
+    Ok(url)
 }
 
 fn format_timestamp(
@@ -932,6 +941,56 @@ fn parse_timestamp(
         return Err(ProductListingEventCodecError::NonCanonicalField { field });
     }
     Ok(timestamp)
+}
+
+fn validate_discovered_shape(value: &Value) -> Result<(), ProductListingEventCodecError> {
+    let object = required_object(value, "payload")?;
+    require_exact_keys(
+        object,
+        &[
+            "listingSourceId",
+            "sourceListingId",
+            "title",
+            "description",
+            "pricing",
+            "availability",
+            "url",
+            "imageCount",
+            "auction",
+        ],
+        "payload",
+    )?;
+    validate_localized_shape(
+        object
+            .get("title")
+            .ok_or_else(|| missing_field("payload.title"))?,
+        "title",
+    )?;
+    validate_localized_shape(
+        object
+            .get("description")
+            .ok_or_else(|| missing_field("payload.description"))?,
+        "description",
+    )?;
+
+    let pricing = required_object_member(object, "pricing", "payload")?;
+    require_exact_keys(
+        pricing,
+        &["price", "priceEstimateMin", "priceEstimateMax"],
+        "pricing",
+    )?;
+    for field in ["price", "priceEstimateMin", "priceEstimateMax"] {
+        validate_price_shape(
+            pricing
+                .get(field)
+                .ok_or_else(|| missing_field(format!("pricing.{field}")))?,
+            "pricing",
+        )?;
+    }
+
+    let auction = required_object_member(object, "auction", "payload")?;
+    require_exact_keys(auction, &["start", "end"], "auction")?;
+    Ok(())
 }
 
 fn validate_changed_shape(value: &Value) -> Result<(), ProductListingEventCodecError> {
@@ -958,7 +1017,7 @@ fn validate_changed_shape(value: &Value) -> Result<(), ProductListingEventCodecE
                 for (pricing_field, pricing_change) in pricing {
                     match pricing_field.as_str() {
                         "price" | "priceEstimateMin" | "priceEstimateMax" => {
-                            required_object(pricing_change, "pricing change")?;
+                            validate_price_change_shape(pricing_change, "pricing change")?;
                         }
                         _ => {
                             return Err(invalid_field(
@@ -969,9 +1028,28 @@ fn validate_changed_shape(value: &Value) -> Result<(), ProductListingEventCodecE
                     }
                 }
             }
-            "availability" | "url" | "images" | "auction" | "saleObservation" => {
-                required_object(raw, "changed dimension").map(|_| ())?;
+            "availability" | "url" => {
+                validate_value_change_shape(raw, "changed dimension")?;
             }
+            "images" => {
+                let images = required_object(raw, "images")?;
+                require_exact_keys(images, &["previousCount", "currentCount"], "images")?;
+            }
+            "auction" => {
+                let change = required_object(raw, "auction")?;
+                require_exact_keys(change, &["previous", "current"], "auction change")?;
+                let previous = change
+                    .get("previous")
+                    .ok_or_else(|| missing_field("auction.previous"))?;
+                let previous = required_object(previous, "auction.previous")?;
+                require_exact_keys(previous, &["start", "end"], "auction.previous")?;
+                let current = change
+                    .get("current")
+                    .ok_or_else(|| missing_field("auction.current"))?;
+                let current = required_object(current, "auction.current")?;
+                require_exact_keys(current, &["start", "end"], "auction.current")?;
+            }
+            "saleObservation" => validate_sale_observation_shape(raw)?,
             "lifecycle" => validate_lifecycle_shape(raw)?,
             _ => {
                 return Err(invalid_field("payload", "unknown changed event dimension"));
@@ -987,36 +1065,124 @@ fn validate_lifecycle_shape(value: &Value) -> Result<(), ProductListingEventCode
         .get("transition")
         .and_then(Value::as_str)
         .ok_or_else(|| invalid_field("lifecycle.transition", "transition must be a string"))?;
-    match transition {
-        "WITHDRAWN" => {
-            let previous = object.get("previousAvailability").ok_or_else(|| {
-                invalid_field(
-                    "lifecycle.previousAvailability",
-                    "withdrawal must include previous availability",
-                )
-            })?;
-            if !previous.is_null() && !previous.is_string() {
-                return Err(invalid_field(
-                    "lifecycle.previousAvailability",
-                    "previous availability must be nullable text",
-                ));
-            }
-        }
-        "RESTORED" if !object.contains_key("previousAvailability") => {}
-        "RESTORED" => {
-            return Err(invalid_field(
-                "lifecycle.previousAvailability",
-                "restore must not include previous availability",
-            ));
-        }
+    let expected = match transition {
+        "WITHDRAWN" => &["transition", "previousAvailability"][..],
+        "RESTORED" => &["transition"][..],
         _ => {
             return Err(invalid_field(
                 "lifecycle.transition",
                 "unknown lifecycle transition",
             ));
         }
+    };
+    require_exact_keys(object, expected, "lifecycle")?;
+    if transition == "WITHDRAWN" {
+        let previous = object
+            .get("previousAvailability")
+            .ok_or_else(|| missing_field("lifecycle.previousAvailability"))?;
+        if !previous.is_null() && !previous.is_string() {
+            return Err(invalid_field(
+                "lifecycle.previousAvailability",
+                "previous availability must be nullable text",
+            ));
+        }
     }
     Ok(())
+}
+
+fn validate_value_change_shape(
+    value: &Value,
+    field: &'static str,
+) -> Result<(), ProductListingEventCodecError> {
+    let object = required_object(value, field)?;
+    require_exact_keys(object, &["previous", "current"], field)
+}
+
+fn validate_price_change_shape(
+    value: &Value,
+    field: &'static str,
+) -> Result<(), ProductListingEventCodecError> {
+    let object = required_object(value, field)?;
+    require_exact_keys(object, &["previous", "current"], field)?;
+    for endpoint in ["previous", "current"] {
+        validate_price_shape(
+            object
+                .get(endpoint)
+                .ok_or_else(|| missing_field(format!("{field}.{endpoint}")))?,
+            field,
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_price_shape(
+    value: &Value,
+    field: &'static str,
+) -> Result<(), ProductListingEventCodecError> {
+    if value.is_null() {
+        return Ok(());
+    }
+    let object = required_object(value, field)?;
+    require_exact_keys(object, &["amount", "currency"], field)
+}
+
+fn validate_localized_shape(
+    value: &Value,
+    field: &'static str,
+) -> Result<(), ProductListingEventCodecError> {
+    if value.is_null() {
+        return Ok(());
+    }
+    let object = required_object(value, field)?;
+    require_exact_keys(object, &["language", "text"], field)
+}
+
+fn validate_sale_observation_shape(value: &Value) -> Result<(), ProductListingEventCodecError> {
+    let object = required_object(value, "saleObservation")?;
+    require_exact_keys(object, &["transition", "observation"], "saleObservation")?;
+    let observation = required_object_member(object, "observation", "saleObservation")?;
+    require_exact_keys(
+        observation,
+        &["observedAt", "fxRateId"],
+        "saleObservation.observation",
+    )
+}
+
+fn required_object_member<'a>(
+    object: &'a serde_json::Map<String, Value>,
+    field: &str,
+    context: &str,
+) -> Result<&'a serde_json::Map<String, Value>, ProductListingEventCodecError> {
+    let value = object
+        .get(field)
+        .ok_or_else(|| missing_field(format!("{context}.{field}")))?;
+    required_object(value, "nested object")
+}
+
+fn require_exact_keys(
+    object: &serde_json::Map<String, Value>,
+    expected: &[&str],
+    context: &str,
+) -> Result<(), ProductListingEventCodecError> {
+    for field in expected {
+        if !object.contains_key(*field) {
+            return Err(missing_field(format!("{context}.{field}")));
+        }
+    }
+    for field in object.keys() {
+        if !expected.contains(&field.as_str()) {
+            return Err(ProductListingEventCodecError::UnknownField {
+                field: format!("{context}.{field}"),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn missing_field(field: impl Into<String>) -> ProductListingEventCodecError {
+    ProductListingEventCodecError::MissingField {
+        field: field.into(),
+    }
 }
 
 fn required_object<'a>(
@@ -1246,6 +1412,238 @@ mod tests {
                 field: "title.text"
             })
         ));
+    }
+
+    #[test]
+    fn should_reject_product_listing_v1_negative_contract_matrix() {
+        let mut unknown_discovery = canonical_discovery_value();
+        unknown_discovery["unexpected"] = json!(true);
+
+        let mut omitted_title = canonical_discovery_value();
+        if let Some(object) = omitted_title.as_object_mut() {
+            object.remove("title");
+        }
+
+        let mut omitted_price = canonical_discovery_value();
+        if let Some(object) = omitted_price
+            .get_mut("pricing")
+            .and_then(Value::as_object_mut)
+        {
+            object.remove("price");
+        }
+
+        let mut omitted_auction_start = canonical_discovery_value();
+        if let Some(object) = omitted_auction_start
+            .get_mut("auction")
+            .and_then(Value::as_object_mut)
+        {
+            object.remove("start");
+        }
+
+        let cases = vec![
+            (
+                "unknown discovery field",
+                "PRODUCT_LISTING_DISCOVERED",
+                unknown_discovery,
+            ),
+            (
+                "omitted nullable discovery field",
+                "PRODUCT_LISTING_DISCOVERED",
+                omitted_title,
+            ),
+            (
+                "omitted pricing field",
+                "PRODUCT_LISTING_DISCOVERED",
+                omitted_price,
+            ),
+            (
+                "omitted auction field",
+                "PRODUCT_LISTING_DISCOVERED",
+                omitted_auction_start,
+            ),
+            ("unknown localized field", "PRODUCT_LISTING_DISCOVERED", {
+                let mut value = canonical_discovery_value();
+                value["title"] = json!({
+                    "language": "en",
+                    "text": "Codec title",
+                    "unexpected": true
+                });
+                value
+            }),
+            (
+                "noncanonical discovery URL",
+                "PRODUCT_LISTING_DISCOVERED",
+                {
+                    let mut value = canonical_discovery_value();
+                    value["url"] = json!("https://example.com:443/product");
+                    value
+                },
+            ),
+            (
+                "unparsable changed URL",
+                "PRODUCT_LISTING_CHANGED",
+                json!({
+                    "url": {"previous": "not a URL", "current": "https://example.com/new"}
+                }),
+            ),
+            (
+                "noncanonical changed URL",
+                "PRODUCT_LISTING_CHANGED",
+                json!({
+                    "url": {
+                        "previous": "https://example.com/old",
+                        "current": "https://example.com:443/new"
+                    }
+                }),
+            ),
+            (
+                "unknown image field",
+                "PRODUCT_LISTING_CHANGED",
+                json!({"images": {"previousCount": 1, "currentCount": 2, "unexpected": true}}),
+            ),
+            (
+                "unknown value change field",
+                "PRODUCT_LISTING_CHANGED",
+                json!({
+                    "availability": {"previous": null, "current": "AVAILABLE", "unexpected": true}
+                }),
+            ),
+            (
+                "unknown price field",
+                "PRODUCT_LISTING_CHANGED",
+                json!({
+                    "pricing": {
+                        "price": {
+                            "previous": {"amount": 1, "currency": "EUR", "unexpected": true},
+                            "current": null
+                        }
+                    }
+                }),
+            ),
+            (
+                "invalid auction timestamp",
+                "PRODUCT_LISTING_CHANGED",
+                json!({
+                    "auction": {
+                        "previous": {"start": "not a timestamp", "end": null},
+                        "current": {"start": null, "end": null}
+                    }
+                }),
+            ),
+            (
+                "auction start after end",
+                "PRODUCT_LISTING_CHANGED",
+                json!({
+                    "auction": {
+                        "previous": {
+                            "start": "2025-01-02T00:00:00Z",
+                            "end": "2025-01-01T00:00:00Z"
+                        },
+                        "current": {"start": null, "end": null}
+                    }
+                }),
+            ),
+            (
+                "invalid sale observation timestamp",
+                "PRODUCT_LISTING_CHANGED",
+                json!({
+                    "saleObservation": {
+                        "transition": "OBSERVED",
+                        "observation": {"observedAt": "yesterday", "fxRateId": "10000000-0000-0000-0000-000000000001"}
+                    }
+                }),
+            ),
+            (
+                "invalid sale observation FX ID",
+                "PRODUCT_LISTING_CHANGED",
+                json!({
+                    "saleObservation": {
+                        "transition": "OBSERVED",
+                        "observation": {"observedAt": "1970-01-01T00:00:00Z", "fxRateId": "not-a-uuid"}
+                    }
+                }),
+            ),
+            (
+                "withdrawal with current availability",
+                "PRODUCT_LISTING_CHANGED",
+                json!({
+                    "availability": {"previous": null, "current": "AVAILABLE"},
+                    "lifecycle": {"transition": "WITHDRAWN", "previousAvailability": null}
+                }),
+            ),
+            (
+                "restoration with previous availability",
+                "PRODUCT_LISTING_CHANGED",
+                json!({
+                    "availability": {"previous": "AVAILABLE", "current": null},
+                    "lifecycle": {"transition": "RESTORED"}
+                }),
+            ),
+        ];
+
+        for (name, event_type, payload) in cases {
+            assert!(decode(event_type, 1, &payload).is_err(), "{name}");
+        }
+    }
+
+    #[test]
+    fn should_accept_product_listing_v1_positive_contract_matrix() {
+        let valid_changed = json!({
+            "pricing": {"price": {"previous": null, "current": {"amount": 10, "currency": "EUR"}}},
+            "availability": {"previous": null, "current": "AVAILABLE"},
+            "images": {"previousCount": 1, "currentCount": 1}
+        });
+        let withdrawal = json!({
+            "availability": {"previous": "AVAILABLE", "current": null},
+            "lifecycle": {"transition": "WITHDRAWN", "previousAvailability": "AVAILABLE"}
+        });
+        let restoration = json!({
+            "availability": {"previous": null, "current": "AVAILABLE"},
+            "lifecycle": {"transition": "RESTORED"}
+        });
+
+        for payload in [
+            canonical_discovery_value(),
+            json!({"availability": {"previous": null, "current": "AVAILABLE"}}),
+            json!({"images": {"previousCount": 2, "currentCount": 2}}),
+            valid_changed,
+            withdrawal,
+            restoration,
+        ] {
+            let event_type = if payload.get("listingSourceId").is_some() {
+                "PRODUCT_LISTING_DISCOVERED"
+            } else {
+                "PRODUCT_LISTING_CHANGED"
+            };
+            assert!(decode(event_type, 1, &payload).is_ok(), "{payload}");
+        }
+
+        assert!(matches!(
+            decode_persisted(
+                "ENRICHMENT_EMBEDDED",
+                "ENRICHMENT",
+                1,
+                &json!({"sourceEventId": "10000000-0000-0000-0000-000000000001"}),
+            ),
+            Ok(ProductListingPersistedEvent::Embedded)
+        ));
+        assert!(matches!(
+            decode_persisted(
+                "ENRICHMENT_TRANSLATED_TITLES",
+                "ENRICHMENT",
+                1,
+                &json!({
+                    "sourceEventId": "10000000-0000-0000-0000-000000000001",
+                    "sourceLanguage": "de",
+                    "targetLanguages": ["en"]
+                }),
+            ),
+            Ok(ProductListingPersistedEvent::TranslatedTitles)
+        ));
+    }
+
+    fn canonical_discovery_value() -> Value {
+        encode(&discovered_payload()).unwrap_or_else(|error| panic!("encode: {error}"))
     }
 
     fn discovered_payload() -> ProductListingEventPayload {

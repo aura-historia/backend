@@ -42,6 +42,8 @@ user-core = { workspace = true }
 user-postgres = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+time = { workspace = true, features = ["formatting", "parsing"] }
+uuid = { workspace = true }
 
 sqlx = { workspace = true }
 thiserror = { workspace = true }
@@ -54,7 +56,5 @@ rstest = { workspace = true }
 listing-source-core = { workspace = true }
 search-filter-core = { workspace = true }
 indexmap = { workspace = true }
-time = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["opensearch", "postgres", "sequin", "ses"] }
-uuid = { workspace = true }

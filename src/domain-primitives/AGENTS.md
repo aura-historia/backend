@@ -6,7 +6,7 @@
 
 ## Core Design
 
-- Own `ChangeOutcome`, generic events, version wrappers, reusable UUID/string newtype support, slug IDs/macros, and generic query values.
+- Own `ChangeOutcome`, generic events, version wrappers (Serde-capable or internal `no_serde`), reusable UUID/string newtype support, slug IDs/macros, and generic query values.
 - No entity IDs, business rules, transport, persistence, SDKs, or runtime config.
 - `test-data` is explicit. Macro callers need their own matching feature and `fake` dependency.
 

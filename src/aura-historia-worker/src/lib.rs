@@ -1445,6 +1445,37 @@ mod tests {
                     }
                 ]
             }"#,
+            r#"{
+                "changes": [
+                    {
+                        "table": "product_listing_events",
+                        "operation": "insert",
+                        "record": {
+                            "event_id": "40000000-0000-0000-0000-000000000001",
+                            "product_listing_id": "30000000-0000-0000-0000-000000000001",
+                            "event_type": "PRODUCT_LISTING_DISCOVERED",
+                            "event_group": "DOMAIN",
+                            "event_type_schema_version": 1,
+                            "payload": {
+                                "listingSourceId": "10000000-0000-0000-0000-000000000001",
+                                "sourceListingId": "fixture-source-id",
+                                "title": null,
+                                "description": null,
+                                "pricing": {
+                                    "price": null,
+                                    "priceEstimateMin": null,
+                                    "priceEstimateMax": null
+                                },
+                                "availability": null,
+                                "url": "https://example.test/product",
+                                "imageCount": 0,
+                                "auction": {"start": null, "end": null},
+                                "unexpected": true
+                            }
+                        }
+                    }
+                ]
+            }"#,
         ] {
             let request_text = format!(
                 "POST {SEQUIN_CDC_PATH} HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",

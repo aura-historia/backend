@@ -92,6 +92,24 @@ impl ProductListingEventPayload {
             sale_observation: sale_observation_change(state.sale_observation)?,
         };
 
+        match (&changed.lifecycle, &changed.availability) {
+            (Some(ProductListingLifecycleChange::Withdrawn { .. }), Some(availability))
+                if availability.current().is_some() =>
+            {
+                return Err(
+                    RehydrateProductListingEventError::WithdrawnEventHasCurrentAvailability,
+                );
+            }
+            (Some(ProductListingLifecycleChange::Restored), Some(availability))
+                if availability.previous().is_some() =>
+            {
+                return Err(
+                    RehydrateProductListingEventError::RestoredEventHasPreviousAvailability,
+                );
+            }
+            _ => {}
+        }
+
         if changed.is_empty() {
             return Err(RehydrateProductListingEventError::EmptyChanged);
         }
@@ -170,6 +188,10 @@ pub enum RehydrateProductListingEventError {
     EqualValues { field: &'static str },
     #[error("ProductListing event auction start is after its end")]
     AuctionStartAfterEnd,
+    #[error("withdrawal event has current availability")]
+    WithdrawnEventHasCurrentAvailability,
+    #[error("restoration event has previous availability")]
+    RestoredEventHasPreviousAvailability,
     #[error("ProductListing sale observation correction is unsupported")]
     SaleObservationCorrectionUnsupported,
 }
@@ -643,6 +665,76 @@ mod tests {
                 sale_observation: None,
             })
         );
+    }
+
+    #[test]
+    fn should_reject_lifecycle_availability_composites_that_violate_final_state() {
+        let withdrawn =
+            ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                price: None,
+                price_estimate_min: None,
+                price_estimate_max: None,
+                availability: Some((None, Some(ListingAvailability::Available))),
+                url: None,
+                images: None,
+                auction: None,
+                lifecycle: Some(ProductListingLifecycleChange::Withdrawn {
+                    previous_availability: None,
+                }),
+                sale_observation: None,
+            });
+        assert_eq!(
+            Err(RehydrateProductListingEventError::WithdrawnEventHasCurrentAvailability),
+            withdrawn
+        );
+
+        let restored =
+            ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                price: None,
+                price_estimate_min: None,
+                price_estimate_max: None,
+                availability: Some((Some(ListingAvailability::Available), None)),
+                url: None,
+                images: None,
+                auction: None,
+                lifecycle: Some(ProductListingLifecycleChange::Restored),
+                sale_observation: None,
+            });
+        assert_eq!(
+            Err(RehydrateProductListingEventError::RestoredEventHasPreviousAvailability),
+            restored
+        );
+    }
+
+    #[test]
+    fn should_accept_valid_lifecycle_availability_composites() {
+        for (availability, lifecycle) in [
+            (
+                Some((Some(ListingAvailability::Available), None)),
+                ProductListingLifecycleChange::Withdrawn {
+                    previous_availability: Some(ListingAvailability::Available),
+                },
+            ),
+            (
+                Some((None, Some(ListingAvailability::Available))),
+                ProductListingLifecycleChange::Restored,
+            ),
+        ] {
+            assert!(
+                ProductListingEventPayload::rehydrate_changed(RehydratedProductListingChanged {
+                    price: None,
+                    price_estimate_min: None,
+                    price_estimate_max: None,
+                    availability,
+                    url: None,
+                    images: None,
+                    auction: None,
+                    lifecycle: Some(lifecycle),
+                    sale_observation: None,
+                })
+                .is_ok()
+            );
+        }
     }
 
     #[test]

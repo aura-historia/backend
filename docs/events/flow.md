@@ -107,7 +107,7 @@ Minimum ingest steps:
 1. Receive CDC envelope.
 2. Validate source/table/operation.
 3. For `product_listing_events`, parse typed `event_id` and `product_listing_id`; require the event type, group, positive schema version, and a valid v1 payload. Accept only v1 pairs: `DOMAIN`/`PRODUCT_LISTING_DISCOVERED`, `DOMAIN`/`PRODUCT_LISTING_CHANGED`, `ENRICHMENT`/`ENRICHMENT_EMBEDDED`, and `ENRICHMENT`/`ENRICHMENT_TRANSLATED_TITLES`.
-4. Validate discovery required fields and changed dimensions, including non-empty changes, complete previous/current endpoints, and equal-count image replacement. Reject malformed IDs, payloads, and unsupported type/group/version pairs before fanout, so Sequin retries them.
+4. Validate discovery required fields and changed dimensions, including exact fixed-object shapes, canonical primitive values, non-empty changes, complete previous/current endpoints, and equal-count image replacement. Reject malformed IDs, payloads, and unsupported type/group/version pairs before fanout, so Sequin retries.
 5. Derive the routing union once, then enqueue only typed ProductListing IDs and event IDs.
 6. Derive domain-first `idempotency_key` and `ordering_key`.
 7. Map change to one or more domain jobs.

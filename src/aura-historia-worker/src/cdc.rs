@@ -5,12 +5,16 @@ use std::str::FromStr;
 use domain_primitives::event_id::EventId;
 use localization::Language;
 use product_listing_core::{
-    listing_availability::ListingAvailability, product_listing_id::ProductListingId,
+    description::Description, listing_availability::ListingAvailability,
+    product_listing_id::ProductListingId, source_listing_id::SourceListingId, title::Title,
 };
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
+use url::Url;
+use uuid::Uuid;
 
 use crate::{
     InMemoryQueueReceiver, InMemoryQueueSender, QueueConfig, QueueConfigError, in_memory_queue,
@@ -713,12 +717,18 @@ fn product_event_routing_facts(
     change: &CdcChange,
 ) -> Result<ProductListingEventRoutingFacts, CdcRouteError> {
     let row = required_row(change)?;
-    let event_id = EventId::try_from(required_product_event_string(row, "event_id")?.as_str())
-        .map_err(|_| CdcRouteError::InvalidEventId)?;
-    let product_listing_id = ProductListingId::try_from(
-        required_product_event_string(row, "product_listing_id")?.as_str(),
-    )
-    .map_err(|_| CdcRouteError::InvalidProductListingId)?;
+    let event_id_value = required_product_event_string(row, "event_id")?;
+    let event_id =
+        EventId::try_from(event_id_value.as_str()).map_err(|_| CdcRouteError::InvalidEventId)?;
+    if event_id.to_string() != event_id_value {
+        return Err(CdcRouteError::InvalidEventId);
+    }
+    let product_listing_id_value = required_product_event_string(row, "product_listing_id")?;
+    let product_listing_id = ProductListingId::try_from(product_listing_id_value.as_str())
+        .map_err(|_| CdcRouteError::InvalidProductListingId)?;
+    if product_listing_id.to_string() != product_listing_id_value {
+        return Err(CdcRouteError::InvalidProductListingId);
+    }
     let event_type = required_product_event_string(row, "event_type")?;
     let event_group = required_product_event_string(row, "event_group")?;
     let schema_version = required_integer(row, "event_type_schema_version")?;
@@ -842,45 +852,51 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
     Ok(jobs)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProductListingLifecycleRoutingChange {
+    Withdrawn,
+    Restored,
+}
+
 fn validate_discovered_payload(value: &Value) -> Result<(), CdcRouteError> {
     let object = required_payload_object(value)?;
-    for field in [
-        "listingSourceId",
-        "sourceListingId",
-        "title",
-        "description",
-        "pricing",
-        "availability",
-        "url",
-        "imageCount",
-        "auction",
-    ] {
-        if !object.contains_key(field) {
-            return Err(CdcRouteError::MissingColumn(field));
-        }
-    }
-    require_string(object, "listingSourceId")?;
-    require_string(object, "sourceListingId")?;
-    require_nullable_localized(object, "title")?;
-    require_nullable_localized(object, "description")?;
-    let pricing = require_object_field(object, "pricing")?;
-    for field in ["price", "priceEstimateMin", "priceEstimateMax"] {
-        let value = pricing
-            .get(field)
-            .ok_or(CdcRouteError::MissingColumn(field))?;
-        validate_price(value)?;
-    }
-    require_nullable_code(object, "availability", ListingAvailability::from_code)?;
-    require_string(object, "url")?;
-    object
-        .get("imageCount")
-        .and_then(Value::as_u64)
-        .ok_or(CdcRouteError::InvalidProductListingEventPayload)?;
-    validate_auction(
-        object
-            .get("auction")
-            .ok_or(CdcRouteError::MissingColumn("auction"))?,
+    require_exact_keys(
+        object,
+        &[
+            "listingSourceId",
+            "sourceListingId",
+            "title",
+            "description",
+            "pricing",
+            "availability",
+            "url",
+            "imageCount",
+            "auction",
+        ],
+        "payload",
     )?;
+    validate_listing_source_id(&require_string(object, "listingSourceId")?)?;
+    validate_source_listing_id(&require_string(object, "sourceListingId")?)?;
+    require_nullable_localized(object, "title", canonical_title)?;
+    require_nullable_localized(object, "description", canonical_description)?;
+
+    let pricing = require_object_field(object, "pricing")?;
+    require_exact_keys(
+        pricing,
+        &["price", "priceEstimateMin", "priceEstimateMax"],
+        "pricing",
+    )?;
+    for field in ["price", "priceEstimateMin", "priceEstimateMax"] {
+        validate_price(
+            pricing
+                .get(field)
+                .ok_or(CdcRouteError::MissingColumn(field))?,
+        )?;
+    }
+    validate_nullable_availability(require_value(object, "availability")?, "availability")?;
+    validate_canonical_url(&require_string(object, "url")?, "url")?;
+    require_u64(object, "imageCount")?;
+    validate_auction(require_value(object, "auction")?, "auction")?;
     Ok(())
 }
 
@@ -889,9 +905,25 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool), CdcRout
     if object.is_empty() {
         return Err(CdcRouteError::InvalidProductListingEventPayload);
     }
+    require_known_keys(
+        object,
+        &[
+            "pricing",
+            "availability",
+            "url",
+            "images",
+            "auction",
+            "lifecycle",
+            "saleObservation",
+        ],
+        "payload",
+    )?;
+
     let mut has_main_price_change = false;
     let mut has_availability_change = false;
     let mut has_image_change = false;
+    let mut availability_change = None;
+    let mut lifecycle_change = None;
     for (field, value) in object {
         match field.as_str() {
             "pricing" => {
@@ -899,6 +931,11 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool), CdcRout
                 if pricing.is_empty() {
                     return Err(CdcRouteError::InvalidProductListingEventPayload);
                 }
+                require_known_keys(
+                    pricing,
+                    &["price", "priceEstimateMin", "priceEstimateMax"],
+                    "pricing",
+                )?;
                 for (pricing_field, value) in pricing {
                     match pricing_field.as_str() {
                         "price" => {
@@ -913,22 +950,38 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool), CdcRout
                 }
             }
             "availability" => {
-                validate_code_change(value, ListingAvailability::from_code)?;
+                availability_change = Some(validate_code_change(value)?);
                 has_availability_change = true;
             }
             "url" => validate_string_change(value)?,
             "images" => {
                 let images = required_object(value)?;
+                require_exact_keys(images, &["previousCount", "currentCount"], "images")?;
                 require_u64(images, "previousCount")?;
                 require_u64(images, "currentCount")?;
                 has_image_change = true;
             }
             "auction" => validate_auction_change(value)?,
-            "lifecycle" => validate_lifecycle(value)?,
+            "lifecycle" => lifecycle_change = Some(validate_lifecycle(value)?),
             "saleObservation" => validate_sale_observation(value)?,
             _ => return Err(CdcRouteError::InvalidProductListingEventPayload),
         }
     }
+
+    match (lifecycle_change, availability_change) {
+        (Some(ProductListingLifecycleRoutingChange::Withdrawn), Some((_, Some(_)))) => {
+            return Err(CdcRouteError::InconsistentProductListingEvent {
+                rule: "withdrawal with current availability".to_owned(),
+            });
+        }
+        (Some(ProductListingLifecycleRoutingChange::Restored), Some((Some(_), _))) => {
+            return Err(CdcRouteError::InconsistentProductListingEvent {
+                rule: "restoration with previous availability".to_owned(),
+            });
+        }
+        _ => {}
+    }
+
     Ok((
         has_main_price_change,
         has_availability_change,
@@ -938,9 +991,12 @@ fn validate_changed_payload(value: &Value) -> Result<(bool, bool, bool), CdcRout
 
 fn validate_price_change(value: &Value) -> Result<(), CdcRouteError> {
     let change = required_object(value)?;
-    require_value(change, "previous").and_then(validate_price)?;
-    require_value(change, "current").and_then(validate_price)?;
-    if change.get("previous") == change.get("current") {
+    require_exact_keys(change, &["previous", "current"], "price change")?;
+    let previous = require_value(change, "previous")?;
+    let current = require_value(change, "current")?;
+    validate_price(previous)?;
+    validate_price(current)?;
+    if previous == current {
         return Err(CdcRouteError::InvalidProductListingEventPayload);
     }
     Ok(())
@@ -951,33 +1007,39 @@ fn validate_price(value: &Value) -> Result<(), CdcRouteError> {
         return Ok(());
     }
     let object = required_object(value)?;
+    require_exact_keys(object, &["amount", "currency"], "price")?;
     require_u64(object, "amount")?;
     let currency = require_string(object, "currency")?;
-    if money::Currency::from_code(currency.as_str()).is_none() {
-        return Err(CdcRouteError::InvalidProductListingEventPayload);
+    let parsed = money::Currency::from_code(currency.as_str())
+        .ok_or_else(|| invalid_product_listing_field("price.currency"))?;
+    if parsed.as_str() != currency {
+        return Err(noncanonical_product_listing_field("price.currency"));
     }
     Ok(())
 }
 
 fn validate_code_change(
     value: &Value,
-    parser: fn(&str) -> Option<ListingAvailability>,
-) -> Result<(), CdcRouteError> {
+) -> Result<(Option<ListingAvailability>, Option<ListingAvailability>), CdcRouteError> {
     let change = required_object(value)?;
-    let previous = require_value(change, "previous")?;
-    let current = require_value(change, "current")?;
-    validate_nullable_code_value(previous, parser)?;
-    validate_nullable_code_value(current, parser)?;
+    require_exact_keys(change, &["previous", "current"], "availability change")?;
+    let previous = validate_nullable_availability(
+        require_value(change, "previous")?,
+        "availability.previous",
+    )?;
+    let current =
+        validate_nullable_availability(require_value(change, "current")?, "availability.current")?;
     if previous == current {
         return Err(CdcRouteError::InvalidProductListingEventPayload);
     }
-    Ok(())
+    Ok((previous, current))
 }
 
 fn validate_string_change(value: &Value) -> Result<(), CdcRouteError> {
     let change = required_object(value)?;
-    let previous = require_string(change, "previous")?;
-    let current = require_string(change, "current")?;
+    require_exact_keys(change, &["previous", "current"], "url change")?;
+    let previous = validate_canonical_url(&require_string(change, "previous")?, "url.previous")?;
+    let current = validate_canonical_url(&require_string(change, "current")?, "url.current")?;
     if previous == current {
         return Err(CdcRouteError::InvalidProductListingEventPayload);
     }
@@ -986,94 +1048,110 @@ fn validate_string_change(value: &Value) -> Result<(), CdcRouteError> {
 
 fn validate_auction_change(value: &Value) -> Result<(), CdcRouteError> {
     let change = required_object(value)?;
-    let previous = require_value(change, "previous")?;
-    let current = require_value(change, "current")?;
-    validate_auction(previous)?;
-    validate_auction(current)?;
+    require_exact_keys(change, &["previous", "current"], "auction change")?;
+    let previous = validate_auction(require_value(change, "previous")?, "auction.previous")?;
+    let current = validate_auction(require_value(change, "current")?, "auction.current")?;
     if previous == current {
         return Err(CdcRouteError::InvalidProductListingEventPayload);
     }
     Ok(())
 }
 
-fn validate_auction(value: &Value) -> Result<(), CdcRouteError> {
+fn validate_auction(
+    value: &Value,
+    field: &str,
+) -> Result<(Option<OffsetDateTime>, Option<OffsetDateTime>), CdcRouteError> {
     let object = required_object(value)?;
-    for field in ["start", "end"] {
-        let value = require_value(object, field)?;
-        if !value.is_null() && !value.is_string() {
-            return Err(CdcRouteError::InvalidProductListingEventPayload);
-        }
+    require_exact_keys(object, &["start", "end"], field)?;
+    let start =
+        parse_nullable_timestamp(require_value(object, "start")?, &format!("{field}.start"))?;
+    let end = parse_nullable_timestamp(require_value(object, "end")?, &format!("{field}.end"))?;
+    if start.zip(end).is_some_and(|(start, end)| start > end) {
+        return Err(CdcRouteError::InconsistentProductListingEvent {
+            rule: format!("{field} start after end"),
+        });
     }
-    Ok(())
+    Ok((start, end))
 }
 
-fn validate_lifecycle(value: &Value) -> Result<(), CdcRouteError> {
+fn validate_lifecycle(
+    value: &Value,
+) -> Result<ProductListingLifecycleRoutingChange, CdcRouteError> {
     let object = required_object(value)?;
     let transition = require_string(object, "transition")?;
     match transition.as_str() {
         "WITHDRAWN" => {
-            let previous = require_value(object, "previousAvailability")?;
-            validate_nullable_code_value(previous, ListingAvailability::from_code)?;
+            require_exact_keys(object, &["transition", "previousAvailability"], "lifecycle")?;
+            validate_nullable_availability(
+                require_value(object, "previousAvailability")?,
+                "lifecycle.previousAvailability",
+            )?;
+            Ok(ProductListingLifecycleRoutingChange::Withdrawn)
         }
         "RESTORED" => {
-            if object.contains_key("previousAvailability") {
-                return Err(CdcRouteError::InvalidProductListingEventPayload);
-            }
+            require_exact_keys(object, &["transition"], "lifecycle")?;
+            Ok(ProductListingLifecycleRoutingChange::Restored)
         }
-        _ => return Err(CdcRouteError::InvalidProductListingEventPayload),
+        _ => Err(invalid_product_listing_field("lifecycle.transition")),
     }
-    Ok(())
 }
 
 fn validate_sale_observation(value: &Value) -> Result<(), CdcRouteError> {
     let object = required_object(value)?;
+    require_exact_keys(object, &["transition", "observation"], "saleObservation")?;
     let transition = require_string(object, "transition")?;
     if !matches!(transition.as_str(), "OBSERVED" | "RETRACTED") {
-        return Err(CdcRouteError::InvalidProductListingEventPayload);
+        return Err(invalid_product_listing_field("saleObservation.transition"));
     }
     let observation = require_object_field(object, "observation")?;
-    require_string(observation, "observedAt")?;
-    require_string(observation, "fxRateId")?;
+    require_exact_keys(
+        observation,
+        &["observedAt", "fxRateId"],
+        "saleObservation.observation",
+    )?;
+    parse_canonical_timestamp(
+        &require_string(observation, "observedAt")?,
+        "saleObservation.observedAt",
+    )?;
+    let fx_rate_id =
+        fxrate_core::FxRateId::try_from(require_string(observation, "fxRateId")?.as_str())
+            .map_err(|_| invalid_product_listing_field("saleObservation.fxRateId"))?;
+    if fx_rate_id.to_string() != require_string(observation, "fxRateId")? {
+        return Err(noncanonical_product_listing_field(
+            "saleObservation.fxRateId",
+        ));
+    }
     Ok(())
 }
 
 fn validate_embedded_payload(value: &Value) -> Result<(), CdcRouteError> {
     let object = required_payload_object(value)?;
-    if object.len() != 1 || !object.contains_key("sourceEventId") {
-        return Err(CdcRouteError::InvalidProductListingEventPayload);
-    }
-    let source_event_id = require_string(object, "sourceEventId")?;
-    EventId::try_from(source_event_id.as_str())
-        .map(|_| ())
-        .map_err(|_| CdcRouteError::InvalidProductListingEventPayload)
+    require_exact_keys(object, &["sourceEventId"], "payload")?;
+    validate_canonical_event_id(&require_string(object, "sourceEventId")?)
 }
 
 fn validate_translated_payload(value: &Value) -> Result<(), CdcRouteError> {
     let object = required_payload_object(value)?;
-    if object.len() != 3
-        || !object.contains_key("sourceEventId")
-        || !object.contains_key("sourceLanguage")
-        || !object.contains_key("targetLanguages")
-    {
-        return Err(CdcRouteError::InvalidProductListingEventPayload);
-    }
-    let source_event_id = require_string(object, "sourceEventId")?;
-    EventId::try_from(source_event_id.as_str())
-        .map_err(|_| CdcRouteError::InvalidProductListingEventPayload)?;
+    require_exact_keys(
+        object,
+        &["sourceEventId", "sourceLanguage", "targetLanguages"],
+        "payload",
+    )?;
+    validate_canonical_event_id(&require_string(object, "sourceEventId")?)?;
     let source_language = require_string(object, "sourceLanguage")?;
-    if Language::from_code(source_language.as_str()).is_none() {
-        return Err(CdcRouteError::InvalidProductListingEventPayload);
-    }
+    validate_language(&source_language, "sourceLanguage")?;
     let target_languages = object
         .get("targetLanguages")
         .and_then(Value::as_array)
-        .ok_or(CdcRouteError::InvalidProductListingEventPayload)?;
-    if target_languages.is_empty()
-        || target_languages
-            .iter()
-            .any(|value| value.as_str().and_then(Language::from_code).is_none())
-    {
-        return Err(CdcRouteError::InvalidProductListingEventPayload);
+        .ok_or_else(|| invalid_product_listing_field("targetLanguages"))?;
+    if target_languages.is_empty() {
+        return Err(invalid_product_listing_field("targetLanguages"));
+    }
+    for language in target_languages {
+        let language = language
+            .as_str()
+            .ok_or_else(|| invalid_product_listing_field("targetLanguages"))?;
+        validate_language(language, "targetLanguages")?;
     }
     Ok(())
 }
@@ -1086,6 +1164,43 @@ fn required_object(value: &Value) -> Result<&Map<String, Value>, CdcRouteError> 
     value
         .as_object()
         .ok_or(CdcRouteError::InvalidProductListingEventPayload)
+}
+
+fn require_exact_keys(
+    object: &Map<String, Value>,
+    expected: &[&str],
+    context: &str,
+) -> Result<(), CdcRouteError> {
+    for field in expected {
+        if !object.contains_key(*field) {
+            return Err(CdcRouteError::MissingProductListingEventField {
+                field: format!("{context}.{field}"),
+            });
+        }
+    }
+    for field in object.keys() {
+        if !expected.contains(&field.as_str()) {
+            return Err(CdcRouteError::UnknownProductListingEventField {
+                field: format!("{context}.{field}"),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn require_known_keys(
+    object: &Map<String, Value>,
+    expected: &[&str],
+    context: &str,
+) -> Result<(), CdcRouteError> {
+    for field in object.keys() {
+        if !expected.contains(&field.as_str()) {
+            return Err(CdcRouteError::UnknownProductListingEventField {
+                field: format!("{context}.{field}"),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn require_value<'a>(
@@ -1121,37 +1236,125 @@ fn require_u64(object: &Map<String, Value>, field: &'static str) -> Result<u64, 
 fn require_nullable_localized(
     object: &Map<String, Value>,
     field: &'static str,
+    canonicalize: fn(&str) -> String,
 ) -> Result<(), CdcRouteError> {
     let value = require_value(object, field)?;
     if value.is_null() {
         return Ok(());
     }
     let localized = required_object(value)?;
-    require_string(localized, "language")?;
-    require_string(localized, "text")?;
+    require_exact_keys(localized, &["language", "text"], field)?;
+    let language = require_string(localized, "language")?;
+    validate_language(&language, &format!("{field}.language"))?;
+    let text = require_string(localized, "text")?;
+    if canonicalize(text.as_str()) != text {
+        return Err(noncanonical_product_listing_field(format!("{field}.text")));
+    }
     Ok(())
 }
 
-fn require_nullable_code(
-    object: &Map<String, Value>,
-    field: &'static str,
-    parser: fn(&str) -> Option<ListingAvailability>,
-) -> Result<(), CdcRouteError> {
-    validate_nullable_code_value(require_value(object, field)?, parser)
+fn canonical_title(value: &str) -> String {
+    Title::from(value).to_string()
 }
 
-fn validate_nullable_code_value(
-    value: &Value,
-    parser: fn(&str) -> Option<ListingAvailability>,
-) -> Result<(), CdcRouteError> {
-    if value.is_null() {
-        return Ok(());
+fn canonical_description(value: &str) -> String {
+    Description::from(value).to_string()
+}
+
+fn validate_listing_source_id(value: &str) -> Result<(), CdcRouteError> {
+    let id =
+        Uuid::parse_str(value).map_err(|_| invalid_product_listing_field("listingSourceId"))?;
+    if id.to_string() != value {
+        return Err(noncanonical_product_listing_field("listingSourceId"));
     }
-    value
-        .as_str()
-        .and_then(parser)
+    Ok(())
+}
+
+fn validate_source_listing_id(value: &str) -> Result<(), CdcRouteError> {
+    let id = SourceListingId::try_from(value)
+        .map_err(|_| invalid_product_listing_field("sourceListingId"))?;
+    if id.as_ref() != value {
+        return Err(noncanonical_product_listing_field("sourceListingId"));
+    }
+    Ok(())
+}
+
+fn validate_canonical_event_id(value: &str) -> Result<(), CdcRouteError> {
+    let id =
+        EventId::try_from(value).map_err(|_| invalid_product_listing_field("sourceEventId"))?;
+    if id.to_string() != value {
+        return Err(noncanonical_product_listing_field("sourceEventId"));
+    }
+    Ok(())
+}
+
+fn validate_language(value: &str, field: &str) -> Result<(), CdcRouteError> {
+    Language::from_code(value)
         .map(|_| ())
-        .ok_or(CdcRouteError::InvalidProductListingEventPayload)
+        .ok_or_else(|| invalid_product_listing_field(field))
+}
+
+fn validate_nullable_availability(
+    value: &Value,
+    field: &str,
+) -> Result<Option<ListingAvailability>, CdcRouteError> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let value = value
+        .as_str()
+        .ok_or_else(|| invalid_product_listing_field(field))?;
+    let availability = ListingAvailability::from_code(value)
+        .ok_or_else(|| invalid_product_listing_field(field))?;
+    if availability.as_str() != value {
+        return Err(noncanonical_product_listing_field(field));
+    }
+    Ok(Some(availability))
+}
+
+fn validate_canonical_url(value: &str, field: &str) -> Result<Url, CdcRouteError> {
+    let url = Url::parse(value).map_err(|_| invalid_product_listing_field(field))?;
+    if url.as_str() != value {
+        return Err(noncanonical_product_listing_field(field));
+    }
+    Ok(url)
+}
+
+fn parse_nullable_timestamp(
+    value: &Value,
+    field: &str,
+) -> Result<Option<OffsetDateTime>, CdcRouteError> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let value = value
+        .as_str()
+        .ok_or_else(|| invalid_product_listing_field(field))?;
+    parse_canonical_timestamp(value, field).map(Some)
+}
+
+fn parse_canonical_timestamp(value: &str, field: &str) -> Result<OffsetDateTime, CdcRouteError> {
+    let timestamp =
+        OffsetDateTime::parse(value, &Rfc3339).map_err(|_| invalid_product_listing_field(field))?;
+    let canonical = timestamp
+        .format(&Rfc3339)
+        .map_err(|_| invalid_product_listing_field(field))?;
+    if canonical != value {
+        return Err(noncanonical_product_listing_field(field));
+    }
+    Ok(timestamp)
+}
+
+fn invalid_product_listing_field(field: impl Into<String>) -> CdcRouteError {
+    CdcRouteError::InvalidProductListingEventField {
+        field: field.into(),
+    }
+}
+
+fn noncanonical_product_listing_field(field: impl Into<String>) -> CdcRouteError {
+    CdcRouteError::NonCanonicalProductListingEventField {
+        field: field.into(),
+    }
 }
 
 fn required_product_event_string(
@@ -1329,6 +1532,16 @@ pub enum CdcRouteError {
     InvalidEventId,
     #[error("CDC change has an invalid product listing ID")]
     InvalidProductListingId,
+    #[error("CDC change has a missing ProductListing event field {field}")]
+    MissingProductListingEventField { field: String },
+    #[error("CDC change has an invalid ProductListing event field {field}")]
+    InvalidProductListingEventField { field: String },
+    #[error("CDC change has a noncanonical ProductListing event field {field}")]
+    NonCanonicalProductListingEventField { field: String },
+    #[error("CDC change has an unknown ProductListing event field {field}")]
+    UnknownProductListingEventField { field: String },
+    #[error("CDC change has an inconsistent ProductListing event: {rule}")]
+    InconsistentProductListingEvent { rule: String },
     #[error("CDC change has a product listing event payload that is not an object")]
     InvalidProductListingEventPayload,
     #[error("CDC change missing row data")]
@@ -1756,15 +1969,290 @@ mod tests {
                 }
             }),
         ] {
-            assert!(matches!(
+            assert!(
                 route_change(&product_event_change_with_payload(
                     "PRODUCT_LISTING_CHANGED",
                     "DOMAIN",
                     payload,
-                )),
-                Err(CdcRouteError::InvalidProductListingEventPayload)
-                    | Err(CdcRouteError::MissingColumn(_))
-            ));
+                ))
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn should_reject_product_listing_v1_negative_contract_matrix() {
+        let mut unknown_discovery = product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
+        if let Some(payload) = unknown_discovery
+            .record
+            .as_mut()
+            .and_then(|record| record.get_mut("payload"))
+        {
+            payload["unexpected"] = serde_json::json!(true);
+        }
+
+        let mut omitted_title = product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
+        if let Some(payload) = omitted_title
+            .record
+            .as_mut()
+            .and_then(|record| record.get_mut("payload"))
+            && let Some(payload) = payload.as_object_mut()
+        {
+            payload.remove("title");
+        }
+
+        let mut omitted_price = product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
+        if let Some(payload) = omitted_price
+            .record
+            .as_mut()
+            .and_then(|record| record.get_mut("payload"))
+            .and_then(|payload| payload.get_mut("pricing"))
+            && let Some(pricing) = payload.as_object_mut()
+        {
+            pricing.remove("price");
+        }
+
+        let mut omitted_auction_start =
+            product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN");
+        if let Some(payload) = omitted_auction_start
+            .record
+            .as_mut()
+            .and_then(|record| record.get_mut("payload"))
+            .and_then(|payload| payload.get_mut("auction"))
+            && let Some(auction) = payload.as_object_mut()
+        {
+            auction.remove("start");
+        }
+
+        let cases = vec![
+            ("unknown discovery field", unknown_discovery),
+            ("omitted nullable discovery field", omitted_title),
+            ("omitted pricing field", omitted_price),
+            ("omitted auction field", omitted_auction_start),
+            (
+                "unknown localized field",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_DISCOVERED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "listingSourceId": "10000000-0000-0000-0000-000000000001",
+                        "sourceListingId": "fixture-source-id",
+                        "title": {"language": "en", "text": "Title", "unexpected": true},
+                        "description": null,
+                        "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+                        "availability": null,
+                        "url": "https://example.test/product",
+                        "imageCount": 0,
+                        "auction": {"start": null, "end": null}
+                    }),
+                ),
+            ),
+            (
+                "noncanonical discovery URL",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_DISCOVERED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "listingSourceId": "10000000-0000-0000-0000-000000000001",
+                        "sourceListingId": "fixture-source-id",
+                        "title": null,
+                        "description": null,
+                        "pricing": {"price": null, "priceEstimateMin": null, "priceEstimateMax": null},
+                        "availability": null,
+                        "url": "https://example.com:443/product",
+                        "imageCount": 0,
+                        "auction": {"start": null, "end": null}
+                    }),
+                ),
+            ),
+            (
+                "unparsable changed URL",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "url": {"previous": "not a URL", "current": "https://example.com/new"}
+                    }),
+                ),
+            ),
+            (
+                "noncanonical changed URL",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "url": {"previous": "https://example.com/old", "current": "https://example.com:443/new"}
+                    }),
+                ),
+            ),
+            (
+                "unknown image field",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({"images": {"previousCount": 1, "currentCount": 2, "unexpected": true}}),
+                ),
+            ),
+            (
+                "unknown value change field",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "availability": {"previous": null, "current": "AVAILABLE", "unexpected": true}
+                    }),
+                ),
+            ),
+            (
+                "unknown price field",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "pricing": {
+                            "price": {
+                                "previous": {"amount": 1, "currency": "EUR", "unexpected": true},
+                                "current": null
+                            }
+                        }
+                    }),
+                ),
+            ),
+            (
+                "invalid auction timestamp",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "auction": {
+                            "previous": {"start": "not a timestamp", "end": null},
+                            "current": {"start": null, "end": null}
+                        }
+                    }),
+                ),
+            ),
+            (
+                "auction start after end",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "auction": {
+                            "previous": {
+                                "start": "2025-01-02T00:00:00Z",
+                                "end": "2025-01-01T00:00:00Z"
+                            },
+                            "current": {"start": null, "end": null}
+                        }
+                    }),
+                ),
+            ),
+            (
+                "invalid sale observation timestamp",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "saleObservation": {
+                            "transition": "OBSERVED",
+                            "observation": {
+                                "observedAt": "yesterday",
+                                "fxRateId": "10000000-0000-0000-0000-000000000001"
+                            }
+                        }
+                    }),
+                ),
+            ),
+            (
+                "invalid sale observation FX ID",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "saleObservation": {
+                            "transition": "OBSERVED",
+                            "observation": {
+                                "observedAt": "1970-01-01T00:00:00Z",
+                                "fxRateId": "not-a-uuid"
+                            }
+                        }
+                    }),
+                ),
+            ),
+            (
+                "withdrawal with current availability",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "availability": {"previous": null, "current": "AVAILABLE"},
+                        "lifecycle": {"transition": "WITHDRAWN", "previousAvailability": null}
+                    }),
+                ),
+            ),
+            (
+                "restoration with previous availability",
+                product_event_change_with_payload(
+                    "PRODUCT_LISTING_CHANGED",
+                    "DOMAIN",
+                    serde_json::json!({
+                        "availability": {"previous": "AVAILABLE", "current": null},
+                        "lifecycle": {"transition": "RESTORED"}
+                    }),
+                ),
+            ),
+        ];
+
+        for (name, change) in cases {
+            assert!(route_change(&change).is_err(), "{name}");
+        }
+    }
+
+    #[test]
+    fn should_accept_product_listing_v1_positive_contract_matrix() {
+        let cases = [
+            product_event_change("PRODUCT_LISTING_DISCOVERED", "DOMAIN"),
+            product_event_change_with_payload(
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({"availability": {"previous": null, "current": "AVAILABLE"}}),
+            ),
+            product_event_change_with_payload(
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({"images": {"previousCount": 2, "currentCount": 2}}),
+            ),
+            product_event_change_with_payload(
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({
+                    "pricing": {"price": {"previous": null, "current": {"amount": 10, "currency": "EUR"}}},
+                    "availability": {"previous": null, "current": "AVAILABLE"},
+                    "images": {"previousCount": 1, "currentCount": 1}
+                }),
+            ),
+            product_event_change_with_payload(
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({
+                    "availability": {"previous": "AVAILABLE", "current": null},
+                    "lifecycle": {"transition": "WITHDRAWN", "previousAvailability": "AVAILABLE"}
+                }),
+            ),
+            product_event_change_with_payload(
+                "PRODUCT_LISTING_CHANGED",
+                "DOMAIN",
+                serde_json::json!({
+                    "availability": {"previous": null, "current": "AVAILABLE"},
+                    "lifecycle": {"transition": "RESTORED"}
+                }),
+            ),
+            product_event_change("ENRICHMENT_EMBEDDED", "ENRICHMENT"),
+            product_event_change("ENRICHMENT_TRANSLATED_TITLES", "ENRICHMENT"),
+        ];
+
+        for change in cases {
+            assert!(route_change(&change).is_ok());
         }
     }
 
