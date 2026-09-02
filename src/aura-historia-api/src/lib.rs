@@ -473,7 +473,7 @@ pub fn app(state: AppState) -> Router {
                     get(users::access_tokens::get_access_token)
                         .delete(users::access_tokens::delete_access_token),
                 )
-                .route("/api/v1/users", get(users::admin_users::search_users))
+                .route("/api/v1/admin/users", get(users::admin_users::search_users))
                 .route(
                     "/api/v1/users/{user_id}",
                     get(users::admin_users::get_user)

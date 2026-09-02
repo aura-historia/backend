@@ -112,6 +112,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use test_api::{get_opensearch_client, get_postgres_client};
+use time::OffsetDateTime;
 use url::Url;
 use user_core::access_token::{
     AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, RawAccessToken,
@@ -311,6 +312,31 @@ async fn seed_user_with_tier_and_consent(
         panic!("failed to seed user: {error}");
     }
     user_id
+}
+
+pub async fn set_user_search_fields(
+    user_id: UserId,
+    email: &str,
+    first_name: &str,
+    last_name: &str,
+    created: OffsetDateTime,
+    updated: OffsetDateTime,
+) {
+    let pool = get_postgres_client().await;
+    if let Err(error) = sqlx::query(
+        "UPDATE users SET email = $2, first_name = $3, last_name = $4, created = $5, updated = $6 WHERE user_id = $1",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(email)
+    .bind(first_name)
+    .bind(last_name)
+    .bind(created)
+    .bind(updated)
+    .execute(&pool)
+    .await
+    {
+        panic!("failed to set user search fields: {error}");
+    }
 }
 
 pub async fn seed_active_watchlist_entries(user_id: UserId, count: usize) {
