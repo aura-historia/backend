@@ -4,6 +4,10 @@ use ::user_core::user_id::UserId;
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use user_core::first_name::FirstName;
 use user_core::last_name::LastName;
@@ -13,10 +17,175 @@ use user_core::tier::UserTier;
 use user_core::user::{NewUser, User, UserAccount, UserPreferences, UserProfile};
 use user_postgres::{SqlxUserAdminReaderFactory, SqlxUserRepositoryFactory};
 use user_service::ports::{
-    UserAdminReader, UserAdminReaderFactory, UserRepository, UserRepositoryFactory,
+    UserAdminMutationGuard, UserAdminMutationGuardFactory, UserAdminReader, UserAdminReaderFactory,
+    UserAdminRemovalDecision, UserRepository, UserRepositoryFactory,
 };
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_return_last_admin_when_target_is_sole_admin() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let users = SqlxUserRepositoryFactory::new();
+    let admins = SqlxUserAdminReaderFactory::new();
+    let user = sample_user("postgres-sole-admin", UserRole::Admin);
+
+    let mut tx = begin(&unit_of_work).await;
+    insert_user(&users, &mut tx, &user).await;
+    let decision = match UserAdminMutationGuardFactory::in_transaction(&admins, &mut tx)
+        .check_removal(user.id())
+        .await
+    {
+        Ok(decision) => decision,
+        Err(error) => panic!("failed to check sole admin removal: {error:?}"),
+    };
+    commit(tx).await;
+
+    assert_eq!(UserAdminRemovalDecision::LastAdmin, decision);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_allow_admin_removal_when_multiple_admins_exist() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let users = SqlxUserRepositoryFactory::new();
+    let admins = SqlxUserAdminReaderFactory::new();
+    let target = sample_user("postgres-multiple-admin-target", UserRole::Admin);
+    let remaining = sample_user("postgres-multiple-admin-remaining", UserRole::Admin);
+
+    let mut tx = begin(&unit_of_work).await;
+    insert_user(&users, &mut tx, &target).await;
+    insert_user(&users, &mut tx, &remaining).await;
+    let decision = match UserAdminMutationGuardFactory::in_transaction(&admins, &mut tx)
+        .check_removal(target.id())
+        .await
+    {
+        Ok(decision) => decision,
+        Err(error) => panic!("failed to check multiple admin removal: {error:?}"),
+    };
+    commit(tx).await;
+
+    assert_eq!(UserAdminRemovalDecision::Allowed, decision);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_serialize_concurrent_admin_removals_in_postgres() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let users = SqlxUserRepositoryFactory::new();
+    let admins = SqlxUserAdminReaderFactory::new();
+    let first = sample_user("postgres-concurrent-first-admin", UserRole::Admin);
+    let second = sample_user("postgres-concurrent-second-admin", UserRole::Admin);
+
+    let mut seed_tx = begin(&unit_of_work).await;
+    insert_user(&users, &mut seed_tx, &first).await;
+    insert_user(&users, &mut seed_tx, &second).await;
+    commit(seed_tx).await;
+
+    let mut first_tx = begin(&unit_of_work).await;
+    let first_loaded = match users
+        .in_transaction(&mut first_tx)
+        .find_by_id(first.id())
+        .await
+    {
+        Ok(Some(loaded)) => loaded,
+        Ok(None) => panic!("missing first admin"),
+        Err(error) => panic!("failed to load first admin: {error:?}"),
+    };
+    let mut first_user = first_loaded.value;
+    assert!(first_user.change_role(UserRole::User).changed());
+    let first_decision = match UserAdminMutationGuardFactory::in_transaction(&admins, &mut first_tx)
+        .check_removal(first.id())
+        .await
+    {
+        Ok(decision) => decision,
+        Err(error) => panic!("failed to check first concurrent removal: {error:?}"),
+    };
+    assert_eq!(UserAdminRemovalDecision::Allowed, first_decision);
+
+    let second_started = Arc::new(AtomicBool::new(false));
+    let second_started_signal = Arc::clone(&second_started);
+    let second_unit_of_work = unit_of_work.clone();
+    let second_admins = admins;
+    let second_id = second.id();
+    let second_task = tokio::spawn(async move {
+        let mut second_tx = begin(&second_unit_of_work).await;
+        second_started_signal.store(true, Ordering::SeqCst);
+        let decision =
+            match UserAdminMutationGuardFactory::in_transaction(&second_admins, &mut second_tx)
+                .check_removal(second_id)
+                .await
+            {
+                Ok(decision) => decision,
+                Err(error) => panic!("failed to check second concurrent removal: {error:?}"),
+            };
+        commit(second_tx).await;
+        decision
+    });
+
+    while !second_started.load(Ordering::SeqCst) {
+        tokio::task::yield_now().await;
+    }
+
+    match users
+        .in_transaction(&mut first_tx)
+        .update(&first_user, first_loaded.version)
+        .await
+    {
+        Ok(_) => {}
+        Err(error) => panic!("failed to demote first admin: {error:?}"),
+    }
+    commit(first_tx).await;
+
+    let second_decision = match second_task.await {
+        Ok(decision) => decision,
+        Err(error) => panic!("concurrent admin removal task failed: {error}"),
+    };
+    assert_eq!(UserAdminRemovalDecision::LastAdmin, second_decision);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_return_target_not_admin_for_non_admin_user() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let users = SqlxUserRepositoryFactory::new();
+    let admins = SqlxUserAdminReaderFactory::new();
+    let user = sample_user("postgres-non-admin-target", UserRole::User);
+
+    let mut tx = begin(&unit_of_work).await;
+    insert_user(&users, &mut tx, &user).await;
+    let decision = match UserAdminMutationGuardFactory::in_transaction(&admins, &mut tx)
+        .check_removal(user.id())
+        .await
+    {
+        Ok(decision) => decision,
+        Err(error) => panic!("failed to check non-admin removal: {error:?}"),
+    };
+    commit(tx).await;
+
+    assert_eq!(UserAdminRemovalDecision::TargetNotAdmin, decision);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_return_target_not_found_for_missing_user() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let admins = SqlxUserAdminReaderFactory::new();
+    let missing_user_id = UserId::new();
+
+    let mut tx = begin(&unit_of_work).await;
+    let decision = match UserAdminMutationGuardFactory::in_transaction(&admins, &mut tx)
+        .check_removal(missing_user_id)
+        .await
+    {
+        Ok(decision) => decision,
+        Err(error) => panic!("failed to check missing user removal: {error:?}"),
+    };
+    commit(tx).await;
+
+    assert_eq!(UserAdminRemovalDecision::TargetNotFound, decision);
+}
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_read_user_admin_view_from_postgres() {
@@ -32,8 +201,7 @@ async fn should_read_user_admin_view_from_postgres() {
         Err(error) => panic!("failed to insert user: {error:?}"),
     }
 
-    let admin_view = match admins
-        .in_transaction(&mut tx)
+    let admin_view = match UserAdminReaderFactory::in_transaction(&admins, &mut tx)
         .find_admin_actor(user.id())
         .await
     {
@@ -44,6 +212,17 @@ async fn should_read_user_admin_view_from_postgres() {
     commit(tx).await;
 
     assert_eq!(UserRole::Admin, admin_view.role);
+}
+
+async fn insert_user(
+    users: &SqlxUserRepositoryFactory,
+    tx: &mut ::platform_postgres::SqlxTransaction,
+    user: &User,
+) {
+    match users.in_transaction(tx).insert(user).await {
+        Ok(_) => {}
+        Err(error) => panic!("failed to insert user: {error:?}"),
+    }
 }
 
 fn sample_user(slug: &str, role: UserRole) -> User {

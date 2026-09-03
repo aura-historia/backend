@@ -443,7 +443,11 @@ async fn should_update_user_tier_when_actor_is_admin() {
     .await;
 
     let response = reqwest::Client::new()
-        .patch(format!("{}/api/v1/users/{}", AURA_API.base_url(), user_id))
+        .patch(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            user_id
+        ))
         .bearer_auth(String::from(token))
         .json(&serde_json::json!({"tier": "PRO"}))
         .send()
@@ -454,6 +458,269 @@ async fn should_update_user_tier_when_actor_is_admin() {
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
     assert_eq!(serde_json::json!("PRO"), body["tier"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_update_user_role_when_actor_is_admin() {
+    let user_id = seed_user("USER").await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersWrite]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            user_id
+        ))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({"role": "ADMIN"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to patch admin user role API: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(serde_json::json!("ADMIN"), body["role"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_update_user_profile_when_actor_is_admin() {
+    let user_id = seed_user("USER").await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersWrite]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            user_id
+        ))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({"firstName": "Ada", "language": "de"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to patch admin user profile API: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_eq!(serde_json::json!("Ada"), body["firstName"]);
+    assert_eq!(serde_json::json!("de"), body["language"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_admin_profile_patch_for_non_admin_actor() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::UsersWrite]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            user_id
+        ))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({"firstName": "Ada"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject non-admin profile patch: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_mixed_admin_user_patch_categories() {
+    let user_id = seed_user("USER").await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersWrite]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            user_id
+        ))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({"role": "ADMIN", "tier": "PRO"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject mixed admin user patch: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_BODY_VALUE",
+    );
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_accept_idempotent_admin_user_patch() {
+    let user_id = seed_user("USER").await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersWrite]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            user_id
+        ))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to patch admin user with empty object: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_null_admin_user_role() {
+    let user_id = seed_user("USER").await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersWrite]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            user_id
+        ))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({"role": null}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject null admin user role: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_BODY_VALUE",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_remove_legacy_admin_user_patch_route() {
+    let user_id = seed_user("USER").await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersWrite]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .patch(format!("{}/api/v1/users/{}", AURA_API.base_url(), user_id))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({"tier": "PRO"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call removed admin user patch route: {error}"));
+
+    assert_eq!(reqwest::StatusCode::METHOD_NOT_ALLOWED, response.status());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_protect_the_last_admin_from_self_demotion() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersWrite]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            admin_id
+        ))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({"role": "USER"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to protect the last admin: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
+    assert_eq!(
+        serde_json::json!("At least one active administrator must remain."),
+        body["detail"]
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_protect_the_last_admin_from_self_deletion() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersWrite]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .delete(format!("{}/api/v1/me", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to protect the last admin deletion: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

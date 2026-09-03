@@ -1352,6 +1352,8 @@ impl From<ChangeUserRoleError> for ApiError {
             ChangeUserRoleError::UserNotFound => {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
+            ChangeUserRoleError::LastAdminProtected => ApiError::conflict(CONFLICT)
+                .with_detail("At least one active administrator must remain."),
             ChangeUserRoleError::ConcurrencyConflict
             | ChangeUserRoleError::EmailConflict { .. }
             | ChangeUserRoleError::StripeCustomerConflict { .. } => ApiError::conflict(CONFLICT)
@@ -1420,6 +1422,8 @@ impl From<DeleteUserError> for ApiError {
             DeleteUserError::UserNotFound => {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
+            DeleteUserError::LastAdminProtected => ApiError::conflict(CONFLICT)
+                .with_detail("At least one active administrator must remain."),
             DeleteUserError::ConcurrencyConflict
             | DeleteUserError::EmailConflict { .. }
             | DeleteUserError::StripeCustomerConflict { .. } => ApiError::conflict(CONFLICT)

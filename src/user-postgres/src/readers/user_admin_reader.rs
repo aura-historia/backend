@@ -4,8 +4,11 @@ use platform_postgres::SqlxTransaction;
 use user_core::role::UserRole;
 use user_core::user_id::UserId;
 use user_service::ports::{
-    UserAdminActorView, UserAdminReadError, UserAdminReader, UserAdminReaderFactory,
+    UserAdminActorView, UserAdminMutationGuard, UserAdminMutationGuardFactory, UserAdminReadError,
+    UserAdminReader, UserAdminReaderFactory, UserAdminRemovalDecision,
 };
+
+const USER_ADMIN_INVARIANT_LOCK_KEY: i64 = 1_671_000_001;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxUserAdminReaderFactory;
@@ -34,6 +37,17 @@ impl UserAdminReaderFactory<SqlxTransaction> for SqlxUserAdminReaderFactory {
     }
 }
 
+impl UserAdminMutationGuardFactory<SqlxTransaction> for SqlxUserAdminReaderFactory {
+    fn in_transaction<'tx>(
+        &'tx self,
+        tx: &'tx mut SqlxTransaction,
+    ) -> impl UserAdminMutationGuard + 'tx {
+        SqlxUserAdminReader {
+            connection: tx.connection(),
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl UserAdminReader for SqlxUserAdminReader<'_> {
     async fn find_admin_actor(
@@ -51,6 +65,56 @@ impl UserAdminReader for SqlxUserAdminReader<'_> {
         })?;
 
         row.map(TryInto::try_into).transpose()
+    }
+}
+
+#[async_trait::async_trait]
+impl UserAdminMutationGuard for SqlxUserAdminReader<'_> {
+    async fn check_removal(
+        &mut self,
+        user_id: UserId,
+    ) -> Result<UserAdminRemovalDecision, UserAdminReadError> {
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(USER_ADMIN_INVARIANT_LOCK_KEY)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(|source| UserAdminReadError::TemporarilyUnavailable {
+                source: box_error(source),
+            })?;
+
+        let role =
+            sqlx::query_scalar::<_, String>("SELECT role FROM users WHERE user_id = $1 FOR UPDATE")
+                .bind(uuid::Uuid::from(user_id))
+                .fetch_optional(&mut *self.connection)
+                .await
+                .map_err(|source| UserAdminReadError::TemporarilyUnavailable {
+                    source: box_error(source),
+                })?;
+
+        let Some(role) = role else {
+            return Ok(UserAdminRemovalDecision::TargetNotFound);
+        };
+        let role =
+            UserRole::from_code(&role).ok_or_else(|| UserAdminReadError::InvalidReadModel {
+                source: box_error(InvalidAdminRole),
+            })?;
+        if role != UserRole::Admin {
+            return Ok(UserAdminRemovalDecision::TargetNotAdmin);
+        }
+
+        let admin_count =
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*)::bigint FROM users WHERE role = 'ADMIN'")
+                .fetch_one(&mut *self.connection)
+                .await
+                .map_err(|source| UserAdminReadError::TemporarilyUnavailable {
+                    source: box_error(source),
+                })?;
+
+        if admin_count <= 1 {
+            Ok(UserAdminRemovalDecision::LastAdmin)
+        } else {
+            Ok(UserAdminRemovalDecision::Allowed)
+        }
     }
 }
 

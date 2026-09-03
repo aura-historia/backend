@@ -815,6 +815,11 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             user_postgres::SqlxUserRepositoryFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
         )),
+        Arc::new(UpdateUserProfileHandler::new_admin_only(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserRepositoryFactory::new(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        )),
         Arc::new(ChangeUserRoleHandler::new(
             unit_of_work.clone(),
             user_postgres::SqlxUserRepositoryFactory::new(),
