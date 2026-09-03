@@ -20,7 +20,7 @@
 
 - `listing_sources/` owns authenticated canonical `POST /api/v1/listing-sources` create, ID detail/update, slug lookup, and `GET /api/v1/me/listing-sources` controllers. Detail and mutations use ListingSource service use cases; the `me` list uses the Partnership administered-listing-source use case. No ListingSource search/list-all route exists.
 - `users/` owns account, admin user (`GET /api/v1/admin/users` collection search and `/api/v1/users/{user_id}` item operations), and access-token REST controllers.
-- `parties/` owns the admin Party collection search and create controllers at `GET`/`POST /api/v1/admin/parties`; Party item and update routes are separate work.
+- `parties/` owns admin Party collection search/create and item detail controllers at `GET`/`POST /api/v1/admin/parties` and `GET /api/v1/admin/parties/{partyId}`; Party update routes are separate work.
 - `newsletter/` owns public newsletter subscription REST controller. It uses optional canonical auth and a User service use case; production wiring reads Postgres user-profile fallback data and writes Zoho Campaigns subscriptions.
 - `notifications/` owns authenticated canonical notification list, seen-state update, and deletion REST controllers. It uses PostgreSQL-backed notification service use cases; list items expose a localized immutable reason-specific rendering snapshot but never origin-event or delivery/provider state. Watchlist price changes preserve event source currency and ignore user currency preferences. Notification image URLs are already presented from the snapshot assessment and stored `showUnassessedOrSensitiveContent` preference. Notification item paths use canonical `{notificationId}` values and list pagination uses an opaque JSON `[created RFC3339 timestamp, notification UUID]` cursor.
 - `watchlist/` owns watchlist REST controllers. ProductListing watchlist paths use `{productListingId}`. `GET /api/v1/me/watchlist` uses Postgres-backed `application` `Cursor`/`CursoredResult` pagination and API-local JSON cursor collection data; its tie-safe `searchAfter` is `[created RFC3339 timestamp, ProductListing UUID]`. It returns personalized ProductListing details with `no-store`. Watch creation and inactive-to-active PATCH enforce active-entry quotas: Free 20, Pro 100, Ultimate unlimited.
@@ -68,7 +68,7 @@
 
 
 - `listing_sources/` — ListingSource REST controllers.
-- `parties/` — admin Party collection REST controller.
+- `parties/` — admin Party collection and detail REST controllers.
 - `users/` — user account, admin, and access-token REST controllers.
 - `newsletter/` — public newsletter subscription REST controller.
 - `notifications/` — canonical notification REST controllers.

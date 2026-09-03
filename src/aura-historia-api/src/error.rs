@@ -33,6 +33,7 @@ use partnership_service::use_cases::{
     },
 };
 use party_service::use_cases::commands::create_party::CreatePartyError;
+use party_service::use_cases::queries::get_party::GetPartyError;
 use party_service::use_cases::queries::search_parties::SearchPartiesError;
 use product_listing_service::use_cases::{
     CreateProductListingError, GetProductListingError, GetProductListingHistoryError,
@@ -120,6 +121,7 @@ pub(crate) const LISTING_SOURCE_NOT_FOUND: ApiErrorCode = ApiErrorCode("LISTING_
 pub(crate) const LISTING_SOURCE_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("LISTING_SOURCE_TEMPORARILY_UNAVAILABLE");
 pub(crate) const PARTY_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("PARTY_INTERNAL_ERROR");
+pub(crate) const PARTY_NOT_FOUND: ApiErrorCode = ApiErrorCode("PARTY_NOT_FOUND");
 pub(crate) const PARTY_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("PARTY_TEMPORARILY_UNAVAILABLE");
 pub(crate) const PRODUCT_LISTING_INTERNAL_ERROR: ApiErrorCode =
@@ -1305,6 +1307,34 @@ impl From<CreatePartyError> for ApiError {
             CreatePartyError::InvalidPersistedState { .. } | CreatePartyError::Internal { .. } => {
                 ApiError::internal_server_error(PARTY_INTERNAL_ERROR)
                     .with_detail("Party create failed internally.")
+            }
+        }
+    }
+}
+
+impl From<GetPartyError> for ApiError {
+    fn from(error: GetPartyError) -> Self {
+        match error {
+            GetPartyError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            GetPartyError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            GetPartyError::NotFound => {
+                ApiError::not_found(PARTY_NOT_FOUND).with_detail("Party was not found.")
+            }
+            GetPartyError::TemporarilyUnavailable { .. }
+            | GetPartyError::BeginTransactionFailed
+            | GetPartyError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Party details are temporarily unavailable.")
+            }
+            GetPartyError::InvalidPersistedState { .. } | GetPartyError::Internal { .. } => {
+                ApiError::internal_server_error(PARTY_INTERNAL_ERROR)
+                    .with_detail("Party details failed internally.")
             }
         }
     }

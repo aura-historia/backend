@@ -387,3 +387,131 @@ async fn should_reject_party_create_without_admin_authorization() {
         "FORBIDDEN",
     );
 }
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_party_detail_for_admin_with_no_store_cache_control() {
+    let party_id = seed_party(
+        "Detailed Party",
+        Some("+49 30 987654"),
+        Some("detailed-party@example.test"),
+    )
+    .await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/admin/parties/{party_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get party detail: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_eq!(json!(party_id.to_string()), body["partyId"]);
+    assert_eq!(
+        json!(format!("api-acceptance-party-{party_id}")),
+        body["partySlugId"]
+    );
+    assert_eq!(json!("Detailed Party"), body["name"]);
+    assert_eq!(json!("+49 30 987654"), body["contact"]["phone"]);
+    assert_eq!(
+        json!("detailed-party@example.test"),
+        body["contact"]["email"]
+    );
+    assert!(body["created"].as_str().is_some());
+    assert!(body["updated"].as_str().is_some());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_invalid_party_detail_id() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/admin/parties/not-a-uuid",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to validate party detail ID: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "INVALID_UUID",
+    );
+    assert_eq!(json!({"field": "partyId", "type": "PATH"}), body["source"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_not_found_for_missing_party_detail() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/admin/parties/550e8400-e29b-41d4-a716-446655440000",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get missing party detail: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "PARTY_NOT_FOUND",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_require_admin_authentication_for_party_detail() {
+    let party_id = seed_party("Protected Detail Party", None, None).await;
+    let client = reqwest::Client::new();
+    let path = format!("{}/api/v1/admin/parties/{party_id}", AURA_API.base_url());
+
+    let missing =
+        client.get(&path).send().await.unwrap_or_else(|error| {
+            panic!("failed to reject unauthenticated party detail: {error}")
+        });
+    let (missing_status, missing_body) = json_response(missing).await;
+    assert_problem(
+        missing_status,
+        &missing_body,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "INVALID_CREDENTIALS",
+    );
+
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let non_admin = client
+        .get(path)
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject non-admin party detail: {error}"));
+    let (non_admin_status, non_admin_body) = json_response(non_admin).await;
+    assert_problem(
+        non_admin_status,
+        &non_admin_body,
+        reqwest::StatusCode::FORBIDDEN,
+        "FORBIDDEN",
+    );
+}

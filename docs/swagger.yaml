@@ -3756,6 +3756,118 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: PARTY_INTERNAL_ERROR
+  /api/v1/admin/parties/{partyId}:
+    get:
+      summary: Get a Party as admin
+      description: |
+        Gets one Party for an authenticated administrator.
+
+        `partyId` must be a UUID. The response contains the Party identity, immutable slug,
+        name, optional phone/email contact information, and creation/update timestamps.
+        Responses always use `Cache-Control: no-store` because contact data is returned.
+      operationId: adminGetParty
+      tags:
+        - Party
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - name: partyId
+          in: path
+          required: true
+          description: Stable Party identifier.
+          schema:
+            type: string
+            format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+      responses:
+        "200":
+          description: Party returned successfully.
+          headers:
+            Cache-Control:
+              description: Responses are never stored because contact data is returned.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PartyData"
+              example:
+                partyId: 550e8400-e29b-41d4-a716-446655440000
+                partySlugId: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
+                name: Antiques and More
+                contact:
+                  phone: "+49 30 123456"
+                  email: contact@example.com
+                created: "2026-01-01T10:00:00Z"
+                updated: "2026-01-02T10:00:00Z"
+        "400":
+          description: Bad request - invalid Party UUID.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 400
+                title: Bad Request
+                error: INVALID_UUID
+                source:
+                  field: partyId
+                  type: PATH
+                detail: Path parameter 'partyId' must be a UUID.
+        "401":
+          description: Unauthorized - missing or invalid bearer credentials.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+        "403":
+          description: Forbidden - this endpoint requires the ADMIN role.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: Operation is not permitted.
+        "404":
+          description: Party was not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 404
+                title: Not Found
+                error: PARTY_NOT_FOUND
+                detail: Party was not found.
+        "503":
+          description: Authentication or Party persistence is temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: PARTY_TEMPORARILY_UNAVAILABLE
+        "500":
+          description: Internal authentication or Party persistence failure.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: PARTY_INTERNAL_ERROR
   /api/v1/admin/users:
     get:
       summary: Search users as admin

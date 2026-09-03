@@ -98,6 +98,7 @@ use partnership_service::use_cases::{
 };
 use party_postgres::{SqlxPartyRepositoryFactory, SqlxPartySearchReaderFactory};
 use party_service::use_cases::commands::create_party::CreatePartyHandler;
+use party_service::use_cases::queries::get_party::GetPartyHandler;
 use party_service::use_cases::queries::search_parties::SearchPartiesHandler;
 use product_listing_opensearch::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
@@ -465,6 +466,10 @@ pub fn app(state: AppState) -> Router {
                     get(parties::search_parties::search_parties)
                         .post(parties::create_party::create_party),
                 )
+                .route(
+                    "/api/v1/admin/parties/{party_id}",
+                    get(parties::get_party::get_party),
+                )
                 .with_state(parties),
         );
     }
@@ -631,6 +636,11 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxUserAdminReaderFactory::new(),
     );
     let create_party = CreatePartyHandler::new(
+        unit_of_work.clone(),
+        SqlxPartyRepositoryFactory::new(),
+        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
+    );
+    let get_party = GetPartyHandler::new(
         unit_of_work.clone(),
         SqlxPartyRepositoryFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
@@ -886,6 +896,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     );
     let parties_state = PartiesState::new(
         Arc::new(create_party),
+        Arc::new(get_party),
         Arc::new(search_parties),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
