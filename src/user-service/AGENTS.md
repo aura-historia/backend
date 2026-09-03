@@ -13,10 +13,11 @@
 - Admin actor checks use transaction-scoped `UserAdminReader::find_admin_actor`, not controller checks.
 - Own-user reads and admin-user reads are separate use cases: `GetOwnUserUseCase` and `AdminGetUserUseCase`.
 - Operational handlers use `application::transaction::UnitOfWork` and transaction-scoped repository/reader factories.
-- User read/search/update/delete use cases authorize self where allowed, service/system, or admin actor in service layer.
+- User read/search/update/delete use cases authorize self where allowed, service/system, or admin actor in service layer; admin-only handlers require the persisted admin role.
 - Repository writes return persisted user state; handlers must not read after write for responses.
 - Ports are public because adapter crates implement them.
 - `UserTierEntitlements` locks one authoritative user row and reconciles tier-restricted search filters and watchlist entries inside the caller transaction; it avoids a User-service dependency on either resource service.
+- Admin role-removal and user-deletion commands use a transaction-bound `UserAdminMutationGuard` so PostgreSQL can protect the last active administrator.
 - Access-token writes use an `AccessTokenRepositoryFactory` inside a service-owned `UnitOfWork`; details/list use presentation readers, while `AccessTokenAuthenticationReader::find_authentication_by_hashed_token` returns only an authentication model. The repository's same-key lookup is only for transactional aggregate mutation.
 - `AuthenticateAccessTokenUseCase` only validates token existence/expiry and returns token scopes; protected use cases enforce credential capability via `OperationContext`.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.

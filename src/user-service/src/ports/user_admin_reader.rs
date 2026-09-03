@@ -37,6 +37,27 @@ pub trait UserAdminReader: Send {
     ) -> Result<Option<UserAdminActorView>, UserAdminReadError>;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UserAdminRemovalDecision {
+    TargetNotFound,
+    TargetNotAdmin,
+    #[default]
+    Allowed,
+    LastAdmin,
+}
+
+#[async_trait::async_trait]
+pub trait UserAdminMutationGuard: Send {
+    async fn check_removal(
+        &mut self,
+        user_id: UserId,
+    ) -> Result<UserAdminRemovalDecision, UserAdminReadError>;
+}
+
 pub trait UserAdminReaderFactory<Tx>: Send + Sync {
     fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl UserAdminReader + 'tx;
+}
+
+pub trait UserAdminMutationGuardFactory<Tx>: Send + Sync {
+    fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl UserAdminMutationGuard + 'tx;
 }

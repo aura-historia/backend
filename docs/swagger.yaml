@@ -4336,13 +4336,15 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: USER_INTERNAL_ERROR
-  /api/v1/users/{userId}:
+  /api/v1/admin/users/{userId}:
     get:
       summary: Get a user as admin
       description:
         "Retrieves a single user account by user ID for authenticated administrators.
 
-        The response includes `Last-Modified` and `Cache-Control: no-store` headers.
+        Cognito JWTs and Aura Historia access tokens are accepted; delegated access tokens require `users:read`.
+
+        The response always sends `Cache-Control: no-store`.
 
         "
       operationId: adminGetUser
@@ -4359,16 +4361,11 @@ paths:
           example: 550e8400-e29b-41d4-a716-446655440000
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "200":
           description: User returned successfully.
           headers:
-            Last-Modified:
-              description: When the user account was last updated.
-              schema:
-                type: string
-                format: http-date
-              example: Fri, 25 Apr 2026 08:00:00 GMT
             Cache-Control:
               description: Caching directive. Always set to `no-store`.
               schema:
@@ -4394,10 +4391,8 @@ paths:
                 tier: ULTIMATE
                 role: ADMIN
                 stripeCustomerId: cus_admin_550e8400e29b41d4a716446655440000
-                created: "2026-01-10T09:00:00Z"
-                updated: "2026-04-25T08:00:00Z"
         "401":
-          description: Unauthorized - invalid or missing JWT token.
+          description: Unauthorized - invalid or missing bearer credentials.
           content:
             application/problem+json:
               schema:
@@ -4405,9 +4400,9 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
         "403":
-          description: Forbidden - this endpoint requires the `ADMIN` role.
+          description: Forbidden - this endpoint requires the `ADMIN` role and `users:read` capability when delegated.
           content:
             application/problem+json:
               schema:
@@ -4416,7 +4411,7 @@ paths:
                 status: 403
                 title: Forbidden
                 error: FORBIDDEN
-                detail: This action requires the 'ADMIN' role.
+                detail: Operation is not permitted.
         "404":
           description: User not found.
           content:
@@ -4427,7 +4422,7 @@ paths:
                 status: 404
                 title: Not Found
                 error: USER_NOT_FOUND
-                detail: User with UserId '550e8400-e29b-41d4-a716-446655440000' not found.
+                detail: User was not found.
         "500":
           description: Internal server error.
           content:
@@ -4437,17 +4432,23 @@ paths:
               example:
                 status: 500
                 title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
+                error: USER_INTERNAL_ERROR
     patch:
       summary: Update a user as admin
       description:
         "Partially updates a user account for authenticated administrators.
+
+        Cognito JWTs and Aura Historia access tokens are accepted; delegated access tokens require `users:write`.
+
+        The caller's persisted user role must be `ADMIN`; this authorization is enforced in the service layer.
 
         All request fields are optional, but the request body itself must be present and non-empty.
 
         Send only one logical change category per request: profile/preferences fields, `role`, or `tier`.
 
         An empty JSON object (`{}`) is accepted and returns the existing user unchanged.
+
+        Demoting the last active administrator is rejected with `409 CONFLICT`.
 
         "
       operationId: adminPatchUser
@@ -4464,6 +4465,7 @@ paths:
           example: 550e8400-e29b-41d4-a716-446655440000
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: true
         description: Partial admin-only user update payload.
@@ -4492,12 +4494,11 @@ paths:
         "200":
           description: User updated successfully.
           headers:
-            Last-Modified:
-              description: When the user account was last updated.
+            Cache-Control:
+              description: Responses are never stored because this is an administrator-only user mutation.
               schema:
                 type: string
-                format: http-date
-              example: Fri, 25 Apr 2026 09:15:00 GMT
+              example: no-store
             Access-Control-Allow-Origin:
               description: CORS header
               schema:
@@ -4518,8 +4519,6 @@ paths:
                 tier: ULTIMATE
                 role: ADMIN
                 stripeCustomerId: cus_admin_550e8400e29b41d4a716446655440000
-                created: "2026-01-10T09:00:00Z"
-                updated: "2026-04-25T09:15:00Z"
         "400":
           description: Bad request - missing or invalid request body.
           content:
@@ -4541,7 +4540,7 @@ paths:
                     title: Bad Request
                     error: BAD_BODY_VALUE
         "401":
-          description: Unauthorized - invalid or missing JWT token.
+          description: Unauthorized - invalid or missing bearer credentials.
           content:
             application/problem+json:
               schema:
@@ -4549,9 +4548,9 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
         "403":
-          description: Forbidden - this endpoint requires the `ADMIN` role.
+          description: Forbidden - this endpoint requires the `ADMIN` role; delegated access tokens also require `users:write`.
           content:
             application/problem+json:
               schema:
@@ -4572,6 +4571,17 @@ paths:
                 title: Not Found
                 error: USER_NOT_FOUND
                 detail: User with UserId '550e8400-e29b-41d4-a716-446655440000' not found.
+        "409":
+          description: Conflict - the last active administrator cannot be demoted.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: Conflict
+                error: CONFLICT
+                detail: At least one active administrator must remain.
         "500":
           description: Internal server error.
           content:
@@ -4586,7 +4596,14 @@ paths:
       summary: Delete a user as admin
       description: "Deletes a user account for authenticated administrators.
 
-        The backend first removes the user from Cognito and then deletes the persisted user record.
+        Cognito JWTs and Aura Historia access tokens are accepted; delegated access tokens require `users:write`.
+
+        The caller's persisted user role must be `ADMIN`; this authorization is enforced in the User service.
+
+        PostgreSQL synchronously cascades user-owned access tokens, OAuth authorization codes, watchlist entries,
+        saved-search filters and matches, notifications, partnership memberships, and partnership applications.
+
+        The final active administrator cannot be deleted, including through a self-targeted admin request.
 
         "
       operationId: adminDeleteUser
@@ -4603,6 +4620,7 @@ paths:
           example: 550e8400-e29b-41d4-a716-446655440000
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "204":
           description: User deleted successfully.
@@ -4612,8 +4630,18 @@ paths:
               schema:
                 type: string
               example: "*"
+        "400":
+          description: Bad request - the user ID is not a UUID.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 400
+                title: Bad Request
+                error: INVALID_UUID
         "401":
-          description: Unauthorized - invalid or missing JWT token.
+          description: Unauthorized - invalid or missing bearer credentials.
           content:
             application/problem+json:
               schema:
@@ -4621,9 +4649,9 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
         "403":
-          description: Forbidden - this endpoint requires the `ADMIN` role.
+          description: Forbidden - this endpoint requires the `ADMIN` role; delegated access tokens also require `users:write`.
           content:
             application/problem+json:
               schema:
@@ -4632,7 +4660,7 @@ paths:
                 status: 403
                 title: Forbidden
                 error: FORBIDDEN
-                detail: This action requires the 'ADMIN' role.
+                detail: Operation is not permitted.
         "404":
           description: User not found.
           content:
@@ -4643,7 +4671,28 @@ paths:
                 status: 404
                 title: Not Found
                 error: USER_NOT_FOUND
-                detail: User with UserId '550e8400-e29b-41d4-a716-446655440000' not found.
+                detail: User was not found.
+        "409":
+          description: Conflict - the target state prevents deletion, including removal of the final active administrator.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: Conflict
+                error: CONFLICT
+                detail: At least one active administrator must remain.
+        "503":
+          description: User authorization or persistence is temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: USER_TEMPORARILY_UNAVAILABLE
         "500":
           description: Internal server error.
           content:
@@ -4653,7 +4702,8 @@ paths:
               example:
                 status: 500
                 title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
+                error: USER_INTERNAL_ERROR
+
   /api/v1/me:
     delete:
       summary: Delete authenticated user
@@ -4661,7 +4711,9 @@ paths:
 
         The deletion is performed synchronously and the access token is immediately invalidated upon success.
 
-        Requires valid Cognito JWT authentication.
+        Cognito JWTs and Aura Historia access tokens are accepted; delegated access tokens require `users:write`.
+
+        The last active administrator cannot be deleted.
 
         "
       operationId: deleteUser
@@ -4669,6 +4721,7 @@ paths:
         - User Account
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "204":
           description: User deleted successfully
@@ -4679,7 +4732,7 @@ paths:
                 type: string
               example: "*"
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - invalid or missing bearer credentials
           content:
             application/problem+json:
               schema:
@@ -4687,7 +4740,7 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
         "404":
           description: User not found
           content:
@@ -4698,6 +4751,17 @@ paths:
                 status: 404
                 title: Not Found
                 error: USER_NOT_FOUND
+        "409":
+          description: Conflict - the last active administrator cannot be deleted
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: Conflict
+                error: CONFLICT
+                detail: At least one active administrator must remain.
         "500":
           description: Internal server error
           content:
@@ -10975,6 +11039,10 @@ components:
 
         "
       properties:
+        email:
+          type: string
+          format: email
+          description: New email address. Null is invalid.
         firstName:
           type: string
           maxLength: 64

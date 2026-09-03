@@ -363,6 +363,18 @@ pub async fn set_user_search_fields(
     }
 }
 
+pub async fn set_user_stripe_customer_id(user_id: UserId, stripe_customer_id: &str) {
+    let pool = get_postgres_client().await;
+    if let Err(error) = sqlx::query("UPDATE users SET stripe_customer_id = $2 WHERE user_id = $1")
+        .bind(uuid::Uuid::from(user_id))
+        .bind(stripe_customer_id)
+        .execute(&pool)
+        .await
+    {
+        panic!("failed to set user Stripe customer ID: {error}");
+    }
+}
+
 pub async fn seed_active_watchlist_entries(user_id: UserId, count: usize) {
     for _ in 0..count {
         let product_listing_id = seed_product().await;
@@ -866,6 +878,11 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             user_postgres::SqlxUserRepositoryFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
         )),
+        Arc::new(UpdateUserProfileHandler::new_admin_only(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserRepositoryFactory::new(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        )),
         Arc::new(ChangeUserRoleHandler::new(
             unit_of_work.clone(),
             user_postgres::SqlxUserRepositoryFactory::new(),
@@ -878,6 +895,11 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             user_postgres::SqlxUserTierEntitlementsFactory::new(),
         )),
         Arc::new(DeleteUserHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserRepositoryFactory::new(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        )),
+        Arc::new(DeleteUserHandler::new_admin_only(
             unit_of_work.clone(),
             user_postgres::SqlxUserRepositoryFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),

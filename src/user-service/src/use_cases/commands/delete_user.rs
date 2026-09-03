@@ -1,5 +1,6 @@
 use crate::ports::{
-    UserAdminReadError, UserAdminReaderFactory, UserRepository, UserRepositoryError,
+    UserAdminMutationGuard, UserAdminMutationGuardFactory, UserAdminReadError,
+    UserAdminReaderFactory, UserAdminRemovalDecision, UserRepository, UserRepositoryError,
     UserRepositoryFactory,
 };
 use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
@@ -28,6 +29,8 @@ pub enum DeleteUserError {
     Forbidden,
     #[error("user not found")]
     UserNotFound,
+    #[error("cannot remove the last administrator")]
+    LastAdminProtected,
     #[error("concurrent user update")]
     ConcurrencyConflict,
     #[error("user email already exists")]
@@ -74,6 +77,7 @@ pub struct DeleteUserHandler<U, R, A> {
     unit_of_work: U,
     users: R,
     admin_reader: A,
+    admin_only: bool,
 }
 
 impl<U, R, A> DeleteUserHandler<U, R, A> {
@@ -82,6 +86,16 @@ impl<U, R, A> DeleteUserHandler<U, R, A> {
             unit_of_work,
             users,
             admin_reader,
+            admin_only: false,
+        }
+    }
+
+    pub fn new_admin_only(unit_of_work: U, users: R, admin_reader: A) -> Self {
+        Self {
+            unit_of_work,
+            users,
+            admin_reader,
+            admin_only: true,
         }
     }
 }
@@ -91,7 +105,7 @@ impl<U, R, A> DeleteUserUseCase for DeleteUserHandler<U, R, A>
 where
     U: UnitOfWork,
     R: UserRepositoryFactory<U::Tx>,
-    A: UserAdminReaderFactory<U::Tx>,
+    A: UserAdminReaderFactory<U::Tx> + UserAdminMutationGuardFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "delete_user",
@@ -123,7 +137,26 @@ where
             .begin()
             .await
             .map_err(|_| DeleteUserError::BeginTransactionFailed)?;
-        authorize_delete_user(context, command.user_id, &mut tx, &self.admin_reader).await?;
+        authorize_delete_user(
+            context,
+            command.user_id,
+            self.admin_only,
+            &mut tx,
+            &self.admin_reader,
+        )
+        .await?;
+        match UserAdminMutationGuardFactory::in_transaction(&self.admin_reader, &mut tx)
+            .check_removal(command.user_id)
+            .await?
+        {
+            UserAdminRemovalDecision::TargetNotFound => {
+                return Err(DeleteUserError::UserNotFound);
+            }
+            UserAdminRemovalDecision::LastAdmin => {
+                return Err(DeleteUserError::LastAdminProtected);
+            }
+            UserAdminRemovalDecision::TargetNotAdmin | UserAdminRemovalDecision::Allowed => {}
+        }
         let mut users = self.users.in_transaction(&mut tx);
         let deleted = users.delete_by_id(command.user_id).await?;
         drop(users);
@@ -153,6 +186,7 @@ where
 async fn authorize_delete_user<Tx, A>(
     context: &OperationContext,
     user_id: UserId,
+    admin_only: bool,
     tx: &mut Tx,
     admin_reader: &A,
 ) -> Result<(), DeleteUserError>
@@ -160,6 +194,13 @@ where
     Tx: Transaction,
     A: UserAdminReaderFactory<Tx>,
 {
+    if admin_only {
+        let mut reader = admin_reader.in_transaction(tx);
+        return require_admin_actor(context, &mut reader)
+            .await
+            .map_err(DeleteUserError::from);
+    }
+
     match &context.principal {
         Principal::Service(_) | Principal::System => Ok(()),
         Principal::User(actor_id)
@@ -235,8 +276,9 @@ impl From<UserRepositoryError> for DeleteUserError {
 mod tests {
     use super::*;
     use crate::ports::{
-        UserAdminActorView, UserAdminReader, UserAdminReaderFactory, UserDetailsView,
-        UserStorageVersion, VersionedUser,
+        UserAdminActorView, UserAdminMutationGuard, UserAdminMutationGuardFactory, UserAdminReader,
+        UserAdminReaderFactory, UserAdminRemovalDecision, UserDetailsView, UserStorageVersion,
+        VersionedUser,
     };
     use application::error::{BoxError, box_error};
     use application::operation_context::{CorrelationId, RequestId};
@@ -294,6 +336,7 @@ mod tests {
     struct AdminReadState {
         user: Option<UserDetailsView>,
         calls: usize,
+        removal_decision: UserAdminRemovalDecision,
     }
 
     struct FakeUserAdminReader {
@@ -497,8 +540,29 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
+    impl UserAdminMutationGuard for FakeUserAdminReader {
+        async fn check_removal(
+            &mut self,
+            _user_id: UserId,
+        ) -> Result<UserAdminRemovalDecision, UserAdminReadError> {
+            Ok(lock(&self.state).removal_decision)
+        }
+    }
+
     impl UserAdminReaderFactory<FakeTx> for FakeUserAdminReaderFactory {
         fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl UserAdminReader + 'tx {
+            FakeUserAdminReader {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    impl UserAdminMutationGuardFactory<FakeTx> for FakeUserAdminReaderFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl UserAdminMutationGuard + 'tx {
             FakeUserAdminReader {
                 state: Arc::clone(&self.state),
             }
@@ -542,7 +606,8 @@ mod tests {
             state.delete_result = true;
         }
         let admin_reader = admin_reader(admin_id, UserRole::Admin);
-        let handler = DeleteUserHandler::new(unit_of_work, users.clone(), admin_reader.clone());
+        let handler =
+            DeleteUserHandler::new_admin_only(unit_of_work, users.clone(), admin_reader.clone());
 
         let result = handler
             .execute(
@@ -558,6 +623,29 @@ mod tests {
         assert_eq!(1, lock(&admin_reader.state).calls);
         assert_eq!(0, lock(&users.state).find_by_id_calls);
         assert_eq!(1, lock(&users.state).delete_calls);
+    }
+
+    #[tokio::test]
+    async fn should_reject_non_admin_self_delete_through_admin_handler() {
+        let user_id = UserId::new();
+        let unit_of_work = FakeUnitOfWork::default();
+        let users = FakeUserRepositoryFactory::default();
+        lock(&users.state).delete_result = true;
+        let admin_reader = admin_reader(user_id, UserRole::User);
+        let handler =
+            DeleteUserHandler::new_admin_only(unit_of_work.clone(), users.clone(), admin_reader);
+
+        assert_error(
+            handler
+                .execute(
+                    &ctx(Principal::User(user_id)),
+                    DeleteUserCommand { user_id },
+                )
+                .await,
+            |error| matches!(error, DeleteUserError::Forbidden),
+        );
+        assert_eq!(0, lock(&users.state).delete_calls);
+        assert_eq!(0, lock(&unit_of_work.state).commits);
     }
 
     #[tokio::test]
@@ -612,6 +700,29 @@ mod tests {
                 .await,
             |error| matches!(error, DeleteUserError::Forbidden),
         );
+    }
+
+    #[tokio::test]
+    async fn should_protect_last_admin_deletion_without_delete_or_commit() {
+        let user_id = UserId::new();
+        let unit_of_work = FakeUnitOfWork::default();
+        let users = FakeUserRepositoryFactory::default();
+        {
+            let mut state = lock(&users.state);
+            state.delete_result = true;
+        }
+        let admin_reader = admin_reader(user_id, UserRole::Admin);
+        lock(&admin_reader.state).removal_decision = UserAdminRemovalDecision::LastAdmin;
+
+        let result = DeleteUserHandler::new(unit_of_work.clone(), users.clone(), admin_reader)
+            .execute(&ctx(Principal::System), DeleteUserCommand { user_id })
+            .await;
+
+        assert_error(result, |error| {
+            matches!(error, DeleteUserError::LastAdminProtected)
+        });
+        assert_eq!(0, lock(&users.state).delete_calls);
+        assert_eq!(0, lock(&unit_of_work.state).commits);
     }
 
     #[tokio::test]

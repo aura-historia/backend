@@ -1,5 +1,6 @@
 use crate::ports::{
-    UserAdminReadError, UserAdminReaderFactory, UserDetailsView, UserRepository,
+    UserAdminMutationGuard, UserAdminMutationGuardFactory, UserAdminReadError,
+    UserAdminReaderFactory, UserAdminRemovalDecision, UserDetailsView, UserRepository,
     UserRepositoryError, UserRepositoryFactory,
 };
 use crate::use_cases::authorization::{
@@ -30,6 +31,8 @@ pub enum ChangeUserRoleError {
     Forbidden,
     #[error("user not found")]
     UserNotFound,
+    #[error("cannot remove the last administrator")]
+    LastAdminProtected,
     #[error("concurrent user update")]
     ConcurrencyConflict,
     #[error("user email already exists")]
@@ -93,7 +96,7 @@ impl<U, R, A> ChangeUserRoleUseCase for ChangeUserRoleHandler<U, R, A>
 where
     U: UnitOfWork,
     R: UserRepositoryFactory<U::Tx>,
-    A: UserAdminReaderFactory<U::Tx>,
+    A: UserAdminReaderFactory<U::Tx> + UserAdminMutationGuardFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "change_user_role",
@@ -123,23 +126,51 @@ where
             .await
             .map_err(|_| ChangeUserRoleError::BeginTransactionFailed)?;
         {
-            let mut admin_reader = self.admin_reader.in_transaction(&mut tx);
+            let mut admin_reader =
+                UserAdminReaderFactory::in_transaction(&self.admin_reader, &mut tx);
             require_admin_actor(context, &mut admin_reader).await?;
         }
-        let mut users = self.users.in_transaction(&mut tx);
         let domain_primitives::versioned::Versioned {
             value: mut user,
             version,
-        } = users
+        } = self
+            .users
+            .in_transaction(&mut tx)
             .find_by_id(command.user_id)
             .await?
             .ok_or(ChangeUserRoleError::UserNotFound)?;
 
+        let previous_role = user.account().role;
         let outcome = user.change_role(command.role);
         if outcome.changed() {
-            user = users.update(&user, version).await?.value;
+            match UserAdminMutationGuardFactory::in_transaction(&self.admin_reader, &mut tx)
+                .check_removal(command.user_id)
+                .await?
+            {
+                UserAdminRemovalDecision::TargetNotFound => {
+                    return Err(ChangeUserRoleError::UserNotFound);
+                }
+                UserAdminRemovalDecision::TargetNotAdmin
+                    if previous_role == UserRole::Admin && command.role != UserRole::Admin =>
+                {
+                    return Err(ChangeUserRoleError::ConcurrencyConflict);
+                }
+                UserAdminRemovalDecision::LastAdmin
+                    if previous_role == UserRole::Admin && command.role != UserRole::Admin =>
+                {
+                    return Err(ChangeUserRoleError::LastAdminProtected);
+                }
+                UserAdminRemovalDecision::TargetNotAdmin
+                | UserAdminRemovalDecision::Allowed
+                | UserAdminRemovalDecision::LastAdmin => {}
+            }
+            user = self
+                .users
+                .in_transaction(&mut tx)
+                .update(&user, version)
+                .await?
+                .value;
         }
-        drop(users);
 
         tx.commit()
             .await
@@ -219,9 +250,9 @@ mod tests {
     use user_core::user_id::UserId;
 
     use crate::ports::{
-        UserAdminActorView, UserAdminReader, UserAdminReaderFactory, UserDetailsView,
-        UserRepository, UserRepositoryError, UserRepositoryFactory, UserStorageVersion,
-        VersionedUser,
+        UserAdminActorView, UserAdminMutationGuard, UserAdminMutationGuardFactory, UserAdminReader,
+        UserAdminReaderFactory, UserAdminRemovalDecision, UserDetailsView, UserRepository,
+        UserRepositoryError, UserRepositoryFactory, UserStorageVersion, VersionedUser,
     };
     use application::error::{BoxError, box_error};
     use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
@@ -291,6 +322,7 @@ mod tests {
     #[derive(Default)]
     struct AdminReadState {
         user: Option<UserDetailsView>,
+        removal_decision: UserAdminRemovalDecision,
     }
 
     struct FakeUserAdminReader {
@@ -544,8 +576,29 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
+    impl UserAdminMutationGuard for FakeUserAdminReader {
+        async fn check_removal(
+            &mut self,
+            _user_id: UserId,
+        ) -> Result<UserAdminRemovalDecision, crate::ports::UserAdminReadError> {
+            Ok(lock(&self.state).removal_decision)
+        }
+    }
+
     impl UserAdminReaderFactory<FakeTx> for FakeUserAdminReaderFactory {
         fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl UserAdminReader + 'tx {
+            FakeUserAdminReader {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    impl UserAdminMutationGuardFactory<FakeTx> for FakeUserAdminReaderFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl UserAdminMutationGuard + 'tx {
             FakeUserAdminReader {
                 state: Arc::clone(&self.state),
             }
@@ -667,6 +720,37 @@ mod tests {
             |error| matches!(error, ChangeUserRoleError::Forbidden),
         );
         assert_eq!(0, lock(&uow.state).begins);
+    }
+
+    #[tokio::test]
+    async fn should_protect_last_admin_role_removal_without_update_or_commit() {
+        let user_id = UserId::new();
+        let unit_of_work = FakeUnitOfWork::default();
+        let users = FakeUserRepositoryFactory::default();
+        lock(&users.state).user = Some(versioned(user_with(
+            user_id,
+            "last-admin@example.com",
+            UserRole::Admin,
+            UserTier::Free,
+        )));
+        let admin_reader = admin_reader(user_id, UserRole::Admin);
+        lock(&admin_reader.state).removal_decision = UserAdminRemovalDecision::LastAdmin;
+
+        let result = ChangeUserRoleHandler::new(unit_of_work.clone(), users.clone(), admin_reader)
+            .execute(
+                &ctx(Principal::System),
+                ChangeUserRoleCommand {
+                    user_id,
+                    role: UserRole::User,
+                },
+            )
+            .await;
+
+        assert_error(result, |error| {
+            matches!(error, ChangeUserRoleError::LastAdminProtected)
+        });
+        assert_eq!(0, lock(&users.state).update_calls);
+        assert_eq!(0, lock(&unit_of_work.state).commits);
     }
 
     #[tokio::test]
