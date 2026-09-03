@@ -34,6 +34,7 @@ use partnership_service::use_cases::{
         list_own_partnership_applications::ListOwnPartnershipApplicationsUseCase,
     },
 };
+use party_service::use_cases::commands::create_party::CreatePartyUseCase;
 use party_service::use_cases::queries::search_parties::SearchPartiesUseCase;
 use product_listing_service::use_cases::{
     CreateProductListingUseCase, GetProductListingHistoryUseCase, GetProductListingUseCase,
@@ -442,16 +443,19 @@ impl ListingSourcesState {
 
 #[derive(Clone)]
 pub struct PartiesState {
+    pub(crate) create_party: Arc<dyn CreatePartyUseCase>,
     pub(crate) search_parties: Arc<dyn SearchPartiesUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
 impl PartiesState {
     pub fn new(
+        create_party: Arc<dyn CreatePartyUseCase>,
         search_parties: Arc<dyn SearchPartiesUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
+            create_party,
             search_parties,
             authenticator,
         }

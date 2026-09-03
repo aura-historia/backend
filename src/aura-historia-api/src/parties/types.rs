@@ -1,4 +1,7 @@
-use party_service::use_cases::queries::search_parties::{PartySummary, SearchPartiesResult};
+use party_service::use_cases::queries::{
+    get_party::PartyDetailsView,
+    search_parties::{PartySummary, SearchPartiesResult},
+};
 use serde::Serialize;
 use time::OffsetDateTime;
 
@@ -24,6 +27,35 @@ impl From<SearchPartiesResult> for PartyCollectionData {
             size: result.cursor.size,
             search_after: result.cursor.search_after.map(|value| value.to_string()),
             total: result.total,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PartyData {
+    pub(crate) party_id: String,
+    pub(crate) party_slug_id: String,
+    pub(crate) name: String,
+    pub(crate) contact: PartyContactData,
+    #[serde(with = "time::serde::rfc3339")]
+    pub(crate) created: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub(crate) updated: OffsetDateTime,
+}
+
+impl From<PartyDetailsView> for PartyData {
+    fn from(value: PartyDetailsView) -> Self {
+        Self {
+            party_id: value.party_id.to_string(),
+            party_slug_id: value.party_slug_id.to_string(),
+            name: value.name.to_string(),
+            contact: PartyContactData {
+                phone: value.contact.phone,
+                email: value.contact.email.map(|email| email.to_string()),
+            },
+            created: value.created,
+            updated: value.updated,
         }
     }
 }

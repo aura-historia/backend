@@ -1,6 +1,7 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{assert_problem, json_response, seed_access_token_for, seed_party, seed_user};
+use serde_json::json;
 use test_api::{IntegrationTestService, aura_integration_test};
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -232,4 +233,157 @@ async fn should_reject_party_collection_for_non_admin() {
     let (status, body) = json_response(response).await;
 
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_create_party_with_identity_location_and_contact() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let response = reqwest::Client::new()
+        .post(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .json(&json!({
+            "name": "  Created Party  ",
+            "phone": "+49 30 123456",
+            "email": "created-party@example.test"
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to create party: {error}"));
+    let location = response
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let (status, body) = json_response(response).await;
+
+    let party_id = body["partyId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("created response has no party ID"));
+    assert_eq!(reqwest::StatusCode::CREATED, status);
+    assert_eq!(Some(format!("/api/v1/admin/parties/{party_id}")), location);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_eq!(json!("Created Party"), body["name"]);
+    assert_eq!(json!("+49 30 123456"), body["contact"]["phone"]);
+    assert_eq!(
+        json!("created-party@example.test"),
+        body["contact"]["email"]
+    );
+    assert_eq!(
+        json!(format!("created-party-{party_id}")),
+        body["partySlugId"]
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_create_party_with_each_optional_contact_variant() {
+    let admin_id = seed_user("ADMIN").await;
+    let token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let client = reqwest::Client::new();
+    let cases = [
+        (json!({"name": "Party without contact"}), json!({})),
+        (
+            json!({"name": "Party with phone", "phone": "+49 30 111111"}),
+            json!({"phone": "+49 30 111111"}),
+        ),
+        (
+            json!({"name": "Party with email", "email": "email-party@example.test"}),
+            json!({"email": "email-party@example.test"}),
+        ),
+        (
+            json!({
+                "name": "Party with all contact",
+                "phone": "+49 30 222222",
+                "email": "full-party@example.test"
+            }),
+            json!({
+                "phone": "+49 30 222222",
+                "email": "full-party@example.test"
+            }),
+        ),
+    ];
+
+    for (request, expected_contact) in cases {
+        let response = client
+            .post(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+            .bearer_auth(token.clone())
+            .json(&request)
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to create contact variant: {error}"));
+        let (status, body) = json_response(response).await;
+
+        assert_eq!(reqwest::StatusCode::CREATED, status);
+        assert_eq!(expected_contact, body["contact"]);
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_invalid_party_create_names() {
+    let admin_id = seed_user("ADMIN").await;
+    let token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let client = reqwest::Client::new();
+
+    for name in [
+        String::new(),
+        " \u{2003}\u{00a0}".to_owned(),
+        "é".repeat(128),
+    ] {
+        let response = client
+            .post(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+            .bearer_auth(token.clone())
+            .json(&json!({"name": name}))
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to validate party name: {error}"));
+        let (status, body) = json_response(response).await;
+
+        assert_problem(
+            status,
+            &body,
+            reqwest::StatusCode::BAD_REQUEST,
+            "BAD_BODY_VALUE",
+        );
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_party_create_without_admin_authorization() {
+    let missing = reqwest::Client::new()
+        .post(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .json(&json!({"name": "Unauthenticated Party"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject unauthenticated party create: {error}"));
+    let (missing_status, missing_body) = json_response(missing).await;
+    assert_problem(
+        missing_status,
+        &missing_body,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "INVALID_CREDENTIALS",
+    );
+
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let non_admin = reqwest::Client::new()
+        .post(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .json(&json!({"name": "Non-admin Party"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject non-admin party create: {error}"));
+    let (non_admin_status, non_admin_body) = json_response(non_admin).await;
+    assert_problem(
+        non_admin_status,
+        &non_admin_body,
+        reqwest::StatusCode::FORBIDDEN,
+        "FORBIDDEN",
+    );
 }

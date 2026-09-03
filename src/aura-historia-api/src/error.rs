@@ -32,6 +32,7 @@ use partnership_service::use_cases::{
         list_own_partnership_applications::ListOwnPartnershipApplicationsError,
     },
 };
+use party_service::use_cases::commands::create_party::CreatePartyError;
 use party_service::use_cases::queries::search_parties::SearchPartiesError;
 use product_listing_service::use_cases::{
     CreateProductListingError, GetProductListingError, GetProductListingHistoryError,
@@ -1276,6 +1277,34 @@ impl From<AdminGetUserError> for ApiError {
             AdminGetUserError::InvalidReadModel { .. } | AdminGetUserError::Internal { .. } => {
                 ApiError::internal_server_error(USER_INTERNAL_ERROR)
                     .with_detail("User details failed internally.")
+            }
+        }
+    }
+}
+
+impl From<CreatePartyError> for ApiError {
+    fn from(error: CreatePartyError) -> Self {
+        match error {
+            CreatePartyError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            CreatePartyError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            CreatePartyError::SlugConflict { .. } => {
+                ApiError::conflict(CONFLICT).with_detail("Party conflicts with current state.")
+            }
+            CreatePartyError::TemporarilyUnavailable { .. }
+            | CreatePartyError::BeginTransactionFailed
+            | CreatePartyError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Party could not be created right now.")
+            }
+            CreatePartyError::InvalidPersistedState { .. } | CreatePartyError::Internal { .. } => {
+                ApiError::internal_server_error(PARTY_INTERNAL_ERROR)
+                    .with_detail("Party create failed internally.")
             }
         }
     }
