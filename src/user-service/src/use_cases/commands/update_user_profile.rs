@@ -103,6 +103,7 @@ pub struct UpdateUserProfileHandler<U, R, A> {
     unit_of_work: U,
     users: R,
     admin_reader: A,
+    admin_only: bool,
 }
 
 impl<U, R, A> UpdateUserProfileHandler<U, R, A> {
@@ -111,6 +112,16 @@ impl<U, R, A> UpdateUserProfileHandler<U, R, A> {
             unit_of_work,
             users,
             admin_reader,
+            admin_only: false,
+        }
+    }
+
+    pub fn new_admin_only(unit_of_work: U, users: R, admin_reader: A) -> Self {
+        Self {
+            unit_of_work,
+            users,
+            admin_reader,
+            admin_only: true,
         }
     }
 }
@@ -152,7 +163,14 @@ where
             .begin()
             .await
             .map_err(|_| UpdateUserProfileError::BeginTransactionFailed)?;
-        authorize_user_profile_write(context, command.user_id, &mut tx, &self.admin_reader).await?;
+        authorize_user_profile_write(
+            context,
+            command.user_id,
+            self.admin_only,
+            &mut tx,
+            &self.admin_reader,
+        )
+        .await?;
         let mut users = self.users.in_transaction(&mut tx);
         let domain_primitives::versioned::Versioned {
             value: mut user,
@@ -236,6 +254,7 @@ fn apply_optional_patch<T>(target: &mut Option<T>, patch: PatchField<T>) {
 async fn authorize_user_profile_write<Tx, A>(
     context: &OperationContext,
     user_id: UserId,
+    admin_only: bool,
     tx: &mut Tx,
     admin_reader: &A,
 ) -> Result<(), UpdateUserProfileError>
@@ -243,6 +262,13 @@ where
     Tx: Transaction,
     A: UserAdminReaderFactory<Tx>,
 {
+    if admin_only {
+        let mut reader = admin_reader.in_transaction(tx);
+        return require_admin_actor(context, &mut reader)
+            .await
+            .map_err(UpdateUserProfileError::from);
+    }
+
     match &context.principal {
         Principal::Service(_) | Principal::System => Ok(()),
         Principal::User(actor_id)

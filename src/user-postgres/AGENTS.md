@@ -12,6 +12,7 @@
 - Keeps SQL rows, SQL, mapping, repositories, and readers private.
 - Readers and repositories bind to caller-owned transactions through service factory ports.
 - `SqlxUserTierEntitlementsFactory` locks `users` with `FOR UPDATE` first, then locks eligible watchlist rows before newest-first quota ranking in the same transaction. Changed watchlist rows increment internal storage versions, so stale ordinary watchlist writes conflict.
+- `SqlxUserAdminReaderFactory` implements the transaction-bound admin mutation guard; it takes an advisory transaction lock, locks the target user, and checks the authoritative admin count before demotion or deletion.
 - User repository writes use `RETURNING` and expose only storage-neutral persisted user state; delete returns row-existence only.
 - `insert_if_absent` uses `ON CONFLICT (user_id) DO NOTHING` and returns the existing aggregate for idempotent `CreateUser` replay; email conflicts still fail.
 - PostgreSQL owns access tokens. Repositories rehydrate hashed-token aggregates inside caller transactions; focused pool-backed readers return details/list/authentication models without exposing token hashes. Authentication readers include token identity and origin only for service-side credential flows.

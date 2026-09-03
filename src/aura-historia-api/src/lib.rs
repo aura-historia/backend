@@ -475,7 +475,7 @@ pub fn app(state: AppState) -> Router {
                 )
                 .route("/api/v1/admin/users", get(users::admin_users::search_users))
                 .route(
-                    "/api/v1/users/{user_id}",
+                    "/api/v1/admin/users/{user_id}",
                     get(users::admin_users::get_user)
                         .patch(users::admin_users::patch_admin_user)
                         .delete(users::admin_users::delete_admin_user),
@@ -620,6 +620,11 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxUserRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
+    let admin_update_user_profile = UpdateUserProfileHandler::new_admin_only(
+        unit_of_work.clone(),
+        SqlxUserRepositoryFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
     let change_user_role = ChangeUserRoleHandler::new(
         unit_of_work.clone(),
         SqlxUserRepositoryFactory::new(),
@@ -632,6 +637,11 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxUserTierEntitlementsFactory::new(),
     );
     let delete_user = DeleteUserHandler::new(
+        unit_of_work.clone(),
+        SqlxUserRepositoryFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
+    let admin_delete_user = DeleteUserHandler::new_admin_only(
         unit_of_work.clone(),
         SqlxUserRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
@@ -864,9 +874,11 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         admin_get_user: Arc::new(admin_get_user),
         search_users: Arc::new(search_users),
         update_user_profile: Arc::new(update_user_profile),
+        admin_update_user_profile: Arc::new(admin_update_user_profile),
         change_user_role: Arc::new(change_user_role),
         change_user_tier: Arc::new(change_user_tier),
         delete_user: Arc::new(delete_user),
+        admin_delete_user: Arc::new(admin_delete_user),
         create_access_token: Arc::new(CreateAccessTokenHandler::new(
             unit_of_work.clone(),
             SqlxAccessTokenRepositoryFactory::new(),

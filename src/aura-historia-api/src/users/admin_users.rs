@@ -254,11 +254,11 @@ pub async fn get_user(
 ) -> Response {
     let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return *r,
+        Err(r) => return no_store(*r),
     };
     let user_id = match parse_user_id(&raw_user_id, "userId") {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return no_store(r),
     };
     match state
         .admin_get_user
@@ -266,7 +266,7 @@ pub async fn get_user(
         .await
     {
         Ok(view) => no_store(Json(AdminUserData::from(view)).into_response()),
-        Err(error) => ApiError::from(error).into_response(),
+        Err(error) => no_store(ApiError::from(error).into_response()),
     }
 }
 
@@ -278,17 +278,17 @@ pub async fn patch_admin_user(
 ) -> Response {
     let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return *r,
+        Err(r) => return no_store(*r),
     };
     let user_id = match parse_user_id(&raw_user_id, "userId") {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return no_store(r),
     };
     let data: PatchAdminUserData = match parse_json(&body) {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return no_store(r),
     };
-    admin_patch_user(state, ctx, user_id, data).await
+    no_store(admin_patch_user(state, ctx, user_id, data).await)
 }
 
 async fn admin_patch_user(
@@ -370,7 +370,7 @@ async fn admin_patch_user(
         Ok(command) => command,
         Err(error) => return error.into_response(),
     };
-    match state.update_user_profile.execute(&ctx, command).await {
+    match state.admin_update_user_profile.execute(&ctx, command).await {
         Ok(result) => no_store(Json(AdminUserData::from(result.view)).into_response()),
         Err(error) => ApiError::from(error).into_response(),
     }
@@ -409,7 +409,7 @@ pub async fn delete_admin_user(
         Err(r) => return r,
     };
     match state
-        .delete_user
+        .admin_delete_user
         .execute(&ctx, DeleteUserCommand { user_id })
         .await
     {

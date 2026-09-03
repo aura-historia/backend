@@ -33,7 +33,8 @@ pub use user_account_reader::{
     UserAccountReadError, UserAccountReader, UserAccountReaderFactory, UserDetailsView,
 };
 pub use user_admin_reader::{
-    UserAdminActorView, UserAdminReadError, UserAdminReader, UserAdminReaderFactory,
+    UserAdminActorView, UserAdminMutationGuard, UserAdminMutationGuardFactory, UserAdminReadError,
+    UserAdminReader, UserAdminReaderFactory, UserAdminRemovalDecision,
 };
 pub use user_repository::{
     UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,

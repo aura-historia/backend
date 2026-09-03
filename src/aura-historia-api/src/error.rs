@@ -1352,6 +1352,8 @@ impl From<ChangeUserRoleError> for ApiError {
             ChangeUserRoleError::UserNotFound => {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
+            ChangeUserRoleError::LastAdminProtected => ApiError::conflict(CONFLICT)
+                .with_detail("At least one active administrator must remain."),
             ChangeUserRoleError::ConcurrencyConflict
             | ChangeUserRoleError::EmailConflict { .. }
             | ChangeUserRoleError::StripeCustomerConflict { .. } => ApiError::conflict(CONFLICT)
@@ -1420,6 +1422,8 @@ impl From<DeleteUserError> for ApiError {
             DeleteUserError::UserNotFound => {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
+            DeleteUserError::LastAdminProtected => ApiError::conflict(CONFLICT)
+                .with_detail("At least one active administrator must remain."),
             DeleteUserError::ConcurrencyConflict
             | DeleteUserError::EmailConflict { .. }
             | DeleteUserError::StripeCustomerConflict { .. } => ApiError::conflict(CONFLICT)
@@ -1428,7 +1432,7 @@ impl From<DeleteUserError> for ApiError {
             | DeleteUserError::BeginTransactionFailed
             | DeleteUserError::CommitTransactionFailed => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("User could not be unwatched right now.")
+                    .with_detail("User could not be deleted right now.")
             }
             DeleteUserError::InvalidPersistedState { .. } | DeleteUserError::Internal { .. } => {
                 ApiError::internal_server_error(USER_INTERNAL_ERROR)
