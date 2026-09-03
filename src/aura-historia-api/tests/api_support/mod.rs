@@ -77,6 +77,7 @@ use partnership_service::use_cases::{
 use party_core::party_id::PartyId;
 use party_postgres::{SqlxPartyRepositoryFactory, SqlxPartySearchReaderFactory};
 use party_service::use_cases::commands::create_party::CreatePartyHandler;
+use party_service::use_cases::commands::update_party::UpdatePartyHandler;
 use party_service::use_cases::queries::get_party::GetPartyHandler;
 use party_service::use_cases::queries::search_parties::SearchPartiesHandler;
 use platform_postgres::SqlxUnitOfWork;
@@ -684,6 +685,14 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             user_postgres::SqlxUserAdminReaderFactory::new(),
         ),
     );
+    let update_party = UpdatePartyHandler::new(
+        unit_of_work.clone(),
+        SqlxPartyRepositoryFactory::new(),
+        CheckUserAdminHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        ),
+    );
     let search_parties = SearchPartiesHandler::new(
         unit_of_work.clone(),
         SqlxPartySearchReaderFactory::new(),
@@ -833,6 +842,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::new(create_party),
         Arc::new(get_party),
         Arc::new(search_parties),
+        Arc::new(update_party),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 

@@ -33,6 +33,7 @@ use partnership_service::use_cases::{
     },
 };
 use party_service::use_cases::commands::create_party::CreatePartyError;
+use party_service::use_cases::commands::update_party::UpdatePartyError;
 use party_service::use_cases::queries::get_party::GetPartyError;
 use party_service::use_cases::queries::search_parties::SearchPartiesError;
 use product_listing_service::use_cases::{
@@ -1312,6 +1313,37 @@ impl From<CreatePartyError> for ApiError {
     }
 }
 
+impl From<UpdatePartyError> for ApiError {
+    fn from(error: UpdatePartyError) -> Self {
+        match error {
+            UpdatePartyError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdatePartyError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdatePartyError::NotFound => {
+                ApiError::not_found(PARTY_NOT_FOUND).with_detail("Party was not found.")
+            }
+            UpdatePartyError::ConcurrencyConflict | UpdatePartyError::SlugConflict { .. } => {
+                ApiError::conflict(CONFLICT).with_detail("Party conflicts with current state.")
+            }
+            UpdatePartyError::TemporarilyUnavailable { .. }
+            | UpdatePartyError::BeginTransactionFailed
+            | UpdatePartyError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Party could not be updated right now.")
+            }
+            UpdatePartyError::InvalidPersistedState { .. } | UpdatePartyError::Internal { .. } => {
+                ApiError::internal_server_error(PARTY_INTERNAL_ERROR)
+                    .with_detail("Party update failed internally.")
+            }
+        }
+    }
+}
+
 impl From<GetPartyError> for ApiError {
     fn from(error: GetPartyError) -> Self {
         match error {
@@ -2264,6 +2296,18 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let response =
             ApiError::from(UnwatchProductListingError::ConcurrencyConflict).into_response();
+
+        assert_eq!(StatusCode::CONFLICT, response.status());
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+        assert_eq!(CONFLICT.to_string(), body["error"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_update_party_concurrency_conflict_to_conflict()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = ApiError::from(UpdatePartyError::ConcurrencyConflict).into_response();
 
         assert_eq!(StatusCode::CONFLICT, response.status());
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;

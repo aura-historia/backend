@@ -16,7 +16,7 @@ ProductListing
 
 ## Party
 
-A Party contains only a stable ID, immutable slug, name, and optional phone/email contact. Party names trim Unicode outer whitespace, reject blank values, and allow at most 255 UTF-8 bytes without truncation. Creation derives its slug once as the slugified name plus `-<partyId>`; an empty slugification uses `party-<partyId>`. Rename and contact replacement do not alter the slug. Party rehydration validates the exact persisted slug without deriving it from the name. Party has no type, role, lifecycle, merge, or address behavior. Admins can search and explicitly create Parties at `GET`/`POST /api/v1/admin/parties`, and get Party details at `GET /api/v1/admin/parties/{partyId}`; Party update routes are separate work.
+A Party contains only a stable ID, immutable slug, name, and optional phone/email contact. Party names trim Unicode outer whitespace, reject blank values, and allow at most 255 UTF-8 bytes without truncation. Creation derives its slug once as the slugified name plus `-<partyId>`; an empty slugification uses `party-<partyId>`. Rename and contact replacement do not alter the slug. Party rehydration validates the exact persisted slug without deriving it from the name. Party has no type, role, lifecycle, merge, or address behavior. Admins can search and explicitly create Parties at `GET`/`POST /api/v1/admin/parties`, get details at `GET /api/v1/admin/parties/{partyId}`, and update only name/contact at `PATCH /api/v1/admin/parties/{partyId}`. PATCH omits unchanged fields and clears optional contact fields with `null`; the immutable slug remains stable.
 
 ## ListingSource
 
@@ -58,7 +58,7 @@ GET   /api/v1/listing-sources/by-slug/{listingSourceSlugId}
 GET   /api/v1/me/listing-sources
 ```
 
-Create uses an explicit operator input: `EXISTING` carries `partyId`; `NEW` carries Party name and optional contact. Admins can search Party summaries and create Parties through `GET`/`POST /api/v1/admin/parties`, and get Party details through `GET /api/v1/admin/parties/{partyId}`; search uses bounded cursor pagination and name/contact filters, while create and detail return the stable identity and immutable slug. Party update routes are separate work; there is no ListingSource search/list-all route. Public contract details are in `docs/swagger.yaml`.
+Create uses an explicit operator input: `EXISTING` carries `partyId`; `NEW` carries Party name and optional contact. Admins can search Party summaries, create Parties through `GET`/`POST /api/v1/admin/parties`, get details through `GET /api/v1/admin/parties/{partyId}`, and update name/contact through `PATCH /api/v1/admin/parties/{partyId}`. Search uses bounded cursor pagination and name/contact filters; create, detail, and update return the stable identity and immutable slug. There is no ListingSource search/list-all route. Public contract details are in `docs/swagger.yaml`.
 
 ## Boundaries
 
