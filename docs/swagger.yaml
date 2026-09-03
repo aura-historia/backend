@@ -3946,12 +3946,18 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
-  /api/v1/users/{userId}:
     delete:
       summary: Delete a user as admin
       description: "Deletes a user account for authenticated administrators.
 
-        The backend first removes the user from Cognito and then deletes the persisted user record.
+        Cognito JWTs and Aura Historia access tokens are accepted; delegated access tokens require `users:write`.
+
+        The caller's persisted user role must be `ADMIN`; this authorization is enforced in the User service.
+
+        PostgreSQL synchronously cascades user-owned access tokens, OAuth authorization codes, watchlist entries,
+        saved-search filters and matches, notifications, partnership memberships, and partnership applications.
+
+        The final active administrator cannot be deleted, including through a self-targeted admin request.
 
         "
       operationId: adminDeleteUser
@@ -3978,6 +3984,16 @@ paths:
               schema:
                 type: string
               example: "*"
+        "400":
+          description: Bad request - the user ID is not a UUID.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 400
+                title: Bad Request
+                error: INVALID_UUID
         "401":
           description: Unauthorized - invalid or missing bearer credentials.
           content:
@@ -3989,7 +4005,7 @@ paths:
                 title: Unauthorized
                 error: INVALID_CREDENTIALS
         "403":
-          description: Forbidden - this endpoint requires the `ADMIN` role.
+          description: Forbidden - this endpoint requires the `ADMIN` role; delegated access tokens also require `users:write`.
           content:
             application/problem+json:
               schema:
@@ -3998,7 +4014,7 @@ paths:
                 status: 403
                 title: Forbidden
                 error: FORBIDDEN
-                detail: This action requires the 'ADMIN' role.
+                detail: Operation is not permitted.
         "404":
           description: User not found.
           content:
@@ -4009,9 +4025,9 @@ paths:
                 status: 404
                 title: Not Found
                 error: USER_NOT_FOUND
-                detail: User with UserId '550e8400-e29b-41d4-a716-446655440000' not found.
+                detail: User was not found.
         "409":
-          description: Conflict - the last active administrator cannot be deleted.
+          description: Conflict - the target state prevents deletion, including removal of the final active administrator.
           content:
             application/problem+json:
               schema:
@@ -4021,6 +4037,16 @@ paths:
                 title: Conflict
                 error: CONFLICT
                 detail: At least one active administrator must remain.
+        "503":
+          description: User authorization or persistence is temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: USER_TEMPORARILY_UNAVAILABLE
         "500":
           description: Internal server error.
           content:
@@ -4030,7 +4056,8 @@ paths:
               example:
                 status: 500
                 title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
+                error: USER_INTERNAL_ERROR
+
   /api/v1/me:
     delete:
       summary: Delete authenticated user

@@ -409,7 +409,7 @@ pub async fn delete_admin_user(
         Err(r) => return r,
     };
     match state
-        .delete_user
+        .admin_delete_user
         .execute(&ctx, DeleteUserCommand { user_id })
         .await
     {

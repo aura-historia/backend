@@ -429,7 +429,7 @@ async fn should_remove_legacy_admin_user_detail_route() {
         .await
         .unwrap_or_else(|error| panic!("failed to call removed admin user detail route: {error}"));
 
-    assert_eq!(reqwest::StatusCode::METHOD_NOT_ALLOWED, response.status());
+    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -671,7 +671,7 @@ async fn should_remove_legacy_admin_user_patch_route() {
         .await
         .unwrap_or_else(|error| panic!("failed to call removed admin user patch route: {error}"));
 
-    assert_eq!(reqwest::StatusCode::METHOD_NOT_ALLOWED, response.status());
+    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
@@ -726,6 +726,65 @@ async fn should_protect_the_last_admin_from_self_deletion() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_delete_user_when_actor_is_admin() {
     let user_id = seed_user("USER").await;
+    let target_token = String::from(seed_access_token_for(user_id, Default::default()).await);
+    let admin_id = seed_user("ADMIN").await;
+    let admin_token = String::from(
+        seed_access_token_for(
+            admin_id,
+            std::collections::HashSet::from([Scope::UsersRead, Scope::UsersWrite]),
+        )
+        .await,
+    );
+    let client = reqwest::Client::new();
+
+    let response = client
+        .delete(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            user_id
+        ))
+        .bearer_auth(admin_token.clone())
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to delete admin user API: {error}"));
+
+    assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+
+    let response = client
+        .get(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            user_id
+        ))
+        .bearer_auth(admin_token)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to verify deleted admin user: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "USER_NOT_FOUND",
+    );
+
+    let response = client
+        .get(format!("{}/api/v1/me/account", AURA_API.base_url()))
+        .bearer_auth(target_token)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to verify deleted user access token: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "INVALID_CREDENTIALS",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_not_found_when_admin_deletes_missing_user() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(
         admin_id,
@@ -734,13 +793,111 @@ async fn should_delete_user_when_actor_is_admin() {
     .await;
 
     let response = reqwest::Client::new()
-        .delete(format!("{}/api/v1/users/{}", AURA_API.base_url(), user_id))
+        .delete(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            UserId::new()
+        ))
         .bearer_auth(String::from(token))
         .send()
         .await
-        .unwrap_or_else(|error| panic!("failed to delete admin user API: {error}"));
+        .unwrap_or_else(|error| panic!("failed to delete missing admin user: {error}"));
+    let (status, body) = json_response(response).await;
 
-    assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "USER_NOT_FOUND",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_admin_user_delete_when_user_id_is_invalid() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersWrite]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .delete(format!(
+            "{}/api/v1/admin/users/not-a-uuid",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to validate admin user delete ID: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "INVALID_UUID",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_admin_user_delete_when_actor_is_not_admin() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::UsersWrite]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .delete(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            user_id
+        ))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject non-admin user delete: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_protect_the_last_admin_from_admin_user_deletion() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(
+        admin_id,
+        std::collections::HashSet::from([Scope::UsersRead, Scope::UsersWrite]),
+    )
+    .await;
+
+    let response = reqwest::Client::new()
+        .delete(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            admin_id
+        ))
+        .bearer_auth(String::from(token.clone()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to protect the last admin deletion: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
+
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/admin/users/{}",
+            AURA_API.base_url(),
+            admin_id
+        ))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to verify protected administrator: {error}"));
+    assert_eq!(reqwest::StatusCode::OK, response.status());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

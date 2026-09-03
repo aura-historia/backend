@@ -1432,7 +1432,7 @@ impl From<DeleteUserError> for ApiError {
             | DeleteUserError::BeginTransactionFailed
             | DeleteUserError::CommitTransactionFailed => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("User could not be unwatched right now.")
+                    .with_detail("User could not be deleted right now.")
             }
             DeleteUserError::InvalidPersistedState { .. } | DeleteUserError::Internal { .. } => {
                 ApiError::internal_server_error(USER_INTERNAL_ERROR)
