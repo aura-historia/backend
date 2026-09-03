@@ -16,7 +16,7 @@ ProductListing
 
 ## Party
 
-A Party contains only a stable ID, immutable slug, name, and optional phone/email contact. Party names trim Unicode outer whitespace, reject blank values, and allow at most 255 UTF-8 bytes without truncation. Creation derives its slug once as the slugified name plus `-<partyId>`; an empty slugification uses `party-<partyId>`. Rename and contact replacement do not alter the slug. Party rehydration validates the exact persisted slug without deriving it from the name. Party has no type, role, lifecycle, merge, address, or REST API.
+A Party contains only a stable ID, immutable slug, name, and optional phone/email contact. Party names trim Unicode outer whitespace, reject blank values, and allow at most 255 UTF-8 bytes without truncation. Creation derives its slug once as the slugified name plus `-<partyId>`; an empty slugification uses `party-<partyId>`. Rename and contact replacement do not alter the slug. Party rehydration validates the exact persisted slug without deriving it from the name. Party has no type, role, lifecycle, merge, or address behavior. The admin collection search is available at `GET /api/v1/admin/parties`; Party item and create/update routes are separate work.
 
 ## ListingSource
 
@@ -58,7 +58,7 @@ GET   /api/v1/listing-sources/by-slug/{listingSourceSlugId}
 GET   /api/v1/me/listing-sources
 ```
 
-Create uses an explicit operator input: `EXISTING` carries `partyId`; `NEW` carries Party name and optional contact. There is no Party route and no ListingSource search/list-all route. Public contract details are in `docs/swagger.yaml`.
+Create uses an explicit operator input: `EXISTING` carries `partyId`; `NEW` carries Party name and optional contact. Admins can search Party summaries through `GET /api/v1/admin/parties`, using bounded cursor pagination and name/contact filters. Party item and create/update routes are separate work; there is no ListingSource search/list-all route. Public contract details are in `docs/swagger.yaml`.
 
 ## Boundaries
 

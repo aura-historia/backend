@@ -37,6 +37,7 @@ partnership-postgres = { workspace = true }
 partnership-service = { workspace = true }
 party-core = { workspace = true }
 party-postgres = { workspace = true }
+party-service = { workspace = true }
 money = { workspace = true }
 notification-core = { workspace = true }
 notification-postgres = { workspace = true }

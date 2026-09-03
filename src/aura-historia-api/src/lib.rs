@@ -6,6 +6,7 @@ pub mod newsletter;
 pub mod notifications;
 pub mod oauth;
 pub(crate) mod pagination_data;
+pub mod parties;
 pub mod partner_product_listings;
 pub(crate) mod partnership_applications;
 pub(crate) mod patch_value;
@@ -25,7 +26,7 @@ use crate::auth::{
 };
 use crate::state::{
     AppState, BillingState, ListingSourcesState, NewsletterState, NotificationsState, OAuthState,
-    PartnerProductListingsState, PartnershipApplicationsState, ProductListingsState,
+    PartiesState, PartnerProductListingsState, PartnershipApplicationsState, ProductListingsState,
     ReadinessCheck, SearchFiltersState, UsersState, WatchlistState, WebhooksState,
 };
 use crate::transport::with_transport_middleware;
@@ -95,7 +96,8 @@ use partnership_service::use_cases::{
         list_own_partnership_applications::ListOwnPartnershipApplicationsHandler,
     },
 };
-use party_postgres::SqlxPartyRepositoryFactory;
+use party_postgres::{SqlxPartyRepositoryFactory, SqlxPartySearchReaderFactory};
+use party_service::use_cases::queries::search_parties::SearchPartiesHandler;
 use product_listing_opensearch::{
     OpenSearchProductListingSearchReader, OpenSearchProductListingSimilarProductListingsReader,
 };
@@ -454,6 +456,17 @@ pub fn app(state: AppState) -> Router {
         );
     }
 
+    if let Some(parties) = state.parties {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/admin/parties",
+                    get(parties::search_parties::search_parties),
+                )
+                .with_state(parties),
+        );
+    }
+
     if let Some(users) = state.users {
         routes = routes.merge(
             Router::new()
@@ -614,6 +627,11 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         unit_of_work.clone(),
         SqlxUserSearchReaderFactory::new(),
         SqlxUserAdminReaderFactory::new(),
+    );
+    let search_parties = SearchPartiesHandler::new(
+        unit_of_work.clone(),
+        SqlxPartySearchReaderFactory::new(),
+        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
     let update_user_profile = UpdateUserProfileHandler::new(
         unit_of_work.clone(),
@@ -859,6 +877,10 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         Arc::new(list_administered_listing_sources),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
+    let parties_state = PartiesState::new(
+        Arc::new(search_parties),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
     let users_state = UsersState {
         get_own_user: Arc::new(get_own_user),
         admin_get_user: Arc::new(admin_get_user),
@@ -999,6 +1021,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     });
 
     Ok(AppState::new()
+        .with_parties(parties_state)
         .with_users(users_state)
         .with_watchlist(watchlist_state)
         .with_partnership_applications(partnership_state)

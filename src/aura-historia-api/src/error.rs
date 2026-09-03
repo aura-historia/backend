@@ -32,6 +32,7 @@ use partnership_service::use_cases::{
         list_own_partnership_applications::ListOwnPartnershipApplicationsError,
     },
 };
+use party_service::use_cases::queries::search_parties::SearchPartiesError;
 use product_listing_service::use_cases::{
     CreateProductListingError, GetProductListingError, GetProductListingHistoryError,
     GetSimilarProductListingsError, IngestWoocommerceProductListingError,
@@ -117,6 +118,9 @@ pub(crate) const LISTING_SOURCE_INTERNAL_ERROR: ApiErrorCode =
 pub(crate) const LISTING_SOURCE_NOT_FOUND: ApiErrorCode = ApiErrorCode("LISTING_SOURCE_NOT_FOUND");
 pub(crate) const LISTING_SOURCE_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("LISTING_SOURCE_TEMPORARILY_UNAVAILABLE");
+pub(crate) const PARTY_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("PARTY_INTERNAL_ERROR");
+pub(crate) const PARTY_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("PARTY_TEMPORARILY_UNAVAILABLE");
 pub(crate) const PRODUCT_LISTING_INTERNAL_ERROR: ApiErrorCode =
     ApiErrorCode("PRODUCT_LISTING_INTERNAL_ERROR");
 pub(crate) const PRODUCT_LISTING_NOT_FOUND: ApiErrorCode =
@@ -1272,6 +1276,31 @@ impl From<AdminGetUserError> for ApiError {
             AdminGetUserError::InvalidReadModel { .. } | AdminGetUserError::Internal { .. } => {
                 ApiError::internal_server_error(USER_INTERNAL_ERROR)
                     .with_detail("User details failed internally.")
+            }
+        }
+    }
+}
+
+impl From<SearchPartiesError> for ApiError {
+    fn from(error: SearchPartiesError) -> Self {
+        match error {
+            SearchPartiesError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            SearchPartiesError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            SearchPartiesError::TemporarilyUnavailable { .. }
+            | SearchPartiesError::BeginTransactionFailed
+            | SearchPartiesError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Party search is temporarily unavailable.")
+            }
+            SearchPartiesError::InvalidReadModel { .. } | SearchPartiesError::Internal { .. } => {
+                ApiError::internal_server_error(PARTY_INTERNAL_ERROR)
+                    .with_detail("Party search failed internally.")
             }
         }
     }

@@ -2,8 +2,11 @@ use party_core::{
     party::{Party, PartyContact, RehydratedPartyState},
     party_id::PartyId,
     party_name::PartyName,
+    party_slug_id::PartySlugId,
+    sort_party_field::SortPartyField,
 };
 use party_service::ports::{PartyStorageVersion, StoredParty};
+use party_service::use_cases::queries::search_parties::PartySummary;
 use serde_email::Email;
 use time::OffsetDateTime;
 
@@ -39,6 +42,16 @@ pub(crate) fn party_columns() -> &'static str {
     PARTY_COLUMNS
 }
 
+pub(crate) fn sort_party_field_columns(field: SortPartyField) -> &'static [&'static str] {
+    match field {
+        SortPartyField::Name => &["name"],
+        SortPartyField::Email => &["email"],
+        SortPartyField::Phone => &["phone"],
+        SortPartyField::Created => &["created"],
+        SortPartyField::Updated => &["updated"],
+    }
+}
+
 pub(crate) fn version_to_i64(version: PartyStorageVersion) -> Result<i64, PartyRowMappingError> {
     i64::try_from(version.into_inner()).map_err(|_| PartyRowMappingError::Version)
 }
@@ -68,6 +81,32 @@ impl TryFrom<PartyRow> for StoredParty {
         Ok(StoredParty {
             party,
             version,
+            created: row.created,
+            updated: row.updated,
+        })
+    }
+}
+
+impl TryFrom<PartyRow> for PartySummary {
+    type Error = PartyRowMappingError;
+
+    fn try_from(row: PartyRow) -> Result<Self, Self::Error> {
+        PartyStorageVersion::try_from(row.version).map_err(|_| PartyRowMappingError::Version)?;
+
+        Ok(Self {
+            party_id: PartyId::from(row.party_id),
+            party_slug_id: PartySlugId::raw(row.party_slug_id)
+                .map_err(|_| PartyRowMappingError::Slug)?,
+            name: PartyName::try_from(row.name).map_err(|_| PartyRowMappingError::Name)?,
+            contact: PartyContact {
+                phone: row.phone,
+                email: row
+                    .email
+                    .as_deref()
+                    .map(Email::try_from)
+                    .transpose()
+                    .map_err(|_| PartyRowMappingError::Email)?,
+            },
             created: row.created,
             updated: row.updated,
         })

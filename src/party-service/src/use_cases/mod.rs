@@ -10,3 +10,7 @@ pub use commands::update_party::{
 pub use queries::get_party::{
     GetPartyError, GetPartyHandler, GetPartyRequest, GetPartyUseCase, PartyDetailsView,
 };
+pub use queries::search_parties::{
+    PartySummary, SearchPartiesError, SearchPartiesHandler, SearchPartiesRequest,
+    SearchPartiesResult, SearchPartiesUseCase,
+};

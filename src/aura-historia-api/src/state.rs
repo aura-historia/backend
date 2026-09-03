@@ -34,6 +34,7 @@ use partnership_service::use_cases::{
         list_own_partnership_applications::ListOwnPartnershipApplicationsUseCase,
     },
 };
+use party_service::use_cases::queries::search_parties::SearchPartiesUseCase;
 use product_listing_service::use_cases::{
     CreateProductListingUseCase, GetProductListingHistoryUseCase, GetProductListingUseCase,
     GetSimilarProductListingsUseCase, IngestWoocommerceProductListingUseCase,
@@ -86,6 +87,7 @@ pub struct AppState {
     pub(crate) product_listings: Option<ProductListingsState>,
     pub(crate) partner_product_listings: Option<PartnerProductListingsState>,
     pub(crate) listing_sources: Option<ListingSourcesState>,
+    pub(crate) parties: Option<PartiesState>,
     pub(crate) users: Option<UsersState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partnership_applications: Option<PartnershipApplicationsState>,
@@ -110,6 +112,7 @@ impl AppState {
             product_listings: None,
             partner_product_listings: None,
             listing_sources: None,
+            parties: None,
             users: None,
             watchlist: None,
             partnership_applications: None,
@@ -147,6 +150,11 @@ impl AppState {
 
     pub fn with_users(mut self, users: UsersState) -> Self {
         self.users = Some(users);
+        self
+    }
+
+    pub fn with_parties(mut self, parties: PartiesState) -> Self {
+        self.parties = Some(parties);
         self
     }
 
@@ -427,6 +435,24 @@ impl ListingSourcesState {
             get,
             update,
             list_administered,
+            authenticator,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct PartiesState {
+    pub(crate) search_parties: Arc<dyn SearchPartiesUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl PartiesState {
+    pub fn new(
+        search_parties: Arc<dyn SearchPartiesUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            search_parties,
             authenticator,
         }
     }

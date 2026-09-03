@@ -8,9 +8,9 @@
 ## Core Design
 
 - Depends on `party-core`, `party-service`, and shared `platform-postgres` transaction mechanics.
-- Exports only the public SQLx Party repository factory.
-- Keeps SQL rows, SQL, mapping, and scoped repository private.
-- Repository methods bind to caller-owned transactions, map persisted Party state with `TryFrom`, and enforce optimistic version updates.
+- Exports the public SQLx Party repository and bounded search-reader factories.
+- Keeps SQL rows, SQL, mapping, and scoped repository/reader implementations private.
+- Repository methods bind to caller-owned transactions, map persisted Party state with `TryFrom`, and enforce optimistic version updates. The Party search reader uses bounded keyset pagination and maps rows to service summaries.
 - Integration tests use the business schema through `test-api`.
 
 ## Ownership

@@ -14,6 +14,8 @@ mod newsletter;
 mod notifications;
 #[path = "api_cases/oauth.rs"]
 mod oauth;
+#[path = "api_cases/parties.rs"]
+mod parties;
 #[path = "api_cases/partner_product_listings.rs"]
 mod partner_product_listings;
 #[path = "api_cases/product_listings.rs"]
