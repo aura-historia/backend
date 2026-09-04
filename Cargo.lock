@@ -223,6 +223,7 @@ dependencies = [
  "partnership-service",
  "party-core",
  "party-postgres",
+ "party-service",
  "platform-observability",
  "platform-postgres",
  "product-listing-core",
@@ -5125,6 +5126,7 @@ dependencies = [
  "serde-email",
  "slug",
  "thiserror 2.0.20",
+ "time",
  "uuid",
 ]
 
@@ -5134,6 +5136,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "domain-primitives",
  "party-core",
  "party-service",
  "platform-postgres",
@@ -5162,6 +5165,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "user-core",
  "user-service",
 ]
 

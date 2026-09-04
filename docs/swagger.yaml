@@ -3397,6 +3397,652 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
+  /api/v1/admin/parties:
+    post:
+      summary: Create a Party as admin
+      description: |
+        Creates a Party for an authenticated administrator.
+
+        The request accepts only the Party name and optional phone/email contact information.
+        Party names trim outer Unicode whitespace, reject blank values, and reject values over 255
+        UTF-8 bytes. The Party slug is generated once from the canonical name and stable Party ID;
+        it remains immutable if the Party is renamed later.
+      operationId: adminCreateParty
+      tags:
+        - Party
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      requestBody:
+        required: true
+        description: Party creation payload.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePartyData"
+            example:
+              name: Antiques and More
+              phone: "+49 30 123456"
+              email: contact@example.com
+      responses:
+        "201":
+          description: Party created successfully.
+          headers:
+            Location:
+              description: URL of the created admin Party detail resource.
+              schema:
+                type: string
+                format: uri
+              example: /api/v1/admin/parties/550e8400-e29b-41d4-a716-446655440000
+            Cache-Control:
+              description: Responses are never stored because contact data is returned.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PartyData"
+              example:
+                partyId: 550e8400-e29b-41d4-a716-446655440000
+                partySlugId: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
+                name: Antiques and More
+                contact:
+                  phone: "+49 30 123456"
+                  email: contact@example.com
+                created: "2026-01-01T10:00:00Z"
+                updated: "2026-01-01T10:00:00Z"
+        "400":
+          description: Bad request - missing, empty, malformed, or invalid Party body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                invalid_name:
+                  summary: Invalid Party name
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_BODY_VALUE
+                    detail: name must be nonblank and at most 255 UTF-8 bytes.
+                invalid_contact_email:
+                  summary: Invalid Party email
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_BODY_VALUE
+        "401":
+          description: Unauthorized - missing or invalid bearer credentials.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+        "403":
+          description: Forbidden - this endpoint requires the ADMIN role.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: Operation is not permitted.
+        "409":
+          description: Conflict - the generated Party slug conflicts with current state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: Conflict
+                error: CONFLICT
+                detail: Party conflicts with current state.
+        "503":
+          description: Authentication, authorization, or Party persistence is temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: PARTY_TEMPORARILY_UNAVAILABLE
+        "500":
+          description: Internal authentication or Party persistence failure.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: PARTY_INTERNAL_ERROR
+    get:
+      summary: Search parties as admin
+      description: |
+        Searches Party records for authenticated administrators.
+
+        `query` performs a case-insensitive substring search across Party name, phone, and email.
+        `name`, `phone`, and `email` restrict the substring match to one contact/name field.
+        `created` and `updated` accept inclusive RFC3339 ranges using `min` and `max` query members.
+
+        Results use deterministic cursor pagination. The default sort is `name` ascending;
+        override it by providing both `sort` and `order`. Valid sort fields are `name`, `email`,
+        `phone`, `created`, and `updated`; Party ID is always the final deterministic tie-breaker.
+        Page sizes are clamped to 1–100, with a default of 21. The returned UUID `searchAfter`
+        cursor is omitted on the terminal page and should be sent with the same filters and sort.
+        Responses always use `Cache-Control: no-store` because contact data is returned.
+      operationId: adminSearchParties
+      tags:
+        - Party
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - name: query
+          in: query
+          required: false
+          description: Optional case-insensitive substring query across Party name, phone, and email.
+          schema:
+            type: string
+          example: antiques
+        - name: name
+          in: query
+          required: false
+          description: Optional case-insensitive substring filter for the Party name.
+          schema:
+            type: string
+          example: antiques
+        - name: phone
+          in: query
+          required: false
+          description: Optional case-insensitive substring filter for the Party phone number.
+          schema:
+            type: string
+          example: "+49 30"
+        - name: email
+          in: query
+          required: false
+          description: Optional case-insensitive substring filter for the Party email address.
+          schema:
+            type: string
+          example: contact@example.com
+        - name: "created[min]"
+          in: query
+          required: false
+          description: Optional inclusive lower bound for the Party creation timestamp (RFC3339).
+          schema:
+            type: string
+            format: date-time
+          example: "2026-01-01T00:00:00Z"
+        - name: "created[max]"
+          in: query
+          required: false
+          description: Optional inclusive upper bound for the Party creation timestamp (RFC3339).
+          schema:
+            type: string
+            format: date-time
+          example: "2026-12-31T23:59:59Z"
+        - name: "updated[min]"
+          in: query
+          required: false
+          description: Optional inclusive lower bound for the Party update timestamp (RFC3339).
+          schema:
+            type: string
+            format: date-time
+          example: "2026-01-01T00:00:00Z"
+        - name: "updated[max]"
+          in: query
+          required: false
+          description: Optional inclusive upper bound for the Party update timestamp (RFC3339).
+          schema:
+            type: string
+            format: date-time
+          example: "2026-12-31T23:59:59Z"
+        - name: sort
+          in: query
+          required: false
+          description: "Sort field. Valid values are `name`, `email`, `phone`, `created`, and `updated`. The default is `name` ascending."
+          schema:
+            $ref: "#/components/schemas/SortPartyFieldData"
+          example: name
+        - name: order
+          in: query
+          required: false
+          description: "Sort direction for `sort`. Provide both `sort` and `order` to override the default."
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+          example: asc
+        - name: searchAfter
+          in: query
+          required: false
+          description: Opaque Party UUID cursor returned by the previous page. It is omitted when no next page exists.
+          schema:
+            type: string
+            format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        - name: size
+          in: query
+          required: false
+          description: Number of Party summaries requested per page. The server clamps values to the inclusive range 1–100.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 21
+          example: 21
+      responses:
+        "200":
+          description: Party summaries returned successfully.
+          headers:
+            Cache-Control:
+              description: Responses are never stored because this administrator read contains contact data.
+              schema:
+                type: string
+              example: no-store
+            Access-Control-Allow-Origin:
+              description: CORS header
+              schema:
+                type: string
+              example: "*"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PartyCollectionData"
+              example:
+                items:
+                  - partyId: 550e8400-e29b-41d4-a716-446655440000
+                    partySlugId: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
+                    name: Antiques and More
+                    contact:
+                      phone: "+49 30 123456"
+                      email: contact@example.com
+                    created: "2026-01-01T10:00:00Z"
+                    updated: "2026-01-02T10:00:00Z"
+                size: 21
+                searchAfter: 550e8400-e29b-41d4-a716-446655440000
+        "400":
+          description: Bad request - invalid query parameters.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                invalid_sort_field:
+                  summary: Invalid sort field
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_SORT_VALUE
+                    source:
+                      field: sort
+                      type: QUERY
+                invalid_order:
+                  summary: Invalid sort order
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_ORDER_VALUE
+                    source:
+                      field: order
+                      type: QUERY
+                invalid_search_after:
+                  summary: Invalid searchAfter cursor
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_QUERY_PARAMETER_VALUE
+                    source:
+                      field: searchAfter
+                      type: QUERY
+                    detail: "searchAfter must contain a party UUID."
+                invalid_size:
+                  summary: Invalid page size
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_QUERY_PARAMETER_VALUE
+                    source:
+                      field: size
+                      type: QUERY
+        "401":
+          description: Unauthorized - invalid or missing bearer credentials.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+        "403":
+          description: Forbidden - this endpoint requires the ADMIN role.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: Operation is not permitted.
+        "503":
+          description: Authentication, authorization, or Party search data is temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: PARTY_TEMPORARILY_UNAVAILABLE
+        "500":
+          description: Internal authentication or Party search failure.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: PARTY_INTERNAL_ERROR
+  /api/v1/admin/parties/{partyId}:
+    patch:
+      summary: Update a Party as admin
+      description: |
+        Updates the name and/or contact information for a Party for an authenticated administrator.
+
+        Only `name`, `phone`, and `email` are supported. Omitted members remain unchanged;
+        `null` clears `phone` or `email`; `name` is not nullable and `name: null` is rejected.
+        Party names trim outer Unicode whitespace, reject blank values, and reject values over 255
+        UTF-8 bytes. Renaming a Party never changes its immutable slug.
+
+        The response is the resulting Party representation and uses `Cache-Control: no-store`
+        because contact data is returned. An empty object is a valid no-op PATCH; an empty HTTP
+        body is invalid.
+      operationId: adminUpdateParty
+      tags:
+        - Party
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - name: partyId
+          in: path
+          required: true
+          description: Stable Party identifier.
+          schema:
+            type: string
+            format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+      requestBody:
+        required: true
+        description: Party name/contact patch. Omit unchanged members; null clears phone/email only.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePartyData"
+            examples:
+              rename:
+                summary: Rename without changing the Party slug
+                value:
+                  name: Antiques and More
+              set_contact:
+                summary: Set optional contact values
+                value:
+                  phone: "+49 30 123456"
+                  email: contact@example.com
+              clear_contact:
+                summary: Clear optional contact values
+                value:
+                  phone: null
+                  email: null
+              no_op_patch:
+                summary: Leave the Party unchanged
+                value: {}
+      responses:
+        "200":
+          description: Party updated successfully.
+          headers:
+            Cache-Control:
+              description: Responses are never stored because contact data is returned.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PartyData"
+              example:
+                partyId: 550e8400-e29b-41d4-a716-446655440000
+                partySlugId: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
+                name: Antiques and More
+                contact:
+                  phone: "+49 30 123456"
+                  email: contact@example.com
+                created: "2026-01-01T10:00:00Z"
+                updated: "2026-01-02T10:00:00Z"
+        "400":
+          description: Bad request - invalid Party UUID, empty/malformed body, or invalid Party value.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                invalid_party_id:
+                  summary: Invalid Party UUID
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: INVALID_UUID
+                    source:
+                      field: partyId
+                      type: PATH
+                    detail: Path parameter 'partyId' must be a UUID.
+                invalid_name:
+                  summary: Invalid Party name
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_BODY_VALUE
+                    detail: name must be nonblank and at most 255 UTF-8 bytes.
+                invalid_email:
+                  summary: Invalid Party email
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_BODY_VALUE
+                nullable_name:
+                  summary: Required Party name cannot be cleared
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_BODY_VALUE
+                    detail: Body field 'name' must not be null.
+        "401":
+          description: Unauthorized - missing or invalid bearer credentials.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+        "403":
+          description: Forbidden - this endpoint requires the ADMIN role.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: Operation is not permitted.
+        "404":
+          description: Party was not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 404
+                title: Not Found
+                error: PARTY_NOT_FOUND
+                detail: Party was not found.
+        "409":
+          description: Conflict - the Party was changed concurrently.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: Conflict
+                error: CONFLICT
+                detail: Party conflicts with current state.
+        "503":
+          description: Authentication, authorization, or Party persistence is temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: PARTY_TEMPORARILY_UNAVAILABLE
+        "500":
+          description: Internal authentication or Party persistence failure.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: PARTY_INTERNAL_ERROR
+    get:
+      summary: Get a Party as admin
+      description: |
+        Gets one Party for an authenticated administrator.
+
+        `partyId` must be a UUID. The response contains the Party identity, immutable slug,
+        name, optional phone/email contact information, and creation/update timestamps.
+        Responses always use `Cache-Control: no-store` because contact data is returned.
+      operationId: adminGetParty
+      tags:
+        - Party
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - name: partyId
+          in: path
+          required: true
+          description: Stable Party identifier.
+          schema:
+            type: string
+            format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+      responses:
+        "200":
+          description: Party returned successfully.
+          headers:
+            Cache-Control:
+              description: Responses are never stored because contact data is returned.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PartyData"
+              example:
+                partyId: 550e8400-e29b-41d4-a716-446655440000
+                partySlugId: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
+                name: Antiques and More
+                contact:
+                  phone: "+49 30 123456"
+                  email: contact@example.com
+                created: "2026-01-01T10:00:00Z"
+                updated: "2026-01-02T10:00:00Z"
+        "400":
+          description: Bad request - invalid Party UUID.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 400
+                title: Bad Request
+                error: INVALID_UUID
+                source:
+                  field: partyId
+                  type: PATH
+                detail: Path parameter 'partyId' must be a UUID.
+        "401":
+          description: Unauthorized - missing or invalid bearer credentials.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+        "403":
+          description: Forbidden - this endpoint requires the ADMIN role.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: Operation is not permitted.
+        "404":
+          description: Party was not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 404
+                title: Not Found
+                error: PARTY_NOT_FOUND
+                detail: Party was not found.
+        "503":
+          description: Authentication or Party persistence is temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: PARTY_TEMPORARILY_UNAVAILABLE
+        "500":
+          description: Internal authentication or Party persistence failure.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: PARTY_INTERNAL_ERROR
   /api/v1/admin/users:
     get:
       summary: Search users as admin
@@ -10043,6 +10689,153 @@ components:
             Omit to leave the current state unchanged.
 
             "
+    SortPartyFieldData:
+      type: string
+      enum:
+        - name
+        - email
+        - phone
+        - created
+        - updated
+      description: "Fields available for sorting admin Party-search results. Party ID is always used as a deterministic tie-breaker; absent contact values sort last."
+      example: name
+    CreatePartyData:
+      type: object
+      description: Party name and optional contact information used to create an admin Party.
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          description: Party name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
+        phone:
+          type: string
+          description: Optional Party phone number.
+        email:
+          type: string
+          format: email
+          description: Optional Party email address.
+    UpdatePartyData:
+      type: object
+      description: "Partial admin Party update. Omitted members remain unchanged; null clears only phone and email."
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          description: "Replacement Party name. Outer Unicode whitespace is trimmed; blank values, values over 255 UTF-8 bytes, and null are rejected."
+        phone:
+          type: string
+          nullable: true
+          description: "Replacement Party phone number; null clears it."
+        email:
+          type: string
+          format: email
+          nullable: true
+          description: "Replacement Party email address; null clears it."
+    PartyData:
+      type: object
+      description: Party representation returned after admin creation, update, and detail routes.
+      required:
+        - partyId
+        - partySlugId
+        - name
+        - contact
+        - created
+        - updated
+      properties:
+        partyId:
+          type: string
+          format: uuid
+          description: Stable Party identifier.
+        partySlugId:
+          type: string
+          description: Immutable Party slug identifier.
+        name:
+          type: string
+          maxLength: 255
+          description: Party name.
+        contact:
+          $ref: "#/components/schemas/PartyContactData"
+        created:
+          type: string
+          format: date-time
+          description: When the Party was created.
+        updated:
+          type: string
+          format: date-time
+          description: When the Party was last updated.
+    PartyCollectionData:
+      type: object
+      description: "Cursor-paginated Party summaries for the admin search endpoint. `searchAfter` is a Party UUID cursor and is omitted when the current page is terminal."
+      required:
+        - items
+        - size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PartySummaryData"
+          description: Party summaries returned in the current page.
+        size:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Requested page size after server-side clamping.
+          example: 21
+        searchAfter:
+          type: string
+          format: uuid
+          description: Party UUID cursor for the next page, omitted when no more results are available.
+          example: 7f1c2a88-4e18-4c3a-bf0d-6a0fd5e6d901
+        total:
+          type: integer
+          minimum: 0
+          description: Total matching Parties when provided by the reader; omitted otherwise.
+          example: 42
+    PartySummaryData:
+      type: object
+      description: Compact Party data returned by the administrator Party-search endpoint.
+      required:
+        - partyId
+        - partySlugId
+        - name
+        - contact
+        - created
+        - updated
+      properties:
+        partyId:
+          type: string
+          format: uuid
+          description: Stable Party identifier.
+        partySlugId:
+          type: string
+          description: Immutable Party slug identifier.
+        name:
+          type: string
+          maxLength: 255
+          description: Party name.
+        contact:
+          $ref: "#/components/schemas/PartyContactData"
+        created:
+          type: string
+          format: date-time
+          description: When the Party was created.
+        updated:
+          type: string
+          format: date-time
+          description: When the Party was last updated.
+    PartyContactData:
+      type: object
+      description: Optional Party contact summary. Absent contact members are omitted.
+      properties:
+        phone:
+          type: string
+          description: Party phone number, omitted when absent.
+        email:
+          type: string
+          format: email
+          description: Party email address, omitted when absent.
     SortUserFieldData:
       type: string
       enum:

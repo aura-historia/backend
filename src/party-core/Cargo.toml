@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 domain-primitives = { workspace = true }
 serde-email = { workspace = true }
+time = { workspace = true }
 slug = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }

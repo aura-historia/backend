@@ -16,6 +16,7 @@ time = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+domain-primitives = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 tokio = { workspace = true, features = ["macros", "rt"] }

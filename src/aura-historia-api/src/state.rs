@@ -34,6 +34,10 @@ use partnership_service::use_cases::{
         list_own_partnership_applications::ListOwnPartnershipApplicationsUseCase,
     },
 };
+use party_service::use_cases::commands::create_party::CreatePartyUseCase;
+use party_service::use_cases::commands::update_party::UpdatePartyUseCase;
+use party_service::use_cases::queries::get_party::GetPartyUseCase;
+use party_service::use_cases::queries::search_parties::SearchPartiesUseCase;
 use product_listing_service::use_cases::{
     CreateProductListingUseCase, GetProductListingHistoryUseCase, GetProductListingUseCase,
     GetSimilarProductListingsUseCase, IngestWoocommerceProductListingUseCase,
@@ -86,6 +90,7 @@ pub struct AppState {
     pub(crate) product_listings: Option<ProductListingsState>,
     pub(crate) partner_product_listings: Option<PartnerProductListingsState>,
     pub(crate) listing_sources: Option<ListingSourcesState>,
+    pub(crate) parties: Option<PartiesState>,
     pub(crate) users: Option<UsersState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partnership_applications: Option<PartnershipApplicationsState>,
@@ -110,6 +115,7 @@ impl AppState {
             product_listings: None,
             partner_product_listings: None,
             listing_sources: None,
+            parties: None,
             users: None,
             watchlist: None,
             partnership_applications: None,
@@ -147,6 +153,11 @@ impl AppState {
 
     pub fn with_users(mut self, users: UsersState) -> Self {
         self.users = Some(users);
+        self
+    }
+
+    pub fn with_parties(mut self, parties: PartiesState) -> Self {
+        self.parties = Some(parties);
         self
     }
 
@@ -427,6 +438,33 @@ impl ListingSourcesState {
             get,
             update,
             list_administered,
+            authenticator,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct PartiesState {
+    pub(crate) create_party: Arc<dyn CreatePartyUseCase>,
+    pub(crate) get_party: Arc<dyn GetPartyUseCase>,
+    pub(crate) search_parties: Arc<dyn SearchPartiesUseCase>,
+    pub(crate) update_party: Arc<dyn UpdatePartyUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl PartiesState {
+    pub fn new(
+        create_party: Arc<dyn CreatePartyUseCase>,
+        get_party: Arc<dyn GetPartyUseCase>,
+        search_parties: Arc<dyn SearchPartiesUseCase>,
+        update_party: Arc<dyn UpdatePartyUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            create_party,
+            get_party,
+            search_parties,
+            update_party,
             authenticator,
         }
     }

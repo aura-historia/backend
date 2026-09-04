@@ -18,6 +18,7 @@
 - `/health` reports process liveness. `/ready` returns `204` only after PostgreSQL pool ingestion and OpenSearch ping succeed; it returns `503` otherwise. pg-ttl worker health is monitored as PostgreSQL platform health, not a request-path readiness dependency.
 - No API Gateway adapter.
 
+- `listing_sources/` owns authenticated canonical `POST /api/v1/listing-sources` create, ID detail/update, slug lookup, and `GET /api/v1/me/listing-sources` controllers. Detail and mutations use ListingSource service use cases; the `me` list uses the Partnership administered-listing-source use case. No ListingSource search/list-all route exists.
 - `listing_sources/` owns authenticated canonical `POST /api/v1/listing-sources` create, ID detail/update, slug lookup, and `GET /api/v1/me/listing-sources` controllers. Detail and mutations use ListingSource service use cases; the `me` list uses the Partnership administered-listing-source use case. No ListingSource search/list-all or Party route exists.
 - `users/` owns account, admin user (`GET /api/v1/admin/users` collection search plus `GET`, `PATCH`, and `DELETE /api/v1/admin/users/{user_id}` item operations), and access-token REST controllers. No legacy `/api/v1/users/{user_id}` admin item route remains.
 - `newsletter/` owns public newsletter subscription REST controller. It uses optional canonical auth and a User service use case; production wiring reads Postgres user-profile fallback data and writes Zoho Campaigns subscriptions.
@@ -67,6 +68,7 @@
 
 
 - `listing_sources/` — ListingSource REST controllers.
+- `parties/` — admin Party collection and detail REST controllers.
 - `users/` — user account, admin, and access-token REST controllers.
 - `newsletter/` — public newsletter subscription REST controller.
 - `notifications/` — canonical notification REST controllers.

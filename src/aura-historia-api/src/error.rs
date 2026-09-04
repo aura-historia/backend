@@ -32,6 +32,10 @@ use partnership_service::use_cases::{
         list_own_partnership_applications::ListOwnPartnershipApplicationsError,
     },
 };
+use party_service::use_cases::commands::create_party::CreatePartyError;
+use party_service::use_cases::commands::update_party::UpdatePartyError;
+use party_service::use_cases::queries::get_party::GetPartyError;
+use party_service::use_cases::queries::search_parties::SearchPartiesError;
 use product_listing_service::use_cases::{
     CreateProductListingError, GetProductListingError, GetProductListingHistoryError,
     GetSimilarProductListingsError, IngestWoocommerceProductListingError,
@@ -117,6 +121,10 @@ pub(crate) const LISTING_SOURCE_INTERNAL_ERROR: ApiErrorCode =
 pub(crate) const LISTING_SOURCE_NOT_FOUND: ApiErrorCode = ApiErrorCode("LISTING_SOURCE_NOT_FOUND");
 pub(crate) const LISTING_SOURCE_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("LISTING_SOURCE_TEMPORARILY_UNAVAILABLE");
+pub(crate) const PARTY_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("PARTY_INTERNAL_ERROR");
+pub(crate) const PARTY_NOT_FOUND: ApiErrorCode = ApiErrorCode("PARTY_NOT_FOUND");
+pub(crate) const PARTY_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("PARTY_TEMPORARILY_UNAVAILABLE");
 pub(crate) const PRODUCT_LISTING_INTERNAL_ERROR: ApiErrorCode =
     ApiErrorCode("PRODUCT_LISTING_INTERNAL_ERROR");
 pub(crate) const PRODUCT_LISTING_NOT_FOUND: ApiErrorCode =
@@ -1277,6 +1285,118 @@ impl From<AdminGetUserError> for ApiError {
     }
 }
 
+impl From<CreatePartyError> for ApiError {
+    fn from(error: CreatePartyError) -> Self {
+        match error {
+            CreatePartyError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            CreatePartyError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            CreatePartyError::SlugConflict { .. } => {
+                ApiError::conflict(CONFLICT).with_detail("Party conflicts with current state.")
+            }
+            CreatePartyError::TemporarilyUnavailable { .. }
+            | CreatePartyError::BeginTransactionFailed
+            | CreatePartyError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Party could not be created right now.")
+            }
+            CreatePartyError::InvalidPersistedState { .. } | CreatePartyError::Internal { .. } => {
+                ApiError::internal_server_error(PARTY_INTERNAL_ERROR)
+                    .with_detail("Party create failed internally.")
+            }
+        }
+    }
+}
+
+impl From<UpdatePartyError> for ApiError {
+    fn from(error: UpdatePartyError) -> Self {
+        match error {
+            UpdatePartyError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdatePartyError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdatePartyError::NotFound => {
+                ApiError::not_found(PARTY_NOT_FOUND).with_detail("Party was not found.")
+            }
+            UpdatePartyError::ConcurrencyConflict | UpdatePartyError::SlugConflict { .. } => {
+                ApiError::conflict(CONFLICT).with_detail("Party conflicts with current state.")
+            }
+            UpdatePartyError::TemporarilyUnavailable { .. }
+            | UpdatePartyError::BeginTransactionFailed
+            | UpdatePartyError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Party could not be updated right now.")
+            }
+            UpdatePartyError::InvalidPersistedState { .. } | UpdatePartyError::Internal { .. } => {
+                ApiError::internal_server_error(PARTY_INTERNAL_ERROR)
+                    .with_detail("Party update failed internally.")
+            }
+        }
+    }
+}
+
+impl From<GetPartyError> for ApiError {
+    fn from(error: GetPartyError) -> Self {
+        match error {
+            GetPartyError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            GetPartyError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            GetPartyError::NotFound => {
+                ApiError::not_found(PARTY_NOT_FOUND).with_detail("Party was not found.")
+            }
+            GetPartyError::TemporarilyUnavailable { .. }
+            | GetPartyError::BeginTransactionFailed
+            | GetPartyError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Party details are temporarily unavailable.")
+            }
+            GetPartyError::InvalidPersistedState { .. } | GetPartyError::Internal { .. } => {
+                ApiError::internal_server_error(PARTY_INTERNAL_ERROR)
+                    .with_detail("Party details failed internally.")
+            }
+        }
+    }
+}
+
+impl From<SearchPartiesError> for ApiError {
+    fn from(error: SearchPartiesError) -> Self {
+        match error {
+            SearchPartiesError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            SearchPartiesError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            SearchPartiesError::TemporarilyUnavailable { .. }
+            | SearchPartiesError::BeginTransactionFailed
+            | SearchPartiesError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTY_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Party search is temporarily unavailable.")
+            }
+            SearchPartiesError::InvalidReadModel { .. } | SearchPartiesError::Internal { .. } => {
+                ApiError::internal_server_error(PARTY_INTERNAL_ERROR)
+                    .with_detail("Party search failed internally.")
+            }
+        }
+    }
+}
+
 impl From<SearchUsersError> for ApiError {
     fn from(error: SearchUsersError) -> Self {
         match error {
@@ -2180,6 +2300,18 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let response =
             ApiError::from(UnwatchProductListingError::ConcurrencyConflict).into_response();
+
+        assert_eq!(StatusCode::CONFLICT, response.status());
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+        assert_eq!(CONFLICT.to_string(), body["error"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_update_party_concurrency_conflict_to_conflict()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = ApiError::from(UpdatePartyError::ConcurrencyConflict).into_response();
 
         assert_eq!(StatusCode::CONFLICT, response.status());
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;

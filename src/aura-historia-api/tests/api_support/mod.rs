@@ -7,7 +7,7 @@ use aura_historia_api::auth::{
 };
 use aura_historia_api::state::{
     AppState, BillingState, ListingSourcesState, NewsletterState, NotificationsState, OAuthState,
-    PartnerProductListingsState, PartnershipApplicationsState, ProductListingsState,
+    PartiesState, PartnerProductListingsState, PartnershipApplicationsState, ProductListingsState,
     SearchFiltersState, UsersState, WatchlistState, WebhooksState,
 };
 use aura_historia_api::{app, state};
@@ -74,7 +74,12 @@ use partnership_service::use_cases::{
         list_own_partnership_applications::ListOwnPartnershipApplicationsHandler,
     },
 };
-use party_postgres::SqlxPartyRepositoryFactory;
+use party_core::party_id::PartyId;
+use party_postgres::{SqlxPartyRepositoryFactory, SqlxPartySearchReaderFactory};
+use party_service::use_cases::commands::create_party::CreatePartyHandler;
+use party_service::use_cases::commands::update_party::UpdatePartyHandler;
+use party_service::use_cases::queries::get_party::GetPartyHandler;
+use party_service::use_cases::queries::search_parties::SearchPartiesHandler;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
@@ -268,6 +273,25 @@ pub fn assert_problem(
 
 pub async fn seed_user(role: &'static str) -> UserId {
     seed_user_with_tier_and_consent(role, UserTier::Free, false).await
+}
+
+pub async fn seed_party(name: &str, phone: Option<&str>, email: Option<&str>) -> PartyId {
+    let party_id = PartyId::new();
+    let pool = get_postgres_client().await;
+    if let Err(error) = sqlx::query(
+        "INSERT INTO parties (party_id, party_slug_id, name, phone, email) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(uuid::Uuid::from(party_id))
+    .bind(format!("api-acceptance-party-{party_id}"))
+    .bind(name)
+    .bind(phone)
+    .bind(email)
+    .execute(&pool)
+    .await
+    {
+        panic!("failed to seed party: {error}");
+    }
+    party_id
 }
 
 pub async fn seed_user_with_consent(
@@ -657,6 +681,38 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     let list_administered_listing_sources = ListAdministeredListingSourcesHandler::new(
         SqlxListingSourceAuthorization::new(pool.clone()),
     );
+    let create_party = CreatePartyHandler::new(
+        unit_of_work.clone(),
+        SqlxPartyRepositoryFactory::new(),
+        CheckUserAdminHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        ),
+    );
+    let get_party = GetPartyHandler::new(
+        unit_of_work.clone(),
+        SqlxPartyRepositoryFactory::new(),
+        CheckUserAdminHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        ),
+    );
+    let update_party = UpdatePartyHandler::new(
+        unit_of_work.clone(),
+        SqlxPartyRepositoryFactory::new(),
+        CheckUserAdminHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        ),
+    );
+    let search_parties = SearchPartiesHandler::new(
+        unit_of_work.clone(),
+        SqlxPartySearchReaderFactory::new(),
+        CheckUserAdminHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        ),
+    );
     let submit_partnership_application = SubmitPartnershipApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnershipApplicationRepositoryFactory::new(),
@@ -792,6 +848,13 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::new(get_listing_source),
         Arc::new(update_listing_source),
         Arc::new(list_administered_listing_sources),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
+    let parties_state = PartiesState::new(
+        Arc::new(create_party),
+        Arc::new(get_party),
+        Arc::new(search_parties),
+        Arc::new(update_party),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
@@ -1054,6 +1117,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     state::AppState::new()
+        .with_parties(parties_state)
         .with_users(users_state)
         .with_watchlist(watchlist_state)
         .with_partnership_applications(partnership_applications_state)
