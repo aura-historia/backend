@@ -126,7 +126,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
     let token = String::from(seed_access_token_for(admin_id, HashSet::new()).await);
     let update_response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/listing-sources/{listing_source_id}",
+            "{}/api/v1/admin/listing-sources/{listing_source_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(&token)
@@ -192,7 +192,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
 
     let clear_response = reqwest::Client::new()
         .patch(format!(
-            "{}/api/v1/listing-sources/{listing_source_id}",
+            "{}/api/v1/admin/listing-sources/{listing_source_id}",
             AURA_API.base_url()
         ))
         .bearer_auth(&token)
