@@ -1,8 +1,8 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
-    assert_problem, json_response, seed_access_token_for, seed_listing_source_for_search,
-    seed_party, seed_user,
+    assert_problem, json_response, seed_access_token_for, seed_listing_source,
+    seed_listing_source_for_search, seed_party, seed_user,
 };
 use serde_json::json;
 use test_api::{IntegrationTestService, aura_integration_test};
@@ -324,6 +324,151 @@ async fn should_reject_listing_source_collection_for_non_admin() {
     let (status, body) = json_response(response).await;
 
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_listing_source_detail_for_admin_without_provider_secrets() {
+    let (listing_source_id, operator_party_id, listing_source_slug_id) =
+        seed_listing_source_for_search(
+            "Detailed Listing Source",
+            "Detailed Listing Operator",
+            "WOOCOMMERCE",
+            None,
+        )
+        .await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/admin/listing-sources/{listing_source_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get listing-source detail: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(
+        json!(listing_source_id.to_string()),
+        body["listingSourceId"]
+    );
+    assert_eq!(json!(listing_source_slug_id), body["listingSourceSlugId"]);
+    assert_eq!(json!("Detailed Listing Source"), body["name"]);
+    assert_eq!(
+        json!(operator_party_id.to_string()),
+        body["operator"]["partyId"]
+    );
+    assert_eq!(
+        json!(format!("api-search-party-{operator_party_id}")),
+        body["operator"]["partySlugId"]
+    );
+    assert_eq!(json!("Detailed Listing Operator"), body["operator"]["name"]);
+    assert_eq!(json!(["WOOCOMMERCE"]), body["ingestionMethods"]);
+    assert_eq!(json!("https://listing-source-search.example/"), body["url"]);
+    assert_eq!(
+        json!("https://listing-source-search.example/image.jpg"),
+        body["image"]
+    );
+    assert!(body["created"].as_str().is_some());
+    assert!(body["updated"].as_str().is_some());
+
+    let serialized = body.to_string();
+    assert!(!serialized.contains("webhookSecret"));
+    assert!(!serialized.contains("provider-secret"));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_invalid_listing_source_detail_id() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/admin/listing-sources/not-a-uuid",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to validate listing-source detail ID: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "INVALID_UUID",
+    );
+    assert_eq!(
+        json!({"field": "listingSourceId", "type": "PATH"}),
+        body["source"]
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_not_found_for_missing_listing_source_detail() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/admin/listing-sources/550e8400-e29b-41d4-a716-446655440000",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get missing listing-source detail: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "LISTING_SOURCE_NOT_FOUND",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_require_admin_for_listing_source_detail() {
+    let listing_source_id = seed_listing_source().await;
+    let client = reqwest::Client::new();
+    let path = format!(
+        "{}/api/v1/admin/listing-sources/{listing_source_id}",
+        AURA_API.base_url()
+    );
+
+    let missing = client.get(&path).send().await.unwrap_or_else(|error| {
+        panic!("failed to reject unauthenticated listing-source detail: {error}")
+    });
+    let (missing_status, missing_body) = json_response(missing).await;
+    assert_problem(
+        missing_status,
+        &missing_body,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "INVALID_CREDENTIALS",
+    );
+
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+    let non_admin = client
+        .get(path)
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to reject non-admin listing-source detail: {error}")
+        });
+    let (non_admin_status, non_admin_body) = json_response(non_admin).await;
+    assert_problem(
+        non_admin_status,
+        &non_admin_body,
+        reqwest::StatusCode::FORBIDDEN,
+        "FORBIDDEN",
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

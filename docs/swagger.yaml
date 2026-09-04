@@ -6773,10 +6773,16 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: NEWSLETTER_INTERNAL_ERROR
-  /api/v1/listing-sources/{listingSourceId}:
+  /api/v1/admin/listing-sources/{listingSourceId}:
     get:
-      summary: Get a ListingSource
-      operationId: getListingSource
+      summary: Get a ListingSource as admin
+      description: |
+        Gets one ListingSource for an authenticated administrator.
+
+        `listingSourceId` must be a UUID. The response uses the canonical ListingSource detail
+        representation and never exposes provider credentials, webhook secrets, or crawler-local
+        configuration.
+      operationId: adminGetListingSource
       tags:
         - ListingSources
       parameters:
@@ -6788,51 +6794,51 @@ paths:
             format: uuid
       responses:
         "200":
-          description: Success
+          description: ListingSource returned successfully.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ListingSourceData"
         "400":
-          description: Problem response
+          description: Bad request - invalid ListingSource UUID.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "401":
-          description: Problem response
+          description: Unauthorized - missing or invalid bearer credentials.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "403":
-          description: Problem response
+          description: Forbidden - this endpoint requires the ADMIN role.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "404":
-          description: Problem response
+          description: ListingSource was not found.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "500":
-          description: Problem response
+          description: Internal authentication or ListingSource detail failure.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "503":
-          description: Problem response
+          description: Authentication, authorization, or ListingSource detail is temporarily unavailable.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
       security:
         - BearerAuth: []
         - AccessTokenAuth: []
-
+  /api/v1/listing-sources/{listingSourceId}:
     patch:
       summary: Update a ListingSource
       operationId: patchListingSource
