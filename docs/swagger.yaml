@@ -8866,77 +8866,137 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-  /api/v1/partnership-applications/{partnershipApplicationId}/decision:
+  /api/v1/admin/partnership-applications/{partnershipApplicationId}/decision:
     post:
-      summary: Decide a PartnershipApplication
-      operationId: postPartnershipApplicationDecision
+      summary: Decide a PartnershipApplication as admin
+      description: |
+        Approves or rejects a PartnershipApplication for an authenticated administrator.
+
+        The request accepts only `APPROVE` or `REJECT`; arbitrary state assignment is not supported.
+        State-changing decisions follow the domain lifecycle and are accepted only from `IN_REVIEW`;
+        terminal replays retain their existing idempotent behavior. Approval atomically creates or finds
+        the Party and Partnership, grants membership and
+        ListingSource access, updates the application, and creates the applicant notification.
+        Rejection preserves the existing application and notification semantics. Responses always
+        use `Cache-Control: no-store`.
+      operationId: adminDecidePartnershipApplication
       tags:
         - PartnershipApplications
       parameters:
         - name: partnershipApplicationId
           in: path
           required: true
+          description: Unique identifier (UUID) of the PartnershipApplication to decide.
           schema:
             type: string
             format: uuid
+          example: 770e8400-e29b-41d4-a716-446655440000
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/DecidePartnershipApplicationData"
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "200":
-          description: Success
+          description: PartnershipApplication decided successfully.
+          headers:
+            Cache-Control:
+              description: Caching directive. Always set to `no-store`.
+              schema:
+                type: string
+              example: no-store
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminPartnershipApplicationData"
         "400":
-          description: Problem response
+          description: Bad request - invalid PartnershipApplication ID or decision body.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "401":
-          description: Problem response
+          description: Unauthorized - invalid or missing bearer credentials.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "403":
-          description: Problem response
+          description: Forbidden - this endpoint requires the `ADMIN` role.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "404":
-          description: Problem response
+          description: PartnershipApplication or referenced ListingSource not found.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "409":
-          description: Problem response
+          description: Conflict - the PartnershipApplication is not in a decisionable state or was changed concurrently.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "500":
-          description: Problem response
+          description: Internal authentication or PartnershipApplication decision failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "503":
-          description: Problem response
+          description: Authentication, authorization, or PartnershipApplication data is temporarily unavailable.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-      security:
-        - BearerAuth: []
-        - AccessTokenAuth: []
 components:
   securitySchemes:
     BearerAuth:

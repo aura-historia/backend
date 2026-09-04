@@ -324,6 +324,335 @@ async fn should_remove_legacy_mark_in_review_route() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_approve_an_in_review_partnership_application_on_the_admin_decision_route() {
+    let applicant_user_id = seed_user("USER").await;
+    let listing_source_id = api_support::seed_listing_source().await;
+    let application_id = seed_partnership_application(
+        applicant_user_id,
+        "IN_REVIEW",
+        existing_proposal(listing_source_id),
+        datetime!(2026-06-01 12:00 UTC),
+        datetime!(2026-06-01 12:00 UTC),
+    )
+    .await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/admin/partnership-applications/{application_id}/decision",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .json(&json!({"decision": "APPROVE"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to approve partnership application: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_eq!(json!(application_id.to_string()), body["id"]);
+    assert_eq!(json!("APPROVED"), body["state"]);
+    assert_eq!(json!(listing_source_id), body["approvedListingSourceId"]);
+
+    let applicant_listing_sources_token =
+        seed_access_token_for(applicant_user_id, std::collections::HashSet::new()).await;
+    let listing_sources_response = reqwest::Client::new()
+        .get(format!("{}/api/v1/me/listing-sources", AURA_API.base_url()))
+        .bearer_auth(String::from(applicant_listing_sources_token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to list approved listing sources: {error}"));
+    let (listing_sources_status, listing_sources_body) =
+        json_response(listing_sources_response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, listing_sources_status);
+    assert!(listing_sources_body.as_array().is_some_and(|items| {
+        items
+            .iter()
+            .any(|item| item["listingSourceId"] == json!(listing_source_id))
+    }));
+
+    let applicant_notifications_token =
+        seed_access_token_for(applicant_user_id, std::collections::HashSet::new()).await;
+    let notifications_response = reqwest::Client::new()
+        .get(format!("{}/api/v1/me/notifications", AURA_API.base_url()))
+        .bearer_auth(String::from(applicant_notifications_token))
+        .query(&[("size", "100")])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to list approval notifications: {error}"));
+    let (notifications_status, notifications_body) = json_response(notifications_response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, notifications_status);
+    assert!(notifications_body["items"].as_array().is_some_and(|items| {
+        items.iter().any(|item| {
+            item["kind"] == json!("PARTNERSHIP_APPLICATION_APPROVED")
+                && item["payload"]["partnershipApplicationId"] == json!(application_id.to_string())
+        })
+    }));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_an_in_review_partnership_application_on_the_admin_decision_route() {
+    let applicant_user_id = seed_user("USER").await;
+    let party_name = "Rejected Proposed Party";
+    let listing_source_name = "Rejected Proposed Listing Source";
+    let application_id = seed_partnership_application(
+        applicant_user_id,
+        "IN_REVIEW",
+        json!({
+            "type": "PROPOSED_LISTING_SOURCE",
+            "party": {"name": party_name, "email": "rejected@example.test"},
+            "listing_source": {
+                "name": listing_source_name,
+                "url": "https://rejected.example/",
+                "image": null,
+                "requested_ingestion_methods": ["PARTNER_API"]
+            }
+        }),
+        datetime!(2026-06-01 12:00 UTC),
+        datetime!(2026-06-01 12:00 UTC),
+    )
+    .await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/admin/partnership-applications/{application_id}/decision",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .json(&json!({"decision": "REJECT"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject partnership application: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_eq!(json!(application_id.to_string()), body["id"]);
+    assert_eq!(json!("REJECTED"), body["state"]);
+    assert!(body["approvedPartnershipId"].is_null());
+    assert!(body["approvedListingSourceId"].is_null());
+
+    let admin_read_token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let parties_response = reqwest::Client::new()
+        .get(format!("{}/api/v1/admin/parties", AURA_API.base_url()))
+        .bearer_auth(String::from(admin_read_token))
+        .query(&[("name", party_name)])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to search rejected party: {error}"));
+    let (parties_status, parties_body) = json_response(parties_response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, parties_status);
+    assert_eq!(Some(0), parties_body["items"].as_array().map(Vec::len));
+
+    let applicant_listing_sources_token =
+        seed_access_token_for(applicant_user_id, std::collections::HashSet::new()).await;
+    let listing_sources_response = reqwest::Client::new()
+        .get(format!("{}/api/v1/me/listing-sources", AURA_API.base_url()))
+        .bearer_auth(String::from(applicant_listing_sources_token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to list rejected listing sources: {error}"));
+    let (listing_sources_status, listing_sources_body) =
+        json_response(listing_sources_response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, listing_sources_status);
+    assert_eq!(Some(0), listing_sources_body.as_array().map(Vec::len));
+
+    let applicant_notifications_token =
+        seed_access_token_for(applicant_user_id, std::collections::HashSet::new()).await;
+    let notifications_response = reqwest::Client::new()
+        .get(format!("{}/api/v1/me/notifications", AURA_API.base_url()))
+        .bearer_auth(String::from(applicant_notifications_token))
+        .query(&[("size", "100")])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to list rejection notifications: {error}"));
+    let (notifications_status, notifications_body) = json_response(notifications_response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, notifications_status);
+    assert!(notifications_body["items"].as_array().is_some_and(|items| {
+        items.iter().any(|item| {
+            item["kind"] == json!("PARTNERSHIP_APPLICATION_REJECTED")
+                && item["payload"]["partnershipApplicationId"] == json!(application_id.to_string())
+        })
+    }));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_an_arbitrary_partnership_application_decision_value() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/admin/partnership-applications/{}/decision",
+            AURA_API.base_url(),
+            Uuid::new_v4()
+        ))
+        .bearer_auth(String::from(token))
+        .json(&json!({"decision": "IN_REVIEW"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to validate decision value: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_BODY_VALUE",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_a_partnership_application_decision_outside_in_review() {
+    let applicant_user_id = seed_user("USER").await;
+    let application_id = seed_partnership_application(
+        applicant_user_id,
+        "SUBMITTED",
+        existing_proposal(Uuid::new_v4()),
+        datetime!(2026-06-01 12:00 UTC),
+        datetime!(2026-06-01 12:00 UTC),
+    )
+    .await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/admin/partnership-applications/{application_id}/decision",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .json(&json!({"decision": "APPROVE"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to validate application transition: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
+
+    let verification_token =
+        seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+    let detail_response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/admin/partnership-applications/{application_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(verification_token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to verify unchanged application: {error}"));
+    let (detail_status, detail_body) = json_response(detail_response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, detail_status);
+    assert_eq!(json!("SUBMITTED"), detail_body["state"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_not_found_for_a_missing_admin_partnership_application_decision() {
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/admin/partnership-applications/{}/decision",
+            AURA_API.base_url(),
+            Uuid::new_v4()
+        ))
+        .bearer_auth(String::from(token))
+        .json(&json!({"decision": "REJECT"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get missing application decision: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "PARTNERSHIP_APPLICATION_NOT_FOUND",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_non_admin_partnership_application_decision() {
+    let applicant_user_id = seed_user("USER").await;
+    let application_id = seed_partnership_application(
+        applicant_user_id,
+        "IN_REVIEW",
+        json!({
+            "type": "PROPOSED_LISTING_SOURCE",
+            "party": {"name": "Non-admin Decision Party"},
+            "listing_source": {
+                "name": "Non-admin Decision Listing Source",
+                "requested_ingestion_methods": ["PARTNER_API"]
+            }
+        }),
+        datetime!(2026-06-01 12:00 UTC),
+        datetime!(2026-06-01 12:00 UTC),
+    )
+    .await;
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/admin/partnership-applications/{application_id}/decision",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .json(&json!({"decision": "REJECT"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject non-admin decision: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_list_filtered_admin_partnership_application_summaries_without_secrets() {
     let applicant_user_id = seed_user("USER").await;
     let other_applicant_user_id = seed_user("USER").await;

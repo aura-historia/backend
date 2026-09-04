@@ -311,6 +311,38 @@ mod tests {
     }
 
     #[test]
+    fn should_accept_only_explicit_approve_or_reject_decisions() {
+        let approve = serde_json::from_value::<DecidePartnershipApplicationData>(json!({
+            "decision": "APPROVE"
+        }));
+        let reject = serde_json::from_value::<DecidePartnershipApplicationData>(json!({
+            "decision": "REJECT"
+        }));
+
+        assert!(matches!(
+            approve,
+            Ok(DecidePartnershipApplicationData {
+                decision: PartnershipApplicationDecisionData::Approve
+            })
+        ));
+        assert!(matches!(
+            reject,
+            Ok(DecidePartnershipApplicationData {
+                decision: PartnershipApplicationDecisionData::Reject
+            })
+        ));
+
+        for value in ["SUBMITTED", "IN_REVIEW", "APPROVED", "REJECTED"] {
+            assert!(
+                serde_json::from_value::<DecidePartnershipApplicationData>(json!({
+                    "decision": value
+                }))
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn should_reject_legacy_shop_proposal_values() {
         let parsed = serde_json::from_value::<SubmitPartnershipApplicationData>(json!({
             "proposal": { "type": "EXISTING", "shopId": "00000000-0000-0000-0000-000000000001" }

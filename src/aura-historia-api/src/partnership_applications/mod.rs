@@ -34,7 +34,7 @@ pub(crate) fn router(state: PartnershipApplicationsState) -> Router {
             get(get::get).patch(mark_in_review::mark_in_review),
         )
         .route(
-            "/api/v1/partnership-applications/{partnership_application_id}/decision",
+            "/api/v1/admin/partnership-applications/{partnership_application_id}/decision",
             post(decide::decide),
         )
         .with_state(state)
@@ -329,6 +329,51 @@ mod tests {
             .unwrap_or_else(|error| panic!("router failed: {error}"));
 
         assert_eq!(StatusCode::FORBIDDEN, response.status());
+    }
+
+    #[tokio::test]
+    async fn should_route_admin_decision_to_the_canonical_admin_path() {
+        let request = Request::builder()
+            .method("POST")
+            .uri(
+                "/api/v1/admin/partnership-applications/550e8400-e29b-41d4-a716-446655440000/decision",
+            )
+            .header("Authorization", "Bearer test")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"decision":"APPROVE"}"#))
+            .unwrap_or_else(|error| panic!("failed to build request: {error}"));
+
+        let response = test_router()
+            .oneshot(request)
+            .await
+            .unwrap_or_else(|error| panic!("router failed: {error}"));
+
+        assert_eq!(StatusCode::FORBIDDEN, response.status());
+        assert_eq!(
+            Some("no-store"),
+            response
+                .headers()
+                .get(axum::http::header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok())
+        );
+    }
+
+    #[tokio::test]
+    async fn should_remove_the_legacy_admin_decision_route() {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/v1/partnership-applications/550e8400-e29b-41d4-a716-446655440000/decision")
+            .header("Authorization", "Bearer test")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"decision":"APPROVE"}"#))
+            .unwrap_or_else(|error| panic!("failed to build request: {error}"));
+
+        let response = test_router()
+            .oneshot(request)
+            .await
+            .unwrap_or_else(|error| panic!("router failed: {error}"));
+
+        assert_eq!(StatusCode::NOT_FOUND, response.status());
     }
 
     #[tokio::test]
