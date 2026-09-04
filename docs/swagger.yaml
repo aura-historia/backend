@@ -3398,6 +3398,85 @@ paths:
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
   /api/v1/admin/listing-sources:
+    post:
+      summary: Create a ListingSource as admin
+      description: |
+        Creates a ListingSource for an authenticated administrator.
+
+        `operator` accepts either an existing Party reference (`EXISTING` with `partyId`) or a
+        new Party with name and optional contact details (`NEW`). Ingestion configuration,
+        provider uniqueness, presentation, and referral validation remain service-owned.
+        `woocommerceWebhookSecret` is accepted only when WooCommerce ingestion is configured and
+        is never returned or logged.
+      operationId: adminCreateListingSource
+      tags:
+        - ListingSources
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      requestBody:
+        required: true
+        description: ListingSource creation payload.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateListingSourceData"
+      responses:
+        "201":
+          description: ListingSource created successfully.
+          headers:
+            Location:
+              description: URL of the created admin ListingSource detail resource.
+              schema:
+                type: string
+                format: uri
+              example: /api/v1/admin/listing-sources/550e8400-e29b-41d4-a716-446655440000
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListingSourceReferenceData"
+        "400":
+          description: Bad request - missing, malformed, or invalid ListingSource body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized - missing or invalid bearer credentials.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden - this endpoint requires the ADMIN role.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Referenced operator Party was not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: ListingSource or provider configuration conflicts with current state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: Internal ListingSource creation failure.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: ListingSource creation is temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
     get:
       summary: Search ListingSources as admin
       description: |
@@ -6694,70 +6773,6 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: NEWSLETTER_INTERNAL_ERROR
-  /api/v1/listing-sources:
-    post:
-      summary: Create a ListingSource
-      operationId: postListingSource
-      tags:
-        - ListingSources
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateListingSourceData"
-      responses:
-        "201":
-          description: ListingSource created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ListingSourceReferenceData"
-        "400":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "401":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "404":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "409":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "500":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "503":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-      security:
-        - BearerAuth: []
-        - AccessTokenAuth: []
   /api/v1/listing-sources/{listingSourceId}:
     get:
       summary: Get a ListingSource
@@ -12386,6 +12401,8 @@ components:
             $ref: "#/components/schemas/ListingIngestionConfigurationData"
         woocommerceWebhookSecret:
           type: string
+          writeOnly: true
+          description: Optional WooCommerce webhook secret. Accepted only when WOOCOMMERCE ingestion is configured; never returned or logged.
         url:
           type: string
           format: uri

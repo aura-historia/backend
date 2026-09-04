@@ -414,10 +414,6 @@ pub fn app(state: AppState) -> Router {
         routes = routes.merge(
             Router::new()
                 .route(
-                    "/api/v1/listing-sources",
-                    post(listing_sources::create_listing_source::create_listing_source),
-                )
-                .route(
                     "/api/v1/listing-sources/{listing_source_id}",
                     get(listing_sources::get_listing_source::get_listing_source)
                         .patch(listing_sources::update_listing_source::update_listing_source),
@@ -432,7 +428,8 @@ pub fn app(state: AppState) -> Router {
                 )
                 .route(
                     "/api/v1/admin/listing-sources",
-                    get(listing_sources::search_listing_sources::search_listing_sources),
+                    get(listing_sources::search_listing_sources::search_listing_sources)
+                        .post(listing_sources::create_listing_source::create_listing_source),
                 )
                 .with_state(listing_sources),
         );

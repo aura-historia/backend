@@ -1,7 +1,8 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
-    assert_problem, json_response, seed_access_token_for, seed_listing_source_for_search, seed_user,
+    assert_problem, json_response, seed_access_token_for, seed_listing_source_for_search,
+    seed_party, seed_user,
 };
 use serde_json::json;
 use test_api::{IntegrationTestService, aura_integration_test};
@@ -323,4 +324,253 @@ async fn should_reject_listing_source_collection_for_non_admin() {
     let (status, body) = json_response(response).await;
 
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_create_listing_source_for_existing_party_at_admin_route() {
+    let party_id = seed_party("Existing Listing Source Operator", None, None).await;
+    let admin_id = seed_user("ADMIN").await;
+    let token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
+
+    let response = client
+        .post(&url)
+        .bearer_auth(token.clone())
+        .json(&json!({
+            "name": "Created Listing Source",
+            "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
+            "ingestionConfiguration": [{"type": "PARTNER_API"}],
+            "url": "https://created-listing-source.example/",
+            "image": "https://created-listing-source.example/image.png",
+            "referralConfiguration": {"type": "PARTNERIZE", "camref": "campaign123"}
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to create listing source: {error}"));
+    let location = response
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let (status, body) = json_response(response).await;
+
+    let listing_source_id = body["listingSourceId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("created response has no listing source ID"))
+        .to_owned();
+    assert_eq!(reqwest::StatusCode::CREATED, status);
+    assert_eq!(
+        Some(format!("/api/v1/admin/listing-sources/{listing_source_id}")),
+        location
+    );
+    assert_eq!(json!(listing_source_id.as_str()), body["listingSourceId"]);
+    assert!(body["listingSourceSlugId"].is_string());
+
+    let response = client
+        .get(&url)
+        .bearer_auth(token)
+        .query(&[("listingSourceId", listing_source_id.as_str())])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to read created listing source: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some(1), body["items"].as_array().map(Vec::len));
+    assert_eq!(
+        json!(party_id.to_string()),
+        body["items"][0]["operator"]["partyId"]
+    );
+    assert_eq!(json!("Created Listing Source"), body["items"][0]["name"]);
+    assert_eq!(json!(["PARTNER_API"]), body["items"][0]["ingestionMethods"]);
+    assert_eq!(
+        json!({"type": "PARTNERIZE", "camref": "campaign123"}),
+        body["items"][0]["referralConfiguration"]
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_create_listing_source_with_new_party_without_echoing_webhook_secret() {
+    let admin_id = seed_user("ADMIN").await;
+    let token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
+
+    let response = client
+        .post(&url)
+        .bearer_auth(token.clone())
+        .json(&json!({
+            "name": "  WooCommerce Listing Source  ",
+            "operator": {
+                "type": "NEW",
+                "name": "  New Listing Source Operator  ",
+                "phone": "+49 30 123456",
+                "email": "operator@example.test"
+            },
+            "ingestionConfiguration": [{
+                "type": "WOOCOMMERCE",
+                "currency": "EUR",
+                "language": "en"
+            }],
+            "woocommerceWebhookSecret": "provider-secret"
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to create listing source with new party: {error}"));
+    let location = response
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let (status, body) = json_response(response).await;
+
+    let listing_source_id = body["listingSourceId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("created response has no listing source ID"))
+        .to_owned();
+    assert_eq!(reqwest::StatusCode::CREATED, status);
+    assert_eq!(
+        Some(format!("/api/v1/admin/listing-sources/{listing_source_id}")),
+        location
+    );
+    assert!(!body.to_string().contains("provider-secret"));
+
+    let response = client
+        .get(&url)
+        .bearer_auth(token)
+        .query(&[("listingSourceId", listing_source_id.as_str())])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to read created WooCommerce source: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some(1), body["items"].as_array().map(Vec::len));
+    assert_eq!(
+        json!("New Listing Source Operator"),
+        body["items"][0]["operator"]["name"]
+    );
+    assert_eq!(json!(["WOOCOMMERCE"]), body["items"][0]["ingestionMethods"]);
+    assert!(!body.to_string().contains("provider-secret"));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_listing_source_create_for_non_admin() {
+    let party_id = seed_party("Unauthorized Listing Source Operator", None, None).await;
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(user_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/admin/listing-sources",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .json(&json!({
+            "name": "Unauthorized Listing Source",
+            "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
+            "ingestionConfiguration": [{"type": "PARTNER_API"}]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to reject non-admin listing-source create: {error}")
+        });
+    let (status, body) = json_response(response).await;
+
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_listing_source_create_with_secret_for_non_woocommerce_source() {
+    let party_id = seed_party("Invalid Secret Listing Source Operator", None, None).await;
+    let admin_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(admin_id, std::collections::HashSet::new()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/admin/listing-sources",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .json(&json!({
+            "name": "Invalid Secret Listing Source",
+            "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
+            "ingestionConfiguration": [{"type": "PARTNER_API"}],
+            "woocommerceWebhookSecret": "must-not-be-stored"
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to validate listing-source secret: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_BODY_VALUE",
+    );
+    assert!(!body.to_string().contains("must-not-be-stored"));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_map_duplicate_shopify_domain_to_conflict_on_admin_create() {
+    let party_id = seed_party("Shopify Conflict Operator", None, None).await;
+    let admin_id = seed_user("ADMIN").await;
+    let token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let url = format!("{}/api/v1/admin/listing-sources", AURA_API.base_url());
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(&url)
+        .bearer_auth(token.clone())
+        .json(&json!({
+            "name": "First Shopify Listing Source",
+            "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
+            "ingestionConfiguration": [{
+                "type": "SHOPIFY",
+                "domain": "duplicate-shop.example",
+                "currency": "EUR",
+                "language": "en"
+            }]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to create first Shopify source: {error}"));
+    assert_eq!(reqwest::StatusCode::CREATED, response.status());
+
+    let response = client
+        .post(&url)
+        .bearer_auth(token)
+        .json(&json!({
+            "name": "Second Shopify Listing Source",
+            "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
+            "ingestionConfiguration": [{
+                "type": "SHOPIFY",
+                "domain": "duplicate-shop.example",
+                "currency": "EUR",
+                "language": "en"
+            }]
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to test duplicate Shopify source: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_remove_legacy_listing_source_create_route() {
+    let response = reqwest::Client::new()
+        .post(format!("{}/api/v1/listing-sources", AURA_API.base_url()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call legacy listing-source route: {error}"));
+
+    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
 }
