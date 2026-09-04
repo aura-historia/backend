@@ -8627,129 +8627,245 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-  /api/v1/partnership-applications/{partnershipApplicationId}:
+  /api/v1/admin/partnership-applications/{partnershipApplicationId}:
     get:
       summary: Get a PartnershipApplication for administration
-      operationId: getPartnershipApplication
+      description:
+        "Retrieves a single PartnershipApplication for authenticated administrators.
+
+        The response includes the applicant, state, proposal, and nullable approval references. All responses send `Cache-Control: no-store`.
+
+        "
+      operationId: adminGetPartnershipApplication
       tags:
         - PartnershipApplications
       parameters:
         - name: partnershipApplicationId
           in: path
           required: true
+          description: Unique identifier (UUID) of the PartnershipApplication to retrieve.
           schema:
             type: string
             format: uuid
-      responses:
-        "200":
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AdminPartnershipApplicationData"
-        "400":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "401":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "404":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "500":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "503":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
+          example: 770e8400-e29b-41d4-a716-446655440000
       security:
         - BearerAuth: []
         - AccessTokenAuth: []
+      responses:
+        "200":
+          description: PartnershipApplication returned successfully.
+          headers:
+            Cache-Control:
+              description: Caching directive. Always set to `no-store`.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminPartnershipApplicationData"
+              example:
+                id: 770e8400-e29b-41d4-a716-446655440000
+                applicantUserId: 550e8400-e29b-41d4-a716-446655440000
+                state: APPROVED
+                proposal:
+                  type: EXISTING_LISTING_SOURCE
+                  listingSourceId: 660e8400-e29b-41d4-a716-446655440000
+                approvedPartnershipId: 880e8400-e29b-41d4-a716-446655440000
+                approvedListingSourceId: 660e8400-e29b-41d4-a716-446655440000
+        "400":
+          description: Bad request - invalid PartnershipApplication ID.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized - invalid or missing bearer credentials.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden - this endpoint requires the `ADMIN` role.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: PartnershipApplication not found.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: Internal server error.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: PartnershipApplication data is temporarily unavailable.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
     patch:
-      summary: Mark a PartnershipApplication in review
-      operationId: patchPartnershipApplication
+      summary: Mark a PartnershipApplication in review as admin
+      description: |
+        Marks a PartnershipApplication in review for an authenticated administrator.
+
+        This operation accepts no request body and only performs the domain-authoritative
+        `SUBMITTED` to `IN_REVIEW` transition. It does not accept arbitrary state assignment.
+        The response contains the resulting admin PartnershipApplication representation and
+        responses always use `Cache-Control: no-store`.
+      operationId: adminMarkPartnershipApplicationInReview
       tags:
         - PartnershipApplications
       parameters:
         - name: partnershipApplicationId
           in: path
           required: true
+          description: Unique identifier (UUID) of the PartnershipApplication to mark in review.
           schema:
             type: string
             format: uuid
+          example: 770e8400-e29b-41d4-a716-446655440000
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "200":
-          description: Success
+          description: PartnershipApplication marked in review successfully.
+          headers:
+            Cache-Control:
+              description: Caching directive. Always set to `no-store`.
+              schema:
+                type: string
+              example: no-store
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/AdminPartnershipApplicationData"
         "400":
-          description: Problem response
+          description: Bad request - invalid PartnershipApplication ID.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "401":
-          description: Problem response
+          description: Unauthorized - invalid or missing bearer credentials.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "403":
-          description: Problem response
+          description: Forbidden - this endpoint requires the `ADMIN` role.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "404":
-          description: Problem response
+          description: PartnershipApplication not found.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "409":
-          description: Problem response
+          description: Conflict - the PartnershipApplication is not in the Submitted state or was changed concurrently.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "500":
-          description: Problem response
+          description: Internal authentication or PartnershipApplication transition failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "503":
-          description: Problem response
+          description: Authentication, authorization, or PartnershipApplication data is temporarily unavailable.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-      security:
-        - BearerAuth: []
-        - AccessTokenAuth: []
   /api/v1/partnership-applications/{partnershipApplicationId}/decision:
     post:
       summary: Decide a PartnershipApplication
@@ -12109,6 +12225,8 @@ components:
         - applicantUserId
         - state
         - proposal
+        - approvedPartnershipId
+        - approvedListingSourceId
       properties:
         id:
           type: string
@@ -12120,6 +12238,14 @@ components:
           $ref: "#/components/schemas/PartnershipApplicationStateData"
         proposal:
           $ref: "#/components/schemas/PartnershipApplicationProposalData"
+        approvedPartnershipId:
+          type: string
+          format: uuid
+          nullable: true
+        approvedListingSourceId:
+          type: string
+          format: uuid
+          nullable: true
     PartnershipProposalTypeData:
       type: string
       enum:

@@ -272,6 +272,7 @@ pub(crate) fn view(row: ApplicationRow) -> Result<PartnershipApplicationView, Ma
         applicant_user_id: app.applicant_user_id(),
         state: app.state(),
         proposal: app.proposal().clone(),
+        approval_result: app.approval_result(),
     })
 }
 pub(crate) fn invalid(
@@ -324,6 +325,26 @@ mod tests {
         assert_eq!(datetime!(2026-01-02 00:00 UTC), summary.updated);
         assert_eq!(None, summary.approved_partnership_id);
         assert_eq!(None, summary.approved_listing_source_id);
+    }
+
+    #[test]
+    fn should_map_view_with_persisted_approval_result() {
+        let mut row = row("APPROVED", existing_proposal());
+        let partnership_id = uuid::Uuid::new_v4();
+        let listing_source_id = uuid::Uuid::new_v4();
+        row.approved_partnership_id = Some(partnership_id);
+        row.approved_listing_source_id = Some(listing_source_id);
+
+        let view =
+            view(row).unwrap_or_else(|error| panic!("valid application row should map: {error}"));
+
+        assert_eq!(
+            Some(PartnershipApplicationApprovalResult::new(
+                PartnershipId::from(partnership_id),
+                ListingSourceId::from(listing_source_id),
+            )),
+            view.approval_result
+        );
     }
 
     #[test]

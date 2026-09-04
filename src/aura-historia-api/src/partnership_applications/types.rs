@@ -4,7 +4,8 @@ use listing_source_core::{
 };
 use partnership_core::{
     partnership_application::{
-        PartnershipApplication, PartnershipProposal, ProposedListingSource, ProposedParty,
+        PartnershipApplication, PartnershipApplicationApprovalResult, PartnershipProposal,
+        ProposedListingSource, ProposedParty,
     },
     partnership_application_state::PartnershipApplicationState,
 };
@@ -119,6 +120,8 @@ pub(super) struct AdminPartnershipApplicationData {
     #[serde(with = "crate::wire::partnership_application_state")]
     state: PartnershipApplicationState,
     proposal: PartnershipProposalData,
+    approved_partnership_id: Option<Uuid>,
+    approved_listing_source_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -159,22 +162,30 @@ impl From<PartnershipApplicationView> for OwnPartnershipApplicationData {
 
 impl From<PartnershipApplication> for AdminPartnershipApplicationData {
     fn from(value: PartnershipApplication) -> Self {
+        let (approved_partnership_id, approved_listing_source_id) =
+            approval_references(value.approval_result());
         Self {
             id: value.id().into(),
             applicant_user_id: value.applicant_user_id().into(),
             state: value.state(),
             proposal: proposal_data(value.proposal()),
+            approved_partnership_id,
+            approved_listing_source_id,
         }
     }
 }
 
 impl From<PartnershipApplicationView> for AdminPartnershipApplicationData {
     fn from(value: PartnershipApplicationView) -> Self {
+        let (approved_partnership_id, approved_listing_source_id) =
+            approval_references(value.approval_result);
         Self {
             id: value.id.into(),
             applicant_user_id: value.applicant_user_id.into(),
             state: value.state,
             proposal: proposal_data(&value.proposal),
+            approved_partnership_id,
+            approved_listing_source_id,
         }
     }
 }
@@ -191,6 +202,18 @@ impl From<AdminPartnershipApplicationSummary> for AdminPartnershipApplicationSum
             created: value.created,
             updated: value.updated,
         }
+    }
+}
+
+fn approval_references(
+    value: Option<PartnershipApplicationApprovalResult>,
+) -> (Option<Uuid>, Option<Uuid>) {
+    match value {
+        Some(result) => (
+            Some(result.partnership_id().into()),
+            Some(result.listing_source_id().into()),
+        ),
+        None => (None, None),
     }
 }
 

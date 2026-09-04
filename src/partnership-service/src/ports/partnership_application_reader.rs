@@ -1,6 +1,6 @@
 use application::error::BoxError;
 use partnership_core::{
-    partnership_application::PartnershipProposal,
+    partnership_application::{PartnershipApplicationApprovalResult, PartnershipProposal},
     partnership_application_id::PartnershipApplicationId,
     partnership_application_state::PartnershipApplicationState,
 };
@@ -16,6 +16,7 @@ pub struct PartnershipApplicationView {
     pub applicant_user_id: UserId,
     pub state: PartnershipApplicationState,
     pub proposal: PartnershipProposal,
+    pub approval_result: Option<PartnershipApplicationApprovalResult>,
 }
 
 #[derive(Debug, thiserror::Error)]

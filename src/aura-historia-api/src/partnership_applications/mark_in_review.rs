@@ -1,4 +1,7 @@
-use super::{types::AdminPartnershipApplicationData, util::parse_id};
+use super::{
+    types::AdminPartnershipApplicationData,
+    util::{no_store, parse_id},
+};
 use crate::{auth::protected_context, error::ApiError, state::PartnershipApplicationsState};
 use axum::{
     Json,
@@ -15,11 +18,11 @@ pub(super) async fn mark_in_review(
 ) -> Response {
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return *response,
+        Err(response) => return no_store(*response),
     };
     let application_id = match parse_id(&raw_id) {
         Ok(value) => value,
-        Err(error) => return error.into_response(),
+        Err(error) => return no_store(error.into_response()),
     };
 
     match state
@@ -30,9 +33,9 @@ pub(super) async fn mark_in_review(
         )
         .await
     {
-        Ok(result) => {
-            Json(AdminPartnershipApplicationData::from(result.application)).into_response()
-        }
-        Err(error) => ApiError::from(error).into_response(),
+        Ok(result) => no_store(
+            Json(AdminPartnershipApplicationData::from(result.application)).into_response(),
+        ),
+        Err(error) => no_store(ApiError::from(error).into_response()),
     }
 }

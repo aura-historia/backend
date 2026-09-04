@@ -95,6 +95,7 @@ impl<U: UnitOfWork, R: PartnershipApplicationRepositoryFactory<U::Tx>>
             applicant_user_id: app.value.applicant_user_id(),
             state: app.value.state(),
             proposal: app.value.proposal().clone(),
+            approval_result: app.value.approval_result(),
         })
     }
 }

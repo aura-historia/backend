@@ -79,38 +79,96 @@ impl<
     R: UserAdminReaderFactory<U::Tx>,
 > MarkPartnershipApplicationInReviewUseCase for MarkPartnershipApplicationInReviewHandler<U, A, R>
 {
+    #[tracing::instrument(
+        name = "mark_partnership_application_in_review",
+        skip_all,
+        fields(
+            partnership_application_id = %command.application_id,
+            principal_type = context.principal.kind(),
+            actor_id = tracing::field::Empty,
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+            outcome = tracing::field::Empty,
+        )
+    )]
     async fn execute(
         &self,
         context: &OperationContext,
         command: MarkPartnershipApplicationInReviewCommand,
     ) -> Result<MarkPartnershipApplicationInReviewResult, MarkPartnershipApplicationInReviewError>
     {
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| MarkPartnershipApplicationInReviewError::BeginTransactionFailed)?;
-        authorize_admin(context, &mut tx, &self.admins).await?;
-        let mut application = self
-            .applications
-            .in_transaction(&mut tx)
-            .find_by_id(command.application_id)
-            .await?
-            .ok_or(MarkPartnershipApplicationInReviewError::NotFound)?;
-        application
-            .value
-            .mark_in_review()
-            .map_err(|_| MarkPartnershipApplicationInReviewError::ApplicationNotReviewable)?;
-        let application = self
-            .applications
-            .in_transaction(&mut tx)
-            .update(&application.value, application.version)
-            .await?
-            .value;
-        tx.commit()
-            .await
-            .map_err(|_| MarkPartnershipApplicationInReviewError::CommitTransactionFailed)?;
-        Ok(MarkPartnershipApplicationInReviewResult { application })
+        if let Some(actor_id) = context.principal.actor_id() {
+            tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
+        }
+
+        let result: Result<
+            MarkPartnershipApplicationInReviewResult,
+            MarkPartnershipApplicationInReviewError,
+        > =
+            async {
+                let mut tx =
+                    self.unit_of_work.begin().await.map_err(|_| {
+                        MarkPartnershipApplicationInReviewError::BeginTransactionFailed
+                    })?;
+                authorize_admin(context, &mut tx, &self.admins).await?;
+                let mut application = self
+                    .applications
+                    .in_transaction(&mut tx)
+                    .find_by_id(command.application_id)
+                    .await?
+                    .ok_or(MarkPartnershipApplicationInReviewError::NotFound)?;
+                application.value.mark_in_review().map_err(|_| {
+                    MarkPartnershipApplicationInReviewError::ApplicationNotReviewable
+                })?;
+                let application = self
+                    .applications
+                    .in_transaction(&mut tx)
+                    .update(&application.value, application.version)
+                    .await?
+                    .value;
+                tx.commit().await.map_err(|_| {
+                    MarkPartnershipApplicationInReviewError::CommitTransactionFailed
+                })?;
+                Ok(MarkPartnershipApplicationInReviewResult { application })
+            }
+            .await;
+
+        let actor_id = context.principal.actor_id();
+        match &result {
+            Ok(result) => {
+                tracing::Span::current().record("outcome", "success");
+                tracing::info!(
+                    event = "partnership_application.marked_in_review",
+                    action = "mark_partnership_application_in_review",
+                    actor_type = context.principal.kind(),
+                    actor_id = actor_id.as_deref().unwrap_or(""),
+                    target_type = "partnership_application",
+                    target_id = %result.application.id(),
+                    partnership_application_id = %result.application.id(),
+                    request_id = %context.request_id,
+                    correlation_id = %context.correlation_id,
+                    resulting_state = result.application.state().as_str(),
+                    outcome = "success",
+                );
+            }
+            Err(error) => {
+                tracing::Span::current().record("outcome", "failure");
+                tracing::warn!(
+                    event = "partnership_application.marked_in_review",
+                    action = "mark_partnership_application_in_review",
+                    actor_type = context.principal.kind(),
+                    actor_id = actor_id.as_deref().unwrap_or(""),
+                    target_type = "partnership_application",
+                    target_id = %command.application_id,
+                    partnership_application_id = %command.application_id,
+                    request_id = %context.request_id,
+                    correlation_id = %context.correlation_id,
+                    error_category = %error,
+                    outcome = "failure",
+                );
+            }
+        }
+        result
     }
 }
 impl From<AdminAuthorizationError> for MarkPartnershipApplicationInReviewError {

@@ -321,6 +321,46 @@ pub async fn seed_partnership_application(
     application_id
 }
 
+pub async fn seed_approved_partnership_application(
+    applicant_user_id: UserId,
+    created: OffsetDateTime,
+    updated: OffsetDateTime,
+) -> (PartnershipApplicationId, uuid::Uuid, uuid::Uuid) {
+    let approved_listing_source_id = seed_listing_source().await;
+    let pool = get_postgres_client().await;
+    let approved_partnership_id = sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT partnership.partnership_id FROM partnerships AS partnership JOIN listing_sources AS source ON source.operator_party_id = partnership.party_id WHERE source.listing_source_id = $1 ORDER BY partnership.partnership_id LIMIT 1",
+    )
+    .bind(approved_listing_source_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to find seeded partnership: {error}"));
+    let application_id = PartnershipApplicationId::new();
+    if let Err(error) = sqlx::query(
+        "INSERT INTO partnership_applications (partnership_application_id, applicant_user_id, business_state, proposal, approved_partnership_id, approved_listing_source_id, created, updated) VALUES ($1, $2, 'APPROVED', $3, $4, $5, $6, $7)",
+    )
+    .bind(uuid::Uuid::from(application_id))
+    .bind(uuid::Uuid::from(applicant_user_id))
+    .bind(serde_json::json!({
+        "type": "EXISTING_LISTING_SOURCE",
+        "listing_source_id": approved_listing_source_id,
+    }))
+    .bind(approved_partnership_id)
+    .bind(approved_listing_source_id)
+    .bind(created)
+    .bind(updated)
+    .execute(&pool)
+    .await
+    {
+        panic!("failed to seed approved partnership application: {error}");
+    }
+    (
+        application_id,
+        approved_partnership_id,
+        approved_listing_source_id,
+    )
+}
+
 pub async fn seed_user_with_consent(
     role: &'static str,
     show_unassessed_or_sensitive_content: bool,
