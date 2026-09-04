@@ -7,6 +7,7 @@ use billing_service::use_cases::{
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceUseCase;
 use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceUseCase;
 use listing_source_service::use_cases::queries::get_listing_source::GetListingSourceUseCase;
+use listing_source_service::use_cases::queries::search_listing_sources::SearchListingSourcesUseCase;
 use notification_service::use_cases::commands::delete_notification::DeleteNotificationUseCase;
 use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsUseCase;
 use notification_service::use_cases::commands::update_all_notifications_seen::UpdateAllNotificationsSeenUseCase;
@@ -422,6 +423,7 @@ pub struct ListingSourcesState {
     pub(crate) get: Arc<dyn GetListingSourceUseCase>,
     pub(crate) update: Arc<dyn UpdateListingSourceUseCase>,
     pub(crate) list_administered: Arc<dyn ListAdministeredListingSourcesUseCase>,
+    pub(crate) search: Arc<dyn SearchListingSourcesUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
@@ -431,6 +433,7 @@ impl ListingSourcesState {
         get: Arc<dyn GetListingSourceUseCase>,
         update: Arc<dyn UpdateListingSourceUseCase>,
         list_administered: Arc<dyn ListAdministeredListingSourcesUseCase>,
+        search: Arc<dyn SearchListingSourcesUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
@@ -438,6 +441,7 @@ impl ListingSourcesState {
             get,
             update,
             list_administered,
+            search,
             authenticator,
         }
     }

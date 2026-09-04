@@ -26,3 +26,4 @@ test-data = ["fake"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
+user-core = { workspace = true }

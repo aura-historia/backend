@@ -11,6 +11,9 @@ use listing_source_service::ports::{
 use listing_source_service::use_cases::commands::{
     create_listing_source::ListingSourceOperator, update_listing_source::RequiredPatch,
 };
+use listing_source_service::use_cases::queries::search_listing_sources::{
+    ListingSourceSearchSummary, SearchListingSourcesResult,
+};
 use partnership_service::ports::AdministeredListingSource;
 use party_core::{
     party::{NewParty, PartyContact},
@@ -180,11 +183,21 @@ impl TryFrom<ListingIngestionConfigurationData> for ListingIngestionConfiguratio
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub(crate) enum ReferralConfigurationData {
     #[serde(rename = "PARTNERIZE")]
     Partnerize { camref: String },
+}
+
+impl From<ReferralConfiguration> for ReferralConfigurationData {
+    fn from(value: ReferralConfiguration) -> Self {
+        match value {
+            ReferralConfiguration::Partnerize { camref } => Self::Partnerize {
+                camref: camref.to_string(),
+            },
+        }
+    }
 }
 
 impl TryFrom<ReferralConfigurationData> for ReferralConfiguration {
@@ -236,6 +249,81 @@ impl From<ListingSourceDetails> for ListingSourceData {
             updated: value.updated,
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ListingSourceSearchCollectionData {
+    pub(crate) items: Vec<ListingSourceSearchSummaryData>,
+    pub(crate) size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) search_after: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) total: Option<u64>,
+}
+
+impl From<SearchListingSourcesResult> for ListingSourceSearchCollectionData {
+    fn from(value: SearchListingSourcesResult) -> Self {
+        Self {
+            items: value
+                .items
+                .into_iter()
+                .map(ListingSourceSearchSummaryData::from)
+                .collect(),
+            size: value.cursor.size,
+            search_after: value.cursor.search_after.map(|id| id.to_string()),
+            total: value.total,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ListingSourceSearchSummaryData {
+    pub(crate) listing_source_id: String,
+    pub(crate) listing_source_slug_id: String,
+    pub(crate) name: String,
+    operator: OperatorPartyData,
+    pub(crate) ingestion_methods: Vec<ListingIngestionMethodData>,
+    pub(crate) presentation: ListingSourcePresentationData,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) referral_configuration: Option<ReferralConfigurationData>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub(crate) created: time::OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub(crate) updated: time::OffsetDateTime,
+}
+
+impl From<ListingSourceSearchSummary> for ListingSourceSearchSummaryData {
+    fn from(value: ListingSourceSearchSummary) -> Self {
+        Self {
+            listing_source_id: value.listing_source_id.to_string(),
+            listing_source_slug_id: value.listing_source_slug_id.to_string(),
+            name: value.name.to_string(),
+            operator: OperatorPartyData {
+                party_id: value.operator.party_id.to_string(),
+                party_slug_id: value.operator.party_slug_id.to_string(),
+                name: value.operator.name.to_string(),
+            },
+            ingestion_methods: methods_data(value.ingestion_methods),
+            presentation: ListingSourcePresentationData {
+                url: value.presentation.url,
+                image: value.presentation.image,
+            },
+            referral_configuration: value.referral_configuration.map(Into::into),
+            created: value.created,
+            updated: value.updated,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ListingSourcePresentationData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) url: Option<Url>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) image: Option<Url>,
 }
 
 #[derive(Debug, Serialize)]

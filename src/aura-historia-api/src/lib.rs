@@ -71,10 +71,14 @@ use opensearch::{
 };
 use platform_postgres::{PostgresConnectError, PostgresPoolConfig, SqlxUnitOfWork};
 
-use listing_source_postgres::{SqlxListingSourceReaders, SqlxListingSourceRepositoryFactory};
+use listing_source_postgres::{
+    SqlxListingSourceReaders, SqlxListingSourceRepositoryFactory,
+    SqlxListingSourceSearchReaderFactory,
+};
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceHandler;
 use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceHandler;
 use listing_source_service::use_cases::queries::get_listing_source::GetListingSourceHandler;
+use listing_source_service::use_cases::queries::search_listing_sources::SearchListingSourcesHandler;
 use partnership_postgres::{
     SqlxListingSourceAuthorization, SqlxListingSourceGrantRepositoryFactory,
     SqlxPartnershipApplicationReaderFactory, SqlxPartnershipApplicationRepositoryFactory,
@@ -426,6 +430,10 @@ pub fn app(state: AppState) -> Router {
                     "/api/v1/me/listing-sources",
                     get(listing_sources::list_my_listing_sources::list_my_listing_sources),
                 )
+                .route(
+                    "/api/v1/admin/listing-sources",
+                    get(listing_sources::search_listing_sources::search_listing_sources),
+                )
                 .with_state(listing_sources),
         );
     }
@@ -620,6 +628,11 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     );
     let list_administered_listing_sources = ListAdministeredListingSourcesHandler::new(
         SqlxListingSourceAuthorization::new(pool.clone()),
+    );
+    let search_listing_sources = SearchListingSourcesHandler::new(
+        unit_of_work.clone(),
+        SqlxListingSourceSearchReaderFactory::new(),
+        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
     let get_own_user =
         GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new());
@@ -908,6 +921,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         Arc::new(get_listing_source),
         Arc::new(update_listing_source),
         Arc::new(list_administered_listing_sources),
+        Arc::new(search_listing_sources),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let parties_state = PartiesState::new(

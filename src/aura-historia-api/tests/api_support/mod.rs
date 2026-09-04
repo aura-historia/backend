@@ -25,10 +25,14 @@ use embedding::{
 };
 use fxrate_core::FxRateId;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
-use listing_source_postgres::{SqlxListingSourceReaders, SqlxListingSourceRepositoryFactory};
+use listing_source_postgres::{
+    SqlxListingSourceReaders, SqlxListingSourceRepositoryFactory,
+    SqlxListingSourceSearchReaderFactory,
+};
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceHandler;
 use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceHandler;
 use listing_source_service::use_cases::queries::get_listing_source::GetListingSourceHandler;
+use listing_source_service::use_cases::queries::search_listing_sources::SearchListingSourcesHandler;
 use notification_postgres::{
     SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
     SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
@@ -525,6 +529,65 @@ pub async fn seed_listing_source() -> uuid::Uuid {
     listing_source_id
 }
 
+pub async fn seed_listing_source_for_search(
+    name: &str,
+    operator_name: &str,
+    ingestion_method: &str,
+    referral_configuration: Option<serde_json::Value>,
+) -> (uuid::Uuid, uuid::Uuid, String) {
+    let party_id = uuid::Uuid::new_v4();
+    let listing_source_id = uuid::Uuid::new_v4();
+    let listing_source_slug_id = format!("api-search-source-{listing_source_id}");
+    let pool = get_postgres_client().await;
+    let mut transaction = pool.begin().await.unwrap_or_else(|error| {
+        panic!("failed to begin search listing-source seed transaction: {error}")
+    });
+
+    sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, $3)")
+        .bind(party_id)
+        .bind(format!("api-search-party-{party_id}"))
+        .bind(operator_name)
+        .execute(&mut *transaction)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed search operator party: {error}"));
+    sqlx::query(
+        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, url, image, referral_configuration) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    )
+    .bind(listing_source_id)
+    .bind(&listing_source_slug_id)
+    .bind(name)
+    .bind(party_id)
+    .bind("https://listing-source-search.example/")
+    .bind("https://listing-source-search.example/image.jpg")
+    .bind(referral_configuration)
+    .execute(&mut *transaction)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed search listing source: {error}"));
+    sqlx::query(
+        "INSERT INTO listing_source_ingestion_methods (listing_source_id, ingestion_method) VALUES ($1, $2)",
+    )
+    .bind(listing_source_id)
+    .bind(ingestion_method)
+    .execute(&mut *transaction)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed search ingestion method: {error}"));
+    if ingestion_method == "WOOCOMMERCE" {
+        sqlx::query(
+            "INSERT INTO listing_source_woocommerce_ingestion_configurations (listing_source_id, webhook_secret) VALUES ($1, $2)",
+        )
+        .bind(listing_source_id)
+        .bind("provider-secret")
+        .execute(&mut *transaction)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed search provider secret: {error}"));
+    }
+    transaction.commit().await.unwrap_or_else(|error| {
+        panic!("failed to commit search listing-source seed transaction: {error}")
+    });
+
+    (listing_source_id, party_id, listing_source_slug_id)
+}
+
 pub async fn seed_product() -> ProductListingId {
     let listing_source_id = seed_listing_source().await;
     let product_listing_id = ProductListingId::new();
@@ -680,6 +743,14 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     );
     let list_administered_listing_sources = ListAdministeredListingSourcesHandler::new(
         SqlxListingSourceAuthorization::new(pool.clone()),
+    );
+    let search_listing_sources = SearchListingSourcesHandler::new(
+        unit_of_work.clone(),
+        SqlxListingSourceSearchReaderFactory::new(),
+        CheckUserAdminHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        ),
     );
     let create_party = CreatePartyHandler::new(
         unit_of_work.clone(),
@@ -848,6 +919,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::new(get_listing_source),
         Arc::new(update_listing_source),
         Arc::new(list_administered_listing_sources),
+        Arc::new(search_listing_sources),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let parties_state = PartiesState::new(

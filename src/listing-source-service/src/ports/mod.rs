@@ -1,5 +1,6 @@
 mod listing_source_details_reader;
 mod listing_source_repository;
+mod listing_source_search_reader;
 mod partnership_grant_policy;
 mod shopify_source_reader;
 mod web_crawl_source_reader;
@@ -8,6 +9,7 @@ mod woocommerce_source_reader;
 
 pub use listing_source_details_reader::*;
 pub use listing_source_repository::*;
+pub use listing_source_search_reader::*;
 pub use partnership_grant_policy::*;
 pub use party_service::ports::{PartyRepository, PartyRepositoryFactory};
 pub use shopify_source_reader::*;

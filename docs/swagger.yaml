@@ -3397,6 +3397,218 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
+  /api/v1/admin/listing-sources:
+    get:
+      summary: Search ListingSources as admin
+      description: |
+        Searches ListingSource records for authenticated administrators.
+
+        `query` performs a case-insensitive substring search across the ListingSource name and
+        stable slug, and also the operator Party name and slug. `name` restricts the substring
+        match to the ListingSource name. `listingSourceId` and `listingSourceSlugId` are exact
+        identity filters. `operatorPartyId` and `ingestionMethod` are exact filters.
+
+        Results use deterministic cursor pagination. The default sort is `name` ascending;
+        override it by providing both `sort` and `order`. Valid sort fields are `name`, `slug`,
+        `created`, and `updated`; ListingSource ID is always the final deterministic tie-breaker.
+        Page sizes are clamped to 1–100, with a default of 21. The returned UUID `searchAfter`
+        cursor is omitted on the terminal page and should be sent with the same filters and sort.
+        Responses always use `Cache-Control: no-store`.
+
+        The result contains only safe business-resource fields: ListingSource identity and name,
+        operator Party reference, active ingestion methods, presentation URLs, and referral summary.
+        Provider credentials, webhook secrets, and crawler-local configuration are never returned.
+      operationId: adminSearchListingSources
+      tags:
+        - ListingSources
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - name: query
+          in: query
+          required: false
+          description: Optional case-insensitive substring query across source and operator Party text.
+          schema:
+            type: string
+          example: antiques
+        - name: name
+          in: query
+          required: false
+          description: Optional case-insensitive substring filter for the ListingSource name.
+          schema:
+            type: string
+          example: antiques
+        - name: listingSourceId
+          in: query
+          required: false
+          description: Optional exact ListingSource UUID filter.
+          schema:
+            type: string
+            format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        - name: listingSourceSlugId
+          in: query
+          required: false
+          description: Optional exact immutable ListingSource slug filter.
+          schema:
+            type: string
+          example: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
+        - name: operatorPartyId
+          in: query
+          required: false
+          description: Optional exact operator Party UUID filter.
+          schema:
+            type: string
+            format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440001
+        - name: ingestionMethod
+          in: query
+          required: false
+          description: Optional exact active ingestion-method filter.
+          schema:
+            $ref: "#/components/schemas/ListingIngestionMethodData"
+          example: PARTNER_API
+        - name: sort
+          in: query
+          required: false
+          description: "Sort field. Valid values are `name`, `slug`, `created`, and `updated`. The default is `name` ascending."
+          schema:
+            $ref: "#/components/schemas/SortListingSourceFieldData"
+          example: name
+        - name: order
+          in: query
+          required: false
+          description: "Sort direction for `sort`. Provide both `sort` and `order` to override the default."
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+          example: asc
+        - name: searchAfter
+          in: query
+          required: false
+          description: Opaque ListingSource UUID cursor returned by the previous page. It is omitted when no next page exists.
+          schema:
+            type: string
+            format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        - name: size
+          in: query
+          required: false
+          description: Number of ListingSource summaries requested per page. The server clamps values to the inclusive range 1–100.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 21
+          example: 21
+      responses:
+        "200":
+          description: ListingSource summaries returned successfully.
+          headers:
+            Cache-Control:
+              description: Responses are never stored because this is an administrator read.
+              schema:
+                type: string
+              example: no-store
+            Access-Control-Allow-Origin:
+              description: CORS header.
+              schema:
+                type: string
+              example: "*"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListingSourceSearchCollectionData"
+              example:
+                items:
+                  - listingSourceId: 550e8400-e29b-41d4-a716-446655440000
+                    listingSourceSlugId: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
+                    name: Antiques and More
+                    operator:
+                      partyId: 550e8400-e29b-41d4-a716-446655440001
+                      partySlugId: antiques-operator-550e8400-e29b-41d4-a716-446655440001
+                      name: Antiques Operator
+                    ingestionMethods:
+                      - PARTNER_API
+                    presentation:
+                      url: https://antiques.example/
+                      image: https://antiques.example/logo.png
+                    referralConfiguration:
+                      type: PARTNERIZE
+                      camref: campaign123
+                    created: "2026-01-01T10:00:00Z"
+                    updated: "2026-01-02T10:00:00Z"
+                size: 21
+                searchAfter: 550e8400-e29b-41d4-a716-446655440000
+        "400":
+          description: Bad request - invalid ListingSource search parameters.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                invalid_sort:
+                  summary: Invalid sort field
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_SORT_VALUE
+                    source:
+                      field: sort
+                      type: QUERY
+                invalid_query:
+                  summary: Invalid UUID, ingestion method, page size, or cursor
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_QUERY_PARAMETER_VALUE
+                    source:
+                      field: searchAfter
+                      type: QUERY
+        "401":
+          description: Unauthorized - invalid or missing bearer credentials.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+        "403":
+          description: Forbidden - this endpoint requires the ADMIN role.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: Operation is not permitted.
+        "500":
+          description: Internal authentication or ListingSource search failure.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: LISTING_SOURCE_INTERNAL_ERROR
+        "503":
+          description: Authentication, authorization, or ListingSource search data is temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: LISTING_SOURCE_TEMPORARILY_UNAVAILABLE
   /api/v1/admin/parties:
     post:
       summary: Create a Party as admin
@@ -10689,6 +10901,15 @@ components:
             Omit to leave the current state unchanged.
 
             "
+    SortListingSourceFieldData:
+      type: string
+      enum:
+        - name
+        - slug
+        - created
+        - updated
+      description: "Fields available for sorting admin ListingSource-search results. ListingSource ID is always used as a deterministic tie-breaker."
+      example: name
     SortPartyFieldData:
       type: string
       enum:
@@ -11946,6 +12167,87 @@ components:
           type: string
         name:
           type: string
+    ListingSourceSearchCollectionData:
+      type: object
+      description: "Cursor-paginated safe ListingSource summaries for the admin search endpoint. `searchAfter` is a ListingSource UUID cursor and is omitted when the current page is terminal."
+      required:
+        - items
+        - size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ListingSourceSearchSummaryData"
+          description: ListingSource summaries returned in the current page.
+        size:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Requested page size after server-side clamping.
+          example: 21
+        searchAfter:
+          type: string
+          format: uuid
+          description: ListingSource UUID cursor for the next page, omitted when no more results are available.
+          example: 7f1c2a88-4e18-4c3a-bf0d-6a0fd5e6d901
+        total:
+          type: integer
+          minimum: 0
+          description: Total matching ListingSources when provided by the reader; omitted otherwise.
+          example: 42
+    ListingSourceSearchSummaryData:
+      type: object
+      description: Safe ListingSource administration summary. Provider credentials, webhook secrets, and crawler-local configuration are excluded.
+      required:
+        - listingSourceId
+        - listingSourceSlugId
+        - name
+        - operator
+        - ingestionMethods
+        - presentation
+        - created
+        - updated
+      properties:
+        listingSourceId:
+          type: string
+          format: uuid
+          description: Stable ListingSource identifier.
+        listingSourceSlugId:
+          type: string
+          description: Immutable ListingSource slug identifier.
+        name:
+          type: string
+          description: ListingSource name.
+        operator:
+          $ref: "#/components/schemas/OperatorPartyData"
+        ingestionMethods:
+          type: array
+          items:
+            $ref: "#/components/schemas/ListingIngestionMethodData"
+          description: Active canonical ingestion methods.
+        presentation:
+          $ref: "#/components/schemas/ListingSourcePresentationData"
+        referralConfiguration:
+          allOf:
+            - $ref: "#/components/schemas/ReferralConfigurationData"
+          nullable: true
+          description: Safe referral summary; provider credentials are never included.
+        created:
+          type: string
+          format: date-time
+        updated:
+          type: string
+          format: date-time
+    ListingSourcePresentationData:
+      type: object
+      description: Optional public presentation URLs for a ListingSource.
+      properties:
+        url:
+          type: string
+          format: uri
+        image:
+          type: string
+          format: uri
     ListingIngestionMethodData:
       type: string
       enum:
