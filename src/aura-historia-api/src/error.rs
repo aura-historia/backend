@@ -9,6 +9,7 @@ use billing_service::use_cases::{
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceError;
 use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceError;
 use listing_source_service::use_cases::queries::get_listing_source::GetListingSourceError;
+use listing_source_service::use_cases::queries::search_listing_sources::SearchListingSourcesError;
 use notification_service::use_cases::commands::delete_notification::DeleteNotificationError;
 use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsError;
 use notification_service::use_cases::commands::update_all_notifications_seen::UpdateAllNotificationsSeenError;
@@ -825,6 +826,32 @@ impl From<GetListingSourceError> for ApiError {
             | GetListingSourceError::Internal { .. } => {
                 ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
                     .with_detail("Listing source details failed internally.")
+            }
+        }
+    }
+}
+
+impl From<SearchListingSourcesError> for ApiError {
+    fn from(error: SearchListingSourcesError) -> Self {
+        match error {
+            SearchListingSourcesError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            SearchListingSourcesError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            SearchListingSourcesError::TemporarilyUnavailable { .. }
+            | SearchListingSourcesError::BeginTransactionFailed
+            | SearchListingSourcesError::CommitTransactionFailed => {
+                ApiError::service_unavailable(LISTING_SOURCE_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Listing source search is temporarily unavailable.")
+            }
+            SearchListingSourcesError::InvalidReadModel { .. }
+            | SearchListingSourcesError::Internal { .. } => {
+                ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
+                    .with_detail("Listing source search failed internally.")
             }
         }
     }
@@ -2312,6 +2339,19 @@ mod tests {
     async fn should_map_update_party_concurrency_conflict_to_conflict()
     -> Result<(), Box<dyn std::error::Error>> {
         let response = ApiError::from(UpdatePartyError::ConcurrencyConflict).into_response();
+
+        assert_eq!(StatusCode::CONFLICT, response.status());
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+        assert_eq!(CONFLICT.to_string(), body["error"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_update_listing_source_concurrency_conflict_to_conflict()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response =
+            ApiError::from(UpdateListingSourceError::ConcurrencyConflict).into_response();
 
         assert_eq!(StatusCode::CONFLICT, response.status());
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;

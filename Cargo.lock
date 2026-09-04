@@ -4347,6 +4347,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "user-core",
  "user-service",
 ]
 
