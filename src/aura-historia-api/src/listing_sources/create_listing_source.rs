@@ -1,9 +1,9 @@
 use crate::auth::protected_context;
-use crate::error::{ApiError, BAD_BODY_VALUE};
+use crate::error::{ApiError, BAD_BODY_VALUE, LISTING_SOURCE_INTERNAL_ERROR};
 use crate::listing_sources::types::{CreateListingSourceData, ListingSourceReferenceData};
 use crate::state::ListingSourcesState;
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use listing_source_core::{ListingSourceName, ListingSourcePresentation};
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceCommand;
@@ -65,12 +65,24 @@ pub async fn create_listing_source(
 
     match state.create.execute(&context, command).await {
         Ok(result) => {
-            let mut response = axum::Json(ListingSourceReferenceData::from((
-                result.listing_source_id,
-                result.slug_id,
-            )))
-            .into_response();
-            *response.status_mut() = StatusCode::CREATED;
+            let location = format!("/api/v1/admin/listing-sources/{}", result.listing_source_id);
+            let location = match HeaderValue::from_str(&location) {
+                Ok(value) => value,
+                Err(_) => {
+                    return ApiError::internal_server_error(LISTING_SOURCE_INTERNAL_ERROR)
+                        .with_detail("Listing source location failed internally.")
+                        .into_response();
+                }
+            };
+            let mut response = (
+                StatusCode::CREATED,
+                axum::Json(ListingSourceReferenceData::from((
+                    result.listing_source_id,
+                    result.slug_id,
+                ))),
+            )
+                .into_response();
+            response.headers_mut().insert(header::LOCATION, location);
             response
         }
         Err(error) => ApiError::from(error).into_response(),

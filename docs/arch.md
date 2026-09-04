@@ -2680,7 +2680,10 @@ static AURA_API: test_api::AuraHistoriaApi = test_api::AuraHistoriaApi::new(aura
 #[test_api::aura_integration_test(services = [POSTGRES, &AURA_API])]
 async fn should_get_listing_source_by_id_with_aura_access_token() {
     let response = match reqwest::Client::new()
-        .get(format!("{}/api/v1/listing-sources/{listing_source_id}", AURA_API.base_url()))
+        .get(format!(
+            "{}/api/v1/admin/listing-sources/{listing_source_id}",
+            AURA_API.base_url(),
+        ))
         .bearer_auth(token)
         .send()
         .await

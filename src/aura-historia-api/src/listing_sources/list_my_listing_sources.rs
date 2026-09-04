@@ -58,6 +58,10 @@ mod tests {
         GetListingSourceError, GetListingSourceRequest, GetListingSourceResult,
         GetListingSourceUseCase,
     };
+    use listing_source_service::use_cases::queries::search_listing_sources::{
+        SearchListingSourcesError, SearchListingSourcesRequest, SearchListingSourcesResult,
+        SearchListingSourcesUseCase,
+    };
     use partnership_service::ports::AdministeredListingSource;
     use partnership_service::use_cases::queries::list_administered_listing_sources::{
         ListAdministeredListingSourcesError, ListAdministeredListingSourcesResult,
@@ -142,6 +146,17 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
+    impl SearchListingSourcesUseCase for UnusedUseCases {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _request: SearchListingSourcesRequest,
+        ) -> Result<SearchListingSourcesResult, SearchListingSourcesError> {
+            Err(SearchListingSourcesError::Forbidden)
+        }
+    }
+
     #[tokio::test]
     async fn should_list_listing_sources_administered_by_authenticated_user()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -151,6 +166,7 @@ mod tests {
             Arc::new(UnusedUseCases),
             Arc::new(UnusedUseCases),
             Arc::new(ListUseCase),
+            Arc::new(UnusedUseCases),
             Arc::new(Authenticator(user_id)),
         );
         let app = Router::new()
