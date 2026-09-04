@@ -9,9 +9,11 @@ use partnership_core::{
     partnership_application_state::PartnershipApplicationState,
 };
 use partnership_service::ports::PartnershipApplicationView;
+use partnership_service::use_cases::queries::list_admin_partnership_applications::AdminPartnershipApplicationSummary;
 use party_core::{party::PartyContact, party_name::PartyName};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
+use time::OffsetDateTime;
 use url::Url;
 
 use uuid::Uuid;
@@ -119,6 +121,22 @@ pub(super) struct AdminPartnershipApplicationData {
     proposal: PartnershipProposalData,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct AdminPartnershipApplicationSummaryData {
+    id: Uuid,
+    applicant_user_id: Uuid,
+    #[serde(with = "crate::wire::partnership_application_state")]
+    state: PartnershipApplicationState,
+    proposal: PartnershipProposalData,
+    approved_partnership_id: Option<Uuid>,
+    approved_listing_source_id: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339")]
+    created: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    updated: OffsetDateTime,
+}
+
 impl From<PartnershipApplication> for OwnPartnershipApplicationData {
     fn from(value: PartnershipApplication) -> Self {
         Self {
@@ -157,6 +175,21 @@ impl From<PartnershipApplicationView> for AdminPartnershipApplicationData {
             applicant_user_id: value.applicant_user_id.into(),
             state: value.state,
             proposal: proposal_data(&value.proposal),
+        }
+    }
+}
+
+impl From<AdminPartnershipApplicationSummary> for AdminPartnershipApplicationSummaryData {
+    fn from(value: AdminPartnershipApplicationSummary) -> Self {
+        Self {
+            id: value.id.into(),
+            applicant_user_id: value.applicant_user_id.into(),
+            state: value.state,
+            proposal: proposal_data(&value.proposal),
+            approved_partnership_id: value.approved_partnership_id.map(Into::into),
+            approved_listing_source_id: value.approved_listing_source_id.map(Into::into),
+            created: value.created,
+            updated: value.updated,
         }
     }
 }

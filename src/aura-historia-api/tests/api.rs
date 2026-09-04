@@ -18,6 +18,8 @@ mod oauth;
 mod parties;
 #[path = "api_cases/partner_product_listings.rs"]
 mod partner_product_listings;
+#[path = "api_cases/partnership_applications.rs"]
+mod partnership_applications;
 #[path = "api_cases/product_listings.rs"]
 mod product_listings;
 #[path = "api_cases/search_filters.rs"]

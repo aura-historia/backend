@@ -15,13 +15,17 @@ use partnership_service::ports::{
     PartnershipApplicationStorageVersion, PartnershipApplicationView,
     VersionedPartnershipApplication,
 };
+use partnership_service::use_cases::queries::list_admin_partnership_applications::AdminPartnershipApplicationSummary;
 use party_core::{party::PartyContact, party_name::PartyName};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use std::collections::HashSet;
 use strum::IntoEnumIterator;
+use time::OffsetDateTime;
 use url::Url;
 use user_core::user_id::UserId;
+
+pub(crate) const APPLICATION_COLUMNS: &str = "partnership_application_id, applicant_user_id, business_state, proposal, approved_partnership_id, approved_listing_source_id, version, created, updated";
 
 #[derive(sqlx::FromRow)]
 pub(crate) struct ApplicationRow {
@@ -32,6 +36,8 @@ pub(crate) struct ApplicationRow {
     pub(crate) approved_partnership_id: Option<uuid::Uuid>,
     pub(crate) approved_listing_source_id: Option<uuid::Uuid>,
     pub(crate) version: i64,
+    pub(crate) created: OffsetDateTime,
+    pub(crate) updated: OffsetDateTime,
 }
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum MappingError {
@@ -174,12 +180,19 @@ pub(crate) fn proposal_json(
 ) -> Result<serde_json::Value, MappingError> {
     serde_json::to_value(ProposalV1::from(proposal)).map_err(MappingError::Proposal)
 }
-pub(crate) fn application(
-    row: ApplicationRow,
-) -> Result<VersionedPartnershipApplication, MappingError> {
+fn application_values(
+    row: &ApplicationRow,
+) -> Result<
+    (
+        PartnershipApplicationState,
+        PartnershipProposal,
+        Option<PartnershipApplicationApprovalResult>,
+    ),
+    MappingError,
+> {
     let state =
         PartnershipApplicationState::from_code(&row.business_state).ok_or(MappingError::State)?;
-    let proposal = serde_json::from_value::<ProposalV1>(row.proposal)
+    let proposal = serde_json::from_value::<ProposalV1>(row.proposal.clone())
         .map_err(MappingError::Proposal)?
         .try_into()?;
     let approval_result = match (row.approved_partnership_id, row.approved_listing_source_id) {
@@ -192,20 +205,65 @@ pub(crate) fn application(
         (None, None) => None,
         _ => return Err(MappingError::ApprovalResult),
     };
-    let version = PartnershipApplicationStorageVersion::try_from(row.version)
-        .map_err(|_| MappingError::Version)?;
-    let application = PartnershipApplication::rehydrate(RehydratedPartnershipApplicationState {
+    Ok((state, proposal, approval_result))
+}
+
+fn rehydrate_application(
+    row: &ApplicationRow,
+    state: PartnershipApplicationState,
+    proposal: PartnershipProposal,
+    approval_result: Option<PartnershipApplicationApprovalResult>,
+) -> Result<PartnershipApplication, MappingError> {
+    PartnershipApplication::rehydrate(RehydratedPartnershipApplicationState {
         id: PartnershipApplicationId::from(row.partnership_application_id),
         applicant_user_id: UserId::from(row.applicant_user_id),
         state,
         proposal,
         approval_result,
     })
-    .map_err(MappingError::Rehydration)?;
+    .map_err(MappingError::Rehydration)
+}
+
+pub(crate) fn application(
+    row: ApplicationRow,
+) -> Result<VersionedPartnershipApplication, MappingError> {
+    let (state, proposal, approval_result) = application_values(&row)?;
+    let version = PartnershipApplicationStorageVersion::try_from(row.version)
+        .map_err(|_| MappingError::Version)?;
+    let application = rehydrate_application(&row, state, proposal, approval_result)?;
     Ok(domain_primitives::versioned::Versioned::new(
         application,
         version,
     ))
+}
+
+pub(crate) fn admin_summary(
+    row: ApplicationRow,
+) -> Result<AdminPartnershipApplicationSummary, MappingError> {
+    let (state, proposal, approval_result) = application_values(&row)?;
+    PartnershipApplicationStorageVersion::try_from(row.version)
+        .map_err(|_| MappingError::Version)?;
+    let application = rehydrate_application(&row, state, proposal, approval_result)?;
+    let (approved_partnership_id, approved_listing_source_id) = application
+        .approval_result()
+        .map(|result| {
+            (
+                Some(result.partnership_id()),
+                Some(result.listing_source_id()),
+            )
+        })
+        .unwrap_or((None, None));
+
+    Ok(AdminPartnershipApplicationSummary {
+        id: application.id(),
+        applicant_user_id: application.applicant_user_id(),
+        state: application.state(),
+        proposal: application.proposal().clone(),
+        approved_partnership_id,
+        approved_listing_source_id,
+        created: row.created,
+        updated: row.updated,
+    })
 }
 pub(crate) fn view(row: ApplicationRow) -> Result<PartnershipApplicationView, MappingError> {
     let app = application(row)?.value;
@@ -221,5 +279,69 @@ pub(crate) fn invalid(
 ) -> partnership_service::ports::PartnershipApplicationRepositoryError {
     partnership_service::ports::PartnershipApplicationRepositoryError::InvalidPersistedState {
         source: box_error(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use time::macros::datetime;
+
+    fn row(state: &str, proposal: serde_json::Value) -> ApplicationRow {
+        ApplicationRow {
+            partnership_application_id: uuid::Uuid::new_v4(),
+            applicant_user_id: uuid::Uuid::new_v4(),
+            business_state: state.to_owned(),
+            proposal,
+            approved_partnership_id: None,
+            approved_listing_source_id: None,
+            version: 1,
+            created: datetime!(2026-01-01 00:00 UTC),
+            updated: datetime!(2026-01-02 00:00 UTC),
+        }
+    }
+
+    fn existing_proposal() -> serde_json::Value {
+        json!({
+            "type": "EXISTING_LISTING_SOURCE",
+            "listing_source_id": uuid::Uuid::new_v4(),
+        })
+    }
+
+    #[test]
+    fn should_map_admin_summary_with_persisted_metadata() {
+        let row = row("SUBMITTED", existing_proposal());
+        let expected_id = PartnershipApplicationId::from(row.partnership_application_id);
+        let expected_applicant = UserId::from(row.applicant_user_id);
+
+        let summary = admin_summary(row)
+            .unwrap_or_else(|error| panic!("valid application row should map: {error}"));
+
+        assert_eq!(expected_id, summary.id);
+        assert_eq!(expected_applicant, summary.applicant_user_id);
+        assert_eq!(datetime!(2026-01-01 00:00 UTC), summary.created);
+        assert_eq!(datetime!(2026-01-02 00:00 UTC), summary.updated);
+        assert_eq!(None, summary.approved_partnership_id);
+        assert_eq!(None, summary.approved_listing_source_id);
+    }
+
+    #[test]
+    fn should_reject_invalid_persisted_values_for_admin_summary() {
+        assert!(matches!(
+            admin_summary(row("NOT_A_STATE", existing_proposal())),
+            Err(MappingError::State)
+        ));
+        assert!(matches!(
+            admin_summary(row("SUBMITTED", json!({"type": "UNKNOWN"}))),
+            Err(MappingError::Proposal(_))
+        ));
+
+        let mut invalid_version = row("SUBMITTED", existing_proposal());
+        invalid_version.version = 0;
+        assert!(matches!(
+            admin_summary(invalid_version),
+            Err(MappingError::Version)
+        ));
     }
 }

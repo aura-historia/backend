@@ -16,6 +16,7 @@ party-core = { workspace = true }
 party-service = { workspace = true }
 partnership-core = { workspace = true }
 serde = { workspace = true }
+time = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 user-core = { workspace = true }

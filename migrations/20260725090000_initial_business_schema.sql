@@ -151,8 +151,17 @@ CREATE TABLE partnership_applications (
 CREATE INDEX partnership_members_partnership_id_idx ON partnership_members (partnership_id);
 CREATE INDEX partnership_listing_source_grants_listing_source_id_idx
     ON partnership_listing_source_grants (listing_source_id, partnership_id);
-CREATE INDEX partnership_applications_applicant_created_idx ON partnership_applications (applicant_user_id, created DESC);
-CREATE INDEX partnership_applications_business_state_created_idx ON partnership_applications (business_state, created DESC);
+CREATE INDEX partnership_applications_created_id_idx
+    ON partnership_applications (created DESC, partnership_application_id DESC);
+CREATE INDEX partnership_applications_updated_id_idx
+    ON partnership_applications (updated DESC, partnership_application_id DESC);
+CREATE INDEX partnership_applications_applicant_created_idx
+    ON partnership_applications (applicant_user_id, created DESC, partnership_application_id DESC);
+CREATE INDEX partnership_applications_business_state_created_idx
+    ON partnership_applications (business_state, created DESC, partnership_application_id DESC);
+CREATE INDEX partnership_applications_approved_source_created_id_idx
+    ON partnership_applications (approved_listing_source_id, created DESC, partnership_application_id DESC)
+    WHERE approved_listing_source_id IS NOT NULL;
 
 CREATE TABLE fx_rates (
     fx_rate_id uuid PRIMARY KEY,

@@ -6,6 +6,10 @@ use partnership_core::{
 };
 use user_core::user_id::UserId;
 
+use crate::use_cases::queries::list_admin_partnership_applications::{
+    ListAdminPartnershipApplicationsRequest, ListAdminPartnershipApplicationsResult,
+};
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartnershipApplicationView {
     pub id: PartnershipApplicationId,
@@ -39,9 +43,10 @@ pub trait PartnershipApplicationReader: Send {
         &mut self,
         user_id: UserId,
     ) -> Result<Vec<PartnershipApplicationView>, PartnershipApplicationReadError>;
-    async fn list_all(
+    async fn search_admin(
         &mut self,
-    ) -> Result<Vec<PartnershipApplicationView>, PartnershipApplicationReadError>;
+        request: &ListAdminPartnershipApplicationsRequest,
+    ) -> Result<ListAdminPartnershipApplicationsResult, PartnershipApplicationReadError>;
 }
 
 pub trait PartnershipApplicationReaderFactory<Tx>: Send + Sync {

@@ -53,6 +53,7 @@ use oauth_service::use_cases::{
     IntrospectTokenHandler, ListOAuthClientsHandler, RevokeTokenHandler,
     TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
 };
+use partnership_core::partnership_application_id::PartnershipApplicationId;
 use partnership_postgres::{
     SqlxListingSourceAuthorization, SqlxListingSourceGrantRepositoryFactory,
     SqlxPartnershipApplicationReaderFactory, SqlxPartnershipApplicationRepositoryFactory,
@@ -292,6 +293,32 @@ pub async fn seed_party(name: &str, phone: Option<&str>, email: Option<&str>) ->
         panic!("failed to seed party: {error}");
     }
     party_id
+}
+
+pub async fn seed_partnership_application(
+    applicant_user_id: UserId,
+    state: &str,
+    proposal: serde_json::Value,
+    created: OffsetDateTime,
+    updated: OffsetDateTime,
+) -> PartnershipApplicationId {
+    let application_id = PartnershipApplicationId::new();
+    let pool = get_postgres_client().await;
+    if let Err(error) = sqlx::query(
+        "INSERT INTO partnership_applications (partnership_application_id, applicant_user_id, business_state, proposal, created, updated) VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(uuid::Uuid::from(application_id))
+    .bind(uuid::Uuid::from(applicant_user_id))
+    .bind(state)
+    .bind(proposal)
+    .bind(created)
+    .bind(updated)
+    .execute(&pool)
+    .await
+    {
+        panic!("failed to seed partnership application: {error}");
+    }
+    application_id
 }
 
 pub async fn seed_user_with_consent(
