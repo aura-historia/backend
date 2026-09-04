@@ -14,7 +14,7 @@ Iteration 6 is complete. Aura-owned listing-source, partner, and onboarding cont
 
 ## Active API
 
-- ListingSource create: `POST /api/v1/admin/listing-sources`; admin details: `GET /api/v1/admin/listing-sources/{listingSourceId}`; update: `PATCH /api/v1/listing-sources/{listingSourceId}`.
+- ListingSource create: `POST /api/v1/admin/listing-sources`; admin details/update: `GET`/`PATCH /api/v1/admin/listing-sources/{listingSourceId}`.
 - ListingSource lookup: `/api/v1/listing-sources/by-slug/{listingSourceSlugId}`.
 - Caller ListingSources: `/api/v1/me/listing-sources`.
 - Partner ProductListing batches: `/api/v1/listing-sources/{listingSourceId}/product-listings`.

@@ -6838,77 +6838,167 @@ paths:
       security:
         - BearerAuth: []
         - AccessTokenAuth: []
-  /api/v1/listing-sources/{listingSourceId}:
     patch:
-      summary: Update a ListingSource
-      operationId: patchListingSource
+      summary: Update a ListingSource as admin
+      description: |
+        Updates one ListingSource for an authenticated administrator.
+
+        `listingSourceId` must be a UUID. Omitted members remain unchanged; `null` clears only
+        `woocommerceWebhookSecret`, `url`, `image`, and `referralConfiguration`. `name` and
+        `ingestionConfiguration` are non-nullable and cannot be cleared. The ingestion
+        configuration methods must match the ListingSource ingestion methods. An empty object is a
+        valid no-op PATCH; an empty HTTP body is invalid.
+
+        Renaming a ListingSource never changes its immutable slug. The response contains only the
+        stable ListingSource ID and slug. WooCommerce webhook secrets are write-only: they are
+        never returned or logged.
+      operationId: adminUpdateListingSource
       tags:
         - ListingSources
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
       parameters:
         - name: listingSourceId
           in: path
           required: true
+          description: Stable ListingSource identifier.
           schema:
             type: string
             format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
       requestBody:
         required: true
+        description: ListingSource patch. Omit unchanged members; null clears only documented nullable members.
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/UpdateListingSourceData"
+            examples:
+              update:
+                summary: Update name, ingestion configuration, and presentation
+                value:
+                  name: Antiques and More
+                  ingestionConfiguration:
+                    - type: WOOCOMMERCE
+                      currency: EUR
+                      language: en
+                  url: https://antiques.example/
+                  image: https://antiques.example/image.jpg
+                  referralConfiguration:
+                    type: PARTNERIZE
+                    camref: campaign123
+              set_webhook_secret:
+                summary: Set the WooCommerce webhook secret
+                value:
+                  woocommerceWebhookSecret: provider-secret
+              clear_values:
+                summary: Clear nullable ListingSource values
+                value:
+                  woocommerceWebhookSecret: null
+                  url: null
+                  image: null
+                  referralConfiguration: null
+              no_op_patch:
+                summary: Leave the ListingSource unchanged
+                value: {}
       responses:
         "200":
-          description: Success
+          description: ListingSource updated successfully.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ListingSourceReferenceData"
+              example:
+                listingSourceId: 550e8400-e29b-41d4-a716-446655440000
+                listingSourceSlugId: antiques-and-more-550e8400-e29b-41d4-a716-446655440000
         "400":
-          description: Problem response
+          description: Bad request - invalid ListingSource UUID, empty/malformed body, invalid values, or ingestion configuration mismatch.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+              examples:
+                invalid_listing_source_id:
+                  summary: Invalid ListingSource UUID
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: INVALID_UUID
+                    source:
+                      field: listingSourceId
+                      type: PATH
+                    detail: Path parameter 'listingSourceId' must be a UUID.
+                invalid_patch:
+                  summary: Invalid patch value
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_BODY_VALUE
+                    detail: ListingSource ingestion configuration is invalid.
         "401":
-          description: Problem response
+          description: Unauthorized - missing or invalid bearer credentials.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
         "403":
-          description: Problem response
+          description: Forbidden - this endpoint requires the ADMIN role.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: Operation is not permitted.
         "404":
-          description: Problem response
+          description: ListingSource was not found.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+              example:
+                status: 404
+                title: Not Found
+                error: LISTING_SOURCE_NOT_FOUND
+                detail: Listing source was not found.
         "409":
-          description: Problem response
+          description: Conflict - the ListingSource was changed concurrently or conflicts with current provider state.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-        "500":
-          description: Problem response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: Conflict
+                error: CONFLICT
+                detail: Listing source conflicts with current state.
         "503":
-          description: Problem response
+          description: Authentication, authorization, or ListingSource persistence is temporarily unavailable.
           content:
-            application/json:
+            application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-      security:
-        - BearerAuth: []
-        - AccessTokenAuth: []
+              example:
+                status: 503
+                title: Service Unavailable
+                error: LISTING_SOURCE_TEMPORARILY_UNAVAILABLE
+        "500":
+          description: Internal authentication or ListingSource update failure.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: LISTING_SOURCE_INTERNAL_ERROR
   /api/v1/oauth/authorize:
     get:
       summary: OAuth2 authorization endpoint
@@ -12431,6 +12521,8 @@ components:
         woocommerceWebhookSecret:
           type: string
           nullable: true
+          writeOnly: true
+          description: Optional WooCommerce webhook secret. Never returned or logged.
         url:
           type: string
           format: uri
