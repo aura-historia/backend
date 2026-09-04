@@ -1,5 +1,8 @@
 pub mod partnership;
 pub mod partnership_application;
 pub mod partnership_application_id;
+pub mod partnership_application_search;
 pub mod partnership_application_state;
 pub mod partnership_id;
+pub mod partnership_proposal_type;
+pub mod sort_partnership_application_field;

@@ -20,7 +20,7 @@ Iteration 6 is complete. Aura-owned listing-source, partner, and onboarding cont
 - Partner ProductListing batches: `/api/v1/listing-sources/{listingSourceId}/product-listings`.
 - WooCommerce intake: `/api/v1/webhooks/woocommerce/{listingSourceId}`.
 - Applicant PartnershipApplication routes: `/api/v1/me/partnership-applications`.
-- Admin PartnershipApplication routes: `/api/v1/partnership-applications`.
+- Admin PartnershipApplication collection, detail, mark-in-review, and decision: `/api/v1/admin/partnership-applications` and `/api/v1/admin/partnership-applications/{partnershipApplicationId}` (with `/decision` for decisions).
 
 ## Final scan checklist
 

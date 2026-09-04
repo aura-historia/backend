@@ -26,15 +26,15 @@ pub(crate) fn router(state: PartnershipApplicationsState) -> Router {
             get(get_own::get_own).delete(withdraw::withdraw),
         )
         .route(
-            "/api/v1/partnership-applications",
+            "/api/v1/admin/partnership-applications",
             get(list_admin::list_admin),
         )
         .route(
-            "/api/v1/partnership-applications/{partnership_application_id}",
+            "/api/v1/admin/partnership-applications/{partnership_application_id}",
             get(get::get).patch(mark_in_review::mark_in_review),
         )
         .route(
-            "/api/v1/partnership-applications/{partnership_application_id}/decision",
+            "/api/v1/admin/partnership-applications/{partnership_application_id}/decision",
             post(decide::decide),
         )
         .with_state(state)
@@ -48,7 +48,7 @@ mod tests {
     };
     use application::operation_context::OperationContext;
     use axum::{
-        body::Body,
+        body::{Body, to_bytes},
         http::{Request, StatusCode},
     };
     use partnership_service::use_cases::{
@@ -155,7 +155,7 @@ mod tests {
             _: ListAdminPartnershipApplicationsRequest,
         ) -> Result<ListAdminPartnershipApplicationsResult, ListAdminPartnershipApplicationsError>
         {
-            Err(ListAdminPartnershipApplicationsError::Forbidden)
+            Ok(ListAdminPartnershipApplicationsResult::default())
         }
     }
 
@@ -259,5 +259,153 @@ mod tests {
                 .get(axum::http::header::CACHE_CONTROL)
                 .and_then(|value| value.to_str().ok())
         );
+    }
+
+    #[tokio::test]
+    async fn should_serve_the_canonical_admin_collection_without_store() {
+        let request = Request::builder()
+            .uri("/api/v1/admin/partnership-applications")
+            .header("Authorization", "Bearer test")
+            .body(Body::empty())
+            .unwrap_or_else(|error| panic!("failed to build request: {error}"));
+
+        let response = test_router()
+            .oneshot(request)
+            .await
+            .unwrap_or_else(|error| panic!("router failed: {error}"));
+        let status = response.status();
+        let cache_control = response
+            .headers()
+            .get(axum::http::header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap_or_else(|error| panic!("failed to read response body: {error}"));
+        let body: serde_json::Value = serde_json::from_slice(&body)
+            .unwrap_or_else(|error| panic!("failed to decode response body: {error}"));
+
+        assert_eq!(StatusCode::OK, status);
+        assert_eq!(Some(serde_json::json!([])), body.get("items").cloned());
+        assert_eq!(Some(serde_json::json!(21)), body.get("size").cloned());
+        assert_eq!(Some("no-store".to_owned()), cache_control);
+    }
+
+    #[tokio::test]
+    async fn should_route_admin_detail_to_the_canonical_admin_path() {
+        let request = Request::builder()
+            .uri("/api/v1/admin/partnership-applications/550e8400-e29b-41d4-a716-446655440000")
+            .header("Authorization", "Bearer test")
+            .body(Body::empty())
+            .unwrap_or_else(|error| panic!("failed to build request: {error}"));
+
+        let response = test_router()
+            .oneshot(request)
+            .await
+            .unwrap_or_else(|error| panic!("router failed: {error}"));
+
+        assert_eq!(StatusCode::FORBIDDEN, response.status());
+        assert_eq!(
+            Some("no-store"),
+            response
+                .headers()
+                .get(axum::http::header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok())
+        );
+    }
+
+    #[tokio::test]
+    async fn should_route_admin_mark_in_review_to_the_canonical_admin_path() {
+        let request = Request::builder()
+            .method("PATCH")
+            .uri("/api/v1/admin/partnership-applications/550e8400-e29b-41d4-a716-446655440000")
+            .header("Authorization", "Bearer test")
+            .body(Body::empty())
+            .unwrap_or_else(|error| panic!("failed to build request: {error}"));
+
+        let response = test_router()
+            .oneshot(request)
+            .await
+            .unwrap_or_else(|error| panic!("router failed: {error}"));
+
+        assert_eq!(StatusCode::FORBIDDEN, response.status());
+    }
+
+    #[tokio::test]
+    async fn should_route_admin_decision_to_the_canonical_admin_path() {
+        let request = Request::builder()
+            .method("POST")
+            .uri(
+                "/api/v1/admin/partnership-applications/550e8400-e29b-41d4-a716-446655440000/decision",
+            )
+            .header("Authorization", "Bearer test")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"decision":"APPROVE"}"#))
+            .unwrap_or_else(|error| panic!("failed to build request: {error}"));
+
+        let response = test_router()
+            .oneshot(request)
+            .await
+            .unwrap_or_else(|error| panic!("router failed: {error}"));
+
+        assert_eq!(StatusCode::FORBIDDEN, response.status());
+        assert_eq!(
+            Some("no-store"),
+            response
+                .headers()
+                .get(axum::http::header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok())
+        );
+    }
+
+    #[tokio::test]
+    async fn should_remove_the_legacy_admin_decision_route() {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/v1/partnership-applications/550e8400-e29b-41d4-a716-446655440000/decision")
+            .header("Authorization", "Bearer test")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"decision":"APPROVE"}"#))
+            .unwrap_or_else(|error| panic!("failed to build request: {error}"));
+
+        let response = test_router()
+            .oneshot(request)
+            .await
+            .unwrap_or_else(|error| panic!("router failed: {error}"));
+
+        assert_eq!(StatusCode::NOT_FOUND, response.status());
+    }
+
+    #[tokio::test]
+    async fn should_remove_the_legacy_admin_mark_in_review_route() {
+        let request = Request::builder()
+            .method("PATCH")
+            .uri("/api/v1/partnership-applications/550e8400-e29b-41d4-a716-446655440000")
+            .header("Authorization", "Bearer test")
+            .body(Body::empty())
+            .unwrap_or_else(|error| panic!("failed to build request: {error}"));
+
+        let response = test_router()
+            .oneshot(request)
+            .await
+            .unwrap_or_else(|error| panic!("router failed: {error}"));
+
+        assert_eq!(StatusCode::NOT_FOUND, response.status());
+    }
+
+    #[tokio::test]
+    async fn should_remove_the_legacy_admin_collection_route() {
+        let request = Request::builder()
+            .uri("/api/v1/partnership-applications")
+            .header("Authorization", "Bearer test")
+            .body(Body::empty())
+            .unwrap_or_else(|error| panic!("failed to build request: {error}"));
+
+        let response = test_router()
+            .oneshot(request)
+            .await
+            .unwrap_or_else(|error| panic!("router failed: {error}"));
+
+        assert_eq!(StatusCode::NOT_FOUND, response.status());
     }
 }

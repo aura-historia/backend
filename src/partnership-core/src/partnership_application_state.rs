@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::EnumIter)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum_macros::EnumIter)]
 pub enum PartnershipApplicationState {
     Submitted,
     InReview,

@@ -3,7 +3,7 @@ use super::{
         AdminPartnershipApplicationData, DecidePartnershipApplicationData,
         PartnershipApplicationDecisionData,
     },
-    util::{parse_id, parse_json},
+    util::{no_store, parse_id, parse_json},
 };
 use crate::{auth::protected_context, error::ApiError, state::PartnershipApplicationsState};
 use axum::{
@@ -25,18 +25,23 @@ pub(super) async fn decide(
 ) -> Response {
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return *response,
+        Err(response) => return no_store(*response),
     };
     let application_id = match parse_id(&raw_id) {
         Ok(value) => value,
-        Err(error) => return error.into_response(),
+        Err(error) => return no_store(error.into_response()),
     };
     let request: DecidePartnershipApplicationData = match parse_json(&body) {
         Ok(value) => value,
-        Err(error) => return error.into_response(),
+        Err(error) => return no_store(error.into_response()),
     };
+    let decision = match &request.decision {
+        PartnershipApplicationDecisionData::Approve => "APPROVE",
+        PartnershipApplicationDecisionData::Reject => "REJECT",
+    };
+    let actor_id = context.principal.actor_id();
 
-    match request.decision {
+    let (response, error_code) = match request.decision {
         PartnershipApplicationDecisionData::Approve => match state
             .approve
             .execute(
@@ -45,10 +50,15 @@ pub(super) async fn decide(
             )
             .await
         {
-            Ok(result) => {
-                Json(AdminPartnershipApplicationData::from(result.application)).into_response()
+            Ok(result) => (
+                Json(AdminPartnershipApplicationData::from(result.application)).into_response(),
+                None,
+            ),
+            Err(error) => {
+                let error = ApiError::from(error);
+                let error_code = error.code();
+                (error.into_response(), Some(error_code))
             }
-            Err(error) => ApiError::from(error).into_response(),
         },
         PartnershipApplicationDecisionData::Reject => match state
             .reject
@@ -58,10 +68,49 @@ pub(super) async fn decide(
             )
             .await
         {
-            Ok(result) => {
-                Json(AdminPartnershipApplicationData::from(result.application)).into_response()
+            Ok(result) => (
+                Json(AdminPartnershipApplicationData::from(result.application)).into_response(),
+                None,
+            ),
+            Err(error) => {
+                let error = ApiError::from(error);
+                let error_code = error.code();
+                (error.into_response(), Some(error_code))
             }
-            Err(error) => ApiError::from(error).into_response(),
         },
+    };
+
+    let status = response.status();
+    match error_code {
+        None => tracing::info!(
+            event = "partnership_application.decision",
+            action = "decide_partnership_application",
+            actor_type = context.principal.kind(),
+            actor_id = actor_id.as_deref().unwrap_or(""),
+            target_type = "partnership_application",
+            target_id = %application_id,
+            partnership_application_id = %application_id,
+            decision = decision,
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+            status = %status,
+            outcome = "success",
+        ),
+        Some(error_code) => tracing::warn!(
+            event = "partnership_application.decision",
+            action = "decide_partnership_application",
+            actor_type = context.principal.kind(),
+            actor_id = actor_id.as_deref().unwrap_or(""),
+            target_type = "partnership_application",
+            target_id = %application_id,
+            partnership_application_id = %application_id,
+            decision = decision,
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+            status = %status,
+            error_code = %error_code,
+            outcome = "failure",
+        ),
     }
+    no_store(response)
 }

@@ -4,14 +4,17 @@ use listing_source_core::{
 };
 use partnership_core::{
     partnership_application::{
-        PartnershipApplication, PartnershipProposal, ProposedListingSource, ProposedParty,
+        PartnershipApplication, PartnershipApplicationApprovalResult, PartnershipProposal,
+        ProposedListingSource, ProposedParty,
     },
     partnership_application_state::PartnershipApplicationState,
 };
 use partnership_service::ports::PartnershipApplicationView;
+use partnership_service::use_cases::queries::list_admin_partnership_applications::AdminPartnershipApplicationSummary;
 use party_core::{party::PartyContact, party_name::PartyName};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
+use time::OffsetDateTime;
 use url::Url;
 
 use uuid::Uuid;
@@ -117,6 +120,24 @@ pub(super) struct AdminPartnershipApplicationData {
     #[serde(with = "crate::wire::partnership_application_state")]
     state: PartnershipApplicationState,
     proposal: PartnershipProposalData,
+    approved_partnership_id: Option<Uuid>,
+    approved_listing_source_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct AdminPartnershipApplicationSummaryData {
+    id: Uuid,
+    applicant_user_id: Uuid,
+    #[serde(with = "crate::wire::partnership_application_state")]
+    state: PartnershipApplicationState,
+    proposal: PartnershipProposalData,
+    approved_partnership_id: Option<Uuid>,
+    approved_listing_source_id: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339")]
+    created: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    updated: OffsetDateTime,
 }
 
 impl From<PartnershipApplication> for OwnPartnershipApplicationData {
@@ -141,23 +162,58 @@ impl From<PartnershipApplicationView> for OwnPartnershipApplicationData {
 
 impl From<PartnershipApplication> for AdminPartnershipApplicationData {
     fn from(value: PartnershipApplication) -> Self {
+        let (approved_partnership_id, approved_listing_source_id) =
+            approval_references(value.approval_result());
         Self {
             id: value.id().into(),
             applicant_user_id: value.applicant_user_id().into(),
             state: value.state(),
             proposal: proposal_data(value.proposal()),
+            approved_partnership_id,
+            approved_listing_source_id,
         }
     }
 }
 
 impl From<PartnershipApplicationView> for AdminPartnershipApplicationData {
     fn from(value: PartnershipApplicationView) -> Self {
+        let (approved_partnership_id, approved_listing_source_id) =
+            approval_references(value.approval_result);
         Self {
             id: value.id.into(),
             applicant_user_id: value.applicant_user_id.into(),
             state: value.state,
             proposal: proposal_data(&value.proposal),
+            approved_partnership_id,
+            approved_listing_source_id,
         }
+    }
+}
+
+impl From<AdminPartnershipApplicationSummary> for AdminPartnershipApplicationSummaryData {
+    fn from(value: AdminPartnershipApplicationSummary) -> Self {
+        Self {
+            id: value.id.into(),
+            applicant_user_id: value.applicant_user_id.into(),
+            state: value.state,
+            proposal: proposal_data(&value.proposal),
+            approved_partnership_id: value.approved_partnership_id.map(Into::into),
+            approved_listing_source_id: value.approved_listing_source_id.map(Into::into),
+            created: value.created,
+            updated: value.updated,
+        }
+    }
+}
+
+fn approval_references(
+    value: Option<PartnershipApplicationApprovalResult>,
+) -> (Option<Uuid>, Option<Uuid>) {
+    match value {
+        Some(result) => (
+            Some(result.partnership_id().into()),
+            Some(result.listing_source_id().into()),
+        ),
+        None => (None, None),
     }
 }
 
@@ -252,6 +308,38 @@ mod tests {
 
         assert_eq!(serde_json::to_value(proposal)?, expected);
         Ok(())
+    }
+
+    #[test]
+    fn should_accept_only_explicit_approve_or_reject_decisions() {
+        let approve = serde_json::from_value::<DecidePartnershipApplicationData>(json!({
+            "decision": "APPROVE"
+        }));
+        let reject = serde_json::from_value::<DecidePartnershipApplicationData>(json!({
+            "decision": "REJECT"
+        }));
+
+        assert!(matches!(
+            approve,
+            Ok(DecidePartnershipApplicationData {
+                decision: PartnershipApplicationDecisionData::Approve
+            })
+        ));
+        assert!(matches!(
+            reject,
+            Ok(DecidePartnershipApplicationData {
+                decision: PartnershipApplicationDecisionData::Reject
+            })
+        ));
+
+        for value in ["SUBMITTED", "IN_REVIEW", "APPROVED", "REJECTED"] {
+            assert!(
+                serde_json::from_value::<DecidePartnershipApplicationData>(json!({
+                    "decision": value
+                }))
+                .is_err()
+            );
+        }
     }
 
     #[test]

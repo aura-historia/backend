@@ -5042,12 +5042,14 @@ dependencies = [
 name = "partnership-core"
 version = "0.1.0"
 dependencies = [
+ "domain-primitives",
  "fake",
  "listing-source-core",
  "party-core",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "thiserror 2.0.20",
+ "time",
  "user-core",
  "uuid",
 ]
