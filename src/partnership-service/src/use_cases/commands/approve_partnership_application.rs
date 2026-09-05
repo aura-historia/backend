@@ -867,6 +867,21 @@ mod tests {
                 .insert((user_id, partnership_id));
             Ok(PartnershipMembershipAddOutcome::Added)
         }
+
+        async fn remove_member(
+            &mut self,
+            user_id: user_core::user_id::UserId,
+            partnership_id: PartnershipId,
+        ) -> Result<PartnershipMembershipRemoveOutcome, PartnershipGrantError> {
+            let removed = lock(&self.state)
+                .memberships
+                .remove(&(user_id, partnership_id));
+            Ok(if removed {
+                PartnershipMembershipRemoveOutcome::Removed
+            } else {
+                PartnershipMembershipRemoveOutcome::AlreadyAbsent
+            })
+        }
     }
 
     #[async_trait::async_trait]

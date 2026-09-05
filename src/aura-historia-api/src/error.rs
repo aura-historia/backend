@@ -24,6 +24,7 @@ use partnership_service::use_cases::{
         grant_partnership_membership::GrantPartnershipMembershipError,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewError,
         reject_partnership_application::RejectPartnershipApplicationError,
+        revoke_partnership_membership::RevokePartnershipMembershipError,
         submit_partnership_application::SubmitPartnershipApplicationError,
         withdraw_partnership_application::WithdrawPartnershipApplicationError,
     },
@@ -2064,6 +2065,33 @@ impl From<GrantPartnershipMembershipError> for ApiError {
             }
             GrantPartnershipMembershipError::InvalidPersistedState { .. }
             | GrantPartnershipMembershipError::Internal { .. } => {
+                ApiError::internal_server_error(PARTNERSHIP_INTERNAL_ERROR)
+                    .with_detail("Partnership membership failed internally.")
+            }
+        }
+    }
+}
+
+impl From<RevokePartnershipMembershipError> for ApiError {
+    fn from(error: RevokePartnershipMembershipError) -> Self {
+        match error {
+            RevokePartnershipMembershipError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            RevokePartnershipMembershipError::PartnershipNotFound => {
+                ApiError::not_found(PARTNERSHIP_NOT_FOUND).with_detail("Partnership was not found.")
+            }
+            RevokePartnershipMembershipError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            RevokePartnershipMembershipError::TemporarilyUnavailable { .. }
+            | RevokePartnershipMembershipError::BeginTransactionFailed
+            | RevokePartnershipMembershipError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTNERSHIP_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Partnership membership is temporarily unavailable.")
+            }
+            RevokePartnershipMembershipError::InvalidPersistedState { .. }
+            | RevokePartnershipMembershipError::Internal { .. } => {
                 ApiError::internal_server_error(PARTNERSHIP_INTERNAL_ERROR)
                     .with_detail("Partnership membership failed internally.")
             }

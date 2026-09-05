@@ -138,4 +138,25 @@ impl PartnershipMembershipRepository for Repository<'_> {
             PartnershipMembershipAddOutcome::AlreadyMember
         })
     }
+
+    async fn remove_member(
+        &mut self,
+        user_id: user_core::user_id::UserId,
+        partnership_id: PartnershipId,
+    ) -> Result<PartnershipMembershipRemoveOutcome, PartnershipGrantError> {
+        let result =
+            sqlx::query("DELETE FROM partnership_members WHERE user_id=$1 AND partnership_id=$2")
+                .bind(uuid::Uuid::from(user_id))
+                .bind(uuid::Uuid::from(partnership_id))
+                .execute(&mut *self.connection)
+                .await
+                .map_err(|source| PartnershipGrantError::Internal {
+                    source: box_error(source),
+                })?;
+        Ok(if result.rows_affected() > 0 {
+            PartnershipMembershipRemoveOutcome::Removed
+        } else {
+            PartnershipMembershipRemoveOutcome::AlreadyAbsent
+        })
+    }
 }

@@ -131,9 +131,15 @@ mod tests {
     };
     use listing_source_core::ListingSourceId;
     use partnership_service::use_cases::{
-        commands::grant_partnership_membership::{
-            GrantPartnershipMembershipCommand, GrantPartnershipMembershipError,
-            GrantPartnershipMembershipResult, GrantPartnershipMembershipUseCase,
+        commands::{
+            grant_partnership_membership::{
+                GrantPartnershipMembershipCommand, GrantPartnershipMembershipError,
+                GrantPartnershipMembershipResult, GrantPartnershipMembershipUseCase,
+            },
+            revoke_partnership_membership::{
+                RevokePartnershipMembershipCommand, RevokePartnershipMembershipError,
+                RevokePartnershipMembershipResult, RevokePartnershipMembershipUseCase,
+            },
         },
         queries::{
             get_admin_partnership::{
@@ -212,6 +218,22 @@ mod tests {
     }
 
     #[derive(Clone, Copy)]
+    struct UnusedRevokePartnershipMembershipUseCase;
+
+    #[async_trait::async_trait]
+    impl RevokePartnershipMembershipUseCase for UnusedRevokePartnershipMembershipUseCase {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _command: RevokePartnershipMembershipCommand,
+        ) -> Result<RevokePartnershipMembershipResult, RevokePartnershipMembershipError> {
+            Err(RevokePartnershipMembershipError::Internal {
+                source: static_error("membership revoke is not used by this test"),
+            })
+        }
+    }
+
+    #[derive(Clone, Copy)]
     struct FakeAuthenticator {
         user_id: UserId,
         reject: bool,
@@ -283,6 +305,7 @@ mod tests {
             Arc::new(UnusedListAdminPartnershipsUseCase),
             Arc::new(get_admin_use_case),
             Arc::new(UnusedGrantPartnershipMembershipUseCase),
+            Arc::new(UnusedRevokePartnershipMembershipUseCase),
             Arc::new(FakeAuthenticator {
                 user_id: UserId::from(Uuid::from_u128(0x880e8400e29b41d4a716446655440000)),
                 reject: reject_auth,

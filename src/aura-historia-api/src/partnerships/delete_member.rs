@@ -9,11 +9,11 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use partnership_core::partnership_id::PartnershipId;
-use partnership_service::use_cases::commands::grant_partnership_membership::GrantPartnershipMembershipCommand;
+use partnership_service::use_cases::commands::revoke_partnership_membership::RevokePartnershipMembershipCommand;
 use user_core::user_id::UserId;
 use uuid::Uuid;
 
-pub(super) async fn put_member(
+pub(super) async fn delete_member(
     State(state): State<PartnershipsState>,
     headers: HeaderMap,
     Path((raw_partnership_id, raw_user_id)): Path<(String, String)>,
@@ -32,10 +32,10 @@ pub(super) async fn put_member(
     };
 
     match state
-        .grant_member
+        .revoke_member
         .execute(
             &context,
-            GrantPartnershipMembershipCommand {
+            RevokePartnershipMembershipCommand {
                 partnership_id,
                 user_id,
             },
@@ -85,18 +85,18 @@ mod tests {
         Router,
         body::{Body, to_bytes},
         http::{Request, StatusCode},
-        routing::put,
+        routing::delete,
     };
     use partnership_service::use_cases::{
         commands::{
             grant_partnership_membership::{
                 GrantPartnershipMembershipCommand, GrantPartnershipMembershipError,
-                GrantPartnershipMembershipOutcome, GrantPartnershipMembershipResult,
-                GrantPartnershipMembershipUseCase,
+                GrantPartnershipMembershipResult, GrantPartnershipMembershipUseCase,
             },
             revoke_partnership_membership::{
                 RevokePartnershipMembershipCommand, RevokePartnershipMembershipError,
-                RevokePartnershipMembershipResult, RevokePartnershipMembershipUseCase,
+                RevokePartnershipMembershipOutcome, RevokePartnershipMembershipResult,
+                RevokePartnershipMembershipUseCase,
             },
         },
         queries::{
@@ -115,26 +115,26 @@ mod tests {
     use tower::ServiceExt;
 
     type Outcome = Arc<
-        Mutex<Option<Result<GrantPartnershipMembershipResult, GrantPartnershipMembershipError>>>,
+        Mutex<Option<Result<RevokePartnershipMembershipResult, RevokePartnershipMembershipError>>>,
     >;
-    type Requests = Arc<Mutex<Vec<(OperationContext, GrantPartnershipMembershipCommand)>>>;
+    type Requests = Arc<Mutex<Vec<(OperationContext, RevokePartnershipMembershipCommand)>>>;
 
     #[derive(Clone)]
-    struct FakeGrantPartnershipMembershipUseCase {
+    struct FakeRevokePartnershipMembershipUseCase {
         outcome: Outcome,
         requests: Requests,
     }
 
     #[async_trait::async_trait]
-    impl GrantPartnershipMembershipUseCase for FakeGrantPartnershipMembershipUseCase {
+    impl RevokePartnershipMembershipUseCase for FakeRevokePartnershipMembershipUseCase {
         async fn execute(
             &self,
             context: &OperationContext,
-            command: GrantPartnershipMembershipCommand,
-        ) -> Result<GrantPartnershipMembershipResult, GrantPartnershipMembershipError> {
+            command: RevokePartnershipMembershipCommand,
+        ) -> Result<RevokePartnershipMembershipResult, RevokePartnershipMembershipError> {
             lock(&self.requests).push((context.clone(), command));
             lock(&self.outcome).take().unwrap_or_else(|| {
-                Err(GrantPartnershipMembershipError::Internal {
+                Err(RevokePartnershipMembershipError::Internal {
                     source: static_error("test outcome was not configured"),
                 })
             })
@@ -163,22 +163,6 @@ mod tests {
     }
 
     #[derive(Clone, Copy)]
-    struct UnusedRevokePartnershipMembershipUseCase;
-
-    #[async_trait::async_trait]
-    impl RevokePartnershipMembershipUseCase for UnusedRevokePartnershipMembershipUseCase {
-        async fn execute(
-            &self,
-            _context: &OperationContext,
-            _command: RevokePartnershipMembershipCommand,
-        ) -> Result<RevokePartnershipMembershipResult, RevokePartnershipMembershipError> {
-            Err(RevokePartnershipMembershipError::Internal {
-                source: static_error("membership revoke is not used by this test"),
-            })
-        }
-    }
-
-    #[derive(Clone, Copy)]
     struct UnusedGetAdminPartnershipUseCase;
 
     #[async_trait::async_trait]
@@ -190,6 +174,22 @@ mod tests {
         ) -> Result<AdminPartnershipDetailsView, GetAdminPartnershipError> {
             Err(GetAdminPartnershipError::Internal {
                 source: static_error("admin detail is not used by this test"),
+            })
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct UnusedGrantPartnershipMembershipUseCase;
+
+    #[async_trait::async_trait]
+    impl GrantPartnershipMembershipUseCase for UnusedGrantPartnershipMembershipUseCase {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _command: GrantPartnershipMembershipCommand,
+        ) -> Result<GrantPartnershipMembershipResult, GrantPartnershipMembershipError> {
+            Err(GrantPartnershipMembershipError::Internal {
+                source: static_error("membership grant is not used by this test"),
             })
         }
     }
@@ -227,18 +227,18 @@ mod tests {
     }
 
     fn test_router(
-        outcome: Result<GrantPartnershipMembershipResult, GrantPartnershipMembershipError>,
+        outcome: Result<RevokePartnershipMembershipResult, RevokePartnershipMembershipError>,
         requests: Requests,
         reject_auth: bool,
     ) -> Router {
         let state = PartnershipsState::new(
             Arc::new(UnusedListAdminPartnershipsUseCase),
             Arc::new(UnusedGetAdminPartnershipUseCase),
-            Arc::new(FakeGrantPartnershipMembershipUseCase {
+            Arc::new(UnusedGrantPartnershipMembershipUseCase),
+            Arc::new(FakeRevokePartnershipMembershipUseCase {
                 outcome: Arc::new(Mutex::new(Some(outcome))),
                 requests,
             }),
-            Arc::new(UnusedRevokePartnershipMembershipUseCase),
             Arc::new(FakeAuthenticator {
                 user_id: UserId::from(Uuid::from_u128(0x880e8400e29b41d4a716446655440000)),
                 reject: reject_auth,
@@ -247,14 +247,14 @@ mod tests {
         Router::new()
             .route(
                 "/api/v1/admin/partnerships/{partnership_id}/members/{user_id}",
-                put(super::put_member),
+                delete(super::delete_member),
             )
             .with_state(state)
     }
 
     fn request(uri: &str, authorization: Option<&str>) -> Request<Body> {
         let mut builder = Request::builder()
-            .method("PUT")
+            .method("DELETE")
             .uri(uri)
             .header("X-Request-Id", "request-123")
             .header("X-Correlation-Id", "correlation-456");
@@ -266,16 +266,16 @@ mod tests {
             .unwrap_or_else(|error| panic!("failed to create request: {error}"))
     }
 
-    fn success(outcome: GrantPartnershipMembershipOutcome) -> GrantPartnershipMembershipResult {
-        GrantPartnershipMembershipResult { outcome }
+    fn success(outcome: RevokePartnershipMembershipOutcome) -> RevokePartnershipMembershipResult {
+        RevokePartnershipMembershipResult { outcome }
     }
 
     #[tokio::test]
-    async fn should_return_204_for_added_and_existing_membership()
+    async fn should_return_204_for_removed_and_absent_membership()
     -> Result<(), Box<dyn std::error::Error>> {
         for membership_outcome in [
-            GrantPartnershipMembershipOutcome::Added,
-            GrantPartnershipMembershipOutcome::AlreadyMember,
+            RevokePartnershipMembershipOutcome::Removed,
+            RevokePartnershipMembershipOutcome::AlreadyAbsent,
         ] {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let response = test_router(Ok(success(membership_outcome)), Arc::clone(&requests), false)
@@ -325,7 +325,7 @@ mod tests {
         ] {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let response = test_router(
-                Ok(success(GrantPartnershipMembershipOutcome::Added)),
+                Ok(success(RevokePartnershipMembershipOutcome::Removed)),
                 Arc::clone(&requests),
                 false,
             )
@@ -356,7 +356,7 @@ mod tests {
         for (authorization, reject_auth) in [(None, false), (Some("Bearer invalid"), true)] {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let response = test_router(
-                Ok(success(GrantPartnershipMembershipOutcome::Added)),
+                Ok(success(RevokePartnershipMembershipOutcome::Removed)),
                 Arc::clone(&requests),
                 reject_auth,
             )
@@ -387,48 +387,48 @@ mod tests {
     async fn should_map_service_errors_to_api_problems() -> Result<(), Box<dyn std::error::Error>> {
         let cases = [
             (
-                GrantPartnershipMembershipError::Forbidden,
+                RevokePartnershipMembershipError::Forbidden,
                 StatusCode::FORBIDDEN,
                 "FORBIDDEN",
             ),
             (
-                GrantPartnershipMembershipError::PartnershipNotFound,
+                RevokePartnershipMembershipError::PartnershipNotFound,
                 StatusCode::NOT_FOUND,
                 "PARTNERSHIP_NOT_FOUND",
             ),
             (
-                GrantPartnershipMembershipError::UserNotFound,
+                RevokePartnershipMembershipError::UserNotFound,
                 StatusCode::NOT_FOUND,
                 "USER_NOT_FOUND",
             ),
             (
-                GrantPartnershipMembershipError::TemporarilyUnavailable {
+                RevokePartnershipMembershipError::TemporarilyUnavailable {
                     source: static_error("temporary"),
                 },
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PARTNERSHIP_TEMPORARILY_UNAVAILABLE",
             ),
             (
-                GrantPartnershipMembershipError::InvalidPersistedState {
+                RevokePartnershipMembershipError::InvalidPersistedState {
                     source: static_error("invalid"),
                 },
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "PARTNERSHIP_INTERNAL_ERROR",
             ),
             (
-                GrantPartnershipMembershipError::Internal {
+                RevokePartnershipMembershipError::Internal {
                     source: static_error("internal"),
                 },
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "PARTNERSHIP_INTERNAL_ERROR",
             ),
             (
-                GrantPartnershipMembershipError::BeginTransactionFailed,
+                RevokePartnershipMembershipError::BeginTransactionFailed,
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PARTNERSHIP_TEMPORARILY_UNAVAILABLE",
             ),
             (
-                GrantPartnershipMembershipError::CommitTransactionFailed,
+                RevokePartnershipMembershipError::CommitTransactionFailed,
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PARTNERSHIP_TEMPORARILY_UNAVAILABLE",
             ),

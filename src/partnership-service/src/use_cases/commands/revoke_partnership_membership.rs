@@ -14,37 +14,37 @@ use user_service::ports::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GrantPartnershipMembershipCommand {
+pub struct RevokePartnershipMembershipCommand {
     pub partnership_id: PartnershipId,
     pub user_id: UserId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GrantPartnershipMembershipOutcome {
-    Added,
-    AlreadyMember,
+pub enum RevokePartnershipMembershipOutcome {
+    Removed,
+    AlreadyAbsent,
 }
 
-impl GrantPartnershipMembershipOutcome {
+impl RevokePartnershipMembershipOutcome {
     pub fn changed(self) -> bool {
-        matches!(self, Self::Added)
+        matches!(self, Self::Removed)
     }
 
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Added => "added",
-            Self::AlreadyMember => "already_member",
+            Self::Removed => "removed",
+            Self::AlreadyAbsent => "already_absent",
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GrantPartnershipMembershipResult {
-    pub outcome: GrantPartnershipMembershipOutcome,
+pub struct RevokePartnershipMembershipResult {
+    pub outcome: RevokePartnershipMembershipOutcome,
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum GrantPartnershipMembershipError {
+pub enum RevokePartnershipMembershipError {
     #[error("operation not permitted")]
     Forbidden,
     #[error("partnership not found")]
@@ -73,15 +73,15 @@ pub enum GrantPartnershipMembershipError {
 }
 
 #[async_trait::async_trait]
-pub trait GrantPartnershipMembershipUseCase: Send + Sync {
+pub trait RevokePartnershipMembershipUseCase: Send + Sync {
     async fn execute(
         &self,
         context: &OperationContext,
-        command: GrantPartnershipMembershipCommand,
-    ) -> Result<GrantPartnershipMembershipResult, GrantPartnershipMembershipError>;
+        command: RevokePartnershipMembershipCommand,
+    ) -> Result<RevokePartnershipMembershipResult, RevokePartnershipMembershipError>;
 }
 
-pub struct GrantPartnershipMembershipHandler<U, P, R, M, A> {
+pub struct RevokePartnershipMembershipHandler<U, P, R, M, A> {
     unit_of_work: U,
     partnerships: P,
     users: R,
@@ -89,7 +89,7 @@ pub struct GrantPartnershipMembershipHandler<U, P, R, M, A> {
     admins: A,
 }
 
-impl<U, P, R, M, A> GrantPartnershipMembershipHandler<U, P, R, M, A> {
+impl<U, P, R, M, A> RevokePartnershipMembershipHandler<U, P, R, M, A> {
     pub fn new(unit_of_work: U, partnerships: P, users: R, memberships: M, admins: A) -> Self {
         Self {
             unit_of_work,
@@ -102,8 +102,8 @@ impl<U, P, R, M, A> GrantPartnershipMembershipHandler<U, P, R, M, A> {
 }
 
 #[async_trait::async_trait]
-impl<U, P, R, M, A> GrantPartnershipMembershipUseCase
-    for GrantPartnershipMembershipHandler<U, P, R, M, A>
+impl<U, P, R, M, A> RevokePartnershipMembershipUseCase
+    for RevokePartnershipMembershipHandler<U, P, R, M, A>
 where
     U: UnitOfWork,
     P: PartnershipRepositoryFactory<U::Tx>,
@@ -112,7 +112,7 @@ where
     A: UserAdminReaderFactory<U::Tx>,
 {
     #[tracing::instrument(
-        name = "grant_partnership_membership",
+        name = "revoke_partnership_membership",
         skip_all,
         fields(
             partnership_id = %command.partnership_id,
@@ -129,8 +129,8 @@ where
     async fn execute(
         &self,
         context: &OperationContext,
-        command: GrantPartnershipMembershipCommand,
-    ) -> Result<GrantPartnershipMembershipResult, GrantPartnershipMembershipError> {
+        command: RevokePartnershipMembershipCommand,
+    ) -> Result<RevokePartnershipMembershipResult, RevokePartnershipMembershipError> {
         if let Some(actor_id) = context.principal.actor_id() {
             tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
         }
@@ -140,7 +140,7 @@ where
                 .unit_of_work
                 .begin()
                 .await
-                .map_err(|_| GrantPartnershipMembershipError::BeginTransactionFailed)?;
+                .map_err(|_| RevokePartnershipMembershipError::BeginTransactionFailed)?;
 
             authorize_admin(context, &mut tx, &self.admins).await?;
 
@@ -148,31 +148,31 @@ where
                 .in_transaction(&mut tx)
                 .find_by_id(command.partnership_id)
                 .await?
-                .ok_or(GrantPartnershipMembershipError::PartnershipNotFound)?;
+                .ok_or(RevokePartnershipMembershipError::PartnershipNotFound)?;
 
             self.users
                 .in_transaction(&mut tx)
                 .find_by_id(command.user_id)
                 .await?
-                .ok_or(GrantPartnershipMembershipError::UserNotFound)?;
+                .ok_or(RevokePartnershipMembershipError::UserNotFound)?;
 
             let outcome = self
                 .memberships
                 .in_transaction(&mut tx)
-                .add_member(command.user_id, command.partnership_id)
+                .remove_member(command.user_id, command.partnership_id)
                 .await?;
 
             tx.commit()
                 .await
-                .map_err(|_| GrantPartnershipMembershipError::CommitTransactionFailed)?;
+                .map_err(|_| RevokePartnershipMembershipError::CommitTransactionFailed)?;
 
-            Ok(GrantPartnershipMembershipResult {
+            Ok(RevokePartnershipMembershipResult {
                 outcome: match outcome {
-                    PartnershipMembershipAddOutcome::Added => {
-                        GrantPartnershipMembershipOutcome::Added
+                    PartnershipMembershipRemoveOutcome::Removed => {
+                        RevokePartnershipMembershipOutcome::Removed
                     }
-                    PartnershipMembershipAddOutcome::AlreadyMember => {
-                        GrantPartnershipMembershipOutcome::AlreadyMember
+                    PartnershipMembershipRemoveOutcome::AlreadyAbsent => {
+                        RevokePartnershipMembershipOutcome::AlreadyAbsent
                     }
                 },
             })
@@ -188,8 +188,8 @@ where
                 tracing::Span::current().record("membership_outcome", membership_outcome);
                 tracing::Span::current().record("outcome", "success");
                 tracing::info!(
-                    event = "partnership.membership.granted",
-                    action = "grant_partnership_membership",
+                    event = "partnership.membership.revoked",
+                    action = "revoke_partnership_membership",
                     actor_type = context.principal.kind(),
                     actor_id = actor_id.as_deref().unwrap_or(""),
                     target_type = "partnership_membership",
@@ -207,8 +207,8 @@ where
                 tracing::Span::current().record("membership_outcome", "unknown");
                 tracing::Span::current().record("outcome", "failure");
                 tracing::warn!(
-                    event = "partnership.membership.granted",
-                    action = "grant_partnership_membership",
+                    event = "partnership.membership.revoked",
+                    action = "revoke_partnership_membership",
                     actor_type = context.principal.kind(),
                     actor_id = actor_id.as_deref().unwrap_or(""),
                     target_type = "partnership_membership",
@@ -228,7 +228,7 @@ where
     }
 }
 
-impl From<AdminAuthorizationError> for GrantPartnershipMembershipError {
+impl From<AdminAuthorizationError> for RevokePartnershipMembershipError {
     fn from(value: AdminAuthorizationError) -> Self {
         match value {
             AdminAuthorizationError::Forbidden => Self::Forbidden,
@@ -243,7 +243,7 @@ impl From<AdminAuthorizationError> for GrantPartnershipMembershipError {
     }
 }
 
-impl From<PartnershipRepositoryError> for GrantPartnershipMembershipError {
+impl From<PartnershipRepositoryError> for RevokePartnershipMembershipError {
     fn from(value: PartnershipRepositoryError) -> Self {
         match value {
             PartnershipRepositoryError::TemporarilyUnavailable { source } => {
@@ -257,7 +257,7 @@ impl From<PartnershipRepositoryError> for GrantPartnershipMembershipError {
     }
 }
 
-impl From<UserAccountReadError> for GrantPartnershipMembershipError {
+impl From<UserAccountReadError> for RevokePartnershipMembershipError {
     fn from(value: UserAccountReadError) -> Self {
         match value {
             UserAccountReadError::TemporarilyUnavailable { source } => {
@@ -271,7 +271,7 @@ impl From<UserAccountReadError> for GrantPartnershipMembershipError {
     }
 }
 
-impl From<PartnershipGrantError> for GrantPartnershipMembershipError {
+impl From<PartnershipGrantError> for RevokePartnershipMembershipError {
     fn from(value: PartnershipGrantError) -> Self {
         match value {
             PartnershipGrantError::TemporarilyUnavailable { source } => {
@@ -311,7 +311,7 @@ mod tests {
         user_error: Option<UserAccountReadError>,
         admin_error: Option<UserAdminReadError>,
         membership_error: Option<PartnershipGrantError>,
-        membership_outcome: Option<PartnershipMembershipAddOutcome>,
+        membership_outcome: Option<PartnershipMembershipRemoveOutcome>,
         begin_fails: bool,
         commit_fails: bool,
         begins: usize,
@@ -431,21 +431,16 @@ mod tests {
             &mut self,
             partnership_id: PartnershipId,
         ) -> Result<Option<VersionedPartnership>, PartnershipRepositoryError> {
-            let result = {
-                let mut state = lock(&self.state);
-                if let Some(error) = state.partnership_error.take() {
-                    return Err(error);
-                }
-                state
-                    .partnership
-                    .clone()
-                    .filter(|partnership| partnership.id() == partnership_id)
-                    .map(|partnership| {
-                        Versioned::new(partnership, PartnershipStorageVersion::INITIAL)
-                    })
-            };
-            lock(&self.state).partnership_reads += 1;
-            Ok(result)
+            let mut state = lock(&self.state);
+            state.partnership_reads += 1;
+            if let Some(error) = state.partnership_error.take() {
+                return Err(error);
+            }
+            Ok(state
+                .partnership
+                .clone()
+                .filter(|partnership| partnership.id() == partnership_id)
+                .map(|partnership| Versioned::new(partnership, PartnershipStorageVersion::INITIAL)))
         }
 
         async fn find_or_create_for_party(
@@ -481,14 +476,9 @@ mod tests {
             _user_id: UserId,
             _partnership_id: PartnershipId,
         ) -> Result<PartnershipMembershipAddOutcome, PartnershipGrantError> {
-            let mut state = lock(&self.state);
-            state.membership_calls += 1;
-            if let Some(error) = state.membership_error.take() {
-                return Err(error);
-            }
-            Ok(state
-                .membership_outcome
-                .unwrap_or(PartnershipMembershipAddOutcome::Added))
+            Err(PartnershipGrantError::Internal {
+                source: static_error("unexpected membership grant"),
+            })
         }
 
         async fn remove_member(
@@ -496,9 +486,14 @@ mod tests {
             _user_id: UserId,
             _partnership_id: PartnershipId,
         ) -> Result<PartnershipMembershipRemoveOutcome, PartnershipGrantError> {
-            Err(PartnershipGrantError::Internal {
-                source: static_error("unexpected membership removal"),
-            })
+            let mut state = lock(&self.state);
+            state.membership_calls += 1;
+            if let Some(error) = state.membership_error.take() {
+                return Err(error);
+            }
+            Ok(state
+                .membership_outcome
+                .unwrap_or(PartnershipMembershipRemoveOutcome::Removed))
         }
     }
 
@@ -564,7 +559,7 @@ mod tests {
                     user_id: UserId::new(),
                     role: UserRole::Admin,
                 }),
-                membership_outcome: Some(PartnershipMembershipAddOutcome::Added),
+                membership_outcome: Some(PartnershipMembershipRemoveOutcome::Removed),
                 ..State::default()
             },
             partnership_id,
@@ -572,7 +567,7 @@ mod tests {
         )
     }
 
-    type Handler = GrantPartnershipMembershipHandler<
+    type Handler = RevokePartnershipMembershipHandler<
         FakeUnitOfWork,
         FakeFactories,
         FakeFactories,
@@ -584,7 +579,7 @@ mod tests {
         let factories = FakeFactories {
             state: Arc::clone(&state),
         };
-        GrantPartnershipMembershipHandler::new(
+        RevokePartnershipMembershipHandler::new(
             FakeUnitOfWork { state },
             factories.clone(),
             factories.clone(),
@@ -594,13 +589,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_add_membership_and_commit_one_transaction() {
+    async fn should_remove_membership_and_commit_one_transaction() {
         let (state, partnership_id, user_id) = valid_state();
         let state = Arc::new(Mutex::new(state));
         let result = handler(Arc::clone(&state))
             .execute(
                 &context(),
-                GrantPartnershipMembershipCommand {
+                RevokePartnershipMembershipCommand {
                     partnership_id,
                     user_id,
                 },
@@ -609,8 +604,8 @@ mod tests {
 
         assert!(matches!(
             result,
-            Ok(GrantPartnershipMembershipResult {
-                outcome: GrantPartnershipMembershipOutcome::Added
+            Ok(RevokePartnershipMembershipResult {
+                outcome: RevokePartnershipMembershipOutcome::Removed
             })
         ));
         let state = lock(&state);
@@ -624,15 +619,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_commit_existing_membership_as_successful_no_op() {
+    async fn should_commit_missing_membership_as_successful_no_op() {
         let (mut state, partnership_id, user_id) = valid_state();
-        state.membership_outcome = Some(PartnershipMembershipAddOutcome::AlreadyMember);
+        state.membership_outcome = Some(PartnershipMembershipRemoveOutcome::AlreadyAbsent);
         let state = Arc::new(Mutex::new(state));
 
         let result = handler(Arc::clone(&state))
             .execute(
                 &context(),
-                GrantPartnershipMembershipCommand {
+                RevokePartnershipMembershipCommand {
                     partnership_id,
                     user_id,
                 },
@@ -641,8 +636,8 @@ mod tests {
 
         assert!(matches!(
             result,
-            Ok(GrantPartnershipMembershipResult {
-                outcome: GrantPartnershipMembershipOutcome::AlreadyMember
+            Ok(RevokePartnershipMembershipResult {
+                outcome: RevokePartnershipMembershipOutcome::AlreadyAbsent
             })
         ));
         assert_eq!(1, lock(&state).commits);
@@ -657,7 +652,7 @@ mod tests {
         let result = handler(Arc::clone(&state))
             .execute(
                 &context(),
-                GrantPartnershipMembershipCommand {
+                RevokePartnershipMembershipCommand {
                     partnership_id,
                     user_id,
                 },
@@ -666,7 +661,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(GrantPartnershipMembershipError::PartnershipNotFound)
+            Err(RevokePartnershipMembershipError::PartnershipNotFound)
         ));
         let state = lock(&state);
         assert_eq!(0, state.user_reads);
@@ -683,7 +678,7 @@ mod tests {
         let result = handler(Arc::clone(&state))
             .execute(
                 &context(),
-                GrantPartnershipMembershipCommand {
+                RevokePartnershipMembershipCommand {
                     partnership_id,
                     user_id,
                 },
@@ -692,7 +687,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(GrantPartnershipMembershipError::UserNotFound)
+            Err(RevokePartnershipMembershipError::UserNotFound)
         ));
         let state = lock(&state);
         assert_eq!(0, state.membership_calls);
@@ -711,7 +706,7 @@ mod tests {
         let result = handler(Arc::clone(&state))
             .execute(
                 &context(),
-                GrantPartnershipMembershipCommand {
+                RevokePartnershipMembershipCommand {
                     partnership_id,
                     user_id,
                 },
@@ -720,7 +715,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(GrantPartnershipMembershipError::Forbidden)
+            Err(RevokePartnershipMembershipError::Forbidden)
         ));
         let state = lock(&state);
         assert_eq!(0, state.partnership_reads);
@@ -733,14 +728,14 @@ mod tests {
     async fn should_leave_transaction_uncommitted_when_membership_persistence_fails() {
         let (mut state, partnership_id, user_id) = valid_state();
         state.membership_error = Some(PartnershipGrantError::Internal {
-            source: static_error("membership insert failed"),
+            source: static_error("membership delete failed"),
         });
         let state = Arc::new(Mutex::new(state));
 
         let result = handler(Arc::clone(&state))
             .execute(
                 &context(),
-                GrantPartnershipMembershipCommand {
+                RevokePartnershipMembershipCommand {
                     partnership_id,
                     user_id,
                 },
@@ -749,7 +744,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(GrantPartnershipMembershipError::Internal { .. })
+            Err(RevokePartnershipMembershipError::Internal { .. })
         ));
         let state = lock(&state);
         assert_eq!(1, state.membership_calls);
@@ -765,7 +760,7 @@ mod tests {
         let begin_result = handler(Arc::clone(&begin_state))
             .execute(
                 &context(),
-                GrantPartnershipMembershipCommand {
+                RevokePartnershipMembershipCommand {
                     partnership_id,
                     user_id,
                 },
@@ -773,7 +768,7 @@ mod tests {
             .await;
         assert!(matches!(
             begin_result,
-            Err(GrantPartnershipMembershipError::BeginTransactionFailed)
+            Err(RevokePartnershipMembershipError::BeginTransactionFailed)
         ));
 
         let (mut commit_state, partnership_id, user_id) = valid_state();
@@ -782,7 +777,7 @@ mod tests {
         let commit_result = handler(Arc::clone(&commit_state))
             .execute(
                 &context(),
-                GrantPartnershipMembershipCommand {
+                RevokePartnershipMembershipCommand {
                     partnership_id,
                     user_id,
                 },
@@ -790,7 +785,7 @@ mod tests {
             .await;
         assert!(matches!(
             commit_result,
-            Err(GrantPartnershipMembershipError::CommitTransactionFailed)
+            Err(RevokePartnershipMembershipError::CommitTransactionFailed)
         ));
         assert_eq!(1, lock(&commit_state).commit_attempts);
     }

@@ -93,6 +93,7 @@ use partnership_service::use_cases::{
         grant_partnership_membership::GrantPartnershipMembershipHandler,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewHandler,
         reject_partnership_application::RejectPartnershipApplicationHandler,
+        revoke_partnership_membership::RevokePartnershipMembershipHandler,
         submit_partnership_application::SubmitPartnershipApplicationHandler,
         withdraw_partnership_application::WithdrawPartnershipApplicationHandler,
     },
@@ -772,6 +773,13 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxPartnershipRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
+    let revoke_partnership_membership = RevokePartnershipMembershipHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipRepositoryFactory::new(),
+        SqlxUserAccountReaderFactory::new(),
+        SqlxPartnershipRepositoryFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
     let get_partnership_application = GetPartnershipApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnershipApplicationRepositoryFactory::new(),
@@ -1094,6 +1102,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         Arc::new(list_admin_partnerships),
         Arc::new(get_admin_partnership),
         Arc::new(grant_partnership_membership),
+        Arc::new(revoke_partnership_membership),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
