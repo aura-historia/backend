@@ -19,6 +19,7 @@ use oauth_service::use_cases::{
     IntrospectTokenUseCase, ListOAuthClientsUseCase, RevokeTokenUseCase,
     TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
 };
+use partnership_service::use_cases::queries::get_admin_partnership::GetAdminPartnershipUseCase;
 use partnership_service::use_cases::queries::list_admin_partnerships::ListAdminPartnershipsUseCase;
 use partnership_service::use_cases::queries::list_administered_listing_sources::ListAdministeredListingSourcesUseCase;
 use partnership_service::use_cases::{
@@ -640,16 +641,19 @@ impl PartnershipApplicationsState {
 #[derive(Clone)]
 pub struct PartnershipsState {
     pub(crate) list_admin: Arc<dyn ListAdminPartnershipsUseCase>,
+    pub(crate) get_admin: Arc<dyn GetAdminPartnershipUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
 impl PartnershipsState {
     pub fn new(
         list_admin: Arc<dyn ListAdminPartnershipsUseCase>,
+        get_admin: Arc<dyn GetAdminPartnershipUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
             list_admin,
+            get_admin,
             authenticator,
         }
     }

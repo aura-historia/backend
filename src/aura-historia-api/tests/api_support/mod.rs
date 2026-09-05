@@ -63,7 +63,8 @@ use partnership_core::{
 use partnership_postgres::{
     SqlxListingSourceAuthorization, SqlxListingSourceGrantRepositoryFactory,
     SqlxPartnershipApplicationReaderFactory, SqlxPartnershipApplicationRepositoryFactory,
-    SqlxPartnershipRepositoryFactory, SqlxPartnershipSearchReaderFactory,
+    SqlxPartnershipDetailsReaderFactory, SqlxPartnershipRepositoryFactory,
+    SqlxPartnershipSearchReaderFactory,
 };
 use partnership_service::use_cases::{
     commands::{
@@ -74,6 +75,7 @@ use partnership_service::use_cases::{
         withdraw_partnership_application::WithdrawPartnershipApplicationHandler,
     },
     queries::{
+        get_admin_partnership::GetAdminPartnershipHandler,
         get_own_partnership_application::GetOwnPartnershipApplicationHandler,
         get_partnership_application::GetPartnershipApplicationHandler,
         list_admin_partnership_applications::ListAdminPartnershipApplicationsHandler,
@@ -939,6 +941,11 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         SqlxPartnershipSearchReaderFactory::new(),
         user_postgres::SqlxUserAdminReaderFactory::new(),
     );
+    let get_admin_partnership = GetAdminPartnershipHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipDetailsReaderFactory::new(),
+        user_postgres::SqlxUserAdminReaderFactory::new(),
+    );
     let get_partnership_application = GetPartnershipApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnershipApplicationRepositoryFactory::new(),
@@ -1233,6 +1240,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     );
     let partnerships_state = PartnershipsState::new(
         Arc::new(list_admin_partnerships),
+        Arc::new(get_admin_partnership),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 

@@ -27,6 +27,7 @@ use partnership_service::use_cases::{
         withdraw_partnership_application::WithdrawPartnershipApplicationError,
     },
     queries::{
+        get_admin_partnership::GetAdminPartnershipError,
         get_own_partnership_application::GetOwnPartnershipApplicationError,
         get_partnership_application::GetPartnershipApplicationError,
         list_admin_partnership_applications::ListAdminPartnershipApplicationsError,
@@ -176,6 +177,7 @@ pub(crate) const PARTNERSHIP_APPLICATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("PARTNERSHIP_APPLICATION_TEMPORARILY_UNAVAILABLE");
 pub(crate) const PARTNERSHIP_INTERNAL_ERROR: ApiErrorCode =
     ApiErrorCode("PARTNERSHIP_INTERNAL_ERROR");
+pub(crate) const PARTNERSHIP_NOT_FOUND: ApiErrorCode = ApiErrorCode("PARTNERSHIP_NOT_FOUND");
 pub(crate) const PARTNERSHIP_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("PARTNERSHIP_TEMPORARILY_UNAVAILABLE");
 pub(crate) const OAUTH_AUTHORIZATION_CODE_EXPIRED: ApiErrorCode =
@@ -2016,6 +2018,30 @@ impl_partnership_application_admin_read_error!(
     ListAdminPartnershipApplicationsError,
     InvalidReadModel
 );
+
+impl From<GetAdminPartnershipError> for ApiError {
+    fn from(error: GetAdminPartnershipError) -> Self {
+        match error {
+            GetAdminPartnershipError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            GetAdminPartnershipError::NotFound => {
+                ApiError::not_found(PARTNERSHIP_NOT_FOUND).with_detail("Partnership was not found.")
+            }
+            GetAdminPartnershipError::TemporarilyUnavailable { .. }
+            | GetAdminPartnershipError::BeginTransactionFailed
+            | GetAdminPartnershipError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTNERSHIP_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Partnership details are temporarily unavailable.")
+            }
+            GetAdminPartnershipError::InvalidReadModel { .. }
+            | GetAdminPartnershipError::Internal { .. } => {
+                ApiError::internal_server_error(PARTNERSHIP_INTERNAL_ERROR)
+                    .with_detail("Partnership details failed internally.")
+            }
+        }
+    }
+}
 
 impl From<ListAdminPartnershipsError> for ApiError {
     fn from(error: ListAdminPartnershipsError) -> Self {

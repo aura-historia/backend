@@ -266,8 +266,14 @@ mod tests {
         body::{Body, to_bytes},
         http::{Request, StatusCode},
     };
-    use partnership_service::use_cases::queries::list_admin_partnerships::{
-        ListAdminPartnershipsError, ListAdminPartnershipsResult, ListAdminPartnershipsUseCase,
+    use partnership_service::use_cases::queries::{
+        get_admin_partnership::{
+            AdminPartnershipDetailsView, GetAdminPartnershipError, GetAdminPartnershipRequest,
+            GetAdminPartnershipUseCase,
+        },
+        list_admin_partnerships::{
+            ListAdminPartnershipsError, ListAdminPartnershipsResult, ListAdminPartnershipsUseCase,
+        },
     };
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex, MutexGuard};
@@ -296,6 +302,22 @@ mod tests {
                 Err(ListAdminPartnershipsError::Internal {
                     source: static_error("test outcome was not configured"),
                 })
+            })
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct UnusedGetAdminPartnershipUseCase;
+
+    #[async_trait::async_trait]
+    impl GetAdminPartnershipUseCase for UnusedGetAdminPartnershipUseCase {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _request: GetAdminPartnershipRequest,
+        ) -> Result<AdminPartnershipDetailsView, GetAdminPartnershipError> {
+            Err(GetAdminPartnershipError::Internal {
+                source: static_error("admin detail is not used by this test"),
             })
         }
     }
@@ -373,6 +395,7 @@ mod tests {
         };
         let state = PartnershipsState::new(
             Arc::new(use_case),
+            Arc::new(UnusedGetAdminPartnershipUseCase),
             Arc::new(FakeAuthenticator {
                 user_id: UserId::from(Uuid::from_u128(0x880e8400e29b41d4a716446655440000)),
                 reject: reject_auth,

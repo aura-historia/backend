@@ -4,7 +4,7 @@ mod repositories;
 
 pub use readers::{
     SqlxListingSourceAuthorization, SqlxPartnershipApplicationReaderFactory,
-    SqlxPartnershipSearchReaderFactory,
+    SqlxPartnershipDetailsReaderFactory, SqlxPartnershipSearchReaderFactory,
 };
 pub use repositories::{
     SqlxListingSourceGrantRepositoryFactory, SqlxPartnershipApplicationRepositoryFactory,

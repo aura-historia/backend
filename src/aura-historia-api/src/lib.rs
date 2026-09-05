@@ -84,7 +84,8 @@ use listing_source_service::use_cases::queries::search_listing_sources::SearchLi
 use partnership_postgres::{
     SqlxListingSourceAuthorization, SqlxListingSourceGrantRepositoryFactory,
     SqlxPartnershipApplicationReaderFactory, SqlxPartnershipApplicationRepositoryFactory,
-    SqlxPartnershipRepositoryFactory, SqlxPartnershipSearchReaderFactory,
+    SqlxPartnershipDetailsReaderFactory, SqlxPartnershipRepositoryFactory,
+    SqlxPartnershipSearchReaderFactory,
 };
 use partnership_service::use_cases::{
     commands::{
@@ -95,6 +96,7 @@ use partnership_service::use_cases::{
         withdraw_partnership_application::WithdrawPartnershipApplicationHandler,
     },
     queries::{
+        get_admin_partnership::GetAdminPartnershipHandler,
         get_own_partnership_application::GetOwnPartnershipApplicationHandler,
         get_partnership_application::GetPartnershipApplicationHandler,
         list_admin_partnership_applications::ListAdminPartnershipApplicationsHandler,
@@ -757,6 +759,11 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxPartnershipSearchReaderFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
+    let get_admin_partnership = GetAdminPartnershipHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipDetailsReaderFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
     let get_partnership_application = GetPartnershipApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnershipApplicationRepositoryFactory::new(),
@@ -1077,6 +1084,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     );
     let partnerships_state = PartnershipsState::new(
         Arc::new(list_admin_partnerships),
+        Arc::new(get_admin_partnership),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 

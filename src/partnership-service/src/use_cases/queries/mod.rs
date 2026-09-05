@@ -1,4 +1,5 @@
 pub mod authorize_product_listing_source_write;
+pub mod get_admin_partnership;
 pub mod get_own_partnership_application;
 pub mod get_partnership_application;
 pub mod list_admin_partnership_applications;

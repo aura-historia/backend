@@ -8848,6 +8848,163 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: PARTNERSHIP_TEMPORARILY_UNAVAILABLE
+  /api/v1/admin/partnerships/{partnershipId}:
+    get:
+      summary: Get a Partnership for administration
+      description: |
+        Returns one established Partnership for an authenticated administrator.
+
+        The response includes the Partnership identity, its Party reference, current member user
+        references, and current ListingSource grant references. Member and grant references are
+        ordered by UUID and each array is bounded to at most 100 entries. `memberCount` and
+        `listingSourceGrantCount` are complete counts, including references beyond the bounded arrays.
+
+        Missing Partnerships return `PARTNERSHIP_NOT_FOUND`. All success and error responses use
+        `Cache-Control: no-store` because member user identifiers are returned.
+      operationId: adminGetPartnership
+      tags:
+        - Partnerships
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - name: partnershipId
+          in: path
+          required: true
+          description: Stable Partnership UUID.
+          schema:
+            type: string
+            format: uuid
+          example: 770e8400-e29b-41d4-a716-446655440000
+      responses:
+        "200":
+          description: Partnership details returned successfully.
+          headers:
+            Cache-Control:
+              description: Responses are never stored because member user identifiers are returned.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminPartnershipDetailsData"
+              example:
+                partnershipId: 770e8400-e29b-41d4-a716-446655440000
+                party:
+                  partyId: 550e8400-e29b-41d4-a716-446655440000
+                  partySlugId: safe-party
+                  name: Safe Party
+                memberUserIds:
+                  - 660e8400-e29b-41d4-a716-446655440000
+                  - 660e8400-e29b-41d4-a716-446655440001
+                listingSourceIds:
+                  - 990e8400-e29b-41d4-a716-446655440000
+                  - 990e8400-e29b-41d4-a716-446655440001
+                memberCount: 2
+                listingSourceGrantCount: 2
+                created: "2026-09-04T12:00:00Z"
+                updated: "2026-09-04T13:00:00Z"
+        "400":
+          description: Bad request - invalid Partnership UUID.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 400
+                title: Bad Request
+                error: INVALID_UUID
+                source:
+                  field: partnershipId
+                  sourceType: path
+                detail: Path parameter 'partnershipId' must be a UUID.
+        "401":
+          description: Unauthorized - invalid or missing bearer credentials.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+        "403":
+          description: Forbidden - this endpoint requires the `ADMIN` role.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+        "404":
+          description: Partnership not found.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 404
+                title: Not Found
+                error: PARTNERSHIP_NOT_FOUND
+        "500":
+          description: Internal authentication or Partnership detail failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: PARTNERSHIP_INTERNAL_ERROR
+        "503":
+          description: Authentication, admin authorization, or Partnership detail is temporarily unavailable.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: PARTNERSHIP_TEMPORARILY_UNAVAILABLE
   /api/v1/admin/partnership-applications:
     get:
       summary: Search PartnershipApplications for administration
@@ -12795,6 +12952,59 @@ components:
           example:
             - "2026-09-04T12:00:00Z"
             - 770e8400-e29b-41d4-a716-446655440000
+    AdminPartnershipDetailsData:
+      type: object
+      description: "Administrator Partnership detail. Member and ListingSource reference arrays are ordered by UUID and capped at 100 entries; count fields are complete."
+      required:
+        - partnershipId
+        - party
+        - memberUserIds
+        - listingSourceIds
+        - memberCount
+        - listingSourceGrantCount
+        - created
+        - updated
+      properties:
+        partnershipId:
+          type: string
+          format: uuid
+          description: Stable Partnership identifier.
+        party:
+          $ref: "#/components/schemas/PartnershipPartySummaryData"
+        memberUserIds:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          description: Current member user UUIDs in deterministic ascending UUID order. At most 100 references are returned.
+          items:
+            type: string
+            format: uuid
+        listingSourceIds:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          description: Current ListingSource grant UUIDs in deterministic ascending UUID order. At most 100 references are returned.
+          items:
+            type: string
+            format: uuid
+        memberCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Complete number of current Partnership members.
+        listingSourceGrantCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Complete number of current ListingSource grants.
+        created:
+          type: string
+          format: date-time
+          description: When the Partnership was created.
+        updated:
+          type: string
+          format: date-time
+          description: When the Partnership was last updated.
     AdminPartnershipSummaryData:
       type: object
       description: "Safe administrator Partnership summary. Member/grant identities, Party contact data, persistence versions, and credentials are excluded."

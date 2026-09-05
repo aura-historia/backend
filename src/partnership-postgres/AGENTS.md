@@ -12,6 +12,7 @@
 - Rows/mappings remain private; public factories bind caller-owned SQLx transactions.
 - Admin application search uses one bounded keyset query with `(created|updated, partnership_application_id)` continuation, exact state/proposal/source filters, and inclusive timestamp ranges.
 - Admin partnership search uses one bounded joined reader query with `created DESC, partnership_id DESC` keyset pagination; filters use `EXISTS` so member and source-grant counts stay complete. The `partnerships_created_id_idx` index must match that order.
+- Admin Partnership detail uses one joined reader statement with UUID-ordered, SQL-limited member and ListingSource reference arrays (100 each), empty-array decoding, and complete association counts; it performs no N+1 reads.
 
 ## Verification
 
