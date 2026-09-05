@@ -10,6 +10,7 @@ pub mod image_url;
 pub mod language;
 pub mod normalization_input;
 pub mod price;
+pub mod raw_values_normalizer;
 pub mod source_listing_id;
 pub mod text;
 
@@ -29,6 +30,12 @@ pub use normalization_input::{
     SchemaVersionField, SourcePayload,
 };
 pub use price::{PriceNormalizationError, normalize_price};
+pub use raw_values_normalizer::{
+    PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION_V1, ProductListingNormalizationContextV1,
+    ProductListingRawValuesNormalizationError, ProductListingRawValuesNormalizationOutcome,
+    ProductListingRawValuesNormalizer, ProductListingRawValuesPatch,
+    ProductListingRawValuesResolved, ProductListingRawValuesV1,
+};
 pub use source_listing_id::{
     SourceListingIdNormalizationError, normalize_source_listing_id_with_url_sha_fallback,
 };

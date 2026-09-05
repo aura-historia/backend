@@ -5753,6 +5753,7 @@ dependencies = [
  "product-listing-core",
  "product-listing-normalization",
  "product-listing-service",
+ "product-service",
  "rstest",
  "search-filter-core",
  "serde",
@@ -5818,6 +5819,26 @@ dependencies = [
  "product-listing-service",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "product-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain-primitives",
+ "indexmap 2.14.1",
+ "listing-source-core",
+ "product-listing-core",
+ "product-listing-normalization",
+ "product-listing-service",
+ "serde_json",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

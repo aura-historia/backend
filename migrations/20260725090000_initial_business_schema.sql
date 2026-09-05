@@ -156,6 +156,48 @@ CREATE TABLE product_listing_raw_revisions (
 CREATE INDEX product_listing_raw_revisions_stream_revision_idx
     ON product_listing_raw_revisions (product_listing_raw_stream_id, revision ASC);
 
+CREATE TABLE product_listing_raw_normalization_heads (
+    product_listing_raw_stream_id uuid PRIMARY KEY
+        REFERENCES product_listing_raw_streams(product_listing_raw_stream_id) ON DELETE CASCADE,
+    last_processed_revision bigint NOT NULL DEFAULT 0,
+    product_listing_id uuid,
+    source_listing_id text,
+    created timestamptz NOT NULL DEFAULT now(),
+    updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT product_listing_raw_normalization_heads_last_processed_revision_nonnegative_check
+        CHECK (last_processed_revision >= 0),
+    CONSTRAINT product_listing_raw_normalization_heads_binding_check
+        CHECK (
+            (product_listing_id IS NULL AND source_listing_id IS NULL)
+            OR (product_listing_id IS NOT NULL AND source_listing_id IS NOT NULL)
+        )
+);
+
+CREATE TABLE product_listing_raw_normalizations (
+    product_listing_raw_revision_id uuid NOT NULL
+        REFERENCES product_listing_raw_revisions(product_listing_raw_revision_id) ON DELETE CASCADE,
+    product_listing_raw_stream_id uuid NOT NULL
+        REFERENCES product_listing_raw_streams(product_listing_raw_stream_id) ON DELETE CASCADE,
+    revision bigint NOT NULL,
+    normalizer_version smallint NOT NULL,
+    outcome text NOT NULL,
+    product_listing_id uuid,
+    product_listing_event_id uuid,
+    error_code text,
+    created timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (product_listing_raw_revision_id, normalizer_version),
+    CONSTRAINT product_listing_raw_normalizations_revision_positive_check CHECK (revision >= 1),
+    CONSTRAINT product_listing_raw_normalizations_normalizer_version_positive_check
+        CHECK (normalizer_version >= 1),
+    CONSTRAINT product_listing_raw_normalizations_outcome_check
+        CHECK (outcome IN ('APPLIED', 'NO_CHANGE', 'IGNORED', 'REJECTED')),
+    CONSTRAINT product_listing_raw_normalizations_error_code_check
+        CHECK (error_code IS NULL OR octet_length(error_code) <= 128)
+);
+
+CREATE INDEX product_listing_raw_normalizations_stream_revision_idx
+    ON product_listing_raw_normalizations (product_listing_raw_stream_id, revision ASC);
+
 CREATE TABLE partnerships (
     partnership_id uuid PRIMARY KEY,
     party_id uuid NOT NULL UNIQUE REFERENCES parties(party_id) ON DELETE CASCADE,
