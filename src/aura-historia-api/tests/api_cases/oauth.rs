@@ -283,7 +283,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
         .unwrap_or_else(|error| {
             panic!("failed to check removed OAuth client detail route: {error}")
         });
-    assert_eq!(reqwest::StatusCode::METHOD_NOT_ALLOWED, response.status());
+    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
 
     let response = client
         .patch(format!(
@@ -298,7 +298,7 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
         .unwrap_or_else(|error| {
             panic!("failed to check removed OAuth client update route: {error}")
         });
-    assert_eq!(reqwest::StatusCode::METHOD_NOT_ALLOWED, response.status());
+    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
 
     let response = client
         .patch(format!(
@@ -390,11 +390,197 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
             AURA_API.base_url(),
             credentials.client_id
         ))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to check removed OAuth client delete route: {error}")
+        });
+    assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
+
+    let response = client
+        .delete(format!(
+            "{}/api/v1/admin/oauth-clients/{}",
+            AURA_API.base_url(),
+            credentials.client_id
+        ))
         .bearer_auth(token)
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to delete OAuth client: {error}"));
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+    assert_eq!(
+        Some("no-store"),
+        response
+            .headers()
+            .get(reqwest::header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok())
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_require_admin_role_and_delegated_write_for_oauth_client_deletion() {
+    let (client, admin_token) = authenticated_client().await;
+    let credentials = create_oauth_client(&client, &admin_token).await;
+    let url = format!(
+        "{}/api/v1/admin/oauth-clients/{}",
+        AURA_API.base_url(),
+        credentials.client_id
+    );
+
+    let non_admin_id = seed_user("USER").await;
+    let non_admin_token = seed_access_token_for(
+        non_admin_id,
+        std::collections::HashSet::from([Scope::AccessTokensWrite]),
+    )
+    .await;
+    let response = client
+        .delete(&url)
+        .bearer_auth(String::from(non_admin_token))
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to reject non-admin OAuth client deletion: {error}")
+        });
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+
+    let admin_without_write =
+        seed_access_token_for(seed_user("ADMIN").await, Default::default()).await;
+    let response = client
+        .delete(&url)
+        .bearer_auth(String::from(admin_without_write))
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to reject OAuth client deletion without delegated write: {error}")
+        });
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+
+    let response = client
+        .delete(url)
+        .bearer_auth(admin_token)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to delete OAuth client as admin: {error}"));
+    assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_invalidate_oauth_credentials_when_client_is_deleted() {
+    let (client, admin_token) = authenticated_client().await;
+    let credentials = create_oauth_client(&client, &admin_token).await;
+    let pending_code = authorize_code(&client, &admin_token, &credentials).await;
+    let issued = exchange_code(
+        &client,
+        &credentials,
+        &authorize_code(&client, &admin_token, &credentials).await,
+    )
+    .await;
+    let access_token = issued["access_token"]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing issued access token"))
+        .to_owned();
+    let third_party_code = issued["third_party_exchange_code"]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing issued third-party exchange code"))
+        .to_owned();
+
+    let delete_url = format!(
+        "{}/api/v1/admin/oauth-clients/{}",
+        AURA_API.base_url(),
+        credentials.client_id
+    );
+    let response = client
+        .delete(&delete_url)
+        .bearer_auth(&admin_token)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to delete OAuth client: {error}"));
+    assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+
+    let (status, body) = exchange_code_response(&client, &credentials, &pending_code).await;
+    api_support::assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "OAUTH_CLIENT_NOT_FOUND",
+    );
+
+    let response = client
+        .get(format!("{}/api/v1/oauth/authorize", AURA_API.base_url()))
+        .bearer_auth(&admin_token)
+        .query(&[
+            ("response_type", "code"),
+            ("client_id", credentials.client_id.as_str()),
+            ("redirect_uri", "https://client.example/callback"),
+            ("scope", "access-tokens:read"),
+            (
+                "code_challenge",
+                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            ),
+            ("code_challenge_method", "S256"),
+        ])
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to reject authorization for deleted client: {error}")
+        });
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "OAUTH_CLIENT_NOT_FOUND",
+    );
+
+    let response = client
+        .get(format!("{}/api/v1/me/access-tokens", AURA_API.base_url()))
+        .bearer_auth(&access_token)
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to authenticate revoked OAuth access token: {error}")
+        });
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "INVALID_CREDENTIALS",
+    );
+
+    let response = client
+        .get(format!(
+            "{}/api/v1/oauth/tokens/by-third-party-code/{}",
+            AURA_API.base_url(),
+            third_party_code
+        ))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject deleted client's exchange code: {error}"));
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "OAUTH_THIRD_PARTY_EXCHANGE_CODE_NOT_FOUND",
+    );
+
+    let response = client
+        .delete(delete_url)
+        .bearer_auth(admin_token)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to report repeated OAuth client deletion: {error}"));
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "OAUTH_CLIENT_NOT_FOUND",
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

@@ -454,11 +454,9 @@ pub fn app(state: AppState) -> Router {
                 )
                 .route(
                     "/api/v1/admin/oauth-clients/{client_id}",
-                    get(oauth::get_client::get_client).patch(oauth::update_client::update_client),
-                )
-                .route(
-                    "/api/v1/oauth/clients/{client_id}",
-                    delete(oauth::delete_client::delete_client),
+                    get(oauth::get_client::get_client)
+                        .patch(oauth::update_client::update_client)
+                        .delete(oauth::delete_client::delete_client),
                 )
                 .route("/api/v1/oauth/authorize", get(oauth::authorize::authorize))
                 .route("/api/v1/oauth/token", post(oauth::token::token))
@@ -1079,6 +1077,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         delete_client: Arc::new(DeleteOAuthClientHandler::new(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
+            CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
         )),
         authorize: Arc::new(AuthorizeHandler::new(
             unit_of_work.clone(),

@@ -655,10 +655,14 @@ async fn should_cover_client_crud_use_cases() {
     .await
     .unwrap();
     assert_eq!(OAuthClientName::from("B"), updated.name);
-    DeleteOAuthClientHandler::new(FakeUnitOfWork(ports.clone()), ports.clone())
-        .execute(&ctx(), &client_id)
-        .await
-        .unwrap();
+    DeleteOAuthClientHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        FakeCheckUserAdmin::allow_all(),
+    )
+    .execute(&ctx(), &client_id)
+    .await
+    .unwrap();
     assert!(
         ListOAuthClientsHandler::new(ports.clone(), FakeCheckUserAdmin::allow_all())
             .execute(&ctx(), ListOAuthClientsRequest::default())
@@ -796,6 +800,62 @@ async fn should_require_admin_role_and_delegated_write_for_oauth_client_update()
 
     let state = lock(&ports.0);
     assert_eq!(2, state.client_updates);
+    assert_eq!(2, state.transaction_begins);
+    assert_eq!(2, state.transaction_commits);
+}
+
+#[tokio::test]
+async fn should_require_admin_role_and_delegated_write_for_oauth_client_deletion() {
+    let ports = FakePorts::default();
+    let client = client_with_secret(&RawOAuthClientSecret::new());
+    let client_id = client.client_id();
+    lock(&ports.0).client = Some(client);
+    let admin_user_id = UserId::new();
+    let delete = DeleteOAuthClientHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        FakeCheckUserAdmin::allow_user(admin_user_id),
+    );
+
+    let anonymous = context(Principal::Anonymous);
+    assert!(matches!(
+        delete.execute(&anonymous, &client_id).await,
+        Err(OAuthServiceError::AuthenticatedActorRequired)
+    ));
+
+    let direct_non_admin = context(Principal::User(UserId::new()));
+    assert!(matches!(
+        delete.execute(&direct_non_admin, &client_id).await,
+        Err(OAuthServiceError::Forbidden)
+    ));
+
+    let delegated_without_write = context(Principal::DelegatedUser {
+        user_id: admin_user_id,
+        capabilities: BTreeSet::new(),
+    });
+    assert!(matches!(
+        delete.execute(&delegated_without_write, &client_id).await,
+        Err(OAuthServiceError::Forbidden)
+    ));
+
+    let direct_admin = context(Principal::User(admin_user_id));
+    assert!(delete.execute(&direct_admin, &client_id).await.is_ok());
+
+    let second_client = client_with_secret(&RawOAuthClientSecret::new());
+    let second_client_id = second_client.client_id();
+    lock(&ports.0).client = Some(second_client);
+    let delegated_admin = context(Principal::DelegatedUser {
+        user_id: admin_user_id,
+        capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
+    });
+    assert!(
+        delete
+            .execute(&delegated_admin, &second_client_id)
+            .await
+            .is_ok()
+    );
+
+    let state = lock(&ports.0);
     assert_eq!(2, state.transaction_begins);
     assert_eq!(2, state.transaction_commits);
 }
@@ -1383,6 +1443,7 @@ async fn should_exchange_third_party_code_once() {
     let ports = FakePorts::default();
     let grant = ThirdPartyExchangeCodeGrant::create(RehydratedThirdPartyExchangeCodeGrantState {
         code: ThirdPartyExchangeCode::new(),
+        access_token_id: AccessTokenId::new(),
         access_token: RawAccessToken::new(),
         access_token_expires: None,
         scopes: HashSet::from([Scope::ProductListingsWrite]),
@@ -1404,6 +1465,7 @@ async fn should_commit_consumed_third_party_exchange_code_when_expired() {
     let ports = FakePorts::default();
     let grant = ThirdPartyExchangeCodeGrant::create(RehydratedThirdPartyExchangeCodeGrantState {
         code: ThirdPartyExchangeCode::new(),
+        access_token_id: AccessTokenId::new(),
         access_token: RawAccessToken::new(),
         access_token_expires: None,
         scopes: HashSet::from([Scope::ProductListingsWrite]),

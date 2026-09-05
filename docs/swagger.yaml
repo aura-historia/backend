@@ -8455,21 +8455,22 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: OAUTH_TEMPORARILY_UNAVAILABLE
-  /api/v1/oauth/clients/{clientId}:
     delete:
-      summary: Delete OAuth client metadata
-      description: "Deletes one OAuth client metadata record.
+      summary: Delete OAuth client metadata for administration
+      description: |
+        Deletes one OAuth client metadata record for an authenticated administrator.
 
-        Requires an authenticated direct user, or a delegated Aura Historia access token with
-
-        `access-tokens:write`.
-
-        "
-      operationId: deleteOAuthClient
+        User and delegated-user principals must have the persisted `ADMIN` business role.
+        Delegated Aura Historia access-token callers must also have the `access-tokens:write`
+        capability. Deletion atomically invalidates pending authorization codes, OAuth-issued
+        Aura access tokens, and their one-time third-party exchange codes. The OAuth protocol
+        routes remain under `/api/v1/oauth`; this administrative mutation is not a protocol route.
+      operationId: adminDeleteOAuthClient
       tags:
         - OAuth
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       parameters:
         - name: clientId
           in: path
@@ -8481,56 +8482,56 @@ paths:
           example: 01970f22-2bf0-7000-8000-000000000010
       responses:
         "204":
-          description: OAuth client metadata deleted successfully. Empty response body.
+          description: OAuth client and all client-issued credentials were deleted successfully.
+          headers:
+            Cache-Control:
+              description: Responses are never stored.
+              schema:
+                type: string
+              example: no-store
         "400":
-          description: Bad request — invalid or missing OAuth client path parameter.
+          description: Bad request — the OAuth client path parameter is not a valid UUID.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_client_id:
-                  summary: Missing OAuth client path parameter
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_PATH_PARAMETER_VALUE
-                    source:
-                      field: clientId
-                      sourceType: path
-                    detail: Missing path parameter clientId
-                invalid_client_id:
-                  summary: Invalid OAuth client identifier
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: INVALID_UUID
-                    source:
-                      field: clientId
-                      sourceType: path
-                    detail: invalid character in UUID
+              example:
+                status: 400
+                title: Bad Request
+                error: INVALID_UUID
+                source:
+                  field: clientId
+                  sourceType: PATH
         "401":
-          description: Unauthorized — invalid or missing JWT token, or the OAuth client does not exist.
+          description: Unauthorized — invalid or missing bearer credentials.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_bearer:
-                  summary: Missing or invalid bearer token
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: UNAUTHORIZED
-                client_not_found:
-                  summary: OAuth client not found
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: OAUTH_CLIENT_NOT_FOUND
-                    detail: OAuth client not found.
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
         "403":
-          description: Forbidden — the authenticated principal cannot administer OAuth clients. Delegated callers need `access-tokens:write`.
+          description: Forbidden — the caller is not an administrator or a delegated caller lacks `access-tokens:write`.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
@@ -8539,9 +8540,31 @@ paths:
                 status: 403
                 title: Forbidden
                 error: FORBIDDEN
-                detail: OAuth client administration requires access-tokens:write for delegated callers.
+                detail: OAuth client administration requires the ADMIN role; delegated callers also require access-tokens:write.
+        "404":
+          description: OAuth client was not found, including repeated deletion.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 404
+                title: Not Found
+                error: OAUTH_CLIENT_NOT_FOUND
         "500":
-          description: Internal server error.
+          description: Internal authentication, authorization, or OAuth client deletion failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
@@ -8549,7 +8572,23 @@ paths:
               example:
                 status: 500
                 title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
+                error: OAUTH_INTERNAL_ERROR
+        "503":
+          description: Temporary authentication, authorization, or OAuth client deletion failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: OAUTH_TEMPORARILY_UNAVAILABLE
   /api/v1/listing-sources/by-slug/{listingSourceSlugId}:
     get:
       summary: Get a ListingSource by slug

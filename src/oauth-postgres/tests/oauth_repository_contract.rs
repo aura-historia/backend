@@ -98,7 +98,9 @@ async fn should_consume_authorization_code_once_and_allow_one_concurrent_consume
 async fn should_consume_third_party_exchange_code_once_and_allow_one_concurrent_consumer() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
+        let user_id = seed_user(&pool).await?;
         let grant = third_party_exchange_code_grant();
+        seed_access_token_for_grant(&pool, &grant, user_id).await?;
         let code_value = grant.code();
         insert_third_party_exchange_code(pool.clone(), grant.clone()).await?;
 
@@ -115,6 +117,7 @@ async fn should_consume_third_party_exchange_code_once_and_allow_one_concurrent_
         );
 
         let concurrent_grant = third_party_exchange_code_grant();
+        seed_access_token_for_grant(&pool, &concurrent_grant, user_id).await?;
         let code_value = concurrent_grant.code();
         insert_third_party_exchange_code(pool.clone(), concurrent_grant).await?;
         let (first, second) = tokio::join!(
@@ -249,6 +252,7 @@ async fn should_classify_duplicate_oauth_writes_as_conflicts() {
         ));
 
         let grant = third_party_exchange_code_grant();
+        seed_access_token_for_grant(&pool, &grant, user_id).await?;
         insert_third_party_exchange_code(pool.clone(), grant.clone()).await?;
         let duplicate = insert_third_party_exchange_code(pool, grant).await;
         let duplicate_error = match duplicate {
@@ -465,10 +469,32 @@ fn authorization_code(
     ))
 }
 
+async fn seed_access_token_for_grant(
+    pool: &PgPool,
+    grant: &ThirdPartyExchangeCodeGrant,
+    user_id: UserId,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let hashed = user_core::access_token::HashedRawAccessToken::from(grant.access_token().clone());
+    sqlx::query(
+        "INSERT INTO access_tokens (access_token_id, user_id, token_short, token_hash, name, scopes, origin) \
+         VALUES ($1, $2, $3, $4, $5, $6, 'USER')",
+    )
+    .bind(Uuid::parse_str(&grant.access_token_id().to_string())?)
+    .bind(Uuid::parse_str(&user_id.to_string())?)
+    .bind(hashed.short_token())
+    .bind(hashed.long_token_hash())
+    .bind("third-party exchange test token")
+    .bind(vec!["product-listings:write"])
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 fn third_party_exchange_code_grant() -> ThirdPartyExchangeCodeGrant {
     let now = OffsetDateTime::now_utc();
     ThirdPartyExchangeCodeGrant::create(RehydratedThirdPartyExchangeCodeGrantState {
         code: ThirdPartyExchangeCode::from(Uuid::now_v7()),
+        access_token_id: user_core::access_token::AccessTokenId::new(),
         access_token: RawAccessToken::new(),
         access_token_expires: Some(now + Duration::minutes(10)),
         scopes: HashSet::from([Scope::ProductListingsWrite]),
