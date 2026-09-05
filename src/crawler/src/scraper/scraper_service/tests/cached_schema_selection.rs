@@ -83,7 +83,12 @@ async fn should_validate_images_before_ranking_all_cached_candidates() {
         });
 
     let mut candidate_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut candidate_svc, id, url.clone(), UrlPresence::Present);
+    expect_successful_bookkeeping(
+        &mut candidate_svc,
+        id,
+        url.clone(),
+        CrawlerDisposition::Active,
+    );
     let image_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -97,7 +102,7 @@ async fn should_validate_images_before_ranking_all_cached_candidates() {
 
     assert!(
         service
-            .scrape(&id, &url, None, None)
+            .scrape(&id, &url, None, None, None)
             .await
             .unwrap()
             .is_some()
@@ -163,7 +168,7 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
 
     let mut cand_svc = MockScraperCandidateService::new();
     if expected_scope == NormalizationFailureScope::CandidateData {
-        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
     }
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -175,7 +180,7 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = service.scrape(&id, &url, None, None).await;
+    let result = service.scrape(&id, &url, None, None, None).await;
     let product = result.unwrap().unwrap();
     assert_eq!(
         product.product.source_listing_id,
@@ -291,7 +296,7 @@ async fn should_try_all_cached_schemas_before_fresh_generation() {
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -303,7 +308,7 @@ async fn should_try_all_cached_schemas_before_fresh_generation() {
     );
 
     let result = service
-        .scrape(&id, &url, None, None)
+        .scrape(&id, &url, None, None, None)
         .await
         .unwrap()
         .unwrap();
@@ -385,7 +390,7 @@ async fn should_generate_fresh_schema_when_cached_data_fails() {
 
     let mut cand_svc = MockScraperCandidateService::new();
     expect_budget_increment(&mut cand_svc, 1);
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -397,7 +402,7 @@ async fn should_generate_fresh_schema_when_cached_data_fails() {
     );
 
     let result = service
-        .scrape(&id, &url, None, None)
+        .scrape(&id, &url, None, None, None)
         .await
         .unwrap()
         .unwrap();
@@ -458,7 +463,7 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -469,7 +474,7 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = service.scrape(&id, &url, None, None).await.unwrap();
+    let result = service.scrape(&id, &url, None, None, None).await.unwrap();
     assert!(result.is_some());
 }
 
@@ -534,7 +539,7 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate() {
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlPresence::Present);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -545,7 +550,7 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate() {
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = service.scrape(&id, &url, None, None).await.unwrap();
+    let result = service.scrape(&id, &url, None, None, None).await.unwrap();
     assert!(result.is_some());
 }
 
@@ -632,7 +637,10 @@ async fn should_generate_single_schema_without_failed_schema_context() {
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
+    let err = service
+        .scrape(&id, &url, None, None, None)
+        .await
+        .unwrap_err();
     assert!(matches!(
         err,
         ScraperError::SchemaRegenerationExhausted {
@@ -712,7 +720,10 @@ async fn should_fail_when_fresh_schema_normalization_keeps_failing() {
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
+    let err = service
+        .scrape(&id, &url, None, None, None)
+        .await
+        .unwrap_err();
     assert!(
         matches!(
             err,

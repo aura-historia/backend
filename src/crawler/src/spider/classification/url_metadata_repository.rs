@@ -2,7 +2,7 @@ use crate::CrawlerDomainId;
 use crate::network::policy::{
     PublicTargetError, url_matches_configured_domain, validate_public_http_url,
 };
-use crate::spider::classification::url_metadata::{UrlClass, UrlPresence};
+use crate::spider::classification::url_metadata::{CrawlerDisposition, UrlClass};
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;
 use sqlx::{FromRow, PgPool, Row};
@@ -14,7 +14,7 @@ pub struct SpiderUrlRecord {
     pub domain_id: CrawlerDomainId,
     pub url: url::Url,
     pub url_class: UrlClass,
-    pub state: UrlPresence,
+    pub disposition: CrawlerDisposition,
     pub last_scraped_hash: Option<String>,
     pub last_scraped: Option<OffsetDateTime>,
     pub created: OffsetDateTime,
@@ -31,8 +31,8 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
             .try_get::<String, _>("url_class")?
             .parse()
             .map_err(|error: String| sqlx::Error::Decode(error.into()))?;
-        let state = row
-            .try_get::<String, _>("last_scraped_presence")?
+        let disposition = row
+            .try_get::<String, _>("crawler_disposition")?
             .parse()
             .map_err(|error: String| sqlx::Error::Decode(error.into()))?;
         Ok(Self {
@@ -40,7 +40,7 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
             domain_id: domain_id.into(),
             url,
             url_class,
-            state,
+            disposition,
             last_scraped_hash: row.try_get("last_scraped_hash")?,
             last_scraped: row.try_get("last_scraped")?,
             created: row.try_get("created")?,
@@ -108,11 +108,11 @@ pub trait UrlMetadataRepository: Send + Sync {
         hash: &str,
     ) -> Result<SpiderUrlRecord, sqlx::Error>;
 
-    async fn set_presence(
+    async fn set_disposition(
         &self,
         listing_source_id: &ListingSourceId,
         url: &url::Url,
-        state: &UrlPresence,
+        disposition: CrawlerDisposition,
     ) -> Result<SpiderUrlRecord, sqlx::Error>;
 }
 
@@ -249,7 +249,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
                  url_class = EXCLUDED.url_class, updated = NOW() \
              WHERE listing_source_urls.listing_source_id = EXCLUDED.listing_source_id \
                AND listing_source_urls.domain_id = EXCLUDED.domain_id \
-             RETURNING listing_source_id, domain_id, url, url_class, last_scraped_presence, last_scraped_hash, last_scraped, created, updated",
+             RETURNING listing_source_id, domain_id, url, url_class, crawler_disposition, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .bind(uuid::Uuid::from(*domain_id))
@@ -312,7 +312,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
                  url_class = EXCLUDED.url_class, updated = NOW() \
              WHERE listing_source_urls.listing_source_id = EXCLUDED.listing_source_id \
                AND listing_source_urls.domain_id = EXCLUDED.domain_id \
-             RETURNING listing_source_id, domain_id, url, url_class, last_scraped_presence, last_scraped_hash, last_scraped, created, updated",
+             RETURNING listing_source_id, domain_id, url, url_class, crawler_disposition, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .bind(uuid::Uuid::from(*domain_id))
@@ -350,7 +350,7 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
             "UPDATE listing_source_urls \
              SET last_scraped = NOW(), last_scraped_hash = $3, updated = NOW() \
              WHERE listing_source_id = $1 AND url = $2 \
-             RETURNING listing_source_id, domain_id, url, url_class, last_scraped_presence, last_scraped_hash, last_scraped, created, updated",
+             RETURNING listing_source_id, domain_id, url, url_class, crawler_disposition, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .bind(url.as_str())
@@ -359,21 +359,21 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         .await
     }
 
-    async fn set_presence(
+    async fn set_disposition(
         &self,
         listing_source_id: &ListingSourceId,
         url: &url::Url,
-        state: &UrlPresence,
+        disposition: CrawlerDisposition,
     ) -> Result<SpiderUrlRecord, sqlx::Error> {
         sqlx::query_as::<_, SpiderUrlRecord>(
             "UPDATE listing_source_urls \
-             SET last_scraped_presence = $3, updated = NOW() \
+             SET crawler_disposition = $3, updated = NOW() \
              WHERE listing_source_id = $1 AND url = $2 \
-             RETURNING listing_source_id, domain_id, url, url_class, last_scraped_presence, last_scraped_hash, last_scraped, created, updated",
+             RETURNING listing_source_id, domain_id, url, url_class, crawler_disposition, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .bind(url.as_str())
-        .bind(state.to_string())
+        .bind(disposition.as_str())
         .fetch_one(&self.pool)
         .await
     }

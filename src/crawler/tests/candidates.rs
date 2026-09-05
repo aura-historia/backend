@@ -1,9 +1,7 @@
 use crawler::CrawlerDomainId;
-use crawler::scraper::candidate_service::{
-    ProductListingSnapshot, ScraperCandidateService, ScraperCandidateServiceImpl,
-};
+use crawler::scraper::candidate_service::{ScraperCandidateService, ScraperCandidateServiceImpl};
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
-use crawler::spider::classification::url_metadata::{UrlClass, UrlPresence};
+use crawler::spider::classification::url_metadata::{CrawlerDisposition, UrlClass};
 use crawler::spider::classification::url_metadata_repository::{
     UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
@@ -12,17 +10,8 @@ use test_api::*;
 
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
-fn minimal_snapshot(url: &str) -> ProductListingSnapshot {
-    ProductListingSnapshot {
-        price: None,
-        price_estimate_min: None,
-        price_estimate_max: None,
-        url: url.to_string(),
-        images_hash: "0".repeat(64),
-        auction_start: None,
-        auction_end: None,
-        availability: Some("AVAILABLE".to_owned()),
-    }
+fn raw_input_hash() -> Vec<u8> {
+    vec![7; 32]
 }
 
 // ---------------------------------------------------------------------------
@@ -744,25 +733,25 @@ async fn scraper_should_not_return_candidate_when_listing_source_crawl_is_disabl
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates — withdrawn URLs are not eligible, regardless of availability
+// get_candidates — dormant URLs are not eligible
 // ---------------------------------------------------------------------------
 
 #[serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn scraper_should_not_return_candidate_when_presence_is_withdrawn() {
+async fn scraper_should_not_return_candidate_when_disposition_is_dormant_removed() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id_uuid = uuid::Uuid::new_v4();
     let domain_id = insert_listing_source_with_domain(
         &pool,
         listing_source_id_uuid,
-        "scraper-presence.example.com",
+        "scraper-disposition.example.com",
     )
     .await;
     let listing_source_id = listing_source_core::ListingSourceId::from(listing_source_id_uuid);
-    let removed_url = url::Url::parse("https://scraper-presence.example.com/p/removed").unwrap();
+    let removed_url = url::Url::parse("https://scraper-disposition.example.com/p/removed").unwrap();
     let present_url =
-        url::Url::parse("https://scraper-presence.example.com/p/out-of-stock").unwrap();
+        url::Url::parse("https://scraper-disposition.example.com/p/out-of-stock").unwrap();
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
 
     for url in [&removed_url, &present_url] {
@@ -777,17 +766,13 @@ async fn scraper_should_not_return_candidate_when_presence_is_withdrawn() {
             .unwrap();
     }
     repository
-        .set_presence(&listing_source_id, &removed_url, &UrlPresence::Withdrawn)
+        .set_disposition(
+            &listing_source_id,
+            &removed_url,
+            CrawlerDisposition::DormantRemoved,
+        )
         .await
         .unwrap();
-
-    sqlx::query(
-        "UPDATE listing_source_urls SET last_scraped_availability = 'OUT_OF_STOCK' WHERE url = $1",
-    )
-    .bind(present_url.as_str())
-    .execute(&pool)
-    .await
-    .unwrap();
 
     let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
 
@@ -1150,7 +1135,9 @@ async fn scraper_mark_as_scraped_should_set_last_scraped_and_hash() {
             &listing_source_id,
             &url,
             &scraped_hash,
-            &minimal_snapshot(url_str),
+            "schema-fingerprint",
+            &raw_input_hash(),
+            CrawlerDisposition::Active,
         )
         .await
         .unwrap();
@@ -1203,7 +1190,14 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
     let listing_source_id = listing_source_core::ListingSourceId::from(listing_source_id_uuid);
     let url = url::Url::parse(url_str).unwrap();
     service
-        .mark_as_scraped(&listing_source_id, &url, &hash, &minimal_snapshot(url_str))
+        .mark_as_scraped(
+            &listing_source_id,
+            &url,
+            &hash,
+            "schema-fingerprint",
+            &raw_input_hash(),
+            CrawlerDisposition::Active,
+        )
         .await
         .unwrap();
 
@@ -1261,7 +1255,7 @@ async fn scraper_seed_urls_should_exclude_current_url() {
 
 #[serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn scraper_seed_urls_should_only_include_same_listing_source_present_product_urls() {
+async fn scraper_seed_urls_should_only_include_same_listing_source_active_product_urls() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
@@ -1295,13 +1289,6 @@ async fn scraper_seed_urls_should_only_include_same_listing_source_present_produ
     )
     .await
     .unwrap();
-    repo.set_presence(
-        &seed_listing_source_id,
-        &eligible_url,
-        &UrlPresence::Present,
-    )
-    .await
-    .unwrap();
 
     let sold_url = url::Url::parse("https://seed-filters.example.com/p/sold").unwrap();
     repo.upsert_link(
@@ -1312,14 +1299,11 @@ async fn scraper_seed_urls_should_only_include_same_listing_source_present_produ
     )
     .await
     .unwrap();
-    repo.set_presence(&seed_listing_source_id, &sold_url, &UrlPresence::Present)
-        .await
-        .unwrap();
-    sqlx::query(
-        "UPDATE listing_source_urls SET last_scraped_availability = 'SOLD_OUT' WHERE url = $1",
+    repo.set_disposition(
+        &seed_listing_source_id,
+        &sold_url,
+        CrawlerDisposition::DormantSold,
     )
-    .bind(sold_url.as_str())
-    .execute(&pool)
     .await
     .unwrap();
 
@@ -1332,10 +1316,10 @@ async fn scraper_seed_urls_should_only_include_same_listing_source_present_produ
     )
     .await
     .unwrap();
-    repo.set_presence(
+    repo.set_disposition(
         &seed_listing_source_id,
         &withdrawn_url,
-        &UrlPresence::Withdrawn,
+        CrawlerDisposition::DormantRemoved,
     )
     .await
     .unwrap();
@@ -1385,12 +1369,12 @@ async fn scraper_seed_urls_should_only_include_same_listing_source_present_produ
         "current URL must be excluded"
     );
     assert!(
-        sampled.iter().any(|u| u == &sold_url),
-        "present sold-out listings remain eligible schema seed pages"
+        sampled.iter().all(|u| u != &sold_url),
+        "dormant sold URLs must be excluded"
     );
     assert!(
         sampled.iter().all(|u| u != &withdrawn_url),
-        "withdrawn URLs must be excluded"
+        "dormant removed URLs must be excluded"
     );
     assert!(
         sampled.iter().all(|u| u != &category_url),

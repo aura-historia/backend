@@ -1809,6 +1809,7 @@ dependencies = [
  "spider",
  "sqlx",
  "strum 0.28.0",
+ "strum_macros 0.28.0",
  "test-api",
  "thiserror 2.0.20",
  "time",
@@ -5840,6 +5841,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "url",
  "uuid",
 ]
 

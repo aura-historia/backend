@@ -984,6 +984,10 @@ impl From<WithdrawProductListingError> for ApiError {
             }
             WithdrawProductListingError::NotFound => ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
                 .with_detail("ProductListing was not found."),
+            WithdrawProductListingError::AmbiguousSourceUrl => {
+                ApiError::internal_server_error(PRODUCT_LISTING_INTERNAL_ERROR)
+                    .with_detail("ProductListing withdrawal target is ambiguous.")
+            }
             WithdrawProductListingError::PartnerAuthorizationTemporarilyUnavailable { .. }
             | WithdrawProductListingError::PersistenceFailed
             | WithdrawProductListingError::EventAppenderFailed { .. }

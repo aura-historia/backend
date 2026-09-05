@@ -1,5 +1,5 @@
 use crawler::CrawlerDomainId;
-use crawler::spider::classification::url_metadata::{UrlClass, UrlPresence};
+use crawler::spider::classification::url_metadata::{CrawlerDisposition, UrlClass};
 use crawler::spider::classification::url_metadata_repository::{
     UrlMetadataRepository, UrlMetadataRepositoryError, UrlMetadataRepositoryImpl,
 };
@@ -60,7 +60,7 @@ async fn should_insert_and_update_url_for_its_same_owner() {
     assert_eq!(inserted.domain_id, domain_id);
     assert_eq!(inserted.url, url);
     assert_eq!(inserted.url_class, UrlClass::ProductListing);
-    assert_eq!(inserted.state, UrlPresence::Present);
+    assert_eq!(inserted.disposition, CrawlerDisposition::Active);
     assert!(inserted.last_scraped.is_none());
     assert!(inserted.last_scraped_hash.is_none());
 
@@ -72,7 +72,7 @@ async fn should_insert_and_update_url_for_its_same_owner() {
     assert_eq!(updated.domain_id, domain_id);
     assert_eq!(updated.url, url);
     assert_eq!(updated.url_class, UrlClass::Other);
-    assert_eq!(updated.state, UrlPresence::Present);
+    assert_eq!(updated.disposition, CrawlerDisposition::Active);
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM listing_source_urls WHERE listing_source_id = $1 AND url = $2",
     )
@@ -112,12 +112,12 @@ async fn should_mark_owned_url_as_scraped() {
     assert_eq!(scraped.domain_id, domain_id);
     assert_eq!(scraped.last_scraped_hash.as_deref(), Some("content-hash"));
     assert!(scraped.last_scraped.is_some());
-    assert_eq!(scraped.state, UrlPresence::Present);
+    assert_eq!(scraped.disposition, CrawlerDisposition::Active);
 }
 
 #[serial_test::serial]
 #[aura_integration_test(services = [POSTGRES])]
-async fn should_update_presence_for_owned_url() {
+async fn should_update_disposition_for_owned_url() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
@@ -135,16 +135,16 @@ async fn should_update_presence_for_owned_url() {
         .unwrap();
 
     let withdrawn = repository
-        .set_presence(&listing_source_id, &url, &UrlPresence::Withdrawn)
+        .set_disposition(&listing_source_id, &url, CrawlerDisposition::DormantRemoved)
         .await
         .unwrap();
-    assert_eq!(withdrawn.state, UrlPresence::Withdrawn);
+    assert_eq!(withdrawn.disposition, CrawlerDisposition::DormantRemoved);
 
     let present = repository
-        .set_presence(&listing_source_id, &url, &UrlPresence::Present)
+        .set_disposition(&listing_source_id, &url, CrawlerDisposition::Active)
         .await
         .unwrap();
-    assert_eq!(present.state, UrlPresence::Present);
+    assert_eq!(present.disposition, CrawlerDisposition::Active);
     assert_eq!(present.domain_id, domain_id);
 }
 
@@ -175,14 +175,14 @@ async fn should_upsert_valid_url_batch_for_one_owned_domain() {
             && record.domain_id == domain_id
             && record.url == first
             && record.url_class == UrlClass::ProductListing
-            && record.state == UrlPresence::Present
+            && record.disposition == CrawlerDisposition::Active
     }));
     assert!(records.iter().any(|record| {
         record.listing_source_id == listing_source_id
             && record.domain_id == domain_id
             && record.url == second
             && record.url_class == UrlClass::Category
-            && record.state == UrlPresence::Present
+            && record.disposition == CrawlerDisposition::Active
     }));
 }
 

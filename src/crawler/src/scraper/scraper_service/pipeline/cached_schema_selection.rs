@@ -12,6 +12,7 @@ use crate::scraper::scraper_service::extraction::schema_candidates::{
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
+use money::Currency;
 use tracing::debug;
 use url::Url;
 
@@ -38,8 +39,16 @@ impl FreshSchemaGenerationReason {
     }
 }
 
+pub(crate) struct NormalizedSchemaSelection {
+    pub(crate) product: NormalizedProduct,
+    pub(crate) raw: RawExtractedProduct,
+    pub(crate) default_currency: Option<Currency>,
+    pub(crate) schema: ProductCssSelectorSchema,
+    pub(crate) fresh_schema: bool,
+}
+
 pub(crate) enum ExistingSchemaSelection {
-    Normalized(Box<NormalizedProduct>),
+    Normalized(Box<NormalizedSchemaSelection>),
     /// Cached selection cannot produce a valid product — generate a
     /// completely new schema for the current page. Never carries a cached
     /// schema as generation input.
@@ -217,14 +226,11 @@ impl ScraperServiceImpl {
         url: &Url,
         selected_schema: &ProductCssSelectorSchema,
         raw: RawExtractedProduct,
-    ) -> Result<NormalizedProduct, ScraperError> {
+    ) -> Result<NormalizedSchemaSelection, ScraperError> {
+        let default_currency = selected_schema.default_currency.map(Currency::from);
         match self
             .normalization_service
-            .normalize(
-                raw,
-                url.clone(),
-                selected_schema.default_currency.map(money::Currency::from),
-            )
+            .normalize(raw.clone(), url.clone(), default_currency)
             .await
         {
             Ok(NormalizationSuccess {
@@ -233,7 +239,13 @@ impl ScraperServiceImpl {
             }) => {
                 self.consume_llm_budget_n_or_err(listing_source_id, url, llm_calls_used)
                     .await?;
-                Ok(product)
+                Ok(NormalizedSchemaSelection {
+                    product,
+                    raw,
+                    default_currency,
+                    schema: selected_schema.clone(),
+                    fresh_schema: false,
+                })
             }
             Err(NormalizationFailure {
                 error,

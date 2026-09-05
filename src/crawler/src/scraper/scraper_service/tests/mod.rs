@@ -35,7 +35,7 @@ use crate::scraper::scraper_service::ScraperService;
 use crate::scraper::scraper_service::service::{
     DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, FetchedHtml, MockHtmlFetcher, ScraperServiceImpl,
 };
-use crate::spider::classification::url_metadata::UrlPresence;
+use crate::spider::classification::url_metadata::CrawlerDisposition;
 use localization::Language;
 use localization::Localized;
 use product_listing_core::listing_availability::ListingAvailability;
@@ -202,24 +202,13 @@ pub(super) fn normalization_failure(
     }
 }
 
+/// Crawler disposition changes only after the cron-owned canonical handoff, not inside scraping.
 pub(super) fn expect_successful_bookkeeping(
-    cand_svc: &mut MockScraperCandidateService,
-    listing_source_id: ListingSourceId,
-    url: Url,
-    state: UrlPresence,
+    _: &mut MockScraperCandidateService,
+    _: ListingSourceId,
+    _: Url,
+    _: CrawlerDisposition,
 ) {
-    let url_for_set_presence = url.clone();
-    cand_svc
-        .expect_set_presence()
-        .once()
-        .withf(
-            move |received_listing_source_id, received_url, received_state| {
-                *received_listing_source_id == listing_source_id
-                    && received_url == &url_for_set_presence
-                    && *received_state == state
-            },
-        )
-        .returning(|_, _, _| Box::pin(async { Ok(()) }));
 }
 
 pub(super) fn expect_budget_increment(cand_svc: &mut MockScraperCandidateService, times: usize) {

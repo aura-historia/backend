@@ -12,8 +12,9 @@ use product_listing_core::{
     description::Description, listing_availability::ListingAvailability,
     product_listing_id::ProductListingKey, title::Title,
 };
-use product_listing_service::use_cases::commands::upsert_product_listing::{
-    UpsertProductListingCommand, UpsertProductListingUseCase,
+use product_listing_service::use_cases::commands::{
+    upsert_product_listing::{UpsertProductListingCommand, UpsertProductListingUseCase},
+    withdraw_product_listing::{WithdrawProductListingError, WithdrawProductListingUseCase},
 };
 
 use std::{
@@ -33,6 +34,25 @@ use crate::scraper::normalization::product::NormalizedProduct;
 #[mockall::automock]
 pub trait ProductListingPushService: Send + Sync {
     async fn push(&self, products: Vec<ProductListingPushItem>) -> Vec<bool>;
+    async fn withdraw_verified_removal(
+        &self,
+        listing_source_id: ListingSourceId,
+        candidate_url: url::Url,
+    ) -> VerifiedRemovalWithdrawalOutcome;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerifiedRemovalWithdrawalOutcome {
+    Withdrawn,
+    AlreadyWithdrawn,
+    NoCanonicalListing,
+    Failed,
+}
+
+impl VerifiedRemovalWithdrawalOutcome {
+    pub fn is_terminal(self) -> bool {
+        !matches!(self, Self::Failed)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +64,7 @@ pub struct ProductListingPushItem {
 /// Pushes each command through the canonical ProductListing upsert use case.
 pub struct ProductListingPushServiceImpl {
     upsert_product: Arc<dyn UpsertProductListingUseCase>,
+    withdraw_product: Option<Arc<dyn WithdrawProductListingUseCase>>,
     max_concurrent_upserts: usize,
 }
 
@@ -57,8 +78,17 @@ impl ProductListingPushServiceImpl {
     ) -> Self {
         Self {
             upsert_product,
+            withdraw_product: None,
             max_concurrent_upserts: max_concurrent_upserts.max(1),
         }
+    }
+
+    pub fn with_withdraw_product(
+        mut self,
+        withdraw_product: Arc<dyn WithdrawProductListingUseCase>,
+    ) -> Self {
+        self.withdraw_product = Some(withdraw_product);
+        self
     }
 }
 
@@ -211,6 +241,54 @@ impl ProductListingPushService for ProductListingPushServiceImpl {
 
         results
     }
+
+    #[tracing::instrument(
+        name = "crawler_withdraw_verified_removal",
+        skip(self),
+        fields(listing_source_id = %listing_source_id, url = %candidate_url)
+    )]
+    async fn withdraw_verified_removal(
+        &self,
+        listing_source_id: ListingSourceId,
+        candidate_url: url::Url,
+    ) -> VerifiedRemovalWithdrawalOutcome {
+        let Some(withdraw_product) = &self.withdraw_product else {
+            warn!(
+                listing_source_id = %listing_source_id,
+                url = %candidate_url,
+                "Verified crawler removal cannot be withdrawn without canonical withdrawal wiring"
+            );
+            return VerifiedRemovalWithdrawalOutcome::Failed;
+        };
+        let context = crawler_removal_operation_context(listing_source_id, &candidate_url);
+        match withdraw_product
+            .execute_by_source_url(&context, listing_source_id, candidate_url.clone())
+            .await
+        {
+            Ok(result) => match result.outcome {
+                domain_primitives::change_outcome::ChangeOutcome::Changed => {
+                    VerifiedRemovalWithdrawalOutcome::Withdrawn
+                }
+                domain_primitives::change_outcome::ChangeOutcome::Unchanged => {
+                    VerifiedRemovalWithdrawalOutcome::AlreadyWithdrawn
+                }
+            },
+            Err(WithdrawProductListingError::NotFound) => {
+                VerifiedRemovalWithdrawalOutcome::NoCanonicalListing
+            }
+            Err(error) => {
+                warn!(
+                    error = %error,
+                    listing_source_id = %listing_source_id,
+                    url = %candidate_url,
+                    request_id = %context.request_id,
+                    correlation_id = %context.correlation_id,
+                    "Verified crawler removal withdrawal failed; URL remains active"
+                );
+                VerifiedRemovalWithdrawalOutcome::Failed
+            }
+        }
+    }
 }
 
 fn duplicate_product_command_error_kind(
@@ -227,10 +305,21 @@ fn crawler_operation_context(command: &UpsertProductListingCommand) -> Operation
         command.listing_source_id, command.source_listing_id
     );
 
+    crawler_operation_context_for(product_key)
+}
+
+fn crawler_removal_operation_context(
+    listing_source_id: ListingSourceId,
+    candidate_url: &url::Url,
+) -> OperationContext {
+    crawler_operation_context_for(format!("crawler:{listing_source_id}:{candidate_url}"))
+}
+
+fn crawler_operation_context_for(key: String) -> OperationContext {
     OperationContext {
         principal: Principal::Service("crawler".to_owned()),
-        request_id: RequestId::new(product_key.clone()),
-        correlation_id: CorrelationId::new(product_key),
+        request_id: RequestId::new(key.clone()),
+        correlation_id: CorrelationId::new(key),
     }
 }
 
@@ -491,6 +580,14 @@ impl ProductListingPushService for FileProductListingPushService {
                 vec![false; products.len()]
             }
         }
+    }
+
+    async fn withdraw_verified_removal(
+        &self,
+        _listing_source_id: ListingSourceId,
+        _candidate_url: url::Url,
+    ) -> VerifiedRemovalWithdrawalOutcome {
+        VerifiedRemovalWithdrawalOutcome::NoCanonicalListing
     }
 }
 
@@ -946,15 +1043,8 @@ mod tests {
             url_pattern: None,
             url: Url::parse("https://example.com/product/1")?,
             last_scraped_hash: None,
-            last_scraped_price: None,
-            last_scraped_price_estimate_min: None,
-            last_scraped_price_estimate_max: None,
-            last_scraped_url: None,
-            last_scraped_images_hash: None,
-            last_scraped_auction_start: None,
-            last_scraped_auction_end: None,
-            last_scraped_presence: "PRESENT".to_owned(),
-            last_scraped_availability: None,
+            last_scraped_schema_fingerprint: None,
+            last_captured_raw_input_sha256: None,
         };
         let product = NormalizedProduct {
             source_listing_id: SourceListingId::try_from("prod-1")

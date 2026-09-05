@@ -1,4 +1,3 @@
-use crate::scraper::candidate_service::ProductListingSnapshot;
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use listing_source_core::ListingSourceId;
@@ -13,9 +12,10 @@ pub struct ScrapedProduct {
     /// SHA-256 of the page's `<main>` fragment (or full HTML) that was used to
     /// detect whether the page had changed.
     pub hash: String,
-    /// Snapshot of the normalized product's tracked fields, serialized to the
-    /// same TEXT representation used in the database.
-    pub snapshot: ProductListingSnapshot,
+    /// Deterministic fingerprint of the effective ordered schema set.
+    pub schema_fingerprint: String,
+    /// Shared provider-neutral raw-input hash used for local change detection.
+    pub raw_input_sha256: Vec<u8>,
 }
 
 // ---------------------------------------------------------------------------
@@ -36,5 +36,6 @@ pub trait ScraperService: Send + Sync {
         url: &Url,
         product_url_pattern: Option<&str>,
         last_scraped_hash: Option<&str>,
+        last_scraped_schema_fingerprint: Option<&str>,
     ) -> Result<Option<ScrapedProduct>, ScraperError>;
 }

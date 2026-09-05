@@ -49,13 +49,13 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
     expect_budget_increment(&mut cand_svc, 1);
     let url_for_set_presence = url.clone();
     cand_svc
-        .expect_set_presence()
-        .once()
+        .expect_set_disposition()
+        .never()
         .withf(
             move |received_listing_source_id, received_url, received_state| {
                 *received_listing_source_id == id
                     && received_url == &url_for_set_presence
-                    && *received_state == UrlPresence::Present
+                    && *received_state == CrawlerDisposition::Active
             },
         )
         .returning(|_, _, _| Box::pin(async { Ok(()) }));
@@ -70,7 +70,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
     );
 
     let result = service
-        .scrape(&id, &url, None, None)
+        .scrape(&id, &url, None, None, None)
         .await
         .unwrap()
         .unwrap();
@@ -80,7 +80,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
         ListingAvailabilityQuickCheck::Resolved(ListingAvailability::SoldOut)
     );
     assert_eq!(
-        result.snapshot.availability.as_deref(),
-        Some(ListingAvailability::SoldOut.as_str())
+        result.product.availability,
+        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::SoldOut)
     );
 }

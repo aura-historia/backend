@@ -363,6 +363,7 @@ CREATE TABLE product_listings (
 );
 
 CREATE INDEX product_listings_listing_source_id_idx ON product_listings (listing_source_id);
+CREATE INDEX product_listings_listing_source_url_idx ON product_listings (listing_source_id, url);
 CREATE INDEX product_listings_lifecycle_updated_idx ON product_listings (lifecycle, updated DESC);
 CREATE INDEX product_listings_sale_observation_fx_rate_id_idx ON product_listings (sale_observation_fx_rate_id);
 

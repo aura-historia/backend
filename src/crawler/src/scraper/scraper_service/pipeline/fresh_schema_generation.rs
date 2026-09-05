@@ -1,13 +1,14 @@
 use crate::review::model::{PAGE_ROLE_TRIGGERING_GENERATION_PAGE, SchemaReviewPageInput};
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::normalization::error::{NormalizationError, NormalizationFailureScope};
-use crate::scraper::normalization::product::NormalizedProduct;
+
 use crate::scraper::normalization::product_normalization_service::{
     NormalizationFailure, NormalizationSuccess,
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
+use crate::scraper::scraper_service::pipeline::cached_schema_selection::NormalizedSchemaSelection;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
 use serde_json::json;
@@ -35,7 +36,7 @@ impl ScraperServiceImpl {
     pub(crate) async fn generate_fresh_schema_for_page(
         &self,
         ctx: FreshSchemaGenerationContext<'_>,
-    ) -> Result<NormalizedProduct, ScraperError> {
+    ) -> Result<NormalizedSchemaSelection, ScraperError> {
         let (generated_schema, mut reapplied, evaluation) = self
             .generate_single_schema_for_page(ctx.listing_source_id, ctx.url, ctx.html)
             .await?;
@@ -64,7 +65,7 @@ impl ScraperServiceImpl {
         match self
             .normalization_service
             .normalize(
-                reapplied,
+                reapplied.clone(),
                 ctx.url.clone(),
                 generated_schema.default_currency.map(money::Currency::from),
             )
@@ -96,7 +97,15 @@ impl ScraperServiceImpl {
                 {
                     GeneratedSchemaReviewOutcome::Persisted(_) => {
                         debug!(domain = ctx.domain, url = %ctx.url, "Freshly generated schema produced valid product");
-                        Ok(product)
+                        Ok(NormalizedSchemaSelection {
+                            product,
+                            raw: reapplied,
+                            default_currency: generated_schema
+                                .default_currency
+                                .map(money::Currency::from),
+                            schema: generated_schema,
+                            fresh_schema: true,
+                        })
                     }
                     GeneratedSchemaReviewOutcome::PendingReview(review_id) => {
                         Err(ScraperError::PendingSchemaReview {

@@ -86,7 +86,9 @@ use product_listing_postgres::{
     SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventAppenderFactory,
     SqlxProductListingRepositoryFactory,
 };
-use product_listing_service::use_cases::UpsertProductListingHandler;
+use product_listing_service::use_cases::{
+    UpsertProductListingHandler, WithdrawProductListingHandler,
+};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use std::time::Duration;
@@ -496,10 +498,19 @@ async fn main() {
             SqlxProductListingEventAppenderFactory::new(),
             SqlxPartnerProductListingAuthorizerFactory::new(),
         );
-        let product_push = Box::new(ProductListingPushServiceImpl::new(
-            Arc::new(upsert_product),
-            config.effective_push_max_concurrency(),
-        ));
+        let withdraw_product = WithdrawProductListingHandler::new(
+            SqlxUnitOfWork::new(business_pool.clone()),
+            SqlxProductListingRepositoryFactory::new(),
+            SqlxProductListingEventAppenderFactory::new(),
+            SqlxPartnerProductListingAuthorizerFactory::new(),
+        );
+        let product_push = Box::new(
+            ProductListingPushServiceImpl::new(
+                Arc::new(upsert_product),
+                config.effective_push_max_concurrency(),
+            )
+            .with_withdraw_product(Arc::new(withdraw_product)),
+        );
 
         let db_max_connections = config.effective_db_max_connections();
         let scraper_max_llm_calls_per_listing_source =

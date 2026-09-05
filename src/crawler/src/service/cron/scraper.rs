@@ -1,13 +1,12 @@
 use super::job::CrawlerCronJob;
 use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for};
-use crate::scraper::candidate_service::{
-    ProductListingSnapshot, ScraperCandidate, ScraperCandidateService,
-};
+use crate::scraper::candidate_service::{ScraperCandidate, ScraperCandidateService};
 use crate::scraper::scraper_service::{ScraperError, ScraperService};
 use crate::service::product_push::{
     ProductListingPushItem, ProductListingPushService, normalize_to_upsert,
 };
 use crate::spider::advisory_lock::{ListingSourceLock, LocalLockManager, UrlLock};
+use crate::spider::classification::url_metadata::CrawlerDisposition;
 use listing_source_core::ListingSourceId;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -21,6 +20,7 @@ use tracing::{Instrument, debug, error, info, warn};
 struct ScrapeDomainContext {
     scraper: Arc<dyn ScraperService>,
     scraper_candidates: Arc<dyn ScraperCandidateService>,
+    product_push: Arc<dyn ProductListingPushService>,
     lock_manager: Arc<LocalLockManager>,
     command_tx: mpsc::Sender<QueuedProductListingPush>,
     budget_exhausted_listing_sources: Arc<Mutex<HashSet<ListingSourceId>>>,
@@ -34,7 +34,9 @@ struct CandidateMeta {
     listing_source_id: listing_source_core::ListingSourceId,
     url: url::Url,
     hash: String,
-    snapshot: ProductListingSnapshot,
+    schema_fingerprint: String,
+    raw_input_sha256: Vec<u8>,
+    disposition: CrawlerDisposition,
 }
 
 struct QueuedProductListingPush {
@@ -119,7 +121,9 @@ async fn flush_batch(
                     &meta.listing_source_id,
                     &meta.url,
                     &meta.hash,
-                    &meta.snapshot,
+                    &meta.schema_fingerprint,
+                    &meta.raw_input_sha256,
+                    meta.disposition,
                 )
                 .await
             {
@@ -172,6 +176,79 @@ async fn enqueue_product_push(
         url = %candidate.url
     )
 )]
+async fn handle_verified_removal(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeDomainContext,
+) -> ScrapeCandidateOutcome {
+    let withdrawal = ctx
+        .product_push
+        .withdraw_verified_removal(candidate.listing_source_id, candidate.url.clone())
+        .await;
+
+    if !withdrawal.is_terminal() {
+        warn!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            outcome = ?withdrawal,
+            "Verified crawler removal was not committed canonically; URL remains active"
+        );
+        if let Err(error) = ctx
+            .scraper_candidates
+            .mark_scraper_failure(
+                &candidate.listing_source_id,
+                &candidate.url,
+                "CanonicalWithdrawalFailed",
+                "verified removal could not be withdrawn canonically",
+            )
+            .await
+        {
+            warn!(error = %error, "Failed to persist canonical withdrawal failure metadata");
+        }
+        return ScrapeCandidateOutcome {
+            command: None,
+            errored: true,
+            skipped: false,
+        };
+    }
+
+    match ctx
+        .scraper_candidates
+        .set_disposition(
+            &candidate.listing_source_id,
+            &candidate.url,
+            CrawlerDisposition::DormantRemoved,
+        )
+        .await
+    {
+        Ok(()) => {
+            info!(
+                listing_source_id = %candidate.listing_source_id,
+                url = %candidate.url,
+                outcome = ?withdrawal,
+                "Verified crawler removal committed; URL is dormant"
+            );
+            ScrapeCandidateOutcome {
+                command: None,
+                errored: false,
+                skipped: false,
+            }
+        }
+        Err(error) => {
+            warn!(
+                error = %error,
+                listing_source_id = %candidate.listing_source_id,
+                url = %candidate.url,
+                "Canonical withdrawal committed but crawler disposition update failed"
+            );
+            ScrapeCandidateOutcome {
+                command: None,
+                errored: true,
+                skipped: false,
+            }
+        }
+    }
+}
+
 async fn scrape_candidate(
     candidate: ScraperCandidate,
     ctx: &ScrapeDomainContext,
@@ -228,29 +305,74 @@ async fn scrape_candidate(
             &candidate.url,
             candidate.url_pattern.as_deref(),
             candidate.last_scraped_hash.as_deref(),
+            candidate.last_scraped_schema_fingerprint.as_deref(),
         )
         .await
     {
         Ok(Some(scraped)) => {
-            let raw_attributes = scraped.product.raw_attributes.clone();
+            let disposition = match scraped.product.availability {
+                product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
+                    product_listing_core::listing_availability::ListingAvailability::SoldOut,
+                ) => CrawlerDisposition::DormantSold,
+                product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(_)
+                | product_listing_normalization::ListingAvailabilityQuickCheck::NoAssertion
+                | product_listing_normalization::ListingAvailabilityQuickCheck::Unsupported => {
+                    CrawlerDisposition::Active
+                }
+            };
             let meta = CandidateMeta {
                 listing_source_id: candidate.listing_source_id,
                 url: candidate.url.clone(),
                 hash: scraped.hash,
-                snapshot: scraped.snapshot,
+                schema_fingerprint: scraped.schema_fingerprint,
+                raw_input_sha256: scraped.raw_input_sha256,
+                disposition,
             };
-            ScrapeCandidateOutcome {
-                command: normalize_to_upsert(scraped.product, &candidate).map(|command| {
-                    (
-                        ProductListingPushItem {
-                            command,
-                            raw_attributes,
-                        },
-                        meta,
+
+            if candidate.last_captured_raw_input_sha256.as_deref()
+                == Some(meta.raw_input_sha256.as_slice())
+            {
+                match ctx
+                    .scraper_candidates
+                    .mark_as_scraped(
+                        &meta.listing_source_id,
+                        &meta.url,
+                        &meta.hash,
+                        &meta.schema_fingerprint,
+                        &meta.raw_input_sha256,
+                        meta.disposition,
                     )
-                }),
-                errored: false,
-                skipped: false,
+                    .await
+                {
+                    Ok(()) => ScrapeCandidateOutcome {
+                        command: None,
+                        errored: false,
+                        skipped: false,
+                    },
+                    Err(error) => {
+                        warn!(error = %error, url = %meta.url, "Failed to persist unchanged raw scrape metadata");
+                        ScrapeCandidateOutcome {
+                            command: None,
+                            errored: true,
+                            skipped: false,
+                        }
+                    }
+                }
+            } else {
+                let raw_attributes = scraped.product.raw_attributes.clone();
+                ScrapeCandidateOutcome {
+                    command: normalize_to_upsert(scraped.product, &candidate).map(|command| {
+                        (
+                            ProductListingPushItem {
+                                command,
+                                raw_attributes,
+                            },
+                            meta,
+                        )
+                    }),
+                    errored: false,
+                    skipped: false,
+                }
             }
         }
         Ok(None) => ScrapeCandidateOutcome {
@@ -258,6 +380,9 @@ async fn scrape_candidate(
             errored: false,
             skipped: true,
         },
+        Err(ScraperError::ProductListingRemoved { .. }) => {
+            handle_verified_removal(&candidate, ctx).await
+        }
         Err(e) => {
             let error_message = e.to_string();
             let is_llm_budget_exceeded = matches!(&e, ScraperError::LlmBudgetExceeded { .. });
@@ -402,6 +527,8 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::FreshSchemaNormalizationFailed { .. } => "FreshSchemaNormalizationFailed",
         ScraperError::LlmBudgetExceeded { .. } => "LlmBudgetExceeded",
         ScraperError::NormalizationError(_) => "NormalizationError",
+        ScraperError::RawNormalizationInput(_) => "RawNormalizationInput",
+        ScraperError::SchemaFingerprint(_) => "SchemaFingerprint",
         ScraperError::PendingSchemaReview { .. } => "PendingSchemaReview",
     }
 }
@@ -582,6 +709,7 @@ impl CrawlerCronJob {
                 {
                     let scraper = Arc::clone(&self.scraper_service);
                     let scraper_candidates = Arc::clone(&self.scraper_candidates);
+                    let product_push = Arc::clone(&self.product_push);
                     let lock_manager = Arc::clone(&self.lock_manager);
                     let domain_tx = command_tx.clone();
                     let budget_exhausted_listing_sources =
@@ -597,6 +725,7 @@ impl CrawlerCronJob {
                             let ctx = ScrapeDomainContext {
                                 scraper,
                                 scraper_candidates,
+                                product_push,
                                 lock_manager,
                                 command_tx: domain_tx,
                                 budget_exhausted_listing_sources,
@@ -743,7 +872,9 @@ mod tests {
     use crate::scraper::scraper_service::MockScraperService;
     use crate::service::cron::config::CrawlerCronConfig;
     use crate::service::cron::test_support::{noop_listing_source_registration, scraper_candidate};
-    use crate::service::product_push::MockProductListingPushService;
+    use crate::service::product_push::{
+        MockProductListingPushService, VerifiedRemovalWithdrawalOutcome,
+    };
     use crate::spider::advisory_lock::LocalLockManager;
     use crate::spider::candidate_service::MockSpiderCandidateService;
     use crate::spider::service::MockSpiderService;
@@ -799,16 +930,9 @@ mod tests {
             listing_source_id,
             url: url::Url::parse(url).unwrap(),
             hash: hash.to_owned(),
-            snapshot: ProductListingSnapshot {
-                price: None,
-                price_estimate_min: None,
-                price_estimate_max: None,
-                url: url.to_owned(),
-                images_hash: String::new(),
-                auction_start: None,
-                auction_end: None,
-                availability: Some("AVAILABLE".to_owned()),
-            },
+            schema_fingerprint: "schema-fingerprint".to_owned(),
+            raw_input_sha256: vec![3; 32],
+            disposition: CrawlerDisposition::Active,
         }
     }
 
@@ -827,12 +951,12 @@ mod tests {
         scraper_candidates
             .expect_mark_as_scraped()
             .once()
-            .withf(move |listing_source_id, url, hash, _| {
+            .withf(move |listing_source_id, url, hash, _, _, _| {
                 *listing_source_id == first_listing_source_id
                     && url == &first_url
                     && hash == "first"
             })
-            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
 
         let push_service: Arc<dyn ProductListingPushService> = Arc::new(push_service);
         let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
@@ -880,12 +1004,12 @@ mod tests {
         scraper_candidates
             .expect_mark_as_scraped()
             .once()
-            .withf(move |listing_source_id, url, hash, _| {
+            .withf(move |listing_source_id, url, hash, _, _, _| {
                 *listing_source_id == first_listing_source_id
                     && url == &first_url
                     && hash == "first"
             })
-            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
 
         let push_service: Arc<dyn ProductListingPushService> = Arc::new(push_service);
         let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
@@ -988,7 +1112,7 @@ mod tests {
         scraper_candidates
             .expect_mark_as_scraped()
             .once()
-            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
 
         let (tx, rx) = mpsc::channel(2);
         let collector = tokio::spawn(run_push_collector(
@@ -1040,7 +1164,7 @@ mod tests {
         scraper_candidates
             .expect_mark_as_scraped()
             .times(2)
-            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
 
         let (tx, rx) = mpsc::channel(2);
         let collector = tokio::spawn(run_push_collector(
@@ -1124,11 +1248,25 @@ mod tests {
         scraper_candidates: MockScraperCandidateService,
         scraper_service: MockScraperService,
     ) -> ScrapeDomainContext {
+        let product_push: Arc<dyn ProductListingPushService> = Arc::new(*no_push_service());
+        scrape_candidate_context_with_product_push(
+            scraper_candidates,
+            scraper_service,
+            product_push,
+        )
+    }
+
+    fn scrape_candidate_context_with_product_push(
+        scraper_candidates: MockScraperCandidateService,
+        scraper_service: MockScraperService,
+        product_push: Arc<dyn ProductListingPushService>,
+    ) -> ScrapeDomainContext {
         let (command_tx, _command_rx) = tokio::sync::mpsc::channel(1);
 
         ScrapeDomainContext {
             scraper: Arc::new(scraper_service),
             scraper_candidates: Arc::new(scraper_candidates),
+            product_push,
             lock_manager: Arc::new(LocalLockManager::new()),
             command_tx,
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
@@ -1151,7 +1289,7 @@ mod tests {
         let mut scraper_service = MockScraperService::new();
         scraper_service
             .expect_scrape()
-            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(None) }));
 
         let job = scraper_job(
             CrawlerCronConfig::default(),
@@ -1191,16 +1329,18 @@ mod tests {
             .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service.expect_scrape().returning(|_, url, _, _| {
-            let url = url.clone();
-            Box::pin(async move {
-                Err(ScraperError::HttpError {
-                    url,
-                    kind: crate::network::policy::NetworkErrorKind::Timeout,
-                    details: "timeout".to_string(),
+        scraper_service
+            .expect_scrape()
+            .returning(|_, url, _, _, _| {
+                let url = url.clone();
+                Box::pin(async move {
+                    Err(ScraperError::HttpError {
+                        url,
+                        kind: crate::network::policy::NetworkErrorKind::Timeout,
+                        details: "timeout".to_string(),
+                    })
                 })
-            })
-        });
+            });
 
         let job = scraper_job(
             CrawlerCronConfig::default(),
@@ -1209,6 +1349,113 @@ mod tests {
         );
 
         job.run_scraper_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_mark_removed_url_dormant_only_after_canonical_withdrawal() {
+        let url = url::Url::parse("https://example.com/product/removed").unwrap();
+        let candidate = scraper_candidate("ListingSource", url.clone());
+        let listing_source_id = candidate.listing_source_id;
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .once()
+            .returning(move |_, _, _, _, _| {
+                let url = url.clone();
+                Box::pin(async move {
+                    Err(ScraperError::ProductListingRemoved {
+                        url,
+                        details: "verified removal".to_owned(),
+                    })
+                })
+            });
+
+        let mut product_push = MockProductListingPushService::new();
+        product_push
+            .expect_withdraw_verified_removal()
+            .once()
+            .withf(move |source_id, candidate_url| {
+                *source_id == listing_source_id
+                    && candidate_url.as_str() == "https://example.com/product/removed"
+            })
+            .returning(|_, _| Box::pin(async { VerifiedRemovalWithdrawalOutcome::Withdrawn }));
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_set_disposition()
+            .once()
+            .withf(move |source_id, candidate_url, disposition| {
+                *source_id == listing_source_id
+                    && candidate_url.as_str() == "https://example.com/product/removed"
+                    && *disposition == CrawlerDisposition::DormantRemoved
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+
+        let outcome = scrape_candidate(
+            candidate,
+            &scrape_candidate_context_with_product_push(
+                scraper_candidates,
+                scraper_service,
+                Arc::new(product_push),
+            ),
+        )
+        .await;
+
+        assert!(!outcome.errored);
+        assert!(!outcome.skipped);
+        assert!(outcome.command.is_none());
+    }
+
+    #[tokio::test]
+    async fn should_keep_removed_url_active_when_canonical_withdrawal_fails() {
+        let url = url::Url::parse("https://example.com/product/removed").unwrap();
+        let candidate = scraper_candidate("ListingSource", url.clone());
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .once()
+            .returning(move |_, _, _, _, _| {
+                let url = url.clone();
+                Box::pin(async move {
+                    Err(ScraperError::ProductListingRemoved {
+                        url,
+                        details: "verified removal".to_owned(),
+                    })
+                })
+            });
+
+        let mut product_push = MockProductListingPushService::new();
+        product_push
+            .expect_withdraw_verified_removal()
+            .once()
+            .returning(|_, _| Box::pin(async { VerifiedRemovalWithdrawalOutcome::Failed }));
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_scraper_failure()
+            .once()
+            .withf(|_, _, kind, message| {
+                kind == "CanonicalWithdrawalFailed"
+                    && message == "verified removal could not be withdrawn canonically"
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+        scraper_candidates.expect_set_disposition().never();
+
+        let outcome = scrape_candidate(
+            candidate,
+            &scrape_candidate_context_with_product_push(
+                scraper_candidates,
+                scraper_service,
+                Arc::new(product_push),
+            ),
+        )
+        .await;
+
+        assert!(outcome.errored);
+        assert!(!outcome.skipped);
+        assert!(outcome.command.is_none());
     }
 
     #[tokio::test]
@@ -1234,7 +1481,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .once()
-            .returning(|_, url, _, _| {
+            .returning(|_, url, _, _, _| {
                 let url = url.clone();
                 Box::pin(async move {
                     Err(ScraperError::HttpError {
@@ -1275,7 +1522,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .once()
-            .returning(|_, url, _, _| {
+            .returning(|_, url, _, _, _| {
                 let url = url.clone();
                 Box::pin(async move {
                     Err(ScraperError::HttpError {
@@ -1325,7 +1572,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(2)
-            .returning(move |_, url, _, _| {
+            .returning(move |_, url, _, _, _| {
                 let url = url.clone();
                 let attempt = scrape_count_for_mock.fetch_add(1, Ordering::SeqCst);
                 Box::pin(async move {
@@ -1387,7 +1634,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(2)
-            .returning(move |_, url, _, _| {
+            .returning(move |_, url, _, _, _| {
                 let url = url.clone();
                 let attempt = scrape_count_for_mock.fetch_add(1, Ordering::SeqCst);
                 Box::pin(async move {
@@ -1435,7 +1682,7 @@ mod tests {
         let mut scraper_service = MockScraperService::new();
         scraper_service
             .expect_scrape()
-            .returning(|listing_source_id, url, _, _| {
+            .returning(|listing_source_id, url, _, _, _| {
                 let url = url.clone();
                 let listing_source_id = *listing_source_id;
                 Box::pin(async move {
@@ -1493,7 +1740,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .once()
-            .returning(|_, url, _, _| {
+            .returning(|_, url, _, _, _| {
                 let url = url.clone();
                 Box::pin(async move {
                     Err(ScraperError::PendingSchemaReview {
@@ -1534,7 +1781,7 @@ mod tests {
         let mut scraper_service = MockScraperService::new();
         scraper_service
             .expect_scrape()
-            .returning(|_, url, _, _| {
+            .returning(|_, url, _, _, _| {
                 let url = url.clone();
                 Box::pin(async move {
                     Err(ScraperError::FreshSchemaNormalizationFailed {
@@ -1585,7 +1832,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .once()
-            .returning(|_, url, _, _| {
+            .returning(|_, url, _, _, _| {
                 let url = url.clone();
                 Box::pin(async move {
                     Err(ScraperError::SchemaClassificationRejected {
@@ -1626,7 +1873,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(2)
-            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(None) }));
 
         let job = scraper_job(
             CrawlerCronConfig::default(),
@@ -1682,7 +1929,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(3)
-            .returning(move |_, url, _, _| {
+            .returning(move |_, url, _, _, _| {
                 let url = url.clone();
                 let release_slow = Arc::clone(&release_slow_for_mock);
                 let slow_running = Arc::clone(&slow_running_for_mock);
@@ -1746,7 +1993,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .once()
-            .returning(|_, _, _, _| {
+            .returning(|_, _, _, _, _| {
                 Box::pin(async {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     Ok(None)
@@ -1787,7 +2034,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(1)
-            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(None) }));
 
         let lock_manager = Arc::new(LocalLockManager::new());
         let prelocked = url::Url::parse("https://domain-a.com/product/1").unwrap();
@@ -1834,7 +2081,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(3)
-            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _, _, _, _| Box::pin(async { Ok(None) }));
 
         let job = scraper_job(
             CrawlerCronConfig::default(),
