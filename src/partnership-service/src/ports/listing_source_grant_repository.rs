@@ -22,6 +22,12 @@ impl ListingSourceGrantOutcome {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListingSourceGrantRemoveOutcome {
+    Removed,
+    AlreadyAbsent,
+}
+
 #[async_trait::async_trait]
 pub trait ListingSourceGrantRepository: Send {
     async fn grant_source_access(
@@ -29,6 +35,12 @@ pub trait ListingSourceGrantRepository: Send {
         partnership_id: PartnershipId,
         listing_source_id: ListingSourceId,
     ) -> Result<ListingSourceGrantOutcome, PartnershipGrantError>;
+
+    async fn remove_source_access(
+        &mut self,
+        partnership_id: PartnershipId,
+        listing_source_id: ListingSourceId,
+    ) -> Result<ListingSourceGrantRemoveOutcome, PartnershipGrantError>;
 }
 
 pub trait ListingSourceGrantRepositoryFactory<Tx>: Send + Sync {

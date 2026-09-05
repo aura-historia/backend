@@ -1,3 +1,4 @@
+mod delete_listing_source_grant;
 mod delete_member;
 mod get_admin;
 mod list_admin;
@@ -23,7 +24,8 @@ pub(crate) fn router(state: PartnershipsState) -> Router {
         )
         .route(
             "/api/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}",
-            put(put_listing_source_grant::put_listing_source_grant),
+            put(put_listing_source_grant::put_listing_source_grant)
+                .delete(delete_listing_source_grant::delete_listing_source_grant),
         )
         .with_state(state)
 }

@@ -25,6 +25,7 @@ PostgreSQL is the sole production owner of notifications and external-delivery i
 PostgreSQL is authoritative for Partnerships, Party identity, membership, and ListingSource grants.
 
 - `partnerships` has one row per Party (`party_id` is unique); `partnership_members` and `partnership_listing_source_grants` hold membership and source access.
+- Source-grant revocation explicitly deletes only the targeted `(partnership_id, listing_source_id)` join row; deleting an absent row is a successful no-op and does not remove historical or referenced records.
 - The admin Partnership collection reader uses one joined query and counts distinct members and ListingSource grants. Exact `partyId`, `memberUserId`, and `listingSourceId` filters use `EXISTS`, so filtering does not reduce the returned counts.
 - The admin Partnership detail reader uses one joined PostgreSQL statement with correlated, UUID-ordered association arrays. It returns at most 100 member IDs and 100 ListingSource IDs using SQL-side limits, plus complete member/grant counts; empty associations decode as empty arrays. It performs no N+1 reads.
 - The safe admin read models contain only Partnership ID, Party ID/immutable slug/name, member and grant references or counts, and `created`/`updated`. They omit Party contact, persistence `version`, provider credentials, webhook secrets, and crawler-local configuration.

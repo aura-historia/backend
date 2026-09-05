@@ -100,6 +100,10 @@ mod tests {
                 GrantPartnershipMembershipCommand, GrantPartnershipMembershipError,
                 GrantPartnershipMembershipResult, GrantPartnershipMembershipUseCase,
             },
+            revoke_partnership_listing_source::{
+                RevokePartnershipListingSourceCommand, RevokePartnershipListingSourceError,
+                RevokePartnershipListingSourceResult, RevokePartnershipListingSourceUseCase,
+            },
             revoke_partnership_membership::{
                 RevokePartnershipMembershipCommand, RevokePartnershipMembershipError,
                 RevokePartnershipMembershipResult, RevokePartnershipMembershipUseCase,
@@ -221,6 +225,23 @@ mod tests {
     }
 
     #[derive(Clone, Copy)]
+    struct UnusedRevokePartnershipListingSourceUseCase;
+
+    #[async_trait::async_trait]
+    impl RevokePartnershipListingSourceUseCase for UnusedRevokePartnershipListingSourceUseCase {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _command: RevokePartnershipListingSourceCommand,
+        ) -> Result<RevokePartnershipListingSourceResult, RevokePartnershipListingSourceError>
+        {
+            Err(RevokePartnershipListingSourceError::Internal {
+                source: static_error("listing source grant revoke is not used by this test"),
+            })
+        }
+    }
+
+    #[derive(Clone, Copy)]
     struct FakeAuthenticator {
         user_id: UserId,
         reject: bool,
@@ -266,6 +287,7 @@ mod tests {
                 outcome: Arc::new(Mutex::new(Some(outcome))),
                 requests,
             }),
+            Arc::new(UnusedRevokePartnershipListingSourceUseCase),
             Arc::new(FakeAuthenticator {
                 user_id: UserId::from(Uuid::from_u128(0x880e8400e29b41d4a716446655440000)),
                 reject: reject_auth,

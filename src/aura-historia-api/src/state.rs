@@ -29,6 +29,7 @@ use partnership_service::use_cases::{
         grant_partnership_membership::GrantPartnershipMembershipUseCase,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewUseCase,
         reject_partnership_application::RejectPartnershipApplicationUseCase,
+        revoke_partnership_listing_source::RevokePartnershipListingSourceUseCase,
         revoke_partnership_membership::RevokePartnershipMembershipUseCase,
         submit_partnership_application::SubmitPartnershipApplicationUseCase,
         withdraw_partnership_application::WithdrawPartnershipApplicationUseCase,
@@ -648,6 +649,7 @@ pub struct PartnershipsState {
     pub(crate) grant_member: Arc<dyn GrantPartnershipMembershipUseCase>,
     pub(crate) revoke_member: Arc<dyn RevokePartnershipMembershipUseCase>,
     pub(crate) grant_listing_source: Arc<dyn GrantPartnershipListingSourceUseCase>,
+    pub(crate) revoke_listing_source: Arc<dyn RevokePartnershipListingSourceUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
@@ -658,6 +660,7 @@ impl PartnershipsState {
         grant_member: Arc<dyn GrantPartnershipMembershipUseCase>,
         revoke_member: Arc<dyn RevokePartnershipMembershipUseCase>,
         grant_listing_source: Arc<dyn GrantPartnershipListingSourceUseCase>,
+        revoke_listing_source: Arc<dyn RevokePartnershipListingSourceUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
@@ -666,6 +669,7 @@ impl PartnershipsState {
             grant_member,
             revoke_member,
             grant_listing_source,
+            revoke_listing_source,
             authenticator,
         }
     }

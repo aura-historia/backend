@@ -25,6 +25,7 @@ use partnership_service::use_cases::{
         grant_partnership_membership::GrantPartnershipMembershipError,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewError,
         reject_partnership_application::RejectPartnershipApplicationError,
+        revoke_partnership_listing_source::RevokePartnershipListingSourceError,
         revoke_partnership_membership::RevokePartnershipMembershipError,
         submit_partnership_application::SubmitPartnershipApplicationError,
         withdraw_partnership_application::WithdrawPartnershipApplicationError,
@@ -2071,6 +2072,34 @@ impl From<GrantPartnershipListingSourceError> for ApiError {
             }
             GrantPartnershipListingSourceError::InvalidPersistedState { .. }
             | GrantPartnershipListingSourceError::Internal { .. } => {
+                ApiError::internal_server_error(PARTNERSHIP_INTERNAL_ERROR)
+                    .with_detail("Partnership ListingSource grant failed internally.")
+            }
+        }
+    }
+}
+
+impl From<RevokePartnershipListingSourceError> for ApiError {
+    fn from(error: RevokePartnershipListingSourceError) -> Self {
+        match error {
+            RevokePartnershipListingSourceError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            RevokePartnershipListingSourceError::PartnershipNotFound => {
+                ApiError::not_found(PARTNERSHIP_NOT_FOUND).with_detail("Partnership was not found.")
+            }
+            RevokePartnershipListingSourceError::ListingSourceNotFound => {
+                ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
+                    .with_detail("Listing source was not found.")
+            }
+            RevokePartnershipListingSourceError::TemporarilyUnavailable { .. }
+            | RevokePartnershipListingSourceError::BeginTransactionFailed
+            | RevokePartnershipListingSourceError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTNERSHIP_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Partnership ListingSource grant is temporarily unavailable.")
+            }
+            RevokePartnershipListingSourceError::InvalidPersistedState { .. }
+            | RevokePartnershipListingSourceError::Internal { .. } => {
                 ApiError::internal_server_error(PARTNERSHIP_INTERNAL_ERROR)
                     .with_detail("Partnership ListingSource grant failed internally.")
             }

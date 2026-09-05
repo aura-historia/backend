@@ -8,15 +8,15 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
+use listing_source_core::ListingSourceId;
 use partnership_core::partnership_id::PartnershipId;
-use partnership_service::use_cases::commands::grant_partnership_membership::GrantPartnershipMembershipCommand;
-use user_core::user_id::UserId;
+use partnership_service::use_cases::commands::revoke_partnership_listing_source::RevokePartnershipListingSourceCommand;
 use uuid::Uuid;
 
-pub(super) async fn put_member(
+pub(super) async fn delete_listing_source_grant(
     State(state): State<PartnershipsState>,
     headers: HeaderMap,
-    Path((raw_partnership_id, raw_user_id)): Path<(String, String)>,
+    Path((raw_partnership_id, raw_listing_source_id)): Path<(String, String)>,
 ) -> Response {
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
@@ -26,18 +26,18 @@ pub(super) async fn put_member(
         Ok(value) => value,
         Err(error) => return no_store(error.into_response()),
     };
-    let user_id = match parse_user_id(&raw_user_id) {
+    let listing_source_id = match parse_listing_source_id(&raw_listing_source_id) {
         Ok(value) => value,
         Err(error) => return no_store(error.into_response()),
     };
 
     match state
-        .grant_member
+        .revoke_listing_source
         .execute(
             &context,
-            GrantPartnershipMembershipCommand {
+            RevokePartnershipListingSourceCommand {
                 partnership_id,
-                user_id,
+                listing_source_id,
             },
         )
         .await
@@ -55,12 +55,14 @@ fn parse_partnership_id(raw: &str) -> Result<PartnershipId, ApiError> {
     })
 }
 
-fn parse_user_id(raw: &str) -> Result<UserId, ApiError> {
-    Uuid::parse_str(raw).map(UserId::from).map_err(|_| {
-        ApiError::bad_request(INVALID_UUID)
-            .with_path_field("userId")
-            .with_detail("Path parameter 'userId' must be a UUID.")
-    })
+fn parse_listing_source_id(raw: &str) -> Result<ListingSourceId, ApiError> {
+    Uuid::parse_str(raw)
+        .map(ListingSourceId::from)
+        .map_err(|_| {
+            ApiError::bad_request(INVALID_UUID)
+                .with_path_field("listingSourceId")
+                .with_detail("Path parameter 'listingSourceId' must be a UUID.")
+        })
 }
 
 fn no_store(mut response: Response) -> Response {
@@ -85,7 +87,7 @@ mod tests {
         Router,
         body::{Body, to_bytes},
         http::{Request, StatusCode},
-        routing::put,
+        routing::delete,
     };
     use partnership_service::use_cases::{
         commands::{
@@ -95,12 +97,12 @@ mod tests {
             },
             grant_partnership_membership::{
                 GrantPartnershipMembershipCommand, GrantPartnershipMembershipError,
-                GrantPartnershipMembershipOutcome, GrantPartnershipMembershipResult,
-                GrantPartnershipMembershipUseCase,
+                GrantPartnershipMembershipResult, GrantPartnershipMembershipUseCase,
             },
             revoke_partnership_listing_source::{
                 RevokePartnershipListingSourceCommand, RevokePartnershipListingSourceError,
-                RevokePartnershipListingSourceResult, RevokePartnershipListingSourceUseCase,
+                RevokePartnershipListingSourceOutcome, RevokePartnershipListingSourceResult,
+                RevokePartnershipListingSourceUseCase,
             },
             revoke_partnership_membership::{
                 RevokePartnershipMembershipCommand, RevokePartnershipMembershipError,
@@ -121,28 +123,34 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex, MutexGuard};
     use tower::ServiceExt;
+    use user_core::user_id::UserId;
 
     type Outcome = Arc<
-        Mutex<Option<Result<GrantPartnershipMembershipResult, GrantPartnershipMembershipError>>>,
+        Mutex<
+            Option<
+                Result<RevokePartnershipListingSourceResult, RevokePartnershipListingSourceError>,
+            >,
+        >,
     >;
-    type Requests = Arc<Mutex<Vec<(OperationContext, GrantPartnershipMembershipCommand)>>>;
+    type Requests = Arc<Mutex<Vec<(OperationContext, RevokePartnershipListingSourceCommand)>>>;
 
     #[derive(Clone)]
-    struct FakeGrantPartnershipMembershipUseCase {
+    struct FakeRevokePartnershipListingSourceUseCase {
         outcome: Outcome,
         requests: Requests,
     }
 
     #[async_trait::async_trait]
-    impl GrantPartnershipMembershipUseCase for FakeGrantPartnershipMembershipUseCase {
+    impl RevokePartnershipListingSourceUseCase for FakeRevokePartnershipListingSourceUseCase {
         async fn execute(
             &self,
             context: &OperationContext,
-            command: GrantPartnershipMembershipCommand,
-        ) -> Result<GrantPartnershipMembershipResult, GrantPartnershipMembershipError> {
+            command: RevokePartnershipListingSourceCommand,
+        ) -> Result<RevokePartnershipListingSourceResult, RevokePartnershipListingSourceError>
+        {
             lock(&self.requests).push((context.clone(), command));
             lock(&self.outcome).take().unwrap_or_else(|| {
-                Err(GrantPartnershipMembershipError::Internal {
+                Err(RevokePartnershipListingSourceError::Internal {
                     source: static_error("test outcome was not configured"),
                 })
             })
@@ -171,22 +179,6 @@ mod tests {
     }
 
     #[derive(Clone, Copy)]
-    struct UnusedRevokePartnershipMembershipUseCase;
-
-    #[async_trait::async_trait]
-    impl RevokePartnershipMembershipUseCase for UnusedRevokePartnershipMembershipUseCase {
-        async fn execute(
-            &self,
-            _context: &OperationContext,
-            _command: RevokePartnershipMembershipCommand,
-        ) -> Result<RevokePartnershipMembershipResult, RevokePartnershipMembershipError> {
-            Err(RevokePartnershipMembershipError::Internal {
-                source: static_error("membership revoke is not used by this test"),
-            })
-        }
-    }
-
-    #[derive(Clone, Copy)]
     struct UnusedGetAdminPartnershipUseCase;
 
     #[async_trait::async_trait]
@@ -198,6 +190,38 @@ mod tests {
         ) -> Result<AdminPartnershipDetailsView, GetAdminPartnershipError> {
             Err(GetAdminPartnershipError::Internal {
                 source: static_error("admin detail is not used by this test"),
+            })
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct UnusedGrantPartnershipMembershipUseCase;
+
+    #[async_trait::async_trait]
+    impl GrantPartnershipMembershipUseCase for UnusedGrantPartnershipMembershipUseCase {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _command: GrantPartnershipMembershipCommand,
+        ) -> Result<GrantPartnershipMembershipResult, GrantPartnershipMembershipError> {
+            Err(GrantPartnershipMembershipError::Internal {
+                source: static_error("membership grant is not used by this test"),
+            })
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct UnusedRevokePartnershipMembershipUseCase;
+
+    #[async_trait::async_trait]
+    impl RevokePartnershipMembershipUseCase for UnusedRevokePartnershipMembershipUseCase {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _command: RevokePartnershipMembershipCommand,
+        ) -> Result<RevokePartnershipMembershipResult, RevokePartnershipMembershipError> {
+            Err(RevokePartnershipMembershipError::Internal {
+                source: static_error("membership revoke is not used by this test"),
             })
         }
     }
@@ -215,23 +239,6 @@ mod tests {
         {
             Err(GrantPartnershipListingSourceError::Internal {
                 source: static_error("listing source grant is not used by this test"),
-            })
-        }
-    }
-
-    #[derive(Clone, Copy)]
-    struct UnusedRevokePartnershipListingSourceUseCase;
-
-    #[async_trait::async_trait]
-    impl RevokePartnershipListingSourceUseCase for UnusedRevokePartnershipListingSourceUseCase {
-        async fn execute(
-            &self,
-            _context: &OperationContext,
-            _command: RevokePartnershipListingSourceCommand,
-        ) -> Result<RevokePartnershipListingSourceResult, RevokePartnershipListingSourceError>
-        {
-            Err(RevokePartnershipListingSourceError::Internal {
-                source: static_error("listing source grant revoke is not used by this test"),
             })
         }
     }
@@ -269,20 +276,20 @@ mod tests {
     }
 
     fn test_router(
-        outcome: Result<GrantPartnershipMembershipResult, GrantPartnershipMembershipError>,
+        outcome: Result<RevokePartnershipListingSourceResult, RevokePartnershipListingSourceError>,
         requests: Requests,
         reject_auth: bool,
     ) -> Router {
         let state = PartnershipsState::new(
             Arc::new(UnusedListAdminPartnershipsUseCase),
             Arc::new(UnusedGetAdminPartnershipUseCase),
-            Arc::new(FakeGrantPartnershipMembershipUseCase {
+            Arc::new(UnusedGrantPartnershipMembershipUseCase),
+            Arc::new(UnusedRevokePartnershipMembershipUseCase),
+            Arc::new(UnusedGrantPartnershipListingSourceUseCase),
+            Arc::new(FakeRevokePartnershipListingSourceUseCase {
                 outcome: Arc::new(Mutex::new(Some(outcome))),
                 requests,
             }),
-            Arc::new(UnusedRevokePartnershipMembershipUseCase),
-            Arc::new(UnusedGrantPartnershipListingSourceUseCase),
-            Arc::new(UnusedRevokePartnershipListingSourceUseCase),
             Arc::new(FakeAuthenticator {
                 user_id: UserId::from(Uuid::from_u128(0x880e8400e29b41d4a716446655440000)),
                 reject: reject_auth,
@@ -290,15 +297,15 @@ mod tests {
         );
         Router::new()
             .route(
-                "/api/v1/admin/partnerships/{partnership_id}/members/{user_id}",
-                put(super::put_member),
+                "/api/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}",
+                delete(super::delete_listing_source_grant),
             )
             .with_state(state)
     }
 
     fn request(uri: &str, authorization: Option<&str>) -> Request<Body> {
         let mut builder = Request::builder()
-            .method("PUT")
+            .method("DELETE")
             .uri(uri)
             .header("X-Request-Id", "request-123")
             .header("X-Correlation-Id", "correlation-456");
@@ -310,21 +317,23 @@ mod tests {
             .unwrap_or_else(|error| panic!("failed to create request: {error}"))
     }
 
-    fn success(outcome: GrantPartnershipMembershipOutcome) -> GrantPartnershipMembershipResult {
-        GrantPartnershipMembershipResult { outcome }
+    fn success(
+        outcome: RevokePartnershipListingSourceOutcome,
+    ) -> RevokePartnershipListingSourceResult {
+        RevokePartnershipListingSourceResult { outcome }
     }
 
     #[tokio::test]
-    async fn should_return_204_for_added_and_existing_membership()
+    async fn should_return_204_for_removed_and_absent_grant()
     -> Result<(), Box<dyn std::error::Error>> {
-        for membership_outcome in [
-            GrantPartnershipMembershipOutcome::Added,
-            GrantPartnershipMembershipOutcome::AlreadyMember,
+        for outcome in [
+            RevokePartnershipListingSourceOutcome::Removed,
+            RevokePartnershipListingSourceOutcome::AlreadyAbsent,
         ] {
             let requests = Arc::new(Mutex::new(Vec::new()));
-            let response = test_router(Ok(success(membership_outcome)), Arc::clone(&requests), false)
+            let response = test_router(Ok(success(outcome)), Arc::clone(&requests), false)
                 .oneshot(request(
-                    "/api/v1/admin/partnerships/770e8400-e29b-41d4-a716-446655440000/members/660e8400-e29b-41d4-a716-446655440000",
+                    "/api/v1/admin/partnerships/770e8400-e29b-41d4-a716-446655440000/listing-source-grants/990e8400-e29b-41d4-a716-446655440000",
                     Some("Bearer valid"),
                 ))
                 .await?;
@@ -341,12 +350,12 @@ mod tests {
             let requests = lock(&requests);
             assert_eq!(1, requests.len());
             assert_eq!(
-                PartnershipId::from(Uuid::from_u128(0x770e8400e29b41d4a716446655440000,)),
+                PartnershipId::from(Uuid::from_u128(0x770e8400e29b41d4a716446655440000)),
                 requests[0].1.partnership_id
             );
             assert_eq!(
-                UserId::from(Uuid::from_u128(0x660e8400e29b41d4a716446655440000,)),
-                requests[0].1.user_id
+                ListingSourceId::from(Uuid::from_u128(0x990e8400e29b41d4a716446655440000)),
+                requests[0].1.listing_source_id
             );
             assert_eq!("request-123", requests[0].0.request_id.as_str());
             assert_eq!("correlation-456", requests[0].0.correlation_id.as_str());
@@ -359,17 +368,17 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         for (path, field) in [
             (
-                "/api/v1/admin/partnerships/not-a-uuid/members/660e8400-e29b-41d4-a716-446655440000",
+                "/api/v1/admin/partnerships/not-a-uuid/listing-source-grants/990e8400-e29b-41d4-a716-446655440000",
                 "partnershipId",
             ),
             (
-                "/api/v1/admin/partnerships/770e8400-e29b-41d4-a716-446655440000/members/not-a-uuid",
-                "userId",
+                "/api/v1/admin/partnerships/770e8400-e29b-41d4-a716-446655440000/listing-source-grants/not-a-uuid",
+                "listingSourceId",
             ),
         ] {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let response = test_router(
-                Ok(success(GrantPartnershipMembershipOutcome::Added)),
+                Ok(success(RevokePartnershipListingSourceOutcome::Removed)),
                 Arc::clone(&requests),
                 false,
             )
@@ -400,12 +409,12 @@ mod tests {
         for (authorization, reject_auth) in [(None, false), (Some("Bearer invalid"), true)] {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let response = test_router(
-                Ok(success(GrantPartnershipMembershipOutcome::Added)),
+                Ok(success(RevokePartnershipListingSourceOutcome::Removed)),
                 Arc::clone(&requests),
                 reject_auth,
             )
             .oneshot(request(
-                "/api/v1/admin/partnerships/770e8400-e29b-41d4-a716-446655440000/members/660e8400-e29b-41d4-a716-446655440000",
+                "/api/v1/admin/partnerships/770e8400-e29b-41d4-a716-446655440000/listing-source-grants/990e8400-e29b-41d4-a716-446655440000",
                 authorization,
             ))
             .await?;
@@ -431,48 +440,48 @@ mod tests {
     async fn should_map_service_errors_to_api_problems() -> Result<(), Box<dyn std::error::Error>> {
         let cases = [
             (
-                GrantPartnershipMembershipError::Forbidden,
+                RevokePartnershipListingSourceError::Forbidden,
                 StatusCode::FORBIDDEN,
                 "FORBIDDEN",
             ),
             (
-                GrantPartnershipMembershipError::PartnershipNotFound,
+                RevokePartnershipListingSourceError::PartnershipNotFound,
                 StatusCode::NOT_FOUND,
                 "PARTNERSHIP_NOT_FOUND",
             ),
             (
-                GrantPartnershipMembershipError::UserNotFound,
+                RevokePartnershipListingSourceError::ListingSourceNotFound,
                 StatusCode::NOT_FOUND,
-                "USER_NOT_FOUND",
+                "LISTING_SOURCE_NOT_FOUND",
             ),
             (
-                GrantPartnershipMembershipError::TemporarilyUnavailable {
+                RevokePartnershipListingSourceError::TemporarilyUnavailable {
                     source: static_error("temporary"),
                 },
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PARTNERSHIP_TEMPORARILY_UNAVAILABLE",
             ),
             (
-                GrantPartnershipMembershipError::InvalidPersistedState {
+                RevokePartnershipListingSourceError::InvalidPersistedState {
                     source: static_error("invalid"),
                 },
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "PARTNERSHIP_INTERNAL_ERROR",
             ),
             (
-                GrantPartnershipMembershipError::Internal {
+                RevokePartnershipListingSourceError::Internal {
                     source: static_error("internal"),
                 },
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "PARTNERSHIP_INTERNAL_ERROR",
             ),
             (
-                GrantPartnershipMembershipError::BeginTransactionFailed,
+                RevokePartnershipListingSourceError::BeginTransactionFailed,
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PARTNERSHIP_TEMPORARILY_UNAVAILABLE",
             ),
             (
-                GrantPartnershipMembershipError::CommitTransactionFailed,
+                RevokePartnershipListingSourceError::CommitTransactionFailed,
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PARTNERSHIP_TEMPORARILY_UNAVAILABLE",
             ),
@@ -482,7 +491,7 @@ mod tests {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let response = test_router(Err(error), Arc::clone(&requests), false)
                 .oneshot(request(
-                    "/api/v1/admin/partnerships/770e8400-e29b-41d4-a716-446655440000/members/660e8400-e29b-41d4-a716-446655440000",
+                    "/api/v1/admin/partnerships/770e8400-e29b-41d4-a716-446655440000/listing-source-grants/990e8400-e29b-41d4-a716-446655440000",
                     Some("Bearer valid"),
                 ))
                 .await?;
@@ -496,10 +505,8 @@ mod tests {
                     .and_then(|value| value.to_str().ok())
             );
             let body = to_bytes(response.into_body(), usize::MAX).await?;
-            let body: serde_json::Value =
-                serde_json::from_slice(&body).unwrap_or_else(|decode_error| {
-                    panic!("failed to decode error response: {decode_error}")
-                });
+            let body: serde_json::Value = serde_json::from_slice(&body)
+                .unwrap_or_else(|error| panic!("failed to decode error response: {error}"));
             assert_eq!(code, body["error"]);
         }
         Ok(())

@@ -73,6 +73,7 @@ use partnership_service::use_cases::{
         grant_partnership_membership::GrantPartnershipMembershipHandler,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewHandler,
         reject_partnership_application::RejectPartnershipApplicationHandler,
+        revoke_partnership_listing_source::RevokePartnershipListingSourceHandler,
         revoke_partnership_membership::RevokePartnershipMembershipHandler,
         submit_partnership_application::SubmitPartnershipApplicationHandler,
         withdraw_partnership_application::WithdrawPartnershipApplicationHandler,
@@ -970,6 +971,13 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         SqlxListingSourceGrantRepositoryFactory::new(),
         user_postgres::SqlxUserAdminReaderFactory::new(),
     );
+    let revoke_partnership_listing_source = RevokePartnershipListingSourceHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnershipRepositoryFactory::new(),
+        SqlxListingSourceRepositoryFactory::new(),
+        SqlxListingSourceGrantRepositoryFactory::new(),
+        user_postgres::SqlxUserAdminReaderFactory::new(),
+    );
     let get_partnership_application = GetPartnershipApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnershipApplicationRepositoryFactory::new(),
@@ -1268,6 +1276,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::new(grant_partnership_membership),
         Arc::new(revoke_partnership_membership),
         Arc::new(grant_partnership_listing_source),
+        Arc::new(revoke_partnership_listing_source),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 

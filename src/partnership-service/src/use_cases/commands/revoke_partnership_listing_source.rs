@@ -13,56 +13,54 @@ use partnership_core::partnership_id::PartnershipId;
 use user_service::ports::UserAdminReaderFactory;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GrantPartnershipListingSourceCommand {
+pub struct RevokePartnershipListingSourceCommand {
     pub partnership_id: PartnershipId,
     pub listing_source_id: ListingSourceId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GrantPartnershipListingSourceOutcome {
-    Granted,
-    AlreadyGranted,
+pub enum RevokePartnershipListingSourceOutcome {
+    Removed,
+    AlreadyAbsent,
 }
 
-impl GrantPartnershipListingSourceOutcome {
+impl RevokePartnershipListingSourceOutcome {
     pub fn changed(self) -> bool {
-        matches!(self, Self::Granted)
+        matches!(self, Self::Removed)
     }
 
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Granted => "granted",
-            Self::AlreadyGranted => "already_granted",
+            Self::Removed => "removed",
+            Self::AlreadyAbsent => "already_absent",
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GrantPartnershipListingSourceResult {
-    pub outcome: GrantPartnershipListingSourceOutcome,
+pub struct RevokePartnershipListingSourceResult {
+    pub outcome: RevokePartnershipListingSourceOutcome,
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum GrantPartnershipListingSourceError {
+pub enum RevokePartnershipListingSourceError {
     #[error("operation not permitted")]
     Forbidden,
     #[error("partnership not found")]
     PartnershipNotFound,
     #[error("listing source not found")]
     ListingSourceNotFound,
-    #[error("partnership and listing source belong to different Parties")]
-    PartnershipPartyMismatch,
-    #[error("temporary Partnership ListingSource grant failure")]
+    #[error("temporary Partnership ListingSource grant revocation failure")]
     TemporarilyUnavailable {
         #[source]
         source: BoxError,
     },
-    #[error("invalid persisted Partnership ListingSource grant state")]
+    #[error("invalid persisted Partnership ListingSource grant revocation state")]
     InvalidPersistedState {
         #[source]
         source: BoxError,
     },
-    #[error("internal Partnership ListingSource grant failure")]
+    #[error("internal Partnership ListingSource grant revocation failure")]
     Internal {
         #[source]
         source: BoxError,
@@ -74,15 +72,15 @@ pub enum GrantPartnershipListingSourceError {
 }
 
 #[async_trait::async_trait]
-pub trait GrantPartnershipListingSourceUseCase: Send + Sync {
+pub trait RevokePartnershipListingSourceUseCase: Send + Sync {
     async fn execute(
         &self,
         context: &OperationContext,
-        command: GrantPartnershipListingSourceCommand,
-    ) -> Result<GrantPartnershipListingSourceResult, GrantPartnershipListingSourceError>;
+        command: RevokePartnershipListingSourceCommand,
+    ) -> Result<RevokePartnershipListingSourceResult, RevokePartnershipListingSourceError>;
 }
 
-pub struct GrantPartnershipListingSourceHandler<U, P, S, G, A> {
+pub struct RevokePartnershipListingSourceHandler<U, P, S, G, A> {
     unit_of_work: U,
     partnerships: P,
     sources: S,
@@ -90,7 +88,7 @@ pub struct GrantPartnershipListingSourceHandler<U, P, S, G, A> {
     admins: A,
 }
 
-impl<U, P, S, G, A> GrantPartnershipListingSourceHandler<U, P, S, G, A> {
+impl<U, P, S, G, A> RevokePartnershipListingSourceHandler<U, P, S, G, A> {
     pub fn new(unit_of_work: U, partnerships: P, sources: S, grants: G, admins: A) -> Self {
         Self {
             unit_of_work,
@@ -103,8 +101,8 @@ impl<U, P, S, G, A> GrantPartnershipListingSourceHandler<U, P, S, G, A> {
 }
 
 #[async_trait::async_trait]
-impl<U, P, S, G, A> GrantPartnershipListingSourceUseCase
-    for GrantPartnershipListingSourceHandler<U, P, S, G, A>
+impl<U, P, S, G, A> RevokePartnershipListingSourceUseCase
+    for RevokePartnershipListingSourceHandler<U, P, S, G, A>
 where
     U: UnitOfWork,
     P: PartnershipRepositoryFactory<U::Tx>,
@@ -113,7 +111,7 @@ where
     A: UserAdminReaderFactory<U::Tx>,
 {
     #[tracing::instrument(
-        name = "grant_partnership_listing_source",
+        name = "revoke_partnership_listing_source",
         skip_all,
         fields(
             partnership_id = %command.partnership_id,
@@ -130,8 +128,8 @@ where
     async fn execute(
         &self,
         context: &OperationContext,
-        command: GrantPartnershipListingSourceCommand,
-    ) -> Result<GrantPartnershipListingSourceResult, GrantPartnershipListingSourceError> {
+        command: RevokePartnershipListingSourceCommand,
+    ) -> Result<RevokePartnershipListingSourceResult, RevokePartnershipListingSourceError> {
         if let Some(actor_id) = context.principal.actor_id() {
             tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
         }
@@ -141,45 +139,39 @@ where
                 .unit_of_work
                 .begin()
                 .await
-                .map_err(|_| GrantPartnershipListingSourceError::BeginTransactionFailed)?;
+                .map_err(|_| RevokePartnershipListingSourceError::BeginTransactionFailed)?;
 
             authorize_admin(context, &mut tx, &self.admins).await?;
 
-            let partnership = self
-                .partnerships
+            self.partnerships
                 .in_transaction(&mut tx)
                 .find_by_id(command.partnership_id)
                 .await?
-                .ok_or(GrantPartnershipListingSourceError::PartnershipNotFound)?;
+                .ok_or(RevokePartnershipListingSourceError::PartnershipNotFound)?;
 
-            let source = self
-                .sources
+            self.sources
                 .in_transaction(&mut tx)
                 .find_by_id(command.listing_source_id)
                 .await?
-                .ok_or(GrantPartnershipListingSourceError::ListingSourceNotFound)?;
-
-            if partnership.value.party_id() != source.source.operator_party_id() {
-                return Err(GrantPartnershipListingSourceError::PartnershipPartyMismatch);
-            }
+                .ok_or(RevokePartnershipListingSourceError::ListingSourceNotFound)?;
 
             let outcome = self
                 .grants
                 .in_transaction(&mut tx)
-                .grant_source_access(command.partnership_id, command.listing_source_id)
+                .remove_source_access(command.partnership_id, command.listing_source_id)
                 .await?;
 
             tx.commit()
                 .await
-                .map_err(|_| GrantPartnershipListingSourceError::CommitTransactionFailed)?;
+                .map_err(|_| RevokePartnershipListingSourceError::CommitTransactionFailed)?;
 
-            Ok(GrantPartnershipListingSourceResult {
+            Ok(RevokePartnershipListingSourceResult {
                 outcome: match outcome {
-                    ListingSourceGrantOutcome::Granted => {
-                        GrantPartnershipListingSourceOutcome::Granted
+                    ListingSourceGrantRemoveOutcome::Removed => {
+                        RevokePartnershipListingSourceOutcome::Removed
                     }
-                    ListingSourceGrantOutcome::AlreadyGranted => {
-                        GrantPartnershipListingSourceOutcome::AlreadyGranted
+                    ListingSourceGrantRemoveOutcome::AlreadyAbsent => {
+                        RevokePartnershipListingSourceOutcome::AlreadyAbsent
                     }
                 },
             })
@@ -195,8 +187,8 @@ where
                 tracing::Span::current().record("grant_outcome", grant_outcome);
                 tracing::Span::current().record("outcome", "success");
                 tracing::info!(
-                    event = "partnership.listing_source_grant.granted",
-                    action = "grant_partnership_listing_source",
+                    event = "partnership.listing_source_grant.revoked",
+                    action = "revoke_partnership_listing_source",
                     actor_type = context.principal.kind(),
                     actor_id = actor_id.as_deref().unwrap_or(""),
                     target_type = "partnership_listing_source_grant",
@@ -214,8 +206,8 @@ where
                 tracing::Span::current().record("grant_outcome", "unknown");
                 tracing::Span::current().record("outcome", "failure");
                 tracing::warn!(
-                    event = "partnership.listing_source_grant.granted",
-                    action = "grant_partnership_listing_source",
+                    event = "partnership.listing_source_grant.revoked",
+                    action = "revoke_partnership_listing_source",
                     actor_type = context.principal.kind(),
                     actor_id = actor_id.as_deref().unwrap_or(""),
                     target_type = "partnership_listing_source_grant",
@@ -235,7 +227,7 @@ where
     }
 }
 
-impl From<AdminAuthorizationError> for GrantPartnershipListingSourceError {
+impl From<AdminAuthorizationError> for RevokePartnershipListingSourceError {
     fn from(value: AdminAuthorizationError) -> Self {
         match value {
             AdminAuthorizationError::Forbidden => Self::Forbidden,
@@ -250,7 +242,7 @@ impl From<AdminAuthorizationError> for GrantPartnershipListingSourceError {
     }
 }
 
-impl From<PartnershipRepositoryError> for GrantPartnershipListingSourceError {
+impl From<PartnershipRepositoryError> for RevokePartnershipListingSourceError {
     fn from(value: PartnershipRepositoryError) -> Self {
         match value {
             PartnershipRepositoryError::TemporarilyUnavailable { source } => {
@@ -264,7 +256,7 @@ impl From<PartnershipRepositoryError> for GrantPartnershipListingSourceError {
     }
 }
 
-impl From<ListingSourceRepositoryError> for GrantPartnershipListingSourceError {
+impl From<ListingSourceRepositoryError> for RevokePartnershipListingSourceError {
     fn from(value: ListingSourceRepositoryError) -> Self {
         match value {
             ListingSourceRepositoryError::TemporarilyUnavailable { source } => {
@@ -285,7 +277,7 @@ impl From<ListingSourceRepositoryError> for GrantPartnershipListingSourceError {
     }
 }
 
-impl From<PartnershipGrantError> for GrantPartnershipListingSourceError {
+impl From<PartnershipGrantError> for RevokePartnershipListingSourceError {
     fn from(value: PartnershipGrantError) -> Self {
         match value {
             PartnershipGrantError::TemporarilyUnavailable { source } => {
@@ -324,13 +316,13 @@ mod tests {
         partnership: Option<Partnership>,
         source: Option<StoredListingSource>,
         admin: Option<UserAdminActorView>,
-        grant_outcome: Option<ListingSourceGrantOutcome>,
-        grant_error: Option<PartnershipGrantError>,
+        remove_outcome: Option<ListingSourceGrantRemoveOutcome>,
+        remove_error: Option<PartnershipGrantError>,
         begin_fails: bool,
         commit_fails: bool,
         partnership_reads: usize,
         source_reads: usize,
-        grant_calls: usize,
+        remove_calls: usize,
         commit_attempts: usize,
         commits: usize,
     }
@@ -515,14 +507,9 @@ mod tests {
             _partnership_id: PartnershipId,
             _listing_source_id: ListingSourceId,
         ) -> Result<ListingSourceGrantOutcome, PartnershipGrantError> {
-            let mut state = lock(&self.state);
-            state.grant_calls += 1;
-            if let Some(error) = state.grant_error.take() {
-                return Err(error);
-            }
-            Ok(state
-                .grant_outcome
-                .unwrap_or(ListingSourceGrantOutcome::Granted))
+            Err(PartnershipGrantError::Internal {
+                source: static_error("unexpected listing source grant"),
+            })
         }
 
         async fn remove_source_access(
@@ -530,9 +517,14 @@ mod tests {
             _partnership_id: PartnershipId,
             _listing_source_id: ListingSourceId,
         ) -> Result<ListingSourceGrantRemoveOutcome, PartnershipGrantError> {
-            Err(PartnershipGrantError::Internal {
-                source: static_error("unexpected listing source grant removal"),
-            })
+            let mut state = lock(&self.state);
+            state.remove_calls += 1;
+            if let Some(error) = state.remove_error.take() {
+                return Err(error);
+            }
+            Ok(state
+                .remove_outcome
+                .unwrap_or(ListingSourceGrantRemoveOutcome::Removed))
         }
     }
 
@@ -597,7 +589,7 @@ mod tests {
                     user_id: UserId::new(),
                     role: UserRole::Admin,
                 }),
-                grant_outcome: Some(ListingSourceGrantOutcome::Granted),
+                remove_outcome: Some(ListingSourceGrantRemoveOutcome::Removed),
                 ..State::default()
             },
             partnership_id,
@@ -605,7 +597,7 @@ mod tests {
         )
     }
 
-    type Handler = GrantPartnershipListingSourceHandler<
+    type Handler = RevokePartnershipListingSourceHandler<
         FakeUnitOfWork,
         FakeFactories,
         FakeFactories,
@@ -617,7 +609,7 @@ mod tests {
         let factories = FakeFactories {
             state: Arc::clone(&state),
         };
-        GrantPartnershipListingSourceHandler::new(
+        RevokePartnershipListingSourceHandler::new(
             FakeUnitOfWork { state },
             factories.clone(),
             factories.clone(),
@@ -627,13 +619,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_grant_listing_source_access_and_commit_one_transaction() {
+    async fn should_remove_listing_source_access_and_commit_one_transaction() {
         let (state, partnership_id, listing_source_id) = valid_state();
         let state = Arc::new(Mutex::new(state));
         let result = handler(Arc::clone(&state))
             .execute(
                 &context(),
-                GrantPartnershipListingSourceCommand {
+                RevokePartnershipListingSourceCommand {
                     partnership_id,
                     listing_source_id,
                 },
@@ -642,28 +634,28 @@ mod tests {
 
         assert!(matches!(
             result,
-            Ok(GrantPartnershipListingSourceResult {
-                outcome: GrantPartnershipListingSourceOutcome::Granted
+            Ok(RevokePartnershipListingSourceResult {
+                outcome: RevokePartnershipListingSourceOutcome::Removed
             })
         ));
         let state = lock(&state);
         assert_eq!(1, state.partnership_reads);
         assert_eq!(1, state.source_reads);
-        assert_eq!(1, state.grant_calls);
+        assert_eq!(1, state.remove_calls);
         assert_eq!(1, state.commit_attempts);
         assert_eq!(1, state.commits);
     }
 
     #[tokio::test]
-    async fn should_commit_existing_listing_source_grant_as_successful_no_op() {
+    async fn should_commit_absent_listing_source_grant_as_successful_no_op() {
         let (mut state, partnership_id, listing_source_id) = valid_state();
-        state.grant_outcome = Some(ListingSourceGrantOutcome::AlreadyGranted);
+        state.remove_outcome = Some(ListingSourceGrantRemoveOutcome::AlreadyAbsent);
         let state = Arc::new(Mutex::new(state));
 
         let result = handler(Arc::clone(&state))
             .execute(
                 &context(),
-                GrantPartnershipListingSourceCommand {
+                RevokePartnershipListingSourceCommand {
                     partnership_id,
                     listing_source_id,
                 },
@@ -672,47 +664,22 @@ mod tests {
 
         assert!(matches!(
             result,
-            Ok(GrantPartnershipListingSourceResult {
-                outcome: GrantPartnershipListingSourceOutcome::AlreadyGranted
+            Ok(RevokePartnershipListingSourceResult {
+                outcome: RevokePartnershipListingSourceOutcome::AlreadyAbsent
             })
         ));
         assert_eq!(1, lock(&state).commits);
     }
 
     #[tokio::test]
-    async fn should_reject_partnership_and_listing_source_party_mismatch() {
-        let (mut state, partnership_id, listing_source_id) = valid_state();
-        state.source = Some(source(listing_source_id, PartyId::new()));
-        let state = Arc::new(Mutex::new(state));
-
-        let result = handler(Arc::clone(&state))
-            .execute(
-                &context(),
-                GrantPartnershipListingSourceCommand {
-                    partnership_id,
-                    listing_source_id,
-                },
-            )
-            .await;
-
-        assert!(matches!(
-            result,
-            Err(GrantPartnershipListingSourceError::PartnershipPartyMismatch)
-        ));
-        let state = lock(&state);
-        assert_eq!(0, state.grant_calls);
-        assert_eq!(0, state.commit_attempts);
-    }
-
-    #[tokio::test]
-    async fn should_reject_missing_references_without_granting() {
+    async fn should_reject_missing_references_without_removing() {
         let (mut missing_partnership, partnership_id, listing_source_id) = valid_state();
         missing_partnership.partnership = None;
         let missing_partnership = Arc::new(Mutex::new(missing_partnership));
         let result = handler(Arc::clone(&missing_partnership))
             .execute(
                 &context(),
-                GrantPartnershipListingSourceCommand {
+                RevokePartnershipListingSourceCommand {
                     partnership_id,
                     listing_source_id,
                 },
@@ -720,7 +687,7 @@ mod tests {
             .await;
         assert!(matches!(
             result,
-            Err(GrantPartnershipListingSourceError::PartnershipNotFound)
+            Err(RevokePartnershipListingSourceError::PartnershipNotFound)
         ));
         assert_eq!(0, lock(&missing_partnership).source_reads);
 
@@ -730,7 +697,7 @@ mod tests {
         let result = handler(Arc::clone(&missing_source))
             .execute(
                 &context(),
-                GrantPartnershipListingSourceCommand {
+                RevokePartnershipListingSourceCommand {
                     partnership_id,
                     listing_source_id,
                 },
@@ -738,10 +705,10 @@ mod tests {
             .await;
         assert!(matches!(
             result,
-            Err(GrantPartnershipListingSourceError::ListingSourceNotFound)
+            Err(RevokePartnershipListingSourceError::ListingSourceNotFound)
         ));
         let state = lock(&missing_source);
-        assert_eq!(0, state.grant_calls);
+        assert_eq!(0, state.remove_calls);
         assert_eq!(0, state.commit_attempts);
     }
 
@@ -757,7 +724,7 @@ mod tests {
         let result = handler(Arc::clone(&state))
             .execute(
                 &context(),
-                GrantPartnershipListingSourceCommand {
+                RevokePartnershipListingSourceCommand {
                     partnership_id,
                     listing_source_id,
                 },
@@ -766,27 +733,27 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(GrantPartnershipListingSourceError::Forbidden)
+            Err(RevokePartnershipListingSourceError::Forbidden)
         ));
         let state = lock(&state);
         assert_eq!(0, state.partnership_reads);
         assert_eq!(0, state.source_reads);
-        assert_eq!(0, state.grant_calls);
+        assert_eq!(0, state.remove_calls);
         assert_eq!(0, state.commit_attempts);
     }
 
     #[tokio::test]
-    async fn should_not_commit_when_grant_persistence_fails() {
+    async fn should_not_commit_when_grant_removal_persistence_fails() {
         let (mut state, partnership_id, listing_source_id) = valid_state();
-        state.grant_error = Some(PartnershipGrantError::Internal {
-            source: static_error("grant insert failed"),
+        state.remove_error = Some(PartnershipGrantError::Internal {
+            source: static_error("grant removal failed"),
         });
         let state = Arc::new(Mutex::new(state));
 
         let result = handler(Arc::clone(&state))
             .execute(
                 &context(),
-                GrantPartnershipListingSourceCommand {
+                RevokePartnershipListingSourceCommand {
                     partnership_id,
                     listing_source_id,
                 },
@@ -795,10 +762,10 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(GrantPartnershipListingSourceError::Internal { .. })
+            Err(RevokePartnershipListingSourceError::Internal { .. })
         ));
         let state = lock(&state);
-        assert_eq!(1, state.grant_calls);
+        assert_eq!(1, state.remove_calls);
         assert_eq!(0, state.commit_attempts);
         assert_eq!(0, state.commits);
     }

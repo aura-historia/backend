@@ -900,6 +900,21 @@ mod tests {
                 ListingSourceGrantOutcome::AlreadyGranted
             })
         }
+
+        async fn remove_source_access(
+            &mut self,
+            partnership_id: PartnershipId,
+            listing_source_id: ListingSourceId,
+        ) -> Result<ListingSourceGrantRemoveOutcome, PartnershipGrantError> {
+            let removed = lock(&self.state)
+                .grants
+                .remove(&(partnership_id, listing_source_id));
+            Ok(if removed {
+                ListingSourceGrantRemoveOutcome::Removed
+            } else {
+                ListingSourceGrantRemoveOutcome::AlreadyAbsent
+            })
+        }
     }
 
     struct FakeState {

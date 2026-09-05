@@ -86,6 +86,22 @@ async fn put_partnership_listing_source_grant(
         .unwrap_or_else(|error| panic!("failed to grant Partnership ListingSource access: {error}"))
 }
 
+async fn delete_partnership_listing_source_grant(
+    token: &str,
+    partnership_id: &str,
+    listing_source_id: &str,
+) -> reqwest::Response {
+    reqwest::Client::new()
+        .delete(format!(
+            "{}/api/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to revoke Partnership ListingSource access: {error}"))
+}
+
 async fn delete_partnership_member(
     token: &str,
     partnership_id: &str,
@@ -739,6 +755,157 @@ async fn should_grant_admin_partnership_listing_source_idempotently_and_enable_p
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_revoke_admin_partnership_listing_source_idempotently_and_preserve_related_records()
+{
+    let pool = get_postgres_client().await;
+    seed_current_fx_snapshot(&pool).await;
+    let partner_id = seed_user("USER").await;
+    let (application_id, partnership_id, listing_source_id) =
+        seed_approved_partnership_application(
+            partner_id,
+            datetime!(2026-08-20 12:00 UTC),
+            datetime!(2026-08-20 12:00 UTC),
+        )
+        .await;
+    seed_partnership_membership(partner_id, listing_source_id).await;
+    seed_operator_partnership_listing_source_grant(listing_source_id).await;
+    let admin_id = seed_user("ADMIN").await;
+    let admin_token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let partner_token = String::from(
+        seed_access_token_for(
+            partner_id,
+            std::collections::HashSet::from([Scope::ProductListingsWrite]),
+        )
+        .await,
+    );
+
+    let before_revoke = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/listing-sources/{listing_source_id}/product-listings",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(&partner_token)
+        .json(&json!([{
+            "sourceListingId": "listing-source-grant-before-revoke",
+            "title": {"text": "Partner listing", "language": "en"},
+            "description": {"text": "Partner listing", "language": "en"},
+            "availability": "AVAILABLE",
+            "url": "https://partner.example/listing-source-grant-before-revoke",
+            "images": []
+        }]))
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to verify partner authorization before ListingSource revoke: {error}")
+        });
+    assert_eq!(reqwest::StatusCode::OK, before_revoke.status());
+
+    for _ in 0..2 {
+        let response = delete_partnership_listing_source_grant(
+            &admin_token,
+            &partnership_id.to_string(),
+            &listing_source_id.to_string(),
+        )
+        .await;
+        assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+        assert_no_store(
+            response
+                .headers()
+                .get(reqwest::header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned),
+        );
+        assert!(response.bytes().await.is_ok_and(|body| body.is_empty()));
+    }
+
+    let after_revoke = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/listing-sources/{listing_source_id}/product-listings",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(&partner_token)
+        .json(&json!([{
+            "sourceListingId": "listing-source-grant-after-revoke",
+            "title": {"text": "Partner listing", "language": "en"},
+            "description": {"text": "Partner listing", "language": "en"},
+            "availability": "AVAILABLE",
+            "url": "https://partner.example/listing-source-grant-after-revoke",
+            "images": []
+        }]))
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to verify partner authorization after ListingSource revoke: {error}")
+        });
+    let (status, body) = json_response(after_revoke).await;
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+
+    assert_eq!(
+        0,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM partnership_listing_source_grants WHERE partnership_id = $1 AND listing_source_id = $2",
+        )
+        .bind(partnership_id)
+        .bind(listing_source_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to count revoked ListingSource grant: {error}"))
+    );
+    assert_eq!(
+        1,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM partnership_members WHERE user_id = $1 AND partnership_id = $2",
+        )
+        .bind(Uuid::from(partner_id))
+        .bind(partnership_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to verify preserved Partnership member: {error}"))
+    );
+    assert_eq!(
+        1,
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE user_id = $1")
+            .bind(Uuid::from(partner_id))
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("failed to verify preserved user: {error}"))
+    );
+    assert_eq!(
+        1,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM partnerships WHERE partnership_id = $1",
+        )
+        .bind(partnership_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to verify preserved Partnership: {error}"))
+    );
+    assert_eq!(
+        1,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM listing_sources WHERE listing_source_id = $1",
+        )
+        .bind(listing_source_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to verify preserved ListingSource: {error}"))
+    );
+    assert_eq!(
+        1,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM partnership_applications WHERE partnership_application_id = $1",
+        )
+        .bind(Uuid::from(application_id))
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!(
+            "failed to verify preserved PartnershipApplication: {error}"
+        ))
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
 async fn should_reject_admin_listing_source_grant_for_a_different_party() {
     let pool = get_postgres_client().await;
     let listing_source_id = seed_listing_source().await;
@@ -866,6 +1033,105 @@ async fn should_reject_non_admin_partnership_listing_source_grant() {
 
     assert_no_store(cache_control);
     assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_not_found_for_missing_admin_listing_source_grant_revoke_targets() {
+    let listing_source_id = seed_listing_source().await;
+    let (partnership_id, _) = seed_partnership_for_search(
+        "Missing ListingSource Grant Revoke Targets",
+        datetime!(2026-08-20 12:00 UTC),
+        datetime!(2026-08-20 12:00 UTC),
+        &[],
+        &[],
+    )
+    .await;
+    let admin_id = seed_user("ADMIN").await;
+    let token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+
+    let response = delete_partnership_listing_source_grant(
+        &token,
+        &partnership_id.to_string(),
+        &Uuid::new_v4().to_string(),
+    )
+    .await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+    assert_no_store(cache_control);
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "LISTING_SOURCE_NOT_FOUND",
+    );
+
+    let response = delete_partnership_listing_source_grant(
+        &token,
+        &Uuid::new_v4().to_string(),
+        &listing_source_id.to_string(),
+    )
+    .await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+    assert_no_store(cache_control);
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "PARTNERSHIP_NOT_FOUND",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_non_admin_partnership_listing_source_grant_revoke() {
+    let pool = get_postgres_client().await;
+    let partner_id = seed_user("USER").await;
+    let (_application_id, partnership_id, listing_source_id) =
+        seed_approved_partnership_application(
+            partner_id,
+            datetime!(2026-08-21 12:00 UTC),
+            datetime!(2026-08-21 12:00 UTC),
+        )
+        .await;
+    seed_operator_partnership_listing_source_grant(listing_source_id).await;
+    let token =
+        String::from(seed_access_token_for(partner_id, std::collections::HashSet::new()).await);
+
+    let response = delete_partnership_listing_source_grant(
+        &token,
+        &partnership_id.to_string(),
+        &listing_source_id.to_string(),
+    )
+    .await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_no_store(cache_control);
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    assert_eq!(
+        1,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM partnership_listing_source_grants WHERE partnership_id = $1 AND listing_source_id = $2",
+        )
+        .bind(partnership_id)
+        .bind(listing_source_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to verify grant after rejected revoke: {error}"))
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
