@@ -1,6 +1,7 @@
 use application::operation_context::{
     CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
 };
+use application::pagination::Cursor;
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
 use credential_core::oauth_client_id::OAuthClientId;
 use domain_primitives::versioned::Versioned;
@@ -21,11 +22,11 @@ use oauth_service::use_cases::{
     CreateOAuthClientHandler, CreateOAuthClientUseCase, DeleteOAuthClientHandler,
     DeleteOAuthClientUseCase, GetOAuthClientHandler, GetOAuthClientUseCase, IntrospectTokenHandler,
     IntrospectTokenRequest, IntrospectTokenUseCase, ListOAuthClientsHandler,
-    ListOAuthClientsUseCase, OAuthGrantType, OAuthResponseType, OAuthState, OAuthTokenType,
-    RevokeTokenHandler, RevokeTokenRequest, RevokeTokenUseCase, TokenByAuthorizationCodeHandler,
-    TokenByAuthorizationCodeRequest, TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeHandler,
-    TokenByThirdPartyCodeUseCase, UpdateOAuthClientCommand, UpdateOAuthClientHandler,
-    UpdateOAuthClientUseCase,
+    ListOAuthClientsRequest, ListOAuthClientsResult, ListOAuthClientsUseCase, OAuthGrantType,
+    OAuthResponseType, OAuthState, OAuthTokenType, RevokeTokenHandler, RevokeTokenRequest,
+    RevokeTokenUseCase, TokenByAuthorizationCodeHandler, TokenByAuthorizationCodeRequest,
+    TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeHandler, TokenByThirdPartyCodeUseCase,
+    UpdateOAuthClientCommand, UpdateOAuthClientHandler, UpdateOAuthClientUseCase,
 };
 use std::collections::{BTreeSet, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -39,6 +40,9 @@ use user_service::ports::{
     AccessTokenAuthentication, AccessTokenAuthenticationReadError, AccessTokenAuthenticationReader,
     AccessTokenRepository, AccessTokenRepositoryError, AccessTokenRepositoryFactory,
     AccessTokenStorageVersion, VersionedAccessToken,
+};
+use user_service::use_cases::queries::check_user_admin::{
+    CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminResult, CheckUserAdminUseCase,
 };
 
 #[derive(Clone, Default)]
@@ -306,10 +310,59 @@ impl OAuthClientDetailsReader for FakePorts {
 
 #[async_trait::async_trait]
 impl OAuthClientListReader for FakePorts {
-    async fn list(&self) -> Result<Vec<OAuthClientView>, OAuthClientReadError> {
+    async fn search(
+        &self,
+        request: &ListOAuthClientsRequest,
+    ) -> Result<ListOAuthClientsResult, OAuthClientReadError> {
         let mut state = lock(&self.0);
         state.list_reads += 1;
-        Ok(state.client.clone().into_iter().map(client_view).collect())
+        Ok(ListOAuthClientsResult {
+            items: state.client.clone().into_iter().map(client_view).collect(),
+            cursor: request.cursor.unwrap_or_default(),
+            total: None,
+        })
+    }
+}
+
+struct FakeCheckUserAdmin {
+    admin_user_id: Option<UserId>,
+}
+
+impl FakeCheckUserAdmin {
+    fn allow_all() -> Self {
+        Self {
+            admin_user_id: None,
+        }
+    }
+
+    fn allow_user(admin_user_id: UserId) -> Self {
+        Self {
+            admin_user_id: Some(admin_user_id),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl CheckUserAdminUseCase for FakeCheckUserAdmin {
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        _request: CheckUserAdminRequest,
+    ) -> Result<CheckUserAdminResult, CheckUserAdminError> {
+        let allowed = match self.admin_user_id {
+            None => true,
+            Some(admin_user_id) => match &context.principal {
+                Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => {
+                    *user_id == admin_user_id
+                }
+                _ => false,
+            },
+        };
+        if allowed {
+            Ok(CheckUserAdminResult)
+        } else {
+            Err(CheckUserAdminError::Forbidden)
+        }
     }
 }
 
@@ -564,10 +617,11 @@ async fn should_cover_client_crud_use_cases() {
     );
     assert_eq!(
         1,
-        ListOAuthClientsHandler::new(ports.clone())
-            .execute(&ctx())
+        ListOAuthClientsHandler::new(ports.clone(), FakeCheckUserAdmin::allow_all())
+            .execute(&ctx(), ListOAuthClientsRequest::default())
             .await
             .unwrap()
+            .items
             .len()
     );
     assert_eq!(
@@ -600,10 +654,11 @@ async fn should_cover_client_crud_use_cases() {
         .await
         .unwrap();
     assert!(
-        ListOAuthClientsHandler::new(ports.clone())
-            .execute(&ctx())
+        ListOAuthClientsHandler::new(ports.clone(), FakeCheckUserAdmin::allow_all())
+            .execute(&ctx(), ListOAuthClientsRequest::default())
             .await
             .unwrap()
+            .items
             .is_empty()
     );
     let state = lock(&ports.0);
@@ -613,13 +668,15 @@ async fn should_cover_client_crud_use_cases() {
 }
 
 #[tokio::test]
-async fn should_authorize_oauth_client_get_and_list_in_the_service() {
+async fn should_authorize_oauth_client_get_and_admin_list_in_the_service() {
     let ports = FakePorts::default();
     let client = client_with_secret(&RawOAuthClientSecret::new());
     let client_id = client.client_id();
     lock(&ports.0).client = Some(client);
     let get = GetOAuthClientHandler::new(ports.clone());
-    let list = ListOAuthClientsHandler::new(ports.clone());
+    let admin_user_id = UserId::new();
+    let list =
+        ListOAuthClientsHandler::new(ports.clone(), FakeCheckUserAdmin::allow_user(admin_user_id));
 
     let anonymous = context(Principal::Anonymous);
     assert!(matches!(
@@ -627,7 +684,8 @@ async fn should_authorize_oauth_client_get_and_list_in_the_service() {
         Err(OAuthServiceError::AuthenticatedActorRequired)
     ));
     assert!(matches!(
-        list.execute(&anonymous).await,
+        list.execute(&anonymous, ListOAuthClientsRequest::default())
+            .await,
         Err(OAuthServiceError::AuthenticatedActorRequired)
     ));
 
@@ -640,22 +698,57 @@ async fn should_authorize_oauth_client_get_and_list_in_the_service() {
         Err(OAuthServiceError::Forbidden)
     ));
     assert!(matches!(
-        list.execute(&delegated_without_read).await,
+        list.execute(&delegated_without_read, ListOAuthClientsRequest::default())
+            .await,
         Err(OAuthServiceError::Forbidden)
     ));
     assert_eq!(0, lock(&ports.0).details_reads);
     assert_eq!(0, lock(&ports.0).list_reads);
 
-    let delegated_with_read = context(Principal::DelegatedUser {
+    let delegated_non_admin = context(Principal::DelegatedUser {
         user_id: UserId::new(),
         capabilities: BTreeSet::from([CredentialCapability::AccessTokensRead]),
     });
-    assert!(get.execute(&delegated_with_read, &client_id).await.is_ok());
-    assert!(list.execute(&delegated_with_read).await.is_ok());
+    assert!(get.execute(&delegated_non_admin, &client_id).await.is_ok());
+    assert!(matches!(
+        list.execute(&delegated_non_admin, ListOAuthClientsRequest::default())
+            .await,
+        Err(OAuthServiceError::Forbidden)
+    ));
 
-    let direct_user = context(Principal::User(UserId::new()));
-    assert!(get.execute(&direct_user, &client_id).await.is_ok());
-    assert!(list.execute(&direct_user).await.is_ok());
+    let direct_non_admin = context(Principal::User(UserId::new()));
+    assert!(get.execute(&direct_non_admin, &client_id).await.is_ok());
+    assert!(matches!(
+        list.execute(&direct_non_admin, ListOAuthClientsRequest::default())
+            .await,
+        Err(OAuthServiceError::Forbidden)
+    ));
+
+    let delegated_admin = context(Principal::DelegatedUser {
+        user_id: admin_user_id,
+        capabilities: BTreeSet::from([CredentialCapability::AccessTokensRead]),
+    });
+    let result = list
+        .execute(
+            &delegated_admin,
+            ListOAuthClientsRequest {
+                cursor: Some(Cursor {
+                    size: 1_000,
+                    search_after: None,
+                }),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(100, result.cursor.size);
+
+    let direct_admin = context(Principal::User(admin_user_id));
+    assert!(
+        list.execute(&direct_admin, ListOAuthClientsRequest::default())
+            .await
+            .is_ok()
+    );
     assert_eq!(2, lock(&ports.0).details_reads);
     assert_eq!(2, lock(&ports.0).list_reads);
 }

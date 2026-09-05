@@ -1,6 +1,9 @@
+use application::pagination::Cursor;
 use application::transaction::{Transaction, UnitOfWork};
 use credential_core::{oauth_client_id::OAuthClientId, scope::Scope};
+use domain_primitives::query::text_query::TextQuery;
 use oauth_core::{
+    OAuthClientSearch,
     authorization_code::{
         AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
         RehydratedAuthorizationCodeState,
@@ -13,14 +16,16 @@ use oauth_core::{
 };
 use oauth_postgres::{
     SqlxAuthorizationCodeRepositoryFactory, SqlxOAuthClientAuthenticationReader,
-    SqlxOAuthClientRepositoryFactory, SqlxThirdPartyExchangeCodeRepositoryFactory,
+    SqlxOAuthClientListReader, SqlxOAuthClientRepositoryFactory,
+    SqlxThirdPartyExchangeCodeRepositoryFactory,
 };
 use oauth_service::ports::{
     AuthorizationCodeRepository, AuthorizationCodeRepositoryFactory,
-    OAuthClientAuthenticationReader, OAuthClientRepository, OAuthClientRepositoryError,
-    OAuthClientRepositoryFactory, OAuthCodeRepositoryError, ThirdPartyExchangeCodeRepository,
-    ThirdPartyExchangeCodeRepositoryFactory,
+    OAuthClientAuthenticationReader, OAuthClientListReader, OAuthClientRepository,
+    OAuthClientRepositoryError, OAuthClientRepositoryFactory, OAuthCodeRepositoryError,
+    ThirdPartyExchangeCodeRepository, ThirdPartyExchangeCodeRepositoryFactory,
 };
+use oauth_service::use_cases::ListOAuthClientsRequest;
 use platform_postgres::SqlxUnitOfWork;
 use sqlx::PgPool;
 use std::collections::HashSet;
@@ -299,6 +304,103 @@ async fn should_reject_invalid_persisted_redirect_uris() {
     assert!(
         result.is_ok(),
         "invalid persisted redirect URIs must be rejected: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_search_oauth_clients_with_bounded_deterministic_cursor() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let first = oauth_client(OAuthClientId::new(), "List Reader Alpha")?;
+        let second = oauth_client(OAuthClientId::new(), "List Reader Beta")?;
+        let third = oauth_client(OAuthClientId::new(), "List Reader Gamma")?;
+        let first_inserted = insert_oauth_client(pool.clone(), &first).await?;
+        let second_inserted = insert_oauth_client(pool.clone(), &second).await?;
+        let third_inserted = insert_oauth_client(pool.clone(), &third).await?;
+
+        let mut expected = [
+            (first_inserted.created, first.client_id()),
+            (second_inserted.created, second.client_id()),
+            (third_inserted.created, third.client_id()),
+        ];
+        expected.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.to_string().cmp(&right.1.to_string()))
+        });
+        let search = OAuthClientSearch {
+            name_query: Some(TextQuery::try_from("list reader")?),
+            ..Default::default()
+        };
+        let reader = SqlxOAuthClientListReader::new(pool);
+        let first_page = reader
+            .search(&ListOAuthClientsRequest {
+                search: search.clone(),
+                cursor: Some(Cursor {
+                    size: 2,
+                    search_after: None,
+                }),
+            })
+            .await?;
+        let expected_ids = expected
+            .iter()
+            .map(|(_, client_id)| *client_id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            expected_ids[..2].to_vec(),
+            first_page
+                .items
+                .iter()
+                .map(|item| item.client_id)
+                .collect::<Vec<_>>()
+        );
+        assert!(first_page.cursor.search_after.is_some());
+
+        let second_page = reader
+            .search(&ListOAuthClientsRequest {
+                search,
+                cursor: Some(Cursor {
+                    size: 2,
+                    search_after: first_page.cursor.search_after,
+                }),
+            })
+            .await?;
+        assert_eq!(
+            vec![expected[2].1],
+            second_page
+                .items
+                .iter()
+                .map(|item| item.client_id)
+                .collect::<Vec<_>>()
+        );
+        assert!(second_page.cursor.search_after.is_none());
+
+        let exact = reader
+            .search(&ListOAuthClientsRequest {
+                search: OAuthClientSearch {
+                    client_id: Some(second.client_id()),
+                    ..Default::default()
+                },
+                cursor: None,
+            })
+            .await?;
+        assert_eq!(
+            vec![second.client_id()],
+            exact
+                .items
+                .iter()
+                .map(|item| item.client_id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(2, first_page.cursor.size);
+        assert_eq!(21, exact.cursor.size);
+        Ok(())
+    }
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "OAuth client list reader integration test failed: {result:?}"
     );
 }
 

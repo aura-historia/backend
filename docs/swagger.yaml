@@ -5351,7 +5351,7 @@ paths:
                     status: 400
                     title: Bad Request
                     error: BAD_BODY_VALUE
-                    detail: "unknown scope `product-listings_write`, expected one of: listing-sources:manage, product-listings:write"
+                    detail: "unknown scope `product-listings_write`, expected one of: product-listings:write, users:read, users:write, access-tokens:read, access-tokens:write, search-filters:write, watchlist:read, watchlist:write"
         "401":
           description: Unauthorized - invalid or missing JWT token
           content:
@@ -7909,58 +7909,121 @@ paths:
                 status: 500
                 title: Internal Server Error
                 error: INTERNAL_SERVER_ERROR
+  /api/v1/admin/oauth-clients:
     get:
-      summary: List OAuth client metadata
-      description: "Lists registered OAuth client metadata records.
+      summary: List OAuth client metadata for administration
+      description: |
+        Lists registered OAuth client metadata for authenticated administrators.
 
-        The returned `client_secret` value is masked and does not reveal the plaintext secret.
+        User and delegated-user principals must have the persisted `ADMIN` business role.
+        Delegated Aura Historia access-token callers must also have the `access-tokens:read`
+        capability. The OAuth protocol routes remain under `/api/v1/oauth`.
 
-        Requires an authenticated direct user, or a delegated Aura Historia access token with
+        Results use bounded keyset pagination in fixed `created` ascending, then OAuth client
+        UUID ascending order. Page sizes are clamped to 1–100, with a default of 21. The
+        `searchAfter` value is a JSON-encoded `[created RFC3339 timestamp, client UUID]`
+        cursor; it is omitted on the terminal page and must be sent with the same filters.
 
-        `access-tokens:read`.
-
-        "
-      operationId: getOAuthClients
+        `clientId` is an exact UUID filter. `name` is a case-insensitive substring filter.
+        The response contains no plaintext client secret, secret hash, or masked secret value.
+        Every success and error response uses `Cache-Control: no-store`.
+      operationId: adminListOAuthClients
       tags:
         - OAuth
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - name: clientId
+          in: query
+          required: false
+          description: Optional exact UUID filter for one OAuth client.
+          schema:
+            type: string
+            format: uuid
+          example: 01970f22-2bf0-7000-8000-000000000010
+        - name: name
+          in: query
+          required: false
+          description: Optional case-insensitive substring filter for the OAuth client display name.
+          schema:
+            type: string
+          example: dashboard
+        - name: searchAfter
+          in: query
+          required: false
+          description: JSON-encoded `[created RFC3339 timestamp, client UUID]` cursor returned by the previous page.
+          schema:
+            type: string
+          example: '["2026-09-04T12:00:00Z","01970f22-2bf0-7000-8000-000000000010"]'
+        - name: size
+          in: query
+          required: false
+          description: Number of OAuth client summaries requested per page. The server clamps values to 1–100.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+            maximum: 100
+            default: 21
+          example: 21
       responses:
         "200":
-          description: OAuth client metadata retrieved successfully.
+          description: OAuth client summaries returned successfully.
           headers:
             Cache-Control:
-              description: Always set to `no-store`.
+              description: Responses are never stored because administrator OAuth data is returned.
               schema:
                 type: string
               example: no-store
           content:
             application/json:
               schema:
-                type: array
+                $ref: "#/components/schemas/OAuthClientAdminCollectionData"
+              example:
                 items:
-                  $ref: "#/components/schemas/OAuthClientMetadataResponseData"
-              examples:
-                one_client:
-                  summary: One OAuth client metadata record
-                  value:
-                    - client_id: 01970f22-2bf0-7000-8000-000000000010
-                      client_secret: aurahistoria_oauth_client_secret_abcdefghijk_****
-                      client_name: Acceptance OAuth client
-                      tos_uri: https://client.example/tos
-                      policy_uri: https://client.example/policy
-                      client_uri: https://client.example
-                      logo_uri: https://client.example/logo.png
-                      redirect_uris:
-                        - https://client.example/callback
-                      scope:
-                        - product-listings:write
-                      client_id_issued_at: 1748539200
-                no_clients:
-                  summary: No OAuth clients exist
-                  value: []
+                  - client_id: 01970f22-2bf0-7000-8000-000000000010
+                    client_name: Dashboard integration
+                    tos_uri: https://client.example/tos
+                    policy_uri: https://client.example/policy
+                    client_uri: https://client.example
+                    logo_uri: https://client.example/logo.png
+                    redirect_uris:
+                      - https://client.example/callback
+                    scope:
+                      - access-tokens:read
+                    client_id_issued_at: 1748539200
+                size: 21
+                searchAfter:
+                  - "2026-09-04T12:00:00Z"
+                  - 01970f22-2bf0-7000-8000-000000000010
+        "400":
+          description: Bad request — an OAuth client filter, page size, or cursor is invalid.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 400
+                title: Bad Request
+                error: BAD_QUERY_PARAMETER_VALUE
+                source:
+                  field: searchAfter
+                  sourceType: QUERY
         "401":
-          description: Unauthorized — invalid or missing JWT token.
+          description: Unauthorized — invalid or missing bearer credentials.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
@@ -7968,9 +8031,15 @@ paths:
               example:
                 status: 401
                 title: Unauthorized
-                error: UNAUTHORIZED
+                error: INVALID_CREDENTIALS
         "403":
-          description: Forbidden — the delegated caller lacks `access-tokens:read`.
+          description: Forbidden — the caller is not an administrator or a delegated caller lacks `access-tokens:read`.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
@@ -7979,9 +8048,15 @@ paths:
                 status: 403
                 title: Forbidden
                 error: FORBIDDEN
-                detail: OAuth client reads require access-tokens:read for delegated callers.
+                detail: OAuth client administration requires the ADMIN role; delegated callers also require access-tokens:read.
         "500":
-          description: Internal server error.
+          description: Internal authentication, authorization, or OAuth client read failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
@@ -7989,7 +8064,23 @@ paths:
               example:
                 status: 500
                 title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
+                error: OAUTH_INTERNAL_ERROR
+        "503":
+          description: Temporary authentication, authorization, or OAuth client read failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: OAUTH_TEMPORARILY_UNAVAILABLE
   /api/v1/oauth/clients/{clientId}:
     get:
       summary: Get OAuth client metadata
@@ -8179,7 +8270,7 @@ paths:
                 redirect_uris:
                   - https://client.example/updated
                 scope:
-                  - listing-sources:manage
+                  - access-tokens:read
                 client_id_issued_at: 1748539200
         "400":
           description:
@@ -11913,16 +12004,20 @@ components:
     AccessTokenScopeData:
       type: string
       enum:
-        - listing-sources:manage
         - product-listings:write
-      description: "Aura Historia access-token scope string.
+        - users:read
+        - users:write
+        - access-tokens:read
+        - access-tokens:write
+        - search-filters:write
+        - watchlist:read
+        - watchlist:write
+      description: "Aura Historia access-token and OAuth scope string.
 
-        - `listing-sources:manage`: reserved for listing source-management flows
-
-        - `product-listings:write`: required for partner batch product ingestion
+        The value is one of the capabilities supported by the canonical access-token and OAuth flows.
 
         "
-      example: product-listings:write
+      example: access-tokens:read
     AccessTokenTypeData:
       type: string
       enum:
@@ -12172,7 +12267,7 @@ components:
           items:
             $ref: "#/components/schemas/AccessTokenScopeData"
           example:
-            - listing-sources:manage
+            - access-tokens:read
     OAuthClientMetadataResponseData:
       type: object
       description: "OAuth client metadata read model.
@@ -12248,6 +12343,122 @@ components:
             $ref: "#/components/schemas/AccessTokenScopeData"
           example:
             - product-listings:write
+        client_id_issued_at:
+          type: integer
+          format: int64
+          description: Unix timestamp (seconds) when the OAuth client was created and its client ID was issued.
+          example: 1748539200
+    OAuthClientAdminCollectionData:
+      type: object
+      description:
+        "Cursor-paginated OAuth client summaries for the administrator collection endpoint.
+
+        `searchAfter` is a `[created RFC3339 timestamp, client UUID]` cursor and is omitted
+
+        when the current page is terminal. The collection and its items never contain client
+
+        secret plaintext, secret hashes, or masked secret values.
+
+        "
+      required:
+        - items
+        - size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OAuthClientAdminData"
+          description: OAuth client summaries returned in the current page.
+        size:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          description: Requested page size after server-side clamping.
+          example: 21
+        searchAfter:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            type: string
+          description: "`[created RFC3339 timestamp, client UUID]` cursor for the next page, omitted when no more results are available."
+          nullable: true
+          example:
+            - "2026-09-04T12:00:00Z"
+            - 01970f22-2bf0-7000-8000-000000000010
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Total matching OAuth clients when provided by the reader; omitted otherwise.
+          nullable: true
+          example: 42
+    OAuthClientAdminData:
+      type: object
+      description:
+        "Secret-free OAuth client metadata returned by `GET /api/v1/admin/oauth-clients`.
+
+        This schema intentionally has no `client_secret` property.
+
+        "
+      required:
+        - client_id
+        - client_name
+        - tos_uri
+        - policy_uri
+        - client_uri
+        - logo_uri
+        - redirect_uris
+        - scope
+        - client_id_issued_at
+      properties:
+        client_id:
+          type: string
+          format: uuid
+          description: UUIDv7 identifier of the OAuth client.
+          example: 01970f22-2bf0-7000-8000-000000000010
+        client_name:
+          type: string
+          description: Display name of the OAuth client.
+          example: Dashboard integration
+        tos_uri:
+          type: string
+          format: uri
+          description: Terms-of-service document URL registered for the OAuth client.
+          example: https://client.example/tos
+        policy_uri:
+          type: string
+          format: uri
+          description: Privacy-policy document URL registered for the OAuth client.
+          example: https://client.example/policy
+        client_uri:
+          type: string
+          format: uri
+          description: Homepage or product-site URL registered for the OAuth client.
+          example: https://client.example
+        logo_uri:
+          type: string
+          format: uri
+          description: Logo image URL registered for the OAuth client.
+          example: https://client.example/logo.png
+        redirect_uris:
+          type: array
+          uniqueItems: true
+          description: Registered redirect URIs for the OAuth client.
+          items:
+            type: string
+            format: uri
+          example:
+            - https://client.example/callback
+        scope:
+          type: array
+          uniqueItems: true
+          description: Allowed scopes for tokens issued to this OAuth client.
+          items:
+            $ref: "#/components/schemas/AccessTokenScopeData"
+          example:
+            - access-tokens:read
         client_id_issued_at:
           type: integer
           format: int64

@@ -449,8 +449,11 @@ pub fn app(state: AppState) -> Router {
             Router::new()
                 .route(
                     "/api/v1/oauth/clients",
-                    get(oauth::list_clients::list_clients)
-                        .post(oauth::create_client::create_client),
+                    post(oauth::create_client::create_client),
+                )
+                .route(
+                    "/api/v1/admin/oauth-clients",
+                    get(oauth::list_clients::list_clients),
                 )
                 .route(
                     "/api/v1/oauth/clients/{client_id}",
@@ -1062,6 +1065,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         )),
         list_clients: Arc::new(ListOAuthClientsHandler::new(
             SqlxOAuthClientListReader::new(pool.clone()),
+            CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
         )),
         get_client: Arc::new(GetOAuthClientHandler::new(
             SqlxOAuthClientDetailsReader::new(pool.clone()),

@@ -25,11 +25,19 @@ async fn authenticated_client() -> (reqwest::Client, String) {
 }
 
 async fn create_oauth_client(client: &reqwest::Client, token: &str) -> OAuthClientCredentials {
+    create_oauth_client_with_name(client, token, "Acceptance OAuth Client").await
+}
+
+async fn create_oauth_client_with_name(
+    client: &reqwest::Client,
+    token: &str,
+    client_name: &str,
+) -> OAuthClientCredentials {
     let response = client
         .post(format!("{}/api/v1/oauth/clients", AURA_API.base_url()))
         .bearer_auth(token)
         .json(&serde_json::json!({
-            "client_name": "Acceptance OAuth Client",
+            "client_name": client_name,
             "tos_uri": "https://client.example/tos",
             "policy_uri": "https://client.example/policy",
             "client_uri": "https://client.example",
@@ -55,6 +63,17 @@ async fn create_oauth_client(client: &reqwest::Client, token: &str) -> OAuthClie
             .as_i64()
             .unwrap_or_else(|| panic!("missing client_id_issued_at")),
     }
+}
+
+async fn admin_read_token() -> String {
+    let admin_id = seed_user("ADMIN").await;
+    String::from(
+        seed_access_token_for(
+            admin_id,
+            std::collections::HashSet::from([Scope::AccessTokensRead]),
+        )
+        .await,
+    )
 }
 
 async fn authorize_code(
@@ -157,19 +176,45 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
     let (client, token) = authenticated_client().await;
     let credentials = create_oauth_client(&client, &token).await;
 
+    let admin_token = admin_read_token().await;
     let response = client
-        .get(format!("{}/api/v1/oauth/clients", AURA_API.base_url()))
-        .bearer_auth(&token)
+        .get(format!(
+            "{}/api/v1/admin/oauth-clients",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(&admin_token)
+        .query(&[("name", "Acceptance OAuth"), ("size", "100")])
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to list OAuth clients: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let (status, body) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(Some(1), body.as_array().map(Vec::len));
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_eq!(Some(1), body["items"].as_array().map(Vec::len));
+    assert_eq!(serde_json::json!(100), body["size"]);
+    assert!(body.get("searchAfter").is_none());
     assert_eq!(
         Some(credentials.client_id_issued_at),
-        body[0]["client_id_issued_at"].as_i64()
+        body["items"][0]["client_id_issued_at"].as_i64()
     );
+    assert_eq!(
+        serde_json::json!(credentials.client_id),
+        body["items"][0]["client_id"]
+    );
+    assert!(body["items"][0].get("client_secret").is_none());
+
+    let response = client
+        .get(format!("{}/api/v1/oauth/clients", AURA_API.base_url()))
+        .bearer_auth(&admin_token)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to check removed OAuth client list route: {error}"));
+    assert_eq!(reqwest::StatusCode::METHOD_NOT_ALLOWED, response.status());
 
     let response = client
         .get(format!(
@@ -221,6 +266,146 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
         .await
         .unwrap_or_else(|error| panic!("failed to delete OAuth client: {error}"));
     assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_paginate_and_filter_admin_oauth_clients() {
+    let (client, token) = authenticated_client().await;
+    let first_client =
+        create_oauth_client_with_name(&client, &token, "Cursor OAuth Client A").await;
+    let second_client =
+        create_oauth_client_with_name(&client, &token, "Cursor OAuth Client B").await;
+    let third_client =
+        create_oauth_client_with_name(&client, &token, "Cursor OAuth Client C").await;
+    let admin_token = admin_read_token().await;
+    let url = format!("{}/api/v1/admin/oauth-clients", AURA_API.base_url());
+
+    let first = client
+        .get(&url)
+        .bearer_auth(admin_token.clone())
+        .query(&[("name", "Cursor OAuth Client"), ("size", "2")])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get first OAuth-client page: {error}"));
+    let first_cache_control = first
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (first_status, first_body) = json_response(first).await;
+
+    assert_eq!(reqwest::StatusCode::OK, first_status);
+    assert_eq!(Some("no-store".to_owned()), first_cache_control);
+    assert_eq!(Some(2), first_body["items"].as_array().map(Vec::len));
+    assert_eq!(serde_json::json!(2), first_body["size"]);
+    let cursor = first_body["searchAfter"].clone();
+    assert!(cursor.is_array());
+    let first_items = first_body["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("first page must contain items"));
+    for item in first_items {
+        assert!(item.get("client_secret").is_none());
+    }
+
+    let second = client
+        .get(&url)
+        .bearer_auth(admin_token.clone())
+        .query(&[
+            ("name", "Cursor OAuth Client"),
+            ("size", "2"),
+            ("searchAfter", cursor.to_string().as_str()),
+        ])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get second OAuth-client page: {error}"));
+    let (second_status, second_body) = json_response(second).await;
+
+    assert_eq!(reqwest::StatusCode::OK, second_status);
+    assert_eq!(Some(1), second_body["items"].as_array().map(Vec::len));
+    assert!(second_body.get("searchAfter").is_none());
+    assert!(second_body["items"][0].get("client_secret").is_none());
+
+    let first_ids = first_body["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("first page must contain items"));
+    let second_id = second_body["items"][0]["client_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("second page must contain client_id"));
+    assert!(first_ids.iter().all(|item| item["client_id"] != second_id));
+    let returned_ids = first_ids
+        .iter()
+        .filter_map(|item| item["client_id"].as_str())
+        .chain(std::iter::once(second_id))
+        .collect::<std::collections::HashSet<_>>();
+    let expected_ids = [
+        first_client.client_id.as_str(),
+        second_client.client_id.as_str(),
+        third_client.client_id.as_str(),
+    ]
+    .into_iter()
+    .collect::<std::collections::HashSet<_>>();
+    assert_eq!(expected_ids, returned_ids);
+
+    let exact = client
+        .get(&url)
+        .bearer_auth(admin_token)
+        .query(&[("clientId", first_client.client_id.as_str())])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to filter OAuth clients by clientId: {error}"));
+    let (exact_status, exact_body) = json_response(exact).await;
+    assert_eq!(reqwest::StatusCode::OK, exact_status);
+    assert_eq!(Some(1), exact_body["items"].as_array().map(Vec::len));
+    assert_eq!(
+        serde_json::json!(first_client.client_id),
+        exact_body["items"][0]["client_id"]
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_admin_oauth_client_list_without_delegated_read_capability() {
+    let user_id = api_support::seed_user("ADMIN").await;
+    let token = api_support::seed_access_token_for(user_id, Default::default()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/admin/oauth-clients",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call OAuth-client admin list: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_admin_oauth_client_list_for_non_admin_with_delegated_read() {
+    let user_id = api_support::seed_user("USER").await;
+    let token = api_support::seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::AccessTokensRead]),
+    )
+    .await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/admin/oauth-clients",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call OAuth-client admin list: {error}"));
+    let (status, body) = json_response(response).await;
+
+    api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
