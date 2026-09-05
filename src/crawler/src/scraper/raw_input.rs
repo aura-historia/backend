@@ -3,20 +3,24 @@
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use money::Currency;
 use product_listing_normalization::{
-    NormalizationContext, NormalizationInputError, NormalizationInputHash,
-    ProductListingNormalizationInput, ProductListingRawValuesPatch, ProductListingRawValuesV1,
-    RawProductListingOperation, RawProductListingPayloadFormat, RawProductListingValues,
+    NormalizationContext, NormalizationInputError, ProductListingNormalizationInput,
+    ProductListingRawValuesPatch, ProductListingRawValuesV1, RawProductListingOperation,
+    RawProductListingPayloadFormat, RawProductListingProvenance, RawProductListingValues,
     SourcePayload,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
 use url::Url;
 
-pub(crate) fn crawler_raw_input_hash(
+/// Builds the complete V1 input retained by the operational raw-revision stream.
+///
+/// This mapping intentionally retains source strings without applying typed field normalization.
+/// The worker is the sole canonical normalization authority.
+pub(crate) fn crawler_raw_input(
     raw: &RawExtractedProduct,
     candidate_url: &Url,
     default_currency: Option<Currency>,
-) -> Result<NormalizationInputHash, NormalizationInputError> {
+) -> Result<ProductListingNormalizationInput, NormalizationInputError> {
     let source_payload = serde_json::to_value(raw)
         .map_err(NormalizationInputError::JsonSerialization)
         .and_then(SourcePayload::new)?;
@@ -60,8 +64,39 @@ pub(crate) fn crawler_raw_input_hash(
         source_payload,
         raw_values,
         context,
-    )?
-    .hash()
+    )
+}
+
+/// Builds durable evidence for a crawler-verified removal without retaining HTML or response data.
+pub(crate) fn crawler_verified_removal_input(
+    candidate_url: &Url,
+) -> Result<ProductListingNormalizationInput, NormalizationInputError> {
+    ProductListingNormalizationInput::new(
+        RawProductListingOperation::Delete,
+        RawProductListingPayloadFormat::CrawlerExtractedProduct,
+        1,
+        1,
+        SourcePayload::new(json!({
+            "candidateUrl": candidate_url,
+            "removalEvidence": "VERIFIED",
+        }))?,
+        RawProductListingValues::new(json!({}))?,
+        NormalizationContext::new(json!({
+            "baseUrl": candidate_url,
+            "fallbackCurrency": null,
+        }))?,
+    )
+}
+
+/// Builds non-input crawler provenance. Page/schema data is excluded from the input hash.
+pub(crate) fn crawler_provenance(
+    page_hash: Option<&str>,
+    schema_fingerprint: Option<&str>,
+) -> Result<RawProductListingProvenance, NormalizationInputError> {
+    RawProductListingProvenance::new(json!({
+        "pageHash": page_hash,
+        "schemaFingerprint": schema_fingerprint,
+    }))
 }
 
 fn patch(value: Option<String>) -> ProductListingRawValuesPatch<String> {
@@ -92,15 +127,37 @@ mod tests {
     }
 
     #[test]
+    fn should_preserve_selected_raw_values_in_capture_input() -> Result<(), NormalizationInputError>
+    {
+        let url = Url::parse("https://example.com/products/1")
+            .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
+        let input = crawler_raw_input(&raw(), &url, Some(Currency::Eur))?;
+
+        assert_eq!(
+            Some(&serde_json::Value::String("100 EUR".to_owned())),
+            input.source_payload().value().get("price")
+        );
+        assert_eq!(
+            Some(&serde_json::json!({"action": "SET", "value": "100 EUR"})),
+            input.raw_values().value().get("price")
+        );
+        assert_eq!(
+            Some(&serde_json::json!(["/chair.jpg"])),
+            input.source_payload().value().get("images")
+        );
+        Ok(())
+    }
+
+    #[test]
     fn should_hash_dynamic_raw_attribute_changes() -> Result<(), NormalizationInputError> {
         let url = Url::parse("https://example.com/products/1")
             .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
-        let first = crawler_raw_input_hash(&raw(), &url, Some(Currency::Eur))?;
+        let first = crawler_raw_input(&raw(), &url, Some(Currency::Eur))?.hash()?;
         let mut changed = raw();
         changed
             .raw_attributes
             .insert("rawMaterial".to_owned(), vec!["Oak".to_owned()]);
-        let second = crawler_raw_input_hash(&changed, &url, Some(Currency::Eur))?;
+        let second = crawler_raw_input(&changed, &url, Some(Currency::Eur))?.hash()?;
         assert_ne!(first, second);
         Ok(())
     }

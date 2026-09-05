@@ -2,7 +2,7 @@
 //!
 //! A scraper candidate is a URL stored in `listing_source_urls` that is due for scraping by recency,
 //! retry, and crawler disposition. Page and schema hashes avoid needless extraction; the shared raw
-//! normalization-input hash avoids needless canonical ProductListing writes.
+//! normalization-input hash avoids needless operational raw captures.
 
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;

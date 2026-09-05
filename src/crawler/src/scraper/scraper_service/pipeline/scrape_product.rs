@@ -1,6 +1,6 @@
 use crate::network::policy::NetworkErrorKind;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
-use crate::scraper::raw_input::crawler_raw_input_hash;
+use crate::scraper::raw_input::crawler_raw_input;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::domain::product::{ScrapedProduct, ScraperService};
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::ExistingSchemaSelection;
@@ -246,20 +246,22 @@ impl ScraperService for ScraperServiceImpl {
         }
         let schema_fingerprint =
             fingerprint_schema_set(&effective_schemas).map_err(ScraperError::SchemaFingerprint)?;
-        let raw_input_sha256 =
-            crawler_raw_input_hash(&selection.raw, url, selection.default_currency)
-                .map_err(ScraperError::RawNormalizationInput)?
-                .as_bytes()
-                .to_vec();
+        let raw_input = crawler_raw_input(&selection.raw, url, selection.default_currency)
+            .map_err(ScraperError::RawNormalizationInput)?;
+        let raw_input_sha256 = raw_input
+            .hash()
+            .map_err(ScraperError::RawNormalizationInput)?
+            .as_bytes()
+            .to_vec();
+        let availability = selection.product.availability;
 
-        // `mark_as_scraped` is intentionally deferred until the canonical handoff succeeds.
-        debug!(
-            domain,
-            source_listing_id = %selection.product.source_listing_id,
-            "Scraping complete"
-        );
+        // `mark_as_scraped` is intentionally deferred until raw capture succeeds.
+        debug!(domain, "Scraping complete");
         Ok(Some(ScrapedProduct {
+            #[cfg(test)]
             product: selection.product,
+            raw_input,
+            availability,
             hash: current_hash,
             schema_fingerprint,
             raw_input_sha256,

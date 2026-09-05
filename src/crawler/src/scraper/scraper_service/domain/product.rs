@@ -1,14 +1,23 @@
+#[cfg(test)]
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use listing_source_core::ListingSourceId;
+use product_listing_normalization::{
+    ListingAvailabilityQuickCheck, ProductListingNormalizationInput,
+};
 use url::Url;
 
-/// Result of a successful scrape — the normalized product together with the
-/// metadata needed to mark the URL as scraped *after* the push has been
-/// confirmed.
+/// Result of a successful scrape — the raw normalization input together with
+/// metadata needed to mark the URL as scraped after durable raw capture.
 #[derive(Debug)]
 pub struct ScrapedProduct {
+    /// Legacy test-only preview. Production handoff carries only raw input.
+    #[cfg(test)]
     pub product: NormalizedProduct,
+    /// Complete source-neutral normalization input. The worker later performs canonical writes.
+    pub raw_input: ProductListingNormalizationInput,
+    /// Pure crawler quick-check used only for local disposition.
+    pub availability: ListingAvailabilityQuickCheck,
     /// SHA-256 of the page's `<main>` fragment (or full HTML) that was used to
     /// detect whether the page had changed.
     pub hash: String,
@@ -26,10 +35,9 @@ pub struct ScrapedProduct {
 #[mockall::automock]
 pub trait ScraperService: Send + Sync {
     /// Fetch the product page at `url`, extract structured data using the CSS
-    /// selector schema for `listing_source_id`, normalise the raw data, and return a
-    /// [`ScrapedProduct`].  The caller is responsible for calling
-    /// [`crate::scraper::candidate_service::ScraperCandidateService::mark_as_scraped`]
-    /// once the product has been successfully pushed to the backend.
+    /// selector schema for `listing_source_id`, validate a plausible extraction, and return a
+    /// [`ScrapedProduct`]. The caller captures it before calling
+    /// [`crate::scraper::candidate_service::ScraperCandidateService::mark_as_scraped`].
     async fn scrape(
         &self,
         listing_source_id: &ListingSourceId,

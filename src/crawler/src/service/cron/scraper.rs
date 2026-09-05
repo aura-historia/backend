@@ -1,10 +1,9 @@
 use super::job::CrawlerCronJob;
 use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for};
 use crate::scraper::candidate_service::{ScraperCandidate, ScraperCandidateService};
+use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
 use crate::scraper::scraper_service::{ScraperError, ScraperService};
-use crate::service::product_push::{
-    ProductListingPushItem, ProductListingPushService, normalize_to_upsert,
-};
+use crate::service::raw_capture::{ProductListingRawCaptureItem, ProductListingRawCaptureService};
 use crate::spider::advisory_lock::{ListingSourceLock, LocalLockManager, UrlLock};
 use crate::spider::classification::url_metadata::CrawlerDisposition;
 use listing_source_core::ListingSourceId;
@@ -20,16 +19,13 @@ use tracing::{Instrument, debug, error, info, warn};
 struct ScrapeDomainContext {
     scraper: Arc<dyn ScraperService>,
     scraper_candidates: Arc<dyn ScraperCandidateService>,
-    product_push: Arc<dyn ProductListingPushService>,
     lock_manager: Arc<LocalLockManager>,
-    command_tx: mpsc::Sender<QueuedProductListingPush>,
+    command_tx: mpsc::Sender<QueuedRawCapture>,
     budget_exhausted_listing_sources: Arc<Mutex<HashSet<ListingSourceId>>>,
     schema_pending_listing_sources: Arc<Mutex<HashSet<ListingSourceId>>>,
 }
 
-/// Metadata carried alongside a [`UpsertProductListingCommand`] so the push-collector
-/// can call [`ScraperCandidateService::mark_as_scraped`] only after the push
-/// has been confirmed.
+/// Metadata applied only after durable raw capture succeeds.
 struct CandidateMeta {
     listing_source_id: listing_source_core::ListingSourceId,
     url: url::Url,
@@ -39,14 +35,45 @@ struct CandidateMeta {
     disposition: CrawlerDisposition,
 }
 
-struct QueuedProductListingPush {
-    item: ProductListingPushItem,
-    meta: CandidateMeta,
+struct RawCaptureRequest {
+    item: ProductListingRawCaptureItem,
+    on_success: RawCaptureSuccessAction,
+    on_failure: RawCaptureFailureAction,
+}
+
+enum RawCaptureSuccessAction {
+    MarkScraped(CandidateMeta),
+    MarkDormantRemoved {
+        listing_source_id: ListingSourceId,
+        url: url::Url,
+    },
+}
+
+enum RawCaptureFailureAction {
+    None,
+    MarkScraperFailure {
+        listing_source_id: ListingSourceId,
+        url: url::Url,
+    },
+}
+
+impl From<(ProductListingRawCaptureItem, CandidateMeta)> for RawCaptureRequest {
+    fn from((item, meta): (ProductListingRawCaptureItem, CandidateMeta)) -> Self {
+        Self {
+            item,
+            on_success: RawCaptureSuccessAction::MarkScraped(meta),
+            on_failure: RawCaptureFailureAction::None,
+        }
+    }
+}
+
+struct QueuedRawCapture {
+    request: RawCaptureRequest,
     enqueued_at: tokio::time::Instant,
 }
 
 struct ScrapeCandidateOutcome {
-    command: Option<(ProductListingPushItem, CandidateMeta)>,
+    capture: Option<RawCaptureRequest>,
     errored: bool,
     skipped: bool,
 }
@@ -62,21 +89,17 @@ struct ScheduledScrapeDomainOutcome {
     outcome: ScrapeDomainOutcome,
 }
 
-/// Pushes a batch of `(command, meta)` pairs to the product backend and then
-/// calls [`ScraperCandidateService::mark_as_scraped`] for each command that
-/// was successfully persisted.
-///
-/// The push result has one boolean per input position, so only the corresponding
-/// crawler URL is marked scraped after its product command succeeds.
+/// Captures a batch of raw observations, then updates crawler-local metadata only for durable
+/// capture outcomes. Worker normalization owns canonical ProductListing mutation.
 #[tracing::instrument(
-    name = "crawler_flush_push_batch",
-    skip(push_service, scraper_candidates, batch),
+    name = "crawler_flush_raw_capture_batch",
+    skip(raw_capture, scraper_candidates, batch),
     fields(batch_size = batch.len())
 )]
 async fn flush_batch(
-    push_service: &Arc<dyn ProductListingPushService>,
+    raw_capture: &Arc<dyn ProductListingRawCaptureService>,
     scraper_candidates: &Arc<dyn ScraperCandidateService>,
-    batch: Vec<QueuedProductListingPush>,
+    batch: Vec<QueuedRawCapture>,
     queue_depth: usize,
 ) {
     let batch_size = batch.len();
@@ -85,22 +108,22 @@ async fn flush_batch(
         .map(|queued| queued.enqueued_at.elapsed().as_millis())
         .max()
         .unwrap_or(0);
-    let (products, metas): (Vec<_>, Vec<_>) = batch
-        .into_iter()
-        .map(|queued| (queued.item, queued.meta))
-        .unzip();
+    let observations = batch
+        .iter()
+        .map(|queued| queued.request.item.clone())
+        .collect();
 
-    let push_started_at = tokio::time::Instant::now();
-    let mut succeeded = push_service.push(products).await;
-    let upsert_latency_ms = push_started_at.elapsed().as_millis();
-    let expected = metas.len();
+    let capture_started_at = tokio::time::Instant::now();
+    let mut succeeded = raw_capture.capture(observations).await;
+    let capture_latency_ms = capture_started_at.elapsed().as_millis();
+    let expected = batch.len();
     let actual = succeeded.len();
 
     if actual != expected {
         warn!(
             expected,
             actual,
-            "ProductListing push returned an incomplete result; unmatched URLs will be retried"
+            "Raw ProductListing capture returned an incomplete result; unmatched URLs will be retried"
         );
     }
 
@@ -114,51 +137,96 @@ async fn flush_batch(
     let mut mark_as_scraped_count = 0;
     let mut mark_as_scraped_failure_count = 0;
 
-    for (meta, succeeded) in metas.into_iter().zip(succeeded) {
-        if succeeded {
-            match scraper_candidates
-                .mark_as_scraped(
-                    &meta.listing_source_id,
-                    &meta.url,
-                    &meta.hash,
-                    &meta.schema_fingerprint,
-                    &meta.raw_input_sha256,
-                    meta.disposition,
-                )
-                .await
-            {
-                Ok(()) => mark_as_scraped_count += 1,
-                Err(error) => {
-                    mark_as_scraped_failure_count += 1;
-                    warn!(listing_source_id = %meta.listing_source_id, error = %error, url = %meta.url, "Failed to mark product as scraped after push");
+    for (queued, succeeded) in batch.into_iter().zip(succeeded) {
+        match (
+            succeeded,
+            queued.request.on_success,
+            queued.request.on_failure,
+        ) {
+            (true, RawCaptureSuccessAction::MarkScraped(meta), _) => {
+                match scraper_candidates
+                    .mark_as_scraped(
+                        &meta.listing_source_id,
+                        &meta.url,
+                        &meta.hash,
+                        &meta.schema_fingerprint,
+                        &meta.raw_input_sha256,
+                        meta.disposition,
+                    )
+                    .await
+                {
+                    Ok(()) => mark_as_scraped_count += 1,
+                    Err(error) => {
+                        mark_as_scraped_failure_count += 1;
+                        warn!(listing_source_id = %meta.listing_source_id, error = %error, url = %meta.url, "Failed to mark product as scraped after raw capture");
+                    }
                 }
             }
+            (
+                true,
+                RawCaptureSuccessAction::MarkDormantRemoved {
+                    listing_source_id,
+                    url,
+                },
+                _,
+            ) => match scraper_candidates
+                .set_disposition(&listing_source_id, &url, CrawlerDisposition::DormantRemoved)
+                .await
+            {
+                Ok(()) => {
+                    mark_as_scraped_count += 1;
+                    info!(listing_source_id = %listing_source_id, url = %url, "Verified crawler removal captured; URL is dormant");
+                }
+                Err(error) => {
+                    mark_as_scraped_failure_count += 1;
+                    warn!(error = %error, listing_source_id = %listing_source_id, url = %url, "Raw removal capture committed but crawler disposition update failed");
+                }
+            },
+            (
+                false,
+                _,
+                RawCaptureFailureAction::MarkScraperFailure {
+                    listing_source_id,
+                    url,
+                },
+            ) => {
+                if let Err(error) = scraper_candidates
+                    .mark_scraper_failure(
+                        &listing_source_id,
+                        &url,
+                        "RawCaptureFailed",
+                        "verified removal raw capture did not commit",
+                    )
+                    .await
+                {
+                    warn!(error = %error, "Failed to persist raw-capture failure metadata");
+                }
+            }
+            (false, _, RawCaptureFailureAction::None) => {}
         }
     }
 
     info!(
-        event = "crawler.product_push.batch",
+        event = "crawler.raw_capture.batch",
         batch_size,
         queue_depth,
         oldest_item_age_ms,
-        upsert_latency_ms,
+        capture_latency_ms,
         persisted_count,
         persistence_failure_count,
         mark_as_scraped_count,
         mark_as_scraped_failure_count,
-        "Crawler product push batch complete"
+        "Crawler raw capture batch complete"
     );
 }
 
 #[allow(clippy::result_large_err)]
-async fn enqueue_product_push(
-    command_tx: &mpsc::Sender<QueuedProductListingPush>,
-    pair: (ProductListingPushItem, CandidateMeta),
-) -> Result<Duration, mpsc::error::SendError<QueuedProductListingPush>> {
-    let (item, meta) = pair;
-    let queued = QueuedProductListingPush {
-        item,
-        meta,
+async fn enqueue_raw_capture(
+    command_tx: &mpsc::Sender<QueuedRawCapture>,
+    request: impl Into<RawCaptureRequest>,
+) -> Result<Duration, mpsc::error::SendError<QueuedRawCapture>> {
+    let queued = QueuedRawCapture {
+        request: request.into(),
         enqueued_at: tokio::time::Instant::now(),
     };
     let wait_started_at = tokio::time::Instant::now();
@@ -170,82 +238,55 @@ async fn enqueue_product_push(
 
 #[tracing::instrument(
     name = "crawler_scrape_candidate",
-    skip(candidate, ctx),
+    skip(candidate),
     fields(
         listing_source_id = %candidate.listing_source_id,
         url = %candidate.url
     )
 )]
-async fn handle_verified_removal(
-    candidate: &ScraperCandidate,
-    ctx: &ScrapeDomainContext,
-) -> ScrapeCandidateOutcome {
-    let withdrawal = ctx
-        .product_push
-        .withdraw_verified_removal(candidate.listing_source_id, candidate.url.clone())
-        .await;
-
-    if !withdrawal.is_terminal() {
-        warn!(
-            listing_source_id = %candidate.listing_source_id,
-            url = %candidate.url,
-            outcome = ?withdrawal,
-            "Verified crawler removal was not committed canonically; URL remains active"
-        );
-        if let Err(error) = ctx
-            .scraper_candidates
-            .mark_scraper_failure(
-                &candidate.listing_source_id,
-                &candidate.url,
-                "CanonicalWithdrawalFailed",
-                "verified removal could not be withdrawn canonically",
-            )
-            .await
-        {
-            warn!(error = %error, "Failed to persist canonical withdrawal failure metadata");
-        }
-        return ScrapeCandidateOutcome {
-            command: None,
-            errored: true,
-            skipped: false,
-        };
-    }
-
-    match ctx
-        .scraper_candidates
-        .set_disposition(
-            &candidate.listing_source_id,
-            &candidate.url,
-            CrawlerDisposition::DormantRemoved,
-        )
-        .await
-    {
-        Ok(()) => {
-            info!(
-                listing_source_id = %candidate.listing_source_id,
-                url = %candidate.url,
-                outcome = ?withdrawal,
-                "Verified crawler removal committed; URL is dormant"
-            );
-            ScrapeCandidateOutcome {
-                command: None,
-                errored: false,
-                skipped: false,
-            }
-        }
+fn handle_verified_removal(candidate: &ScraperCandidate) -> ScrapeCandidateOutcome {
+    let input = match crawler_verified_removal_input(&candidate.url) {
+        Ok(input) => input,
         Err(error) => {
-            warn!(
-                error = %error,
-                listing_source_id = %candidate.listing_source_id,
-                url = %candidate.url,
-                "Canonical withdrawal committed but crawler disposition update failed"
-            );
-            ScrapeCandidateOutcome {
-                command: None,
+            warn!(error = %error, listing_source_id = %candidate.listing_source_id, "Failed to build verified-removal raw input");
+            return ScrapeCandidateOutcome {
+                capture: None,
                 errored: true,
                 skipped: false,
-            }
+            };
         }
+    };
+    let provenance = match crawler_provenance(None, None) {
+        Ok(provenance) => provenance,
+        Err(error) => {
+            warn!(error = %error, listing_source_id = %candidate.listing_source_id, "Failed to build verified-removal provenance");
+            return ScrapeCandidateOutcome {
+                capture: None,
+                errored: true,
+                skipped: false,
+            };
+        }
+    };
+
+    ScrapeCandidateOutcome {
+        capture: Some(RawCaptureRequest {
+            item: ProductListingRawCaptureItem::crawler(
+                candidate.listing_source_id,
+                &candidate.url,
+                input,
+                provenance,
+            ),
+            on_success: RawCaptureSuccessAction::MarkDormantRemoved {
+                listing_source_id: candidate.listing_source_id,
+                url: candidate.url.clone(),
+            },
+            on_failure: RawCaptureFailureAction::MarkScraperFailure {
+                listing_source_id: candidate.listing_source_id,
+                url: candidate.url.clone(),
+            },
+        }),
+        errored: false,
+        skipped: false,
     }
 }
 
@@ -259,7 +300,7 @@ async fn scrape_candidate(
         if exhausted.contains(&candidate.listing_source_id) {
             debug!("Skipping URL — ListingSource LLM budget already exhausted in this batch");
             return ScrapeCandidateOutcome {
-                command: None,
+                capture: None,
                 errored: false,
                 skipped: true,
             };
@@ -271,7 +312,7 @@ async fn scrape_candidate(
         if pending.contains(&candidate.listing_source_id) {
             debug!("Skipping URL because ListingSource has pending schema review in this batch");
             return ScrapeCandidateOutcome {
-                command: None,
+                capture: None,
                 errored: false,
                 skipped: true,
             };
@@ -281,7 +322,7 @@ async fn scrape_candidate(
     let Some(_lock) = UrlLock::try_acquire(&ctx.lock_manager, &candidate.url) else {
         warn!("Skipping URL — lock held by another worker");
         return ScrapeCandidateOutcome {
-            command: None,
+            capture: None,
             errored: false,
             skipped: true,
         };
@@ -292,7 +333,7 @@ async fn scrape_candidate(
     else {
         debug!("Skipping URL because another worker is scraping this ListingSource");
         return ScrapeCandidateOutcome {
-            command: None,
+            capture: None,
             errored: false,
             skipped: true,
         };
@@ -310,7 +351,7 @@ async fn scrape_candidate(
         .await
     {
         Ok(Some(scraped)) => {
-            let disposition = match scraped.product.availability {
+            let disposition = match &scraped.availability {
                 product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
                     product_listing_core::listing_availability::ListingAvailability::SoldOut,
                 ) => CrawlerDisposition::DormantSold,
@@ -318,6 +359,20 @@ async fn scrape_candidate(
                 | product_listing_normalization::ListingAvailabilityQuickCheck::NoAssertion
                 | product_listing_normalization::ListingAvailabilityQuickCheck::Unsupported => {
                     CrawlerDisposition::Active
+                }
+            };
+            let provenance = match crawler_provenance(
+                Some(scraped.hash.as_str()),
+                Some(scraped.schema_fingerprint.as_str()),
+            ) {
+                Ok(provenance) => provenance,
+                Err(error) => {
+                    warn!(error = %error, listing_source_id = %candidate.listing_source_id, "Failed to build crawler raw-capture provenance");
+                    return ScrapeCandidateOutcome {
+                        capture: None,
+                        errored: true,
+                        skipped: false,
+                    };
                 }
             };
             let meta = CandidateMeta {
@@ -345,30 +400,30 @@ async fn scrape_candidate(
                     .await
                 {
                     Ok(()) => ScrapeCandidateOutcome {
-                        command: None,
+                        capture: None,
                         errored: false,
                         skipped: false,
                     },
                     Err(error) => {
                         warn!(error = %error, url = %meta.url, "Failed to persist unchanged raw scrape metadata");
                         ScrapeCandidateOutcome {
-                            command: None,
+                            capture: None,
                             errored: true,
                             skipped: false,
                         }
                     }
                 }
             } else {
-                let raw_attributes = scraped.product.raw_attributes.clone();
                 ScrapeCandidateOutcome {
-                    command: normalize_to_upsert(scraped.product, &candidate).map(|command| {
-                        (
-                            ProductListingPushItem {
-                                command,
-                                raw_attributes,
-                            },
-                            meta,
-                        )
+                    capture: Some(RawCaptureRequest {
+                        item: ProductListingRawCaptureItem::crawler(
+                            candidate.listing_source_id,
+                            &candidate.url,
+                            scraped.raw_input,
+                            provenance,
+                        ),
+                        on_success: RawCaptureSuccessAction::MarkScraped(meta),
+                        on_failure: RawCaptureFailureAction::None,
                     }),
                     errored: false,
                     skipped: false,
@@ -376,13 +431,11 @@ async fn scrape_candidate(
             }
         }
         Ok(None) => ScrapeCandidateOutcome {
-            command: None,
+            capture: None,
             errored: false,
             skipped: true,
         },
-        Err(ScraperError::ProductListingRemoved { .. }) => {
-            handle_verified_removal(&candidate, ctx).await
-        }
+        Err(ScraperError::ProductListingRemoved { .. }) => handle_verified_removal(&candidate),
         Err(e) => {
             let error_message = e.to_string();
             let is_llm_budget_exceeded = matches!(&e, ScraperError::LlmBudgetExceeded { .. });
@@ -500,7 +553,7 @@ async fn scrape_candidate(
             }
 
             ScrapeCandidateOutcome {
-                command: None,
+                capture: None,
                 errored: true,
                 skipped: false,
             }
@@ -553,16 +606,16 @@ async fn scrape_domain_candidates(
 
         if candidate_outcome.errored {
             outcome.failed += 1;
-        } else if let Some(pair) = candidate_outcome.command {
-            match enqueue_product_push(&ctx.command_tx, pair).await {
+        } else if let Some(pair) = candidate_outcome.capture {
+            match enqueue_raw_capture(&ctx.command_tx, pair).await {
                 Ok(queue_wait) => {
                     outcome.succeeded += 1;
 
                     if queue_wait >= Duration::from_millis(10) {
                         warn!(
-                            event = "crawler.product_push.enqueue_wait",
+                            event = "crawler.raw_capture.enqueue_wait",
                             queue_wait_ms = queue_wait.as_millis(),
-                            "ProductListing push queue applied backpressure"
+                            "Raw ProductListing capture queue applied backpressure"
                         );
                     }
                 }
@@ -581,16 +634,16 @@ async fn scrape_domain_candidates(
     outcome
 }
 
-async fn run_push_collector(
-    mut command_rx: mpsc::Receiver<QueuedProductListingPush>,
-    push_service: Arc<dyn ProductListingPushService>,
+async fn run_raw_capture_collector(
+    mut command_rx: mpsc::Receiver<QueuedRawCapture>,
+    raw_capture: Arc<dyn ProductListingRawCaptureService>,
     scraper_candidates: Arc<dyn ScraperCandidateService>,
-    push_batch_size: usize,
-    push_max_batch_age: Duration,
+    capture_batch_size: usize,
+    capture_max_batch_age: Duration,
 ) {
-    let push_batch_size = push_batch_size.max(1);
-    let push_max_batch_age = push_max_batch_age.max(Duration::from_millis(1));
-    let mut pending = Vec::<QueuedProductListingPush>::with_capacity(push_batch_size);
+    let capture_batch_size = capture_batch_size.max(1);
+    let capture_max_batch_age = capture_max_batch_age.max(Duration::from_millis(1));
+    let mut pending = Vec::<QueuedRawCapture>::with_capacity(capture_batch_size);
 
     loop {
         if pending.is_empty() {
@@ -604,7 +657,7 @@ async fn run_push_collector(
                 .map(|item| item.enqueued_at)
                 .min()
                 .expect("pending batch is non-empty");
-            let flush_deadline = oldest_enqueued_at + push_max_batch_age;
+            let flush_deadline = oldest_enqueued_at + capture_max_batch_age;
 
             tokio::select! {
                 received = command_rx.recv() => {
@@ -613,7 +666,7 @@ async fn run_push_collector(
                         None => {
                             let batch = std::mem::take(&mut pending);
                             flush_batch(
-                                &push_service,
+                                &raw_capture,
                                 &scraper_candidates,
                                 batch,
                                 command_rx.len(),
@@ -626,7 +679,7 @@ async fn run_push_collector(
                 _ = tokio::time::sleep_until(flush_deadline) => {
                     let batch = std::mem::take(&mut pending);
                     flush_batch(
-                        &push_service,
+                        &raw_capture,
                         &scraper_candidates,
                         batch,
                         command_rx.len(),
@@ -636,20 +689,14 @@ async fn run_push_collector(
             }
         }
 
-        if pending.len() >= push_batch_size {
+        if pending.len() >= capture_batch_size {
             let batch = std::mem::take(&mut pending);
-            flush_batch(&push_service, &scraper_candidates, batch, command_rx.len()).await;
+            flush_batch(&raw_capture, &scraper_candidates, batch, command_rx.len()).await;
         }
     }
 
     if !pending.is_empty() {
-        flush_batch(
-            &push_service,
-            &scraper_candidates,
-            pending,
-            command_rx.len(),
-        )
-        .await;
+        flush_batch(&raw_capture, &scraper_candidates, pending, command_rx.len()).await;
     }
 }
 
@@ -679,7 +726,7 @@ impl CrawlerCronJob {
         let mut pending_domains: VecDeque<(String, Vec<ScraperCandidate>)> = VecDeque::new();
         let mut join_set: JoinSet<ScheduledScrapeDomainOutcome> = JoinSet::new();
         let (command_tx, command_rx) =
-            mpsc::channel::<QueuedProductListingPush>(self.config.effective_push_queue_capacity());
+            mpsc::channel::<QueuedRawCapture>(self.config.effective_push_queue_capacity());
 
         let budget_exhausted_listing_sources = Arc::new(Mutex::new(HashSet::new()));
         let schema_pending_listing_sources = Arc::new(Mutex::new(HashSet::new()));
@@ -692,9 +739,9 @@ impl CrawlerCronJob {
         let mut started = false;
         let mut no_more_candidates = false;
 
-        let push_collector = tokio::spawn(run_push_collector(
+        let raw_capture_collector = tokio::spawn(run_raw_capture_collector(
             command_rx,
-            Arc::clone(&self.product_push),
+            Arc::clone(&self.raw_capture),
             Arc::clone(&self.scraper_candidates),
             self.config.effective_push_batch_size(),
             self.config.effective_push_max_batch_age(),
@@ -709,7 +756,6 @@ impl CrawlerCronJob {
                 {
                     let scraper = Arc::clone(&self.scraper_service);
                     let scraper_candidates = Arc::clone(&self.scraper_candidates);
-                    let product_push = Arc::clone(&self.product_push);
                     let lock_manager = Arc::clone(&self.lock_manager);
                     let domain_tx = command_tx.clone();
                     let budget_exhausted_listing_sources =
@@ -725,7 +771,6 @@ impl CrawlerCronJob {
                             let ctx = ScrapeDomainContext {
                                 scraper,
                                 scraper_candidates,
-                                product_push,
                                 lock_manager,
                                 command_tx: domain_tx,
                                 budget_exhausted_listing_sources,
@@ -775,7 +820,7 @@ impl CrawlerCronJob {
                     if !started && join_set.is_empty() && pending_domains.is_empty() {
                         debug!("No scraper candidates, skipping scheduler pass");
                         drop(command_tx);
-                        if let Err(e) = push_collector.await {
+                        if let Err(e) = raw_capture_collector.await {
                             error!(error = %e, "Scraper push collector task failed to join");
                         }
                         return;
@@ -826,7 +871,7 @@ impl CrawlerCronJob {
 
         drop(command_tx);
 
-        if let Err(e) = push_collector.await {
+        if let Err(e) = raw_capture_collector.await {
             error!(error = %e, "Scraper push collector task failed to join");
             failed += 1;
         }
@@ -872,15 +917,12 @@ mod tests {
     use crate::scraper::scraper_service::MockScraperService;
     use crate::service::cron::config::CrawlerCronConfig;
     use crate::service::cron::test_support::{noop_listing_source_registration, scraper_candidate};
-    use crate::service::product_push::{
-        MockProductListingPushService, VerifiedRemovalWithdrawalOutcome,
-    };
+    use crate::service::raw_capture::MockProductListingRawCaptureService;
     use crate::spider::advisory_lock::LocalLockManager;
     use crate::spider::candidate_service::MockSpiderCandidateService;
     use crate::spider::service::MockSpiderService;
     use listing_source_core::ListingSourceId;
-    use product_listing_core::source_listing_id::SourceListingId;
-    use product_listing_service::use_cases::commands::upsert_product_listing::UpsertProductListingCommand;
+
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -898,31 +940,20 @@ mod tests {
         (spider_candidates, MockSpiderService::new())
     }
 
-    fn no_push_service() -> Box<MockProductListingPushService> {
-        let mut push_service = MockProductListingPushService::new();
-        push_service.expect_push().times(0);
-        Box::new(push_service)
+    fn no_raw_capture_service() -> Box<MockProductListingRawCaptureService> {
+        let mut raw_capture = MockProductListingRawCaptureService::new();
+        raw_capture.expect_capture().times(0);
+        Box::new(raw_capture)
     }
 
-    fn item(listing_source_id: ListingSourceId, product_id: &str) -> ProductListingPushItem {
-        ProductListingPushItem {
-            command: UpsertProductListingCommand {
-                listing_source_id: ListingSourceId::from(uuid::Uuid::from(listing_source_id)),
-                source_listing_id: SourceListingId::try_from(product_id)
-                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-                title: None,
-                description: None,
-                price: application::patch_field::PatchField::Unchanged,
-                price_estimate_min: application::patch_field::PatchField::Unchanged,
-                price_estimate_max: application::patch_field::PatchField::Unchanged,
-                availability: application::patch_field::PatchField::Unchanged,
-                url: None,
-                images: application::patch_field::PatchField::Unchanged,
-                auction_start: application::patch_field::PatchField::Unchanged,
-                auction_end: application::patch_field::PatchField::Unchanged,
-            },
-            raw_attributes: Default::default(),
-        }
+    fn item(listing_source_id: ListingSourceId, product_id: &str) -> ProductListingRawCaptureItem {
+        let url = url::Url::parse(&format!("https://example.test/products/{product_id}"))
+            .unwrap_or_else(|error| panic!("test URL: {error}"));
+        let input = crawler_verified_removal_input(&url)
+            .unwrap_or_else(|error| panic!("test removal input: {error}"));
+        let provenance = crawler_provenance(None, None)
+            .unwrap_or_else(|error| panic!("test provenance: {error}"));
+        ProductListingRawCaptureItem::crawler(listing_source_id, &url, input, provenance)
     }
 
     fn meta(listing_source_id: ListingSourceId, url: &str, hash: &str) -> CandidateMeta {
@@ -936,13 +967,20 @@ mod tests {
         }
     }
 
+    fn queued(item: ProductListingRawCaptureItem, meta: CandidateMeta) -> QueuedRawCapture {
+        QueuedRawCapture {
+            request: (item, meta).into(),
+            enqueued_at: tokio::time::Instant::now(),
+        }
+    }
+
     #[tokio::test]
     async fn should_mark_only_the_matching_successful_push_input_as_scraped() {
         let first_listing_source_id = ListingSourceId::new();
         let second_listing_source_id = ListingSourceId::new();
         let first_url = url::Url::parse("https://first.example/product").unwrap();
-        let mut push_service = MockProductListingPushService::new();
-        push_service.expect_push().once().returning(|products| {
+        let mut push_service = MockProductListingRawCaptureService::new();
+        push_service.expect_capture().once().returning(|products| {
             assert_eq!(products.len(), 2);
             Box::pin(async { vec![true, false] })
         });
@@ -958,31 +996,29 @@ mod tests {
             })
             .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
 
-        let push_service: Arc<dyn ProductListingPushService> = Arc::new(push_service);
+        let push_service: Arc<dyn ProductListingRawCaptureService> = Arc::new(push_service);
         let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
 
         flush_batch(
             &push_service,
             &scraper_candidates,
             vec![
-                QueuedProductListingPush {
-                    item: item(first_listing_source_id, "same-product-id"),
-                    meta: meta(
+                queued(
+                    item(first_listing_source_id, "same-product-id"),
+                    meta(
                         first_listing_source_id,
                         "https://first.example/product",
                         "first",
                     ),
-                    enqueued_at: tokio::time::Instant::now(),
-                },
-                QueuedProductListingPush {
-                    item: item(second_listing_source_id, "same-product-id"),
-                    meta: meta(
+                ),
+                queued(
+                    item(second_listing_source_id, "same-product-id"),
+                    meta(
                         second_listing_source_id,
                         "https://second.example/product",
                         "second",
                     ),
-                    enqueued_at: tokio::time::Instant::now(),
-                },
+                ),
             ],
             0,
         )
@@ -990,12 +1026,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_default_missing_product_push_results_to_failure() {
+    async fn should_default_missing_raw_capture_results_to_failure() {
         let first_listing_source_id = ListingSourceId::new();
         let second_listing_source_id = ListingSourceId::new();
         let first_url = url::Url::parse("https://first.example/product").unwrap();
-        let mut push_service = MockProductListingPushService::new();
-        push_service.expect_push().once().returning(|products| {
+        let mut push_service = MockProductListingRawCaptureService::new();
+        push_service.expect_capture().once().returning(|products| {
             assert_eq!(products.len(), 2);
             Box::pin(async { vec![true] })
         });
@@ -1011,31 +1047,29 @@ mod tests {
             })
             .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
 
-        let push_service: Arc<dyn ProductListingPushService> = Arc::new(push_service);
+        let push_service: Arc<dyn ProductListingRawCaptureService> = Arc::new(push_service);
         let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
 
         flush_batch(
             &push_service,
             &scraper_candidates,
             vec![
-                QueuedProductListingPush {
-                    item: item(first_listing_source_id, "first"),
-                    meta: meta(
+                queued(
+                    item(first_listing_source_id, "first"),
+                    meta(
                         first_listing_source_id,
                         "https://first.example/product",
                         "first",
                     ),
-                    enqueued_at: tokio::time::Instant::now(),
-                },
-                QueuedProductListingPush {
-                    item: item(second_listing_source_id, "second"),
-                    meta: meta(
+                ),
+                queued(
+                    item(second_listing_source_id, "second"),
+                    meta(
                         second_listing_source_id,
                         "https://second.example/product",
                         "second",
                     ),
-                    enqueued_at: tokio::time::Instant::now(),
-                },
+                ),
             ],
             0,
         )
@@ -1043,11 +1077,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_apply_backpressure_when_product_push_queue_is_full() {
-        let (command_tx, mut command_rx) = mpsc::channel::<QueuedProductListingPush>(1);
+    async fn should_apply_backpressure_when_raw_capture_queue_is_full() {
+        let (command_tx, mut command_rx) = mpsc::channel::<QueuedRawCapture>(1);
         let listing_source_id = ListingSourceId::new();
 
-        enqueue_product_push(
+        enqueue_raw_capture(
             &command_tx,
             (
                 item(listing_source_id, "first"),
@@ -1063,7 +1097,7 @@ mod tests {
 
         let second_tx = command_tx.clone();
         let second = tokio::spawn(async move {
-            enqueue_product_push(
+            enqueue_raw_capture(
                 &second_tx,
                 (
                     item(listing_source_id, "second"),
@@ -1098,9 +1132,9 @@ mod tests {
         let push_calls = Arc::new(AtomicUsize::new(0));
         let push_calls_for_mock = Arc::clone(&push_calls);
 
-        let mut push_service = MockProductListingPushService::new();
+        let mut push_service = MockProductListingRawCaptureService::new();
         push_service
-            .expect_push()
+            .expect_capture()
             .once()
             .returning(move |products| {
                 push_calls_for_mock.fetch_add(1, Ordering::SeqCst);
@@ -1115,7 +1149,7 @@ mod tests {
             .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
 
         let (tx, rx) = mpsc::channel(2);
-        let collector = tokio::spawn(run_push_collector(
+        let collector = tokio::spawn(run_raw_capture_collector(
             rx,
             Arc::new(push_service),
             Arc::new(scraper_candidates),
@@ -1124,7 +1158,7 @@ mod tests {
         ));
 
         let listing_source_id = ListingSourceId::new();
-        enqueue_product_push(
+        enqueue_raw_capture(
             &tx,
             (
                 item(listing_source_id, "one"),
@@ -1146,13 +1180,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_flush_final_partial_batch_when_product_push_channel_closes() {
+    async fn should_flush_final_partial_batch_when_raw_capture_channel_closes() {
         let push_calls = Arc::new(AtomicUsize::new(0));
         let push_calls_for_mock = Arc::clone(&push_calls);
 
-        let mut push_service = MockProductListingPushService::new();
+        let mut push_service = MockProductListingRawCaptureService::new();
         push_service
-            .expect_push()
+            .expect_capture()
             .once()
             .returning(move |products| {
                 assert_eq!(products.len(), 2);
@@ -1167,7 +1201,7 @@ mod tests {
             .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
 
         let (tx, rx) = mpsc::channel(2);
-        let collector = tokio::spawn(run_push_collector(
+        let collector = tokio::spawn(run_raw_capture_collector(
             rx,
             Arc::new(push_service),
             Arc::new(scraper_candidates),
@@ -1176,7 +1210,7 @@ mod tests {
         ));
 
         let listing_source_id = ListingSourceId::new();
-        enqueue_product_push(
+        enqueue_raw_capture(
             &tx,
             (
                 item(listing_source_id, "one"),
@@ -1185,7 +1219,7 @@ mod tests {
         )
         .await
         .expect("first enqueue must succeed");
-        enqueue_product_push(
+        enqueue_raw_capture(
             &tx,
             (
                 item(listing_source_id, "two"),
@@ -1240,7 +1274,7 @@ mod tests {
             Box::new(scraper_candidates),
             Box::new(scraper_service),
             noop_listing_source_registration(),
-            no_push_service(),
+            no_raw_capture_service(),
         )
     }
 
@@ -1248,25 +1282,11 @@ mod tests {
         scraper_candidates: MockScraperCandidateService,
         scraper_service: MockScraperService,
     ) -> ScrapeDomainContext {
-        let product_push: Arc<dyn ProductListingPushService> = Arc::new(*no_push_service());
-        scrape_candidate_context_with_product_push(
-            scraper_candidates,
-            scraper_service,
-            product_push,
-        )
-    }
-
-    fn scrape_candidate_context_with_product_push(
-        scraper_candidates: MockScraperCandidateService,
-        scraper_service: MockScraperService,
-        product_push: Arc<dyn ProductListingPushService>,
-    ) -> ScrapeDomainContext {
         let (command_tx, _command_rx) = tokio::sync::mpsc::channel(1);
 
         ScrapeDomainContext {
             scraper: Arc::new(scraper_service),
             scraper_candidates: Arc::new(scraper_candidates),
-            product_push,
             lock_manager: Arc::new(LocalLockManager::new()),
             command_tx,
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
@@ -1352,34 +1372,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_mark_removed_url_dormant_only_after_canonical_withdrawal() {
+    async fn should_mark_removed_url_dormant_only_after_raw_capture() {
         let url = url::Url::parse("https://example.com/product/removed").unwrap();
         let candidate = scraper_candidate("ListingSource", url.clone());
         let listing_source_id = candidate.listing_source_id;
+        let outcome = handle_verified_removal(&candidate);
+        let request = outcome.capture.expect("removal must be queued for capture");
 
-        let mut scraper_service = MockScraperService::new();
-        scraper_service
-            .expect_scrape()
+        let mut raw_capture = MockProductListingRawCaptureService::new();
+        raw_capture
+            .expect_capture()
             .once()
-            .returning(move |_, _, _, _, _| {
-                let url = url.clone();
-                Box::pin(async move {
-                    Err(ScraperError::ProductListingRemoved {
-                        url,
-                        details: "verified removal".to_owned(),
-                    })
-                })
-            });
-
-        let mut product_push = MockProductListingPushService::new();
-        product_push
-            .expect_withdraw_verified_removal()
-            .once()
-            .withf(move |source_id, candidate_url| {
-                *source_id == listing_source_id
-                    && candidate_url.as_str() == "https://example.com/product/removed"
+            .withf(move |observations| {
+                observations.len() == 1
+                    && observations[0].command.listing_source_id == listing_source_id
+                    && observations[0].command.source_record_key
+                        == "https://example.com/product/removed"
+                    && observations[0].command.input.operation()
+                        == product_listing_normalization::RawProductListingOperation::Delete
             })
-            .returning(|_, _| Box::pin(async { VerifiedRemovalWithdrawalOutcome::Withdrawn }));
+            .returning(|_| Box::pin(async { vec![true] }));
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
@@ -1392,70 +1404,56 @@ mod tests {
             })
             .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
-        let outcome = scrape_candidate(
-            candidate,
-            &scrape_candidate_context_with_product_push(
-                scraper_candidates,
-                scraper_service,
-                Arc::new(product_push),
-            ),
+        let raw_capture: Arc<dyn ProductListingRawCaptureService> = Arc::new(raw_capture);
+        let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
+        flush_batch(
+            &raw_capture,
+            &scraper_candidates,
+            vec![QueuedRawCapture {
+                request,
+                enqueued_at: tokio::time::Instant::now(),
+            }],
+            0,
         )
         .await;
-
-        assert!(!outcome.errored);
-        assert!(!outcome.skipped);
-        assert!(outcome.command.is_none());
     }
 
     #[tokio::test]
-    async fn should_keep_removed_url_active_when_canonical_withdrawal_fails() {
+    async fn should_keep_removed_url_active_when_raw_capture_fails() {
         let url = url::Url::parse("https://example.com/product/removed").unwrap();
-        let candidate = scraper_candidate("ListingSource", url.clone());
+        let candidate = scraper_candidate("ListingSource", url);
+        let outcome = handle_verified_removal(&candidate);
+        let request = outcome.capture.expect("removal must be queued for capture");
 
-        let mut scraper_service = MockScraperService::new();
-        scraper_service
-            .expect_scrape()
+        let mut raw_capture = MockProductListingRawCaptureService::new();
+        raw_capture
+            .expect_capture()
             .once()
-            .returning(move |_, _, _, _, _| {
-                let url = url.clone();
-                Box::pin(async move {
-                    Err(ScraperError::ProductListingRemoved {
-                        url,
-                        details: "verified removal".to_owned(),
-                    })
-                })
-            });
-
-        let mut product_push = MockProductListingPushService::new();
-        product_push
-            .expect_withdraw_verified_removal()
-            .once()
-            .returning(|_, _| Box::pin(async { VerifiedRemovalWithdrawalOutcome::Failed }));
+            .returning(|_| Box::pin(async { vec![false] }));
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_mark_scraper_failure()
             .once()
             .withf(|_, _, kind, message| {
-                kind == "CanonicalWithdrawalFailed"
-                    && message == "verified removal could not be withdrawn canonically"
+                kind == "RawCaptureFailed"
+                    && message == "verified removal raw capture did not commit"
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
         scraper_candidates.expect_set_disposition().never();
 
-        let outcome = scrape_candidate(
-            candidate,
-            &scrape_candidate_context_with_product_push(
-                scraper_candidates,
-                scraper_service,
-                Arc::new(product_push),
-            ),
+        let raw_capture: Arc<dyn ProductListingRawCaptureService> = Arc::new(raw_capture);
+        let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
+        flush_batch(
+            &raw_capture,
+            &scraper_candidates,
+            vec![QueuedRawCapture {
+                request,
+                enqueued_at: tokio::time::Instant::now(),
+            }],
+            0,
         )
         .await;
-
-        assert!(outcome.errored);
-        assert!(!outcome.skipped);
-        assert!(outcome.command.is_none());
     }
 
     #[tokio::test]
@@ -2049,7 +2047,7 @@ mod tests {
             Box::new(scraper_candidates),
             Box::new(scraper_service),
             noop_listing_source_registration(),
-            no_push_service(),
+            no_raw_capture_service(),
         );
 
         job.run_scraper_once().await;

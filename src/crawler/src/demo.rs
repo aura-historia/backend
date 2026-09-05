@@ -64,7 +64,7 @@ use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
     ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
 };
-use crawler::service::product_push::FileProductListingPushService;
+use crawler::service::raw_capture::FileProductListingRawCaptureService;
 use crawler::spider::advisory_lock::LocalLockManager;
 use crawler::spider::candidate_service::SpiderCandidateServiceImpl;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
@@ -330,7 +330,9 @@ async fn main() {
                 return;
             }
         }
-        let product_push = Box::new(FileProductListingPushService::new("scraped_products.json"));
+        let raw_capture = Box::new(FileProductListingRawCaptureService::new(
+            "scraped_raw_observations.json",
+        ));
 
         let cron_job = CrawlerCronJob::new(
             config,
@@ -340,7 +342,7 @@ async fn main() {
             scraper_candidates,
             scraper_svc,
             listing_source_registration,
-            product_push,
+            raw_capture,
         );
 
         info!(

@@ -235,7 +235,7 @@ async fn main() {
         let pool: &'static PgPool = connect_and_migrate().await;
         let service = build_scraper_service(pool);
 
-        let mut products: Vec<DemoProduct> = vec![];
+        let mut products: Vec<serde_json::Value> = vec![];
         for target in targets {
             let listing_source_id = target.listing_source_id;
             let url = match Url::parse(target.url) {
@@ -262,11 +262,16 @@ async fn main() {
             {
                 Ok(Some(scraped)) => {
                     info!(
-                        title = %scraped.product.title.payload,
-                        source_listing_id = %scraped.product.source_listing_id,
-                        "Scrape succeeded"
+                        raw_input_sha256 = ?scraped.raw_input_sha256,
+                        "Scrape succeeded; writing raw normalization input display"
                     );
-                    products.push(scraped.product.into());
+                    products.push(serde_json::json!({
+                        "action": scraped.raw_input.operation().as_str(),
+                        "payloadFormat": scraped.raw_input.payload_format().as_str(),
+                        "sourcePayload": scraped.raw_input.source_payload().value(),
+                        "rawValues": scraped.raw_input.raw_values().value(),
+                        "normalizationContext": scraped.raw_input.normalization_context().value(),
+                    }));
                 }
                 Ok(None) => {
                     info!("Hash matched, skipped scraping");

@@ -2,7 +2,7 @@
 //!
 //! Wires crawler-local Postgres, authoritative business Postgres, and the LLM, then starts the
 //! [`CrawlerCronJob`] loop that continuously spiders ListingSource websites, scrapes product pages,
-//! and pushes normalized products through the canonical product upsert use case.
+//! and captures changed raw ProductListing observations for asynchronous normalization.
 //!
 //! # Connection pool sizing
 //!
@@ -69,7 +69,7 @@ use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
     ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
 };
-use crawler::service::product_push::ProductListingPushServiceImpl;
+use crawler::service::raw_capture::ProductListingRawCaptureServiceImpl;
 use crawler::spider::advisory_lock::LocalLockManager;
 use crawler::spider::candidate_service::SpiderCandidateServiceImpl;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
@@ -83,12 +83,9 @@ use listing_source_postgres::SqlxListingSourceReaders;
 use listing_source_service::ports::WebCrawlSourceReader;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::{
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingEventAppenderFactory,
-    SqlxProductListingRepositoryFactory,
+    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingRawCaptureWriterFactory,
 };
-use product_listing_service::use_cases::{
-    UpsertProductListingHandler, WithdrawProductListingHandler,
-};
+use product_listing_service::use_cases::CaptureProductListingRawObservationHandler;
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use std::time::Duration;
@@ -370,10 +367,9 @@ async fn main() {
             .connect(&business_database_url)
             .await
             .expect("Failed to connect to authoritative business Postgres");
-        let business_unit_of_work = SqlxUnitOfWork::new(business_pool.clone());
         info!(
             max_connections = business_db_max_connections,
-            product_push_max_concurrency = config.effective_push_max_concurrency(),
+            raw_capture_max_concurrency = config.effective_push_max_concurrency(),
             "Connected to authoritative business Postgres"
         );
 
@@ -491,26 +487,15 @@ async fn main() {
         let listing_source_registration =
             ListingSourceRegistrationService::new(listing_source_source, listing_source_repo);
 
-        // 6. Wire product push through authoritative Postgres.
-        let upsert_product = UpsertProductListingHandler::new(
-            business_unit_of_work,
-            SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventAppenderFactory::new(),
-            SqlxPartnerProductListingAuthorizerFactory::new(),
-        );
-        let withdraw_product = WithdrawProductListingHandler::new(
-            SqlxUnitOfWork::new(business_pool.clone()),
-            SqlxProductListingRepositoryFactory::new(),
-            SqlxProductListingEventAppenderFactory::new(),
-            SqlxPartnerProductListingAuthorizerFactory::new(),
-        );
-        let product_push = Box::new(
-            ProductListingPushServiceImpl::new(
-                Arc::new(upsert_product),
-                config.effective_push_max_concurrency(),
-            )
-            .with_withdraw_product(Arc::new(withdraw_product)),
-        );
+        // 6. Capture changed crawler evidence through the operational raw-capture use case.
+        let raw_capture = Box::new(ProductListingRawCaptureServiceImpl::new(
+            Arc::new(CaptureProductListingRawObservationHandler::new(
+                SqlxUnitOfWork::new(business_pool.clone()),
+                SqlxProductListingRawCaptureWriterFactory::new(),
+                SqlxPartnerProductListingAuthorizerFactory::new(),
+            )),
+            config.effective_push_max_concurrency(),
+        ));
 
         let db_max_connections = config.effective_db_max_connections();
         let scraper_max_llm_calls_per_listing_source =
@@ -529,7 +514,7 @@ async fn main() {
             scraper_candidates,
             scraper_svc,
             listing_source_registration,
-            product_push,
+            raw_capture,
         );
 
         // 8. Run forever
