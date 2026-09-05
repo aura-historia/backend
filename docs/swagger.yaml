@@ -8901,6 +8901,103 @@ paths:
       security:
         - BearerAuth: []
         - AccessTokenAuth: []
+  /api/v1/admin/overview:
+    get:
+      summary: Get the administrator operational overview
+      description: |
+        Returns a bounded landing-page summary for authenticated administrators. `schemaVersion` is
+        required so clients can select a compatible response decoder. Every counter is read from
+        authoritative PostgreSQL by one aggregate statement; OpenSearch and other rebuildable
+        projections are not used.
+
+        `listingSources.methodAssignments` counts source-method assignments, not distinct sources,
+        so its values may sum to more than `listingSources.total`. ProductListing availability
+        counts include only `ACTIVE` listings; `activeWithoutAvailability` identifies active rows
+        without a current source availability assertion. Responses contain no PII, secrets, or
+        embedded collections and always use `Cache-Control: no-store`.
+      operationId: getAdminOverview
+      tags:
+        - Administration
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      responses:
+        "200":
+          description: Authoritative operational counters returned successfully.
+          headers:
+            Cache-Control:
+              description: Administrator overview responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOverviewData"
+        "401":
+          description: Missing or invalid bearer credentials.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+        "403":
+          description: The caller does not have the persisted ADMIN role.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+        "500":
+          description: An invalid authoritative read model or internal overview failure occurred.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: ADMIN_OVERVIEW_INTERNAL_ERROR
+        "503":
+          description: PostgreSQL or persisted administrator authorization is temporarily unavailable.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: ADMIN_OVERVIEW_TEMPORARILY_UNAVAILABLE
   /api/v1/admin/partnerships:
     get:
       summary: List Partnerships for administration
@@ -13942,6 +14039,162 @@ components:
           description: WooCommerce product identifier. It is converted to the internal `sourceListingId`.
           example: 17
 
+    AdminOverviewData:
+      type: object
+      description: Versioned bounded administrator operational summary sourced from authoritative PostgreSQL.
+      required:
+        - schemaVersion
+        - users
+        - partnershipApplications
+        - parties
+        - listingSources
+        - partnerships
+        - productListings
+      properties:
+        schemaVersion:
+          type: integer
+          minimum: 1
+          enum: [1]
+          description: Response contract version.
+        users:
+          $ref: "#/components/schemas/AdminOverviewUsersData"
+        partnershipApplications:
+          $ref: "#/components/schemas/AdminOverviewPartnershipApplicationsData"
+        parties:
+          $ref: "#/components/schemas/AdminOverviewCountData"
+        listingSources:
+          $ref: "#/components/schemas/AdminOverviewListingSourcesData"
+        partnerships:
+          $ref: "#/components/schemas/AdminOverviewCountData"
+        productListings:
+          $ref: "#/components/schemas/AdminOverviewProductListingsData"
+    AdminOverviewCountData:
+      type: object
+      required: [total]
+      properties:
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+    AdminOverviewUsersData:
+      type: object
+      required: [total, byTier, byRole]
+      properties:
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+        byTier:
+          $ref: "#/components/schemas/AdminOverviewUserTierCountsData"
+        byRole:
+          $ref: "#/components/schemas/AdminOverviewUserRoleCountsData"
+    AdminOverviewUserTierCountsData:
+      type: object
+      required: [free, pro, ultimate]
+      properties:
+        free: { type: integer, format: int64, minimum: 0 }
+        pro: { type: integer, format: int64, minimum: 0 }
+        ultimate: { type: integer, format: int64, minimum: 0 }
+    AdminOverviewUserRoleCountsData:
+      type: object
+      required: [user, admin]
+      properties:
+        user: { type: integer, format: int64, minimum: 0 }
+        admin: { type: integer, format: int64, minimum: 0 }
+    AdminOverviewPartnershipApplicationsData:
+      type: object
+      required: [total, byState]
+      properties:
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+        byState:
+          $ref: "#/components/schemas/AdminOverviewPartnershipApplicationStateCountsData"
+    AdminOverviewPartnershipApplicationStateCountsData:
+      type: object
+      required: [submitted, inReview, approved, rejected, withdrawn]
+      properties:
+        submitted: { type: integer, format: int64, minimum: 0 }
+        inReview: { type: integer, format: int64, minimum: 0 }
+        approved: { type: integer, format: int64, minimum: 0 }
+        rejected: { type: integer, format: int64, minimum: 0 }
+        withdrawn: { type: integer, format: int64, minimum: 0 }
+    AdminOverviewListingSourcesData:
+      type: object
+      description: "methodAssignments counts source-method rows and need not sum to total."
+      required: [total, withoutIngestionMethod, methodAssignments]
+      properties:
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+        withoutIngestionMethod:
+          type: integer
+          format: int64
+          minimum: 0
+        methodAssignments:
+          $ref: "#/components/schemas/AdminOverviewListingSourceMethodAssignmentCountsData"
+    AdminOverviewListingSourceMethodAssignmentCountsData:
+      type: object
+      required: [webCrawl, shopify, woocommerce, partnerApi]
+      properties:
+        webCrawl: { type: integer, format: int64, minimum: 0 }
+        shopify: { type: integer, format: int64, minimum: 0 }
+        woocommerce: { type: integer, format: int64, minimum: 0 }
+        partnerApi: { type: integer, format: int64, minimum: 0 }
+    AdminOverviewProductListingsData:
+      type: object
+      description: Availability counts include ACTIVE listings only.
+      required:
+        [total, byLifecycle, activeAvailability, activeWithoutAvailability]
+      properties:
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+        byLifecycle:
+          $ref: "#/components/schemas/AdminOverviewProductListingLifecycleCountsData"
+        activeAvailability:
+          $ref: "#/components/schemas/AdminOverviewActiveListingAvailabilityCountsData"
+        activeWithoutAvailability:
+          type: integer
+          format: int64
+          minimum: 0
+    AdminOverviewProductListingLifecycleCountsData:
+      type: object
+      required: [active, withdrawn]
+      properties:
+        active: { type: integer, format: int64, minimum: 0 }
+        withdrawn: { type: integer, format: int64, minimum: 0 }
+    AdminOverviewActiveListingAvailabilityCountsData:
+      type: object
+      required:
+        [
+          available,
+          inStock,
+          limitedAvailability,
+          backOrder,
+          madeToOrder,
+          preOrder,
+          preSale,
+          unavailable,
+          reserved,
+          outOfStock,
+          soldOut,
+        ]
+      properties:
+        available: { type: integer, format: int64, minimum: 0 }
+        inStock: { type: integer, format: int64, minimum: 0 }
+        limitedAvailability: { type: integer, format: int64, minimum: 0 }
+        backOrder: { type: integer, format: int64, minimum: 0 }
+        madeToOrder: { type: integer, format: int64, minimum: 0 }
+        preOrder: { type: integer, format: int64, minimum: 0 }
+        preSale: { type: integer, format: int64, minimum: 0 }
+        unavailable: { type: integer, format: int64, minimum: 0 }
+        reserved: { type: integer, format: int64, minimum: 0 }
+        outOfStock: { type: integer, format: int64, minimum: 0 }
+        soldOut: { type: integer, format: int64, minimum: 0 }
     AdminPartnershipCollectionData:
       type: object
       description: "Cursor-paginated safe Partnership summaries for the admin collection. `searchAfter` is omitted on the terminal page; no total is returned."

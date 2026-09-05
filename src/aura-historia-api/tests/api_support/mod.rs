@@ -1,14 +1,17 @@
 #![allow(dead_code)]
 
+use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
+use admin_overview_service::GetAdminOverviewHandler;
 use application::transaction::{Transaction, UnitOfWork};
 use aura_historia_api::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
     TransportPrincipal,
 };
 use aura_historia_api::state::{
-    AppState, BillingState, ListingSourcesState, NewsletterState, NotificationsState, OAuthState,
-    PartiesState, PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
-    ProductListingsState, SearchFiltersState, UsersState, WatchlistState, WebhooksState,
+    AdminOverviewState, AppState, BillingState, ListingSourcesState, NewsletterState,
+    NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
+    PartnershipApplicationsState, PartnershipsState, ProductListingsState, SearchFiltersState,
+    UsersState, WatchlistState, WebhooksState,
 };
 use aura_historia_api::{app, state};
 use billing_service::ports::{
@@ -1391,6 +1394,14 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     state::AppState::new()
+        .with_admin_overview(AdminOverviewState::new(
+            Arc::new(GetAdminOverviewHandler::new(
+                unit_of_work.clone(),
+                SqlxAdminOverviewReaderFactory::new(),
+                user_postgres::SqlxUserAdminReaderFactory::new(),
+            )),
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        ))
         .with_parties(parties_state)
         .with_users(users_state)
         .with_watchlist(watchlist_state)

@@ -1,4 +1,5 @@
 use crate::auth::TokenAuthenticator;
+use admin_overview_service::GetAdminOverviewUseCase;
 use async_trait::async_trait;
 use billing_service::use_cases::{
     CreateBillingCheckoutSessionUseCase, CreateBillingManagementSessionUseCase,
@@ -97,6 +98,7 @@ pub struct AppState {
     pub(crate) product_listings: Option<ProductListingsState>,
     pub(crate) partner_product_listings: Option<PartnerProductListingsState>,
     pub(crate) listing_sources: Option<ListingSourcesState>,
+    pub(crate) admin_overview: Option<AdminOverviewState>,
     pub(crate) parties: Option<PartiesState>,
     pub(crate) users: Option<UsersState>,
     pub(crate) watchlist: Option<WatchlistState>,
@@ -123,6 +125,7 @@ impl AppState {
             product_listings: None,
             partner_product_listings: None,
             listing_sources: None,
+            admin_overview: None,
             parties: None,
             users: None,
             watchlist: None,
@@ -157,6 +160,11 @@ impl AppState {
 
     pub fn with_listing_sources(mut self, listing_sources: ListingSourcesState) -> Self {
         self.listing_sources = Some(listing_sources);
+        self
+    }
+
+    pub fn with_admin_overview(mut self, admin_overview: AdminOverviewState) -> Self {
+        self.admin_overview = Some(admin_overview);
         self
     }
 
@@ -216,6 +224,24 @@ impl AppState {
     pub fn with_notifications(mut self, notifications: NotificationsState) -> Self {
         self.notifications = Some(notifications);
         self
+    }
+}
+
+#[derive(Clone)]
+pub struct AdminOverviewState {
+    pub(crate) get_overview: Arc<dyn GetAdminOverviewUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl AdminOverviewState {
+    pub fn new(
+        get_overview: Arc<dyn GetAdminOverviewUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            get_overview,
+            authenticator,
+        }
     }
 }
 
