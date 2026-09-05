@@ -634,22 +634,26 @@ async fn should_cover_client_crud_use_cases() {
             .unwrap()
             .client_id
     );
-    let updated = UpdateOAuthClientHandler::new(FakeUnitOfWork(ports.clone()), ports.clone())
-        .execute(
-            &ctx(),
-            &client_id,
-            UpdateOAuthClientCommand {
-                name: Some(OAuthClientName::from("B")),
-                redirect_uris: None,
-                tos_uri: None,
-                policy_uri: None,
-                client_uri: None,
-                logo_uri: None,
-                scopes: None,
-            },
-        )
-        .await
-        .unwrap();
+    let updated = UpdateOAuthClientHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        FakeCheckUserAdmin::allow_all(),
+    )
+    .execute(
+        &ctx(),
+        &client_id,
+        UpdateOAuthClientCommand {
+            name: Some(OAuthClientName::from("B")),
+            redirect_uris: None,
+            tos_uri: None,
+            policy_uri: None,
+            client_uri: None,
+            logo_uri: None,
+            scopes: None,
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(OAuthClientName::from("B"), updated.name);
     DeleteOAuthClientHandler::new(FakeUnitOfWork(ports.clone()), ports.clone())
         .execute(&ctx(), &client_id)
@@ -716,6 +720,84 @@ async fn should_require_admin_role_and_delegated_write_for_oauth_client_creation
     );
     assert_eq!(2, lock(&ports.0).transaction_begins);
     assert_eq!(2, lock(&ports.0).transaction_commits);
+}
+
+#[tokio::test]
+async fn should_require_admin_role_and_delegated_write_for_oauth_client_update() {
+    let ports = FakePorts::default();
+    let client = client_with_secret(&RawOAuthClientSecret::new());
+    let client_id = client.client_id();
+    lock(&ports.0).client = Some(client);
+    let admin_user_id = UserId::new();
+    let update = UpdateOAuthClientHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        FakeCheckUserAdmin::allow_user(admin_user_id),
+    );
+    let command = |name: &str| UpdateOAuthClientCommand {
+        name: Some(OAuthClientName::from(name)),
+        redirect_uris: None,
+        tos_uri: None,
+        policy_uri: None,
+        client_uri: None,
+        logo_uri: None,
+        scopes: None,
+    };
+
+    let anonymous = context(Principal::Anonymous);
+    assert!(matches!(
+        update
+            .execute(&anonymous, &client_id, command("Anonymous"))
+            .await,
+        Err(OAuthServiceError::AuthenticatedActorRequired)
+    ));
+
+    let direct_non_admin = context(Principal::User(UserId::new()));
+    assert!(matches!(
+        update
+            .execute(&direct_non_admin, &client_id, command("Non-admin"))
+            .await,
+        Err(OAuthServiceError::Forbidden)
+    ));
+
+    let delegated_without_write = context(Principal::DelegatedUser {
+        user_id: admin_user_id,
+        capabilities: BTreeSet::new(),
+    });
+    assert!(matches!(
+        update
+            .execute(
+                &delegated_without_write,
+                &client_id,
+                command("Missing capability")
+            )
+            .await,
+        Err(OAuthServiceError::Forbidden)
+    ));
+
+    let direct_admin = context(Principal::User(admin_user_id));
+    assert!(
+        update
+            .execute(&direct_admin, &client_id, command("Direct admin"))
+            .await
+            .is_ok()
+    );
+
+    let delegated_admin = context(Principal::DelegatedUser {
+        user_id: admin_user_id,
+        capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
+    });
+    assert!(
+        update
+            .execute(&delegated_admin, &client_id, command("Delegated admin"))
+            .await
+            .is_ok()
+    );
+
+    let state = lock(&ports.0);
+    assert_eq!(2, state.client_updates);
+    assert_eq!(2, state.transaction_begins);
+    assert_eq!(2, state.transaction_commits);
 }
 
 #[tokio::test]
@@ -820,21 +902,25 @@ async fn should_skip_no_op_and_optimistically_update_changed_client_metadata() {
     let client = client_with_secret(&raw_secret);
     lock(&ports.0).client = Some(client.clone());
 
-    let no_op_result = UpdateOAuthClientHandler::new(FakeUnitOfWork(ports.clone()), ports.clone())
-        .execute(
-            &ctx(),
-            &client.client_id(),
-            UpdateOAuthClientCommand {
-                name: Some(client.name().clone()),
-                redirect_uris: Some(client.redirect_uris().as_set().clone()),
-                tos_uri: Some(client.tos_uri().clone()),
-                policy_uri: Some(client.policy_uri().clone()),
-                client_uri: Some(client.client_uri().clone()),
-                logo_uri: Some(client.logo_uri().clone()),
-                scopes: Some(client.scopes().clone()),
-            },
-        )
-        .await;
+    let no_op_result = UpdateOAuthClientHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        FakeCheckUserAdmin::allow_all(),
+    )
+    .execute(
+        &ctx(),
+        &client.client_id(),
+        UpdateOAuthClientCommand {
+            name: Some(client.name().clone()),
+            redirect_uris: Some(client.redirect_uris().as_set().clone()),
+            tos_uri: Some(client.tos_uri().clone()),
+            policy_uri: Some(client.policy_uri().clone()),
+            client_uri: Some(client.client_uri().clone()),
+            logo_uri: Some(client.logo_uri().clone()),
+            scopes: Some(client.scopes().clone()),
+        },
+    )
+    .await;
 
     assert!(no_op_result.is_ok());
     {
@@ -844,21 +930,25 @@ async fn should_skip_no_op_and_optimistically_update_changed_client_metadata() {
         assert_eq!(1, state.transaction_commits);
     }
 
-    let update_result = UpdateOAuthClientHandler::new(FakeUnitOfWork(ports.clone()), ports.clone())
-        .execute(
-            &ctx(),
-            &client.client_id(),
-            UpdateOAuthClientCommand {
-                name: Some(OAuthClientName::from("Updated Client")),
-                redirect_uris: None,
-                tos_uri: None,
-                policy_uri: None,
-                client_uri: None,
-                logo_uri: None,
-                scopes: None,
-            },
-        )
-        .await;
+    let update_result = UpdateOAuthClientHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        FakeCheckUserAdmin::allow_all(),
+    )
+    .execute(
+        &ctx(),
+        &client.client_id(),
+        UpdateOAuthClientCommand {
+            name: Some(OAuthClientName::from("Updated Client")),
+            redirect_uris: None,
+            tos_uri: None,
+            policy_uri: None,
+            client_uri: None,
+            logo_uri: None,
+            scopes: None,
+        },
+    )
+    .await;
 
     assert!(update_result.is_ok());
     let state = lock(&ports.0);
@@ -867,6 +957,12 @@ async fn should_skip_no_op_and_optimistically_update_changed_client_metadata() {
             .client
             .as_ref()
             .is_some_and(|client| client.name() == &OAuthClientName::from("Updated Client"))
+    );
+    assert!(
+        state
+            .client
+            .as_ref()
+            .is_some_and(|client| raw_secret.check(client.hashed_client_secret()))
     );
     assert_eq!(1, state.client_updates);
     assert_eq!(2, state.transaction_begins);

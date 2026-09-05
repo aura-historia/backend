@@ -8273,26 +8273,27 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: OAUTH_TEMPORARILY_UNAVAILABLE
-  /api/v1/oauth/clients/{clientId}:
     patch:
-      summary: Update OAuth client metadata
-      description:
-        "Updates one OAuth client metadata record. Omitted properties leave existing values unchanged;
+      summary: Update OAuth client metadata for administration
+      description: |
+        Updates one OAuth client metadata record for an authenticated administrator.
 
-        every explicit `null` is invalid because OAuth metadata is non-nullable. `{}` is a no-op.
+        Omitted properties leave existing values unchanged; every explicit `null` is invalid
+        because OAuth metadata is non-nullable; and `{}` is a valid no-op.
 
-        The returned `client_secret` value is masked and does not reveal the plaintext secret.
+        User and delegated-user principals must have the persisted `ADMIN` business role.
+        Delegated Aura Historia access-token callers must also have the `access-tokens:write`
+        capability. Redirect URIs remain non-empty HTTPS URLs without fragments, and requested
+        scopes must be supported OAuth scopes.
 
-        Requires an authenticated direct user, or a delegated Aura Historia access token with
-
-        `access-tokens:write`.
-
-        "
-      operationId: patchOAuthClient
+        The response is secret-free. This operation never exposes or rotates the client secret.
+        Every success and error response uses `Cache-Control: no-store`.
+      operationId: adminPatchOAuthClient
       tags:
         - OAuth
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       parameters:
         - name: clientId
           in: path
@@ -8318,10 +8319,10 @@ paths:
               redirect_uris:
                 - https://client.example/updated
               scope:
-                - listing-sources:write
+                - access-tokens:read
       responses:
         "200":
-          description: OAuth client metadata updated successfully.
+          description: OAuth client metadata updated successfully without exposing a secret.
           headers:
             Cache-Control:
               description: Always set to `no-store`.
@@ -8331,10 +8332,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OAuthClientMetadataResponseData"
+                $ref: "#/components/schemas/OAuthClientAdminData"
               example:
                 client_id: 01970f22-2bf0-7000-8000-000000000010
-                client_secret: aurahistoria_oauth_client_secret_abcdefghijk_****
                 client_name: Updated acceptance OAuth client
                 tos_uri: https://client.example/updated-tos
                 policy_uri: https://client.example/updated-policy
@@ -8346,24 +8346,18 @@ paths:
                   - access-tokens:read
                 client_id_issued_at: 1748539200
         "400":
-          description:
-            Bad request — invalid or missing OAuth client path parameter, empty body, malformed JSON body, or invalid
-            OAuth client metadata.
+          description: Bad request — invalid client ID, empty/malformed body, null patch member, invalid redirect URI, or unsupported scope.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
               examples:
-                missing_client_id:
-                  summary: Missing OAuth client path parameter
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_PATH_PARAMETER_VALUE
-                    source:
-                      field: clientId
-                      sourceType: path
-                    detail: Missing path parameter clientId
                 invalid_client_id:
                   summary: Invalid OAuth client identifier
                   value:
@@ -8372,15 +8366,7 @@ paths:
                     error: INVALID_UUID
                     source:
                       field: clientId
-                      sourceType: path
-                    detail: invalid character in UUID
-                missing_body:
-                  summary: Missing request body
-                  value:
-                    status: 400
-                    title: Bad Request
-                    error: BAD_BODY_VALUE
-                    detail: Body cannot be empty
+                      sourceType: PATH
                 insecure_redirect_uri:
                   summary: Redirect URI must use HTTPS
                   value:
@@ -8389,27 +8375,29 @@ paths:
                     error: OAUTH_INVALID_CLIENT_METADATA
                     detail: "OAuth client metadata is invalid: OAuth redirect URI must use HTTPS: http://client.example/updated"
         "401":
-          description: Unauthorized — invalid or missing JWT token, or the OAuth client does not exist.
+          description: Unauthorized — invalid or missing bearer credentials.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_bearer:
-                  summary: Missing or invalid bearer token
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: UNAUTHORIZED
-                client_not_found:
-                  summary: OAuth client not found
-                  value:
-                    status: 401
-                    title: Unauthorized
-                    error: OAUTH_CLIENT_NOT_FOUND
-                    detail: OAuth client not found.
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
         "403":
-          description: Forbidden — the authenticated principal cannot administer OAuth clients. Delegated callers need `access-tokens:write`.
+          description: Forbidden — the caller is not an administrator or a delegated caller lacks `access-tokens:write`.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
@@ -8418,9 +8406,31 @@ paths:
                 status: 403
                 title: Forbidden
                 error: FORBIDDEN
-                detail: OAuth client administration requires access-tokens:write for delegated callers.
+                detail: OAuth client administration requires the ADMIN role; delegated callers also require access-tokens:write.
+        "404":
+          description: OAuth client was not found.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 404
+                title: Not Found
+                error: OAUTH_CLIENT_NOT_FOUND
         "500":
-          description: Internal server error.
+          description: Internal authentication, authorization, or OAuth client update failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
           content:
             application/problem+json:
               schema:
@@ -8428,7 +8438,24 @@ paths:
               example:
                 status: 500
                 title: Internal Server Error
-                error: INTERNAL_SERVER_ERROR
+                error: OAUTH_INTERNAL_ERROR
+        "503":
+          description: Temporary authentication, authorization, or OAuth client update failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: OAUTH_TEMPORARILY_UNAVAILABLE
+  /api/v1/oauth/clients/{clientId}:
     delete:
       summary: Delete OAuth client metadata
       description: "Deletes one OAuth client metadata record.
@@ -12343,11 +12370,12 @@ components:
             - access-tokens:read
     OAuthClientMetadataResponseData:
       type: object
-      description: "OAuth client metadata read model.
+      description: "OAuth client metadata create response.
 
         `client_secret` contains the plaintext secret only in the create response.
 
-        List/get/update responses return a masked secret display value instead.
+        Admin list, detail, and update responses use `OAuthClientAdminData` and omit
+        `client_secret` entirely.
 
         "
       required:
@@ -12369,12 +12397,13 @@ components:
           example: 01970f22-2bf0-7000-8000-000000000010
         client_secret:
           type: string
-          description: "OAuth client secret.
+          description:
+            "Plaintext OAuth client secret returned only once by the create response.
 
-            Create responses return the plaintext secret once; later reads return a masked value such as `aurahistoria_oauth_client_secret_abcdefghijk_****`.
+            Admin list, detail, and update responses omit this property entirely.
 
             "
-          example: aurahistoria_oauth_client_secret_abcdefghijk_****
+          example: aurahistoria_oauth_client_secret_abcdefghijk_abcdefghijklmnopqrstuvwxyz1234567
         client_name:
           type: string
           description: Display name of the OAuth client.
@@ -12470,9 +12499,9 @@ components:
     OAuthClientAdminData:
       type: object
       description:
-        "Secret-free OAuth client metadata returned by the admin OAuth client collection and
+        "Secret-free OAuth client metadata returned by the admin OAuth client collection,
 
-        detail endpoints under `/api/v1/admin/oauth-clients`.
+        detail, and update endpoints under `/api/v1/admin/oauth-clients`.
 
         This schema intentionally has no `client_secret` property.
 

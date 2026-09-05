@@ -292,20 +292,97 @@ async fn should_create_list_get_update_and_delete_oauth_client() {
             credentials.client_id
         ))
         .bearer_auth(&token)
-        .json(&serde_json::json!({ "client_name": "Updated OAuth Client" }))
+        .json(&serde_json::json!({ "client_name": "Legacy Route Must Be Removed" }))
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to check removed OAuth client update route: {error}")
+        });
+    assert_eq!(reqwest::StatusCode::METHOD_NOT_ALLOWED, response.status());
+
+    let response = client
+        .patch(format!(
+            "{}/api/v1/admin/oauth-clients/{}",
+            AURA_API.base_url(),
+            credentials.client_id
+        ))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({
+            "client_name": "Updated OAuth Client",
+            "tos_uri": "https://client.example/updated-tos",
+            "policy_uri": "https://client.example/updated-policy",
+            "client_uri": "https://updated-client.example",
+            "logo_uri": "https://updated-client.example/logo.png",
+            "redirect_uris": ["https://client.example/updated-callback"],
+            "scope": ["access-tokens:write"]
+        }))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to update OAuth client: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let (status, body) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
     assert_eq!(
         serde_json::json!("Updated OAuth Client"),
         body["client_name"]
     );
     assert_eq!(
+        serde_json::json!("https://client.example/updated-tos"),
+        body["tos_uri"]
+    );
+    assert_eq!(
+        serde_json::json!("https://client.example/updated-policy"),
+        body["policy_uri"]
+    );
+    assert_eq!(
+        serde_json::json!("https://updated-client.example/"),
+        body["client_uri"]
+    );
+    assert_eq!(
+        serde_json::json!("https://updated-client.example/logo.png"),
+        body["logo_uri"]
+    );
+    assert_eq!(
+        serde_json::json!(["https://client.example/updated-callback"]),
+        body["redirect_uris"]
+    );
+    assert_eq!(serde_json::json!(["access-tokens:write"]), body["scope"]);
+    assert_eq!(
         Some(credentials.client_id_issued_at),
         body["client_id_issued_at"].as_i64()
     );
+    assert!(body.get("client_secret").is_none());
+    assert!(!body.to_string().contains(&credentials.client_secret));
+
+    let response = client
+        .patch(format!(
+            "{}/api/v1/admin/oauth-clients/{}",
+            AURA_API.base_url(),
+            credentials.client_id
+        ))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to apply OAuth client no-op patch: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store".to_owned()), cache_control);
+    assert_eq!(
+        serde_json::json!("Updated OAuth Client"),
+        body["client_name"]
+    );
+    assert!(body.get("client_secret").is_none());
 
     let response = client
         .delete(format!(
@@ -481,6 +558,123 @@ async fn should_reject_oauth_client_creation_for_admin_without_delegated_write()
     let (status, body) = json_response(response).await;
 
     api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_require_admin_role_and_delegated_write_for_oauth_client_update() {
+    let (client, admin_token) = authenticated_client().await;
+    let credentials = create_oauth_client(&client, &admin_token).await;
+    let url = format!(
+        "{}/api/v1/admin/oauth-clients/{}",
+        AURA_API.base_url(),
+        credentials.client_id
+    );
+
+    let non_admin_id = seed_user("USER").await;
+    let non_admin_token = seed_access_token_for(
+        non_admin_id,
+        std::collections::HashSet::from([Scope::AccessTokensWrite]),
+    )
+    .await;
+    let response = client
+        .patch(&url)
+        .bearer_auth(String::from(non_admin_token))
+        .json(&serde_json::json!({ "client_name": "Rejected Non-admin Update" }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject non-admin OAuth client update: {error}"));
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+
+    let admin_id = seed_user("ADMIN").await;
+    let admin_without_write = seed_access_token_for(admin_id, Default::default()).await;
+    let response = client
+        .patch(url)
+        .bearer_auth(String::from(admin_without_write))
+        .json(&serde_json::json!({ "client_name": "Rejected Missing Capability" }))
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to reject OAuth client update without delegated write: {error}")
+        });
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_validate_admin_oauth_client_update_and_report_not_found() {
+    let (client, token) = authenticated_client().await;
+    let credentials = create_oauth_client(&client, &token).await;
+    let url = format!(
+        "{}/api/v1/admin/oauth-clients/{}",
+        AURA_API.base_url(),
+        credentials.client_id
+    );
+
+    for (payload, error_code) in [
+        (
+            serde_json::json!({
+                "redirect_uris": ["http://client.example/callback"]
+            }),
+            "OAUTH_INVALID_CLIENT_METADATA",
+        ),
+        (
+            serde_json::json!({
+                "redirect_uris": ["https://client.example/callback#fragment"]
+            }),
+            "OAUTH_INVALID_CLIENT_METADATA",
+        ),
+        (
+            serde_json::json!({ "scope": ["not-a-supported-scope"] }),
+            "BAD_BODY_VALUE",
+        ),
+        (
+            serde_json::json!({ "tos_uri": "not-a-url" }),
+            "BAD_BODY_VALUE",
+        ),
+        (serde_json::json!({ "client_name": null }), "BAD_BODY_VALUE"),
+    ] {
+        let response = client
+            .patch(&url)
+            .bearer_auth(&token)
+            .json(&payload)
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to validate OAuth client update: {error}"));
+        let cache_control = response
+            .headers()
+            .get(reqwest::header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        let (status, body) = json_response(response).await;
+        api_support::assert_problem(status, &body, reqwest::StatusCode::BAD_REQUEST, error_code);
+        assert_eq!(Some("no-store".to_owned()), cache_control);
+    }
+
+    let response = client
+        .patch(format!(
+            "{}/api/v1/admin/oauth-clients/{}",
+            AURA_API.base_url(),
+            uuid::Uuid::new_v4()
+        ))
+        .bearer_auth(token)
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to report missing OAuth client: {error}"));
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+    api_support::assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "OAUTH_CLIENT_NOT_FOUND",
+    );
+    assert_eq!(Some("no-store".to_owned()), cache_control);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
