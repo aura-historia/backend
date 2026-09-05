@@ -6,6 +6,11 @@ pub use commands::assess_product_listing_content_event::{
     AssessProductListingContentEventHandler, AssessProductListingContentEventOutcome,
     AssessProductListingContentEventResult, AssessProductListingContentEventUseCase,
 };
+pub use commands::capture_product_listing_raw_observation::{
+    CaptureProductListingRawObservationCommand, CaptureProductListingRawObservationError,
+    CaptureProductListingRawObservationHandler, CaptureProductListingRawObservationResult,
+    CaptureProductListingRawObservationUseCase,
+};
 pub use commands::create_product_listing::{
     CreateProductListingCommand, CreateProductListingError, CreateProductListingHandler,
     CreateProductListingResult, CreateProductListingUseCase,

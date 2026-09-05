@@ -87,6 +87,74 @@ CREATE TABLE listing_source_woocommerce_ingestion_configurations (
 CREATE INDEX listing_sources_operator_party_id_idx ON listing_sources (operator_party_id);
 CREATE INDEX listing_source_ingestion_methods_method_idx ON listing_source_ingestion_methods (ingestion_method, listing_source_id);
 
+CREATE TABLE product_listing_raw_streams (
+    product_listing_raw_stream_id uuid PRIMARY KEY,
+    listing_source_id uuid NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
+    ingestion_method text NOT NULL,
+    source_record_key text NOT NULL,
+    source_record_key_sha256 bytea NOT NULL,
+    latest_revision bigint NOT NULL,
+    latest_input_sha256 bytea,
+    created timestamptz NOT NULL DEFAULT now(),
+    updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT product_listing_raw_streams_ingestion_method_check
+        CHECK (ingestion_method IN ('WEB_CRAWL', 'SHOPIFY', 'WOOCOMMERCE')),
+    CONSTRAINT product_listing_raw_streams_source_record_key_max_bytes_check
+        CHECK (octet_length(source_record_key) <= 4096),
+    CONSTRAINT product_listing_raw_streams_source_record_key_sha256_length_check
+        CHECK (octet_length(source_record_key_sha256) = 32),
+    CONSTRAINT product_listing_raw_streams_latest_revision_nonnegative_check
+        CHECK (latest_revision >= 0),
+    CONSTRAINT product_listing_raw_streams_latest_input_sha256_length_check
+        CHECK (latest_input_sha256 IS NULL OR octet_length(latest_input_sha256) = 32),
+    CONSTRAINT product_listing_raw_streams_identity_unique
+        UNIQUE (listing_source_id, ingestion_method, source_record_key_sha256)
+);
+
+CREATE TABLE product_listing_raw_revisions (
+    product_listing_raw_revision_id uuid PRIMARY KEY,
+    generation bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
+    product_listing_raw_stream_id uuid NOT NULL
+        REFERENCES product_listing_raw_streams(product_listing_raw_stream_id) ON DELETE CASCADE,
+    revision bigint NOT NULL,
+    operation text NOT NULL,
+    payload_format text NOT NULL,
+    payload_schema_version smallint NOT NULL,
+    raw_values_schema_version smallint NOT NULL,
+    source_payload jsonb NOT NULL,
+    raw_values jsonb NOT NULL,
+    normalization_context jsonb NOT NULL,
+    provenance jsonb NOT NULL,
+    input_sha256 bytea NOT NULL,
+    source_event_id text,
+    source_occurred_at timestamptz,
+    captured_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT product_listing_raw_revisions_stream_revision_unique
+        UNIQUE (product_listing_raw_stream_id, revision),
+    CONSTRAINT product_listing_raw_revisions_operation_check
+        CHECK (operation IN ('UPSERT', 'DELETE')),
+    CONSTRAINT product_listing_raw_revisions_payload_format_check
+        CHECK (payload_format IN ('CRAWLER_EXTRACTED_PRODUCT', 'SHOPIFY_PRODUCT', 'WOOCOMMERCE_PRODUCT')),
+    CONSTRAINT product_listing_raw_revisions_payload_schema_version_positive_check
+        CHECK (payload_schema_version >= 1),
+    CONSTRAINT product_listing_raw_revisions_raw_values_schema_version_positive_check
+        CHECK (raw_values_schema_version >= 1),
+    CONSTRAINT product_listing_raw_revisions_source_payload_object_check
+        CHECK (jsonb_typeof(source_payload) = 'object'),
+    CONSTRAINT product_listing_raw_revisions_raw_values_object_check
+        CHECK (jsonb_typeof(raw_values) = 'object'),
+    CONSTRAINT product_listing_raw_revisions_normalization_context_object_check
+        CHECK (jsonb_typeof(normalization_context) = 'object'),
+    CONSTRAINT product_listing_raw_revisions_provenance_object_check
+        CHECK (jsonb_typeof(provenance) = 'object'),
+    CONSTRAINT product_listing_raw_revisions_input_sha256_length_check
+        CHECK (octet_length(input_sha256) = 32),
+    CONSTRAINT product_listing_raw_revisions_revision_positive_check
+        CHECK (revision >= 1)
+);
+
+CREATE INDEX product_listing_raw_revisions_stream_revision_idx
+    ON product_listing_raw_revisions (product_listing_raw_stream_id, revision ASC);
 
 CREATE TABLE partnerships (
     partnership_id uuid PRIMARY KEY,

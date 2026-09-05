@@ -6,7 +6,8 @@
 
 ## Core Design
 
-- Modules: availability, price, date-time, text/language, image URLs, source-listing IDs.
+- Modules: availability, price, date-time, text/language, image URLs, source-listing IDs, and raw normalization input.
+- Raw input owns generic action, payload-format/version, source payload, raw-values projection, context, typed SHA-256 input hash, and separate provenance. JSON fields are objects; caps: source payload 1 MiB, raw values 256 KiB, context/provenance 64 KiB, depth 64. Provenance stays outside input hash.
 - Depends only on pure value crates. No SQLx, HTTP client, LLM, queue, runtime config, provider DTO, or logging.
 - Source code maps provider payloads before calling this crate.
 

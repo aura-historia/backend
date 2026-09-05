@@ -18,6 +18,7 @@ localization = { workspace = true }
 money = { workspace = true }
 notification-core = { workspace = true }
 product-listing-core = { workspace = true }
+product-listing-normalization = { workspace = true }
 product-listing-service = { workspace = true }
 listing-source-core = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

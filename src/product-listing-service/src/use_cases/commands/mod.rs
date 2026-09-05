@@ -1,4 +1,5 @@
 pub mod assess_product_listing_content_event;
+pub mod capture_product_listing_raw_observation;
 pub mod create_product_listing;
 pub mod embed_product_listing_event;
 pub mod generate_watchlist_notifications;

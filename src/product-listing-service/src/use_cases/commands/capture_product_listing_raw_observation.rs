@@ -1,0 +1,491 @@
+use crate::ports::{
+    PartnerProductListingAuthorizationError, PartnerProductListingAuthorizer,
+    PartnerProductListingAuthorizerFactory, ProductListingRawCaptureWrite,
+    ProductListingRawCaptureWriteError, ProductListingRawCaptureWriteOutcome,
+    ProductListingRawCaptureWriter, ProductListingRawCaptureWriterFactory,
+    ProductListingRawIngestionMethod, SourceRecordKeySha256,
+};
+use application::error::{BoxError, box_error};
+use application::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
+};
+use application::transaction::{Transaction, UnitOfWork};
+use listing_source_core::ListingSourceId;
+use product_listing_normalization::{
+    NormalizationInputError, ProductListingNormalizationInput, RawProductListingProvenance,
+};
+use sha2::{Digest, Sha256};
+use time::OffsetDateTime;
+use user_core::user_id::UserId;
+
+pub const MAX_SOURCE_RECORD_KEY_UTF8_BYTES: usize = 4096;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CaptureProductListingRawObservationCommand {
+    pub listing_source_id: ListingSourceId,
+    pub ingestion_method: ProductListingRawIngestionMethod,
+    pub source_record_key: String,
+    pub input: ProductListingNormalizationInput,
+    pub provenance: RawProductListingProvenance,
+    pub source_event_id: Option<String>,
+    pub source_occurred_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CaptureProductListingRawObservationResult {
+    Changed {
+        product_listing_raw_stream_id: crate::ports::ProductListingRawStreamId,
+        product_listing_raw_revision_id: crate::ports::ProductListingRawRevisionId,
+        revision: u64,
+    },
+    Unchanged {
+        product_listing_raw_stream_id: crate::ports::ProductListingRawStreamId,
+        latest_revision: u64,
+    },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CaptureProductListingRawObservationError {
+    #[error("authenticated actor required to capture raw product listing input")]
+    AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
+    #[error("source record key exceeds the maximum UTF-8 byte length")]
+    SourceRecordKeyTooLong { len: usize, max: usize },
+    #[error("source record key contains an embedded NUL")]
+    SourceRecordKeyEmbeddedNul,
+    #[error("raw product listing input is invalid")]
+    InvalidInput {
+        #[source]
+        source: BoxError,
+    },
+    #[error("listing source not found")]
+    ListingSourceNotFound,
+    #[error("partner product listing authorization is temporarily unavailable")]
+    PartnerAuthorizationTemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
+    #[error("partner product listing authorization failed internally")]
+    PartnerAuthorizationInternal {
+        #[source]
+        source: BoxError,
+    },
+    #[error("raw product listing source-record key hash collision")]
+    SourceRecordKeyHashCollision,
+    #[error("failed to begin raw product listing capture transaction")]
+    BeginTransactionFailed,
+    #[error("raw product listing capture failed")]
+    CaptureFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("failed to commit raw product listing capture transaction")]
+    CommitTransactionFailed,
+}
+
+#[async_trait::async_trait]
+pub trait CaptureProductListingRawObservationUseCase: Send + Sync {
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        command: CaptureProductListingRawObservationCommand,
+    ) -> Result<CaptureProductListingRawObservationResult, CaptureProductListingRawObservationError>;
+}
+
+pub struct CaptureProductListingRawObservationHandler<U, W, A> {
+    unit_of_work: U,
+    writer: W,
+    authorizer: A,
+}
+
+impl<U, W, A> CaptureProductListingRawObservationHandler<U, W, A> {
+    pub fn new(unit_of_work: U, writer: W, authorizer: A) -> Self {
+        Self {
+            unit_of_work,
+            writer,
+            authorizer,
+        }
+    }
+}
+
+impl<U, W, A> CaptureProductListingRawObservationHandler<U, W, A>
+where
+    U: UnitOfWork,
+    W: ProductListingRawCaptureWriterFactory<U::Tx>,
+    A: PartnerProductListingAuthorizerFactory<U::Tx>,
+{
+    async fn capture(
+        &self,
+        context: &OperationContext,
+        command: CaptureProductListingRawObservationCommand,
+    ) -> Result<CaptureProductListingRawObservationResult, CaptureProductListingRawObservationError>
+    {
+        validate_source_record_key(&command.source_record_key)?;
+        let input_sha256 = command
+            .input
+            .hash()
+            .map_err(CaptureProductListingRawObservationError::from)?;
+        let source_record_key_sha256 =
+            SourceRecordKeySha256::new(Sha256::digest(command.source_record_key.as_bytes()).into());
+
+        let mut tx = self
+            .unit_of_work
+            .begin()
+            .await
+            .map_err(|_| CaptureProductListingRawObservationError::BeginTransactionFailed)?;
+
+        if let Some(actor_id) = partner_actor(&context.principal) {
+            self.authorizer
+                .in_transaction(&mut tx)
+                .authorize(actor_id, command.listing_source_id)
+                .await
+                .map_err(CaptureProductListingRawObservationError::from)?;
+        }
+
+        let outcome = self
+            .writer
+            .in_transaction(&mut tx)
+            .capture(ProductListingRawCaptureWrite {
+                listing_source_id: command.listing_source_id,
+                ingestion_method: command.ingestion_method,
+                source_record_key: command.source_record_key,
+                source_record_key_sha256,
+                input: command.input,
+                input_sha256,
+                provenance: command.provenance,
+                source_event_id: command.source_event_id,
+                source_occurred_at: command.source_occurred_at,
+            })
+            .await
+            .map_err(CaptureProductListingRawObservationError::from)?;
+
+        tx.commit()
+            .await
+            .map_err(|_| CaptureProductListingRawObservationError::CommitTransactionFailed)?;
+
+        Ok(match outcome {
+            ProductListingRawCaptureWriteOutcome::Changed {
+                product_listing_raw_stream_id,
+                product_listing_raw_revision_id,
+                revision,
+            } => CaptureProductListingRawObservationResult::Changed {
+                product_listing_raw_stream_id,
+                product_listing_raw_revision_id,
+                revision,
+            },
+            ProductListingRawCaptureWriteOutcome::Unchanged {
+                product_listing_raw_stream_id,
+                latest_revision,
+            } => CaptureProductListingRawObservationResult::Unchanged {
+                product_listing_raw_stream_id,
+                latest_revision,
+            },
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl<U, W, A> CaptureProductListingRawObservationUseCase
+    for CaptureProductListingRawObservationHandler<U, W, A>
+where
+    U: UnitOfWork,
+    W: ProductListingRawCaptureWriterFactory<U::Tx>,
+    A: PartnerProductListingAuthorizerFactory<U::Tx>,
+{
+    #[tracing::instrument(
+        name = "capture_product_listing_raw_observation",
+        skip_all,
+        fields(
+            listing_source_id = %command.listing_source_id,
+            ingestion_method = command.ingestion_method.as_str(),
+            principal_type = context.principal.kind(),
+            actor_id = tracing::field::Empty,
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+        )
+    )]
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        command: CaptureProductListingRawObservationCommand,
+    ) -> Result<CaptureProductListingRawObservationResult, CaptureProductListingRawObservationError>
+    {
+        tracing::Span::current().record(
+            "actor_id",
+            tracing::field::display(context.principal.label()),
+        );
+        context
+            .require()
+            .credential_capability(CredentialCapability::ProductListingsWrite)
+            .authorize::<CaptureProductListingRawObservationError>()?;
+        let listing_source_id = command.listing_source_id;
+        let result = self.capture(context, command).await?;
+        let (outcome, product_listing_raw_stream_id, revision) = match &result {
+            CaptureProductListingRawObservationResult::Changed {
+                product_listing_raw_stream_id,
+                revision,
+                ..
+            } => ("changed", product_listing_raw_stream_id, *revision),
+            CaptureProductListingRawObservationResult::Unchanged {
+                product_listing_raw_stream_id,
+                latest_revision,
+            } => ("unchanged", product_listing_raw_stream_id, *latest_revision),
+        };
+        tracing::debug!(
+            listing_source_id = %listing_source_id,
+            product_listing_raw_stream_id = %product_listing_raw_stream_id.as_uuid(),
+            revision,
+            outcome,
+            "raw product listing observation captured"
+        );
+        Ok(result)
+    }
+}
+
+fn validate_source_record_key(
+    source_record_key: &str,
+) -> Result<(), CaptureProductListingRawObservationError> {
+    if source_record_key.len() > MAX_SOURCE_RECORD_KEY_UTF8_BYTES {
+        return Err(
+            CaptureProductListingRawObservationError::SourceRecordKeyTooLong {
+                len: source_record_key.len(),
+                max: MAX_SOURCE_RECORD_KEY_UTF8_BYTES,
+            },
+        );
+    }
+    if source_record_key.contains('\0') {
+        return Err(CaptureProductListingRawObservationError::SourceRecordKeyEmbeddedNul);
+    }
+    Ok(())
+}
+
+fn partner_actor(principal: &Principal) -> Option<UserId> {
+    match principal {
+        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Some(*user_id),
+        Principal::Anonymous | Principal::Service(_) | Principal::System => None,
+    }
+}
+
+impl From<OperationAuthorizationError> for CaptureProductListingRawObservationError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
+    }
+}
+
+impl From<NormalizationInputError> for CaptureProductListingRawObservationError {
+    fn from(error: NormalizationInputError) -> Self {
+        Self::InvalidInput {
+            source: box_error(error),
+        }
+    }
+}
+
+impl From<PartnerProductListingAuthorizationError> for CaptureProductListingRawObservationError {
+    fn from(error: PartnerProductListingAuthorizationError) -> Self {
+        match error {
+            PartnerProductListingAuthorizationError::ListingSourceNotFound => {
+                Self::ListingSourceNotFound
+            }
+            PartnerProductListingAuthorizationError::Forbidden => Self::Forbidden,
+            PartnerProductListingAuthorizationError::TemporarilyUnavailable { source } => {
+                Self::PartnerAuthorizationTemporarilyUnavailable { source }
+            }
+            PartnerProductListingAuthorizationError::Internal { source } => {
+                Self::PartnerAuthorizationInternal { source }
+            }
+        }
+    }
+}
+
+impl From<ProductListingRawCaptureWriteError> for CaptureProductListingRawObservationError {
+    fn from(error: ProductListingRawCaptureWriteError) -> Self {
+        match error {
+            ProductListingRawCaptureWriteError::SourceRecordKeyHashCollision => {
+                Self::SourceRecordKeyHashCollision
+            }
+            ProductListingRawCaptureWriteError::CaptureFailed { source } => {
+                Self::CaptureFailed { source }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use product_listing_normalization::{
+        NormalizationContext, RawProductListingOperation, RawProductListingPayloadFormat,
+        RawProductListingValues, SourcePayload,
+    };
+    use serde_json::json;
+    use std::sync::{Arc, Mutex};
+
+    #[tokio::test]
+    async fn should_capture_and_commit_for_system_principal() {
+        let committed = Arc::new(Mutex::new(false));
+        let writes = Arc::new(Mutex::new(0_usize));
+        let handler = CaptureProductListingRawObservationHandler::new(
+            TestUnitOfWork(Arc::clone(&committed)),
+            TestWriterFactory(Arc::clone(&writes)),
+            TestAuthorizerFactory,
+        );
+
+        let result = handler.execute(&system_context(), command()).await;
+
+        assert!(matches!(
+            result,
+            Ok(CaptureProductListingRawObservationResult::Changed { revision: 1, .. })
+        ));
+        assert!(*lock(&committed));
+        assert_eq!(1, *lock(&writes));
+    }
+
+    #[test]
+    fn should_reject_embedded_nul_source_record_key() {
+        assert!(matches!(
+            validate_source_record_key("valid\0invalid"),
+            Err(CaptureProductListingRawObservationError::SourceRecordKeyEmbeddedNul)
+        ));
+    }
+
+    #[test]
+    fn should_exclude_partner_api_from_raw_ingestion_methods() {
+        assert_eq!(
+            "WEB_CRAWL",
+            ProductListingRawIngestionMethod::WebCrawl.as_str()
+        );
+        assert_eq!(
+            "SHOPIFY",
+            ProductListingRawIngestionMethod::Shopify.as_str()
+        );
+        assert_eq!(
+            "WOOCOMMERCE",
+            ProductListingRawIngestionMethod::Woocommerce.as_str()
+        );
+    }
+
+    fn command() -> CaptureProductListingRawObservationCommand {
+        let input = ProductListingNormalizationInput::new(
+            RawProductListingOperation::Upsert,
+            RawProductListingPayloadFormat::ShopifyProduct,
+            1,
+            1,
+            SourcePayload::new(json!({"unknown": true}))
+                .unwrap_or_else(|error| panic!("source payload: {error}")),
+            RawProductListingValues::new(json!({"title": "Vase"}))
+                .unwrap_or_else(|error| panic!("raw values: {error}")),
+            NormalizationContext::new(json!({}))
+                .unwrap_or_else(|error| panic!("normalization context: {error}")),
+        )
+        .unwrap_or_else(|error| panic!("normalization input: {error}"));
+        CaptureProductListingRawObservationCommand {
+            listing_source_id: ListingSourceId::new(),
+            ingestion_method: ProductListingRawIngestionMethod::Shopify,
+            source_record_key: "123".to_owned(),
+            input,
+            provenance: RawProductListingProvenance::new(json!({"deliveryId": "one"}))
+                .unwrap_or_else(|error| panic!("provenance: {error}")),
+            source_event_id: Some("one".to_owned()),
+            source_occurred_at: None,
+        }
+    }
+
+    fn system_context() -> OperationContext {
+        OperationContext {
+            principal: Principal::System,
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+
+    fn lock<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+        value
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    struct TestTransaction(Arc<Mutex<bool>>);
+
+    #[async_trait::async_trait]
+    impl Transaction for TestTransaction {
+        async fn commit(self) -> Result<(), application::transaction::TransactionError> {
+            *lock(&self.0) = true;
+            Ok(())
+        }
+    }
+
+    struct TestUnitOfWork(Arc<Mutex<bool>>);
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for TestUnitOfWork {
+        type Tx = TestTransaction;
+
+        async fn begin(&self) -> Result<Self::Tx, application::transaction::TransactionError> {
+            Ok(TestTransaction(Arc::clone(&self.0)))
+        }
+    }
+
+    struct TestWriterFactory(Arc<Mutex<usize>>);
+
+    struct TestWriter<'a>(&'a Mutex<usize>);
+
+    impl ProductListingRawCaptureWriterFactory<TestTransaction> for TestWriterFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TestTransaction,
+        ) -> impl ProductListingRawCaptureWriter + 'tx {
+            TestWriter(&self.0)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductListingRawCaptureWriter for TestWriter<'_> {
+        async fn capture(
+            &mut self,
+            _: ProductListingRawCaptureWrite,
+        ) -> Result<ProductListingRawCaptureWriteOutcome, ProductListingRawCaptureWriteError>
+        {
+            *lock(self.0) += 1;
+            Ok(ProductListingRawCaptureWriteOutcome::Changed {
+                product_listing_raw_stream_id: crate::ports::ProductListingRawStreamId::from_uuid(
+                    uuid::Uuid::new_v4(),
+                ),
+                product_listing_raw_revision_id:
+                    crate::ports::ProductListingRawRevisionId::from_uuid(uuid::Uuid::new_v4()),
+                revision: 1,
+            })
+        }
+    }
+
+    struct TestAuthorizerFactory;
+
+    struct TestAuthorizer;
+
+    impl PartnerProductListingAuthorizerFactory<TestTransaction> for TestAuthorizerFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _: &'tx mut TestTransaction,
+        ) -> impl PartnerProductListingAuthorizer + 'tx {
+            TestAuthorizer
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PartnerProductListingAuthorizer for TestAuthorizer {
+        async fn authorize(
+            &mut self,
+            _: UserId,
+            _: ListingSourceId,
+        ) -> Result<(), PartnerProductListingAuthorizationError> {
+            Ok(())
+        }
+    }
+}

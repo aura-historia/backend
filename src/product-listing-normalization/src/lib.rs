@@ -8,6 +8,7 @@ pub mod date_time;
 pub mod error;
 pub mod image_url;
 pub mod language;
+pub mod normalization_input;
 pub mod price;
 pub mod source_listing_id;
 pub mod text;
@@ -19,6 +20,14 @@ pub use date_time::{DateTimeNormalizationError, normalize_date_time};
 pub use error::{DateTimeField, NormalizationError, PriceField};
 pub use image_url::{ImageUrlNormalizationError, normalize_image_urls};
 pub use language::detect_language;
+pub use normalization_input::{
+    JsonField, MAX_JSON_NESTING_DEPTH, MAX_NORMALIZATION_CONTEXT_JSON_BYTES,
+    MAX_PROVENANCE_JSON_BYTES, MAX_RAW_VALUES_JSON_BYTES, MAX_SOURCE_PAYLOAD_JSON_BYTES,
+    NORMALIZATION_INPUT_HASH_BYTES, NormalizationContext, NormalizationInputError,
+    NormalizationInputHash, ProductListingNormalizationInput, RawProductListingOperation,
+    RawProductListingPayloadFormat, RawProductListingProvenance, RawProductListingValues,
+    SchemaVersionField, SourcePayload,
+};
 pub use price::{PriceNormalizationError, normalize_price};
 pub use source_listing_id::{
     SourceListingIdNormalizationError, normalize_source_listing_id_with_url_sha_fallback,

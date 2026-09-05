@@ -15,6 +15,7 @@ pub mod product_listing_event_appender;
 pub mod product_listing_history_reader;
 pub mod product_listing_percolation;
 pub mod product_listing_price_filter_plan;
+pub mod product_listing_raw_capture_writer;
 pub mod product_listing_repository;
 pub mod product_listing_search_filter_match_source_reader;
 pub mod product_listing_search_projection;
@@ -92,6 +93,12 @@ pub use product_listing_percolation::{
     ProductListingPricesByCurrency,
 };
 pub use product_listing_price_filter_plan::{NativePriceRange, ProductListingPriceFilterPlan};
+pub use product_listing_raw_capture_writer::{
+    ProductListingRawCaptureWrite, ProductListingRawCaptureWriteError,
+    ProductListingRawCaptureWriteOutcome, ProductListingRawCaptureWriter,
+    ProductListingRawCaptureWriterFactory, ProductListingRawIngestionMethod,
+    ProductListingRawRevisionId, ProductListingRawStreamId, SourceRecordKeySha256,
+};
 pub use product_listing_repository::{
     ProductListingRepository, ProductListingRepositoryError, ProductListingRepositoryFactory,
     ProductListingStorageVersion, ProductListingWriteEffects, VersionedProductListing,
