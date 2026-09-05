@@ -34,9 +34,9 @@ PostgreSQL is authoritative for Partnerships, Party identity, membership, and Li
 
 PostgreSQL is authoritative for User access tokens and canonical OAuth credentials:
 
-- `access_tokens` stores only token short/hash material, never a raw User access token. It has an internal optimistic-concurrency version; `user_id` cascades on User deletion. OAuth origin keeps its client ID as historical data without a foreign key, so deleting a client does not silently revoke issued tokens.
-- `oauth_clients` stores only client-secret short/hash material, never a raw client secret. Client metadata updates use optimistic concurrency.
-- `oauth_authorization_codes` and `oauth_third_party_exchange_codes` are one-time rows consumed atomically with `DELETE ... RETURNING`.
+- `access_tokens` stores only token short/hash material, never a raw User access token. It has an internal optimistic-concurrency version; `user_id` cascades on User deletion. OAuth-origin tokens retain their client ID through a foreign key with `ON DELETE CASCADE`, so deleting a client revokes its issued tokens.
+- `oauth_clients` stores only client-secret short/hash material, never a raw client secret. Client metadata updates use optimistic concurrency. Deleting a client cascades pending authorization codes, issued OAuth-origin access tokens, and their third-party exchange codes.
+- `oauth_authorization_codes` and `oauth_third_party_exchange_codes` are one-time rows consumed atomically with `DELETE ... RETURNING`; third-party exchange codes reference their access-token row and cascade with it.
 - A successful authorization-code exchange consumes the authorization code, creates the User access token, and creates the third-party exchange code in one PostgreSQL transaction. Semantic misuse of a found code commits its deletion; a later persistence failure rolls the valid exchange back.
 - Expiry remains service correctness. `pg_ttl_index` performs asynchronous physical cleanup from absolute `expires_at` values with offset `0` for access tokens, authorization codes, and third-party exchange codes. Non-expiring access tokens have `expires_at IS NULL`.
 - Credential tables are operational only. They must not enter Sequin/CDC publications, projections, analytics, or credential-bearing logs. The raw token in a third-party exchange-code row is short-lived escrow needed by that exchange only.
