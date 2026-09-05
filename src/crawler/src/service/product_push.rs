@@ -511,9 +511,15 @@ pub fn normalize_to_upsert(
         price_estimate_min: option_to_patch(product.price_estimate_min),
         price_estimate_max: option_to_patch(product.price_estimate_max),
         availability: match product.availability {
-            crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping::Availability(availability) => PatchField::Set(availability),
-            crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping::NoAssertion => PatchField::Clear,
-            crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping::Ignore => PatchField::Unchanged,
+            product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
+                availability,
+            ) => PatchField::Set(availability),
+            product_listing_normalization::ListingAvailabilityQuickCheck::NoAssertion => {
+                PatchField::Clear
+            }
+            product_listing_normalization::ListingAvailabilityQuickCheck::Unsupported => {
+                PatchField::Unchanged
+            }
         },
         url: Some(product.url),
         images: PatchField::Set(product.images.into_iter().collect::<IndexSet<_>>()),
@@ -958,7 +964,9 @@ mod tests {
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            availability: crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping::Availability(ListingAvailability::Available),
+            availability: product_listing_normalization::ListingAvailabilityQuickCheck::Resolved(
+                ListingAvailability::Available,
+            ),
             url: candidate.url.clone(),
             images: Vec::new(),
             auction_start: None,
@@ -1011,7 +1019,8 @@ mod tests {
 
         let no_assertion_command = normalize_to_upsert(
             NormalizedProduct {
-                availability: crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping::NoAssertion,
+                availability:
+                    product_listing_normalization::ListingAvailabilityQuickCheck::NoAssertion,
                 ..product
             },
             &candidate,

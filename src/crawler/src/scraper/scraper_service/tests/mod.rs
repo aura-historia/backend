@@ -27,7 +27,6 @@ use crate::scraper::css_selector::rule::{
     CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
 };
 use crate::scraper::normalization::error::NormalizationError;
-use crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping;
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::normalization::product_normalization_service::{
     MockProductListingNormalizationService, NormalizationFailure, NormalizationSuccess,
@@ -42,6 +41,7 @@ use localization::Localized;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::title::Title;
+use product_listing_normalization::ListingAvailabilityQuickCheck;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use url::Url;
@@ -173,7 +173,7 @@ pub(super) fn normalized_product(url: Url) -> NormalizedProduct {
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
-        availability: ListingAvailabilityMapping::Availability(ListingAvailability::Available),
+        availability: ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available),
         url,
         images: vec![],
         auction_start: None,

@@ -186,7 +186,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         .unwrap();
     assert_eq!(
         result.product.availability,
-        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
+        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
     );
 }
 
@@ -278,7 +278,7 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
         .unwrap();
     assert_eq!(
         result.product.availability,
-        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
+        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
     );
 }
 
@@ -369,7 +369,7 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
         .unwrap();
     assert_eq!(
         result.product.availability,
-        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
+        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
     );
 }
 

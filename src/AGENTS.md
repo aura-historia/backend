@@ -120,6 +120,7 @@
 - `src/oauth-postgres/AGENTS.md` — canonical OAuth PostgreSQL adapter crate.
 
 - `src/product-listing-core/AGENTS.md` — canonical ProductListing domain crate.
+- `src/product-listing-normalization/AGENTS.md` — pure ProductListing normalization kernel.
 - `src/product-listing-service/AGENTS.md` — canonical ProductListing service crate.
 - `src/product-listing-translation-llm/AGENTS.md` — ProductListing title LLM adapter crate.
 - `src/product-listing-postgres/AGENTS.md` — canonical ProductListing Postgres adapter crate.

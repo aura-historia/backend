@@ -40,10 +40,11 @@ fxrate-lambda = ["application", "platform-observability", "platform-postgres", "
 oauth-core = ["credential-core", "domain-primitives", "user-core"]
 
 product-listing-core = ["domain-primitives", "fxrate-core", "listing-source-core", "localization", "money", "strum", "strum_macros"]
+product-listing-normalization = ["lingua", "localization", "money", "product-listing-core", "regex", "sha2", "time", "url"]
 
 user-service = ["application", "domain-primitives", "geo", "localization", "money", "user-core"]
 cognito-post-confirmation = ["application", "platform-observability", "platform-postgres", "user-core", "user-postgres", "user-service"]
-crawler = ["application", "domain-primitives", "fxrate-postgres", "google-cloud-auth", "large-language-model", "listing-source-core", "listing-source-postgres", "listing-source-service", "localization", "money", "platform-postgres", "product-listing-core", "product-listing-postgres", "product-listing-service", "public-network-policy"]
+crawler = ["application", "domain-primitives", "fxrate-postgres", "google-cloud-auth", "large-language-model", "listing-source-core", "listing-source-postgres", "listing-source-service", "localization", "money", "platform-postgres", "product-listing-core", "product-listing-normalization", "product-listing-postgres", "product-listing-service", "public-network-policy"]
 notification-core = ["domain-primitives", "listing-source-core", "localization", "money", "partnership-core", "party-core", "product-listing-core", "search-filter-core", "user-core"]
 
 oauth-service = ["application", "credential-core", "domain-primitives", "oauth-core", "serde", "user-core", "user-service"]
@@ -75,7 +76,7 @@ aura-historia-api = ["application", "billing-service", "billing-stripe", "creden
 test-api = ["application", "test-api-macros"]
 billing-service = ["application", "user-core", "user-service"]
 billing-stripe = ["application", "billing-service", "user-core"]
-aura-historia-parent = ["application", "aura-historia-api", "aura-historia-worker", "aura-historia-cron", "platform-observability", "platform-opensearch", "platform-postgres", "cognito-post-confirmation", "cloudwatch-log-retention-lambda", "embedding", "image-fetcher", "geo", "search-filter-core", "search-filter-service", "search-filter-postgres", "search-filter-opensearch", "large-language-model", "party-core", "party-service", "party-postgres", "listing-source-core", "listing-source-service", "listing-source-postgres", "partnership-core", "partnership-service", "partnership-postgres", "shopify-lambda", "stripe-lambda", "product-listing-core", "product-listing-service", "product-listing-translation-llm", "product-listing-postgres", "fxrate-core", "fxrate-service", "fxrate-postgres", "fxrate-fxratesapi", "product-listing-opensearch", "watchlist-core", "watchlist-service", "watchlist-postgres", "test-api", "user-core", "user-service", "user-postgres", "user-zoho", "notification-core", "notification-email", "notification-service", "notification-postgres", "oauth-core", "oauth-service", "oauth-postgres", "fxrate-lambda"]
+aura-historia-parent = ["application", "aura-historia-api", "aura-historia-worker", "aura-historia-cron", "platform-observability", "platform-opensearch", "platform-postgres", "cognito-post-confirmation", "cloudwatch-log-retention-lambda", "embedding", "image-fetcher", "geo", "search-filter-core", "search-filter-service", "search-filter-postgres", "search-filter-opensearch", "large-language-model", "party-core", "party-service", "party-postgres", "listing-source-core", "listing-source-service", "listing-source-postgres", "partnership-core", "partnership-service", "partnership-postgres", "shopify-lambda", "stripe-lambda", "product-listing-core", "product-listing-normalization", "product-listing-service", "product-listing-translation-llm", "product-listing-postgres", "fxrate-core", "fxrate-service", "fxrate-postgres", "fxrate-fxratesapi", "product-listing-opensearch", "watchlist-core", "watchlist-service", "watchlist-postgres", "test-api", "user-core", "user-service", "user-postgres", "user-zoho", "notification-core", "notification-email", "notification-service", "notification-postgres", "oauth-core", "oauth-service", "oauth-postgres", "fxrate-lambda"]
 
 [options]
 strict = true

@@ -759,17 +759,17 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping;
     use localization::{Language, Localized};
     use product_listing_core::{
         listing_availability::ListingAvailability, source_listing_id::SourceListingId, title::Title,
     };
+    use product_listing_normalization::ListingAvailabilityQuickCheck;
 
     fn base_url() -> Url {
         Url::parse("https://example.com/product/1").unwrap()
     }
 
-    fn product(availability: ListingAvailabilityMapping) -> NormalizedProduct {
+    fn product(availability: ListingAvailabilityQuickCheck) -> NormalizedProduct {
         NormalizedProduct {
             source_listing_id: SourceListingId::try_from("SKU-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
@@ -808,7 +808,7 @@ mod tests {
 
     #[test]
     fn should_treat_first_successful_scrape_as_changed() {
-        let product = product(ListingAvailabilityMapping::NoAssertion);
+        let product = product(ListingAvailabilityQuickCheck::NoAssertion);
         let snapshot = ProductListingSnapshot::from_normalized(&product);
         let mut candidate = candidate(&snapshot);
         candidate.last_scraped_hash = None;
@@ -818,7 +818,7 @@ mod tests {
 
     #[test]
     fn should_not_report_change_when_persisted_availability_matches() {
-        let product = product(ListingAvailabilityMapping::Availability(
+        let product = product(ListingAvailabilityQuickCheck::Resolved(
             ListingAvailability::InStock,
         ));
         let snapshot = ProductListingSnapshot::from_normalized(&product);
@@ -828,7 +828,7 @@ mod tests {
 
     #[test]
     fn should_report_change_when_availability_changes() {
-        let product = product(ListingAvailabilityMapping::Availability(
+        let product = product(ListingAvailabilityQuickCheck::Resolved(
             ListingAvailability::InStock,
         ));
         let snapshot = ProductListingSnapshot::from_normalized(&product);
@@ -840,7 +840,7 @@ mod tests {
 
     #[test]
     fn should_preserve_no_assertion_as_null_snapshot_value() {
-        let product = product(ListingAvailabilityMapping::NoAssertion);
+        let product = product(ListingAvailabilityQuickCheck::NoAssertion);
 
         assert_eq!(
             ProductListingSnapshot::from_normalized(&product).availability,
@@ -850,7 +850,7 @@ mod tests {
 
     #[test]
     fn should_treat_ignore_as_no_availability_snapshot_value() {
-        let product = product(ListingAvailabilityMapping::Ignore);
+        let product = product(ListingAvailabilityQuickCheck::Unsupported);
 
         assert_eq!(
             ProductListingSnapshot::from_normalized(&product).availability,
@@ -860,8 +860,8 @@ mod tests {
 
     #[test]
     fn should_hash_images_independently_of_their_order() {
-        let first = product(ListingAvailabilityMapping::NoAssertion);
-        let second = product(ListingAvailabilityMapping::NoAssertion);
+        let first = product(ListingAvailabilityQuickCheck::NoAssertion);
+        let second = product(ListingAvailabilityQuickCheck::NoAssertion);
 
         assert_eq!(
             ProductListingSnapshot::from_normalized(&first).images_hash,

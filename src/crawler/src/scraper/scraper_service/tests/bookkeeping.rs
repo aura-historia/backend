@@ -35,7 +35,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
         });
 
     let mut expected = normalized_product(url.clone());
-    expected.availability = ListingAvailabilityMapping::Availability(ListingAvailability::SoldOut);
+    expected.availability = ListingAvailabilityQuickCheck::Resolved(ListingAvailability::SoldOut);
     let mut norm_svc = MockProductListingNormalizationService::new();
     norm_svc
         .expect_normalize()
@@ -77,7 +77,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
 
     assert_eq!(
         result.product.availability,
-        ListingAvailabilityMapping::Availability(ListingAvailability::SoldOut)
+        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::SoldOut)
     );
     assert_eq!(
         result.snapshot.availability.as_deref(),

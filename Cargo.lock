@@ -1791,6 +1791,7 @@ dependencies = [
  "once_cell",
  "platform-postgres",
  "product-listing-core",
+ "product-listing-normalization",
  "product-listing-postgres",
  "product-listing-service",
  "public-network-policy",
@@ -5680,6 +5681,23 @@ dependencies = [
  "time",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "product-listing-normalization"
+version = "0.1.0"
+dependencies = [
+ "lingua",
+ "localization",
+ "money",
+ "once_cell",
+ "product-listing-core",
+ "regex",
+ "rstest",
+ "sha2 0.11.0",
+ "thiserror 2.0.20",
+ "time",
+ "url",
 ]
 
 [[package]]

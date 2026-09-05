@@ -1,10 +1,10 @@
-use crate::scraper::normalization::listing_availability_mapping::ListingAvailabilityMapping;
 use localization::{Language, Localized};
 use money::Price;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::{
     description::Description, product_listing_image::ProductListingImage, title::Title,
 };
+use product_listing_normalization::ListingAvailabilityQuickCheck;
 use std::collections::BTreeMap;
 use time::OffsetDateTime;
 use url::Url;
@@ -17,8 +17,8 @@ pub struct NormalizedProduct {
     pub price: Option<Price>,
     pub price_estimate_min: Option<Price>,
     pub price_estimate_max: Option<Price>,
-    /// Boundary decision. `Ignore` must not mutate current aggregate availability.
-    pub availability: ListingAvailabilityMapping,
+    /// Generic boundary outcome. Unsupported values preserve canonical availability.
+    pub availability: ListingAvailabilityQuickCheck,
     pub url: Url,
     pub images: Vec<ProductListingImage>,
     pub auction_start: Option<OffsetDateTime>,

@@ -1,8 +1,5 @@
-use super::error::NormalizationError;
 use money::{Currency, HasMinorUnitExponent, MonetaryAmount, Price};
 use regex::regex;
-use tracing::debug;
-use url::Url;
 
 // ---------------------------------------------------------------------------
 // Internal error type
@@ -11,12 +8,14 @@ use url::Url;
 /// Internal error for price parsing — carries no field context yet.
 /// Callers map this to the appropriate [`NormalizationError`] variant.
 #[derive(Debug, PartialEq)]
-pub(super) enum PriceError {
+pub enum PriceNormalizationError {
     /// No recognised currency symbol or ISO code was found in the string.
     UnknownCurrency,
     /// A currency was detected but the numeric amount could not be parsed.
     ParseFailure,
 }
+
+pub type PriceError = PriceNormalizationError;
 
 // ---------------------------------------------------------------------------
 // Currency detection
@@ -27,7 +26,7 @@ pub(super) enum PriceError {
 /// Returns `None` if no recognized currency symbol or ISO code is present.
 /// Multi-character symbols (`NZD`, `AUD`, `CAD`) are checked before the plain
 /// `$` to avoid false matches.
-pub(super) fn detect_currency(raw: &str) -> Option<Currency> {
+pub fn detect_currency(raw: &str) -> Option<Currency> {
     if raw.contains("NZD") || raw.contains("NZ$") {
         Some(Currency::Nzd)
     } else if raw.contains("AUD") || raw.contains("A$") {
@@ -64,10 +63,10 @@ pub(super) fn detect_currency(raw: &str) -> Option<Currency> {
 /// If no currency marker is found in `raw` the optional `fallback_currency` is
 /// used (e.g. inferred from the ListingSource domain TLD). If neither is present
 /// [`PriceError::UnknownCurrency`] is returned.
-pub(super) fn parse_price(
+pub fn parse_price(
     raw: &str,
     fallback_currency: Option<Currency>,
-) -> Result<(MonetaryAmount, Currency), PriceError> {
+) -> Result<(MonetaryAmount, Currency), PriceNormalizationError> {
     let currency = detect_currency(raw)
         .or(fallback_currency)
         .ok_or(PriceError::UnknownCurrency)?;
@@ -119,55 +118,19 @@ fn parse_price_number(number: &str, currency: &Currency) -> Result<MonetaryAmoun
 // Public field-level helper
 // ---------------------------------------------------------------------------
 
-/// Parses an optional raw price string into an optional [`Price`].
-///
-/// - `None` input → `Ok(None)`
-/// - blank string → `Ok(None)`
-/// - unknown currency (and no `fallback_currency`) → `Err(make_currency_err(raw))`
-/// - unparseable amount → `Err(make_parse_err(raw))`
-///
-/// `fallback_currency` is used when the raw string contains no currency symbol
-/// or ISO code — typically the `default_currency` stored in the ListingSource's
-/// [`ProductCssSelectorSchema`] and set by the LLM during schema creation.
-pub(super) fn normalize_price_field(
-    raw: Option<String>,
-    field_name: &'static str,
-    context_url: &Url,
+/// Parses an optional raw price string with explicit fallback currency context.
+/// Blank values and deliberate price-on-request markers produce no assertion.
+pub fn normalize_price(
+    raw: Option<&str>,
     fallback_currency: Option<Currency>,
-    make_currency_err: impl Fn(String) -> NormalizationError,
-    make_parse_err: impl Fn(String) -> NormalizationError,
-) -> Result<Option<Price>, NormalizationError> {
-    let span_guard = tracing::info_span!(
-        "normalize_price_field",
-        url = %context_url,
-        field = field_name
-    )
-    .entered();
-
-    let result = (|| {
-        let Some(s) = raw else { return Ok(None) };
-
-        let trimmed = s.trim().to_owned();
-        if trimmed.is_empty() {
-            return Ok(None);
-        }
-
-        if is_price_on_request_marker(&trimmed) {
-            debug!(
-                raw_price = %trimmed,
-                "Price text indicates 'price on request'; defaulting normalized price to None"
-            );
-            return Ok(None);
-        }
-
-        match parse_price(&trimmed, fallback_currency) {
-            Ok((amount, currency)) => Ok(Some(Price::new(amount, currency))),
-            Err(PriceError::UnknownCurrency) => Err(make_currency_err(trimmed)),
-            Err(PriceError::ParseFailure) => Err(make_parse_err(trimmed)),
-        }
-    })();
-    drop(span_guard);
-    result
+) -> Result<Option<Price>, PriceNormalizationError> {
+    let Some(raw) = raw else { return Ok(None) };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || is_price_on_request_marker(trimmed) {
+        return Ok(None);
+    }
+    parse_price(trimmed, fallback_currency)
+        .map(|(amount, currency)| Some(Price::new(amount, currency)))
 }
 
 // ---------------------------------------------------------------------------

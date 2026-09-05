@@ -19,16 +19,6 @@ fn should_classify_title_errors_as_cached_schema_fallback_failures() {
         NormalizationError::TitleEmpty.failure_scope(),
         NormalizationFailureScope::CandidateData
     );
-
-    assert_eq!(
-        NormalizationError::ListingAvailabilityMappingError(
-            crate::scraper::normalization::listing_availability_mapping_service::ListingAvailabilityMappingServiceError::DatabaseError(
-                sqlx::Error::RowNotFound,
-            ),
-        )
-        .failure_scope(),
-        NormalizationFailureScope::External
-    );
 }
 
 struct CountingImageValidator(std::sync::Arc<std::sync::atomic::AtomicUsize>);
@@ -186,19 +176,12 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
     );
 
     let result = service.scrape(&id, &url, None, None).await;
-    match expected_scope {
-        NormalizationFailureScope::CandidateData => {
-            let product = result.unwrap().unwrap();
-            assert_eq!(
-                product.product.source_listing_id,
-                SourceListingId::try_from("SKU-42")
-                    .unwrap_or_else(|error| panic!("valid source listing ID: {error}"))
-            );
-        }
-        NormalizationFailureScope::External => {
-            assert!(matches!(result, Err(ScraperError::NormalizationError(_))));
-        }
-    }
+    let product = result.unwrap().unwrap();
+    assert_eq!(
+        product.product.source_listing_id,
+        SourceListingId::try_from("SKU-42")
+            .unwrap_or_else(|error| panic!("valid source listing ID: {error}"))
+    );
 }
 
 #[tokio::test]
@@ -216,8 +199,8 @@ async fn should_try_next_cached_schema_after_description_language_failure() {
 
 #[tokio::test]
 async fn should_try_next_cached_schema_after_auction_start_failure() {
-    assert_tries_next_cached_schema_after(NormalizationError::AuctionStartParseError {
-        raw: "garbage".to_string(),
+    assert_tries_next_cached_schema_after(NormalizationError::DateTimeParseError {
+        field: product_listing_normalization::DateTimeField::AuctionStart,
     })
     .await;
 }
@@ -225,7 +208,7 @@ async fn should_try_next_cached_schema_after_auction_start_failure() {
 #[tokio::test]
 async fn should_try_next_cached_schema_after_price_failure() {
     assert_tries_next_cached_schema_after(NormalizationError::PriceParseError {
-        raw: "garbage".to_string(),
+        field: product_listing_normalization::PriceField::Price,
     })
     .await;
 }
@@ -423,58 +406,6 @@ async fn should_generate_fresh_schema_when_cached_data_fails() {
         SourceListingId::try_from("SKU-42")
             .unwrap_or_else(|error| panic!("valid source listing ID: {error}"))
     );
-}
-
-#[tokio::test]
-async fn should_abort_without_fresh_schema_when_cached_candidate_has_external_failure() {
-    let id = listing_source_id();
-    let url = product_url();
-
-    let mut fetcher = MockHtmlFetcher::new();
-    fetcher
-        .expect_fetch()
-        .once()
-        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
-
-    let schema = listing_source_product_schemas(id);
-    let mut schema_svc = MockProductListingSchemaService::new();
-    schema_svc
-        .expect_find_product_schema()
-        .once()
-        .returning(move |_| {
-            let s = schema.clone();
-            Box::pin(async move { Ok(Some(s)) })
-        });
-    schema_svc.expect_generate_single_schema_for_page().never();
-    schema_svc.expect_save_product_schemas().never();
-
-    let mut norm_svc = MockProductListingNormalizationService::new();
-    norm_svc.expect_normalize().once().returning(|_, _, _| {
-        Box::pin(async {
-            Err(normalization_failure(
-                NormalizationError::ListingAvailabilityMappingError(
-                    crate::scraper::normalization::listing_availability_mapping_service::ListingAvailabilityMappingServiceError::DatabaseError(
-                        sqlx::Error::RowNotFound,
-                    ),
-                ),
-                0,
-            ))
-        })
-    });
-
-    let cand_svc = MockScraperCandidateService::new();
-
-    let service = ScraperServiceImpl::new_with_schema_seed_pages(
-        Box::new(fetcher),
-        Box::new(schema_svc),
-        Box::new(norm_svc),
-        Arc::new(cand_svc),
-        1,
-        DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
-    );
-
-    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
-    assert!(matches!(err, ScraperError::NormalizationError(_)));
 }
 
 #[tokio::test]

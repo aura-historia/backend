@@ -70,7 +70,7 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
     );
     assert_eq!(
         result.product.availability,
-        ListingAvailabilityMapping::Availability(ListingAvailability::Available)
+        ListingAvailabilityQuickCheck::Resolved(ListingAvailability::Available)
     );
     assert_eq!(result.product.url, url);
 }
