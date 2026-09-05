@@ -50,6 +50,8 @@ Admins can list Partnerships at `GET /api/v1/admin/partnerships`. The admin-only
 
 Admins can get one Partnership at `GET /api/v1/admin/partnerships/{partnershipId}`. The detail contains the Partnership ID, Party reference, current `memberUserIds`, current `listingSourceIds`, complete `memberCount` and `listingSourceGrantCount`, and timestamps. Both reference arrays are UUID-ascending and capped at 100 entries; counts include any additional current associations. The route is `no-store` and returns `PARTNERSHIP_NOT_FOUND` when the Partnership is missing.
 
+Admins can grant a ListingSource to a Partnership at `PUT /api/v1/admin/partnerships/{partnershipId}/listing-source-grants/{listingSourceId}`. The idempotent `no-store` mutation returns `204`; it requires an administrator, existing targets, and matching Partnership/ListingSource Party IDs. A mismatched Party returns `409 CONFLICT`.
+
 ## API
 
 ListingSource is the only public source resource:
@@ -68,6 +70,7 @@ Admin Partnership routes:
 ```text
 GET   /api/v1/admin/partnerships
 GET   /api/v1/admin/partnerships/{partnershipId}
+PUT   /api/v1/admin/partnerships/{partnershipId}/listing-source-grants/{listingSourceId}
 ```
 
 Create uses an explicit operator input: `EXISTING` carries `partyId`; `NEW` carries Party name and optional contact. Admins can create ListingSources through `POST /api/v1/admin/listing-sources`, read details through `GET /api/v1/admin/listing-sources/{listingSourceId}`, and update through `PATCH /api/v1/admin/listing-sources/{listingSourceId}`; the create response includes the stable identity plus a `Location` for the admin detail resource. Admins can search Party summaries, create Parties through `GET`/`POST /api/v1/admin/parties`, get details through `GET /api/v1/admin/parties/{partyId}`, and update name/contact through `PATCH /api/v1/admin/parties/{partyId}`. Search uses bounded cursor pagination and name/contact filters; create, detail, and update return the stable identity and immutable slug. Admins can search ListingSources at `GET /api/v1/admin/listing-sources` with bounded cursor pagination, text/name, operator Party ID, ingestion-method, and exact ID/slug filters; the response contains only safe source, operator, presentation, and referral summary fields. There is no unbounded ListingSource list-all route. Public contract details are in `docs/swagger.yaml`.

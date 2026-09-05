@@ -21,6 +21,7 @@ use partnership_service::use_cases::queries::list_administered_listing_sources::
 use partnership_service::use_cases::{
     commands::{
         approve_partnership_application::ApprovePartnershipApplicationError,
+        grant_partnership_listing_source::GrantPartnershipListingSourceError,
         grant_partnership_membership::GrantPartnershipMembershipError,
         mark_partnership_application_in_review::MarkPartnershipApplicationInReviewError,
         reject_partnership_application::RejectPartnershipApplicationError,
@@ -2040,6 +2041,38 @@ impl From<GetAdminPartnershipError> for ApiError {
             | GetAdminPartnershipError::Internal { .. } => {
                 ApiError::internal_server_error(PARTNERSHIP_INTERNAL_ERROR)
                     .with_detail("Partnership details failed internally.")
+            }
+        }
+    }
+}
+
+impl From<GrantPartnershipListingSourceError> for ApiError {
+    fn from(error: GrantPartnershipListingSourceError) -> Self {
+        match error {
+            GrantPartnershipListingSourceError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            GrantPartnershipListingSourceError::PartnershipNotFound => {
+                ApiError::not_found(PARTNERSHIP_NOT_FOUND).with_detail("Partnership was not found.")
+            }
+            GrantPartnershipListingSourceError::ListingSourceNotFound => {
+                ApiError::not_found(LISTING_SOURCE_NOT_FOUND)
+                    .with_detail("Listing source was not found.")
+            }
+            GrantPartnershipListingSourceError::PartnershipPartyMismatch => {
+                ApiError::conflict(CONFLICT)
+                    .with_detail("Partnership and ListingSource belong to different Parties.")
+            }
+            GrantPartnershipListingSourceError::TemporarilyUnavailable { .. }
+            | GrantPartnershipListingSourceError::BeginTransactionFailed
+            | GrantPartnershipListingSourceError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTNERSHIP_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Partnership ListingSource grant is temporarily unavailable.")
+            }
+            GrantPartnershipListingSourceError::InvalidPersistedState { .. }
+            | GrantPartnershipListingSourceError::Internal { .. } => {
+                ApiError::internal_server_error(PARTNERSHIP_INTERNAL_ERROR)
+                    .with_detail("Partnership ListingSource grant failed internally.")
             }
         }
     }

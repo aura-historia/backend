@@ -89,6 +89,10 @@ mod tests {
     };
     use partnership_service::use_cases::{
         commands::{
+            grant_partnership_listing_source::{
+                GrantPartnershipListingSourceCommand, GrantPartnershipListingSourceError,
+                GrantPartnershipListingSourceResult, GrantPartnershipListingSourceUseCase,
+            },
             grant_partnership_membership::{
                 GrantPartnershipMembershipCommand, GrantPartnershipMembershipError,
                 GrantPartnershipMembershipOutcome, GrantPartnershipMembershipResult,
@@ -195,6 +199,23 @@ mod tests {
     }
 
     #[derive(Clone, Copy)]
+    struct UnusedGrantPartnershipListingSourceUseCase;
+
+    #[async_trait::async_trait]
+    impl GrantPartnershipListingSourceUseCase for UnusedGrantPartnershipListingSourceUseCase {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _command: GrantPartnershipListingSourceCommand,
+        ) -> Result<GrantPartnershipListingSourceResult, GrantPartnershipListingSourceError>
+        {
+            Err(GrantPartnershipListingSourceError::Internal {
+                source: static_error("listing source grant is not used by this test"),
+            })
+        }
+    }
+
+    #[derive(Clone, Copy)]
     struct FakeAuthenticator {
         user_id: UserId,
         reject: bool,
@@ -239,6 +260,7 @@ mod tests {
                 requests,
             }),
             Arc::new(UnusedRevokePartnershipMembershipUseCase),
+            Arc::new(UnusedGrantPartnershipListingSourceUseCase),
             Arc::new(FakeAuthenticator {
                 user_id: UserId::from(Uuid::from_u128(0x880e8400e29b41d4a716446655440000)),
                 reject: reject_auth,

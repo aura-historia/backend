@@ -1,7 +1,7 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 use api_support::{
     assert_problem, json_response, seed_access_token_for, seed_approved_partnership_application,
-    seed_current_fx_snapshot, seed_listing_source_for_search,
+    seed_current_fx_snapshot, seed_listing_source, seed_listing_source_for_search,
     seed_operator_partnership_listing_source_grant, seed_partnership_for_search,
     seed_partnership_membership, seed_user,
 };
@@ -68,6 +68,22 @@ async fn put_partnership_member(
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to grant Partnership membership: {error}"))
+}
+
+async fn put_partnership_listing_source_grant(
+    token: &str,
+    partnership_id: &str,
+    listing_source_id: &str,
+) -> reqwest::Response {
+    reqwest::Client::new()
+        .put(format!(
+            "{}/api/v1/admin/partnerships/{partnership_id}/listing-source-grants/{listing_source_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to grant Partnership ListingSource access: {error}"))
 }
 
 async fn delete_partnership_member(
@@ -649,6 +665,207 @@ async fn should_revoke_admin_partnership_membership_idempotently_and_preserve_re
             "failed to verify preserved PartnershipApplication: {error}"
         ))
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_grant_admin_partnership_listing_source_idempotently_and_enable_partner_writes() {
+    let pool = get_postgres_client().await;
+    seed_current_fx_snapshot(&pool).await;
+    let partner_id = seed_user("USER").await;
+    let (_application_id, partnership_id, listing_source_id) =
+        seed_approved_partnership_application(
+            partner_id,
+            datetime!(2026-08-16 12:00 UTC),
+            datetime!(2026-08-16 12:00 UTC),
+        )
+        .await;
+    seed_partnership_membership(partner_id, listing_source_id).await;
+    let admin_id = seed_user("ADMIN").await;
+    let admin_token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+    let partner_token = String::from(
+        seed_access_token_for(
+            partner_id,
+            std::collections::HashSet::from([Scope::ProductListingsWrite]),
+        )
+        .await,
+    );
+
+    for _ in 0..2 {
+        let response = put_partnership_listing_source_grant(
+            &admin_token,
+            &partnership_id.to_string(),
+            &listing_source_id.to_string(),
+        )
+        .await;
+        assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+        assert_no_store(
+            response
+                .headers()
+                .get(reqwest::header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned),
+        );
+        assert!(response.bytes().await.is_ok_and(|body| body.is_empty()));
+    }
+
+    let (status, body, cache_control) =
+        get_partnership_detail(&admin_token, &partnership_id.to_string()).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_no_store(cache_control);
+    assert_eq!(json!(1), body["listingSourceGrantCount"]);
+    assert_eq!(json!([listing_source_id]), body["listingSourceIds"]);
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/listing-sources/{listing_source_id}/product-listings",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(&partner_token)
+        .json(&json!([{
+            "sourceListingId": "granted-source-listing",
+            "title": {"text": "Granted listing", "language": "en"},
+            "description": {"text": "Granted listing", "language": "en"},
+            "availability": "AVAILABLE",
+            "url": "https://partner.example/granted-source-listing",
+            "images": []
+        }]))
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to verify partner authorization after grant: {error}")
+        });
+    assert_eq!(reqwest::StatusCode::OK, response.status());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_admin_listing_source_grant_for_a_different_party() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = seed_listing_source().await;
+    let (partnership_id, _) = seed_partnership_for_search(
+        "Different ListingSource Grant Party",
+        datetime!(2026-08-17 12:00 UTC),
+        datetime!(2026-08-17 12:00 UTC),
+        &[],
+        &[],
+    )
+    .await;
+    let admin_id = seed_user("ADMIN").await;
+    let token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+
+    let response = put_partnership_listing_source_grant(
+        &token,
+        &partnership_id.to_string(),
+        &listing_source_id.to_string(),
+    )
+    .await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_no_store(cache_control);
+    assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
+    assert_eq!(
+        0,
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM partnership_listing_source_grants WHERE partnership_id = $1 AND listing_source_id = $2",
+        )
+        .bind(Uuid::from(partnership_id))
+        .bind(listing_source_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to count mismatched grant: {error}"))
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_return_not_found_for_missing_admin_listing_source_grant_targets() {
+    let listing_source_id = seed_listing_source().await;
+    let (partnership_id, _) = seed_partnership_for_search(
+        "Missing ListingSource Grant Targets",
+        datetime!(2026-08-18 12:00 UTC),
+        datetime!(2026-08-18 12:00 UTC),
+        &[],
+        &[],
+    )
+    .await;
+    let admin_id = seed_user("ADMIN").await;
+    let token =
+        String::from(seed_access_token_for(admin_id, std::collections::HashSet::new()).await);
+
+    let response = put_partnership_listing_source_grant(
+        &token,
+        &partnership_id.to_string(),
+        &Uuid::new_v4().to_string(),
+    )
+    .await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+    assert_no_store(cache_control);
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "LISTING_SOURCE_NOT_FOUND",
+    );
+
+    let response = put_partnership_listing_source_grant(
+        &token,
+        &Uuid::new_v4().to_string(),
+        &listing_source_id.to_string(),
+    )
+    .await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+    assert_no_store(cache_control);
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "PARTNERSHIP_NOT_FOUND",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]
+async fn should_reject_non_admin_partnership_listing_source_grant() {
+    let actor_id = seed_user("USER").await;
+    let (_application_id, partnership_id, listing_source_id) =
+        seed_approved_partnership_application(
+            actor_id,
+            datetime!(2026-08-19 12:00 UTC),
+            datetime!(2026-08-19 12:00 UTC),
+        )
+        .await;
+    let token =
+        String::from(seed_access_token_for(actor_id, std::collections::HashSet::new()).await);
+
+    let response = put_partnership_listing_source_grant(
+        &token,
+        &partnership_id.to_string(),
+        &listing_source_id.to_string(),
+    )
+    .await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_no_store(cache_control);
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OPENSEARCH, &AURA_API])]

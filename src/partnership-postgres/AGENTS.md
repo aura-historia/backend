@@ -8,7 +8,7 @@
 
 - `partnerships` is one Party-scoped aggregate table.
 - `partnership_applications` persists validated proposal JSON, state codes, approval result IDs, and optimistic version; submitted proposal data has no Party or ListingSource FK.
-- Membership and ListingSource grants use idempotent join-table writes. Membership writes report whether a row was added, removed, or already in the requested state; revocation of an absent membership is a successful no-op. A source grant belongs to `(partnership_id, listing_source_id)`; authorization requires both a user membership and that Partnership grant.
+- Membership and ListingSource grants use idempotent join-table writes. Membership writes report whether a row was added, removed, or already in the requested state; ListingSource grant writes report whether a row was added or already existed; revocation of an absent membership is a successful no-op. A source grant belongs to `(partnership_id, listing_source_id)`; authorization requires both a user membership and that Partnership grant.
 - The Partnership repository supports ID lookup for service-owned membership grants; rows and membership outcomes stay adapter-private.
 - Rows/mappings remain private; public factories bind caller-owned SQLx transactions.
 - Admin application search uses one bounded keyset query with `(created|updated, partnership_application_id)` continuation, exact state/proposal/source filters, and inclusive timestamp ranges.

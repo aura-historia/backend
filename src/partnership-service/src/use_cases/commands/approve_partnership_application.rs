@@ -890,11 +890,15 @@ mod tests {
             &mut self,
             partnership_id: PartnershipId,
             listing_source_id: ListingSourceId,
-        ) -> Result<(), PartnershipGrantError> {
-            lock(&self.state)
+        ) -> Result<ListingSourceGrantOutcome, PartnershipGrantError> {
+            let added = lock(&self.state)
                 .grants
                 .insert((partnership_id, listing_source_id));
-            Ok(())
+            Ok(if added {
+                ListingSourceGrantOutcome::Granted
+            } else {
+                ListingSourceGrantOutcome::AlreadyGranted
+            })
         }
     }
 

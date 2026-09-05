@@ -9005,6 +9005,185 @@ paths:
                 status: 503
                 title: Service Unavailable
                 error: PARTNERSHIP_TEMPORARILY_UNAVAILABLE
+  /api/v1/admin/partnerships/{partnershipId}/listing-source-grants/{listingSourceId}:
+    put:
+      summary: Grant a ListingSource to a Partnership
+      description: |
+        Idempotently grants an existing ListingSource to an existing Partnership for an
+        authenticated administrator. The Partnership and ListingSource must belong to the same
+        Party; a mismatched Party is rejected with `409 CONFLICT`. An existing grant is a
+        successful no-op. The operation is committed in one PostgreSQL transaction and returns no
+        response body. All success and error responses use `Cache-Control: no-store`.
+      operationId: adminGrantPartnershipListingSource
+      tags:
+        - Partnerships
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      parameters:
+        - name: partnershipId
+          in: path
+          required: true
+          description: Stable Partnership UUID.
+          schema:
+            type: string
+            format: uuid
+          example: 770e8400-e29b-41d4-a716-446655440000
+        - name: listingSourceId
+          in: path
+          required: true
+          description: Existing ListingSource UUID to grant to the Partnership.
+          schema:
+            type: string
+            format: uuid
+          example: 990e8400-e29b-41d4-a716-446655440000
+      responses:
+        "204":
+          description: ListingSource grant created, or ListingSource grant already existed.
+          headers:
+            Cache-Control:
+              description: Responses are never stored because this is an administrator-only mutation.
+              schema:
+                type: string
+              example: no-store
+        "400":
+          description: Bad request - invalid Partnership or ListingSource UUID.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                invalidPartnershipId:
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: INVALID_UUID
+                    source:
+                      field: partnershipId
+                      type: PATH
+                    detail: Path parameter 'partnershipId' must be a UUID.
+                invalidListingSourceId:
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: INVALID_UUID
+                    source:
+                      field: listingSourceId
+                      type: PATH
+                    detail: Path parameter 'listingSourceId' must be a UUID.
+        "401":
+          description: Unauthorized - invalid or missing bearer credentials.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+        "403":
+          description: Forbidden - this endpoint requires the `ADMIN` role.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: Forbidden
+                error: FORBIDDEN
+                detail: Operation is not permitted.
+        "404":
+          description: Partnership or ListingSource not found.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                partnershipNotFound:
+                  value:
+                    status: 404
+                    title: Not Found
+                    error: PARTNERSHIP_NOT_FOUND
+                    detail: Partnership was not found.
+                listingSourceNotFound:
+                  value:
+                    status: 404
+                    title: Not Found
+                    error: LISTING_SOURCE_NOT_FOUND
+                    detail: Listing source was not found.
+        "409":
+          description: Partnership and ListingSource belong to different Parties.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: Conflict
+                error: CONFLICT
+                detail: Partnership and ListingSource belong to different Parties.
+        "500":
+          description: Internal Partnership ListingSource grant failure.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: PARTNERSHIP_INTERNAL_ERROR
+        "503":
+          description: Authentication, admin authorization, transaction, or Partnership ListingSource grant persistence is temporarily unavailable.
+          headers:
+            Cache-Control:
+              description: Error responses are never stored.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: PARTNERSHIP_TEMPORARILY_UNAVAILABLE
   /api/v1/admin/partnerships/{partnershipId}/members/{userId}:
     put:
       summary: Grant a user membership in a Partnership
